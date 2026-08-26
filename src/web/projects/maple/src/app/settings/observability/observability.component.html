@@ -9,10 +9,10 @@
       </p>
     </div>
     <div class="actions">
-      <button type="button" class="btn-ghost" [disabled]="refreshing()" (click)="onRefresh()">
+      <mui-button variant="ghost" size="sm" [loading]="refreshing()" (pressed)="onRefresh()">
         <maple-settings-icon name="retry" [size]="12" />
-        {{ refreshing() ? 'Refreshing…' : 'Refresh' }}
-      </button>
+        Refresh
+      </mui-button>
     </div>
   </header>
 
@@ -27,17 +27,11 @@
             of the deployment-wide server setting.
           </div>
         </div>
-        <button
-          type="button"
-          class="switch"
-          role="switch"
-          [class.on]="localEnabled()"
-          [attr.aria-checked]="localEnabled()"
-          aria-label="Toggle telemetry in this browser"
-          (click)="toggleLocal()"
-        >
-          <span class="knob"></span>
-        </button>
+        <mui-checkbox
+          ariaLabel="Toggle telemetry in this browser"
+          [checked]="localEnabled()"
+          (checkedChange)="toggleLocal()"
+        />
       </div>
 
       <div class="status-line" [class.ok]="active()">
@@ -58,108 +52,91 @@
         endpoint and, if your instance requires one, an ingestion key.
       </p>
       <div class="form-grid">
-        <label class="field">
+        <div class="field">
           <span class="flabel">OTLP/HTTP endpoint</span>
-          <input
-            type="url"
-            class="finput mono"
+          <mui-input
+            [(value)]="fEndpoint"
             placeholder="https://signoz.example.com:4318"
             autocomplete="off"
-            [ngModel]="fEndpoint()"
-            (ngModelChange)="fEndpoint.set($event)"
+            ariaLabel="OTLP/HTTP endpoint"
+            data-testid="obs-endpoint-input"
           />
-        </label>
+        </div>
 
-        <label class="field">
+        <div class="field">
           <span class="flabel">Ingestion key</span>
-          <input
-            type="password"
-            class="finput mono"
+          <mui-input
+            [masked]="true"
             autocomplete="off"
+            [(value)]="fKey"
             [placeholder]="keyPlaceholder()"
-            [ngModel]="fKey()"
-            (ngModelChange)="fKey.set($event)"
+            ariaLabel="Ingestion key"
+            data-testid="obs-key-input"
           />
           <span class="fhint">
             Sent as the <code>signoz-access-token</code> header. Leave blank to keep the saved key.
           </span>
-        </label>
+        </div>
 
-        <label class="field">
+        <div class="field">
           <span class="flabel">Service namespace</span>
-          <input
-            class="finput mono"
+          <mui-input
+            [(value)]="fNamespace"
             autocomplete="off"
-            [ngModel]="fNamespace()"
-            (ngModelChange)="fNamespace.set($event)"
+            ariaLabel="Service namespace"
           />
-        </label>
+        </div>
 
-        <label class="field">
+        <div class="field">
           <span class="flabel">Trace sample ratio</span>
-          <input
-            class="finput mono"
-            inputmode="decimal"
+          <mui-input
+            [(value)]="fRatio"
             autocomplete="off"
-            [ngModel]="fRatio()"
-            (ngModelChange)="fRatio.set($event)"
+            ariaLabel="Trace sample ratio"
+            data-testid="obs-ratio-input"
           />
           <span class="fhint">Between 0 and 1. 1 keeps every trace.</span>
-        </label>
+        </div>
       </div>
 
       <div class="check-row">
-        <label class="check">
-          <input
-            type="checkbox"
-            [checked]="fEnabled()"
-            (change)="fEnabled.set($any($event.target).checked)"
-          />
-          Enabled (server-wide)
-        </label>
-        <label class="check">
-          <input
-            type="checkbox"
-            [checked]="fTraces()"
-            (change)="fTraces.set($any($event.target).checked)"
-          />
-          Traces
-        </label>
-        <label class="check">
-          <input
-            type="checkbox"
-            [checked]="fLogs()"
-            (change)="fLogs.set($any($event.target).checked)"
-          />
-          Logs
-        </label>
-        <label class="check">
-          <input
-            type="checkbox"
-            [checked]="fMetrics()"
-            (change)="fMetrics.set($any($event.target).checked)"
-          />
-          Metrics
-        </label>
+        <mui-checkbox
+          label="Enabled (server-wide)"
+          [checked]="fEnabled()"
+          (checkedChange)="fEnabled.set($event)"
+        />
+        <mui-checkbox
+          label="Traces"
+          [checked]="fTraces()"
+          (checkedChange)="fTraces.set($event)"
+        />
+        <mui-checkbox label="Logs" [checked]="fLogs()" (checkedChange)="fLogs.set($event)" />
+        <mui-checkbox
+          label="Metrics"
+          [checked]="fMetrics()"
+          (checkedChange)="fMetrics.set($event)"
+        />
       </div>
 
       <div class="form-actions">
-        <button
-          type="button"
-          class="btn-primary"
-          [disabled]="saveState().kind === 'saving'"
-          (click)="save()"
+        <mui-button
+          variant="primary"
+          size="sm"
+          data-testid="obs-save-btn"
+          [loading]="saveState().kind === 'saving'"
+          (pressed)="save()"
         >
-          {{ saveState().kind === 'saving' ? 'Saving…' : 'Save configuration' }}
-        </button>
-        <button
-          type="button"
-          class="btn-ghost"
-          [disabled]="connState().kind === 'testing'"
-          (click)="testConnection()"
+          Save configuration
+        </mui-button>
+        <mui-button
+          variant="ghost"
+          size="sm"
+          data-testid="obs-test-connection-btn"
+          [loading]="connState().kind === 'testing'"
+          (pressed)="testConnection()"
         >
-          {{ connState().kind === 'testing' ? 'Testing…' : 'Test connection' }}
-        </button>
+          Test connection
+        </mui-button>
 
         @if (saveState(); as ss) {
           @if (ss.kind === 'saved') {
@@ -259,15 +236,16 @@
     <section>
       <div class="subhead">Test</div>
       <div class="test-row">
-        <button
-          type="button"
-          class="btn-primary"
-          [disabled]="testState().kind === 'sending'"
-          (click)="sendTestEvent()"
+        <mui-button
+          variant="primary"
+          size="sm"
+          data-testid="obs-send-test-event-btn"
+          [loading]="testState().kind === 'sending'"
+          (pressed)="sendTestEvent()"
         >
           <maple-settings-icon name="test" [size]="12" />
-          {{ testState().kind === 'sending' ? 'Sending…' : 'Send test event' }}
-        </button>
+          Send test event
+        </mui-button>
         @switch (testState().kind) {
           @case ('sent') {
             <span class="test-ok">

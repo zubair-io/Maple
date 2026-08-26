@@ -24,10 +24,15 @@
 // Config is DB-only (no env fallback) — same convention as Pano/Observability.
 
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { CloudflareService, type CloudflareConfig } from '@maple-common';
+import {
+  CloudflareService,
+  type CloudflareConfig,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
+} from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 
 type SaveState =
@@ -45,7 +50,13 @@ type TestState =
 @Component({
   selector: 'maple-cloudflare-settings',
   standalone: true,
-  imports: [FormsModule, RouterLink, SettingsShellComponent],
+  imports: [
+    RouterLink,
+    SettingsShellComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+  ],
   templateUrl: './cloudflare.component.html',
   styleUrl: './cloudflare.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

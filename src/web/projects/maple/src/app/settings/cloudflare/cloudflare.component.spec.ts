@@ -43,30 +43,47 @@ describe('CloudflareComponent', () => {
     fixture.detectChanges();
   }
 
-  function input(sel: string): HTMLInputElement {
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(sel);
-    if (!el) throw new Error(`missing element ${sel}`);
+  function inputByLabel(ariaLabel: string): HTMLInputElement {
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      `mui-input input[aria-label="${ariaLabel}"]`,
+    );
+    if (!el) throw new Error(`missing input labeled ${ariaLabel}`);
     return el;
+  }
+
+  function enabledCheckbox(): HTMLInputElement {
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      'mui-checkbox input[type="checkbox"]',
+    );
+    if (!el) throw new Error('missing enabled checkbox');
+    return el;
+  }
+
+  function clickSave(): void {
+    const btn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '.form-actions:not(.test-actions) mui-button button',
+    );
+    if (!btn) throw new Error('missing save button');
+    btn.click();
   }
 
   it('seeds the form from the loaded config, leaving the secret field blank', async () => {
     await load();
-    expect(input('#cf-account-id').value).toBe('acct123');
-    expect(input('#cf-bucket').value).toBe('maple-thumbs');
-    expect(input('#cf-access-key-id').value).toBe('AKIAEXAMPLE');
-    expect(input('#cf-secret-access-key').value).toBe('');
-    expect(input('#cf-enabled').checked).toBe(false);
+    expect(inputByLabel('Account ID').value).toBe('acct123');
+    expect(inputByLabel('Bucket name').value).toBe('maple-thumbs');
+    expect(inputByLabel('Access key ID').value).toBe('AKIAEXAMPLE');
+    expect(inputByLabel('Secret access key').value).toBe('');
+    expect(enabledCheckbox().checked).toBe(false);
   });
 
   it('omits secret_access_key from the PUT patch when the field is left blank', async () => {
     await load();
-    const enabled = input('#cf-enabled');
+    const enabled = enabledCheckbox();
     enabled.click();
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = (fixture.nativeElement as HTMLElement).querySelector('form');
-    form?.dispatchEvent(new Event('submit'));
+    clickSave();
 
     const call = http.expectOne('/api/cloudflare/config');
     expect(call.request.method).toBe('PUT');
@@ -81,14 +98,13 @@ describe('CloudflareComponent', () => {
 
   it('includes a freshly-typed secret_access_key in the PUT patch', async () => {
     await load();
-    const secret = input('#cf-secret-access-key');
+    const secret = inputByLabel('Secret access key');
     secret.value = 'new-secret';
     secret.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = (fixture.nativeElement as HTMLElement).querySelector('form');
-    form?.dispatchEvent(new Event('submit'));
+    clickSave();
 
     const call = http.expectOne('/api/cloudflare/config');
     expect(call.request.body).toMatchObject({ secret_access_key: 'new-secret' });
