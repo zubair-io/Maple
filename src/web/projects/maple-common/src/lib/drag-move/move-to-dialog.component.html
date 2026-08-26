@@ -9,7 +9,14 @@
   <div class="mtd-card" (click)="$event.stopPropagation()">
     <div class="mtd-header">
       <span class="mtd-title">Move to…</span>
-      <button type="button" class="mtd-close" aria-label="Close" (click)="onCancel()">✕</button>
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconOnly]="true"
+        iconLeading="x"
+        ariaLabel="Close"
+        (pressed)="onCancel()"
+      />
     </div>
 
     <div class="mtd-body">
@@ -24,15 +31,10 @@
     </div>
 
     <div class="mtd-footer">
-      <button type="button" class="mtd-btn mtd-btn-ghost" (click)="onCancel()">Cancel</button>
-      <button
-        type="button"
-        class="mtd-btn mtd-btn-primary"
-        [disabled]="!canConfirm()"
-        (click)="onConfirm()"
-      >
+      <mui-button variant="ghost" (pressed)="onCancel()">Cancel</mui-button>
+      <mui-button variant="primary" [disabled]="!canConfirm()" (pressed)="onConfirm()">
         Move
-      </button>
+      </mui-button>
     </div>
   </div>
 </div>

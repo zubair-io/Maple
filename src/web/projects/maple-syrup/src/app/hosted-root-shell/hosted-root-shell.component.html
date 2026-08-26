@@ -1,4 +1,6 @@
 <router-outlet />
 <maple-update-toast />
 <maple-gpu-fallback-notice />
-<maple-save-status />
+@if (saveState.statusText(); as status) {
+  <mui-status-text [state]="status.state" [text]="status.text" />
+}

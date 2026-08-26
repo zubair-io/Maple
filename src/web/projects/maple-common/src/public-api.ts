@@ -11,7 +11,6 @@ export * from './lib/models/folder';
 export * from './lib/models/adjustment-model';
 export * from './lib/data/mock-library';
 export * from './lib/icons/maple-icon.component';
-export * from './lib/collapsible/maple-collapsible.component';
 export * from './lib/state/library-state.service';
 export * from './lib/state/library-status.service';
 export * from './lib/state/browse-preferences.service';
@@ -80,8 +79,6 @@ export * from './lib/network/local-address-report.model';
 export * from './lib/network/lan-switch.service';
 export * from './lib/network/lan-switch-banner.component';
 
-export * from './lib/components/loading-banner/loading-banner.component';
-export * from './lib/components/error-banner/error-banner.component';
 export * from './lib/components/library-picker/library-picker.component';
 export * from './lib/components/library-picker-modal/library-picker-modal.component';
 
@@ -133,7 +130,6 @@ export * from './lib/shells/file-handler.component';
 export * from './lib/sw/app-update.service';
 export * from './lib/sw/update-toast.component';
 export * from './lib/components/gpu-fallback-notice/gpu-fallback-notice.component';
-export * from './lib/components/save-status/save-status.component';
 
 // Responsive-program S2 (#623) — responsive Library grid (3 / 5 / auto-fill).
 export * from './lib/library/library-grid.component';

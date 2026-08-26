@@ -2,11 +2,10 @@ import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/cor
 import {
   AssetGridComponent,
   BatchMetadataPanelComponent,
-  ErrorBannerComponent,
   LibraryPickerComponent,
   LibraryStateService,
-  LoadingBannerComponent,
   MapViewComponent,
+  MuiBannerComponent,
   PanoDialogComponent,
   TimelineViewComponent,
 } from '@maple-common';
@@ -19,10 +18,9 @@ import { SelfHostedConditionalDialogsComponent } from '../self-hosted-conditiona
   imports: [
     AssetGridComponent,
     BatchMetadataPanelComponent,
-    ErrorBannerComponent,
     LibraryPickerComponent,
-    LoadingBannerComponent,
     MapViewComponent,
+    MuiBannerComponent,
     PanoDialogComponent,
     TimelineViewComponent,
     // Batch Rename (#2640) / Move to… (#2644) / Trash panel (#2652) — see
