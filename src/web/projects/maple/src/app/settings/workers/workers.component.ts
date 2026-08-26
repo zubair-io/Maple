@@ -34,7 +34,6 @@ import {
   BunApiBackendService,
   type DeadDoc,
   type EnrichmentConfigResponse,
-  type PerformanceConfig,
   WorkerEventsService,
   WorkersApiService,
   type StageStatus,
@@ -48,6 +47,7 @@ import { DamagedPanelService } from './damaged-panel.service';
 import { MigrationPanelService } from './migration-panel.service';
 import { ImportsPanelService } from './imports-panel.service';
 import { ReaperPrunePanelService } from './reaper-prune-panel.service';
+import { DecodeWorkersPanelService } from './decode-workers-panel.service';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MirrorSettingsComponent } from './mirror-settings.component';
@@ -67,7 +67,6 @@ import {
   pendingTitle,
   formatBytes,
   formatDate,
-  parseClampedInt,
   runtimeFormToPatch,
   meilisearchFormToPatch,
   blankRuntime,
@@ -108,6 +107,7 @@ import {
     MigrationPanelService,
     ImportsPanelService,
     ReaperPrunePanelService,
+    DecodeWorkersPanelService,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -117,6 +117,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly migration = inject(MigrationPanelService);
   protected readonly imports = inject(ImportsPanelService);
   protected readonly reaperPrune = inject(ReaperPrunePanelService);
+  protected readonly decodeWorkers = inject(DecodeWorkersPanelService);
   private readonly api = inject(WorkersApiService);
   private readonly events = inject(WorkerEventsService);
   private readonly enrichmentApi = inject(BunApiBackendService);
@@ -126,11 +127,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly expanded = signal<Record<string, boolean>>({});
   protected readonly enrichmentConfig = signal<EnrichmentConfigResponse | null>(null);
   protected readonly enrichmentConfigError = signal<string | null>(null);
-
-  protected readonly perfConfig = signal<PerformanceConfig | null>(null);
-  protected readonly ffiWorkersDraft = signal<string>('');
-  protected readonly perfSaveState = signal<SaveState>('idle');
-  protected readonly perfSaveError = signal<string | null>(null);
 
   protected readonly runtimeForms = signal<Record<string, RuntimeForm>>({});
   protected readonly enrichmentForms = signal<Record<string, EnrichmentForm>>({});
@@ -165,49 +161,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.fetchStatusFallback();
     this.fetchEnrichmentConfig();
     this.reaperPrune.fetch();
-    this.fetchPerformanceConfig();
+    this.decodeWorkers.fetch();
     // Migration panel state + light progress poll lives in its own service
     // (keeps this component under the file-size budget).
     this.migration.startPolling();
     this.imports.startPolling();
-  }
-
-  private fetchPerformanceConfig(): void {
-    this.api.getPerformanceConfig().subscribe({
-      next: (cfg) => {
-        this.perfConfig.set(cfg);
-        if (this.ffiWorkersDraft() === '') this.ffiWorkersDraft.set(String(cfg.ffi_workers));
-      },
-      error: () => {},
-    });
-  }
-
-  protected setFfiWorkersDraft(value: string): void {
-    this.ffiWorkersDraft.set(value);
-  }
-
-  protected savePerformance(): void {
-    const cfg = this.perfConfig();
-    if (!cfg) return;
-    const n = parseClampedInt(this.ffiWorkersDraft(), cfg.min, cfg.max, cfg.ffi_workers);
-    this.perfSaveState.set('saving');
-    this.perfSaveError.set(null);
-    this.api.patchPerformanceConfig(n).subscribe({
-      next: (res) => {
-        this.perfConfig.update((cur) =>
-          cur ? { ...cur, ffi_workers: res.ffi_workers, source: res.source, pool: res.pool } : cur,
-        );
-        this.ffiWorkersDraft.set(String(res.ffi_workers));
-        this.perfSaveState.set('success');
-        setTimeout(() => {
-          if (this.perfSaveState() === 'success') this.perfSaveState.set('idle');
-        }, 1500);
-      },
-      error: (err: unknown) => {
-        this.perfSaveState.set('error');
-        this.perfSaveError.set(errorMessage(err));
-      },
-    });
   }
 
   private fetchEnrichmentConfig(): void {

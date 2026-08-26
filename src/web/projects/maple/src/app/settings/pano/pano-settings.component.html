@@ -23,7 +23,11 @@
     } @else if (loadError()) {
       <div class="banner-error">{{ loadError() }}</div>
     } @else {
-      <form class="settings-form">
+      <form class="settings-form" (submit)="$event.preventDefault()">
+        <!-- Every field already saves via mui-input's (committed) output on
+             Enter — this handler only stops the browser's *native* form
+             submit (full page reload) that Enter would otherwise also
+             trigger, since mui-input doesn't call preventDefault itself. -->
         <!-- Enable toggle -->
         <div class="field-row">
           <div class="field-label-group">
