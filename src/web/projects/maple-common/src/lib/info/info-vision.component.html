@@ -4,180 +4,39 @@
     <div class="space-y-2 px-4 py-[5px]">
       <!-- Screenshot badge + people count. `people_count` is absent on rows
            captioned before prompt v7, and absent is not the same as zero —
-           gate on the count being present AND non-zero so a pre-v7 row shows
+           `peopleCountLabel()` returns null for both, so a pre-v7 row shows
            nothing rather than a wrong "0 people". Screenshots are always 0,
-           so the two badges never both appear. -->
-      @if (d.vision.is_screenshot || d.vision.people_count) {
-        <div class="flex flex-wrap gap-1">
-          @if (d.vision.is_screenshot) {
-            <div
-              class="rounded-[3px] border-[0.5px] border-primary bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-            >
-              Screenshot
-            </div>
-          }
-          @if (d.vision.people_count) {
-            <div
-              class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-            >
-              {{ d.vision.people_count }} {{ d.vision.people_count === 1 ? 'person' : 'people' }}
-            </div>
-          }
-        </div>
-      }
-
-      <!-- subjects -->
-      @if (d.vision.subjects.length > 0) {
-        <div>
-          <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Subjects</div>
-          <div class="flex flex-wrap gap-1">
-            @for (s of d.vision.subjects; track s) {
-              <div
-                class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-              >
-                {{ s }}
-              </div>
-            }
-          </div>
-        </div>
-      }
-
-      <!-- scene + setting + activity (single-value chips, only show populated).
-           scene_type / shot_type are null on screenshots (v5 short-circuit),
-           so each is gated the same way setting/activity already were. -->
+           so the two badges never both appear. An empty wrapping row (both
+           absent) collapses to zero height — no `showScreenshotBadges()`
+           gate needed around it. -->
       <div class="flex flex-wrap gap-1">
-        @if (d.vision.scene_type) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-          >
-            {{ d.vision.scene_type }}
-          </div>
+        @if (isScreenshot()) {
+          <mui-badge variant="signal" value="Screenshot" />
         }
-        @if (d.vision.setting) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-          >
-            {{ d.vision.setting }}
-          </div>
-        }
-        @if (d.vision.activity) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-          >
-            {{ d.vision.activity }}
-          </div>
-        }
-        @if (d.vision.shot_type) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-          >
-            {{ d.vision.shot_type }}
-          </div>
+        @if (peopleCountLabel(); as label) {
+          <mui-badge variant="count" [value]="label" />
         }
       </div>
 
-      <!-- mood + framing + time/lighting/weather context (smaller, secondary row).
-           framing / time_of_day / lighting / weather are null on
-           screenshots (v5 short-circuit) — each chip is gated on a
-           populated value. `framing ?? composition` renders the retired v6
-           field for rows the v7 re-describe hasn't reached yet; the two are
-           never both populated. -->
-      <div class="flex flex-wrap gap-1">
-        @if (d.vision.mood) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-          >
-            {{ d.vision.mood }}
-          </div>
-        }
-        @if (d.vision.framing ?? d.vision.composition) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-          >
-            {{ d.vision.framing ?? d.vision.composition }}
-          </div>
-        }
-        @if (d.vision.time_of_day) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-          >
-            {{ d.vision.time_of_day }}
-          </div>
-        }
-        @if (d.vision.lighting) {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-          >
-            {{ d.vision.lighting }}
-          </div>
-        }
-        @if (d.vision.weather && d.vision.weather !== 'indoor' && d.vision.weather !== 'unknown') {
-          <div
-            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-          >
-            {{ d.vision.weather }}
-          </div>
-        }
-      </div>
-
-      <!-- notable objects -->
-      @if (d.vision.notable_objects.length > 0) {
+      <!-- Subjects; scene/setting/activity/shot-type; mood/framing/
+           time/lighting/weather; notable objects; keywords; colors —
+           one group per {@link VisionChipGroup}, already filtered to the
+           non-empty ones (see `chipGroups()`'s doc comment for why this is
+           one `@for` rather than six near-identical `@if` blocks). -->
+      @for (group of chipGroups(); track $index) {
         <div>
-          <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">
-            Notable objects
-          </div>
-          <div class="flex flex-wrap gap-1">
-            @for (o of d.vision.notable_objects; track o) {
-              <div
-                class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-              >
-                {{ o }}
-              </div>
-            }
-          </div>
-        </div>
-      }
-
-      <!-- Search keywords (prompt v7). Muted rather than main-text: these
-           exist for the search index, and visually outranking `subjects`
-           and `notable_objects` — which are curated and far shorter —
-           would be misleading. Absent on pre-v7 rows. -->
-      @if (d.vision.tags && d.vision.tags.length > 0) {
-        <div>
-          <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Keywords</div>
-          <div class="flex flex-wrap gap-1">
-            @for (t of d.vision.tags; track t) {
-              <div
-                class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-              >
-                {{ t }}
-              </div>
-            }
-          </div>
-        </div>
-      }
-
-      <!-- colors swatch + name -->
-      @if (d.vision.colors.length > 0) {
-        <div>
-          <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Colors</div>
-          <div class="flex flex-wrap gap-1">
-            @for (c of d.vision.colors; track c) {
-              <div
-                class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-              >
-                {{ c }}
-              </div>
-            }
-          </div>
+          @if (group.label) {
+            <mui-text variant="chip-label" color="muted">{{ group.label }}</mui-text>
+          }
+          <mui-vision-row [labels]="group.chips" />
         </div>
       }
 
       <!-- provenance footer (small, muted) -->
       @if (d.vision_meta) {
-        <div class="pt-1 text-[9px] text-text-muted">
-          {{ d.vision_meta.model }} · prompt v{{ d.vision_meta.prompt_version }}
-        </div>
+        <mui-text variant="body" color="muted"
+          >{{ d.vision_meta.model }} · prompt v{{ d.vision_meta.prompt_version }}</mui-text
+        >
       }
     </div>
   </mui-collapsible>
@@ -191,12 +50,12 @@
      `vision` are independent sibling fields, and legacy rows indexed before
      #158 carry OCR text (engine "tesseract") with no vision subdoc at all.
      Nesting this inside the vision gate hid their OCR entirely. -->
-@if (d.ocr_text && d.ocr_text.length > 0) {
+@if (showOcrText()) {
   <mui-collapsible label="Text" storageKey="info-ocr-text">
     <div class="px-4 py-[5px]">
       <pre
         class="ocr-pre m-0 whitespace-pre-wrap break-words font-mono text-[10px] text-text-main"
-        >{{ d.ocr_text }}</pre
+        >{{ ocrText() }}</pre
       >
     </div>
   </mui-collapsible>

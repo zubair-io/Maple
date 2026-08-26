@@ -42,4 +42,27 @@ describe('MuiFacesRowComponent', () => {
     (fixture.nativeElement.querySelector('.mui-button') as HTMLButtonElement).click();
     expect(count).toBe(1);
   });
+
+  it('totalCount overrides the label to "N faces detected" (tagged + untagged)', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('totalCount', 5);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('5 faces detected');
+    expect(fixture.nativeElement.textContent).not.toContain('2 people');
+  });
+
+  it('renders and emits from the "+N unnamed" pill only when untaggedCount is positive', () => {
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('.untagged')).toBeNull();
+
+    fixture.componentRef.setInput('untaggedCount', 3);
+    fixture.detectChanges();
+    const pill = fixture.nativeElement.querySelector('.untagged') as HTMLButtonElement;
+    expect(pill.textContent).toContain('3 unnamed');
+
+    let count = 0;
+    fixture.componentInstance.untaggedClicked.subscribe(() => count++);
+    pill.click();
+    expect(count).toBe(1);
+  });
 });

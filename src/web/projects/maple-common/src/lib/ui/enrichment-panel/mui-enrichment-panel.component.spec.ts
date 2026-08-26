@@ -1,11 +1,16 @@
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { describe, expect, it } from 'vitest';
 
 import { MuiEnrichmentPanelComponent } from './mui-enrichment-panel.component';
+import type { MuiEnrichmentStageStatus } from './mui-enrichment-panel.component';
 
 function render(): ComponentFixture<MuiEnrichmentPanelComponent> {
-  TestBed.configureTestingModule({ imports: [MuiEnrichmentPanelComponent] });
+  TestBed.configureTestingModule({
+    imports: [MuiEnrichmentPanelComponent],
+    providers: [provideRouter([])],
+  });
   const fixture = TestBed.createComponent(MuiEnrichmentPanelComponent);
   fixture.componentRef.setInput('description', 'A hiker crossing a ridge at sunset.');
   fixture.componentRef.setInput('people', [{ id: 'p1', label: 'Jordan' }]);
@@ -97,5 +102,83 @@ describe('MuiEnrichmentPanelComponent', () => {
     fixture.componentRef.setInput('transcriptBase', 1_700_000_000_000);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('mui-transcript-block')).toBeTruthy();
+  });
+
+  describe('per-stage status (#3030 MW3 extension)', () => {
+    const FAILED: MuiEnrichmentStageStatus = { kind: 'failed', label: 'Failed', tooltip: 'boom' };
+    const PAUSED: MuiEnrichmentStageStatus = { kind: 'paused', label: 'Worker paused' };
+    const COMPLETE: MuiEnrichmentStageStatus = { kind: 'complete', label: '' };
+
+    it('descriptionStageStatus takes precedence over the simple descriptionStatus badge', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('descriptionStatus', 'done');
+      fixture.componentRef.setInput('descriptionStageStatus', FAILED);
+      fixture.detectChanges();
+      const badge = fixture.nativeElement.querySelector('.description-group mui-badge');
+      expect(badge?.textContent).toContain('Failed');
+      expect(badge?.textContent).not.toContain('Done');
+    });
+
+    it('renders a paused stage as a router-link badge to the workers settings page', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('faceStatus', PAUSED);
+      fixture.detectChanges();
+      const link = fixture.nativeElement.querySelector('.faces-group a.stage-badge--paused');
+      expect(link?.textContent).toContain('Worker paused');
+      expect(link?.getAttribute('href')).toBe('/settings/workers');
+    });
+
+    it('renders no badge for a complete stage (empty label)', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('placeStatus', COMPLETE);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.place-group mui-badge')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.place-group a.stage-badge--paused')).toBeNull();
+    });
+
+    it('shows the per-stage error message, or the stale hint when there is no error', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('faceError', 'Failed to requeue — try again.');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.faces-group').textContent).toContain(
+        'Failed to requeue',
+      );
+
+      fixture.componentRef.setInput('faceError', null);
+      fixture.componentRef.setInput('faceStale', true);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.faces-group').textContent).toContain(
+        'Still pending',
+      );
+    });
+
+    it('emits placeRequeue on the Re-geocode button', () => {
+      const fixture = render();
+      let count = 0;
+      fixture.componentInstance.placeRequeue.subscribe(() => count++);
+      const buttons = fixture.nativeElement.querySelectorAll('.place-group mui-button button');
+      (buttons[buttons.length - 1] as HTMLButtonElement).click();
+      expect(count).toBe(1);
+    });
+
+    it('passes facesTotalCount/facesUntaggedCount through to mui-faces-row', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('facesTotalCount', 7);
+      fixture.componentRef.setInput('facesUntaggedCount', 4);
+      fixture.detectChanges();
+      const el = fixture.nativeElement.querySelector('.mui-faces-row');
+      expect(el.textContent).toContain('7 faces detected');
+      expect(el.textContent).toContain('4 unnamed');
+    });
+
+    it('emits facesUntaggedClicked through to the untagged pill', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('facesUntaggedCount', 2);
+      fixture.detectChanges();
+      let count = 0;
+      fixture.componentInstance.facesUntaggedClicked.subscribe(() => count++);
+      (fixture.nativeElement.querySelector('.untagged') as HTMLButtonElement).click();
+      expect(count).toBe(1);
+    });
   });
 });
