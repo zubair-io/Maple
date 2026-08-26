@@ -21,10 +21,6 @@
   @include chrome.dialog-title;
 }
 
-.mtd-close {
-  @include chrome.dialog-close-button;
-}
-
 .mtd-body {
   padding: 8px;
   overflow-y: auto;
@@ -45,8 +41,4 @@
   gap: 8px;
   padding: 12px 16px;
   border-top: 0.5px solid var(--color-border);
-}
-
-.mtd-btn {
-  @include chrome.dialog-button;
 }

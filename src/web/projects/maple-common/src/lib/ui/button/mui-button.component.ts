@@ -7,7 +7,15 @@
 // "outline" variant here. The contract wins per the wave-1 brief; flagged
 // as a conflict in the wave-1 report.
 
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  input,
+  output,
+  viewChild,
+} from '@angular/core';
 import { MuiIconComponent } from '../icon/mui-icon.component';
 import type { MapleIconName } from '../../icons/maple-icon.component';
 
@@ -57,8 +65,19 @@ export class MuiButtonComponent {
   readonly ariaExpandedAttr = computed(() => boolAttr(this.ariaExpanded()));
   readonly ariaPressedAttr = computed(() => boolAttr(this.ariaPressed()));
 
+  private readonly nativeButton = viewChild<ElementRef<HTMLButtonElement>>('nativeButton');
+
   onClick(event: MouseEvent): void {
     if (this.isDisabled()) return;
     this.pressed.emit(event);
+  }
+
+  /** Forwards focus to the native `<button>` — needed by callers that
+   * manage focus onto a specific `<mui-button>` themselves (e.g.
+   * `<mui-dialog>` focusing its Cancel action on open for a destructive
+   * confirm, MW2 #3029), since `<mui-button>` is a custom element and
+   * `HTMLElement.focus()` on the host would target the wrong node. */
+  focus(): void {
+    this.nativeButton()?.nativeElement.focus();
   }
 }

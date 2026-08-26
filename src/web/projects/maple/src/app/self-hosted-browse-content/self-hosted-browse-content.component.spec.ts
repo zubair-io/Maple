@@ -9,14 +9,12 @@ import { SelfHostedBrowseContentComponent } from './self-hosted-browse-content.c
 // render-branch test below exercises the ACTUAL `.html` file (only `imports`
 // is overridden, never `template`) without pulling in each sibling's own
 // dependency graph (asset-grid, batch-metadata-panel, etc. are each heavy).
-@Component({ selector: 'app-loading-banner', template: '', standalone: true })
-class StubLoadingBanner {
-  readonly label = input<string>('');
-}
-@Component({ selector: 'app-error-banner', template: '', standalone: true })
-class StubErrorBanner {
+@Component({ selector: 'mui-banner', template: '', standalone: true })
+class StubMuiBanner {
+  readonly variant = input<string>('info');
   readonly message = input<string>('');
-  readonly retry = output<void>();
+  readonly actionLabel = input<string | null>(null);
+  readonly actionPressed = output<void>();
 }
 @Component({ selector: 'app-library-picker', template: '', standalone: true })
 class StubLibraryPicker {
@@ -108,8 +106,7 @@ describe('SelfHostedBrowseContentComponent', () => {
     TestBed.overrideComponent(SelfHostedBrowseContentComponent, {
       set: {
         imports: [
-          StubLoadingBanner,
-          StubErrorBanner,
+          StubMuiBanner,
           StubLibraryPicker,
           StubTimelineView,
           StubMapView,
