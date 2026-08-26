@@ -95,9 +95,7 @@ describe('SourcesComponent', () => {
     await setup(FOLDERS);
     expect(listFolders).toHaveBeenCalledWith({ fresh: false });
 
-    el()
-      .querySelector<HTMLButtonElement>('[data-testid="check-again-btn"] button')!
-      .click();
+    el().querySelector<HTMLButtonElement>('[data-testid="check-again-btn"] button')!.click();
     await Promise.resolve();
     fixture.detectChanges();
 

@@ -131,7 +131,12 @@
           @if (saveState().kind === 'saved') {
             <span class="save-ok">Saved.</span>
           }
-          <mui-button variant="primary" size="sm" [loading]="saveState().kind === 'saving'" (pressed)="save()">
+          <mui-button
+            variant="primary"
+            size="sm"
+            [loading]="saveState().kind === 'saving'"
+            (pressed)="save()"
+          >
             Save
           </mui-button>
         </div>

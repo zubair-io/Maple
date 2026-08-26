@@ -206,7 +206,9 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
     expect(hashRow.querySelector('.content-wrapper')?.className).toContain('open');
     // Save + Reset buttons exist in the footer.
-    expect(hashRow.querySelector('[data-testid="save-changes-btn"]')?.textContent?.trim()).toContain('Save');
+    expect(
+      hashRow.querySelector('[data-testid="save-changes-btn"]')?.textContent?.trim(),
+    ).toContain('Save');
   });
 
   it('lets the HTTP fallback win after only an uncounted (registry-only) WS frame', () => {
@@ -339,7 +341,9 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
 
     const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]') as HTMLElement;
-    (drawer.querySelector('[data-testid="retry-all-dead-btn"] button') as HTMLButtonElement | null)?.click();
+    (
+      drawer.querySelector('[data-testid="retry-all-dead-btn"] button') as HTMLButtonElement | null
+    )?.click();
     http
       .expectOne({ method: 'POST', url: '/api/workers/face-detect/retry-dead' })
       .flush({ ok: true, reset: 1 });
@@ -401,7 +405,9 @@ describe('WorkersComponent', () => {
     // The control reflects the server's clamped value.
     expect(
       (
-        fixture.nativeElement.querySelector('[data-testid="ffi-workers-input"] input') as HTMLInputElement
+        fixture.nativeElement.querySelector(
+          '[data-testid="ffi-workers-input"] input',
+        ) as HTMLInputElement
       ).value,
     ).toBe('16');
   });
@@ -420,7 +426,9 @@ describe('WorkersComponent', () => {
     flushPanelPolls();
     fixture.detectChanges();
     expandPreviewRow();
-    expect(fixture.nativeElement.querySelector('[data-testid="ffi-workers-input"] input')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="ffi-workers-input"] input'),
+    ).toBeNull();
   });
 
   function expandFaceDetectRow(): HTMLElement {

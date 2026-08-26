@@ -43,7 +43,9 @@ describe('GpuLiveRenderSettingsComponent (#1062)', () => {
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const box = (): HTMLInputElement =>
-    el().querySelector('[data-testid="gpu-live-enabled"] input[type="checkbox"]') as HTMLInputElement;
+    el().querySelector(
+      '[data-testid="gpu-live-enabled"] input[type="checkbox"]',
+    ) as HTMLInputElement;
 
   /** Expand the row, which refreshes the config from the API. */
   const expandRow = async (respond: RenderConfigResponse): Promise<void> => {

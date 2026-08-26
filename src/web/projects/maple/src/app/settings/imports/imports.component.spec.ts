@@ -163,9 +163,9 @@ describe('ImportsComponent', () => {
     fixture.detectChanges();
 
     expect(el().querySelector('.picked-row code')?.textContent).toBe('/');
-    expect(
-      el().querySelector('.actions mui-button[variant="primary"]')?.textContent,
-    ).toContain('Pick Folder Name(s)');
+    expect(el().querySelector('.actions mui-button[variant="primary"]')?.textContent).toContain(
+      'Pick Folder Name(s)',
+    );
   });
 
   it('runScan POSTs /api/imports/scan and transitions to the review step with buckets rendered', async () => {

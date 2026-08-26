@@ -224,35 +224,22 @@
   color: var(--s-text-muted);
 }
 
-// `.card-delete` is the class on the `<mui-button>` host now — the real
-// button is inside its own template, hence `::ng-deep` to reach it.
-.card-delete ::ng-deep button.mui-button {
-  background: transparent;
-  border: none;
-  font-family: var(--s-font);
-  font-size: 11px;
-  color: var(--s-text-dim);
-  padding: 0;
-
-  &:hover {
-    color: var(--s-err);
-  }
-}
-
-// Hidden page: "Restore" action on each card. Same chrome as `.card-delete`
-// but a positive (accent) hover instead of the destructive red. Class lives
-// on the `<mui-button>` host now — `::ng-deep` reaches the real button.
+// `.card-delete` / `.card-restore` are the class on the `<mui-button>` host
+// now — the real button is inside its own template, hence `::ng-deep`.
+// Restore uses a positive (accent) hover instead of the destructive red.
+.card-delete ::ng-deep button.mui-button,
 .card-restore ::ng-deep button.mui-button {
   background: transparent;
   border: none;
-  font-family: var(--s-font);
   font-size: 11px;
   color: var(--s-text-dim);
   padding: 0;
-
-  &:hover {
-    color: var(--s-accent, var(--s-text));
-  }
+}
+.card-delete ::ng-deep button.mui-button:hover {
+  color: var(--s-err);
+}
+.card-restore ::ng-deep button.mui-button:hover {
+  color: var(--s-accent, var(--s-text));
 }
 
 // ── Detail view: header ────────────────────────────────────────────
@@ -271,19 +258,9 @@
 
   ::ng-deep button.mui-button {
     background: transparent;
-    border: none;
     padding: 0;
-    font-family: inherit;
-    display: inline-flex;
-    align-items: center;
     gap: 6px;
     color: var(--s-text-muted);
-    font-size: 12.5px;
-    text-decoration: none;
-
-    &:hover {
-      color: var(--s-text);
-    }
   }
 }
 
@@ -336,21 +313,13 @@
 
 // `.name-button` is the class on the `<mui-button>` host now.
 .name-button ::ng-deep button.mui-button {
-  font-family: var(--s-font);
   font-size: 26px;
   font-weight: 600;
-  letter-spacing: -0.4px;
   color: var(--s-text);
   background: transparent;
-  border: none;
   padding: 0;
-  text-align: left;
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  cursor: text;
 }
-
 .name-button.is-auto-named ::ng-deep button.mui-button {
   color: var(--s-text-mid);
 }
@@ -576,15 +545,9 @@
 // `.link-action` is the class on the `<mui-button>` host now.
 .link-action ::ng-deep button.mui-button {
   background: transparent;
-  border: none;
-  font-family: var(--s-font);
   font-size: 12px;
   color: var(--s-text-muted);
   padding: 0;
-
-  &:hover {
-    color: var(--s-text);
-  }
 }
 
 // ── Detail view: face grid ─────────────────────────────────────────
