@@ -143,19 +143,17 @@ export * from './lib/shells/source-picker-drawer/source-picker-drawer.component'
 // Lean Info renderer for the phone bottom-sheet + tablet/desktop inspector slots.
 // Self Hosted adds enrichment through the optional application composition
 // slot; Hosted's dependency graph contains only the shared local sections.
+// Maple UI migration (#3030, MW3): rating/flags, histogram, camera/location,
+// and keywords now render through mui-ui molecules — see `info-panel.vm.ts`
+// — so their retired bespoke components are no longer exported here.
 export * from './lib/info/info-panel.component';
+export * from './lib/info/info-panel.vm';
 export * from './lib/info/info-panel-extension';
 export * from './lib/info/info-filename-row.component';
-export * from './lib/info/rating-flags-row.component';
-export * from './lib/info/histogram.component';
-export * from './lib/info/camera-location-grid.component';
-export * from './lib/info/keyword-chips-row.component';
 export * from './lib/info/info-enrichment.component';
-export * from './lib/info/info-place.component';
-export * from './lib/info/info-description.component';
 export * from './lib/info/info-vision.component';
-export * from './lib/info/info-faces.component';
-export * from './lib/info/enrichment-status-badge.component';
+export * from './lib/info/info-transcript.component';
+export * from './lib/info/enrichment.vm';
 
 // S5 (#625) — Editor shell was retired once the canvas-first editor reached
 // feature parity (epic #1807); the shared drag bar / tool model / sub-param

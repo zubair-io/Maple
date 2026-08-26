@@ -1,7 +1,16 @@
 <div class="mui-faces-row">
   <mui-text variant="tool-label" color="muted">{{ countLabel() }}</mui-text>
-  @if (people().length > 0) {
-    <mui-chip-row [chips]="people()" mode="select" [(selectedId)]="selectedId" />
+  @if (people().length > 0 || untaggedCount() > 0) {
+    <div class="chips">
+      @if (people().length > 0) {
+        <mui-chip-row [chips]="people()" mode="select" [(selectedId)]="selectedId" />
+      }
+      @if (untaggedCount() > 0) {
+        <button type="button" class="untagged" (click)="untaggedClicked.emit()">
+          + {{ untaggedCount() }} unnamed
+        </button>
+      }
+    </div>
   }
   <mui-button
     variant="ghost"

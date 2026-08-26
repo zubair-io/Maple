@@ -1,29 +1,93 @@
+<ng-template #stageBadge let-status="status">
+  @if (status.label) {
+    @if (status.kind === 'paused') {
+      <a [routerLink]="workersSettingsHref()" class="stage-badge stage-badge--paused"
+        >{{ status.label }} →</a
+      >
+    } @else {
+      <mui-badge
+        [variant]="badgeVariant(status)"
+        [value]="status.label"
+        [label]="status.tooltip ?? null"
+      />
+    }
+  }
+</ng-template>
+
+<ng-template #stageFeedback let-error="error" let-stale="stale">
+  @if (error) {
+    <mui-text variant="body" color="error">{{ error }}</mui-text>
+  } @else if (stale) {
+    <mui-text variant="body" color="muted"
+      >Still pending — check <a [routerLink]="workersSettingsHref()">worker status</a>.</mui-text
+    >
+  }
+</ng-template>
+
 <div class="mui-enrichment-panel">
   <div class="description-group">
-    @if (descriptionStatus() !== 'idle') {
-      <mui-badge variant="signal" [value]="descriptionStatusLabel()" />
-    }
+    <ng-container
+      [ngTemplateOutlet]="stageBadge"
+      [ngTemplateOutletContext]="{ status: effectiveDescriptionStatus() }"
+    />
     <mui-description-field
       [(value)]="description"
       [regenerating]="descriptionStatus() === 'generating'"
       (regenerate)="descriptionRegenerate.emit()"
       (committed)="descriptionCommitted.emit($event)"
     />
+    <ng-container
+      [ngTemplateOutlet]="stageFeedback"
+      [ngTemplateOutletContext]="{ error: descriptionError(), stale: descriptionStale() }"
+    />
   </div>
-  <mui-faces-row
-    [people]="people()"
-    [(selectedId)]="selectedPersonId"
-    [redetecting]="peopleRedetecting()"
-    (redetect)="peopleRedetect.emit()"
-  />
-  <mui-place-row
-    [(place)]="place"
-    [overridden]="placeOverridden()"
-    (committed)="placeCommitted.emit($event)"
-    (cleared)="placeCleared.emit()"
-  />
-  @if (transcriptEntries().length > 0 && transcriptBase(); as base) {
+
+  <div class="faces-group">
+    <mui-faces-row
+      [people]="people()"
+      [(selectedId)]="selectedPersonId"
+      [redetecting]="peopleRedetecting()"
+      [totalCount]="facesTotalCount()"
+      [untaggedCount]="facesUntaggedCount()"
+      (redetect)="peopleRedetect.emit()"
+      (untaggedClicked)="facesUntaggedClicked.emit()"
+    />
+    <ng-container
+      [ngTemplateOutlet]="stageBadge"
+      [ngTemplateOutletContext]="{ status: effectiveFaceStatus() }"
+    />
+    <ng-container
+      [ngTemplateOutlet]="stageFeedback"
+      [ngTemplateOutletContext]="{ error: faceError(), stale: faceStale() }"
+    />
+  </div>
+
+  @if (showPlace()) {
+    <div class="place-group">
+      <mui-place-row
+        [(place)]="place"
+        [overridden]="placeOverridden()"
+        (committed)="placeCommitted.emit($event)"
+        (cleared)="placeCleared.emit()"
+      />
+      <ng-container
+        [ngTemplateOutlet]="stageBadge"
+        [ngTemplateOutletContext]="{ status: effectivePlaceStatus() }"
+      />
+      <mui-button variant="ghost" size="sm" iconLeading="history" (pressed)="placeRequeue.emit()">
+        Re-geocode
+      </mui-button>
+      <ng-container
+        [ngTemplateOutlet]="stageFeedback"
+        [ngTemplateOutletContext]="{ error: placeError(), stale: placeStale() }"
+      />
+    </div>
+  }
+
+  @if (visibleTranscriptBase(); as base) {
     <mui-transcript-block [baseTime]="base" [entries]="transcriptEntries()" />
   }
-  <mui-vision-row [labels]="visionLabels()" />
+  @if (showVision()) {
+    <mui-vision-row [labels]="visionLabels()" />
+  }
 </div>

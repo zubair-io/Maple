@@ -1,38 +1,35 @@
 @let d = detail();
 @if (d) {
-  @if (showPlace() && placeStatus()) {
-    <app-info-place
-      [detail]="d"
-      [status]="placeStatus()!"
-      [errorMessage]="placeError()"
-      [stale]="placeStale()"
-      (save)="onPlaceSave($event)"
-      (requeue)="onRequeue('geocode')"
-    />
-  }
-
-  @if (describeStatus()) {
-    <app-info-description
-      [detail]="d"
-      [status]="describeStatus()!"
-      [errorMessage]="describeError()"
-      [stale]="describeStale()"
-      (save)="onDescriptionSave($event)"
-      (requeue)="onRequeue('describe')"
-    />
-  }
+  <mui-enrichment-panel
+    [description]="d.description ?? ''"
+    (descriptionCommitted)="onDescriptionCommitted($event)"
+    (descriptionRegenerate)="onRequeue('describe')"
+    [descriptionStageStatus]="describeStatus()"
+    [descriptionError]="describeError()"
+    [descriptionStale]="describeStale()"
+    [people]="peopleChips()"
+    [facesTotalCount]="facesTotalCount()"
+    [facesUntaggedCount]="facesUntaggedCount()"
+    [(selectedPersonId)]="selectedPersonId"
+    (peopleRedetect)="onRequeue('face')"
+    (facesUntaggedClicked)="onFacesUntaggedClicked()"
+    [faceStatus]="faceStatus()"
+    [faceError]="faceError()"
+    [faceStale]="faceStale()"
+    [showPlace]="showPlace()"
+    [place]="placeDisplay()"
+    [placeOverridden]="placeOverridden()"
+    (placeCommitted)="onPlaceCommitted($event)"
+    (placeCleared)="onPlaceSave(null)"
+    (placeRequeue)="onRequeue('geocode')"
+    [placeStatus]="placeStatus()"
+    [placeError]="placeError()"
+    [placeStale]="placeStale()"
+    [showVision]="false"
+    [visionLabels]="[]"
+  />
 
   <app-info-vision [detail]="d" />
 
   <app-info-transcript [detail]="d" />
-
-  @if (faceStatus()) {
-    <app-info-faces
-      [detail]="d"
-      [status]="faceStatus()!"
-      [errorMessage]="faceError()"
-      [stale]="faceStale()"
-      (requeue)="onRequeue('face')"
-    />
-  }
 }

@@ -10,6 +10,13 @@ import { MuiIconComponent } from '../icon/mui-icon.component';
 
 export type MuiRatingFlagState = 'none' | 'pick' | 'reject';
 
+/** `cycle` (default) is one flag icon that steps none → pick → reject → none
+ * on each click — the compact form for tight spaces. `pills` renders three
+ * explicit Pick / Unflag / Reject buttons so a mouse user can jump straight
+ * to any state in one click, matching the classic Lightroom culling row
+ * (Maple's Info panel uses this variant — see `InfoPanelComponent`). */
+export type MuiRatingFlagsVariant = 'cycle' | 'pills';
+
 const FLAG_CYCLE: Record<MuiRatingFlagState, MuiRatingFlagState> = {
   none: 'pick',
   pick: 'reject',
@@ -29,6 +36,7 @@ export class MuiRatingFlagsComponent {
   readonly max = input<number>(5);
   readonly flag = model<MuiRatingFlagState>('none');
   readonly disabled = input<boolean>(false);
+  readonly variant = input<MuiRatingFlagsVariant>('cycle');
 
   readonly stars = computed(() => Array.from({ length: this.max() }, (_, i) => i + 1));
 
@@ -62,5 +70,12 @@ export class MuiRatingFlagsComponent {
   cycleFlag(): void {
     if (this.disabled()) return;
     this.flag.set(FLAG_CYCLE[this.flag()]);
+  }
+
+  /** Direct-select entry point for the `pills` variant — sets the flag to
+   * exactly the pressed pill's state (no cycling). */
+  setFlagState(state: MuiRatingFlagState): void {
+    if (this.disabled()) return;
+    this.flag.set(state);
   }
 }

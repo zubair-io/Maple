@@ -13,8 +13,9 @@ import type {
   ApiAssetDetail,
   ApiEnrichmentStage,
   ApiEnrichmentStageState,
+  ApiPlace,
 } from '../api/bun-api-backend.service';
-import type { EnrichmentStageStatus } from './enrichment-status-badge.component';
+import type { MuiEnrichmentStageStatus } from '../ui/enrichment-panel/mui-enrichment-panel.component';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -51,6 +52,28 @@ export function taggedFaces(d: ApiAssetDetail): { person_id: string }[] {
 
 export function untaggedFaceCount(d: ApiAssetDetail): number {
   return d.faces.filter((f) => f.person_id === null).length;
+}
+
+/** Synthesize the full `ApiPlace` the override endpoint expects from a
+ * single manually-typed display name — `<mui-place-row>` only round-trips
+ * that one string, so every other field is carried over from the asset's
+ * existing place (or a sensible empty default when there wasn't one).
+ * `text` empty/whitespace-only clears the override (`null`). */
+export function buildManualPlaceOverride(text: string, existing: ApiPlace | null): ApiPlace | null {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return null;
+  return {
+    source: 'manual',
+    geocoder_version: 0,
+    geocoded_at: new Date().toISOString(),
+    lat: existing?.lat ?? 0,
+    lon: existing?.lon ?? 0,
+    display_name: trimmed,
+    address: existing?.address ?? {},
+    pois: existing?.pois ?? [],
+    rollups: existing?.rollups ?? { locality: null, region: null, country_code: null },
+    search_blob: trimmed.toLowerCase(),
+  };
 }
 
 /** True when something in the enrichment subdoc moved between the two
@@ -97,7 +120,7 @@ export function stageStatus(
   s: ApiEnrichmentStageState,
   paused: boolean,
   now: number = Date.now(),
-): EnrichmentStageStatus {
+): MuiEnrichmentStageStatus {
   if (s.dead_letter_at) {
     return {
       kind: 'failed',

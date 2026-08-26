@@ -1,9 +1,0 @@
-<h3 class="eyebrow">Camera &amp; Location</h3>
-<dl class="grid">
-  @for (row of rows(); track row.id) {
-    <div class="row" [attr.data-testid]="'info-row-' + row.id">
-      <dt class="label">{{ row.label }}</dt>
-      <dd class="value">{{ row.value }}</dd>
-    </div>
-  }
-</dl>

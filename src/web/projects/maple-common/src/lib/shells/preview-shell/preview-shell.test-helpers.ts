@@ -29,9 +29,12 @@ export const STUB_ASSET: Asset = {
 
 /** Full-template fixture (via `TestBed.createComponent`) for the bottom
  * action bar — needs `LIBRARY_BACKEND` + `BunApiBackendService` stubs
- * because `<app-info-panel>` (imported for the Info sheet/pane) pulls in
- * `<app-info-enrichment>` and `<app-info-histogram>`, which inject those
- * services. Mirrors info-panel.component.spec.ts's fake-service pattern.
+ * because `<app-info-panel>` (imported for the Info sheet/pane) injects
+ * `SERVER_LIBRARY_IO` directly for its histogram fallback (Maple UI
+ * migration #3030 folded the old `<app-info-histogram>` leaf into the
+ * panel itself) and pulls in `<app-info-enrichment>` through the optional
+ * extension slot on Self Hosted. Mirrors info-panel.component.spec.ts's
+ * fake-service pattern.
  *
  * The returned `layout` signal is the one backing `LayoutService`, so a test
  * can drive a viewport resize by setting it and re-running change detection. */
