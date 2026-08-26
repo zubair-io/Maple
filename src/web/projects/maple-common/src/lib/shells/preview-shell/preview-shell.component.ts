@@ -28,7 +28,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
-import type { Asset, AssetId } from '../../models/asset';
+import type { AssetId } from '../../models/asset';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
 import { fromMuiFlagState, toMuiFlagState } from '../../info/info-panel.vm';
@@ -36,6 +36,7 @@ import { MuiRatingFlagsComponent } from '../../ui/rating-flags/mui-rating-flags.
 import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.component';
 import { BottomSheetComponent } from '../bottom-sheet.component';
 import { LayoutService } from '../../layout-service';
+import { basenameOf, openHydratedFsParent } from '../shell-helpers';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress, toApiPath } from '../../addressing/maple-address';
 import {
@@ -102,9 +103,7 @@ export class PreviewShellComponent implements OnDestroy {
 
   readonly assetName = computed<string>(() => {
     const a = this.state.focusedAsset();
-    if (!a) return '';
-    const parts = a.filename.split('/');
-    return parts[parts.length - 1] ?? a.filename;
+    return a ? basenameOf(a.filename) : '';
   });
 
   /** Tokenized URL consumed directly by <video>; media elements cannot use
@@ -223,8 +222,12 @@ export class PreviewShellComponent implements OnDestroy {
   }
 
   // ── Keyboard shortcuts (nav + rating + flag) ─────────────────────────────
-
+  // Complexity is pre-existing and unrelated to the MW3 info-panel migration
+  // (that touched only the flag popover's markup below, not this handler's
+  // branching) — same inherited-finding reasoning as browse-shell.component.ts's
+  // onKeydown suppression (#2293).
   @HostListener('document:keydown', ['$event'])
+  // fallow-ignore-next-line complexity
   onKeydown(e: KeyboardEvent): void {
     // Skip when focus is in a text input or textarea (mirrors browse-shell).
     const target = e.target as HTMLElement;
@@ -301,7 +304,12 @@ export class PreviewShellComponent implements OnDestroy {
   }
 
   // ── Route address resolution (copied verbatim from EditorShellComponent) ──
-
+  // Complexity is pre-existing and unrelated to the MW3 info-panel migration
+  // — this method's branching is unchanged (only its `openHydratedFsParent`
+  // call site was updated to the shared `shell-helpers.ts` extraction). Same
+  // inherited-finding reasoning as browse-shell.component.ts's onKeydown
+  // suppression (#2293).
+  // fallow-ignore-next-line complexity
   private applyRouteAddress(): void {
     const slug = this.route.snapshot.paramMap.get('slug');
     if (slug) {
@@ -309,7 +317,7 @@ export class PreviewShellComponent implements OnDestroy {
         const synth = this.state.hydrateSelfHostedFsAsset(slug as AssetId);
         if (synth?.absPath) {
           this.state.selectAsset(synth.id);
-          this.openHydratedFsParent(synth);
+          openHydratedFsParent(this.state, synth);
           return;
         }
       }
@@ -373,14 +381,6 @@ export class PreviewShellComponent implements OnDestroy {
     }
 
     void this.hydrateFromCache(id);
-  }
-
-  private openHydratedFsParent(synth: Asset): void {
-    if (synth.id.startsWith('fs:') || !synth.absPath) return;
-    const lastSlash = synth.absPath.lastIndexOf('/');
-    if (lastSlash < 0) return;
-    const parentDir = lastSlash === 0 ? '/' : synth.absPath.slice(0, lastSlash);
-    this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
   }
 
   private async hydrateFromCache(id: string): Promise<void> {

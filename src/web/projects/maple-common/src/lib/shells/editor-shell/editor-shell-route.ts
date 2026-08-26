@@ -15,6 +15,7 @@ import type { Asset, AssetId } from '../../models/asset';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeFileCacheId, routeSegmentsToAddress } from '../../addressing/route-address';
+import { openHydratedFsParent } from '../shell-helpers';
 
 /**
  * Resolve the current `/edit/:slug/**` (or legacy `:id`) route to an asset
@@ -134,14 +135,6 @@ function resolveLegacyIdRoute(id: string, state: LibraryStateService, router: Ro
     return;
   }
   void hydrateFromCache(state, router, id);
-}
-
-function openHydratedFsParent(state: LibraryStateService, synth: Asset): void {
-  if (synth.id.startsWith('fs:') || !synth.absPath) return;
-  const lastSlash = synth.absPath.lastIndexOf('/');
-  if (lastSlash < 0) return;
-  const parentDir = lastSlash === 0 ? '/' : synth.absPath.slice(0, lastSlash);
-  state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
 }
 
 async function hydrateFromCache(
