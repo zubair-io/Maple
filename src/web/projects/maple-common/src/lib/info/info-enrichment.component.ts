@@ -54,6 +54,7 @@ import { InfoTranscriptComponent } from './info-transcript.component';
 import {
   REFRESH_POLL_MS,
   REFRESH_TIMEOUT_MS,
+  WORKERS_SETTINGS_URL,
   buildManualPlaceOverride,
   detailChanged,
   formatRollups,
@@ -79,6 +80,12 @@ export class InfoEnrichmentComponent implements OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly injector = inject(Injector);
   private readonly router = inject(Router);
+
+  /** Template-facing so `<mui-enrichment-panel [workersSettingsHref]>` gets
+   * the real Self-Hosted route — that input has no built-in default (see
+   * its doc comment) precisely so this Hosted-only string only ever
+   * reaches a Hosted bundle through an explicit binding like this one. */
+  protected readonly workersSettingsUrl = WORKERS_SETTINGS_URL;
 
   /** Last-fetched detail for the focused asset. Cleared on focus change. */
   readonly detail = signal<ApiAssetDetail | null>(null);
