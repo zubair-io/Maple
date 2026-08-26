@@ -43,16 +43,36 @@
   min-width: 0;
 }
 
+// `.header` is a plain, non-semantic flex row now (not a `role="button"`
+// wrapper — see the .ts doc comment) — it only needs the layout half of the
+// shared disclosure-header mixin, not the native-<button> chrome reset that
+// mixin also provides. `.chevron-toggle` is the real `<button>` and gets
+// that reset instead.
 .header {
-  @include disclosure.header;
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  width: 100%;
+  cursor: pointer;
+}
+
+.chevron-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  // Unlike mui-collapsible's button, this one sits next to a
+  // potentially-multi-line projected [summary] — pin its own size so it
+  // doesn't get squashed.
+  flex: 0 0 auto;
 }
 
 .chevron {
   @include disclosure.chevron;
-  // Unlike mui-collapsible's chevron, this one sits next to a
-  // potentially-multi-line projected [summary] — pin its own size so it
-  // doesn't get squashed.
-  flex: 0 0 auto;
 }
 
 .summary-content {

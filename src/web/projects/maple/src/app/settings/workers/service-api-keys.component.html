@@ -29,8 +29,13 @@
 
   <form class="create-form" (ngSubmit)="create()">
     <div class="field">
-      <label class="field-label">Key name</label>
-      <mui-input [(value)]="name" autocomplete="off" ariaLabel="Key name" />
+      <label class="field-label" for="serviceKeyName">Key name</label>
+      <mui-input
+        inputId="serviceKeyName"
+        [(value)]="name"
+        autocomplete="off"
+        ariaLabel="Key name"
+      />
     </div>
     <div class="field">
       <label class="field-label" for="serviceKeyExpiry">Expires</label>

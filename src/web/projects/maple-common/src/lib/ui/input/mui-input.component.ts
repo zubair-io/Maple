@@ -53,6 +53,11 @@ export class MuiInputComponent {
   /** Presence triggers the Error state; the string renders as helper text. */
   readonly error = input<string | null>(null);
   readonly ariaLabel = input<string | null>(null);
+  /** Forwarded to the native control's `id` attribute — lets a caller pair
+   * this field with a real `<label for="...">` instead of (or alongside)
+   * `ariaLabel`. Omitted entirely when unset, so a caller that only needs
+   * `ariaLabel` doesn't pick up an unused id. */
+  readonly inputId = input<string | null>(null);
   readonly min = input<number | null>(null);
   readonly max = input<number | null>(null);
   readonly step = input<number>(1);
