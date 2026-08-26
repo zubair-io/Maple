@@ -45,40 +45,56 @@ describe('PanoSettingsComponent', () => {
     fixture.detectChanges(); // ngOnInit → GET config
     http.expectOne('/api/pano/config').flush(CONFIG);
     fixture.detectChanges();
-    // ngModel writes input values asynchronously.
     await fixture.whenStable();
     fixture.detectChanges();
   }
 
-  function input(sel: string): HTMLInputElement {
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(sel);
-    if (!el) throw new Error(`missing element ${sel}`);
+  function inputByLabel(ariaLabel: string): HTMLInputElement {
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      `mui-input input[aria-label="${ariaLabel}"]`,
+    );
+    if (!el) throw new Error(`missing input labeled ${ariaLabel}`);
     return el;
+  }
+
+  function enabledCheckbox(): HTMLInputElement {
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      'mui-checkbox input[type="checkbox"]',
+    );
+    if (!el) throw new Error('missing enabled checkbox');
+    return el;
+  }
+
+  function clickSave(): void {
+    const btn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      'mui-button button',
+    );
+    if (!btn) throw new Error('missing save button');
+    btn.click();
   }
 
   it('seeds the form from the loaded config', async () => {
     await load();
-    expect(input('#pano-cli-path').value).toBe('/opt/bin/maple-cli');
-    expect(input('#pano-models-dir').value).toBe('/var/models');
-    expect(input('#pano-ort-dylib').value).toBe('');
-    expect(input('#pano-enabled').checked).toBe(false);
+    expect(inputByLabel('maple-cli binary path').value).toBe('/opt/bin/maple-cli');
+    expect(inputByLabel('Models directory (MAPLE_PANO_MODELS)').value).toBe('/var/models');
+    expect(inputByLabel('ONNX Runtime dylib (ORT_DYLIB_PATH)').value).toBe('');
+    expect(enabledCheckbox().checked).toBe(false);
   });
 
   it('saves the edited form as a PUT patch with empty strings as null', async () => {
     await load();
-    const cli = input('#pano-cli-path');
+    const cli = inputByLabel('maple-cli binary path');
     cli.value = '/usr/local/bin/maple-cli';
     cli.dispatchEvent(new Event('input'));
-    const models = input('#pano-models-dir');
+    const models = inputByLabel('Models directory (MAPLE_PANO_MODELS)');
     models.value = '   ';
     models.dispatchEvent(new Event('input'));
-    const enabled = input('#pano-enabled');
+    const enabled = enabledCheckbox();
     enabled.click();
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = (fixture.nativeElement as HTMLElement).querySelector('form');
-    form?.dispatchEvent(new Event('submit'));
+    clickSave();
 
     const call = http.expectOne('/api/pano/config');
     expect(call.request.method).toBe('PUT');

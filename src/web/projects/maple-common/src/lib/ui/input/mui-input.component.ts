@@ -4,6 +4,14 @@
 // steppers) on top of the contract's default/search pair — the contract's
 // Props section is silent on it, same "harmless addition" precedent as
 // Badge's `size` in wave 1.
+//
+// `masked` (MW1, ticket #3020): renders the native control as
+// `type="password"` instead of `type="text"`. Added migrating the Settings
+// surfaces off hand-rolled markup — the legacy Meilisearch API-key field used
+// a real `<input type="password">` so the secret isn't shown in plaintext on
+// screen, and mui-input had no way to preserve that. Orthogonal to `variant`
+// (masking a search/numeric field is nonsensical but not this component's
+// call to forbid).
 
 import {
   ChangeDetectionStrategy,
@@ -36,6 +44,12 @@ export class MuiInputComponent {
   readonly placeholder = input<string>('');
   readonly disabled = input<boolean>(false);
   readonly readOnly = input<boolean>(false);
+  /** Renders the native control as `type="password"`, masking the entered
+   * value on screen. */
+  readonly masked = input<boolean>(false);
+  /** Forwarded to the native control's `autocomplete` attribute — e.g. `'off'`
+   * for a secret field the browser shouldn't offer to save/autofill. */
+  readonly autocomplete = input<string | null>(null);
   /** Presence triggers the Error state; the string renders as helper text. */
   readonly error = input<string | null>(null);
   readonly ariaLabel = input<string | null>(null);
