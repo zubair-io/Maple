@@ -120,13 +120,15 @@ describe('UsersComponent', () => {
 
   /** Open the invite form and type an email into it. */
   async function openFormAndTypeEmail(email: string): Promise<void> {
-    el().querySelector<HTMLButtonElement>('.btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="invite-user-btn"] button')!.click();
     fixture.detectChanges();
     // Let NgForm's addControl microtask wire up the real value accessor
     // (see file header) before dispatching input.
     await Promise.resolve();
 
-    const emailInput = el().querySelector<HTMLInputElement>('input[type="email"]')!;
+    const emailInput = el().querySelector<HTMLInputElement>(
+      'mui-input input[aria-label="Invitee email"]',
+    )!;
     emailInput.value = email;
     emailInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -250,7 +252,7 @@ describe('UsersComponent', () => {
     await openFormAndTypeEmail('new@justmaple.app');
     expect(el().querySelector('.invite-form')).toBeTruthy();
 
-    el().querySelector<HTMLButtonElement>('.invite-form button[type="submit"]')!.click();
+    el().querySelector<HTMLButtonElement>('.invite-form mui-button button')!.click();
     await settle();
     fixture.detectChanges();
 
@@ -270,7 +272,7 @@ describe('UsersComponent', () => {
     fixture.detectChanges();
 
     await openFormAndTypeEmail('x@justmaple.app');
-    el().querySelector<HTMLButtonElement>('.invite-form button[type="submit"]')!.click();
+    el().querySelector<HTMLButtonElement>('.invite-form mui-button button')!.click();
     await settle();
     fixture.detectChanges();
 
@@ -285,7 +287,7 @@ describe('UsersComponent', () => {
     await settle();
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.revoke-btn')!.click();
+    el().querySelector<HTMLButtonElement>('.revoke-btn button')!.click();
     await settle();
     fixture.detectChanges();
 
@@ -309,12 +311,12 @@ describe('UsersComponent', () => {
     fixture.detectChanges();
 
     await openFormAndTypeEmail('new@justmaple.app');
-    el().querySelector<HTMLButtonElement>('.invite-form button[type="submit"]')!.click();
+    el().querySelector<HTMLButtonElement>('.invite-form mui-button button')!.click();
     await settle();
     fixture.detectChanges();
     expect(el().querySelector('.fresh-invite')).toBeTruthy();
 
-    el().querySelector<HTMLButtonElement>('.revoke-btn')!.click();
+    el().querySelector<HTMLButtonElement>('.revoke-btn button')!.click();
     await settle();
     fixture.detectChanges();
 
