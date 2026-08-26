@@ -30,8 +30,10 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { Asset, AssetId } from '../../models/asset';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
-import { RatingFlagsRowComponent } from '../../info/rating-flags-row.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
+import { fromMuiFlagState, toMuiFlagState } from '../../info/info-panel.vm';
+import { MuiRatingFlagsComponent } from '../../ui/rating-flags/mui-rating-flags.component';
+import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.component';
 import { BottomSheetComponent } from '../bottom-sheet.component';
 import { LayoutService } from '../../layout-service';
 import { getPersistedFile } from '../../folder-access/file-cache';
@@ -56,7 +58,7 @@ const SWIPE_THRESHOLD_PX = 40;
   standalone: true,
   imports: [
     MapleIconComponent,
-    RatingFlagsRowComponent,
+    MuiRatingFlagsComponent,
     InfoPanelComponent,
     BottomSheetComponent,
     FilmstripComponent,
@@ -255,6 +257,27 @@ export class PreviewShellComponent implements OnDestroy {
       }
     }
     e.preventDefault();
+  }
+
+  // ── Flag popover — mui-rating-flags wiring (Maple UI migration #3030) ──
+  // Same `LibraryStateService.setRating`/`setFlag` mutators as the keyboard
+  // shortcuts above; mirrors `InfoPanelComponent`'s wiring of the same
+  // molecule (see `info-panel.vm.ts` for the Flag↔MuiRatingFlagState map).
+
+  protected readonly flagPopoverDisabled = computed(() => this.state.focusedAsset() === null);
+  protected readonly flagPopoverRating = computed(() => this.state.focusedAsset()?.rating ?? 0);
+  protected readonly flagPopoverFlag = computed(() =>
+    toMuiFlagState(this.state.focusedAsset()?.flag ?? 'unflagged'),
+  );
+
+  protected onFlagPopoverRatingChange(rating: number): void {
+    const id = this.state.focusedAssetId();
+    if (id) this.state.setRating(id, rating);
+  }
+
+  protected onFlagPopoverFlagChange(state: MuiRatingFlagState): void {
+    const id = this.state.focusedAssetId();
+    if (id) this.state.setFlag(id, fromMuiFlagState(state));
   }
 
   // ── Touch swipe (prev/next) ──────────────────────────────────────────────

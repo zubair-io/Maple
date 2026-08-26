@@ -90,4 +90,39 @@ describe('MuiRatingFlagsComponent', () => {
     expect(fixture.componentInstance.rating()).toBe(0);
     expect(fixture.componentInstance.flag()).toBe('none');
   });
+
+  describe('pills variant', () => {
+    it('renders three direct-select pills instead of the single cycling flag button', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('variant', 'pills');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.flag')).toBeNull();
+      expect(fixture.nativeElement.querySelectorAll('.pill').length).toBe(3);
+    });
+
+    it('clicking a pill jumps straight to that state, no cycling', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('variant', 'pills');
+      fixture.detectChanges();
+      const pills = fixture.nativeElement.querySelectorAll('.pill');
+      (pills[2] as HTMLButtonElement).click(); // reject pill
+      fixture.detectChanges();
+      expect(fixture.componentInstance.flag()).toBe('reject');
+
+      (pills[0] as HTMLButtonElement).click(); // pick pill, straight from reject
+      fixture.detectChanges();
+      expect(fixture.componentInstance.flag()).toBe('pick');
+    });
+
+    it('disabled blocks pill clicks too', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('variant', 'pills');
+      fixture.componentRef.setInput('disabled', true);
+      fixture.detectChanges();
+      const pills = fixture.nativeElement.querySelectorAll('.pill');
+      (pills[2] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.flag()).toBe('none');
+    });
+  });
 });

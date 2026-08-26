@@ -38,6 +38,7 @@ const STUB_ASSET: Asset = {
 class FakeLibraryStateService {
   setFlag = (_id: string, _flag: 'pick' | 'unflagged' | 'reject') => {};
   setRating = (_id: string, _rating: number) => {};
+  setKeywords = (_id: string, _keywords: readonly string[]) => {};
   focusedAssetId = signal<string | undefined>('asset-storybook-1');
 }
 

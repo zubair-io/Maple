@@ -1,10 +1,11 @@
 // InfoPanelComponent — spec coverage for the S6 web Info content.
 //
 // Covers:
-//   • All 4 stock sections render with a stub asset.
+//   • All 4 stock sections render (as mui-ui molecules) with a stub asset.
 //   • insideSheet=true shows the inline header + close X; false hides it.
 //   • Close X emits `(close)`.
 //   • Null asset still renders the section shells (placeholder values).
+//   • Rating/flag/keyword edits round-trip through LibraryStateService.
 //   • The optional app-provided extension is absent by default and mounts
 //     only when the composition root provides one.
 
@@ -12,9 +13,12 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Component, signal } from '@angular/core';
 
+import { of } from 'rxjs';
 import { InfoPanelComponent } from './info-panel.component';
 import { provideInfoPanelExtension } from './info-panel-extension';
 import { LibraryStateService } from '../state/library-state.service';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
+import type { ServerLibraryIo, ApiHistogram } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
 
 const STUB_ASSET: Asset = {
@@ -41,6 +45,7 @@ const STUB_ASSET: Asset = {
 class FakeLibraryStateService {
   setFlag = vi.fn();
   setRating = vi.fn();
+  setKeywords = vi.fn();
   focusedAssetId = signal<string | undefined>(undefined);
   focusedAsset = signal<Asset | null>(null);
   apiIdFor = vi.fn().mockReturnValue(undefined);
@@ -54,6 +59,7 @@ function makeFixture(
     asset?: Asset | null;
     insideSheet?: boolean;
     extension?: boolean;
+    serverHistogram?: ApiHistogram;
   } = {},
 ) {
   TestBed.configureTestingModule({
@@ -61,6 +67,16 @@ function makeFixture(
     providers: [
       { provide: LibraryStateService, useValue: new FakeLibraryStateService() },
       ...(opts.extension ? [provideInfoPanelExtension(TestInfoExtensionComponent)] : []),
+      ...(opts.serverHistogram
+        ? [
+            {
+              provide: SERVER_LIBRARY_IO,
+              useValue: {
+                getHistogram: () => of(opts.serverHistogram),
+              } as unknown as ServerLibraryIo,
+            },
+          ]
+        : []),
     ],
   });
   const fixture = TestBed.createComponent(InfoPanelComponent);
@@ -73,13 +89,65 @@ function makeFixture(
 describe('InfoPanelComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders all 4 sections with a stub asset', () => {
+  it('renders the rating/flags, metadata grid, and keyword sections with a stub asset', () => {
     const fixture = makeFixture();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('[data-testid="info-rating-flags"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="info-histogram"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="info-camera-location"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="info-keywords"]')).not.toBeNull();
+    expect(el.querySelector('mui-rating-flags')).not.toBeNull();
+    expect(el.querySelector('mui-label-value-grid')).not.toBeNull();
+    expect(el.querySelector('mui-keyword-row')).not.toBeNull();
+  });
+
+  it('omits mui-histogram when neither live canvas pixels nor a server histogram are available', () => {
+    // mui-histogram (unlike the retired InfoHistogramComponent) has no
+    // decorative-placeholder mode, so the panel omits the element entirely
+    // rather than rendering an empty plot — no ImageCanvasService pixels
+    // and no SERVER_LIBRARY_IO provider in this fixture, so both sources
+    // are absent.
+    const fixture = makeFixture();
+    expect(fixture.nativeElement.querySelector('mui-histogram')).toBeNull();
+  });
+
+  it('renders mui-histogram from the server-fallback histogram when the canvas has no live pixels', () => {
+    const fixture = makeFixture({
+      serverHistogram: { r: [1, 2], g: [3, 4], b: [5, 6] },
+    });
+    expect(fixture.nativeElement.querySelector('mui-histogram')).not.toBeNull();
+  });
+
+  it('seeds rating/flag from the asset and mapped to the mui vocabulary', () => {
+    const fixture = makeFixture();
+    const ratingFlags = fixture.debugElement.query(
+      (d) => d.name === 'mui-rating-flags',
+    ).componentInstance;
+    expect(ratingFlags.rating()).toBe(3);
+    expect(ratingFlags.flag()).toBe('pick');
+  });
+
+  it('writes rating changes through LibraryStateService.setRating', () => {
+    const fixture = makeFixture();
+    const svc = TestBed.inject(LibraryStateService) as unknown as FakeLibraryStateService;
+    const stars = fixture.nativeElement.querySelectorAll('mui-rating-flags .star');
+    (stars[4] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(svc.setRating).toHaveBeenCalledWith('asset-1', 5);
+  });
+
+  it('writes flag changes through LibraryStateService.setFlag, mapped back to the Asset vocabulary', () => {
+    const fixture = makeFixture();
+    const svc = TestBed.inject(LibraryStateService) as unknown as FakeLibraryStateService;
+    const rejectPill = fixture.nativeElement.querySelectorAll('mui-rating-flags .pill')[2];
+    (rejectPill as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(svc.setFlag).toHaveBeenCalledWith('asset-1', 'reject');
+  });
+
+  it('writes keyword removals through LibraryStateService.setKeywords', () => {
+    const fixture = makeFixture();
+    const svc = TestBed.inject(LibraryStateService) as unknown as FakeLibraryStateService;
+    const removeBtn = fixture.nativeElement.querySelector('mui-keyword-row .remove');
+    (removeBtn as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(svc.setKeywords).toHaveBeenCalledWith('asset-1', ['paris']);
   });
 
   it('renders the inline header + close button when insideSheet=true', () => {
@@ -109,9 +177,10 @@ describe('InfoPanelComponent', () => {
   it('renders section shells with null asset (placeholder values)', () => {
     const fixture = makeFixture({ asset: null });
     const el = fixture.nativeElement as HTMLElement;
-    // Camera/Location grid still renders 8 rows with em-dashes.
-    const rows = el.querySelectorAll('[data-testid^="info-row-"]');
-    expect(rows.length).toBe(8);
+    // The EXIF/GPS label-value grid still renders 8 rows with em-dashes —
+    // 8 labels × 2 <mui-text> each (label + value).
+    expect(el.querySelectorAll('mui-label-value-grid mui-text').length).toBe(16);
+    expect(el.textContent).toContain('—');
   });
 
   it('does not mount an app extension by default', () => {
