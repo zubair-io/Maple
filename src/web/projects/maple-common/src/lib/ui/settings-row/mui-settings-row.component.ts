@@ -82,7 +82,8 @@ export class MuiSettingsRowComponent {
   private isFromInteractive(event: Event): boolean {
     const target = event.target;
     return (
-      target instanceof Element && target.closest('button, a, input, select, textarea') !== null
+      target instanceof Element &&
+      target.closest('button, a, input, select, textarea, label') !== null
     );
   }
 }
