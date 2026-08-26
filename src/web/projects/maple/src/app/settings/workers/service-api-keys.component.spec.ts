@@ -69,7 +69,7 @@ describe('ServiceApiKeysComponent', () => {
     await setup({ listServiceApiKeys, createServiceApiKey });
     fixture.detectChanges();
 
-    element().querySelector<HTMLButtonElement>('form .btn-primary')!.click();
+    element().querySelector<HTMLButtonElement>('form mui-button button')!.click();
     await settle();
 
     expect(createServiceApiKey).toHaveBeenCalledOnce();
@@ -81,7 +81,7 @@ describe('ServiceApiKeysComponent', () => {
     expect(element().textContent).toContain('test-service-key-once-only');
     expect(element().textContent).toContain('will not be shown again');
 
-    element().querySelector<HTMLButtonElement>('.dismiss-btn')!.click();
+    element().querySelector<HTMLButtonElement>('.dismiss-btn button')!.click();
     fixture.detectChanges();
     expect(element().textContent).not.toContain('test-service-key-once-only');
   });
@@ -126,27 +126,27 @@ describe('ServiceApiKeysComponent', () => {
     });
     fixture.detectChanges();
 
-    element().querySelector<HTMLButtonElement>('form .btn-primary')!.click();
+    element().querySelector<HTMLButtonElement>('form mui-button button')!.click();
     await settle();
     vi.useFakeTimers();
-    element().querySelector<HTMLButtonElement>('.secret-row .btn-primary')!.click();
+    element().querySelector<HTMLButtonElement>('.secret-row mui-button button')!.click();
     await settle();
 
     expect(element().textContent).toContain('Could not copy automatically.');
 
-    element().querySelector<HTMLButtonElement>('.secret-row .btn-primary')!.click();
+    element().querySelector<HTMLButtonElement>('.secret-row mui-button button')!.click();
     await settle();
 
     expect(writeText).toHaveBeenLastCalledWith(created().key);
     expect(element().textContent).not.toContain('Could not copy automatically.');
     expect(element().textContent).toContain('Copied');
 
-    element().querySelector<HTMLButtonElement>('form .btn-primary')!.click();
+    element().querySelector<HTMLButtonElement>('form mui-button button')!.click();
     await settle();
 
     expect(element().textContent).not.toContain('Copied');
 
-    element().querySelector<HTMLButtonElement>('.secret-row .btn-primary')!.click();
+    element().querySelector<HTMLButtonElement>('.secret-row mui-button button')!.click();
     await settle();
     expect(element().textContent).toContain('Copied');
 
@@ -166,12 +166,12 @@ describe('ServiceApiKeysComponent', () => {
     await setup({ listServiceApiKeys, revokeServiceApiKey });
     fixture.detectChanges();
 
-    element().querySelector<HTMLButtonElement>('.revoke-btn')!.click();
+    element().querySelector<HTMLButtonElement>('.revoke-btn button')!.click();
     await settle();
 
     expect(revokeServiceApiKey).toHaveBeenCalledWith('0000000000000001');
     expect(element().textContent).toContain('Revoked');
-    expect(element().querySelector('.revoke-btn')).toBeNull();
+    expect(element().querySelector('.revoke-btn button')).toBeNull();
   });
 
   it('offers a retry when the initial list request fails', async () => {
@@ -183,7 +183,7 @@ describe('ServiceApiKeysComponent', () => {
     fixture.detectChanges();
 
     expect(element().textContent).toContain('Could not load integration keys.');
-    element().querySelector<HTMLButtonElement>('.retry-btn')!.click();
+    element().querySelector<HTMLButtonElement>('.retry-btn button')!.click();
     fixture.detectChanges();
 
     expect(element().textContent).toContain('No SugarMaple integration keys yet.');

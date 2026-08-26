@@ -1,17 +1,18 @@
 <div class="face-purge" data-testid="face-purge-panel">
   <div class="purge-head">
     <div class="purge-title">Sub-threshold face cleanup</div>
-    <button
-      type="button"
+    <mui-button
+      variant="secondary"
+      size="sm"
       class="purge-btn"
       data-testid="face-purge-audit"
       [disabled]="busy()"
-      [attr.aria-busy]="state() === 'auditing'"
-      aria-label="Audit existing sub-threshold faces"
-      (click)="runAudit()"
+      [loading]="state() === 'auditing'"
+      ariaLabel="Audit existing sub-threshold faces"
+      (pressed)="runAudit()"
     >
-      {{ state() === 'auditing' ? 'Auditing…' : 'Audit' }}
-    </button>
+      Audit
+    </mui-button>
   </div>
 
   <div class="field-hint">
@@ -64,38 +65,33 @@
 
     <div class="purge-apply">
       <div class="purge-opt-in">
-        <label class="purge-check">
-          <input
-            type="checkbox"
-            data-testid="face-purge-include-assigned"
-            aria-label="Also remove tiny faces that are assigned to a person"
-            [checked]="includeAssigned()"
-            [disabled]="busy()"
-            (change)="includeAssigned.set($any($event.target).checked)"
-          />
-          <span>Also remove tiny faces that are assigned to a person</span>
-        </label>
+        <mui-checkbox
+          class="purge-check"
+          data-testid="face-purge-include-assigned"
+          ariaLabel="Also remove tiny faces that are assigned to a person"
+          label="Also remove tiny faces that are assigned to a person"
+          [checked]="includeAssigned()"
+          [disabled]="busy()"
+          (checkedChange)="includeAssigned.set($event)"
+        />
         <div class="purge-check-hint" data-testid="face-purge-include-assigned-hint">
           Includes faces you labeled by hand AND faces auto-grouping assigned — these can't be told
           apart. Off by default; unassigned tiny faces are always removed, hidden faces are always
           kept.
         </div>
       </div>
-      <button
-        type="button"
+      <mui-button
+        variant="destructive"
+        size="sm"
         class="purge-btn purge-btn-danger"
         data-testid="face-purge-apply"
         [disabled]="!canApply()"
-        [attr.aria-busy]="state() === 'applying'"
-        aria-label="Apply sub-threshold face purge"
-        (click)="apply()"
+        [loading]="state() === 'applying'"
+        ariaLabel="Apply sub-threshold face purge"
+        (pressed)="apply()"
       >
-        {{
-          state() === 'applying'
-            ? 'Applying…'
-            : 'Remove ' + removableCount() + ' tiny ' + (removableCount() === 1 ? 'face' : 'faces')
-        }}
-      </button>
+        Remove {{ removableCount() }} tiny {{ removableCount() === 1 ? 'face' : 'faces' }}
+      </mui-button>
     </div>
 
     @if (lastApplied(); as applied) {
