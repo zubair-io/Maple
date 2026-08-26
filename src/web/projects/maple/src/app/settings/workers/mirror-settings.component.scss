@@ -176,15 +176,7 @@
   }
 }
 
-.banner-error {
-  margin: 14px 0 0;
-  padding: 10px 14px;
-  border-radius: 5px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 0.5px solid rgba(248, 113, 113, 0.35);
-  color: var(--s-err);
-  font-size: 12.5px;
-}
+@include chrome.settings-banner-error-chrome;
 
 .loading {
   margin-top: 18px;
@@ -201,20 +193,7 @@
   border-top: 0.5px solid var(--s-border);
 }
 
-.test-result {
-  margin-top: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-
-  &.ok {
-    color: var(--s-ok);
-  }
-  &.err {
-    color: var(--s-err);
-  }
-}
+@include chrome.settings-test-result-chrome;
 
 mui-checkbox {
   display: block;
@@ -223,22 +202,7 @@ mui-checkbox {
 
 .row-footer {
   margin-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-
-  .footer-spacer {
-    flex: 1;
-  }
-  .save-error {
-    font-size: 11.5px;
-    color: var(--s-err);
-  }
-  .save-ok {
-    font-size: 11.5px;
-    color: var(--s-ok);
-  }
+  @include chrome.settings-row-footer-tail-chrome;
 }
 
 // ── Responsive ───────────────────────────────────────────────────────────────
