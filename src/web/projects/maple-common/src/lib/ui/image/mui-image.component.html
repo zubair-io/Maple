@@ -1,5 +1,11 @@
 <div class="mui-image" [class]="'radius-' + radius()" [style.aspect-ratio]="aspectRatio()">
-  @if (!broken()) {
+  @if (!src() && placeholderBackground()) {
+    <div
+      class="pixels gradient-placeholder is-loaded"
+      [style.background-image]="placeholderBackground()"
+      aria-hidden="true"
+    ></div>
+  } @else if (!broken()) {
     <img
       class="pixels"
       [class]="'fit-' + fit()"

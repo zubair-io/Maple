@@ -1,0 +1,35 @@
+:host {
+  /* Fill the parent .flex-shrink-0 cell (asset-grid's justified row layout
+     sizes it via inline width/height styles) so `mui-media-cell
+     size="fill"` — a child, sized 100%/100% of ITS containing block — has
+     a definite box to resolve against. */
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Filename bar (#2637) — hover-reveal on desktop only (matches this
+   component's existing pointer:fine gating elsewhere in the app); touch
+   grids have no hover and F2/double-click are desktop interactions.
+   Positioned absolute against `mui-media-cell`'s own host, which sets
+   `position: relative` for its `layout="overlay"` mode — see that
+   component's SCSS. */
+.filename-bar {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  transition: opacity 120ms ease-out;
+  pointer-events: none;
+}
+
+@media (min-width: 1025px) and (pointer: fine) {
+  :host:hover .filename-bar,
+  .filename-bar:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.filename-bar.editing {
+  opacity: 1;
+  pointer-events: auto;
+  background: none;
+}
