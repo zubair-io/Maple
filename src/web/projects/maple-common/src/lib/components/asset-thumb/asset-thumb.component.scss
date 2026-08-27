@@ -6,40 +6,12 @@
   display: block;
   width: 100%;
   height: 100%;
-  /* Anchors the filename-bar (#2637), an absolutely-positioned SIBLING of
-     the .thumb button rather than a child — a button can't nest another
-     interactive element. */
-  position: relative;
-}
-
-/* Filename bar (#2637) — hover-reveal on desktop only (matches this
-   component's existing pointer:fine gating elsewhere in the app); touch
-   grids have no hover and F2/double-click are desktop interactions. */
-.filename-bar {
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
-  transition: opacity 120ms ease-out;
-  pointer-events: none;
-}
-
-@media (min-width: 1025px) and (pointer: fine) {
-  :host:hover .filename-bar,
-  .filename-bar:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-.filename-bar.editing {
-  opacity: 1;
-  pointer-events: auto;
-  background: none;
 }
 
 /* Selection / focus ring colour, driven by parent-class state.
    Tailwind utilities express transparent default + position; this rule
    only handles the conditional border-color flips that depend on the
-   .selected / .focused / hover state of the parent .thumb. */
-.thumb.selected .thumb-ring,
+   .focused / hover state of the parent .thumb. */
 .thumb.focused .thumb-ring {
   border-color: var(--color-primary);
 }
@@ -51,17 +23,16 @@
    `outline: 2px solid var(--color-primary); outline-offset: 2px` on
    :focus-visible, but this component's header documents that outlines
    clip intermittently under the thumb's own overflow:hidden — so keyboard
-   focus lights the same .thumb-ring overlay the selected/focused states
-   use, with the same token. :focus-visible (not :focus) so pointer
-   clicks don't flash a ring. */
+   focus lights the same .thumb-ring overlay the focused state uses, with
+   the same token. :focus-visible (not :focus) so pointer clicks don't
+   flash a ring. */
 .thumb:focus-visible .thumb-ring {
   border-color: var(--color-primary);
 }
 
 /* Applied whenever a photo is hidden, in every view (including the
-   hidden-only filter) — dimmed so the HIDDEN badge above reads as an
-   overlay on something de-emphasized rather than a normal photo with an
-   odd label. */
+   hidden-only filter) — dimmed so any badge above reads as an overlay on
+   something de-emphasized rather than a normal photo with an odd label. */
 .thumb.dimmed img {
   opacity: 0.45;
 }

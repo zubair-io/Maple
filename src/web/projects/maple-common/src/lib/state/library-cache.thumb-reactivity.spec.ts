@@ -1,6 +1,6 @@
 // LibraryCache — thumbnail loading must not couple grid tiles reactively.
 //
-// Every grid tile (`<maple-asset-thumb>`) and filmstrip cell calls
+// Every grid tile (`<maple-asset-tile>`) and filmstrip cell calls
 // `ensureThumbnailUrl` from inside an Angular `effect()`. That method reads
 // per-asset "is it already loaded / already failed / which source" state to
 // decide whether to start a load — and two of those reads used to be SIGNAL
@@ -75,7 +75,7 @@ describe('LibraryCache — tile effects stay independent of the thumb map', () =
   });
 
   /** Mount `ids` as tiles, each calling `ensureThumbnailUrl` from its own
-   * effect exactly the way `<maple-asset-thumb>` does. Returns a per-id run
+   * effect exactly the way `<maple-asset-tile>` does. Returns a per-id run
    * counter. */
   function mountTiles(ids: string[]): Map<string, number> {
     const runs = new Map<string, number>(ids.map((id) => [id, 0]));

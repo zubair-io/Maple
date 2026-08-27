@@ -1,0 +1,23 @@
+<!-- Non-interactive display: PICK/REJECT text pill (only when set) plus a
+     static star row (only when rated). No buttons/slider — this exists
+     specifically so a caller can nest it inside its own `role="button"`
+     root (e.g. a grid-cell thumbnail) without creating an invalid
+     nested-interactive element. -->
+<div class="mui-rating-flags-display">
+  @if (flag() === 'pick') {
+    <span class="flag-chip pick">PICK</span>
+  } @else if (flag() === 'reject') {
+    <span class="flag-chip reject">REJECT</span>
+  }
+  @if (rating() > 0) {
+    <div class="star-row">
+      @for (star of stars(); track star) {
+        <maple-icon
+          [name]="star <= rating() ? 'star-filled' : 'star'"
+          [size]="8"
+          [color]="star <= rating() ? 'var(--color-star)' : 'rgba(255,255,255,0.35)'"
+        />
+      }
+    </div>
+  }
+</div>

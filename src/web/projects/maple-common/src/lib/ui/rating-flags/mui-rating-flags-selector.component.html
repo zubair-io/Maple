@@ -1,0 +1,55 @@
+@if (variant() === 'pills') {
+  <div class="pills" role="group" aria-label="Flag">
+    <button
+      type="button"
+      class="pill"
+      aria-label="Pick"
+      [class.is-active]="flag() === 'pick'"
+      [attr.aria-pressed]="flag() === 'pick'"
+      [disabled]="disabled()"
+      (click)="setFlagState('pick')"
+    >
+      <mui-icon
+        name="flag"
+        size="sm"
+        [color]="flag() === 'pick' ? 'var(--color-success-text)' : 'currentColor'"
+      />
+    </button>
+    <button
+      type="button"
+      class="pill"
+      aria-label="Unflagged"
+      [class.is-active]="flag() === 'none'"
+      [attr.aria-pressed]="flag() === 'none'"
+      [disabled]="disabled()"
+      (click)="setFlagState('none')"
+    >
+      <mui-icon name="dot" size="sm" color="currentColor" />
+    </button>
+    <button
+      type="button"
+      class="pill"
+      aria-label="Reject"
+      [class.is-active]="flag() === 'reject'"
+      [attr.aria-pressed]="flag() === 'reject'"
+      [disabled]="disabled()"
+      (click)="setFlagState('reject')"
+    >
+      <mui-icon
+        name="x"
+        size="sm"
+        [color]="flag() === 'reject' ? 'var(--color-error-text)' : 'currentColor'"
+      />
+    </button>
+  </div>
+} @else {
+  <button
+    type="button"
+    class="flag"
+    [attr.aria-label]="'Flag: ' + flag()"
+    [attr.aria-pressed]="flag() !== 'none'"
+    (click)="cycleFlag()"
+  >
+    <mui-icon name="flag" size="sm" [color]="flagIconColor()" />
+  </button>
+}

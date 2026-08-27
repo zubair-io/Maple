@@ -16,3 +16,11 @@
 .folder-tile.selected .folder-ring {
   border-color: var(--color-primary);
 }
+
+/* Keyboard focus — new with this tile's role="button" + tabindex="0"
+   (previously unfocusable). Same pattern as `asset-thumb`/`mui-media-cell`:
+   the ring overlay lights up rather than a CSS `outline`, since this tile
+   also has `overflow: hidden` for its rounded corners. */
+.folder-tile:focus-visible .folder-ring {
+  border-color: var(--color-primary);
+}

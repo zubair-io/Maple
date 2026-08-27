@@ -1,5 +1,5 @@
 // check-maple-ui-adoption.mjs — Maple UI adoption ratchet (MW1 ticket #3020,
-// extended by MW2 ticket #3029 and MW4 ticket #3031).
+// extended by MW2 ticket #3029, MW4 ticket #3031, and MW6 ticket #3047).
 //
 // The Settings surface (src/web/projects/maple/src/app/settings/) has been
 // fully migrated off hand-rolled <button> markup and the shared
@@ -44,6 +44,17 @@
 // whole still holds other unmigrated templates (trash-list, trash-panel,
 // trash-toolbar, trash-item-row, trash-delete-confirm-dialog,
 // trash-status-banner).
+//
+// MW6 (#3047) migrated the asset-grid's per-tile chrome. `folder-tile/`
+// (icon + text + a `role="button"` selection-ring div — no image, no raw
+// <button> to begin with) is added below, directory-clean. The grid's
+// photo tile moved to a NEW component, `components/asset-tile/` — not
+// ratcheted, since its hover-reveal inline-rename trigger stays a raw
+// <button> (matching the settings/toolbar-actions precedent for a button
+// that mui-button doesn't fit visually). `components/asset-thumb/` — now
+// the editor filmstrip's tile only — is likewise not ratcheted; that
+// surface stays hand-rolled markup for the separate, perf-gated editor
+// wave.
 
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -74,6 +85,11 @@ const MIGRATED_DIRECTORIES = [
   ), // MW5 — only histogram.component remains (composes mui-histogram); the
   //         other four legacy scopes (waveform/vectorscope/parade/
   //         scopes-container) were dead code, deleted this wave
+  resolve(
+    fileURLToPath(
+      new URL('../projects/maple-common/src/lib/components/folder-tile', import.meta.url),
+    ),
+  ), // MW6 (#3047) — icon + text + selection-ring div, no raw <button> to begin with
 ];
 
 // Individual files ratcheted on their own because a sibling in the same

@@ -1,0 +1,104 @@
+<!-- fallow-ignore-file complexity -->
+@let a = asset();
+@let url = thumbUrl();
+@let noPreviewBadge = noPreviewBadgeLabel();
+<mui-media-cell
+  layout="overlay"
+  size="fill"
+  [src]="url ?? ''"
+  alt=""
+  [placeholderBackground]="placeholderBackground()"
+  [dimmed]="!!a.hidden"
+  [selected]="selected()"
+  [ariaLabel]="a.filename"
+  [rating]="a.rating"
+  [flag]="mappedFlag()"
+  (pressed)="thumbClick.emit($event)"
+>
+  @if (a.hidden) {
+    <div
+      mediaCellTopLeft
+      class="flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+    >
+      HIDDEN
+    </div>
+  }
+  @if (!url && noPreviewBadge) {
+    <div
+      mediaCellTopLeft
+      class="flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white"
+    >
+      {{ noPreviewBadge }}
+    </div>
+  }
+
+  @if (isSelecting()) {
+    <div
+      mediaCellTopRight
+      data-testid="select-checkbox"
+      [class]="
+        'flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] backdrop-blur-[4px] ' +
+        (selected() ? 'bg-primary border-primary' : 'bg-black/45 border-white/30')
+      "
+    >
+      @if (selected()) {
+        <maple-icon name="check" [size]="9" [strokeWidth]="2" color="white" />
+      }
+    </div>
+  }
+  @if (a.edited) {
+    <div
+      mediaCellTopRight
+      class="flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] border-success-text bg-success-bg backdrop-blur-[4px]"
+    >
+      <maple-icon name="check" [size]="9" [strokeWidth]="2" color="var(--color-success-text)" />
+    </div>
+  }
+
+  <!-- Filename bar (#2637) — hover-reveal caption doubling as the
+       double-click-to-rename target. Projected as `mediaCellFooter`, which
+       `mui-media-cell` renders OUTSIDE its interactive button (nested
+       interactive elements aren't valid HTML); positioned absolute over
+       the host, which the button already fills. Desktop-only affordance:
+       touch grids have no hover and F2/double-click are desktop
+       interactions anyway.
+
+       Always-visible trigger button lives OUTSIDE the @defer block below
+       (#2706 web-build bundle-size fix) so it never disappears — only
+       `<app-inline-rename-field>` itself (and its own JS) code-splits into
+       a lazy chunk, loaded on the first interaction with this button. Every
+       grid tile imports this component eagerly, so without this split the
+       rename editing UI's bytes would sit in the main bundle for every
+       asset ever rendered, most of which are never renamed in a session. -->
+  <ng-container mediaCellFooter>
+    <button
+      #renameTrigger
+      type="button"
+      class="filename-bar absolute left-0 right-0 bottom-0 z-10 block w-full truncate rounded-b-[2px] px-1.5 py-0.5 text-left text-[10px] text-white opacity-0"
+      [class.hidden]="isEditingFilename()"
+      [attr.aria-label]="'Rename ' + a.filename"
+      [attr.title]="renameDisabledReason()"
+      (dblclick)="onFilenameDblClick($event)"
+    >
+      {{ a.filename }}
+    </button>
+    @defer (on interaction(renameTrigger)) {
+      @if (isEditingFilename()) {
+        <div
+          class="filename-bar editing absolute left-[3px] right-[3px] bottom-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5"
+          (click)="$event.stopPropagation()"
+        >
+          <app-inline-rename-field
+            [filename]="a.filename"
+            [error]="renameSvc.error()"
+            [busy]="renameSvc.busy()"
+            [collision]="renameSvc.collision()?.assetId === a.id"
+            (committed)="onRenameCommit($event)"
+            (cancelled)="renameSvc.cancel()"
+            (collisionResolved)="onCollisionResolved($event)"
+          />
+        </div>
+      }
+    }
+  </ng-container>
+</mui-media-cell>

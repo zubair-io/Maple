@@ -4,6 +4,22 @@
   display: block;
 }
 
+// `size="fill"` — the grid-cell case: the host fills whatever box its
+// parent already sized (a justified-grid row's fixed-aspect cell), rather
+// than the sm/md fixed pixel widths below.
+:host(.size-fill) {
+  width: 100%;
+  height: 100%;
+}
+
+// `overlay` layout needs the host itself to be the positioning context for
+// its absolutely-positioned overlay chrome AND for the `mediaCellFooter`
+// projected slot, which renders as a sibling of the interactive button
+// (not nested inside it — see the template's doc comment).
+:host(.layout-overlay) {
+  position: relative;
+}
+
 .mui-media-cell {
   display: flex;
   flex-direction: column;
@@ -62,4 +78,76 @@
   align-items: center;
   justify-content: space-between;
   gap: tok.$maple-spacing-xs;
+}
+
+// Overlay layout — Lightroom-style grid-cell chrome. `border-radius: 2px`
+// and the absolute-position pixel offsets below are deliberately hardcoded
+// (matching the thumbnail chrome this replaces) rather than pulled from
+// `tok.$maple-radius-*`: the closest token (`$maple-radius-sm`, 6px) reads
+// as a visibly different, softer corner at this size.
+.mui-media-cell.overlay {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  overflow: hidden;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+
+  mui-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  &.is-dimmed mui-image {
+    opacity: 0.45;
+  }
+}
+
+.overlay .thumb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  border: 2px solid transparent;
+  transition: border-color 80ms ease;
+  pointer-events: none;
+}
+
+.overlay.is-selected .thumb-ring,
+.overlay:focus-visible .thumb-ring {
+  border-color: var(--color-primary);
+}
+
+.overlay-slot {
+  position: absolute;
+  top: 5px;
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.overlay-slot.top-left {
+  left: 5px;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.overlay-slot.top-right {
+  right: 5px;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+}
+
+.overlay-rating {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  right: 5px;
+  pointer-events: none;
 }

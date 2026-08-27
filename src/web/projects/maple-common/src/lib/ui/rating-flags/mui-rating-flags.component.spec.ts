@@ -125,4 +125,66 @@ describe('MuiRatingFlagsComponent', () => {
       expect(fixture.componentInstance.flag()).toBe('none');
     });
   });
+
+  describe('readonly display', () => {
+    function renderReadonly(): ComponentFixture<MuiRatingFlagsComponent> {
+      const fixture = render();
+      fixture.componentRef.setInput('readonly', true);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('renders no buttons, slider, or any other focusable control', () => {
+      const fixture = renderReadonly();
+      expect(fixture.nativeElement.querySelector('button')).toBeNull();
+      expect(fixture.nativeElement.querySelector('[role="slider"]')).toBeNull();
+      expect(fixture.nativeElement.querySelector('[tabindex]')).toBeNull();
+    });
+
+    it('renders no star row and no flag chip at the zero/none defaults', () => {
+      const fixture = renderReadonly();
+      expect(fixture.nativeElement.querySelector('.star-row')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.flag-chip')).toBeNull();
+    });
+
+    it('renders a PICK chip when flag is pick, and nothing for reject', () => {
+      const fixture = renderReadonly();
+      fixture.componentRef.setInput('flag', 'pick');
+      fixture.detectChanges();
+      const chip = fixture.nativeElement.querySelector('.flag-chip') as HTMLElement;
+      expect(chip.textContent).toBe('PICK');
+      expect(chip.classList.contains('pick')).toBe(true);
+    });
+
+    it('renders a REJECT chip when flag is reject', () => {
+      const fixture = renderReadonly();
+      fixture.componentRef.setInput('flag', 'reject');
+      fixture.detectChanges();
+      const chip = fixture.nativeElement.querySelector('.flag-chip') as HTMLElement;
+      expect(chip.textContent).toBe('REJECT');
+      expect(chip.classList.contains('reject')).toBe(true);
+    });
+
+    it('renders a 5-icon star row, filled up to the rating, once rating is above zero', () => {
+      const fixture = renderReadonly();
+      fixture.componentRef.setInput('rating', 3);
+      fixture.detectChanges();
+      const icons = fixture.nativeElement.querySelectorAll('.star-row maple-icon');
+      expect(icons.length).toBe(5);
+    });
+
+    it('never emits rating/flag model changes from readonly clicks (no click handlers wired)', () => {
+      const fixture = renderReadonly();
+      fixture.componentRef.setInput('rating', 2);
+      fixture.componentRef.setInput('flag', 'pick');
+      fixture.detectChanges();
+      const display = fixture.nativeElement.querySelector(
+        '.mui-rating-flags-display',
+      ) as HTMLElement;
+      display.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.rating()).toBe(2);
+      expect(fixture.componentInstance.flag()).toBe('pick');
+    });
+  });
 });

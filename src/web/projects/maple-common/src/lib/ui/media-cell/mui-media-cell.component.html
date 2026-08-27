@@ -1,29 +1,70 @@
-<div
-  class="mui-media-cell"
-  [class]="'size-' + size()"
-  [class.is-selected]="selected()"
-  role="button"
-  tabindex="0"
-  [attr.aria-pressed]="selected()"
-  (click)="onCellClick()"
-  (keydown)="onKeydown($event)"
->
-  <div class="thumb">
-    <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="sm" [aspectRatio]="1" />
-    @if (badges().length > 0) {
-      <div class="badges">
-        @for (badge of badges(); track badge) {
-          <mui-badge variant="count" size="sm" [value]="badge" />
-        }
-      </div>
-    }
-  </div>
-  <div class="meta" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
-    <mui-inline-rename-field
-      [(value)]="filename"
-      [ariaLabel]="'Rename ' + filename()"
-      (renamed)="renamed.emit($event)"
+@if (layout() === 'overlay') {
+  <!-- Overlay layout: a real <button> (not the `stacked` layout's
+       role="button" div below) — its interior only ever holds
+       non-interactive content (image, ring, static badges, the readonly
+       rating-flags display), so native button semantics are safe here and
+       give Enter/Space activation for free. The `mediaCellFooter`
+       projection slot (e.g. a caller's hover-reveal rename trigger) is
+       rendered OUTSIDE this button, as a template-level sibling below —
+       nesting another interactive control inside a <button> is invalid
+       HTML and the exact nested-interactive anti-pattern this two-slot
+       split exists to avoid. -->
+  <button
+    type="button"
+    class="mui-media-cell overlay"
+    [class.is-selected]="selected()"
+    [class.is-dimmed]="dimmed()"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-pressed]="selected()"
+    (click)="onCellClick($event)"
+  >
+    <mui-image
+      [src]="src()"
+      [alt]="alt()"
+      fit="fill"
+      radius="none"
+      [placeholderBackground]="placeholderBackground()"
     />
-    <mui-rating-flags [(rating)]="rating" [(flag)]="flag" />
+    <div class="thumb-ring" aria-hidden="true"></div>
+    <div class="overlay-slot top-left"><ng-content select="[mediaCellTopLeft]" /></div>
+    <div class="overlay-slot top-right"><ng-content select="[mediaCellTopRight]" /></div>
+    <mui-rating-flags
+      class="overlay-rating"
+      [rating]="rating()"
+      [flag]="flag()"
+      [readonly]="true"
+    />
+  </button>
+} @else {
+  <div
+    class="mui-media-cell"
+    [class]="'size-' + size()"
+    [class.is-selected]="selected()"
+    role="button"
+    tabindex="0"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-pressed]="selected()"
+    (click)="onCellClick($event)"
+    (keydown)="onKeydown($event)"
+  >
+    <div class="thumb">
+      <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="sm" [aspectRatio]="1" />
+      @if (badges().length > 0) {
+        <div class="badges">
+          @for (badge of badges(); track badge) {
+            <mui-badge variant="count" size="sm" [value]="badge" />
+          }
+        </div>
+      }
+    </div>
+    <div class="meta" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
+      <mui-inline-rename-field
+        [(value)]="filename"
+        [ariaLabel]="'Rename ' + filename()"
+        (renamed)="renamed.emit($event)"
+      />
+      <mui-rating-flags [(rating)]="rating" [(flag)]="flag" />
+    </div>
   </div>
-</div>
+}
+<ng-content select="[mediaCellFooter]" />

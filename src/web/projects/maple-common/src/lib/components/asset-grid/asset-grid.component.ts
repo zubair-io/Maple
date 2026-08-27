@@ -2,8 +2,8 @@
 //
 // Thumbnail acquisition is delegated to `LibraryStateService.ensureThumbnailUrl`
 // (single source of truth for FS-walk / Mongo-asset / .maple-cache /
-// decode-fallback paths). The shared `<maple-asset-thumb>` component
-// fires that loader on mount, so this file only owns layout + selection.
+// decode-fallback paths). The shared `<maple-asset-tile>` component fires
+// that loader on mount, so this file only owns layout + selection.
 
 import {
   AfterViewInit,
@@ -24,7 +24,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset, AssetId } from '../../models/asset';
 import { GridFolderItem } from '../../models/folder';
-import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
+import { AssetTileComponent } from '../asset-tile/asset-tile.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
@@ -48,7 +48,7 @@ interface GridRow {
     MuiButtonComponent,
     ScrollingModule,
     DragDropModule,
-    AssetThumbComponent,
+    AssetTileComponent,
     FolderTileComponent,
   ],
   templateUrl: './asset-grid.component.html',
@@ -146,11 +146,11 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   }
 
   // (Thumbnail loading moved to LibraryStateService.ensureThumbnailUrl —
-  // both the asset-grid and the editor filmstrip go through the same
-  // shared `<maple-asset-thumb>` component which fires the loader on mount.
-  // The state service handles all four paths: FS-walk → /api/fs/thumb,
-  // Mongo asset id → /api/assets/:id/thumb, .maple/ disk cache, and the
-  // WASM-decode fallback with write-through.)
+  // asset-grid's `<maple-asset-tile>` and the editor filmstrip's
+  // `<maple-asset-thumb>` each fire the loader on mount from their own copy
+  // of the same effect. The state service handles all four paths: FS-walk →
+  // /api/fs/thumb, Mongo asset id → /api/assets/:id/thumb, .maple/ disk
+  // cache, and the WASM-decode fallback with write-through.)
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
