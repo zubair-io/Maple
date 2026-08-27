@@ -24,15 +24,23 @@ async function openControlledV1(page: Page, request: APIRequestContext): Promise
     .toBe('activated');
 }
 
+// The update prompt renders through mui-toast/mui-toast-container (toast
+// sweep, ticket #3043) rather than the deleted UpdateToastComponent's
+// bespoke markup — role="status" + its message text still identify it, but
+// the Install/Later buttons are now the atom's own action/close buttons
+// ("Install" visible text, "Dismiss" icon-only aria-label) rather than the
+// old long-form aria-labels.
+function updateToast(page: Page) {
+  return page.getByRole('status').filter({ hasText: 'A new version of Maple is ready.' });
+}
+
 async function detectV2(page: Page, request: APIRequestContext): Promise<void> {
   await selectVersion(request, 'v2');
   // Angular's worker checks ngsw.json after navigation requests. This reload is
   // still assigned to v1; VERSION_READY then reaches the newly booted v1 app.
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect.poll(() => documentVersion(page)).toBe('v1');
-  await expect(
-    page.getByRole('status').filter({ hasText: 'A new version of Maple is ready.' }),
-  ).toBeVisible({ timeout: 60_000 });
+  await expect(updateToast(page)).toBeVisible({ timeout: 60_000 });
   await page.waitForLoadState('networkidle');
 }
 
@@ -63,7 +71,7 @@ test('Hosted installs a ready service-worker version and launches v2 offline', a
     await detectV2(page, request);
 
     const reloaded = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
-    await page.getByRole('button', { name: 'Install the new version of Maple now' }).click();
+    await updateToast(page).getByRole('button', { name: 'Install' }).click();
     await reloaded;
     await expectV2(page);
     await expect(page.getByRole('button', { name: /open a photo/i })).toBeVisible();
@@ -88,10 +96,8 @@ test('Hosted installs a dismissed update on the next Angular route change', asyn
     await openControlledV1(page, request);
     await detectV2(page, request);
     await preloadBrowseFonts(page);
-    await page.getByRole('button', { name: 'Dismiss the update notification' }).click();
-    await expect(
-      page.getByRole('status').filter({ hasText: 'A new version of Maple is ready.' }),
-    ).toHaveCount(0);
+    await updateToast(page).getByRole('button', { name: 'Dismiss' }).click();
+    await expect(updateToast(page)).toHaveCount(0);
 
     const navigated = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
     await page.evaluate(() => {
