@@ -38,7 +38,9 @@ export class MuiSelectivePasteModalComponent {
   readonly dismissed = output<void>();
 
   readonly enabledCount = computed(() => this.groups().filter((group) => group.enabled).length);
-  readonly allSelected = computed(() => this.enabledCount() === this.groups().length);
+  readonly allSelected = computed(
+    () => this.groups().length > 0 && this.enabledCount() === this.groups().length,
+  );
   readonly noneSelected = computed(() => this.enabledCount() === 0);
 
   toggleGroup(groupId: string, enabled: boolean): void {
