@@ -155,7 +155,7 @@ export class EditPreviewPersistService {
       // no-op after all that work on every idle debounce.
       if (!this.store.absPathFor(id) || !this.serverPersistence) return;
       const bytes = this.cache.bytesFor(id) ?? (await this.cache.bytesForAsset(id));
-      await this._decodeAndPersist(id, asset.filename, bytes, hostedTarget);
+      await this._decodeAndPersist(id, asset.filename, bytes, null);
     } catch (err) {
       console.warn('[state] developed-preview persist failed for', id, err);
     }
