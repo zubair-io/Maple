@@ -39,6 +39,14 @@ function pointerEvent(type: string, clientY: number, pointerId = 1): PointerEven
   return new PointerEvent(type, { button: 0, clientY, pointerId, bubbles: true });
 }
 
+/** PointerEvent with a controlled timeStamp (read-only on real events) for
+ * exercising the velocity-dismiss sampling window. */
+function timedPointerEvent(type: string, clientY: number, timeStamp: number): PointerEvent {
+  const event = pointerEvent(type, clientY);
+  Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+  return event;
+}
+
 describe('MuiSheetShellComponent', () => {
   it('renders nothing when closed', () => {
     const { fixture, host } = render();
@@ -109,6 +117,37 @@ describe('MuiSheetShellComponent', () => {
     expect(
       (fixture.nativeElement.querySelector('.mui-sheet-shell') as HTMLElement).style.transform,
     ).toBe('translateY(0px)');
+  });
+
+  it('dismisses a fast short flick via velocity even below the distance threshold', () => {
+    const { fixture, host } = render();
+    const sheet = fixture.nativeElement.querySelector('.mui-sheet-shell') as HTMLElement;
+    sheet.getBoundingClientRect = () =>
+      ({ height: 400, top: 0, left: 0, width: 300, right: 300, bottom: 400 }) as DOMRect;
+    const dragArea = fixture.nativeElement.querySelector('.drag-area') as HTMLElement;
+    dragArea.setPointerCapture = () => {};
+
+    // +50px in 30ms ≈ 1666 px/s — under 25% of the height, over 1000 px/s.
+    dragArea.dispatchEvent(timedPointerEvent('pointerdown', 100, 1000));
+    dragArea.dispatchEvent(timedPointerEvent('pointermove', 150, 1030));
+    dragArea.dispatchEvent(timedPointerEvent('pointerup', 150, 1030));
+    expect(host.dismissedCount).toBe(1);
+  });
+
+  it('never dismisses on a same-millisecond synthetic flick (MIN_VELOCITY_SAMPLE_MS guard)', () => {
+    const { fixture, host } = render();
+    const sheet = fixture.nativeElement.querySelector('.mui-sheet-shell') as HTMLElement;
+    sheet.getBoundingClientRect = () =>
+      ({ height: 400, top: 0, left: 0, width: 300, right: 300, bottom: 400 }) as DOMRect;
+    const dragArea = fixture.nativeElement.querySelector('.drag-area') as HTMLElement;
+    dragArea.setPointerCapture = () => {};
+
+    // dt = 0ms: nominally infinite velocity, but below the 8ms sampling
+    // floor no velocity dismissal may fire.
+    dragArea.dispatchEvent(timedPointerEvent('pointerdown', 100, 1000));
+    dragArea.dispatchEvent(timedPointerEvent('pointermove', 150, 1000));
+    dragArea.dispatchEvent(timedPointerEvent('pointerup', 150, 1000));
+    expect(host.dismissedCount).toBe(0);
   });
 
   it('renders in contained mode without the fixed-position scrim class', () => {

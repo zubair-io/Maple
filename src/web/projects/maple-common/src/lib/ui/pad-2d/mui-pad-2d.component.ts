@@ -97,6 +97,7 @@ export class MuiPad2dComponent extends PointerCaptureDragBase<MuiPad2dValue> {
   }
 
   onKeydown(event: KeyboardEvent): void {
+    if (this.disabled()) return;
     const current = this.value();
     let next: MuiPad2dValue | null = null;
     switch (event.key) {
