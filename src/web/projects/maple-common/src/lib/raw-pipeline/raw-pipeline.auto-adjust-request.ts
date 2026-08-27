@@ -4,11 +4,14 @@
 // Mirrors `raw-pipeline.export-request.ts`: a pure function over the worker plus
 // the service's pending-handler registry. `RawPipelineService.computeAutoAdjustments`
 // keeps ownership of the `decodeChain` serialisation gate and just delegates the
-// round trip here.
+// round trip here. The post/mark/register boilerplate itself lives in
+// `raw-pipeline.dispatch-with-mark.ts` (#3039 review — shared with
+// `export-request.ts` / `develop-non-raw-request.ts`, which had grown
+// byte-for-byte identical copies of it).
 
 import type { RegisterPending } from './raw-pipeline.export-request';
 import type { AutoAdjustPatch, AutoAdjustRequest } from './raw-pipeline.types';
-import { markStart, markEnd } from './raw-pipeline.perf';
+import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 
 /**
  * Post one auto-adjust request and resolve with the 8-field recommendation.
@@ -34,38 +37,12 @@ export function dispatchAutoAdjust(
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
   const request: AutoAdjustRequest = { id, type: 'auto-adjust', bytes: buffer, ext, xmp };
-  // #1123: markStart/markEnd — see decodeOnce; a throw here must never strand
-  // `resolve`.
-  const startMark = `maple:auto-adjust:${id}:start`;
-  const endMark = `maple:auto-adjust:${id}:end`;
-  markStart(startMark);
-  return new Promise<AutoAdjustPatch>((resolve, reject) => {
-    // Post BEFORE registering. `postMessage` throws synchronously on a
-    // terminated worker (`InvalidStateError`) and on an untransferable
-    // payload (`DataCloneError`); registering first would leave an entry in
-    // the service's pending map that no worker reply can ever settle, and a
-    // `markStart` with no matching `markEnd`. The Promise itself does settle
-    // either way — a throw from this executor rejects it — so the leak is
-    // the registry and the mark, not a hung caller.
-    //
-    // Safe to post first: the worker's reply arrives as a queued message
-    // event, which cannot be dispatched until this synchronous executor has
-    // returned, so `register` always lands before any response can look the
-    // handler up.
-    try {
-      worker.postMessage(request, [buffer]);
-    } catch (err) {
-      markEnd(startMark, endMark, 'maple:auto-adjust');
-      reject(err instanceof Error ? err : new Error(String(err)));
-      return;
-    }
-    register(id, {
-      kind: 'auto-adjust',
-      resolve: (patch) => {
-        markEnd(startMark, endMark, 'maple:auto-adjust');
-        resolve(patch);
-      },
-      reject,
-    });
-  });
+  return dispatchWithMark<AutoAdjustPatch>(
+    worker,
+    request,
+    [buffer],
+    'maple:auto-adjust',
+    ({ resolve, reject }) => ({ kind: 'auto-adjust', resolve, reject }),
+    register,
+  );
 }
