@@ -39,6 +39,17 @@ export class FolderTileComponent {
    * `<button>` would — Enter/Space needs wiring explicitly, same reason
    * `mui-media-cell`'s `stacked` layout needs it. */
   onKeydown(event: KeyboardEvent): void {
-    handleActivationKeydown(event, () => this.folderClick.emit(new MouseEvent('click')));
+    // Modifier keys carried over so keyboard folder selection supports the
+    // same additive/range behavior asset-grid reads off mouse clicks.
+    handleActivationKeydown(event, () =>
+      this.folderClick.emit(
+        new MouseEvent('click', {
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+        }),
+      ),
+    );
   }
 }
