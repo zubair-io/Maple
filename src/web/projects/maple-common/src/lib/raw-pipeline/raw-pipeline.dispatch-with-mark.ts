@@ -64,7 +64,10 @@ export function dispatchWithMark<TResult>(
           markEnd(startMark, endMark, measureName);
           resolve(result);
         },
-        reject,
+        reject: (reason) => {
+          markEnd(startMark, endMark, measureName);
+          reject(reason);
+        },
       }),
     );
   });

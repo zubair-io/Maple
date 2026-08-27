@@ -330,9 +330,14 @@ async function handleDevelopNonRaw(req: DevelopNonRawRequest): Promise<void> {
     const rgba = new Float32Array(req.rgba);
     const startMark = `maple:wasm-non-raw:${req.id}:start`;
     markStart(startMark);
-    const result = develop_non_raw(rgba, req.width, req.height, req.xmp ?? null);
-    markEnd(startMark, `maple:wasm-non-raw:${req.id}:end`, 'maple:wasm-non-raw');
-    postLegacyDecodeSuccess(req, result);
+    try {
+      const result = develop_non_raw(rgba, req.width, req.height, req.xmp ?? null);
+      postLegacyDecodeSuccess(req, result);
+    } finally {
+      // Ends the bracket on the throw path too — a failed develop must not
+      // leave a stray mark in the Performance timeline.
+      markEnd(startMark, `maple:wasm-non-raw:${req.id}:end`, 'maple:wasm-non-raw');
+    }
   } catch (e) {
     postLegacyDecodeError(req, e);
   }
