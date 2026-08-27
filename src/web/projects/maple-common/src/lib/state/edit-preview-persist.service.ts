@@ -143,30 +143,10 @@ export class EditPreviewPersistService {
     if (!asset) return;
 
     try {
-      let hostedTarget: HostedPreviewTarget | null = null;
       if (this.store.backend === 'hosted') {
-        // Hosted's cache slot has exactly one reader today —
-        // `HostedPreviewResolver.resolve()` — and it unconditionally skips
-        // non-RAW assets before ever calling `readPreview()` ("No
-        // embedded-preview concept for a non-RAW still (already
-        // display-ready pixels)", hosted-preview-resolver.service.ts). If
-        // this write went ahead for a non-RAW asset, every idle-debounce
-        // would decode + encode + hit disk for a file nothing reads back —
-        // an orphaned write, not a correctness bug, but real cost for zero
-        // product value. Stays gated until that reader grows a non-RAW
-        // branch (separate ticket, out of scope for #3048).
-        if (!isSupportedRaw(asset.filename)) return;
-        const folder = this.store.currentFolder();
-        const location = previewLocation(id);
-        if (!folder?.write || !location) return;
-        const snapshot = await this.cache.hostedBytes.snapshotFor(id);
-        hostedTarget = {
-          folder,
-          location,
-          sourceBefore: snapshot.source,
-        };
-        const bytes = snapshot.bytes;
-        await this._decodeAndPersist(id, asset.filename, bytes, hostedTarget);
+        const hostedTarget = await this._resolveHostedTarget(id, asset.filename);
+        if (!hostedTarget) return;
+        await this._decodeAndPersist(id, asset.filename, hostedTarget.bytes, hostedTarget.target);
         return;
       }
       // Resolve the server-backed target BEFORE the expensive fetch +
@@ -179,6 +159,32 @@ export class EditPreviewPersistService {
     } catch (err) {
       console.warn('[state] developed-preview persist failed for', id, err);
     }
+  }
+
+  /** Hosted target resolution, hoisted out of `_persist` so the router
+   * stays flat. Returns null when the write must be skipped:
+   * - Non-RAW assets: Hosted's cache slot has exactly one reader today —
+   *   `HostedPreviewResolver.resolve()` — and it unconditionally skips
+   *   non-RAW assets before ever calling `readPreview()` ("No
+   *   embedded-preview concept for a non-RAW still (already display-ready
+   *   pixels)", hosted-preview-resolver.service.ts). Writing here would
+   *   decode + encode + hit disk on every idle-debounce for a file nothing
+   *   reads back — an orphaned write. Stays gated until that reader grows
+   *   a non-RAW branch (separate ticket, out of scope for #3048).
+   * - No writable folder or addressable preview location. */
+  private async _resolveHostedTarget(
+    id: AssetId,
+    filename: string,
+  ): Promise<{ target: HostedPreviewTarget; bytes: Uint8Array } | null> {
+    if (!isSupportedRaw(filename)) return null;
+    const folder = this.store.currentFolder();
+    const location = previewLocation(id);
+    if (!folder?.write || !location) return null;
+    const snapshot = await this.cache.hostedBytes.snapshotFor(id);
+    return {
+      target: { folder, location, sourceBefore: snapshot.source },
+      bytes: snapshot.bytes,
+    };
   }
 
   private async _decodeAndPersist(
