@@ -1,70 +1,88 @@
 <section
-  class="mx-auto flex max-w-[720px] flex-col gap-12 px-8 pt-24 pb-16"
-  [class.landing--dragging]="isDragging()"
+  class="landing-viewport"
   (dragover)="onDragOver($event)"
   (dragleave)="onDragLeave($event)"
   (drop)="onDrop($event)"
 >
-  <header class="flex flex-col items-center gap-3 text-center">
-    <img src="assets/brand/maple-mark.png" width="48" height="48" alt="" />
-    <h1 class="text-[32px] font-semibold tracking-[-0.01em] text-text-main">Maple</h1>
-    <p class="text-[15px] text-text-muted opacity-[0.78]">
-      A photo editor for working photographers.
-    </p>
-  </header>
-
   <div
-    class="rounded-xl border border-dashed border-border bg-white/[0.02] px-6 py-5 text-center transition-colors"
+    class="mx-auto flex w-full max-w-[650px] flex-col gap-10 rounded-2xl border bg-surface px-10 py-12 shadow-[0_24px_64px_rgb(0_0_0/0.4)] transition-colors"
+    [class.border-border]="!isDragging()"
     [class.border-primary]="isDragging()"
-    [class.bg-surface-hover]="isDragging()"
   >
-    <p class="text-sm font-medium">
-      {{ isDragging() ? 'Drop to open in Maple' : 'Drag and drop a RAW, image, or folder' }}
+    <header class="flex flex-col items-center gap-3 text-center">
+      <img src="assets/brand/maple-mark.png" width="48" height="48" alt="" />
+      <h1 class="text-[32px] font-semibold tracking-[-0.01em] text-text-main">Maple</h1>
+      <p class="text-[15px] text-text-muted opacity-[0.78]">
+        A photo editor for working photographers.
+      </p>
+    </header>
+
+    @if (errorMessage(); as error) {
+      <mui-banner variant="error" [message]="error" />
+    }
+
+    <div class="flex flex-col gap-2">
+      <mui-list-row
+        icon="photos"
+        label="Open a photo"
+        subtitle="A single RAW or image file"
+        [active]="true"
+        (pressed)="openPhoto()"
+      >
+        <kbd trailing class="landing-kbd">⌘O</kbd>
+      </mui-list-row>
+
+      @if (hasFsAccess) {
+        <mui-list-row
+          icon="folder-open"
+          label="Open a folder"
+          subtitle="Browse a library of RAW files"
+          (pressed)="openFolder()"
+        >
+          <kbd trailing class="landing-kbd">⇧⌘O</kbd>
+        </mui-list-row>
+      } @else {
+        <div
+          class="flex flex-col gap-1.5 rounded-[10px] border border-dashed border-border bg-white/[0.02] px-[18px] py-4 text-[13px] leading-[1.45]"
+          role="note"
+        >
+          <strong class="font-semibold">Folder browsing needs Chrome or Edge.</strong>
+          <span class="opacity-[0.78]">
+            This browser doesn't support the File System Access API. You can still edit a single
+            photo above. For a full library workflow, use Chrome, Edge, or a Chromium-based browser
+            — or self-host Maple against your own server.
+          </span>
+        </div>
+      }
+    </div>
+
+    <p class="text-center text-[13px] text-text-muted opacity-[0.78]">
+      {{
+        isDragging()
+          ? 'Drop to open in Maple'
+          : 'or drop files anywhere · originals are never modified'
+      }}
     </p>
-    <p class="mt-1 text-xs text-text-muted">Your original files are never modified.</p>
   </div>
 
-  @if (errorMessage(); as error) {
-    <p
-      class="rounded-lg border border-warn/50 bg-error-bg px-4 py-3 text-sm text-error-text"
-      role="alert"
-    >
-      {{ error }}
-    </p>
-  }
-
-  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-    <button
-      type="button"
-      class="flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border border-border bg-surface px-5 py-6 text-left text-inherit transition-[background,border-color,transform] duration-100 ease-default hover:border-primary hover:bg-surface-hover active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-      (click)="openPhoto()"
-    >
-      <span class="text-base font-semibold">Open a photo</span>
-      <span class="text-[13px] opacity-70">Edit a single RAW or image file</span>
-    </button>
-
+  <footer class="landing-shortcuts" aria-hidden="true">
+    <span><kbd class="landing-kbd">⌘O</kbd> Open photo</span>
     @if (hasFsAccess) {
-      <button
-        type="button"
-        class="flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border border-border bg-surface px-5 py-6 text-left text-inherit transition-[background,border-color,transform] duration-100 ease-default hover:border-primary hover:bg-surface-hover active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        (click)="openFolder()"
-      >
-        <span class="text-base font-semibold">Open a folder</span>
-        <span class="text-[13px] opacity-70">Browse a library of RAW files</span>
-      </button>
-    } @else {
-      <div
-        class="col-span-full flex flex-col gap-1.5 rounded-[10px] border border-dashed border-border bg-white/[0.02] px-[18px] py-4 text-[13px] leading-[1.45]"
-        role="note"
-      >
-        <strong class="font-semibold">Folder browsing needs Chrome or Edge.</strong>
-        <span class="opacity-[0.78]">
-          This browser doesn't support the File System Access API. You can still edit a single photo
-          above. For a full library workflow, use Chrome, Edge, or a Chromium-based browser — or
-          self-host Maple against your own server.
-        </span>
-      </div>
+      <span><kbd class="landing-kbd">⇧⌘O</kbd> Open folder</span>
     }
+    <span><kbd class="landing-kbd">⌘K</kbd> Commands</span>
+  </footer>
+
+  <div
+    class="fixed left-1/2 top-[18%] z-50 flex w-[420px] max-w-[calc(100vw-32px)] -translate-x-1/2 justify-center"
+  >
+    <mui-command-menu
+      [open]="commandsOpen()"
+      [commands]="commands()"
+      placeholder="Type a command"
+      (select)="onCommand($event)"
+      (closeRequested)="commandsOpen.set(false)"
+    />
   </div>
 
   <input

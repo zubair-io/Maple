@@ -270,16 +270,16 @@ describe('LandingComponent', () => {
   });
 
   it('exposes keyboard-native named intake actions and an assertive error region', async () => {
-    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
-      'button',
+    // The intake CTAs are mui-list-rows — keyboard-activatable role=button
+    // elements with a real tabindex (the Maple UI list-row contract).
+    const rows = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(
+      'mui-list-row [role="button"]',
     );
-    expect(Array.from(buttons, (button) => button.textContent)).toEqual([
+    expect(Array.from(rows, (row) => row.textContent)).toEqual([
       expect.stringContaining('Open a photo'),
       expect.stringContaining('Open a folder'),
     ]);
-    expect(Array.from(buttons).every((button) => button.getAttribute('type') === 'button')).toBe(
-      true,
-    );
+    expect(Array.from(rows).every((row) => row.getAttribute('tabindex') === '0')).toBe(true);
 
     await component.onFilePicked({
       target: { files: [new File(['bad'], 'bad.txt')], value: 'bad.txt' },

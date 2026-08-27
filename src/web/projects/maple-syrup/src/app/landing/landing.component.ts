@@ -8,7 +8,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  HostListener,
   InjectionToken,
+  computed,
   inject,
   signal,
   viewChild,
@@ -18,9 +20,13 @@ import {
   FolderAccessError,
   FolderAccessService,
   LibraryStateService,
+  MuiBannerComponent,
+  MuiCommandMenuComponent,
+  MuiListRowComponent,
   folderUnreadableError,
   persistFile,
 } from '@maple-common';
+import type { MuiCommandItem } from '@maple-common';
 import { resolveSingleFileSelection } from './single-file-selection';
 
 export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
@@ -31,6 +37,7 @@ export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
 @Component({
   selector: 'app-landing',
   standalone: true,
+  imports: [MuiBannerComponent, MuiCommandMenuComponent, MuiListRowComponent],
   templateUrl: './landing.component.html',
   styleUrl: './landing.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +52,44 @@ export class LandingComponent {
   readonly hasFsAccess = this.fs.hasFsAccess;
   readonly isDragging = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  readonly commandsOpen = signal(false);
+
+  readonly commands = computed<readonly MuiCommandItem[]>(() => [
+    { id: 'open-photo', label: 'Open a photo', icon: 'photos', shortcut: '\u2318O' },
+    ...(this.hasFsAccess
+      ? [
+          {
+            id: 'open-folder',
+            label: 'Open a folder',
+            icon: 'folder-open',
+            shortcut: '\u21E7\u2318O',
+          } as const,
+        ]
+      : []),
+  ]);
+
+  onCommand(id: string): void {
+    this.commandsOpen.set(false);
+    if (id === 'open-photo') this.openPhoto();
+    if (id === 'open-folder') void this.openFolder();
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onShortcut(event: KeyboardEvent): void {
+    const meta = event.metaKey || event.ctrlKey;
+    if (!meta) return;
+    const key = event.key.toLowerCase();
+    if (key === 'o' && !event.shiftKey) {
+      event.preventDefault();
+      this.openPhoto();
+    } else if (key === 'o' && event.shiftKey && this.hasFsAccess) {
+      event.preventDefault();
+      void this.openFolder();
+    } else if (key === 'k') {
+      event.preventDefault();
+      this.commandsOpen.update((open) => !open);
+    }
+  }
 
   /** Hidden <input type="file"> wired to the "Open a photo" CTA. */
   private readonly fileInput = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
