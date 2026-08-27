@@ -2,6 +2,7 @@
 
 import {
   default_target_long_edge,
+  develop_non_raw,
   render_bytes,
   render_bytes_with_film,
   render_bytes_scene_linear,
@@ -19,6 +20,7 @@ import type {
   AutoAdjustRequest,
   DecodeRequest,
   DecodeSceneLinearRequest,
+  DevelopNonRawRequest,
   WorkerResponse,
   WorkerRequest,
 } from './raw-pipeline.types';
@@ -72,6 +74,9 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   switch (req.type) {
     case 'decode':
       await handleLegacyDecode(req);
+      return;
+    case 'develop-non-raw':
+      await handleDevelopNonRaw(req);
       return;
     case 'decode-scene-linear':
       await handleSceneLinearDecode(req);
@@ -203,7 +208,12 @@ function decodeViaCpuRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeR
 
 // Reads scalars before taking the buffer via `take_rgb()` (#1080: MOVES the bytes out instead of
 // the `rgb` getter's clone-and-leave-alive-until-GC), then `free()`s the wasm-side struct.
-function postLegacyDecodeSuccess(req: DecodeRequest, result: LegacyDecodeResult): void {
+//
+// `req` is typed as just `{ id }` (not `DecodeRequest`) so `handleDevelopNonRaw` (#3039) can share
+// this exact success/error pair with `handleLegacyDecode` — both produce the SAME `MapleRender`
+// shape and the same `decode-success`/`decode-error` reply, differing only in which WASM entry
+// produced the result and which request fields they read to call it.
+function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult): void {
   const width = result.width;
   const height = result.height;
   const nativeWidth = result.full_width;
@@ -228,7 +238,8 @@ function postLegacyDecodeSuccess(req: DecodeRequest, result: LegacyDecodeResult)
 }
 
 // Surfaces the full stack (useful for a panic-hook trap) — `worker-log` forwarding carries it on.
-function postLegacyDecodeError(req: DecodeRequest, e: unknown): void {
+// See `postLegacyDecodeSuccess` for why `req` is the narrowed `{ id }` shape.
+function postLegacyDecodeError(req: { id: number }, e: unknown): void {
   const err = e instanceof Error ? e : null;
   if (err?.stack) {
     console.error('[raw-pipeline.worker] decode threw:', err.message, err.stack);
@@ -291,6 +302,29 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     markStart(wasmStartMark);
     const result = await decodeViaPlan(plan, bytes, req);
     markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, plan.markTag);
+    postLegacyDecodeSuccess(req, result);
+  } catch (e) {
+    postLegacyDecodeError(req, e);
+  }
+}
+
+/**
+ * `develop-non-raw` (#3039): the non-RAW sibling of `handleLegacyDecode`.
+ * `req.rgba` is NOT a RAW file's bytes — it's `decodeNonRawToSceneLinearF32`'s
+ * already browser-decoded scene-linear Rec.2020 f32 RGBA output, so this
+ * calls `develop_non_raw` directly (no `raw_core::decode::decode_bytes`, no
+ * route selection — there is only one route, matching `render_bytes`' shape).
+ * Reuses `postLegacyDecodeSuccess`/`postLegacyDecodeError` since the result
+ * is the SAME `MapleRender` those already unwrap into a `decode-success`.
+ */
+async function handleDevelopNonRaw(req: DevelopNonRawRequest): Promise<void> {
+  try {
+    await ensureReady();
+    const rgba = new Float32Array(req.rgba);
+    const startMark = `maple:wasm-non-raw:${req.id}:start`;
+    markStart(startMark);
+    const result = develop_non_raw(rgba, req.width, req.height, req.xmp ?? null);
+    markEnd(startMark, `maple:wasm-non-raw:${req.id}:end`, 'maple:wasm-non-raw');
     postLegacyDecodeSuccess(req, result);
   } catch (e) {
     postLegacyDecodeError(req, e);

@@ -20,6 +20,7 @@ import type {
   DecodeSceneLinearRequest,
   DecodeSceneLinearSuccess,
   DecodeSuccess,
+  DevelopNonRawRequest,
 } from './raw-pipeline.types';
 
 describe('RawPipelineService — decodeSceneLinear (Plan 3 M1)', () => {
@@ -265,12 +266,19 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
   });
 });
 
-describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
+describe('RawPipelineService — non-RAW browser-native decode (#784, #3039)', () => {
   // Non-RAW images (jpg/png/heic/…) must NOT go through the WASM RAW
-  // decoder. Both decode() and decodeSceneLinear() branch on extension and
-  // decode browser-natively instead. These tests stub createImageBitmap +
-  // OffscreenCanvas (jsdom has neither) and assert the Worker is never
-  // touched for non-RAW input.
+  // DECODER (rawler/demosaic) — decodeSceneLinear() still decodes browser-
+  // natively end to end (dead code path today, kept for its own tests).
+  // decode() ALSO decodes browser-natively (#784's original contract), but
+  // MUST still apply the adjustment model on every call (#3039): the
+  // pre-#3039 version of this suite asserted the worker was NEVER touched
+  // for non-RAW input — that was the bug, not a feature. A JPEG/PNG/HEIC
+  // opened in the single-file editor is genuinely editable, so `decode()`
+  // now posts a `develop-non-raw` request (the already browser-decoded
+  // scene-linear buffer, not the file bytes) for the WASM `develop_non_raw`
+  // entry to apply XMP to. These tests stub createImageBitmap +
+  // OffscreenCanvas (jsdom has neither).
   let workerStub: WorkerStub;
   let restoreWorker: () => void;
   let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
@@ -336,25 +344,83 @@ describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
     });
   });
 
-  it('decode() routes non-RAW to the browser and never posts to the worker', async () => {
+  it('decode() browser-decodes non-RAW, then posts develop-non-raw with the XMP threaded (#3039)', async () => {
     const service = TestBed.inject(RawPipelineService);
-    const decoded = await service.decode(new Uint8Array([0xff, 0xd8]), 'jpg');
+    const xmp = '<?xpacket begin="" ?><x:xmpmeta><test crs:Exposure2012="2.0"/></x:xmpmeta>';
+    const promise = service.decode(new Uint8Array([0xff, 0xd8]), 'jpg', xmp);
 
-    expect(workerStub.postMessage).not.toHaveBeenCalled();
+    // Browser-native decode still happens first (EXIF orientation applied —
+    // parity with Apple's CIImage.oriented(forExifOrientation:), and portrait
+    // iPhone captures must not open sideways).
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(globalThis.createImageBitmap).toHaveBeenCalledWith(expect.anything(), {
+      imageOrientation: 'from-image',
+    });
+
+    // This IS the #3039 regression check: pre-fix, `decode()` never posted
+    // anything to the worker for non-RAW input and every edit was silently
+    // dropped. Now it must post a `develop-non-raw` request carrying the
+    // XMP — NOT the RAW-file `decode` request type.
+    await vi.waitFor(() => expect(workerStub.postMessage).toHaveBeenCalledTimes(1));
+    const sent = workerStub.postMessage.mock.calls[0][0] as DevelopNonRawRequest;
+    expect(sent.type).toBe('develop-non-raw');
+    expect(sent.xmp).toBe(xmp);
+    expect(sent.width).toBe(W);
+    expect(sent.height).toBe(H);
+    expect(sent.rgba).toBeInstanceOf(ArrayBuffer);
+
+    const rgb = new Uint8Array(W * H * 3).fill(200); // simulated brighter (post-exposure) develop
+    const reply: DecodeSuccess = {
+      id: sent.id,
+      type: 'decode-success',
+      width: W,
+      height: H,
+      nativeWidth: W,
+      nativeHeight: H,
+      rgb: rgb.buffer,
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    };
+    workerStub.reply(reply);
+
+    const decoded = await promise;
     expect(decoded.width).toBe(W);
     expect(decoded.height).toBe(H);
     expect(decoded.rgb).toBeInstanceOf(Uint8Array);
-    expect(decoded.rgb.length).toBe(W * H * 3); // alpha dropped
+    expect(decoded.rgb.length).toBe(W * H * 3);
+    expect(decoded.rgb[0]).toBe(200);
+    expect(decoded.asShotTemperature).toBe(6500);
+    expect(decoded.asShotTint).toBe(0);
+  });
+
+  it('decode() still posts develop-non-raw with xmp undefined on a cold, unedited open', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const promise = service.decode(new Uint8Array([0xff, 0xd8]), 'jpg');
+
+    await vi.waitFor(() => expect(workerStub.postMessage).toHaveBeenCalledTimes(1));
+    const sent = workerStub.postMessage.mock.calls[0][0] as DevelopNonRawRequest;
+    expect(sent.type).toBe('develop-non-raw');
+    expect(sent.xmp).toBeUndefined();
+
+    const rgb = new Uint8Array(W * H * 3).fill(128);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: W,
+      height: H,
+      nativeWidth: W,
+      nativeHeight: H,
+      rgb: rgb.buffer,
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+
+    const decoded = await promise;
     expect(decoded.rgb[0]).toBe(128);
     // Neutral WB so seedAsShotWhiteBalance no-ops (default 6500K / 0 tint).
     expect(decoded.asShotTemperature).toBe(6500);
     expect(decoded.asShotTint).toBe(0);
-    // EXIF orientation must be applied by the browser decode so portrait
-    // iPhone captures don't open sideways (parity with Apple's
-    // CIImage.oriented(forExifOrientation:)).
-    expect(globalThis.createImageBitmap).toHaveBeenCalledWith(expect.anything(), {
-      imageOrientation: 'from-image',
-    });
   });
 
   it('decodeSceneLinear() routes non-RAW to the browser and produces fp16 Rec.2020', async () => {

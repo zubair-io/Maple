@@ -130,13 +130,17 @@ export class EditPreviewPersistService {
    * allowed to surface as a user-visible error or affect the editor. */
   private async _persist(id: AssetId): Promise<void> {
     const asset = this.store.findAsset(id);
-    // Non-RAW assets are out of scope: `RawPipelineService.decode`'s non-RAW
-    // branch (`decodeNonRawToRgb`) decodes browser-natively and does NOT
-    // apply the `xmp` parameter at all (see that function's doc) — there is
-    // no "developed" render to persist for a JPEG/PNG/HEIC source through
-    // this code path, so persisting one would silently write an UNEDITED
-    // preview under the edited contract. Skipping is correct, not a gap:
-    // the unedited tier (#2010) already keeps that asset's preview current.
+    // Non-RAW assets are out of scope FOR THIS CACHE, not because there is no
+    // developed render to persist any more: `RawPipelineService.decode`'s
+    // non-RAW branch DOES now apply `xmp` via the WASM `develop_non_raw`
+    // entry (#3039 fixed the canvas-side bug this used to describe — a JPEG
+    // opened in the single-file editor genuinely IS edited and has a real
+    // developed render). This skip stays for a narrower reason: the
+    // hosted/self-hosted target resolution below (`previewLocation`,
+    // `folder?.write`, the single-file memory-only path) has never been
+    // exercised for a non-RAW single-file session, so persisting one here is
+    // untested surface, not a decode limitation. The unedited tier (#2010)
+    // still keeps that asset's grid thumbnail current in the meantime.
     if (!asset || !isSupportedRaw(asset.filename)) return;
 
     try {

@@ -3,14 +3,15 @@
 //
 // Pure function over the worker plus the service's pending-handler registry;
 // `RawPipelineService.exportImage` keeps ownership of the `decodeChain`
-// serialisation gate and just delegates the round trip here.
+// serialisation gate and just delegates the round trip here. The post/mark/
+// register boilerplate itself lives in `raw-pipeline.dispatch-with-mark.ts`
+// (#3039 review — shared with `auto-adjust-request.ts` / `develop-non-raw-request.ts`,
+// which had grown byte-for-byte identical copies of it).
 
-import type { PendingHandler } from './raw-pipeline.service-internals';
 import type { ExportedFile, ExportRequest, RawExportOptions } from './raw-pipeline.types';
-import { markStart, markEnd } from './raw-pipeline.perf';
+import { dispatchWithMark, type RegisterPending } from './raw-pipeline.dispatch-with-mark';
 
-/** Registers a pending handler against a correlation id. */
-export type RegisterPending = (id: number, handler: PendingHandler) => void;
+export type { RegisterPending } from './raw-pipeline.dispatch-with-mark';
 
 /**
  * Post one export request and resolve with the encoded file.
@@ -36,28 +37,12 @@ export function dispatchExport(
   ) as ArrayBuffer;
   const request: ExportRequest = { id, type: 'export', bytes: buffer, ext, xmp, options, filmLut };
   const transfer = filmLut ? [buffer, filmLut] : [buffer];
-  const startMark = `maple:export:${id}:start`;
-  const endMark = `maple:export:${id}:end`;
-  markStart(startMark);
-  return new Promise<ExportedFile>((resolve, reject) => {
-    // Post BEFORE registering — see the identical note in
-    // `raw-pipeline.auto-adjust-request.ts`. A synchronous `postMessage`
-    // throw (terminated worker / untransferable payload) would otherwise
-    // strand a pending-map entry and an unmatched `markStart`.
-    try {
-      worker.postMessage(request, transfer);
-    } catch (err) {
-      markEnd(startMark, endMark, 'maple:export');
-      reject(err instanceof Error ? err : new Error(String(err)));
-      return;
-    }
-    register(id, {
-      kind: 'export',
-      resolve: (file) => {
-        markEnd(startMark, endMark, 'maple:export');
-        resolve(file);
-      },
-      reject,
-    });
-  });
+  return dispatchWithMark<ExportedFile>(
+    worker,
+    request,
+    transfer,
+    'maple:export',
+    ({ resolve, reject }) => ({ kind: 'export', resolve, reject }),
+    register,
+  );
 }
