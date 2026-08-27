@@ -77,22 +77,9 @@
   }
 }
 
-// 2-D pad
-.pad {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 2 / 1;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: crosshair;
-  touch-action: none;
-  border: 0.5px solid var(--pro-border);
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 2px;
-  }
-}
+// 2-D pad — sizing (`fill`/`aspectRatio` inputs), puck, crosshair, border,
+// and drag/keyboard interaction all now live in `mui-pad-2d` itself; only
+// the WB-specific projected gradient fill stays owned here (below).
 
 // Temperature gradient layer (X axis): blue left → amber right
 .pad-grad-temp {
@@ -119,42 +106,6 @@
     rgba(40, 130, 60, 0.35) 100%
   );
   mix-blend-mode: multiply;
-}
-
-// Crosshair lines
-.crosshair-h,
-.crosshair-v {
-  position: absolute;
-  pointer-events: none;
-  background: rgba(255, 255, 255, 0.35);
-}
-
-.crosshair-h {
-  left: 0;
-  right: 0;
-  height: 0.5px;
-  transform: translateY(-50%);
-}
-
-.crosshair-v {
-  top: 0;
-  bottom: 0;
-  width: 0.5px;
-  transform: translateX(-50%);
-}
-
-// Puck
-.puck {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow:
-    0 0 0 1.5px rgba(0, 0, 0, 0.5),
-    0 1px 5px rgba(0, 0, 0, 0.4);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
 }
 
 // Axis labels

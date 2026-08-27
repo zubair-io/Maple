@@ -13,6 +13,7 @@
               [label]="slider.label"
               [value]="values()[slider.id] ?? 0"
               (valueChange)="valueChanged.emit({ sliderId: slider.id, value: $event })"
+              (resetRequest)="sliderReset.emit(slider.id)"
               [min]="slider.min"
               [max]="slider.max"
               [step]="slider.step ?? 1"

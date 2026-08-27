@@ -27,17 +27,32 @@ export interface MuiSelectivePasteGroup {
 export class MuiSelectivePasteModalComponent {
   readonly open = input<boolean>(false);
   readonly groups = model.required<readonly MuiSelectivePasteGroup[]>();
+  readonly title = input<string>('Selective Paste');
+  /** Optional line under the title, e.g. "Paste from A onto 3 photos." */
+  readonly summary = input<string | null>(null);
+  /** Select-all/none bulk row above the group list. */
+  readonly allowBulkSelect = input<boolean>(true);
 
   /** Fires with the ids of the groups left enabled when Paste is pressed. */
   readonly pasteConfirmed = output<readonly string[]>();
   readonly dismissed = output<void>();
 
   readonly enabledCount = computed(() => this.groups().filter((group) => group.enabled).length);
+  readonly allSelected = computed(() => this.enabledCount() === this.groups().length);
+  readonly noneSelected = computed(() => this.enabledCount() === 0);
 
   toggleGroup(groupId: string, enabled: boolean): void {
     this.groups.set(
       this.groups().map((group) => (group.id === groupId ? { ...group, enabled } : group)),
     );
+  }
+
+  selectAll(): void {
+    this.groups.set(this.groups().map((group) => ({ ...group, enabled: true })));
+  }
+
+  selectNone(): void {
+    this.groups.set(this.groups().map((group) => ({ ...group, enabled: false })));
   }
 
   confirmPaste(): void {

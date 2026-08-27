@@ -3,8 +3,10 @@
   class="mui-pad-2d"
   [class.is-disabled]="disabled()"
   [class.is-dragging]="dragging()"
-  [style.width.px]="size()"
-  [style.height.px]="size()"
+  [class.is-fill]="fill()"
+  [style.width.px]="fill() ? null : size()"
+  [style.height.px]="fill() ? null : size()"
+  [style.aspect-ratio]="fill() ? aspectRatio() : null"
   [style.background]="gradient()"
   role="slider"
   tabindex="0"
@@ -17,5 +19,15 @@
   (pointercancel)="onPointerUp($event)"
   (keydown)="onKeydown($event)"
 >
+  <!-- Projected fill (e.g. the WB pad's two-layer temp/tint gradient, which
+       needs `mix-blend-mode` between its own layers — not expressible as
+       this control's single `gradient` background string). Absolute-fill,
+       behind the crosshair/puck, so it paints the pad without intercepting
+       its own pointer/keyboard events. -->
+  <div class="fill-slot"><ng-content /></div>
+  @if (crosshair()) {
+    <div class="crosshair-h" [style.top.%]="puckPos().top"></div>
+    <div class="crosshair-v" [style.left.%]="puckPos().left"></div>
+  }
   <div class="puck" [style.left.%]="puckPos().left" [style.top.%]="puckPos().top"></div>
 </div>

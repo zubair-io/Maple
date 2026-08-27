@@ -68,8 +68,7 @@
   } @else {
     <div class="slider-grid">
       @for (tool of slidersFor(activeGroup()); track tool) {
-        <pro-living-slider
-          [attr.aria-label]="labelFor(tool)"
+        <mui-living-slider
           [label]="labelFor(tool)"
           [value]="valueFor(tool)"
           [min]="minFor(tool)"
@@ -77,7 +76,6 @@
           [step]="stepFor(tool)"
           [gradient]="gradientFor(tool)"
           [bipolar]="bipolarFor(tool)"
-          [defaultValue]="defaultFor(tool)"
           (dragStart)="onSliderDragStart(tool)"
           (valueChange)="onSliderChange(tool, $event)"
           (resetRequest)="onSliderReset(tool)"

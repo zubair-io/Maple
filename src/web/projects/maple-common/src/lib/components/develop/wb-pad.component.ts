@@ -13,22 +13,11 @@
 // and computes neutral WB (temperature + tint) via a rough log-ratio heuristic
 // (rgbToWb) — not the Robertson CCT method.
 
-import {
-  AfterViewInit,
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  Injector,
-  OnDestroy,
-  ViewChild,
-  computed,
-  effect,
-  inject,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
-export { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
+import { MuiPad2dComponent } from '../../ui/pad-2d/mui-pad-2d.component';
+import type { MuiPad2dValue } from '../../ui/pad-2d/mui-pad-2d.component';
 import { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { AdjustmentModel } from '../../models/adjustment-model';
@@ -45,18 +34,14 @@ function clamp(value: number, min: number, max: number): number {
 @Component({
   selector: 'pro-wb-pad',
   standalone: true,
-  imports: [],
+  imports: [MuiPad2dComponent],
   templateUrl: './wb-pad.component.html',
   styleUrl: './wb-pad.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WbPadComponent implements AfterViewInit, OnDestroy {
-  @ViewChild('padEl') padRef!: ElementRef<HTMLElement>;
-
+export class WbPadComponent {
   private library = inject(LibraryStateService);
   private canvasSvc = inject(ImageCanvasService);
-  private injector = inject(Injector);
-  private cleanupEffect?: () => void;
 
   /** Eyedropper active (sampling mode). */
   readonly eyedropperActive = signal(false);
@@ -66,12 +51,13 @@ export class WbPadComponent implements AfterViewInit, OnDestroy {
     return id ? this.library.adjustmentFor(id)() : null;
   });
 
-  /** Puck position as [x, y] fractions [0..1]. */
-  readonly puckPos = computed<{ x: number; y: number }>(() => {
+  /** Puck position in `mui-pad-2d`'s normalized `[-1, 1]` domain, converted
+   *  from the `[0, 1]` fraction `tempToX`/`tintToY` return (`frac*2 - 1`). */
+  readonly padValue = computed<MuiPad2dValue>(() => {
     const adj = this.adj();
     const temp = adj?.temperature ?? 6500;
     const tint = adj?.tint ?? 0;
-    return { x: tempToX(temp), y: tintToY(tint) };
+    return { x: tempToX(temp) * 2 - 1, y: tintToY(tint) * 2 - 1 };
   });
 
   // Read-side clamp (#2412): the puck position is already implicitly
@@ -92,60 +78,17 @@ export class WbPadComponent implements AfterViewInit, OnDestroy {
     return t >= 0 ? `+${t}` : `${t}`;
   });
 
-  // ── Drag state ─────────────────────────────────────────────────────────────
-  private _moveHandler: ((e: PointerEvent) => void) | null = null;
-  private _upHandler: (() => void) | null = null;
-
-  ngAfterViewInit(): void {
-    const e = effect(
-      () => {
-        this.puckPos();
-      },
-      { injector: this.injector },
-    );
-    this.cleanupEffect = () => e.destroy();
-  }
-
-  ngOnDestroy(): void {
-    this.cleanupEffect?.();
-    this._releaseDrag();
-  }
-
-  onPadPointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return;
-    const pad = this.padRef?.nativeElement;
-    if (!pad) return;
-    this._applyPointerPos(e);
-    this._moveHandler = (ev: PointerEvent) => this._applyPointerPos(ev);
-    this._upHandler = () => this._releaseDrag();
-    window.addEventListener('pointermove', this._moveHandler);
-    window.addEventListener('pointerup', this._upHandler);
-    pad.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  private _applyPointerPos(e: PointerEvent): void {
-    const pad = this.padRef?.nativeElement;
-    if (!pad) return;
-    const rect = pad.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
-    const temp = xToTemp(x);
-    const tint = yToTint(y);
+  /** `mui-pad-2d`'s drag/click value, converted back from `[-1, 1]` into the
+   *  `[0, 1]` fraction `xToTemp`/`yToTint` expect (`(v+1)/2`) — the inverse
+   *  of `padValue` above. Pointer-capture drag and click-to-jump both route
+   *  through this single handler (mui-pad-2d's own `PointerCaptureDragBase`
+   *  wiring), same end effect as the pointer-drag path this replaces. */
+  onPadValueChange(v: MuiPad2dValue): void {
     const id = this.library.focusedAssetId();
     if (!id) return;
+    const temp = xToTemp((v.x + 1) / 2);
+    const tint = yToTint((v.y + 1) / 2);
     this.library.updateAdjustment(id, { temperature: temp, tint });
-  }
-
-  private _releaseDrag(): void {
-    if (this._moveHandler) {
-      window.removeEventListener('pointermove', this._moveHandler);
-      this._moveHandler = null;
-    }
-    if (this._upHandler) {
-      window.removeEventListener('pointerup', this._upHandler);
-      this._upHandler = null;
-    }
   }
 
   // ── Eyedropper ─────────────────────────────────────────────────────────────
@@ -177,6 +120,7 @@ export class WbPadComponent implements AfterViewInit, OnDestroy {
 
   // ── Keyboard ────────────────────────────────────────────────────────────────
 
+  // fallow-ignore-next-line complexity
   onPadKeyDown(e: KeyboardEvent): void {
     const TEMP_STEP = 100; // K per arrow press
     const TINT_STEP = 1; // tint unit per arrow press
