@@ -285,3 +285,74 @@ fn render_bytes_scene_linear_fresh_open_matches_as_shot_xmp() {
         "fresh open and explicit As-Shot XMP must develop byte-identically"
     );
 }
+
+/// #3039: `develop_non_raw` is the WASM entry the Web single-file/non-RAW
+/// editor session must call on every slider tick. Before it existed,
+/// `RawPipelineService.decode()` special-cased non-RAW extensions to a
+/// plain `createImageBitmap` + 2D-canvas readback with NO adjustment model
+/// applied — so a +EV exposure slider (or any other edit) silently
+/// produced byte-identical output regardless of the XMP passed in. That
+/// gap never touched WASM at all, which is why the bug produced zero
+/// worker/console activity to debug.
+///
+/// Synthetic mid-grey scene-linear input (this test supplies exactly the
+/// buffer `decodeNonRawToSceneLinearF32` would hand the worker — NOT sRGB
+/// bytes; `develop_non_raw` never decodes a file). An objective brightness
+/// threshold, not a screenshot compare — matches this repo's "no
+/// eyeballing" color-testing convention.
+#[test]
+fn develop_non_raw_applies_exposure_and_never_agx_tone_maps() {
+    let width = 4u32;
+    let height = 4u32;
+    let pixel_count = (width * height) as usize;
+    // Mid-grey sRGB (0.5) decoded to linear ((0.5+0.055)/1.055)^2.4 ≈ 0.214 —
+    // the exact value doesn't matter for a monotonic exposure check, only
+    // that every pixel is identical (so a neutral, flat card stays neutral
+    // through the Rec.2020 gamut rotation and the Oklab gamut-compress).
+    let grey_linear = 0.214_f32;
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for _ in 0..pixel_count {
+        rgba.extend_from_slice(&[grey_linear, grey_linear, grey_linear, 1.0]);
+    }
+
+    let baseline = develop_non_raw(&rgba, width, height, None).expect("baseline develop ok");
+    let baseline_rgb = baseline.rgb();
+    assert_eq!(baseline_rgb.len(), pixel_count * 3);
+
+    let boosted_xmp = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="2.0"/>
+</rdf:RDF></x:xmpmeta>
+<?xpacket end="w"?>"#;
+    let boosted = develop_non_raw(&rgba, width, height, Some(boosted_xmp.to_string()))
+        .expect("boosted develop ok");
+    let boosted_rgb = boosted.rgb();
+    assert_eq!(boosted_rgb.len(), pixel_count * 3);
+
+    // This is the exact symptom #3039 reported: identical bytes regardless
+    // of the adjustment model. A +2 EV exposure boost must brighten every
+    // channel of every pixel.
+    for i in 0..baseline_rgb.len() {
+        assert!(
+            boosted_rgb[i] > baseline_rgb[i],
+            "byte {} did not brighten under +2 EV: baseline={} boosted={}",
+            i,
+            baseline_rgb[i],
+            boosted_rgb[i]
+        );
+    }
+
+    // `skip_agx` contract: the default-model baseline must render close to
+    // the input grey card, not scene-referred-tone-mapped by AgX (which
+    // would visibly compress a mid-grey input toward a different value —
+    // see `ChainOptions::skip_agx`'s doc and this fn's module doc).
+    assert!(
+        (100..=160).contains(&baseline_rgb[0]),
+        "default-model baseline should render close to the input grey \
+         without AgX view-transform tone-mapping, got {}",
+        baseline_rgb[0]
+    );
+    // Neutral in -> neutral out (no per-channel bias from the gamut steps).
+    assert_eq!(baseline_rgb[0], baseline_rgb[1]);
+    assert_eq!(baseline_rgb[1], baseline_rgb[2]);
+}
