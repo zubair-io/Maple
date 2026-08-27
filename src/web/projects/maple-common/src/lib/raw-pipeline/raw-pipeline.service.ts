@@ -2,19 +2,21 @@
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
-// T10: exposes `isThreaded$` (Observable<boolean>) so UI can surface the actual
-// runtime mode. Hosts without COOP+COEP are serial; Chromium-family runtimes are
-// also serial while #2515 is mitigated (#2516 tracks safe Rayon restoration).
-// The observable starts undefined and emits once WASM init reports back.
+// T10: the worker still reports its thread-pool status (`threadedSubject`/
+// `threadCountSubject` below) once WASM init completes — but the public
+// `isThreaded$`/`threadCount$` observables that surfaced this to a UI were
+// removed as dead (#3048): no production caller remained anywhere in the
+// app. Retiring the worker-side status message and its request/response
+// protocol is a further, separate cleanup (touches raw-pipeline.worker.ts
+// and raw-pipeline.types.ts, outside this ticket's scope) — flagged as a
+// follow-up rather than folded in here.
 
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject } from 'rxjs';
 import type {
   AutoAdjustPatch,
   DecodedImage,
-  DecodedSceneLinearImage,
   DecodeRequest,
-  DecodeSceneLinearRequest,
   SetFilmLutRequest,
   ExportedFile,
   RawExportOptions,
@@ -33,7 +35,6 @@ import {
 export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { isNonRawExtension } from '../state/raw-extensions';
-import { decodeNonRawToSceneLinear } from './image-utils';
 import type {
   OpenedLiveSession,
   PendingHandler,
@@ -60,28 +61,15 @@ export class RawPipelineService implements OnDestroy {
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
 
-  // T10: threaded-state signal. `null` = not yet reported by the worker.
+  // T10: threaded-state, reported by the worker once WASM init completes.
+  // `isThreaded$`/`threadCount$`, the observables that used to surface this
+  // to a UI, were deleted as dead (#3048 — no production caller remained).
+  // The subjects themselves stay: `raw-pipeline.worker-dispatch.ts`'s shared
+  // `WorkerDispatchContext` still populates them from the worker's `status`
+  // message, and retiring that protocol end-to-end is a separate follow-up
+  // (see the module doc above).
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
-
-  /**
-   * Emits once the Web Worker has initialised the WASM thread pool.
-   *
-   * No production caller remains anywhere in the app (T10 threaded-state UI
-   * surface was never wired up past this point) — vestigial, not fixed here;
-   * out of scope for the #3039 single-file non-RAW render fix that touched
-   * this file. Tracked as a follow-up cleanup.
-   */
-  // fallow-ignore-next-line unused-class-member
-  readonly isThreaded$: Observable<boolean | null> = this.threadedSubject.asObservable();
-
-  /**
-   * Emits the number of rayon worker threads (1 when single-threaded).
-   *
-   * Same T10 vestigial surface as `isThreaded$` above — see its doc.
-   */
-  // fallow-ignore-next-line unused-class-member
-  readonly threadCount$: Observable<number> = this.threadCountSubject.asObservable();
 
   /**
    * #1153: live BM3D deep-denoise progress, or `null` when the stage is not
@@ -229,116 +217,6 @@ export class RawPipelineService implements OnDestroy {
       [buffer],
       'maple:decode',
       ({ resolve, reject }) => ({ kind: 'legacy', resolve, reject }),
-      this.pending.set.bind(this.pending),
-    );
-  }
-
-  /**
-   * Decode a RAW byte buffer to a scene-linear Rec.2020 fp16 RGBA image.
-   * Pre-AgX, pre-Rec.2020->sRGB — the caller (Plan 3 M3 WebGL2 chain) is
-   * expected to apply a view transform before display.
-   *
-   * Shares the same single-in-flight serialization gate as `decode()` —
-   * concurrent calls (across either method) are queued so the WASM heap
-   * never holds more than one decode's scratch buffers at once.
-   *
-   * @param qualityPreview `true` (default) runs the half-res Preview
-   *   pipeline (matches Apple's editor first-paint cost). `false` runs
-   *   full-res Full — used for export.
-   *
-   * Vestigial Plan 3 M1/M3 WebGL2 scene-linear surface: no production caller
-   * remains anywhere in the app (the shipping GPU live path is the wgpu/WGSL
-   * chain, epic #925 — see this file's `openLiveSession`/`renderLiveSession`
-   * below, not this method). Kept, not deleted, pending a decision on
-   * whether to retire it outright; out of scope for the #3039 single-file
-   * non-RAW render fix that touched this file. Tracked as a follow-up
-   * cleanup, not fixed here to avoid unrelated risk in that PR.
-   */
-  // fallow-ignore-next-line unused-class-member
-  decodeSceneLinear(
-    bytes: Uint8Array,
-    ext: string,
-    xmp?: string,
-    qualityPreview: boolean = true,
-  ): Promise<DecodedSceneLinearImage> {
-    // Non-RAW images bypass rawler: decode browser-natively and convert the
-    // sRGB pixels into the scene-linear Rec.2020 fp16 working space the WebGL
-    // pipeline consumes. `qualityPreview` is irrelevant — there's no half-res
-    // RAW develop to skip.
-    if (isNonRawExtension(ext)) {
-      return decodeNonRawToSceneLinear(bytes);
-    }
-    const run = () => this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview);
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
-  }
-
-  /**
-   * Sized scene-linear decode (#1101, spec §5.1) — the WASM mirror of the
-   * Apple FFI's `maple_render_bytes_scene_linear_sized`: same raw-core path,
-   * downsampled to fit within `maxLongEdge` immediately after demosaic.
-   * Never upscales; the reply carries the native oriented dims. Callers pass
-   * `viewportPx × devicePixelRatio` for a viewport-sized working buffer.
-   *
-   * Same single-in-flight serialization gate as every other decode.
-   *
-   * Vestigial Plan 3 M1/M3 WebGL2 scene-linear surface — see
-   * `decodeSceneLinear`'s doc above for why this is suppressed rather than
-   * deleted or fixed here.
-   */
-  // fallow-ignore-next-line unused-class-member
-  decodeSceneLinearSized(
-    bytes: Uint8Array,
-    ext: string,
-    maxLongEdge: number,
-    xmp?: string,
-    qualityPreview: boolean = true,
-  ): Promise<DecodedSceneLinearImage> {
-    // Non-RAW: browser-native decode at full size (already display-derived
-    // pixels; no RAW develop to cap) — mirrors `decodeSized`.
-    if (isNonRawExtension(ext)) {
-      return decodeNonRawToSceneLinear(bytes);
-    }
-    const run = () => this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview, maxLongEdge);
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
-  }
-
-  private decodeSceneLinearOnce(
-    bytes: Uint8Array,
-    ext: string,
-    xmp: string | undefined,
-    qualityPreview: boolean,
-    maxLongEdge?: number,
-  ): Promise<DecodedSceneLinearImage> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    const id = this.nextId++;
-    const buffer = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-    const request: DecodeSceneLinearRequest = {
-      id,
-      type: 'decode-scene-linear',
-      bytes: buffer,
-      ext,
-      xmp,
-      qualityPreview,
-      maxLongEdge,
-    };
-    return dispatchWithMark<DecodedSceneLinearImage>(
-      worker,
-      request,
-      [buffer],
-      'maple:decode-scene-linear',
-      ({ resolve, reject }) => ({ kind: 'scene-linear', resolve, reject }),
       this.pending.set.bind(this.pending),
     );
   }
