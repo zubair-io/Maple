@@ -142,7 +142,7 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     input.value = 'March';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.fnf-btn-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('button.variant-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
 
     expect(crud.mkdir).toHaveBeenCalledWith(LIBRARY.id, '2026/March');
@@ -166,7 +166,7 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     input.value = 'CON';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.fnf-btn-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('button.variant-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.fnf-error')?.textContent).toContain(
       'Reserved name',
@@ -178,7 +178,7 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     input.value = 'March';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.fnf-btn-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('button.variant-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.fnf-card')).toBeNull();
   });
@@ -195,7 +195,7 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     input.value = '2027';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.frn-btn-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('button.variant-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
 
     expect(crud.move).toHaveBeenCalledWith(LIBRARY.id, '2026', '2027');
@@ -215,7 +215,7 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     input.value = '2027';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.frn-btn-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('button.variant-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
 
     expect(crud.move).toHaveBeenCalledWith(LIBRARY.id, '2026', '2027');
@@ -237,7 +237,7 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     const { fixture, crud } = setup();
     const host = fixture.componentInstance;
     clickMenuItem(fixture, 'Rename');
-    (fixture.nativeElement.querySelector('.frn-btn-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('button.variant-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
 
     expect(crud.move).not.toHaveBeenCalled();

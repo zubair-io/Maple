@@ -5,11 +5,15 @@
   [class]="'variant-' + variant() + ' size-' + size()"
   [class.icon-only]="iconOnly()"
   [class.is-loading]="loading()"
+  [class.is-active]="active()"
+  [class.is-toggled]="toggled()"
+  [class.is-full-width]="fullWidth()"
   [disabled]="isDisabled()"
   [attr.aria-busy]="loading() ? 'true' : null"
   [attr.aria-label]="ariaLabel()"
   [attr.aria-expanded]="ariaExpandedAttr()"
   [attr.aria-pressed]="ariaPressedAttr()"
+  [attr.aria-haspopup]="ariaHasPopup()"
   (click)="onClick($event)"
 >
   @if (loading()) {
