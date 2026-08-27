@@ -1,7 +1,8 @@
 // EditPreviewPersistService — edit-time developed-preview persist (#2018).
 //
 // Covers the write-policy contract (idle debounce, not per-tick; flushAll
-// for exit/navigate-away/teardown), the RAW-only gate, and the
+// for exit/navigate-away/teardown), the non-RAW persistence gate (#3048 —
+// narrowed to Hosted only; Self-hosted persists non-RAW same as RAW), and the
 // Hosted-vs-server-backed branching (AVIF-when-possible, JPEG fallback on
 // both paths while Hosted records the actual local format). Real
 // `encodeDevelopedRenderToAvif`/`encodeDevelopedRenderToJpeg`
@@ -213,12 +214,34 @@ describe('EditPreviewPersistService — write policy (idle debounce, not per-tic
   });
 });
 
-describe('EditPreviewPersistService — RAW-only gate', () => {
-  it('non-RAW asset: never decodes or writes (decode() ignores xmp for non-RAW — see module doc)', async () => {
-    const decode = vi.fn();
-    const api = { putPreview: vi.fn(() => of(undefined)) };
+describe('EditPreviewPersistService — non-RAW persistence (#3048)', () => {
+  // Since #3039, `RawPipelineService.decode()` genuinely develops non-RAW
+  // bytes with the current XMP applied (via the WASM `develop_non_raw`
+  // entry) — there is no decode-side reason left to skip a non-RAW asset.
+  // The per-branch target-resolution trace (#3048) found:
+  //   - Self-hosted: safe end to end — `absPathFor`, the `PUT /api/preview`
+  //     route, and its `GET /api/preview` reader are extension-agnostic —
+  //     so the blanket gate was removed for this branch.
+  //   - Hosted: still gated. Hosted's cache slot has exactly one reader,
+  //     `HostedPreviewResolver.resolve()`, which unconditionally skips
+  //     non-RAW assets before ever reading it back — persisting one here
+  //     would be a real decode+encode+disk write for a file nothing reads,
+  //     every idle debounce. The gate narrows to exactly this branch.
+
+  it('self-hosted: non-RAW asset decodes and PUTs to the SAME target a RAW asset would', async () => {
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const decode = vi.fn(async (_bytes: Uint8Array, _ext: string, _xmp?: string) =>
+      fakeDecodedImage(),
+    );
+    const api = {
+      putPreview: vi.fn((_path: string, _body: Blob, _contentType: string) => of(undefined)),
+    };
     const svc = setup({
-      store: { findAsset: () => rawAsset('a.jpg') },
+      store: {
+        findAsset: () => rawAsset('a.jpg'),
+        backend: 'self-hosted',
+        absPathFor: () => '/lib/2026/a.jpg',
+      },
       pipeline: { decode },
       api,
     });
@@ -226,8 +249,62 @@ describe('EditPreviewPersistService — RAW-only gate', () => {
     svc.schedule('a' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
 
+    // Same decode() call shape as the RAW path (bytes, ext, xmp, preview
+    // size, full-quality) — only `ext` differs ('jpg' vs 'dng').
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(decode.mock.calls[0][1]).toBe('jpg');
+    // Same PUT target a RAW asset at this path would resolve to — the write
+    // path (`_persistServerBacked` / `PUT /api/preview`) is keyed on the
+    // asset's absolute path, not its extension.
+    expect(api.putPreview).toHaveBeenCalledTimes(1);
+    const [path, body, contentType] = api.putPreview.mock.calls[0];
+    expect(path).toBe('/lib/2026/a.jpg');
+    expect(body.type).toBe('image/avif');
+    expect(contentType).toBe('image/avif');
+  });
+
+  it('hosted: non-RAW asset stays gated — the narrowed branch never decodes or writes', async () => {
+    const decode = vi.fn();
+    const writePreview = vi.fn();
+    const folder = { write: true };
+    const svc = setup({
+      store: { findAsset: () => rawAsset('a.jpg'), backend: 'hosted', currentFolder: () => folder },
+      pipeline: { decode },
+      mapleCache: { writePreview },
+    });
+
+    // A real addressable, writable-folder location — so if the gate were
+    // gone, this WOULD reach `_persistHosted` (see the sibling RAW test
+    // above with the same shape). It must not.
+    svc.schedule('lib:2026/a.jpg' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+
     expect(decode).not.toHaveBeenCalled();
-    expect(api.putPreview).not.toHaveBeenCalled();
+    expect(writePreview).not.toHaveBeenCalled();
+  });
+
+  it('hosted single-file session (no folder handle, non-addressable id): non-RAW also no-ops', async () => {
+    // Mirrors `enterSingleFileWorkspace`'s real shape: `currentFolder()` is
+    // cleared to null and the asset id is a bare UUID (no ':') — this test
+    // asserts the non-RAW gate short-circuits before ever reaching that
+    // (already-safe) null-folder/no-location fallthrough.
+    const decode = vi.fn();
+    const writePreview = vi.fn();
+    const svc = setup({
+      store: {
+        findAsset: () => rawAsset('a.jpg'),
+        backend: 'hosted',
+        currentFolder: () => null,
+      },
+      pipeline: { decode },
+      mapleCache: { writePreview },
+    });
+
+    svc.schedule('9f2c9b1e-not-addressable' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+
+    expect(decode).not.toHaveBeenCalled();
+    expect(writePreview).not.toHaveBeenCalled();
   });
 
   it('unknown asset (store has no record): never decodes or writes', async () => {
