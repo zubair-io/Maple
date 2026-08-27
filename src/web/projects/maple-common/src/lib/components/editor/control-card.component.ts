@@ -31,7 +31,7 @@
 // Per-slider double-click zeroes that one slider (handled via resetRequest).
 
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
-import { LivingSliderComponent } from '../develop/living-slider.component';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { MapleIconComponent, type MapleIconName } from '../../icons/maple-icon.component';
 import {
   type ToolGroup,
@@ -90,7 +90,7 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
 @Component({
   selector: 'pro-control-card',
   standalone: true,
-  imports: [LivingSliderComponent, MapleIconComponent],
+  imports: [MuiLivingSliderComponent, MapleIconComponent],
   templateUrl: './control-card.component.html',
   styleUrl: './control-card.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -241,10 +241,6 @@ export class ControlCardComponent {
     if (!r) return false;
     // Bipolar if range is symmetric around zero: lo === -hi
     return r[0] === -r[1];
-  }
-
-  defaultFor(tool: ToolId): number {
-    return defaultDisplayValue(tool);
   }
 
   // ── Value edits ───────────────────────────────────────────────────────

@@ -22,7 +22,14 @@
       }
     </div>
     @if (selectedLookId()) {
-      <mui-living-slider label="Strength" [(value)]="strength" [min]="0" [max]="100" unit="%" />
+      <mui-living-slider
+        label="Strength"
+        [(value)]="strength"
+        [min]="0"
+        [max]="100"
+        unit="%"
+        (resetRequest)="strength.set(100)"
+      />
     }
   }
 </div>

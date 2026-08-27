@@ -63,7 +63,7 @@ import {
 } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
-import { LivingSliderComponent } from '../develop/living-slider.component';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { FILM_CATALOG, type FilmCategory } from '../../generated/film-catalog.generated';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 
@@ -118,7 +118,7 @@ const STRENGTH_RANGE = ADJUSTMENT_RANGES.filmStrength;
 @Component({
   selector: 'film-panel',
   standalone: true,
-  imports: [LivingSliderComponent],
+  imports: [MuiLivingSliderComponent],
   templateUrl: './film-panel.component.html',
   styleUrl: './film-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

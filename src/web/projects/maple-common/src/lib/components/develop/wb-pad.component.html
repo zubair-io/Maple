@@ -25,33 +25,27 @@
     </button>
   </div>
 
-  <!-- 2-D pad -->
-  <div
-    #padEl
+  <!-- 2-D pad — mui-pad-2d owns the puck/crosshair chrome and the
+       pointer-capture drag; the WB-specific Kelvin/tint domain (and the
+       #2412 clamped arrow-key stepping, still `onPadKeyDown` below) stays
+       owned by this wrapper via `[stepKeyboard]="false"` + `(arrowKey)`. -->
+  <mui-pad-2d
     class="pad"
-    role="application"
-    tabindex="0"
-    aria-label="White balance — drag to set temperature and tint"
-    [attr.aria-valuetext]="'Temp ' + tempLabel() + ', Tint ' + tintLabel()"
-    (pointerdown)="onPadPointerDown($event)"
-    (keydown)="onPadKeyDown($event)"
+    ariaLabel="White balance — drag to set temperature and tint"
+    [fill]="true"
+    [aspectRatio]="2"
+    [crosshair]="true"
+    [value]="padValue()"
+    (valueChange)="onPadValueChange($event)"
+    [stepKeyboard]="false"
+    (arrowKey)="onPadKeyDown($event)"
   >
-    <!-- Gradient layers -->
+    <!-- Gradient layers (WB-specific fill; mui-pad-2d's own `gradient` input
+         paints a single flat background, so the two-axis composited fill
+         stays a projected overlay rather than one CSS string). -->
     <div class="pad-grad-temp"></div>
     <div class="pad-grad-tint"></div>
-
-    <!-- Crosshair -->
-    <div class="crosshair-h" [style.top.%]="(1 - puckPos().y) * 100"></div>
-    <div class="crosshair-v" [style.left.%]="puckPos().x * 100"></div>
-
-    <!-- Puck -->
-    <div
-      class="puck"
-      [style.left.%]="puckPos().x * 100"
-      [style.top.%]="(1 - puckPos().y) * 100"
-      aria-hidden="true"
-    ></div>
-  </div>
+  </mui-pad-2d>
 
   <!-- Axis labels -->
   <div class="axis-row" aria-hidden="true">

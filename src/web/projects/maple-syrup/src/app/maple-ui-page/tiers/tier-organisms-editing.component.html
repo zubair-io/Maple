@@ -194,6 +194,7 @@
         [sliders]="controlSurfaceSliders"
         (tabChanged)="onControlTabChanged($event)"
         (sliderChanged)="onControlSliderChanged($event)"
+        (sliderReset)="onControlSliderReset($event)"
       />
     </div>
     <div>
@@ -237,6 +238,7 @@
         [sliders]="mobileControlSliders"
         (toolSelected)="onMobileToolSelected($event)"
         (sliderChanged)="onMobileSliderChanged($event)"
+        (sliderReset)="onMobileSliderReset($event)"
       />
     </div>
     <div>

@@ -21,7 +21,7 @@
 // behavior-preserving scope.
 //
 // One component, two slots:
-//   • Phone bottom sheet (`<app-bottom-sheet>`) triggered by the `i` icon
+//   • Phone bottom sheet (`<mui-sheet-shell>`) triggered by the `i` icon
 //     in the Editor (S5) header. `[insideSheet]="true"` renders an inline
 //     sheet header (title + close X) because the bottom sheet primitive
 //     ships only a grab handle.

@@ -58,3 +58,23 @@ export function updateSheetDragOffset(
 export function isDistanceDismissed(dy: number, sheetHeight: number, fraction: number): boolean {
   return sheetHeight > 0 && dy >= sheetHeight * fraction;
 }
+
+/** Below this elapsed time (ms), a velocity reading isn't trusted — no real
+ * drag produces same-millisecond pointer samples, so a `dt` this small is a
+ * measurement artifact (e.g. two synthetic events constructed back-to-back
+ * in a test, which share one `performance.now()`-derived `timeStamp`), not
+ * a genuine flick. */
+const MIN_VELOCITY_SAMPLE_MS = 8;
+
+/** True once a pan-down flick's release velocity crosses `threshold`
+ * (px/s) — a fast short flick dismisses even short of the distance
+ * threshold above. `dy`/`dt` are the release-relative delta over whichever
+ * sample window the caller measured (BottomSheetComponent / mui-sheet-shell
+ * both use the last ~100ms, falling back to the whole drag when it was
+ * shorter than that). `dt` below {@link MIN_VELOCITY_SAMPLE_MS} never
+ * dismisses — see its doc comment. */
+export function isVelocityDismissed(dy: number, dt: number, threshold: number): boolean {
+  if (dt < MIN_VELOCITY_SAMPLE_MS) return false;
+  const pxPerSecond = (dy / dt) * 1000;
+  return pxPerSecond >= threshold;
+}
