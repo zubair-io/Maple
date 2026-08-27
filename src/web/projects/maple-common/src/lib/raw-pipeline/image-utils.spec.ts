@@ -293,3 +293,112 @@ describe('encodeDevelopedRenderToAvif / encodeDevelopedRenderToJpeg (#2018 edit-
     expect(blob.type).toBe('image/jpeg');
   });
 });
+
+describe('decodeNonRawToSceneLinearF32 (#3039 review — tight identity check)', () => {
+  // #3039 review: an independent verification of the #3039 fix reported a
+  // #808080 grey-card JPEG rendering at compositor mean ~39/255 with NO
+  // edits applied (expected ~128/255, an identity round-trip). raw-wasm's
+  // own `develop_non_raw_default_model_round_trips_grey_within_tight_tolerance`
+  // (raw-wasm/src/tests.rs) proves the RUST HALF of that round trip is
+  // correct in isolation (128 in -> 127 out, i.e. within 1). This spec pins
+  // down the OTHER half this function owns: the browser-side sRGB-byte ->
+  // scene-linear-Rec.2020-f32 conversion `develop_non_raw`'s caller performs
+  // BEFORE the WASM call — the one place outside Rust the #3039 fix added
+  // math that could silently double-decode (or otherwise corrupt) the
+  // signal without either half's own isolated tests catching it.
+  //
+  // A #808080 canvas fill reads back as byte 128 in every channel — this
+  // synthesizes that exact `ImageData` and asserts `decodeNonRawToSceneLinearF32`
+  // returns the SAME linear value `develop_non_raw`'s Rust test derives the
+  // same way (`((128/255 + 0.055) / 1.055) ** 2.4`), not some other value a
+  // double gamma-decode (`srgbToLinear` applied twice) or a missed decode
+  // (returning the raw 0.502 byte fraction unconverted) would produce —
+  // both of which are numerically far outside this test's tolerance.
+  let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
+  let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas;
+
+  const GREY_BYTE = 128;
+  const W = 2;
+  const H = 2;
+  const greyData = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < greyData.length; i += 4) {
+    greyData[i] = GREY_BYTE;
+    greyData[i + 1] = GREY_BYTE;
+    greyData[i + 2] = GREY_BYTE;
+    greyData[i + 3] = 255;
+  }
+
+  beforeEach(() => {
+    originalCreateImageBitmap = globalThis.createImageBitmap;
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      value: vi.fn(async () => ({ width: W, height: H, close: vi.fn() })),
+      writable: true,
+      configurable: true,
+    });
+
+    originalOffscreenCanvas = globalThis.OffscreenCanvas;
+    class OffscreenCanvasStub {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return {
+          drawImage: vi.fn(),
+          getImageData: () => ({ data: greyData, width: W, height: H }),
+        };
+      }
+    }
+    Object.defineProperty(globalThis, 'OffscreenCanvas', {
+      value: OffscreenCanvasStub,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      value: originalCreateImageBitmap,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, 'OffscreenCanvas', {
+      value: originalOffscreenCanvas,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('decodes a #808080 canvas readback to the SINGLE-decoded linear value, not double-decoded or un-decoded', async () => {
+    const { decodeNonRawToSceneLinearF32 } = await import('./image-utils');
+    const { width, height, rgba } = await decodeNonRawToSceneLinearF32(
+      new Uint8Array([0xff, 0xd8]),
+    );
+
+    expect(width).toBe(W);
+    expect(height).toBe(H);
+
+    // The exact IEC 61966-2-1 formula, computed independently of the LUT
+    // under test (image-utils.ts's `srgbToLinear`/`srgbToLinearLut`) — same
+    // value `raw-wasm`'s Rust identity test derives the same way.
+    const srgb = GREY_BYTE / 255;
+    const expectedLinear = Math.pow((srgb + 0.055) / 1.055, 2.4);
+    // A double sRGB decode would additionally apply the transfer function to
+    // `expectedLinear` itself, landing far below this tolerance.
+    const doubleDecoded = Math.pow((expectedLinear + 0.055) / 1.055, 2.4);
+    // A missed decode would leave the raw byte fraction untouched.
+    const undecoded = srgb;
+
+    for (let i = 0, j = 0; i < W * H; i++, j += 4) {
+      // R, G, B all equal (neutral grey) and within 0.001 of the single-decode value.
+      expect(rgba[j]).toBeCloseTo(expectedLinear, 3);
+      expect(rgba[j + 1]).toBeCloseTo(expectedLinear, 3);
+      expect(rgba[j + 2]).toBeCloseTo(expectedLinear, 3);
+      expect(rgba[j + 3]).toBe(1.0); // alpha always 1.0
+
+      // Guard against the two failure modes a bug here would actually produce.
+      expect(Math.abs(rgba[j] - doubleDecoded)).toBeGreaterThan(0.05);
+      expect(Math.abs(rgba[j] - undecoded)).toBeGreaterThan(0.05);
+    }
+  });
+});
