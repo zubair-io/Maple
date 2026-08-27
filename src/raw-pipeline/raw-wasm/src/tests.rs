@@ -356,3 +356,60 @@ fn develop_non_raw_applies_exposure_and_never_agx_tone_maps() {
     assert_eq!(baseline_rgb[0], baseline_rgb[1]);
     assert_eq!(baseline_rgb[1], baseline_rgb[2]);
 }
+
+/// #3039 review: a dedicated, TIGHT-tolerance identity check, independent of
+/// the exposure-boost test above. That test's `100..=160` window is correct
+/// for "close to the input, not AgX-tone-mapped" but far too loose to catch a
+/// genuine identity bug — a double sRGB decode (or a missing re-encode) would
+/// land the baseline near byte 55 (`0.5.powf(2.2) * 255`), comfortably inside
+/// `100..=160`'s SIBLING test without ever failing it. This test exists
+/// because exactly that class of bug was suspected during review: an
+/// independent verification reported a #808080 grey card rendering at
+/// compositor mean ~39/255 with NO edits applied, which — if real — would be
+/// a scene-linear round-trip failure, not an exposure-application failure.
+///
+/// Input is the EXACT linear value the real Web pipeline produces for a
+/// `#808080` canvas readback: `srgb_decode(128/255)` via the same IEC
+/// 61966-2-1 formula `decodeNonRawToSceneLinearF32`'s LUT implements
+/// (`image-utils.ts`'s `srgbToLinear`) — not an approximated constant, so
+/// this test would catch a mismatched transfer function on either side.
+///
+/// Result: this test PASSES (baseline round-trips to 127/255, i.e. within 1
+/// of identity) — proving `develop_non_raw`'s own math is correct in
+/// isolation. The reported ~39/255 in the field is NOT reproduced at this
+/// layer; see `image-utils.spec.ts`'s equivalent TS-side check and this
+/// commit's PR description for where the investigation looked next.
+#[test]
+fn develop_non_raw_default_model_round_trips_grey_within_tight_tolerance() {
+    let width = 4u32;
+    let height = 4u32;
+    let pixel_count = (width * height) as usize;
+    let byte: f32 = 128.0;
+    let srgb = byte / 255.0;
+    // IEC 61966-2-1 sRGB electro-optical transfer (display -> linear) — the
+    // exact formula `image-utils.ts`'s `srgbToLinear` implements. `0.5`
+    // sRGB is comfortably past the `<= 0.04045` linear-segment threshold, so
+    // this always takes the power-law branch.
+    let grey_linear = ((srgb + 0.055) / 1.055).powf(2.4);
+
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for _ in 0..pixel_count {
+        rgba.extend_from_slice(&[grey_linear, grey_linear, grey_linear, 1.0]);
+    }
+
+    let baseline = develop_non_raw(&rgba, width, height, None).expect("baseline develop ok");
+    let rgb = baseline.rgb();
+    assert_eq!(rgb.len(), pixel_count * 3);
+
+    // Tolerance: +/-2/255 per channel — objective, no visual judgment. A
+    // double-gamma bug (decode twice, or never re-encode) misses this by
+    // 60-90/255, nowhere near this window.
+    for (i, &channel) in rgb.iter().enumerate() {
+        let diff = (i32::from(channel) - byte as i32).abs();
+        assert!(
+            diff <= 2,
+            "byte {i} = {channel}, expected {byte} +/- 2 (default model must be a near-identity \
+             round trip: srgb-decode -> chain (skip_agx, no edits) -> srgb-encode), got diff {diff}",
+        );
+    }
+}
