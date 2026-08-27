@@ -25,32 +25,30 @@
   }
 }
 
-.chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: transform tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
-
-  &.is-expanded {
-    transform: rotate(90deg);
-  }
+// Drag-over highlight when a consumer attaches CDK's `cdkDropList` directly
+// to `<mui-tree-row>` itself (Angular directives attach to any host
+// element, custom or native, and CDK applies `.cdk-drop-list-receiving` to
+// that same element) — the class lands on THIS component's own host tag,
+// not the inner `.mui-tree-row` div, hence `:host(...)` rather than a
+// descendant selector. No extra input is needed to drive this (MW4, ticket
+// #3031; matches the pre-migration look from `_tree-row-chrome.scss`).
+:host(.cdk-drop-list-receiving) {
+  background: var(--color-primary-dim);
+  outline: 1.5px dashed var(--color-primary);
+  outline-offset: -1.5px;
 }
 
-.chevron-spacer {
-  width: 16px;
-  flex: 0 0 auto;
-}
+// Chevron/busy-spinner/error-glyph styling now lives in
+// `mui-tree-row-chevron.component.scss` (MW4, ticket #3031 — extracted
+// alongside its template to clear a fallow complexity finding).
 
 .row-icon {
   color: var(--color-primary);
   flex: 0 0 auto;
+
+  &.row-icon-muted {
+    color: var(--color-text-muted);
+  }
 }
 
 .row-label {

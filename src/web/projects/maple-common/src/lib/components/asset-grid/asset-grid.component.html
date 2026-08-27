@@ -30,12 +30,12 @@
        library root and pick up anything the slow polling watcher hasn't
        seen yet. -->
   @if (state.currentRegisteredFolder(); as rf) {
-    <button
-      type="button"
-      class="pill-btn flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[10px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-muted border-[0.5px] border-border hover:bg-surface-hover hover:text-text-main disabled:cursor-not-allowed disabled:opacity-60"
+    <mui-button
+      variant="secondary"
+      size="sm"
       [disabled]="state.rescanStatus() === 'running' || state.rescanStatus() === 'done'"
       [title]="state.rescanError() ?? 'Re-scan ' + rf.path + ' for new files'"
-      (click)="state.rescanCurrentFolder()"
+      (pressed)="state.rescanCurrentFolder()"
     >
       @switch (state.rescanStatus()) {
         @case ('running') {
@@ -51,7 +51,7 @@
           <span>Rescan</span>
         }
       }
-    </button>
+    </mui-button>
   }
 
   <div class="flex-1"></div>
@@ -75,28 +75,26 @@
   <div class="w-px h-5 bg-border"></div>
 
   <!-- Sort pill -->
-  <button
-    type="button"
-    class="pill-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-main border-[0.5px] border-border hover:bg-surface-hover"
-    [class.is-active]="state.sort() === 'date'"
-    [attr.aria-label]="'Sort: ' + (state.sort() === 'date' ? 'Date' : 'Name')"
-    (click)="toggleSort()"
+  <mui-button
+    variant="secondary"
+    [active]="state.sort() === 'date'"
+    iconLeading="sort"
+    [ariaLabel]="'Sort: ' + (state.sort() === 'date' ? 'Date' : 'Name')"
+    (pressed)="toggleSort()"
   >
-    <maple-icon name="sort" [size]="12" />
-    <span>{{ state.sort() === 'date' ? 'Date' : 'Name' }}</span>
-  </button>
+    {{ state.sort() === 'date' ? 'Date' : 'Name' }}
+  </mui-button>
 
   <!-- Filter pill -->
-  <button
-    type="button"
-    class="pill-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-main border-[0.5px] border-border hover:bg-surface-hover"
-    [class.is-active]="state.filter() !== 'all'"
-    [attr.aria-label]="'Filter: ' + filterLabel()"
-    (click)="cycleFilter()"
+  <mui-button
+    variant="secondary"
+    [active]="state.filter() !== 'all'"
+    iconLeading="filter"
+    [ariaLabel]="'Filter: ' + filterLabel()"
+    (pressed)="cycleFilter()"
   >
-    <maple-icon name="filter" [size]="12" />
-    <span>{{ filterLabel() }}</span>
-  </button>
+    {{ filterLabel() }}
+  </mui-button>
 
   <div class="w-px h-5 bg-border"></div>
 

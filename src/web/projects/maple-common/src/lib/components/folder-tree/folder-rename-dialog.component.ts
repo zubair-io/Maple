@@ -21,10 +21,12 @@ import {
   output,
 } from '@angular/core';
 import { validateFolderNameDraft } from './folder-name-validation';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-folder-rename-dialog',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './folder-rename-dialog.component.html',
   styleUrl: './folder-rename-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

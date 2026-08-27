@@ -1,17 +1,8 @@
-// Standalone styles — this row lives in its own component (Angular's
-// default view encapsulation scopes `folder-tree.component.scss`'s rules
-// to that OTHER template), so the row's hover/selected/focus/drop-
-// receiving look is self-contained here via a shared mixin
-// (`tree-row-chrome.scss` — see that file's doc comment). The chevron/
-// loading-spinner look lives in `folder-tree-expand-icon.component.scss`
-// now that block is its own child component.
-
-@use '../../styles/tree-row-chrome' as treeRow;
-
+// The row's hover/selected/focus/drop-receiving look now lives entirely on
+// `mui-tree-row` itself (MW4, ticket #3031 — this row composes
+// `<mui-tree-row>` rather than rendering its own `.tree-row` markup). Only
+// the recursive host's own block-level display remains this component's
+// concern.
 :host {
   display: block;
-}
-
-.tree-row {
-  @include treeRow.tree-row-interaction-states;
 }

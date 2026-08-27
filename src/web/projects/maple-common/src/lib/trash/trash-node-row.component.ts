@@ -8,12 +8,12 @@
 // exactly like the rest of `folder-tree.component.ts`.
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { MapleIconComponent } from '../icons/maple-icon.component';
+import { MuiTreeRowComponent } from '../ui/tree-row/mui-tree-row.component';
 
 @Component({
   selector: 'app-trash-node-row',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MuiTreeRowComponent],
   templateUrl: './trash-node-row.component.html',
   styleUrl: './trash-node-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -23,9 +23,4 @@ export class TrashNodeRowComponent {
   readonly badge = input<string | null>(null);
 
   readonly activate = output<void>();
-
-  onKeydownSpace(event: Event): void {
-    event.preventDefault();
-    this.activate.emit();
-  }
 }
