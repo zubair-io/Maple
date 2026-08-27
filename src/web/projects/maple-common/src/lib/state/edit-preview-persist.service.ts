@@ -130,22 +130,32 @@ export class EditPreviewPersistService {
    * allowed to surface as a user-visible error or affect the editor. */
   private async _persist(id: AssetId): Promise<void> {
     const asset = this.store.findAsset(id);
-    // Non-RAW assets are out of scope FOR THIS CACHE, not because there is no
-    // developed render to persist any more: `RawPipelineService.decode`'s
-    // non-RAW branch DOES now apply `xmp` via the WASM `develop_non_raw`
-    // entry (#3039 fixed the canvas-side bug this used to describe — a JPEG
-    // opened in the single-file editor genuinely IS edited and has a real
-    // developed render). This skip stays for a narrower reason: the
-    // hosted/self-hosted target resolution below (`previewLocation`,
-    // `folder?.write`, the single-file memory-only path) has never been
-    // exercised for a non-RAW single-file session, so persisting one here is
-    // untested surface, not a decode limitation. The unedited tier (#2010)
-    // still keeps that asset's grid thumbnail current in the meantime.
-    if (!asset || !isSupportedRaw(asset.filename)) return;
+    // There is no longer a decode-side reason to skip non-RAW assets here:
+    // `RawPipelineService.decode`'s non-RAW branch DOES now apply `xmp` via
+    // the WASM `develop_non_raw` entry (#3039 fixed the canvas-side bug this
+    // used to describe — a JPEG opened in the editor genuinely IS edited and
+    // has a real developed render). Per-branch target-resolution safety is
+    // checked below instead of gated blanket here (#3048):
+    //   - Self-hosted (`_persistServerBacked` / `PUT /api/preview`): safe for
+    //     any filename — `absPathFor`, the route, and its `GET /api/preview`
+    //     reader are all extension-agnostic.
+    //   - Hosted (below): still RAW-only — see the guard there.
+    if (!asset) return;
 
     try {
       let hostedTarget: HostedPreviewTarget | null = null;
       if (this.store.backend === 'hosted') {
+        // Hosted's cache slot has exactly one reader today —
+        // `HostedPreviewResolver.resolve()` — and it unconditionally skips
+        // non-RAW assets before ever calling `readPreview()` ("No
+        // embedded-preview concept for a non-RAW still (already
+        // display-ready pixels)", hosted-preview-resolver.service.ts). If
+        // this write went ahead for a non-RAW asset, every idle-debounce
+        // would decode + encode + hit disk for a file nothing reads back —
+        // an orphaned write, not a correctness bug, but real cost for zero
+        // product value. Stays gated until that reader grows a non-RAW
+        // branch (separate ticket, out of scope for #3048).
+        if (!isSupportedRaw(asset.filename)) return;
         const folder = this.store.currentFolder();
         const location = previewLocation(id);
         if (!folder?.write || !location) return;
