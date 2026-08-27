@@ -29,6 +29,14 @@ import {
 import type { MuiCommandItem } from '@maple-common';
 import { resolveSingleFileSelection } from './single-file-selection';
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
 export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
   'SINGLE_FILE_PERSISTENCE',
   { providedIn: 'root', factory: () => persistFile },
@@ -76,28 +84,23 @@ export class LandingComponent {
 
   @HostListener('document:keydown', ['$event'])
   onShortcut(event: KeyboardEvent): void {
-    const meta = event.metaKey || event.ctrlKey;
-    if (!meta) return;
+    const action = this.shortcutAction(event);
+    if (!action) return;
+    event.preventDefault();
+    action();
+  }
+
+  /** Maps a keydown to its landing action, or null when it isn't one of
+   * ours. While typing (e.g. in the palette's own input) only ⌘K stays
+   * global — the O-shortcuts defer to the focused editable element. */
+  private shortcutAction(event: KeyboardEvent): (() => void) | null {
+    if (!event.metaKey && !event.ctrlKey) return null;
     const key = event.key.toLowerCase();
-    // While typing (e.g. in the palette's own input), only ⌘K stays global;
-    // the O-shortcuts defer to the focused editable element.
-    const target = event.target;
-    const editing =
-      target instanceof HTMLElement &&
-      (target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target.isContentEditable);
-    if (editing && key !== 'k') return;
-    if (key === 'o' && !event.shiftKey) {
-      event.preventDefault();
-      this.openPhoto();
-    } else if (key === 'o' && event.shiftKey && this.hasFsAccess) {
-      event.preventDefault();
-      void this.openFolder();
-    } else if (key === 'k') {
-      event.preventDefault();
-      this.commandsOpen.update((open) => !open);
-    }
+    if (isEditableTarget(event.target) && key !== 'k') return null;
+    if (key === 'k') return () => this.commandsOpen.update((open) => !open);
+    if (key !== 'o') return null;
+    if (event.shiftKey) return this.hasFsAccess ? () => void this.openFolder() : null;
+    return () => this.openPhoto();
   }
 
   /** Hidden <input type="file"> wired to the "Open a photo" CTA. */
