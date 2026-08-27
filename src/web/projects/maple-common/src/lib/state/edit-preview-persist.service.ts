@@ -169,6 +169,11 @@ export class EditPreviewPersistService {
         await this._decodeAndPersist(id, asset.filename, bytes, hostedTarget);
         return;
       }
+      // Resolve the server-backed target BEFORE the expensive fetch +
+      // decode + encode: a non-addressable id (e.g. a bare-UUID single-file
+      // session) has no on-disk path, and `_persistServerBacked` would
+      // no-op after all that work on every idle debounce.
+      if (!this.store.absPathFor(id) || !this.serverPersistence) return;
       const bytes = this.cache.bytesFor(id) ?? (await this.cache.bytesForAsset(id));
       await this._decodeAndPersist(id, asset.filename, bytes, hostedTarget);
     } catch (err) {
