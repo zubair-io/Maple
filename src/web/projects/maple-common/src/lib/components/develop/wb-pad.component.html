@@ -32,6 +32,7 @@
   <mui-pad-2d
     class="pad"
     ariaLabel="White balance — drag to set temperature and tint"
+    [valueText]="'Temp ' + tempLabel() + ', Tint ' + tintLabel()"
     [fill]="true"
     [aspectRatio]="2"
     [crosshair]="true"

@@ -53,6 +53,9 @@ export class MuiPad2dComponent extends PointerCaptureDragBase<MuiPad2dValue> {
   readonly aspectRatio = input<number>(1);
   readonly gradient = input<string>('linear-gradient(135deg, #3b82f6, #f5f2eb 50%, #f59e0b)');
   readonly ariaLabel = input<string>('2-D pad');
+  /** Domain-specific aria-valuetext (e.g. "Temp 6500K, Tint +2") — falls
+   * back to the raw x/y coordinates. */
+  readonly valueText = input<string | null>(null);
   readonly disabled = input<boolean>(false);
   /** Draws two full-width/height guide lines through the puck (e.g. the WB
    *  pad's temperature/tint crosshair) in addition to the puck itself. */

@@ -11,6 +11,7 @@
         />
         <mui-living-slider
           label="Lum"
+          [ariaLabel]="zone.label + ' luminance'"
           [value]="valueOf(zone.luminance)"
           [min]="lumMin"
           [max]="lumMax"
@@ -25,6 +26,7 @@
 
   <mui-living-slider
     label="Balance"
+    ariaLabel="Colour grading balance"
     [value]="balance()"
     [min]="balanceMin"
     [max]="balanceMax"

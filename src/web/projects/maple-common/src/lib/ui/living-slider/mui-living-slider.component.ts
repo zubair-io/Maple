@@ -37,6 +37,10 @@ import {
 })
 export class MuiLivingSliderComponent implements OnDestroy {
   readonly label = input.required<string>();
+  /** Accessible name override — falls back to the visible label. Lets
+   * repeated instances (e.g. one "Lum" slider per grading zone) announce
+   * distinctly to screen readers. */
+  readonly ariaLabel = input<string | null>(null);
   readonly value = model<number>(0);
   readonly min = input.required<number>();
   readonly max = input.required<number>();
