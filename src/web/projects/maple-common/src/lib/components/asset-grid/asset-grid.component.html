@@ -144,9 +144,8 @@
           }
           @if (item.kind === 'image') {
             @let isSelected = state.selectedAssetIds().has(item.asset.id);
-            <maple-asset-thumb
+            <maple-asset-tile
               [asset]="item.asset"
-              variant="grid"
               [selected]="isSelected"
               (thumbClick)="onThumbClick(item.asset, $event)"
             />

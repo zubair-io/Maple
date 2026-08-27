@@ -19,12 +19,23 @@ export type MuiImageRadius = 'none' | 'sm' | 'md' | 'lg' | 'full';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiImageComponent {
-  readonly src = input.required<string>();
+  /** Optional so a caller can render the `placeholderBackground` gradient
+   * while a real URL hasn't loaded yet (asset-tile's "thumbnail not
+   * decoded" state) instead of forcing an empty-string `<img src>` through
+   * the broken-image path. Still the primary way to show a photo — most
+   * callers always pass a real URL. */
+  readonly src = input<string>('');
   readonly alt = input.required<string>();
   readonly fit = input<MuiImageFit>('fill');
   readonly radius = input<MuiImageRadius>('md');
   /** `width / height`, e.g. `4 / 3`. Left `null` to size from the box. */
   readonly aspectRatio = input<number | null>(null);
+  /** CSS `background-image` value (e.g. `url(data:image/svg+xml,...)`)
+   * shown in place of the broken-image glyph while `src` is empty — the
+   * "not decoded yet" gradient swatch. Ignored once `src` is non-empty;
+   * has no effect on the broken-image fallback that still applies once a
+   * real `src` fails to load. */
+  readonly placeholderBackground = input<string | null>(null);
 
   readonly broken = signal(false);
   readonly loaded = signal(false);

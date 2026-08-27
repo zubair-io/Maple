@@ -1,11 +1,25 @@
 @let f = folder();
 <div
   class="folder-tile relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1.5 overflow-hidden rounded-[2px] bg-surface text-text-main outline-none"
+  role="button"
+  tabindex="0"
   [class.selected]="selected()"
+  [attr.aria-pressed]="selected()"
   (click)="folderClick.emit($event)"
   (dblclick)="folderDblClick.emit($event)"
+  (keydown)="onKeydown($event)"
 >
-  <maple-icon name="folder" [size]="36" color="var(--color-text-muted)" [strokeWidth]="1.25" />
-  <span class="px-2 text-[11px] font-medium text-text-main truncate max-w-full">{{ f.name }}</span>
-  <div class="folder-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]" aria-hidden="true"></div>
+  <mui-icon name="folder" size="lg" color="var(--color-text-muted)" />
+  <mui-text
+    variant="chip-label"
+    color="main"
+    [truncate]="true"
+    [block]="true"
+    class="max-w-full px-2"
+    >{{ f.name }}</mui-text
+  >
+  <div
+    class="folder-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]"
+    aria-hidden="true"
+  ></div>
 </div>

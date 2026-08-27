@@ -63,3 +63,46 @@ describe('MuiImageComponent', () => {
     expect(fixture.nativeElement.querySelector('.placeholder')).toBeNull();
   });
 });
+
+describe('MuiImageComponent — placeholderBackground (thumbnail not decoded yet)', () => {
+  function renderEmpty(): ComponentFixture<MuiImageComponent> {
+    TestBed.configureTestingModule({ imports: [MuiImageComponent] });
+    const fixture = TestBed.createComponent(MuiImageComponent);
+    fixture.componentRef.setInput('src', '');
+    fixture.componentRef.setInput('alt', 'A photo');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('renders the gradient background instead of an <img> or the broken glyph when src is empty', () => {
+    const fixture = renderEmpty();
+    fixture.componentRef.setInput('placeholderBackground', 'url(data:image/svg+xml,abc)');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('img')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.placeholder')).toBeNull();
+    const gradient = fixture.nativeElement.querySelector('.gradient-placeholder') as HTMLElement;
+    expect(gradient).toBeTruthy();
+    expect(gradient.style.backgroundImage).toContain('data:image/svg+xml,abc');
+    expect(gradient.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('falls back to the broken-image glyph when src is empty and no placeholderBackground is given', () => {
+    const fixture = renderEmpty();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.gradient-placeholder')).toBeNull();
+    // Empty src still renders an <img> (existing behavior) — unaffected by this extension.
+    expect(fixture.nativeElement.querySelector('img')).toBeTruthy();
+  });
+
+  it('prefers the real <img> over placeholderBackground once src is non-empty', () => {
+    const fixture = renderEmpty();
+    fixture.componentRef.setInput('placeholderBackground', 'url(data:image/svg+xml,abc)');
+    fixture.componentRef.setInput('src', 'photo.jpg');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.gradient-placeholder')).toBeNull();
+    expect(fixture.nativeElement.querySelector('img')).toBeTruthy();
+  });
+});

@@ -28,6 +28,12 @@
   object-fit: cover;
 }
 
+.gradient-placeholder {
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+}
+
 .fit-fit {
   object-fit: contain;
 }
