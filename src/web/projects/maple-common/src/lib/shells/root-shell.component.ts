@@ -5,17 +5,18 @@
 // retired; the pane shells (BrowseShell/EditorShell/PreviewShell/Settings)
 // are themselves made fluid (see the responsive-desktop plan). Every app
 // (`projects/maple`, `projects/maple-syrup`) wraps its root `<app-root>`
-// template in `<app-root-shell />` so the update-toast + LAN-switch banner
+// template in `<app-root-shell />` so the update toast + LAN-switch banner
 // live in one place.
 //
 // Plan: docs/superpowers/plans/2026-07-25-web-responsive-desktop.md Task 1.
 
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { UpdateToastComponent } from '../sw/update-toast.component';
+import { AppUpdateService } from '../sw/app-update.service';
 import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
-import { GpuFallbackNoticeComponent } from '../components/gpu-fallback-notice/gpu-fallback-notice.component';
+import { GpuFallbackNoticeService } from '../components/gpu-fallback-notice/gpu-fallback-notice.service';
 import { MuiStatusTextComponent } from '../ui/status-text/mui-status-text.component';
+import { MuiToastContainerComponent } from '../ui/toast-container/mui-toast-container.component';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 
 @Component({
@@ -23,10 +24,9 @@ import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
   standalone: true,
   imports: [
     RouterOutlet,
-    UpdateToastComponent,
     LanSwitchBannerComponent,
-    GpuFallbackNoticeComponent,
     MuiStatusTextComponent,
+    MuiToastContainerComponent,
   ],
   // The LAN-switch banner is a no-op on the Hosted build (see its
   // LIBRARY_BACKEND gate) — safe to always mount here. The GPU fallback
@@ -44,4 +44,11 @@ export class RootShellComponent {
   // maple-syrup's `HostedRootShellComponent` render the exact same thing
   // from it.
   protected readonly saveState = inject(SidecarSaveStateService);
+  // Replaces the deleted `UpdateToastComponent` / `GpuFallbackNoticeComponent`
+  // wrappers (toast sweep, ticket #3043) — same pattern as `saveState`
+  // above: each service exposes its own `toasts` presentation mapping, and
+  // this shell (plus maple-syrup's `HostedRootShellComponent`) binds it
+  // straight into `<mui-toast-container>`.
+  protected readonly updates = inject(AppUpdateService);
+  protected readonly gpuFallback = inject(GpuFallbackNoticeService);
 }

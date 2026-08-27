@@ -1,22 +1,14 @@
 @if (insideSheet()) {
   <header class="info-panel-header">
     <h2 class="title">Info</h2>
-    <button
-      type="button"
-      class="close"
-      data-testid="info-panel-close"
-      (click)="onClose()"
-      aria-label="Close"
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path
-          d="M3 3l8 8M11 3l-8 8"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-        />
-      </svg>
-    </button>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onClose()"
+    />
   </header>
 }
 

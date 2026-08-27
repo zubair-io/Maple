@@ -1,3 +1,17 @@
 :host {
   display: contents;
 }
+
+// Positions the single-file/read-only-folder save notice over the editor
+// canvas — carried over from the deleted `SingleFileSaveNoticeComponent`'s
+// own `:host` rule (toast sweep, ticket #3043). `:host` above is
+// `display: contents`, so this reaches for the same positioned ancestor
+// (editor-shell's canvas area) the old component did.
+mui-toast {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  z-index: 12;
+  width: min(520px, calc(100vw - 24px));
+  transform: translateX(-50%);
+}

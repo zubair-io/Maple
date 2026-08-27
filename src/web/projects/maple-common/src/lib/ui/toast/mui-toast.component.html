@@ -1,6 +1,6 @@
 <div
   class="mui-toast"
-  [class]="'variant-' + variant()"
+  [class]="'variant-' + variant() + ' surface-' + surface()"
   [class.is-entered]="entered()"
   [class.is-leaving]="leaving()"
 >
@@ -9,7 +9,9 @@
   @if (actionLabel()) {
     <button type="button" class="action" (click)="onActionClick()">{{ actionLabel() }}</button>
   }
-  <button type="button" class="close" aria-label="Dismiss" (click)="dismiss()">
-    <mui-icon name="x" size="xs" />
-  </button>
+  @if (dismissible()) {
+    <button type="button" class="close" aria-label="Dismiss" (click)="dismiss()">
+      <mui-icon name="x" size="xs" />
+    </button>
+  }
 </div>

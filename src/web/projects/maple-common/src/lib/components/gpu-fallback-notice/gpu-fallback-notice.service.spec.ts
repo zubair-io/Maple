@@ -1,5 +1,8 @@
 // GpuFallbackNoticeService (#2415) — the pure state machine behind the
-// "editing is running on a reduced-performance path" notice.
+// "editing is running on a reduced-performance path" notice, plus the
+// `toasts` presentation mapping (toast sweep, ticket #3043) that replaced
+// the deleted `GpuFallbackNoticeComponent` wrapper — see `AppUpdateService`
+// / `SidecarSaveStateService.statusText` for the same pattern.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { GpuFallbackNoticeService } from './gpu-fallback-notice.service';
@@ -51,5 +54,27 @@ describe('GpuFallbackNoticeService', () => {
     service.report('insecure-context');
     expect(service.visible()).toBe(true);
     expect(service.message()).toContain('HTTPS');
+  });
+
+  it('toasts is empty at rest', () => {
+    expect(service.toasts()).toEqual([]);
+  });
+
+  it('toasts carries a single persistent warning toast once a reason is reported', () => {
+    service.report('session-open-failed');
+    expect(service.toasts()).toEqual([
+      {
+        id: 'gpu-fallback',
+        variant: 'warning',
+        message: service.message(),
+        autoDismissMs: null,
+      },
+    ]);
+  });
+
+  it('toasts empties out once dismissed', () => {
+    service.report('insecure-context');
+    service.dismiss();
+    expect(service.toasts()).toEqual([]);
   });
 });

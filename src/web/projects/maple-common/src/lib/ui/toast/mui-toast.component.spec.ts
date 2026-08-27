@@ -108,4 +108,32 @@ describe('MuiToastComponent', () => {
     const fixture = render();
     expect(fixture.nativeElement.querySelector('.action')).toBeNull();
   });
+
+  it('omits the close button when dismissible is false', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('dismissible', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.close')).toBeNull();
+  });
+
+  it('renders the close button by default', () => {
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('.close')).not.toBeNull();
+  });
+
+  it('sets aria-label on the host when given, leaving it absent otherwise', () => {
+    const fixture = render();
+    expect(fixture.nativeElement.getAttribute('aria-label')).toBeNull();
+
+    fixture.componentRef.setInput('ariaLabel', 'Single-file save');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.getAttribute('aria-label')).toBe('Single-file save');
+  });
+
+  it('applies the glass surface class when surface is "glass"', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('surface', 'glass');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mui-toast').className).toContain('surface-glass');
+  });
 });

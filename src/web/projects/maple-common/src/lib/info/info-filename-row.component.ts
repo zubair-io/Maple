@@ -13,11 +13,12 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import type { Asset } from '../models/asset';
 import { ASSET_RENAME_CAPABILITY } from '../rename/asset-rename-capability';
 import { InlineRenameFieldComponent } from '../components/inline-rename-field/inline-rename-field.component';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-info-filename-row',
   standalone: true,
-  imports: [InlineRenameFieldComponent],
+  imports: [InlineRenameFieldComponent, MuiButtonComponent],
   templateUrl: './info-filename-row.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {

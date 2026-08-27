@@ -72,6 +72,19 @@
   aspect-ratio: 1;
 }
 
+// `flex: 1` only matters once the button itself has explicit free space to
+// distribute (i.e. `fullWidth`) — a shrink-to-fit button's row never has
+// leftover space, so this is a no-op there. `min-width: 0` overrides the
+// flex-item default of `auto`, which otherwise refuses to shrink below the
+// label's un-truncated content width — the combination lets a caller drop a
+// `truncate` span in as content and have it actually ellipsize inside a
+// `fullWidth` button (info-filename-row's rename trigger, toast sweep,
+// ticket #3043).
+.label {
+  min-width: 0;
+  flex: 1;
+}
+
 .is-full-width {
   width: 100%;
   justify-content: flex-start;
