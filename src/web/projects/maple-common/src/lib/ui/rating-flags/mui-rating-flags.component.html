@@ -1,89 +1,42 @@
-<div class="mui-rating-flags" [class.is-disabled]="disabled()">
-  <div
-    class="stars"
-    role="slider"
-    tabindex="0"
-    [attr.aria-label]="'Rating'"
-    aria-valuemin="0"
-    [attr.aria-valuemax]="max()"
-    [attr.aria-valuenow]="rating()"
-    (keydown)="onKeydown($event)"
-  >
-    @for (star of stars(); track star) {
-      <button
-        type="button"
-        class="star"
-        [attr.aria-label]="star + ' star' + (star > 1 ? 's' : '')"
-        (click)="setRating(star)"
-      >
-        <mui-icon
-          [name]="star <= rating() ? 'star-filled' : 'star'"
-          size="sm"
-          [color]="star <= rating() ? 'var(--color-star)' : 'var(--color-border)'"
-        />
-      </button>
-    }
-  </div>
-  @if (rating() > 0) {
-    <mui-badge
-      variant="rating"
-      [value]="rating()"
-      [label]="rating() + ' out of ' + max() + ' stars'"
-    />
-  }
-  @if (variant() === 'pills') {
-    <div class="pills" role="group" aria-label="Flag">
-      <button
-        type="button"
-        class="pill"
-        aria-label="Pick"
-        [class.is-active]="flag() === 'pick'"
-        [attr.aria-pressed]="flag() === 'pick'"
-        [disabled]="disabled()"
-        (click)="setFlagState('pick')"
-      >
-        <mui-icon
-          name="flag"
-          size="sm"
-          [color]="flag() === 'pick' ? 'var(--color-success-text)' : 'currentColor'"
-        />
-      </button>
-      <button
-        type="button"
-        class="pill"
-        aria-label="Unflagged"
-        [class.is-active]="flag() === 'none'"
-        [attr.aria-pressed]="flag() === 'none'"
-        [disabled]="disabled()"
-        (click)="setFlagState('none')"
-      >
-        <mui-icon name="dot" size="sm" color="currentColor" />
-      </button>
-      <button
-        type="button"
-        class="pill"
-        aria-label="Reject"
-        [class.is-active]="flag() === 'reject'"
-        [attr.aria-pressed]="flag() === 'reject'"
-        [disabled]="disabled()"
-        (click)="setFlagState('reject')"
-      >
-        <mui-icon
-          name="x"
-          size="sm"
-          [color]="flag() === 'reject' ? 'var(--color-error-text)' : 'currentColor'"
-        />
-      </button>
-    </div>
-  } @else {
-    <button
-      type="button"
-      class="flag"
-      [attr.aria-label]="'Flag: ' + flag()"
-      [attr.aria-pressed]="flag() !== 'none'"
-      (click)="cycleFlag()"
+@if (readonly()) {
+  <!-- Split into its own sub-component to keep this template's cyclomatic
+       complexity down — see mui-rating-flags-display.component.ts's header
+       comment. -->
+  <mui-rating-flags-display [rating]="rating()" [flag]="flag()" [max]="max()" />
+} @else {
+  <div class="mui-rating-flags" [class.is-disabled]="disabled()">
+    <div
+      class="stars"
+      role="slider"
+      tabindex="0"
+      [attr.aria-label]="'Rating'"
+      aria-valuemin="0"
+      [attr.aria-valuemax]="max()"
+      [attr.aria-valuenow]="rating()"
+      (keydown)="onKeydown($event)"
     >
-      <mui-icon name="flag" size="sm" [color]="flagIconColor()" />
-    </button>
-  }
-</div>
+      @for (star of stars(); track star) {
+        <button
+          type="button"
+          class="star"
+          [attr.aria-label]="star + ' star' + (star > 1 ? 's' : '')"
+          (click)="setRating(star)"
+        >
+          <mui-icon
+            [name]="star <= rating() ? 'star-filled' : 'star'"
+            size="sm"
+            [color]="star <= rating() ? 'var(--color-star)' : 'var(--color-border)'"
+          />
+        </button>
+      }
+    </div>
+    @if (rating() > 0) {
+      <mui-badge
+        variant="rating"
+        [value]="rating()"
+        [label]="rating() + ' out of ' + max() + ' stars'"
+      />
+    }
+    <mui-rating-flags-selector [(flag)]="flag" [disabled]="disabled()" [variant]="variant()" />
+  </div>
+}

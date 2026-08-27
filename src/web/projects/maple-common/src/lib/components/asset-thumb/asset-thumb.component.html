@@ -1,19 +1,20 @@
-<!-- fallow-ignore-file complexity -->
+<!-- Filmstrip-only remnant — see this component's header comment. Every
+     conditional below that used to branch on `variant()` collapsed to its
+     `variant === 'filmstrip'` arm once the `grid` arm moved to
+     `<maple-asset-tile>`; the RENDERED OUTPUT for a given asset is
+     unchanged from before that split (verified in
+     asset-thumb.component.spec.ts). -->
 @let a = asset();
 @let url = thumbUrl();
-@let noPreviewBadge = noPreviewBadgeLabel();
 <button
   type="button"
-  class="thumb block text-left relative h-full w-full flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center outline-none"
-  [class.selected]="selected()"
+  class="thumb block text-left relative h-full w-full flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center outline-none variant-filmstrip"
   [class.focused]="focused()"
-  [class.variant-grid]="variant() === 'grid'"
-  [class.variant-filmstrip]="variant() === 'filmstrip'"
   [class.dimmed]="a.hidden"
   [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
   [attr.aria-label]="a.filename"
-  [attr.aria-pressed]="variant() === 'grid' ? selected() : focused()"
-  [attr.aria-current]="variant() === 'filmstrip' && focused() ? 'true' : null"
+  [attr.aria-pressed]="focused()"
+  [attr.aria-current]="focused() ? 'true' : null"
   (click)="thumbClick.emit($event)"
 >
   @if (url) {
@@ -28,25 +29,6 @@
     />
   }
 
-  @if (a.hidden && variant() === 'grid') {
-    <div
-      class="absolute left-[5px] top-[5px] flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
-    >
-      HIDDEN
-    </div>
-  }
-
-  @if (!url && noPreviewBadge && variant() === 'grid') {
-    <div
-      [class]="
-        (a.hidden ? 'top-[22px] ' : 'top-[5px] ') +
-        'absolute left-[5px] flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white'
-      "
-    >
-      {{ noPreviewBadge }}
-    </div>
-  }
-
   <!-- Selection / focus ring. Separate overlay element so it stacks
        above the absolutely-positioned <img>; box-shadow/outline render
        on the .thumb itself which the img completely obscures. -->
@@ -55,125 +37,15 @@
     aria-hidden="true"
   ></div>
 
-  <!-- Select-mode checkbox (#2404) — top-right, next to the edited badge;
-       shifts left when both render so they sit side by side rather than
-       overlapping. Reuses the `selected` input already driving the focus
-       ring, so checked state always matches actual selection membership. -->
-  @if (isSelecting() && variant() === 'grid') {
-    <div
-      data-testid="select-checkbox"
-      [class]="
-        (a.edited ? 'right-[22px] ' : 'right-[5px] ') +
-        'absolute top-[5px] flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] backdrop-blur-[4px] ' +
-        (selected() ? 'bg-primary border-primary' : 'bg-black/45 border-white/30')
-      "
-    >
-      @if (selected()) {
-        <maple-icon name="check" [size]="9" [strokeWidth]="2" color="white" />
-      }
-    </div>
-  }
-
-  @if (a.edited && variant() === 'grid') {
-    <div
-      class="absolute right-[5px] top-[5px] flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] border-success-text bg-success-bg backdrop-blur-[4px]"
-    >
-      <maple-icon name="check" [size]="9" [strokeWidth]="2" color="var(--color-success-text)" />
-    </div>
-  } @else if (a.edited && variant() === 'filmstrip') {
+  @if (a.edited) {
     <div class="absolute right-[3px] top-[3px] h-[5px] w-[5px] rounded-full bg-primary"></div>
   }
 
-  @if (variant() === 'grid') {
+  @if (a.flag === 'pick') {
     <div
-      class="pointer-events-none absolute bottom-[5px] left-[5px] right-[5px] flex items-end justify-between gap-1"
-    >
-      <div class="flex gap-[3px]">
-        @if (a.flag === 'pick') {
-          <div
-            class="rounded-[3px] bg-success-bg px-1 py-0.5 text-[9px] font-semibold tracking-[0.3px] text-success-text backdrop-blur-[4px]"
-          >
-            PICK
-          </div>
-        }
-        @if (a.flag === 'reject') {
-          <div
-            class="rounded-[3px] bg-error-bg px-1 py-0.5 text-[9px] font-semibold tracking-[0.3px] text-error-text backdrop-blur-[4px]"
-          >
-            REJECT
-          </div>
-        }
-      </div>
-      @if (a.rating > 0) {
-        <div class="flex gap-px rounded-[3px] bg-black/45 px-1 py-0.5 backdrop-blur-[4px]">
-          @for (i of STAR_INDICES; track i) {
-            <maple-icon
-              [name]="i <= a.rating ? 'star-filled' : 'star'"
-              [size]="8"
-              [color]="i <= a.rating ? 'var(--color-star)' : 'rgba(255,255,255,0.35)'"
-            />
-          }
-        </div>
-      }
-    </div>
-  } @else {
-    @if (a.flag === 'pick') {
-      <div
-        class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-success-text"
-      ></div>
-    } @else if (a.flag === 'reject') {
-      <div
-        class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-error-text"
-      ></div>
-    }
+      class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-success-text"
+    ></div>
+  } @else if (a.flag === 'reject') {
+    <div class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-error-text"></div>
   }
 </button>
-
-@if (variant() === 'grid') {
-  <!-- Filename bar (#2637) — hover-reveal caption doubling as the
-       double-click-to-rename target. Outside the thumb <button> above
-       (nested interactive elements aren't valid HTML); positioned absolute
-       over the host, which the button already fills. Desktop-only
-       affordance: touch grids have no hover and F2/double-click are
-       desktop interactions anyway.
-
-       Always-visible trigger button lives OUTSIDE the @defer block below
-       (#2706 web-build bundle-size fix) so it never disappears — only
-       `<app-inline-rename-field>` itself (and its own JS) code-splits into
-       a lazy chunk, loaded on the first interaction with this button. Every
-       grid tile in BOTH apps imports this component eagerly, so without
-       this split the rename editing UI's bytes would sit in the main
-       bundle for every asset ever rendered, most of which are never
-       renamed in a session — Hosted's tight bundle-size ratchet is what
-       surfaced this, but it's a legitimate win for Self Hosted's own
-       initial-load cost too. -->
-  <button
-    #renameTrigger
-    type="button"
-    class="filename-bar absolute left-0 right-0 bottom-0 z-10 block w-full truncate rounded-b-[2px] px-1.5 py-0.5 text-left text-[10px] text-white opacity-0"
-    [class.hidden]="isEditingFilename()"
-    [attr.aria-label]="'Rename ' + a.filename"
-    [attr.title]="renameDisabledReason()"
-    (dblclick)="onFilenameDblClick($event)"
-  >
-    {{ a.filename }}
-  </button>
-  @defer (on interaction(renameTrigger)) {
-    @if (isEditingFilename()) {
-      <div
-        class="filename-bar editing absolute left-[3px] right-[3px] bottom-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5"
-        (click)="$event.stopPropagation()"
-      >
-        <app-inline-rename-field
-          [filename]="a.filename"
-          [error]="renameSvc.error()"
-          [busy]="renameSvc.busy()"
-          [collision]="renameSvc.collision()?.assetId === a.id"
-          (committed)="onRenameCommit($event)"
-          (cancelled)="renameSvc.cancel()"
-          (collisionResolved)="onCollisionResolved($event)"
-        />
-      </div>
-    }
-  }
-}

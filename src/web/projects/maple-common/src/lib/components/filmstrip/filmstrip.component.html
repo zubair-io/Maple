@@ -27,12 +27,7 @@
     @for (asset of state.assetsInSelectedFolder(); track asset.id) {
       @let isFocused = state.focusedAssetId() === asset.id;
       <div class="shrink-0" [style.height.px]="thumbH(asset)" [attr.data-id]="asset.id">
-        <maple-asset-thumb
-          [asset]="asset"
-          variant="filmstrip"
-          [focused]="isFocused"
-          (thumbClick)="select(asset)"
-        />
+        <maple-asset-thumb [asset]="asset" [focused]="isFocused" (thumbClick)="select(asset)" />
       </div>
     }
   </div>
