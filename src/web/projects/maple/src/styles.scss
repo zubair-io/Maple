@@ -14,8 +14,8 @@
 @use '../../maple-common/src/lib/pro-tokens';
 // Shared reset/scrollbar/input baseline, identical across both app
 // entrypoints (#3000 fallow dedup). The element box-sizing reset below is
-// NOT in this partial — it stays local because it's wrapped in `@layer
-// base` here but not in Hosted's styles.scss.
+// NOT in this partial — it stays local, wrapped in `@layer base` at each
+// app's own entrypoint (Hosted matched this in #3035).
 @use '../../maple-common/src/lib/base-chrome';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
