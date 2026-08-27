@@ -1,6 +1,6 @@
 // gradient-catalog.ts — CSS linear-gradient map for every wired ToolId
-// and its primary sub-param. Used by LivingSliderComponent to paint the
-// track with the tool's characteristic colour ramp.
+// and its primary sub-param. Fed into `mui-living-slider`'s `gradient`
+// input to paint the track with the tool's characteristic colour ramp.
 //
 // Stop values are pending the final design import from primitives.jsx (GRAD
 // constants); these are recognisable placeholders derived from the token

@@ -44,6 +44,7 @@ export class MuiMobileControlBarComponent {
   readonly toolSelected = output<string>();
   readonly tabChanged = output<string>();
   readonly sliderChanged = output<{ id: string; value: number }>();
+  readonly sliderReset = output<string>();
 
   isSelected(tool: MuiMobileControlBarTool): boolean {
     return tool.id === this.toolId();

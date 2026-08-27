@@ -146,9 +146,17 @@ export class MuiPageEditorComponent {
     this.showHud(change.id, change.value);
   }
 
+  onControlSliderReset(id: string): void {
+    this.onControlSliderChanged({ id, value: 0 });
+  }
+
   onAdjustmentValueChanged(change: { sliderId: string; value: number }): void {
     this.adjustmentValues.update((values) => ({ ...values, [change.sliderId]: change.value }));
     this.showHud(change.sliderId, change.value);
+  }
+
+  onAdjustmentSliderReset(sliderId: string): void {
+    this.onAdjustmentValueChanged({ sliderId, value: 0 });
   }
 
   private showHud(label: string, value: number): void {

@@ -59,11 +59,20 @@ export class MuiControlSurfaceComponent {
 
   readonly tabChanged = output<string>();
   readonly sliderChanged = output<{ id: string; value: number }>();
+  /** Fired when a slider's double-click asks to be restored to its default —
+   *  `mui-living-slider` only emits the request (#2411: not every tool's
+   *  default is zero), so the host — the one place that actually knows each
+   *  slider's default — decides what value that reset means. */
+  readonly sliderReset = output<string>();
 
   readonly sliderCount = computed<number>(() => this.sliders().length);
 
   onSliderChange(id: string, value: number): void {
     this.sliderChanged.emit({ id, value });
+  }
+
+  onSliderReset(id: string): void {
+    this.sliderReset.emit(id);
   }
 
   bipolar(slider: MuiControlSurfaceSlider): boolean {

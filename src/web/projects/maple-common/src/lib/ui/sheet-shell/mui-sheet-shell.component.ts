@@ -33,6 +33,7 @@ import {
 import {
   beginSheetDrag,
   isDistanceDismissed,
+  isVelocityDismissed,
   shouldIgnoreSheetPointerDown,
   updateSheetDragOffset,
 } from '../internal/sheet-drag';
@@ -40,6 +41,12 @@ import {
 /** Pan-down threshold as a fraction of sheet height, matching
  * BottomSheetComponent's spec-driven constant. */
 const DISMISS_FRACTION = 0.25;
+/** Pointer velocity threshold for flick-down dismiss (px/s), matching
+ * BottomSheetComponent's spec-driven constant. */
+const DISMISS_VELOCITY = 1000;
+/** Window over which release velocity is measured (ms), matching
+ * BottomSheetComponent. */
+const VELOCITY_WINDOW_MS = 100;
 
 @Component({
   selector: 'mui-sheet-shell',
@@ -73,6 +80,9 @@ export class MuiSheetShellComponent {
 
   private pointerId: number | null = null;
   private dragStartY = 0;
+  private dragStartTimestamp = 0;
+  private lastSampleY = 0;
+  private lastSampleTimestamp = 0;
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
@@ -87,12 +97,17 @@ export class MuiSheetShellComponent {
     if (shouldIgnoreSheetPointerDown(event)) return;
     this.pointerId = event.pointerId;
     this.dragStartY = event.clientY;
+    this.dragStartTimestamp = event.timeStamp;
+    this.lastSampleY = event.clientY;
+    this.lastSampleTimestamp = event.timeStamp;
     beginSheetDrag(event, this.isDragging, this.dragOffsetPx);
   }
 
   protected onPointerMove(event: PointerEvent): void {
     // Pan-down only, matching BottomSheetComponent — upward drag is a no-op.
-    updateSheetDragOffset(event, this.pointerId, this.dragStartY, this.dragOffsetPx);
+    if (!updateSheetDragOffset(event, this.pointerId, this.dragStartY, this.dragOffsetPx)) return;
+    this.lastSampleY = event.clientY;
+    this.lastSampleTimestamp = event.timeStamp;
   }
 
   protected onPointerUp(event: PointerEvent): void {
@@ -101,11 +116,20 @@ export class MuiSheetShellComponent {
     const sheetHeight = this.sheetEl()?.nativeElement.getBoundingClientRect().height ?? 0;
     const distanceTriggered = isDistanceDismissed(dy, sheetHeight, DISMISS_FRACTION);
 
+    // Velocity over the last ~100ms — robust to a slow lead-in followed by a
+    // flick. Falls back to the whole drag when it was shorter than that
+    // (matches BottomSheetComponent's sampling).
+    const totalDt = event.timeStamp - this.dragStartTimestamp;
+    const useWholeDrag = totalDt < VELOCITY_WINDOW_MS;
+    const sampleDt = useWholeDrag ? totalDt : event.timeStamp - this.lastSampleTimestamp;
+    const sampleDy = useWholeDrag ? dy : Math.max(0, event.clientY - this.lastSampleY);
+    const velocityTriggered = isVelocityDismissed(sampleDy, sampleDt, DISMISS_VELOCITY);
+
     this.pointerId = null;
     this.isDragging.set(false);
     this.dragOffsetPx.set(0);
 
-    if (distanceTriggered) this.dismissed.emit();
+    if (distanceTriggered || velocityTriggered) this.dismissed.emit();
   }
 
   protected onPointerCancel(event: PointerEvent): void {

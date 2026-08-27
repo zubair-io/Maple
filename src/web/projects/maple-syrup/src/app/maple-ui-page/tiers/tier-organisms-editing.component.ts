@@ -144,6 +144,9 @@ export class TierOrganismsEditingComponent {
     );
     this.controlSurfaceLastEvent = `${change.id} → ${change.value}`;
   }
+  onControlSliderReset(id: string): void {
+    this.onControlSliderChanged({ id, value: 0 });
+  }
 
   // --- Mobile Control Bar ---
   readonly mobileControlTools: readonly MuiMobileControlBarTool[] = [
@@ -168,6 +171,9 @@ export class TierOrganismsEditingComponent {
       slider.id === change.id ? { ...slider, value: change.value } : slider,
     );
     this.mobileControlLastEvent = `${change.id} → ${change.value}`;
+  }
+  onMobileSliderReset(id: string): void {
+    this.onMobileSliderChanged({ id, value: 0 });
   }
 
   // --- Rich Text Editor ---
