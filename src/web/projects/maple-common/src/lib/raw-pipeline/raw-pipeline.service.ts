@@ -15,9 +15,6 @@ import type {
   DecodedSceneLinearImage,
   DecodeRequest,
   DecodeSceneLinearRequest,
-  OpenSessionRequest,
-  RenderSessionRequest,
-  CloseSessionRequest,
   SetFilmLutRequest,
   ExportedFile,
   RawExportOptions,
@@ -25,19 +22,24 @@ import type {
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
-import { dispatchDevelopNonRaw } from './raw-pipeline.develop-non-raw-request';
+import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
+import { developNonRaw } from './raw-pipeline.non-raw-develop';
+import {
+  openLiveSessionRequest,
+  renderLiveSessionRequest,
+  closeLiveSessionRequest,
+} from './raw-pipeline.gpu-live-session';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { isNonRawExtension } from '../state/raw-extensions';
-import { decodeNonRawToSceneLinear, decodeNonRawToSceneLinearF32 } from './image-utils';
+import { decodeNonRawToSceneLinear } from './image-utils';
 import type {
   OpenedLiveSession,
   PendingHandler,
   RenderedLiveSession,
 } from './raw-pipeline.service-internals';
 export type { OpenedLiveSession, RenderedLiveSession } from './raw-pipeline.service-internals';
-import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
 
 @Injectable({ providedIn: 'root' })
@@ -62,10 +64,23 @@ export class RawPipelineService implements OnDestroy {
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
-  /** Emits once the Web Worker has initialised the WASM thread pool. */
+  /**
+   * Emits once the Web Worker has initialised the WASM thread pool.
+   *
+   * No production caller remains anywhere in the app (T10 threaded-state UI
+   * surface was never wired up past this point) — vestigial, not fixed here;
+   * out of scope for the #3039 single-file non-RAW render fix that touched
+   * this file. Tracked as a follow-up cleanup.
+   */
+  // fallow-ignore-next-line unused-class-member
   readonly isThreaded$: Observable<boolean | null> = this.threadedSubject.asObservable();
 
-  /** Emits the number of rayon worker threads (1 when single-threaded). */
+  /**
+   * Emits the number of rayon worker threads (1 when single-threaded).
+   *
+   * Same T10 vestigial surface as `isThreaded$` above — see its doc.
+   */
+  // fallow-ignore-next-line unused-class-member
   readonly threadCount$: Observable<number> = this.threadCountSubject.asObservable();
 
   /**
@@ -138,7 +153,7 @@ export class RawPipelineService implements OnDestroy {
    * is the canvas's draw transform's job — `maxLongEdge`/`qualityPreview`
    * are ignored for this branch), but DO still run through the WASM
    * per-tick adjustment chain via `develop_non_raw` (#3039) — see
-   * `developNonRawOnce`.
+   * `raw-pipeline.non-raw-develop.ts`'s `developNonRaw`.
    */
   decode(
     bytes: Uint8Array,
@@ -153,50 +168,26 @@ export class RawPipelineService implements OnDestroy {
     // in the single-file editor is editable exactly like a RAW, and Apple's
     // `ImageEditPipeline.processSceneLinearNonRaw` already runs the SAME
     // adjustment chain here (via the C-FFI `apply_scene_linear_chain`,
-    // AgX skipped). `developNonRawOnce` decodes browser-natively (mirroring
+    // AgX skipped). `developNonRaw` decodes browser-natively (mirroring
     // Apple's ImageIO path) and then runs that chain through the WASM
     // `develop_non_raw` entry — so this DOES join the serialization gate and
     // DOES cross into the worker, unlike the pre-#3039 version of this
     // comment, which decoded once and never touched WASM again.
     const run = isNonRawExtension(ext)
-      ? () => this.developNonRawOnce(bytes, xmp)
+      ? () =>
+          developNonRaw(
+            bytes,
+            xmp,
+            () => this.ensureWorker(),
+            () => this.nextId++,
+            this.pending.set.bind(this.pending),
+          )
       : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
     const next = this.decodeChain.then(run, run);
     // Preserve the chain regardless of success/failure so one bad decode
     // doesn't stall the queue.
     this.decodeChain = next.catch(() => undefined);
     return next;
-  }
-
-  /**
-   * The non-RAW sibling of `decodeOnce` (#3039): decode `bytes` to a
-   * scene-linear Rec.2020 f32 RGBA buffer via the browser (NOT the WASM RAW
-   * decoder — `decodeNonRawToSceneLinearF32` never touches `rawler`), then
-   * dispatch that buffer to the worker for `develop_non_raw` to run the
-   * per-tick adjustment chain on (AgX skipped — see that function's doc).
-   * Non-RAW images never downsize (`maxLongEdge`/`qualityPreview` have no
-   * non-RAW counterpart — the WASM entry always develops at full size),
-   * matching the pre-#3039 contract. Worker dispatch itself lives in
-   * `raw-pipeline.develop-non-raw-request.ts` (file-budget split, mirrors
-   * `computeAutoAdjustmentsOnce`/`exportOnce` below).
-   */
-  private async developNonRawOnce(bytes: Uint8Array, xmp?: string): Promise<DecodedImage> {
-    const scene = await decodeNonRawToSceneLinearF32(bytes);
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    return dispatchDevelopNonRaw(
-      worker,
-      this.nextId++,
-      this.pending.set.bind(this.pending),
-      scene.rgba,
-      scene.width,
-      scene.height,
-      xmp,
-    );
   }
 
   private decodeOnce(
@@ -232,25 +223,14 @@ export class RawPipelineService implements OnDestroy {
       maxLongEdge,
       qualityPreview,
     };
-    // Bracket the full decode (post + worker round-trip) with a performance
-    // mark so the browser's Performance panel shows a distinct entry per
-    // decode. Name includes id so concurrent decodes don't collide.
-    // #1123: `markStart`/`markEnd` — this is diagnostics-only and must never be
-    // able to stop `resolve` from running (decodes are serialized behind
-    // `decodeChain`, so a stranded `resolve` deadlocks every later decode).
-    const decodeStartMark = `maple:decode:${id}:start`;
-    markStart(decodeStartMark);
-    return new Promise<DecodedImage>((resolve, reject) => {
-      this.pending.set(id, {
-        kind: 'legacy',
-        resolve: (result) => {
-          markEnd(decodeStartMark, `maple:decode:${id}:end`, `maple:decode`);
-          resolve(result);
-        },
-        reject,
-      });
-      worker.postMessage(request, [buffer]);
-    });
+    return dispatchWithMark<DecodedImage>(
+      worker,
+      request,
+      [buffer],
+      'maple:decode',
+      ({ resolve, reject }) => ({ kind: 'legacy', resolve, reject }),
+      this.pending.set.bind(this.pending),
+    );
   }
 
   /**
@@ -265,7 +245,16 @@ export class RawPipelineService implements OnDestroy {
    * @param qualityPreview `true` (default) runs the half-res Preview
    *   pipeline (matches Apple's editor first-paint cost). `false` runs
    *   full-res Full — used for export.
+   *
+   * Vestigial Plan 3 M1/M3 WebGL2 scene-linear surface: no production caller
+   * remains anywhere in the app (the shipping GPU live path is the wgpu/WGSL
+   * chain, epic #925 — see this file's `openLiveSession`/`renderLiveSession`
+   * below, not this method). Kept, not deleted, pending a decision on
+   * whether to retire it outright; out of scope for the #3039 single-file
+   * non-RAW render fix that touched this file. Tracked as a follow-up
+   * cleanup, not fixed here to avoid unrelated risk in that PR.
    */
+  // fallow-ignore-next-line unused-class-member
   decodeSceneLinear(
     bytes: Uint8Array,
     ext: string,
@@ -293,7 +282,12 @@ export class RawPipelineService implements OnDestroy {
    * `viewportPx × devicePixelRatio` for a viewport-sized working buffer.
    *
    * Same single-in-flight serialization gate as every other decode.
+   *
+   * Vestigial Plan 3 M1/M3 WebGL2 scene-linear surface — see
+   * `decodeSceneLinear`'s doc above for why this is suppressed rather than
+   * deleted or fixed here.
    */
+  // fallow-ignore-next-line unused-class-member
   decodeSceneLinearSized(
     bytes: Uint8Array,
     ext: string,
@@ -339,25 +333,14 @@ export class RawPipelineService implements OnDestroy {
       qualityPreview,
       maxLongEdge,
     };
-    // #1123: markStart/markEnd — see decodeOnce; a throw here must never strand
-    // `resolve`.
-    const sceneLinearStartMark = `maple:decode-scene-linear:${id}:start`;
-    markStart(sceneLinearStartMark);
-    return new Promise<DecodedSceneLinearImage>((resolve, reject) => {
-      this.pending.set(id, {
-        kind: 'scene-linear',
-        resolve: (result) => {
-          markEnd(
-            sceneLinearStartMark,
-            `maple:decode-scene-linear:${id}:end`,
-            `maple:decode-scene-linear`,
-          );
-          resolve(result);
-        },
-        reject,
-      });
-      worker.postMessage(request, [buffer]);
-    });
+    return dispatchWithMark<DecodedSceneLinearImage>(
+      worker,
+      request,
+      [buffer],
+      'maple:decode-scene-linear',
+      ({ resolve, reject }) => ({ kind: 'scene-linear', resolve, reject }),
+      this.pending.set.bind(this.pending),
+    );
   }
 
   // ── Persistent GPU live session (epic #925, P4b-web / #1038) ───────────────
@@ -367,7 +350,17 @@ export class RawPipelineService implements OnDestroy {
   // when `gpuLiveRender` is true; otherwise it stays on the `decode()` + 2D-canvas
   // path (flag-off == today, byte-for-byte). Session renders are serialized in the
   // worker (the wasm `&mut self` re-entrancy guard), so concurrent `render()` calls
-  // can't trip "recursive use of an object detected".
+  // can't trip "recursive use of an object detected". Outside the `decode()`
+  // serialization gate — the session lives entirely in the worker and owns its own
+  // render queue. Request bodies live in `raw-pipeline.gpu-live-session.ts`
+  // (file-budget split, mirrors `raw-pipeline.non-raw-develop.ts`); these three
+  // methods keep ownership of `ensureWorker()`'s try/catch and just delegate.
+  //
+  // Called via `this.host.pipeline.<method>(...)` in `ImageCanvasGpuPresent`
+  // (image-canvas.gpu-present.ts), where `pipeline` is a type-only-imported
+  // `RawPipelineService` field on the `GpuPresentHost` interface; fallow's
+  // dead-code pass doesn't trace calls through that indirection (same blind
+  // spot `setFilmLut` below documents) — hence the suppression on each.
 
   /** Whether the GPU live-render path is enabled right now (#1038, #1062):
    * the build-time token AND the operator's DB-backed setting. Evaluated per
@@ -376,23 +369,7 @@ export class RawPipelineService implements OnDestroy {
     return this.gate.enabled();
   }
 
-  /**
-   * Open a persistent GPU live session for `bytes`, transferring `canvas` (an
-   * `OffscreenCanvas` from `transferControlToOffscreen()`) to the worker. The first
-   * frame is presented to the canvas before this resolves. Rejects if the loaded
-   * WASM bundle lacks the `gpu` feature (the caller falls back to `decode()`), or on
-   * a decode / GPU error. Outside the `decode()` serialization gate — the session
-   * lives entirely in the worker and owns its own render queue.
-   *
-   * The transferred `canvas` is owned by the worker after this call; the caller
-   * must not draw to it on the main thread.
-   *
-   * @param maxLongEdge Viewport target in REAL (backing-store) pixels (#1080):
-   *   the session's develop fits the image to this long edge (aspect preserved,
-   *   never upscaled) and sizes the canvas to the developed dims. Absent ⇒ the
-   *   WASM-side 2048 default cap (the downlevel WebGPU texture baseline). The
-   *   reply carries the NATIVE oriented dims in `nativeWidth`/`nativeHeight`.
-   */
+  // fallow-ignore-next-line unused-class-member
   openLiveSession(
     canvas: OffscreenCanvas,
     bytes: Uint8Array,
@@ -406,36 +383,19 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
-    const id = this.nextId++;
-    // Copy the bytes off the caller's view before transferring (the view stays
-    // usable for a later 2D fallback / re-open), mirroring `decodeOnce`.
-    const buffer = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-    const request: OpenSessionRequest = {
-      id,
-      type: 'open-session',
-      bytes: buffer,
+    return openLiveSessionRequest(
+      worker,
+      this.nextId++,
+      this.pending.set.bind(this.pending),
+      canvas,
+      bytes,
       ext,
       xmp,
-      canvas,
       maxLongEdge,
-    };
-    return new Promise<OpenedLiveSession>((resolve, reject) => {
-      this.pending.set(id, { kind: 'open-session', resolve, reject });
-      // Transfer BOTH the byte buffer and the OffscreenCanvas to the worker.
-      worker.postMessage(request, [buffer, canvas]);
-    });
+    );
   }
 
-  /**
-   * Re-render the open live session for the develop model serialized in `xmp` and
-   * present to the canvas (the #846 edit path). Resolves with the achieved canvas
-   * colour-space tag plus an optional downsampled scope readback of the presented
-   * frame (#1045). Rejects if no session is open or on a GPU error. The worker
-   * serializes these against each other + the open.
-   */
+  // fallow-ignore-next-line unused-class-member
   renderLiveSession(xmp?: string, params?: Float32Array): Promise<RenderedLiveSession> {
     let worker: Worker;
     try {
@@ -443,28 +403,19 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
-    const id = this.nextId++;
-    const request: RenderSessionRequest = { id, type: 'render-session', xmp, params };
-    return new Promise<RenderedLiveSession>((resolve, reject) => {
-      this.pending.set(id, { kind: 'render-session', resolve, reject });
-      if (params) {
-        worker.postMessage(request, [params.buffer]);
-      } else {
-        worker.postMessage(request);
-      }
-    });
+    return renderLiveSessionRequest(
+      worker,
+      this.nextId++,
+      this.pending.set.bind(this.pending),
+      xmp,
+      params,
+    );
   }
 
-  /**
-   * Tear down the open live session (asset switch / component destroy). Fire-and-
-   * forget — the worker frees the handle behind its render queue (so it never frees
-   * while a render holds the borrow). No-op if no worker exists yet.
-   */
+  // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
     if (!this.worker) return;
-    const id = this.nextId++;
-    const request: CloseSessionRequest = { id, type: 'close-session' };
-    this.worker.postMessage(request);
+    closeLiveSessionRequest(this.worker, this.nextId++);
   }
 
   /**

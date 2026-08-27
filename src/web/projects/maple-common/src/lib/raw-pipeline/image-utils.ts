@@ -75,6 +75,7 @@ export async function decodeNonRawToSceneLinearF32(
   bytes: Uint8Array,
 ): Promise<{ width: number; height: number; rgba: Float32Array }> {
   const { width, height, data } = await decodeNonRawImageData(bytes);
+  // fallow-ignore-next-line code-duplication
   const rgba = new Float32Array(width * height * 4);
   const lut = srgbToLinearLut();
   for (let i = 0, j = 0; i < data.length; i += 4, j += 4) {
