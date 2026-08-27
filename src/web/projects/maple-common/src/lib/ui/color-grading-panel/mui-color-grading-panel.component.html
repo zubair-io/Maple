@@ -9,6 +9,7 @@
         [min]="-100"
         [max]="100"
         [bipolar]="true"
+        (resetRequest)="shadowsLuminance.set(0)"
       />
     </div>
     <div class="column">
@@ -20,6 +21,7 @@
         [min]="-100"
         [max]="100"
         [bipolar]="true"
+        (resetRequest)="midtonesLuminance.set(0)"
       />
     </div>
     <div class="column">
@@ -31,17 +33,25 @@
         [min]="-100"
         [max]="100"
         [bipolar]="true"
+        (resetRequest)="highlightsLuminance.set(0)"
       />
     </div>
   </div>
   <div class="global-sliders">
-    <mui-living-slider label="Blending" [(value)]="blending" [min]="0" [max]="100" />
+    <mui-living-slider
+      label="Blending"
+      [(value)]="blending"
+      [min]="0"
+      [max]="100"
+      (resetRequest)="blending.set(50)"
+    />
     <mui-living-slider
       label="Balance"
       [(value)]="balance"
       [min]="-100"
       [max]="100"
       [bipolar]="true"
+      (resetRequest)="balance.set(0)"
     />
   </div>
 </div>

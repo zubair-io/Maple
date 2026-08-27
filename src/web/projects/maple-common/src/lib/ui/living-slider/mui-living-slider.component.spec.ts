@@ -67,13 +67,43 @@ describe('MuiLivingSliderComponent', () => {
     expect(fixture.componentInstance.value()).toBeCloseTo(0.9, 5);
   });
 
-  it('double-click resets to zero (clamped within range)', () => {
+  it('double-click emits resetRequest instead of self-resetting (#2411 — not every default is zero)', () => {
     const { fixture, track } = render();
     fixture.componentRef.setInput('value', 3);
     fixture.detectChanges();
+    let resetCount = 0;
+    fixture.componentInstance.resetRequest.subscribe(() => resetCount++);
     track.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     fixture.detectChanges();
-    expect(fixture.componentInstance.value()).toBe(0);
+    expect(resetCount).toBe(1);
+    // Value is untouched — only the consumer knows the tool's real default.
+    expect(fixture.componentInstance.value()).toBe(3);
+  });
+
+  it('a pointer drag fires one dragStart before the first value change and one dragEnd on release', () => {
+    const { fixture, track } = render();
+    const events: string[] = [];
+    fixture.componentInstance.dragStart.subscribe(() => events.push('start'));
+    fixture.componentInstance.dragEnd.subscribe(() => events.push('end'));
+    track.dispatchEvent(pointerEvent('pointerdown', 100));
+    track.dispatchEvent(pointerEvent('pointermove', 120));
+    track.dispatchEvent(pointerEvent('pointermove', 140));
+    track.dispatchEvent(pointerEvent('pointerup', 140));
+    fixture.detectChanges();
+    expect(events).toEqual(['start', 'end']);
+  });
+
+  it('a held arrow key opens one gesture across repeated keydowns and closes it on keyup', () => {
+    const { fixture, track } = render();
+    const events: string[] = [];
+    fixture.componentInstance.dragStart.subscribe(() => events.push('start'));
+    fixture.componentInstance.dragEnd.subscribe(() => events.push('end'));
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    track.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    fixture.detectChanges();
+    expect(events).toEqual(['start', 'end']);
   });
 
   it('exposes slider ARIA attributes for assistive tech', () => {

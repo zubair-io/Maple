@@ -91,7 +91,7 @@ import { SubParamRowComponent } from '../../editor/sub-param-row.component';
 import { DragBarComponent } from '../../editor/drag-bar.component';
 import { ValueChipComponent } from '../../editor/value-chip.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
-import { BottomSheetComponent } from '../bottom-sheet.component';
+import { MuiSheetShellComponent } from '../../ui/sheet-shell/mui-sheet-shell.component';
 import { ExportDialogComponent } from '../../export/export-dialog.component';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
@@ -148,7 +148,7 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
     DragBarComponent,
     ValueChipComponent,
     InfoPanelComponent,
-    BottomSheetComponent,
+    MuiSheetShellComponent,
     ExportDialogComponent,
   ],
   styleUrl: './editor-shell.component.scss',

@@ -16,7 +16,12 @@ import {
   signal,
 } from '@angular/core';
 import { MuiTextComponent } from '../text/mui-text.component';
-import { arrowKeyDelta, endPointerDrag, percentInRange } from '../internal/pointer-drag';
+import {
+  arrowKeyDelta,
+  endPointerDrag,
+  formatSignedValue,
+  percentInRange,
+} from '../internal/pointer-drag';
 
 export interface MuiDragBarTick {
   readonly pct: number;
@@ -61,10 +66,7 @@ export class MuiDragBarComponent {
   // fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`markerPct()`); fallow's member-usage scan doesn't follow external Angular templates.
   readonly markerPct = computed(() => percentInRange(this.value(), this.min(), this.max(), 50));
 
-  readonly valueLabel = computed(() => {
-    const v = this.value();
-    return v > 0 ? `+${v}` : `${v}`;
-  });
+  readonly valueLabel = computed(() => formatSignedValue(this.value(), this.step(), ''));
 
   private clamp(v: number): number {
     return Math.min(this.max(), Math.max(this.min(), v));
@@ -75,7 +77,9 @@ export class MuiDragBarComponent {
     const lo = this.min();
     const hi = this.max();
     const pct = x / this.barWidth;
-    return this.clamp(Math.round(lo + pct * (hi - lo)));
+    const raw = lo + pct * (hi - lo);
+    const step = this.step();
+    return this.clamp(Math.round(raw / step) * step);
   }
 
   onPointerDown(event: PointerEvent): void {

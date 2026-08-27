@@ -23,6 +23,7 @@
             [label]="s.label"
             [value]="s.value"
             (valueChange)="onSliderChange(s.id, $event)"
+            (resetRequest)="onSliderReset(s.id)"
             [min]="s.min"
             [max]="s.max"
             [step]="s.step"

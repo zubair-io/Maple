@@ -28,6 +28,7 @@
         (activeTabChange)="controlSurfaceActiveTab.set($event)"
         [sliders]="controlSurfaceSliders()"
         (sliderChanged)="onControlSliderChanged($event)"
+        (sliderReset)="onControlSliderReset($event)"
       />
     </div>
     <div class="filmstrip-dock">
@@ -54,6 +55,7 @@
         [activeTabId]="adjustmentsActiveTabId()"
         (activeTabIdChange)="adjustmentsActiveTabId.set($event)"
         (valueChanged)="onAdjustmentValueChanged($event)"
+        (sliderReset)="onAdjustmentSliderReset($event)"
       />
     </mui-inspector-panel>
   </div>

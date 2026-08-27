@@ -69,6 +69,11 @@ export class MuiAdjustmentsPanelComponent {
   readonly activeTabId = model<string>('');
 
   readonly valueChanged = output<{ sliderId: string; value: number }>();
+  /** Fired when a slider's double-click asks to be restored to its default —
+   *  `mui-living-slider` only emits the request (#2411: not every tool's
+   *  default is zero), so the host — the one place that actually knows each
+   *  slider's default — decides what value that reset means. */
+  readonly sliderReset = output<string>();
 
   readonly openGroupIds = signal<readonly string[]>([]);
 

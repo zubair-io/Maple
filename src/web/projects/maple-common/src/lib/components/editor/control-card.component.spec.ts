@@ -10,7 +10,7 @@ import { By } from '@angular/platform-browser';
 import { signal } from '@angular/core';
 
 import { ControlCardComponent } from './control-card.component';
-import { LivingSliderComponent } from '../develop/living-slider.component';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
@@ -99,7 +99,7 @@ describe('ControlCardComponent — always visible, no closeable state (#1807 Tas
     const { fixture } = render({ activeGroup: 'light' });
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('.slider-grid')).toBeTruthy();
-    expect(fixture.nativeElement.querySelectorAll('pro-living-slider').length).toBeGreaterThan(0);
+    expect(fixture.nativeElement.querySelectorAll('mui-living-slider').length).toBeGreaterThan(0);
   });
 
   it('exposes the reset button', () => {
@@ -116,9 +116,9 @@ describe('ControlCardComponent — always visible, no closeable state (#1807 Tas
 // emits `valueChange` on every pointermove — so the fix hangs the commit off
 // a `dragStart` gesture-boundary output instead of off `valueChange` itself.
 describe('ControlCardComponent — pointer/keyboard slider gestures push undo entries (#2411)', () => {
-  function firstSlider(fixture: ComponentFixture<ControlCardComponent>): LivingSliderComponent {
-    const debugEl = fixture.debugElement.query(By.directive(LivingSliderComponent));
-    return debugEl.componentInstance as LivingSliderComponent;
+  function firstSlider(fixture: ComponentFixture<ControlCardComponent>): MuiLivingSliderComponent {
+    const debugEl = fixture.debugElement.query(By.directive(MuiLivingSliderComponent));
+    return debugEl.componentInstance as MuiLivingSliderComponent;
   }
 
   it('a drag gesture (dragStart then many valueChange ticks) commits exactly once, before the first update', () => {
@@ -129,7 +129,7 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
 
     const exposureSlider = firstSlider(fixture);
     exposureSlider.dragStart.emit();
-    for (let i = 1; i <= 12; i++) exposureSlider.valueChange.emit(i * 0.1);
+    for (let i = 1; i <= 12; i++) exposureSlider.value.set(i * 0.1);
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(updateAdjustment).toHaveBeenCalledTimes(12);
@@ -142,12 +142,12 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     const exposureSlider = firstSlider(fixture);
 
     exposureSlider.dragStart.emit();
-    exposureSlider.valueChange.emit(0.3);
-    exposureSlider.valueChange.emit(0.5);
+    exposureSlider.value.set(0.3);
+    exposureSlider.value.set(0.5);
     exposureSlider.dragEnd.emit();
 
     exposureSlider.dragStart.emit();
-    exposureSlider.valueChange.emit(0.8);
+    exposureSlider.value.set(0.8);
     exposureSlider.dragEnd.emit();
 
     expect(commit).toHaveBeenCalledTimes(2);
@@ -176,7 +176,7 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
 
     const exposureSlider = firstSlider(fixture);
     exposureSlider.dragStart.emit();
-    for (let i = 1; i <= 5; i++) exposureSlider.valueChange.emit(i);
+    for (let i = 1; i <= 5; i++) exposureSlider.value.set(i);
     expect(lib.adjustmentFor('asset-1')().exposure).toBe(5);
     exposureSlider.dragEnd.emit();
 

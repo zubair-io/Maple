@@ -49,7 +49,7 @@ import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { computeRgbHistograms } from '../../raw-pipeline/image-utils';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { AdjustmentModel, ToneCurvePoint } from '../../models/adjustment-model';
-import { LivingSliderComponent } from './living-slider.component';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { hitTest, insertPoint, movePoint, removePoint } from './tone-curve-edit';
 import {
   HIT_RADIUS,
@@ -77,7 +77,7 @@ const DELETE_KEYS: ReadonlySet<string> = new Set(['Delete', 'Backspace']);
 @Component({
   selector: 'pro-tone-curve',
   standalone: true,
-  imports: [LivingSliderComponent],
+  imports: [MuiLivingSliderComponent],
   templateUrl: './tone-curve.component.html',
   styleUrl: './tone-curve.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

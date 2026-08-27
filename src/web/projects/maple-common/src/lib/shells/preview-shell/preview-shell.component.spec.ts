@@ -259,7 +259,7 @@ describe('PreviewShellComponent', () => {
     expect(comp.infoOpen()).toBe(true);
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.info-pane')).not.toBeNull();
-    expect(el.querySelector('app-bottom-sheet')).toBeNull();
+    expect(el.querySelector('mui-sheet-shell')).toBeNull();
   });
 
   it('the Info pane honours a stored `false` preference at tablet+', () => {
@@ -278,7 +278,7 @@ describe('PreviewShellComponent', () => {
     expect(comp.infoOpen()).toBe(false);
     const el = fixture.nativeElement as HTMLElement;
     // Still renders the bottom sheet host at phone width (closed).
-    expect(el.querySelector('app-bottom-sheet')).not.toBeNull();
+    expect(el.querySelector('mui-sheet-shell')).not.toBeNull();
     expect(el.querySelector('.info-pane')).toBeNull();
   });
 

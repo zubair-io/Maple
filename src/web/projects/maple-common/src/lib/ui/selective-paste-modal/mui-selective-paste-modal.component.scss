@@ -5,6 +5,9 @@
 }
 
 .mui-selective-paste-modal-header {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
   padding: tok.$maple-spacing-md tok.$maple-spacing-lg;
   border-bottom: 1px solid var(--color-border);
 }
@@ -13,6 +16,12 @@
   display: flex;
   flex-direction: column;
   gap: tok.$maple-spacing-sm;
+}
+
+.bulk-row {
+  display: flex;
+  gap: tok.$maple-spacing-xs;
+  margin-bottom: tok.$maple-spacing-xs;
 }
 
 .group {

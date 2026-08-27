@@ -9,8 +9,7 @@
           [saturation]="valueOf(zone.saturation)"
           (wheelChange)="onWheelChange(zone, $event)"
         />
-        <pro-living-slider
-          [attr.aria-label]="zone.label + ' luminance'"
+        <mui-living-slider
           label="Lum"
           [value]="valueOf(zone.luminance)"
           [min]="lumMin"
@@ -24,8 +23,7 @@
     }
   </div>
 
-  <pro-living-slider
-    aria-label="Colour grading balance"
+  <mui-living-slider
     label="Balance"
     [value]="balance()"
     [min]="balanceMin"

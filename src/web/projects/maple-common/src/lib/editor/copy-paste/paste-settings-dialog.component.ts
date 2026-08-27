@@ -1,8 +1,12 @@
 // paste-settings-dialog.component.ts — selective-paste UI for copy / paste
 // / sync (#944). One checkbox per `ADJUSTMENT_GROUPS` entry; "Paste" emits
 // the checked group ids, the caller builds + applies the patch via
-// `buildGroupPatch`. Modeled on `PanoDialogComponent`'s dialog-hosting
-// pattern (visible/dismiss over a backdrop, parent owns open/close state).
+// `buildGroupPatch`. Composes `mui-selective-paste-modal` (extended with
+// `title`/`summary`/`allowBulkSelect` — the reference organism hardcoded a
+// static title and had no select-all/none row) for the actual dialog chrome;
+// this wrapper owns translating `ADJUSTMENT_GROUPS` into the modal's
+// enabled-flag group list and keeps the same public API (`visible`/
+// `targetCount`/`sourceLabel`/`paste`/`dismiss`) browse-shell already binds.
 
 import {
   ChangeDetectionStrategy,
@@ -13,14 +17,22 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { ADJUSTMENT_GROUPS, ALL_ADJUSTMENT_GROUP_IDS } from './adjustment-groups';
+import {
+  MuiSelectivePasteModalComponent,
+  type MuiSelectivePasteGroup,
+} from '../../ui/selective-paste-modal/mui-selective-paste-modal.component';
+import { ADJUSTMENT_GROUPS } from './adjustment-groups';
 import type { AdjustmentGroupId } from './adjustment-groups';
+
+function allEnabledGroups(): readonly MuiSelectivePasteGroup[] {
+  return ADJUSTMENT_GROUPS.map((g) => ({ id: g.id, label: g.label, enabled: true }));
+}
 
 @Component({
   selector: 'app-paste-settings-dialog',
   standalone: true,
+  imports: [MuiSelectivePasteModalComponent],
   templateUrl: './paste-settings-dialog.component.html',
-  styleUrl: './paste-settings-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PasteSettingsDialogComponent {
@@ -34,14 +46,12 @@ export class PasteSettingsDialogComponent {
   readonly paste = output<readonly AdjustmentGroupId[]>();
   readonly dismiss = output<void>();
 
-  readonly groups = ADJUSTMENT_GROUPS;
+  protected readonly groups = signal<readonly MuiSelectivePasteGroup[]>(allEnabledGroups());
 
-  private readonly _selected = signal<ReadonlySet<AdjustmentGroupId>>(
-    new Set(ALL_ADJUSTMENT_GROUP_IDS),
-  );
-
-  readonly allSelected = computed(() => this._selected().size === this.groups.length);
-  readonly noneSelected = computed(() => this._selected().size === 0);
+  protected readonly summary = computed(() => {
+    const count = this.targetCount();
+    return `Paste from ${this.sourceLabel()} onto ${count} ${count === 1 ? 'photo' : 'photo' + 's'}.`;
+  });
 
   constructor() {
     // Every time the dialog opens, start from "everything selected" — the
@@ -49,46 +59,17 @@ export class PasteSettingsDialogComponent {
     // building a selection from scratch.
     effect(() => {
       if (this.visible()) {
-        this._selected.set(new Set(ALL_ADJUSTMENT_GROUP_IDS));
+        this.groups.set(allEnabledGroups());
       }
     });
   }
 
-  isChecked(id: AdjustmentGroupId): boolean {
-    return this._selected().has(id);
+  onPasteConfirmed(ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    this.paste.emit(ids as readonly AdjustmentGroupId[]);
   }
 
-  toggleGroup(id: AdjustmentGroupId): void {
-    this._selected.update((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  selectAll(): void {
-    this._selected.set(new Set(ALL_ADJUSTMENT_GROUP_IDS));
-  }
-
-  selectNone(): void {
-    this._selected.set(new Set());
-  }
-
-  onPasteClick(): void {
-    const selected = this._selected();
-    if (selected.size === 0) return;
-    this.paste.emit([...selected]);
-  }
-
-  onCancel(): void {
-    this.dismiss.emit();
-  }
-
-  onBackdropClick(): void {
+  onDismissed(): void {
     this.dismiss.emit();
   }
 }

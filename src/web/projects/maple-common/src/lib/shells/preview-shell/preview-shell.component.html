@@ -95,12 +95,12 @@
       </div>
     }
   } @else {
-    <app-bottom-sheet [(isOpen)]="infoOpen">
+    <mui-sheet-shell [open]="infoOpen()" [detents]="[0.74]" (dismissed)="infoOpen.set(false)">
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"
         (close)="infoOpen.set(false)"
       />
-    </app-bottom-sheet>
+    </mui-sheet-shell>
   }
 </div>
