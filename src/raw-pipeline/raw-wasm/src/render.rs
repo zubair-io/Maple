@@ -384,3 +384,92 @@ pub fn render_bytes_sized(
         as_shot_tint,
     })
 }
+
+/// Develop an already browser-decoded non-RAW (jpg/png/heic/webp/…) image
+/// through the per-tick adjustment chain and encode the result to display
+/// sRGB u8 RGB (#3039).
+///
+/// This is the Web mirror of Apple's `ImageEditPipeline.processSceneLinearNonRaw`
+/// / `applyChainAndEncodeViaFusedFFI(skipAgX: true, decodedTemperature: 6500,
+/// decodedTint: 0, …)`: `render_bytes`/`render_bytes_sized` above take RAW
+/// FILE bytes and run them through `raw_core::decode::decode_bytes`, which
+/// only understands sensor RAW formats — there is no path from there to a
+/// developed JPEG. Before this entry existed, the caller
+/// (`RawPipelineService.decode()`) special-cased non-RAW extensions to a
+/// pure `createImageBitmap` + 2D-canvas readback with NO adjustment model
+/// applied at all — correct for the FIRST paint, but every later slider tick
+/// re-ran the exact same unadjusted decode, silently dropping every edit
+/// (#3039). That gap never touched this crate, which is why it produced no
+/// worker/WASM activity to debug.
+///
+/// `in_f32_rgba` is NOT a file's bytes — it is the caller's own
+/// sRGB→linear→Rec.2020 conversion of the already browser-decoded pixels
+/// (`decodeNonRawToSceneLinearF32` on the Web side), packed f32 RGBA,
+/// row-major, 4 lanes/pixel, alpha ignored — the same layout
+/// `apply_scene_linear_chain_f32` / `encode_display_srgb_f32` already
+/// document and that `RenderActor.renderPreview`'s non-RAW branch feeds on
+/// Apple (there via `decodeSceneLinearNonRaw` + CoreImage instead of a
+/// browser canvas, same colour math).
+///
+/// `skip_agx: true` always: non-RAW input is already display-tone-mapped by
+/// whatever camera or renderer produced it, so running it through AgX (a
+/// scene-referred view transform) would double-tone-map — see
+/// `ChainOptions::skip_agx`'s doc and `processSceneLinearNonRaw`'s comment
+/// for the same reasoning on Apple. The WB baseline is fixed at the decode
+/// default (6500 K / 0 tint) — a developed image carries no camera As-Shot
+/// metadata, so (like Apple) the WB slider's own default IS the identity
+/// point.
+///
+/// Returns the SAME `MapleRender` shape `render_bytes` does (u8 RGB, full
+/// size == develop size — there is no separate "native" size for an
+/// already-decoded buffer), so the worker's existing `decode-success` /
+/// `take_rgb()` / `free()` handling needs no changes to consume this.
+#[wasm_bindgen]
+pub fn develop_non_raw(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    xmp: Option<String>,
+) -> Result<MapleRender, JsError> {
+    let model = match xmp {
+        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
+        None => xmp_mod::AdjustmentModel::default(),
+    };
+    let opts = raw_core::pipeline::ChainOptions {
+        skip_agx: true,
+        ..Default::default()
+    };
+    let chained = raw_core::pipeline::apply_scene_linear_chain_f32(
+        in_f32_rgba,
+        width,
+        height,
+        &model,
+        &opts,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+    let encoded = raw_core::pipeline::encode_display_srgb_f32(&chained, width, height)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    // Pack sRGB-gamma-encoded f32 [0,1] RGBA -> u8 RGB (drop alpha), matching
+    // every other entry in this file's `MapleRender.rgb` contract.
+    let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
+    for px in encoded.chunks_exact(4) {
+        rgb.push(f32_unit_to_u8(px[0]));
+        rgb.push(f32_unit_to_u8(px[1]));
+        rgb.push(f32_unit_to_u8(px[2]));
+    }
+    Ok(MapleRender {
+        width,
+        height,
+        full_width: width,
+        full_height: height,
+        rgb,
+        as_shot_temperature: 6500.0,
+        as_shot_tint: 0.0,
+    })
+}
+
+/// Clamp-and-round a display-encoded [0,1] f32 lane to a u8 byte.
+fn f32_unit_to_u8(v: f32) -> u8 {
+    (v.clamp(0.0, 1.0) * 255.0).round() as u8
+}

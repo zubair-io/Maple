@@ -26,11 +26,18 @@
 //!         switch on the reason without parsing prose — see `filename.rs`'s
 //!         module doc.
 //!
-//! `render_bytes`/`render_bytes_sized` (legacy 8-bit sRGB) live in
-//! `render.rs`; `render_bytes_scene_linear`/`render_bytes_scene_linear_sized`
+//! `render_bytes`/`render_bytes_sized`/`develop_non_raw` (legacy 8-bit sRGB)
+//! live in `render.rs`; `render_bytes_scene_linear`/`render_bytes_scene_linear_sized`
 //! (fp16 RGBA) live in `scene_linear.rs` — both re-exported here so the flat
 //! `crate::`-root surface (and the wasm-bindgen JS exports, which don't care
 //! about Rust module nesting to begin with) are unchanged by that split.
+//!
+//! `develop_non_raw(rgba: Float32Array, width: u32, height: u32, xmp: string | null)`
+//! → `MapleRender` (#3039): the non-RAW sibling of `render_bytes` — takes an
+//! ALREADY browser-decoded scene-linear Rec.2020 f32 RGBA buffer (not a RAW
+//! file's bytes) and runs it through the per-tick adjustment chain with AgX
+//! skipped, since a JPEG/PNG/HEIC source is already display-tone-mapped. See
+//! its doc in `render.rs` for the full contract and the bug it fixes.
 //!
 //! Threading (T10):
 //! When compiled with `--features parallel` and the `+atomics,+bulk-memory`
@@ -106,7 +113,7 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 // `render_bytes_scene_linear_sized` call sites in `tests.rs` all keep
 // compiling unchanged after the `render`/`scene_linear` split (#2628) — see
 // those modules' doc comments for why wasm-bindgen itself doesn't need this.
-pub use render::{render_bytes, render_bytes_sized, MapleRender};
+pub use render::{develop_non_raw, render_bytes, render_bytes_sized, MapleRender};
 // Only consumed by `#[cfg(test)]` (`tests.rs`) and `#[cfg(feature = "gpu")]`
 // (`gpu_render.rs`/`web_live_session.rs`) call sites — a default `cargo
 // build` with neither active has no consumer, hence the allow.

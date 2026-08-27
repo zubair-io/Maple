@@ -25,11 +25,12 @@ import type {
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
+import { dispatchDevelopNonRaw } from './raw-pipeline.develop-non-raw-request';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { isNonRawExtension } from '../state/raw-extensions';
-import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
+import { decodeNonRawToSceneLinear, decodeNonRawToSceneLinearF32 } from './image-utils';
 import type {
   OpenedLiveSession,
   PendingHandler,
@@ -133,9 +134,11 @@ export class RawPipelineService implements OnDestroy {
    *   half-res Preview demosaic (the fast-phase cost profile), `false`/absent
    *   runs Full (the refine phase).
    *
-   * Non-RAW images decode browser-natively at their full size — they're
-   * already display-encoded and cheap to draw; sizing them is the canvas's
-   * draw transform's job.
+   * Non-RAW images decode browser-natively at their full size (sizing them
+   * is the canvas's draw transform's job — `maxLongEdge`/`qualityPreview`
+   * are ignored for this branch), but DO still run through the WASM
+   * per-tick adjustment chain via `develop_non_raw` (#3039) — see
+   * `developNonRawOnce`.
    */
   decode(
     bytes: Uint8Array,
@@ -144,19 +147,56 @@ export class RawPipelineService implements OnDestroy {
     maxLongEdge?: number,
     qualityPreview?: boolean,
   ): Promise<DecodedImage> {
-    // Non-RAW images (jpg/png/heic/webp/…) are already developed sRGB pixels —
-    // decode them browser-natively, mirroring Apple's ImageIO path. They never
-    // touch the WASM RAW heap, so this runs outside the serialization gate and
-    // the buffer is never transferred into the worker.
-    if (isNonRawExtension(ext)) {
-      return decodeNonRawToRgb(bytes);
-    }
-    const run = () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
+    // Non-RAW images (jpg/png/heic/webp/…) are already developed sRGB pixels,
+    // so they never touch `rawler`/demosaic — but they DO still need the
+    // per-tick adjustment chain applied on every call (#3039): a JPEG opened
+    // in the single-file editor is editable exactly like a RAW, and Apple's
+    // `ImageEditPipeline.processSceneLinearNonRaw` already runs the SAME
+    // adjustment chain here (via the C-FFI `apply_scene_linear_chain`,
+    // AgX skipped). `developNonRawOnce` decodes browser-natively (mirroring
+    // Apple's ImageIO path) and then runs that chain through the WASM
+    // `develop_non_raw` entry — so this DOES join the serialization gate and
+    // DOES cross into the worker, unlike the pre-#3039 version of this
+    // comment, which decoded once and never touched WASM again.
+    const run = isNonRawExtension(ext)
+      ? () => this.developNonRawOnce(bytes, xmp)
+      : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
     const next = this.decodeChain.then(run, run);
     // Preserve the chain regardless of success/failure so one bad decode
     // doesn't stall the queue.
     this.decodeChain = next.catch(() => undefined);
     return next;
+  }
+
+  /**
+   * The non-RAW sibling of `decodeOnce` (#3039): decode `bytes` to a
+   * scene-linear Rec.2020 f32 RGBA buffer via the browser (NOT the WASM RAW
+   * decoder — `decodeNonRawToSceneLinearF32` never touches `rawler`), then
+   * dispatch that buffer to the worker for `develop_non_raw` to run the
+   * per-tick adjustment chain on (AgX skipped — see that function's doc).
+   * Non-RAW images never downsize (`maxLongEdge`/`qualityPreview` have no
+   * non-RAW counterpart — the WASM entry always develops at full size),
+   * matching the pre-#3039 contract. Worker dispatch itself lives in
+   * `raw-pipeline.develop-non-raw-request.ts` (file-budget split, mirrors
+   * `computeAutoAdjustmentsOnce`/`exportOnce` below).
+   */
+  private async developNonRawOnce(bytes: Uint8Array, xmp?: string): Promise<DecodedImage> {
+    const scene = await decodeNonRawToSceneLinearF32(bytes);
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    return dispatchDevelopNonRaw(
+      worker,
+      this.nextId++,
+      this.pending.set.bind(this.pending),
+      scene.rgba,
+      scene.width,
+      scene.height,
+      xmp,
+    );
   }
 
   private decodeOnce(

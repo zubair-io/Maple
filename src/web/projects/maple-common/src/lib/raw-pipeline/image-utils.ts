@@ -4,64 +4,13 @@ import type { DecodedImage, DecodedSceneLinearImage } from './raw-pipeline.types
 import { SRGB_TO_REC2020 } from '../generated/color-matrices.generated';
 
 /**
- * Decode a non-RAW image (jpg/png/heic/webp/tiff/…) via the browser instead
- * of the Rust RAW pipeline. Mirrors Apple's ImageIO non-RAW path
- * (`decodeSceneLinearNonRaw`): these files already ship demosaiced,
- * display-encoded pixels, so they must NOT go through rawler/demosaic/WB.
- *
- * `createImageBitmap` honours the file's embedded colour profile and hands
- * back display-referred pixels; we draw to a 2D canvas and read back RGBA.
- * `imageOrientation: 'from-image'` applies the EXIF/TIFF orientation tag so
- * iPhone HEIC/JPEG captures (stored landscape + an orientation tag) come back
- * already rotated to display orientation — matching Apple's
- * `decodeSceneLinearNonRaw`, which applies `CIImage.oriented(forExifOrientation:)`.
- * Without it portrait photos open sideways. The returned `DecodedImage.rgb` is
- * packed display sRGB 8-bit (3 * w * h) — the same contract as the WASM
- * `render_bytes` legacy path.
- *
- * White-balance metadata doesn't exist for a developed image, so we report
- * neutral as-shot values (6500 K / 0 tint). `seedAsShotWhiteBalance` treats
- * those as "still default" and no-ops, leaving the WB sliders untouched.
- *
- * Browser support note: `createImageBitmap` decodes JPEG/PNG/WebP everywhere,
- * HEIC only where the platform's image decoder supports it (Safari), and not
- * TIFF. Unsupported formats reject here and the caller's catch nulls the
- * bitmap — graceful, no RAW-pipeline fallback.
- */
-export async function decodeNonRawToRgb(bytes: Uint8Array): Promise<DecodedImage> {
-  // Copy into a standalone ArrayBuffer-backed view so the Blob owns its bytes
-  // regardless of whether `bytes` is a view over a larger/transferred buffer.
-  const blob = new Blob([bytes.slice() as unknown as BlobPart]);
-  const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-  try {
-    const { width, height } = bitmap;
-    const ctx = make2dContext(width, height);
-    ctx.drawImage(bitmap, 0, 0);
-    const { data } = ctx.getImageData(0, 0, width, height);
-    // Pack RGBA → RGB (drop alpha) to match the WASM legacy contract.
-    const rgb = new Uint8Array(width * height * 3);
-    for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
-      rgb[j] = data[i];
-      rgb[j + 1] = data[i + 1];
-      rgb[j + 2] = data[i + 2];
-    }
-    return {
-      width,
-      height,
-      rgb,
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    };
-  } finally {
-    bitmap.close();
-  }
-}
-
-/**
- * Scene-linear counterpart of {@link decodeNonRawToRgb}: decode a non-RAW
- * image via the browser and convert its display-sRGB pixels into the
- * scene-linear Rec.2020 fp16 RGBA working space the WebGL pipeline consumes —
- * matching the RAW `decodeSceneLinear` output contract.
+ * Scene-linear: decode a non-RAW image (jpg/png/heic/webp/tiff/…) via the
+ * browser and convert its display-sRGB pixels into the scene-linear
+ * Rec.2020 fp16 RGBA working space the WebGL pipeline consumes — matching
+ * the RAW `decodeSceneLinear` output contract. Mirrors Apple's ImageIO
+ * non-RAW path (`decodeSceneLinearNonRaw`): these files already ship
+ * demosaiced, display-encoded pixels, so they must NOT go through
+ * rawler/demosaic/WB.
  *
  * Per Apple's `decodeSceneLinearNonRaw`: undo the sRGB transfer (display →
  * scene-linear) and rotate the sRGB/Rec.709 primaries into Rec.2020. Alpha is
@@ -74,6 +23,81 @@ export async function decodeNonRawToRgb(bytes: Uint8Array): Promise<DecodedImage
 export async function decodeNonRawToSceneLinear(
   bytes: Uint8Array,
 ): Promise<DecodedSceneLinearImage> {
+  const { width, height, data } = await decodeNonRawImageData(bytes);
+  const fp16Rgba = new Uint16Array(width * height * 4);
+  const ONE = 0x3c00; // fp16 1.0
+  // Canvas pixels are 8-bit, so the sRGB→linear transfer has only 256 distinct
+  // inputs. Precompute the exact mapping once (lazily memoized) and index it by
+  // the integer byte to avoid millions of Math.pow calls on the main thread.
+  const lut = srgbToLinearLut();
+  for (let i = 0, j = 0; i < data.length; i += 4, j += 4) {
+    const r = lut[data[i]];
+    const g = lut[data[i + 1]];
+    const b = lut[data[i + 2]];
+    // sRGB/Rec.709 linear → Rec.2020 linear.
+    const r2 = SRGB_TO_REC2020[0] * r + SRGB_TO_REC2020[1] * g + SRGB_TO_REC2020[2] * b;
+    const g2 = SRGB_TO_REC2020[3] * r + SRGB_TO_REC2020[4] * g + SRGB_TO_REC2020[5] * b;
+    const b2 = SRGB_TO_REC2020[6] * r + SRGB_TO_REC2020[7] * g + SRGB_TO_REC2020[8] * b;
+    fp16Rgba[j] = f32ToF16(r2);
+    fp16Rgba[j + 1] = f32ToF16(g2);
+    fp16Rgba[j + 2] = f32ToF16(b2);
+    fp16Rgba[j + 3] = ONE;
+  }
+  return {
+    width,
+    height,
+    fp16Rgba,
+    asShotTemperature: 6500,
+    asShotTint: 0,
+  };
+}
+
+/**
+ * f32 sibling of {@link decodeNonRawToSceneLinear}, for feeding the WASM
+ * `develop_non_raw` entry (#3039) instead of the (unused off this path)
+ * fp16 WebGL contract: same sRGB→linear→Rec.2020 conversion, but the output
+ * stays a packed `Float32Array` — `apply_scene_linear_chain_f32` /
+ * `encode_display_srgb_f32` both operate on f32 RGBA end-to-end, so there is
+ * no fp16 round-trip to pay for on this path. Alpha is always 1.0, matching
+ * every other buffer in this contract.
+ *
+ * The per-pixel LUT-lookup + matrix-multiply loop body is intentionally NOT
+ * shared with {@link decodeNonRawToSceneLinear} beyond {@link decodeNonRawImageData}
+ * (which already collapses the identical blob/bitmap/canvas setup both
+ * share): factoring the per-pixel conversion itself into a called helper
+ * would add a function-call per pixel to a hot per-open decode loop for the
+ * sake of ~9 shared lines, and the two loops' STORES already diverge
+ * (fp16-pack vs a straight f32 write) — this is the "leave it duplicated,
+ * the similarity is incidental" case a duplication scan's own guidance
+ * calls out.
+ */
+export async function decodeNonRawToSceneLinearF32(
+  bytes: Uint8Array,
+): Promise<{ width: number; height: number; rgba: Float32Array }> {
+  const { width, height, data } = await decodeNonRawImageData(bytes);
+  const rgba = new Float32Array(width * height * 4);
+  const lut = srgbToLinearLut();
+  for (let i = 0, j = 0; i < data.length; i += 4, j += 4) {
+    const r = lut[data[i]];
+    const g = lut[data[i + 1]];
+    const b = lut[data[i + 2]];
+    rgba[j] = SRGB_TO_REC2020[0] * r + SRGB_TO_REC2020[1] * g + SRGB_TO_REC2020[2] * b;
+    rgba[j + 1] = SRGB_TO_REC2020[3] * r + SRGB_TO_REC2020[4] * g + SRGB_TO_REC2020[5] * b;
+    rgba[j + 2] = SRGB_TO_REC2020[6] * r + SRGB_TO_REC2020[7] * g + SRGB_TO_REC2020[8] * b;
+    rgba[j + 3] = 1.0;
+  }
+  return { width, height, rgba };
+}
+
+/**
+ * Shared decode setup for both non-RAW scene-linear converters above:
+ * browser-decode `bytes` (EXIF-oriented) and read back its RGBA pixels via a
+ * 2D canvas. Extracted so the two converters' only remaining difference is
+ * the per-pixel output format (fp16-packed vs f32).
+ */
+async function decodeNonRawImageData(
+  bytes: Uint8Array,
+): Promise<{ width: number; height: number; data: Uint8ClampedArray }> {
   const blob = new Blob([bytes.slice() as unknown as BlobPart]);
   const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
   try {
@@ -81,32 +105,7 @@ export async function decodeNonRawToSceneLinear(
     const ctx = make2dContext(width, height);
     ctx.drawImage(bitmap, 0, 0);
     const { data } = ctx.getImageData(0, 0, width, height);
-    const fp16Rgba = new Uint16Array(width * height * 4);
-    const ONE = 0x3c00; // fp16 1.0
-    // Canvas pixels are 8-bit, so the sRGB→linear transfer has only 256 distinct
-    // inputs. Precompute the exact mapping once (lazily memoized) and index it by
-    // the integer byte to avoid millions of Math.pow calls on the main thread.
-    const lut = srgbToLinearLut();
-    for (let i = 0, j = 0; i < data.length; i += 4, j += 4) {
-      const r = lut[data[i]];
-      const g = lut[data[i + 1]];
-      const b = lut[data[i + 2]];
-      // sRGB/Rec.709 linear → Rec.2020 linear.
-      const r2 = SRGB_TO_REC2020[0] * r + SRGB_TO_REC2020[1] * g + SRGB_TO_REC2020[2] * b;
-      const g2 = SRGB_TO_REC2020[3] * r + SRGB_TO_REC2020[4] * g + SRGB_TO_REC2020[5] * b;
-      const b2 = SRGB_TO_REC2020[6] * r + SRGB_TO_REC2020[7] * g + SRGB_TO_REC2020[8] * b;
-      fp16Rgba[j] = f32ToF16(r2);
-      fp16Rgba[j + 1] = f32ToF16(g2);
-      fp16Rgba[j + 2] = f32ToF16(b2);
-      fp16Rgba[j + 3] = ONE;
-    }
-    return {
-      width,
-      height,
-      fp16Rgba,
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    };
+    return { width, height, data };
   } finally {
     bitmap.close();
   }

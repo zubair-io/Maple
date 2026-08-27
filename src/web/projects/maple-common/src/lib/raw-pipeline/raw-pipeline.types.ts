@@ -83,6 +83,33 @@ export interface DecodeError {
   message: string;
 }
 
+/**
+ * Develop an already browser-decoded non-RAW (jpg/png/heic/webp/…) scene-linear
+ * Rec.2020 f32 RGBA buffer through the per-tick adjustment chain and encode
+ * to display sRGB (#3039) — the Web mirror of Apple's
+ * `ImageEditPipeline.processSceneLinearNonRaw`.
+ *
+ * Distinct from `DecodeRequest`: `rgba` is NOT a RAW file's bytes — it is
+ * `decodeNonRawToSceneLinearF32`'s OUTPUT, the browser's own sRGB→linear→
+ * Rec.2020 conversion of the already-decoded image. `raw-wasm`'s
+ * `develop_non_raw` never touches `rawler`/demosaic for this request; it
+ * always skips AgX (non-RAW input is already display-tone-mapped) and
+ * anchors the WB baseline at 6500 K / 0 tint (a developed image carries no
+ * camera As-Shot metadata) — see that function's doc for the full contract.
+ *
+ * Replies with the SAME `DecodeSuccess`/`DecodeError` union `DecodeRequest`
+ * does (generic over `id`, not the request type) so the worker's existing
+ * dispatch needs no new response shape.
+ */
+export interface DevelopNonRawRequest {
+  id: number;
+  type: 'develop-non-raw';
+  rgba: ArrayBuffer; // transferable, packed f32 RGBA scene-linear Rec.2020
+  width: number;
+  height: number;
+  xmp?: string;
+}
+
 // ── Persistent GPU live-session (epic #925, P4b-web / #1038) ─────────────────
 // The 16ms-ready web live-render path: the worker keeps a `WebLiveSession`
 // (cached GPU context + uploaded image) resident across slider ticks and presents
@@ -395,6 +422,7 @@ export interface ExportedFile {
 /** All request messages the raw-pipeline worker accepts. */
 export type WorkerRequest =
   | DecodeRequest
+  | DevelopNonRawRequest
   | DecodeSceneLinearRequest
   | OpenSessionRequest
   | RenderSessionRequest
