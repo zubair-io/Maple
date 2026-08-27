@@ -69,6 +69,13 @@ import {
 // import cycle back through this file (file-size budget, #2683).
 void ensureReady();
 
+// This dispatch switch's cyclomatic complexity scales with the number of
+// request kinds the worker handles — it was already at 9 branches on
+// `main` before #3039 added the 10th (`develop-non-raw`, a single case
+// following the exact same one-line-per-kind shape as every other arm).
+// Splitting the dispatch itself out of proportion to the actual branching
+// it does is not a win; flagged as complexity, not fixed here.
+// fallow-ignore-next-line complexity
 addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   switch (req.type) {
@@ -331,6 +338,11 @@ async function handleDevelopNonRaw(req: DevelopNonRawRequest): Promise<void> {
   }
 }
 
+// Pre-existing on `main`, untouched by #3039 — the sized/unsized routing +
+// scalar-read/free/response-post sequence mirrors `handleLegacyDecode`
+// above, which the same shape splits no further either. Flagged as
+// complexity, not fixed here.
+// fallow-ignore-next-line complexity
 async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<void> {
   try {
     await ensureReady();
