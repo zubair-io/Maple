@@ -7,22 +7,20 @@
   [class.is-disabled]="disabled()"
   [attr.aria-expanded]="expandable() ? expanded() : null"
   [attr.aria-current]="active() ? 'true' : null"
+  [attr.aria-haspopup]="ariaHasPopup()"
+  [attr.aria-label]="ariaLabel()"
   (click)="onRowClick()"
+  (keydown)="onKeydown($event)"
 >
-  @if (expandable()) {
-    <button
-      type="button"
-      class="chevron"
-      [class.is-expanded]="expanded()"
-      [attr.aria-label]="expanded() ? 'Collapse' : 'Expand'"
-      (click)="toggle($event)"
-    >
-      <mui-icon name="chevron-right" size="sm" />
-    </button>
-  } @else {
-    <span class="chevron-spacer"></span>
-  }
-  <mui-icon [name]="icon()" size="sm" class="row-icon" />
+  <mui-tree-row-chevron
+    [expandable]="expandable()"
+    [expanded]="expanded()"
+    [busy]="expandBusy()"
+    [error]="expandError()"
+    [errorTitle]="errorTitle()"
+    (toggle)="toggle($event)"
+  />
+  <mui-icon [name]="icon()" size="sm" class="row-icon" [class.row-icon-muted]="isIconMuted()" />
   <mui-text variant="row-label" [truncate]="true" class="row-label">{{ label() }}</mui-text>
   @if (loading()) {
     <mui-spinner size="sm" placement="inline" />

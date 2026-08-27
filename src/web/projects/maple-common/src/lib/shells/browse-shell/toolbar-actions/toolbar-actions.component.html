@@ -9,19 +9,18 @@
      for this exact finding (suppress-file). #2293 fallow-audit-web fix. -->
 @if (collapsed()) {
   <div class="toolbar-overflow relative">
-    <button
-      type="button"
+    <mui-button
+      variant="ghost"
+      [iconOnly]="true"
+      iconLeading="ellipsis-horizontal"
       data-testid="toolbar-overflow-toggle"
-      class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
-      [class.is-active]="overflowMenuOpen()"
+      [toggled]="overflowMenuOpen()"
       title="More actions"
-      aria-label="More actions"
-      aria-haspopup="menu"
-      [attr.aria-expanded]="overflowMenuOpen()"
-      (click)="toggleOverflowMenu()"
-    >
-      <maple-icon name="ellipsis-horizontal" [size]="14" color="var(--color-text-muted)" />
-    </button>
+      ariaLabel="More actions"
+      ariaHasPopup="menu"
+      [ariaExpanded]="overflowMenuOpen()"
+      (pressed)="toggleOverflowMenu()"
+    />
     @if (overflowMenuOpen()) {
       <div
         class="toolbar-overflow-menu"
@@ -43,19 +42,18 @@
        action, so it's always enabled; state lives on LibraryStateService,
        not persisted, and survives leaving the mode so the pills below stay
        usable. -->
-  <button
-    type="button"
-    class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-    [class.is-active]="isSelecting()"
-    [class.idle]="!isSelecting()"
-    [attr.aria-pressed]="isSelecting()"
+  <mui-button
+    variant="secondary"
+    [active]="isSelecting()"
+    [ariaPressed]="isSelecting()"
+    [fullWidth]="collapsed()"
+    iconLeading="check"
     title="Toggle select mode"
-    aria-label="Select"
-    (click)="toggleSelectMode.emit()"
+    ariaLabel="Select"
+    (pressed)="toggleSelectMode.emit()"
   >
-    <maple-icon name="check" [size]="11" />
-    <span>Select</span>
-  </button>
+    Select
+  </mui-button>
 
   <ng-content />
 
@@ -68,44 +66,41 @@
     immediately above this block.
   -->
   <!-- Copy Settings — requires a focused asset. -->
-  <button
-    type="button"
-    class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-    [class.has-selection]="canCopySettings()"
-    [class.no-selection]="!canCopySettings()"
+  <mui-button
+    variant="secondary"
+    [active]="canCopySettings()"
     [disabled]="!canCopySettings()"
+    [fullWidth]="collapsed()"
     title="Copy the focused photo's develop settings  ⌘C"
-    aria-label="Copy settings"
-    (click)="copySettings.emit()"
+    ariaLabel="Copy settings"
+    (pressed)="copySettings.emit()"
   >
-    <span>Copy Settings</span>
-  </button>
+    Copy Settings
+  </mui-button>
 
   <!-- Paste Settings — requires clipboard contents + ≥1 selected. -->
-  <button
-    type="button"
-    class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-    [class.has-selection]="canPasteSettings()"
-    [class.no-selection]="!canPasteSettings()"
+  <mui-button
+    variant="secondary"
+    [active]="canPasteSettings()"
     [disabled]="!canPasteSettings()"
+    [fullWidth]="collapsed()"
     title="Choose which develop-setting groups to paste  ⌘⇧V"
-    aria-label="Paste settings"
-    (click)="openPasteDialog.emit()"
+    ariaLabel="Paste settings"
+    (pressed)="openPasteDialog.emit()"
   >
-    <span>Paste Settings…{{ canPasteSettings() ? ' (' + selectedCount() + ')' : '' }}</span>
-  </button>
+    Paste Settings…{{ canPasteSettings() ? ' (' + selectedCount() + ')' : '' }}
+  </mui-button>
 
   <!-- Sync Settings — requires a focused asset + ≥2 selected. -->
-  <button
-    type="button"
-    class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-    [class.has-selection]="canSyncSettings()"
-    [class.no-selection]="!canSyncSettings()"
+  <mui-button
+    variant="secondary"
+    [active]="canSyncSettings()"
     [disabled]="!canSyncSettings()"
+    [fullWidth]="collapsed()"
     title="Apply the focused photo's settings to the rest of the selection"
-    aria-label="Sync settings"
-    (click)="syncSettings.emit()"
+    ariaLabel="Sync settings"
+    (pressed)="syncSettings.emit()"
   >
-    <span>Sync Settings{{ canSyncSettings() ? ' (' + selectedCount() + ')' : '' }}</span>
-  </button>
+    Sync Settings{{ canSyncSettings() ? ' (' + selectedCount() + ')' : '' }}
+  </mui-button>
 </ng-template>

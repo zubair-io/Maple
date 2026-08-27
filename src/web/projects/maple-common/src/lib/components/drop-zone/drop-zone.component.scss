@@ -2,30 +2,21 @@
   display: contents;
 }
 
-// Primary import button hover — color-mix can't be expressed cleanly as a
-// utility, and brightness() shifts the dim background instead of building up.
-.import-btn.primary:hover {
-  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
-}
-
 // Read-only banner uses a derived warning color (no token for it). Colour-mix
-// against `--color-warning` (with a fallback hex) drives both the banner
-// background, border, and the inline grant button — all derived hues, none
-// of them expressible in Tailwind utilities without inventing tokens.
+// against `--color-warning` (with a fallback hex) drives the banner
+// background and border — derived hues, none expressible in Tailwind
+// utilities without inventing tokens. The inline "Grant write access"
+// button was previously tinted the same warning hue; migrating it onto
+// `mui-button` (MW4, ticket #3031) drops that tint for the shared
+// ghost-variant look — mui-button's variant classes set `color` explicitly
+// on its own internal label/icon, so an ancestor override here can't reach
+// them without piercing view encapsulation. A minor, low-traffic visual
+// simplification (this banner only shows for a folder opened without write
+// access) called out in the migration PR rather than left silent.
 .readonly-banner {
   background: color-mix(in srgb, var(--color-warning, #d97706) 12%, var(--color-surface));
   border-color: color-mix(in srgb, var(--color-warning, #d97706) 40%, transparent);
   color: var(--color-warning, #d97706);
-
-  .grant-btn {
-    background: color-mix(in srgb, var(--color-warning, #d97706) 20%, transparent);
-    border-color: var(--color-warning, #d97706);
-    color: var(--color-warning, #d97706);
-
-    &:hover {
-      background: color-mix(in srgb, var(--color-warning, #d97706) 30%, transparent);
-    }
-  }
 }
 
 // Hidden file inputs

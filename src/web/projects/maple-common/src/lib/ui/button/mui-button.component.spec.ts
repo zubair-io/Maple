@@ -99,6 +99,28 @@ describe('MuiButtonComponent', () => {
     expect(button(fixture).getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('forwards ariaHasPopup to the native button, omitting it when unset', () => {
+    const fixture = render();
+    expect(button(fixture).getAttribute('aria-haspopup')).toBeNull();
+
+    fixture.componentRef.setInput('ariaHasPopup', 'menu');
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-haspopup')).toBe('menu');
+  });
+
+  it('active renders the colored toggle-on state; toggled renders the subtler chrome overlay', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('active', true);
+    fixture.detectChanges();
+    expect(button(fixture).className).toContain('is-active');
+
+    fixture.componentRef.setInput('active', false);
+    fixture.componentRef.setInput('toggled', true);
+    fixture.detectChanges();
+    expect(button(fixture).className).not.toContain('is-active');
+    expect(button(fixture).className).toContain('is-toggled');
+  });
+
   it('icon-only mode hides the label and requires the caller to supply an aria-label', () => {
     const fixture = render();
     fixture.componentRef.setInput('iconOnly', true);

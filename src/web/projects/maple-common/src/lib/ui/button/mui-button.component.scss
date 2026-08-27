@@ -2,6 +2,11 @@
 
 :host {
   display: inline-flex;
+
+  &.is-full-width {
+    display: flex;
+    width: 100%;
+  }
 }
 
 .mui-button {
@@ -67,6 +72,11 @@
   aspect-ratio: 1;
 }
 
+.is-full-width {
+  width: 100%;
+  justify-content: flex-start;
+}
+
 .variant-primary {
   background: var(--color-primary);
   color: var(--color-text-main);
@@ -112,6 +122,26 @@
     filter: brightness(1.1);
     transform: translateY(-2px);
   }
+}
+
+// Colored "on" state for a meaningful toggle/selection pill — wins over the
+// variant's own background regardless of which variant it's layered on.
+// See `active` input doc comment (MW4, ticket #3031).
+.mui-button.is-active {
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+// Subtler "pressed" overlay for an icon-only chrome toggle. See `toggled`
+// input doc comment (MW4, ticket #3031). `color` shifts from ghost's muted
+// default to the full-emphasis text token, matching the pre-migration
+// sidebar-toggle icon (muted when hidden, full-color when shown) — `color`
+// is inherited by the icon's own default `currentColor`.
+.mui-button.is-toggled {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--color-border);
+  color: var(--color-text-main);
 }
 
 .spinner {
