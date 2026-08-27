@@ -31,24 +31,6 @@
     color: var(--color-text-main);
     margin: 0;
   }
-
-  .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: transparent;
-    border: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-
-    &:hover {
-      background: var(--color-bg-hover);
-      color: var(--color-text-main);
-    }
-  }
 }
 
 .sections {
