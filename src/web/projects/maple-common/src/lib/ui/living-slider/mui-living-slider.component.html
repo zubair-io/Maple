@@ -8,7 +8,7 @@
     class="track"
     role="slider"
     tabindex="0"
-    [attr.aria-label]="label()"
+    [attr.aria-label]="ariaLabel() ?? label()"
     [attr.aria-valuemin]="min()"
     [attr.aria-valuemax]="max()"
     [attr.aria-valuenow]="value()"
