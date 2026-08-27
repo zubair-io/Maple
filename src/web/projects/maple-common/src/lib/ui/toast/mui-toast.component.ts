@@ -21,6 +21,11 @@ import type { MapleIconName } from '../icon/mui-icon.component';
 import { MapleMotion } from '../../motion';
 
 export type MuiToastVariant = 'info' | 'success' | 'warning' | 'error';
+/** `glass` swaps the flat app-chrome surface for the editor canvas's glass
+ * material (`--pro-glass-*`, pro-tokens.scss) — for a toast that has to stay
+ * legible floating over live photo pixels rather than page chrome (toast
+ * sweep, ticket #3043). */
+export type MuiToastSurface = 'default' | 'glass';
 
 const VARIANT_ICON: Record<MuiToastVariant, MapleIconName> = {
   info: 'info',
@@ -43,7 +48,7 @@ const VARIANT_ICON_COLOR: Record<MuiToastVariant, string> = {
   templateUrl: './mui-toast.component.html',
   styleUrl: './mui-toast.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { role: 'status', 'aria-live': 'polite' },
+  host: { role: 'status', 'aria-live': 'polite', '[attr.aria-label]': 'ariaLabel()' },
 })
 export class MuiToastComponent implements OnChanges, OnDestroy {
   readonly variant = input<MuiToastVariant>('info');
@@ -51,6 +56,18 @@ export class MuiToastComponent implements OnChanges, OnDestroy {
   readonly actionLabel = input<string | null>(null);
   /** `null` disables auto-dismiss (the toast stays until closed by hand). */
   readonly autoDismissMs = input<number | null>(5000);
+  /** Hides the close button for a toast whose dismissal is meant to stay in
+   * the caller's hands — e.g. a persistent capability warning the user
+   * shouldn't be able to lose track of (toast sweep, ticket #3043). Default
+   * `true` keeps every existing caller's built-in close affordance. */
+  readonly dismissible = input<boolean>(true);
+  /** Overrides the host's accessible name — for callers with more than one
+   * concurrent toast whose meaning isn't obvious from `role="status"` alone
+   * (toast sweep, ticket #3043). */
+  readonly ariaLabel = input<string | null>(null);
+  /** `glass` swaps the flat app-chrome surface for the editor canvas's glass
+   * material — see `MuiToastSurface`. */
+  readonly surface = input<MuiToastSurface>('default');
 
   readonly actionPressed = output<void>();
   readonly dismissed = output<void>();

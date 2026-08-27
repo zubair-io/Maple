@@ -104,7 +104,7 @@ export * from './lib/xmp/sidecar-idb-cache';
 export * from './lib/xmp/sidecar.store';
 export * from './lib/xmp/sidecar-save-state.service';
 export * from './lib/xmp/single-file-xmp.service';
-export * from './lib/export/single-file-save-notice.component';
+export * from './lib/export/single-file-save-notice.vm';
 // People page SWR cache (list + per-person detail).
 export * from './lib/api/people.store';
 
@@ -123,11 +123,13 @@ export * from './lib/shells/protocol-handler.component';
 export * from './lib/shells/file-handler.component';
 
 // Service-worker app-update flow (background install + in-app toast + hard-nav
-// on next route change). Rendered by RootShellComponent; init() wired from each
+// on next route change). `toasts` bound into <mui-toast-container> by
+// RootShellComponent / HostedRootShellComponent; init() wired from each
 // app's bootstrap.
 export * from './lib/sw/app-update.service';
-export * from './lib/sw/update-toast.component';
-export * from './lib/components/gpu-fallback-notice/gpu-fallback-notice.component';
+// GPU live-render fallback notice (#2415). `toasts` bound into
+// <mui-toast-container> the same way as AppUpdateService above.
+export * from './lib/components/gpu-fallback-notice/gpu-fallback-notice.service';
 
 // Responsive-program S2 (#623) — responsive Library grid (3 / 5 / auto-fill).
 export * from './lib/library/library-grid.component';

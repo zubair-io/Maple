@@ -5,6 +5,9 @@
 // hides the toast. The window-navigation side effects (hard-nav on route
 // change, reload on install) are intentionally not exercised here — jsdom has
 // no real navigation — so the spec stays focused on the observable state.
+// `toasts` (added toast sweep, ticket #3043, replacing the deleted
+// `UpdateToastComponent` wrapper) is a pure presentation mapping over
+// `showToast`, exercised alongside it below.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
@@ -61,11 +64,21 @@ describe('AppUpdateService', () => {
 
     it('starts with the toast hidden', () => {
       expect(service.showToast()).toBe(false);
+      expect(service.toasts()).toEqual([]);
     });
 
     it('shows the toast once a new version is ready', () => {
       sw.emitReady();
       expect(service.showToast()).toBe(true);
+      expect(service.toasts()).toEqual([
+        {
+          id: 'app-update',
+          variant: 'info',
+          message: 'A new version of Maple is ready.',
+          actionLabel: 'Install',
+          autoDismissMs: null,
+        },
+      ]);
     });
 
     it('ignores version events that are not VERSION_READY', () => {
@@ -81,6 +94,7 @@ describe('AppUpdateService', () => {
       expect(service.showToast()).toBe(true);
       service.dismiss();
       expect(service.showToast()).toBe(false);
+      expect(service.toasts()).toEqual([]);
     });
   });
 

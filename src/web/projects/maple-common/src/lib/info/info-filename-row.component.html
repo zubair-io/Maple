@@ -3,19 +3,26 @@
   <!-- Trigger button lives outside the @defer block so it's always visible
        — only <app-inline-rename-field> code-splits into a lazy chunk on
        first interaction (#2706 web-build bundle-size fix; see
-       asset-thumb.component.html's matching comment for the full "why"). -->
-  <button
+       asset-thumb.component.html's matching comment for the full "why").
+       Stays clickable even when `disabledReason()` is set — the service's
+       `startEditing` itself no-ops when disabled, so this only dims the
+       affordance rather than gating the click (see info-filename-row.
+       component.ts's doc comment). -->
+  <mui-button
     #renameTrigger
-    type="button"
-    class="mb-1 block w-full rounded-sm border-0 bg-transparent py-1 text-left"
-    [class]="disabledReason() ? 'cursor-default opacity-70' : 'cursor-text hover:bg-bg-hover'"
+    variant="ghost"
+    [fullWidth]="true"
+    class="mb-1"
     [class.hidden]="isEditing()"
-    [attr.aria-label]="'Rename ' + a.filename"
+    [class.opacity-70]="disabledReason() !== null"
+    [ariaLabel]="'Rename ' + a.filename"
     [attr.title]="disabledReason()"
     (dblclick)="onDblClick()"
   >
-    <span class="block truncate text-[13px] font-medium text-text-main">{{ a.filename }}</span>
-  </button>
+    <span class="block w-full min-w-0 truncate text-left text-[13px] font-medium text-text-main">{{
+      a.filename
+    }}</span>
+  </mui-button>
   @defer (on interaction(renameTrigger)) {
     @if (isEditing()) {
       <div class="mb-1 py-0.5">

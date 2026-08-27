@@ -1,6 +1,15 @@
 <router-outlet />
-<maple-update-toast />
-<maple-gpu-fallback-notice />
+<mui-toast-container
+  position="bottom-center"
+  [toasts]="updates.toasts()"
+  (actionPressed)="updates.installNow()"
+  (dismissed)="updates.dismiss()"
+/>
+<mui-toast-container
+  position="top-right"
+  [toasts]="gpuFallback.toasts()"
+  (dismissed)="gpuFallback.dismiss()"
+/>
 @if (saveState.statusText(); as status) {
   <div class="save-status-toast">
     <mui-status-text [state]="status.state" [text]="status.text" />

@@ -46,6 +46,16 @@ identical across all four.
 - `actionPressed`: output, fired when the action button is clicked.
 - `dismissed`: output, fired once the toast has fully left (after the exit motion completes) —
   the caller's cue to actually remove it from whatever list is rendering active toasts.
+- `dismissible`: boolean (default `true`) — `false` hides the close button, for a toast whose
+  dismissal must stay in the caller's hands (e.g. a persistent capability warning the user
+  shouldn't be able to lose track of). Added toast sweep, ticket #3043.
+- `ariaLabel`: string or `null` (default `null`) — overrides the host's accessible name, for a
+  caller with more than one concurrent toast whose meaning isn't obvious from `role="status"`
+  alone. Added toast sweep, ticket #3043.
+- `surface`: `default | glass` (default `default`) — `glass` swaps the flat app-chrome surface for
+  the editor canvas's glass material (`--pro-glass-*`, pro-tokens.scss, #1535), for a toast that
+  has to stay legible floating over live photo pixels rather than page chrome. Added toast sweep,
+  ticket #3043.
 
 ## Accessibility
 
@@ -53,7 +63,7 @@ identical across all four.
   stealing focus — appropriate for a non-blocking notice, unlike a dialog which would need
   `role="alert"`/focus trapping.
 - The close button is a real labeled `<button aria-label="Dismiss">`, not an icon-only tap target
-  with no accessible name.
+  with no accessible name. Omitted entirely when `dismissible` is `false`.
 - Auto-dismiss never removes a toast that still needs an explicit user response — a toast carrying
   an action button is still subject to `autoDismissMs` by default (the same pattern as most native
   toast systems), but callers with an action the user must consciously choose should pass

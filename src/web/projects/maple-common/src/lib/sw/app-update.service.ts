@@ -23,6 +23,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationStart, Router } from '@angular/router';
 import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
 import { filter } from 'rxjs';
+import type { MuiToastEntry } from '../ui/toast-container/mui-toast-container.component';
+
+/** Stable synthetic id for the single-slot toast list `toasts` feeds to
+ * `mui-toast-container` — there is only ever one update notice per session,
+ * so a constant id is enough to key the `@for` track. */
+const UPDATE_TOAST_ID = 'app-update';
 
 /** How often to ask the SW to poll the origin for a new deployment. A working
  * photographer leaves Maple open all day; the `registerWhenStable` strategy
@@ -55,6 +61,27 @@ export class AppUpdateService {
 
   /** Whether the install toast should be visible. */
   readonly showToast = computed(() => this.updatePending() && !this.toastDismissed());
+
+  /** Presentation mapping for `<mui-toast-container>` (replaces the deleted
+   * `UpdateToastComponent` wrapper, toast sweep ticket #3043) — both
+   * `RootShellComponent` and maple-syrup's `HostedRootShellComponent` bind
+   * this straight in, the same way they already share `SidecarSaveStateService
+   * .statusText` (MW2, #3029). */
+  readonly toasts = computed<readonly MuiToastEntry[]>(() =>
+    this.showToast()
+      ? [
+          {
+            id: UPDATE_TOAST_ID,
+            variant: 'info',
+            message: 'A new version of Maple is ready.',
+            actionLabel: 'Install',
+            // Persists until the user installs or dismisses it by hand —
+            // matches the pre-migration toast, which never auto-timed-out.
+            autoDismissMs: null,
+          },
+        ]
+      : [],
+  );
 
   /** Guard against a burst of NavigationStart events (redirects, guard
    * re-runs) firing multiple hard navigations. */

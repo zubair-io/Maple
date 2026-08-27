@@ -23,6 +23,17 @@
     transform tok.$maple-motion-sheet-present-ms tok.$maple-motion-sheet-present-ease;
 }
 
+// `surface-glass` — the editor canvas's glass material (pro-tokens.scss,
+// #1535), for a toast floating over live photo pixels rather than page
+// chrome. Global custom properties, so no extra @use is needed here.
+.surface-glass {
+  background: var(--pro-glass-bg-heavy);
+  color: var(--pro-text);
+  border-color: var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+}
+
 .is-entered {
   opacity: 1;
   transform: translateY(0);

@@ -1,10 +1,11 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import {
-  GpuFallbackNoticeComponent,
+  AppUpdateService,
+  GpuFallbackNoticeService,
   MuiStatusTextComponent,
+  MuiToastContainerComponent,
   SidecarSaveStateService,
-  UpdateToastComponent,
 } from '@maple-common';
 
 /** Hosted root composition. Server discovery/LAN handoff is deliberately not
@@ -12,7 +13,7 @@ import {
 @Component({
   selector: 'maple-syrup-root-shell',
   standalone: true,
-  imports: [RouterOutlet, UpdateToastComponent, GpuFallbackNoticeComponent, MuiStatusTextComponent],
+  imports: [RouterOutlet, MuiStatusTextComponent, MuiToastContainerComponent],
   templateUrl: './hosted-root-shell.component.html',
   styleUrl: './hosted-root-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -22,4 +23,9 @@ export class HostedRootShellComponent {
   // `RootShellComponent`'s identical field for why this lives on the
   // service now instead of a per-app wrapper component.
   protected readonly saveState = inject(SidecarSaveStateService);
+  // Replaces the deleted `UpdateToastComponent` / `GpuFallbackNoticeComponent`
+  // wrappers (toast sweep, ticket #3043) — see `RootShellComponent`'s
+  // identical fields.
+  protected readonly updates = inject(AppUpdateService);
+  protected readonly gpuFallback = inject(GpuFallbackNoticeService);
 }
