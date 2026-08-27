@@ -63,4 +63,11 @@ export class MuiHslPanelComponent {
   emitChange(field: MuiHslField, value: number): void {
     this.valueChanged.emit({ bandId: this.activeBandId(), field, value });
   }
+
+  /** Every HSL field's default is 0, unlike most Living Slider hosts — a
+   *  double-click reset can resolve locally instead of round-tripping
+   *  through the consumer. */
+  resetField(field: MuiHslField): void {
+    this.emitChange(field, 0);
+  }
 }

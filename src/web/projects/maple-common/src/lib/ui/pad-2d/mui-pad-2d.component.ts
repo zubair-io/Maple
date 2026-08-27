@@ -10,6 +10,7 @@ import {
   ViewChild,
   input,
   model,
+  output,
 } from '@angular/core';
 import { PointerCaptureDragBase } from '../internal/pointer-drag';
 
@@ -32,13 +33,41 @@ function clamp(v: number): number {
   templateUrl: './mui-pad-2d.component.html',
   styleUrl: './mui-pad-2d.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // `fill` needs the HOST element itself to stretch to its container's
+  // width (the inner `.mui-pad-2d` div's own `width: 100%` has nothing to
+  // resolve against otherwise, since the default host is `inline-block` /
+  // shrink-to-fit) — a host-bound class rather than touching `:host`
+  // unconditionally, so the fixed-`size` default stays exactly as it was
+  // for every existing consumer.
+  host: { '[class.is-fill]': 'fill()' },
 })
 export class MuiPad2dComponent extends PointerCaptureDragBase<MuiPad2dValue> {
   readonly value = model<MuiPad2dValue>({ x: 0, y: 0 });
+  /** Fixed square side length in px — ignored when `fill` is set. */
   readonly size = input<number>(96);
+  /** True sizes the pad to its container's width (`100%`) and holds
+   *  `aspectRatio` instead of the fixed `size` square — the WB pad's
+   *  responsive, non-square (2:1) box, which a pixel `size` can't express. */
+  readonly fill = input<boolean>(false);
+  /** Width ÷ height, `fill` mode only. */
+  readonly aspectRatio = input<number>(1);
   readonly gradient = input<string>('linear-gradient(135deg, #3b82f6, #f5f2eb 50%, #f59e0b)');
   readonly ariaLabel = input<string>('2-D pad');
   readonly disabled = input<boolean>(false);
+  /** Draws two full-width/height guide lines through the puck (e.g. the WB
+   *  pad's temperature/tint crosshair) in addition to the puck itself. */
+  readonly crosshair = input<boolean>(false);
+  /** False lets a consumer with its own value domain (e.g. the WB pad's
+   *  Kelvin/tint axes, not this control's normalized `[-1, 1]`) supply
+   *  entirely its own arrow-key stepping via `arrowKey` instead of this
+   *  control's built-in `±0.05` step — the built-in stepping is skipped, but
+   *  the key is still consumed (`preventDefault`/`stopPropagation`) either
+   *  way so it never falls through to an ancestor shortcut. */
+  readonly stepKeyboard = input<boolean>(true);
+  /** Fires for every recognized arrow key, whether or not `stepKeyboard`
+   *  applied its own normalized step — the hook a consumer with
+   *  `[stepKeyboard]="false"` drives its own domain stepping from. */
+  readonly arrowKey = output<KeyboardEvent>();
 
   @ViewChild('padEl') private padRef!: ElementRef<HTMLElement>;
 
@@ -85,6 +114,7 @@ export class MuiPad2dComponent extends PointerCaptureDragBase<MuiPad2dValue> {
     }
     event.preventDefault();
     event.stopPropagation();
-    this.value.set(next);
+    this.arrowKey.emit(event);
+    if (this.stepKeyboard()) this.value.set(next);
   }
 }

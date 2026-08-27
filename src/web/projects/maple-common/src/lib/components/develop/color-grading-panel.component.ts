@@ -15,7 +15,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { LibraryStateService } from '../../state/library-state.service';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 import { ColorWheelComponent } from './color-wheel.component';
-import { LivingSliderComponent } from './living-slider.component';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import type { WheelValue } from './color-wheel-math';
 
 /** One wheel's three model fields. */
@@ -72,7 +72,7 @@ const BALANCE_RANGE = ADJUSTMENT_RANGES.splitToneBalance;
 @Component({
   selector: 'pro-color-grading-panel',
   standalone: true,
-  imports: [ColorWheelComponent, LivingSliderComponent],
+  imports: [ColorWheelComponent, MuiLivingSliderComponent],
   templateUrl: './color-grading-panel.component.html',
   styleUrl: './color-grading-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

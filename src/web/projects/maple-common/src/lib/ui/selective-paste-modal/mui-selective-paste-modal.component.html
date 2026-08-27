@@ -1,14 +1,22 @@
-<mui-overlay-shell
-  [open]="open()"
-  size="sm"
-  ariaLabel="Selective Paste"
-  (dismissed)="dismissed.emit()"
->
+<mui-overlay-shell [open]="open()" size="sm" [ariaLabel]="title()" (dismissed)="dismissed.emit()">
   <div slot="header" class="mui-selective-paste-modal-header">
-    <mui-text variant="sheet-title" [block]="true">Selective Paste</mui-text>
+    <mui-text variant="sheet-title" [block]="true">{{ title() }}</mui-text>
+    @if (summary()) {
+      <mui-text variant="body" color="muted" [block]="true">{{ summary() }}</mui-text>
+    }
   </div>
 
   <div class="mui-selective-paste-modal-body">
+    @if (allowBulkSelect()) {
+      <div class="bulk-row">
+        <mui-button variant="ghost" size="sm" [disabled]="allSelected()" (pressed)="selectAll()">
+          Select all
+        </mui-button>
+        <mui-button variant="ghost" size="sm" [disabled]="noneSelected()" (pressed)="selectNone()">
+          Select none
+        </mui-button>
+      </div>
+    }
     @for (group of groups(); track group.id) {
       <div class="group">
         <mui-checkbox

@@ -99,7 +99,7 @@
   <!-- Parametric region sliders -->
   <div class="parametric" data-testid="tone-curve-parametric">
     @for (slider of vm.sliders; track slider.field) {
-      <pro-living-slider
+      <mui-living-slider
         [attr.data-testid]="'tone-curve-' + slider.field"
         [label]="slider.label"
         [value]="parametricValue(slider)"

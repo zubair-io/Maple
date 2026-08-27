@@ -3,6 +3,7 @@
   <div
     #sheetEl
     class="mui-sheet-shell"
+    data-testid="bottom-sheet"
     [class.contained]="contained()"
     [class.dragging]="isDragging()"
     [style.height.%]="heightFraction() * 100"
@@ -13,6 +14,8 @@
   >
     <div
       class="drag-area"
+      aria-hidden="true"
+      data-testid="bottom-sheet-drag-area"
       (pointerdown)="onPointerDown($event)"
       (pointermove)="onPointerMove($event)"
       (pointerup)="onPointerUp($event)"

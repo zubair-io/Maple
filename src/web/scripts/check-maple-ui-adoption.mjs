@@ -66,6 +66,14 @@ const MIGRATED_DIRECTORIES = [
       new URL('../projects/maple-common/src/lib/components/drop-zone', import.meta.url),
     ),
   ), // MW4
+  resolve(
+    fileURLToPath(new URL('../projects/maple-common/src/lib/editor/copy-paste', import.meta.url)),
+  ), // MW5 — paste-settings-dialog now composes mui-selective-paste-modal
+  resolve(
+    fileURLToPath(new URL('../projects/maple-common/src/lib/components/scopes', import.meta.url)),
+  ), // MW5 — only histogram.component remains (composes mui-histogram); the
+  //         other four legacy scopes (waveform/vectorscope/parade/
+  //         scopes-container) were dead code, deleted this wave
 ];
 
 // Individual files ratcheted on their own because a sibling in the same

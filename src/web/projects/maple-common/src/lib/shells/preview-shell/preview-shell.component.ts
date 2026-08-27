@@ -34,7 +34,7 @@ import { InfoPanelComponent } from '../../info/info-panel.component';
 import { fromMuiFlagState, toMuiFlagState } from '../../info/info-panel.vm';
 import { MuiRatingFlagsComponent } from '../../ui/rating-flags/mui-rating-flags.component';
 import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.component';
-import { BottomSheetComponent } from '../bottom-sheet.component';
+import { MuiSheetShellComponent } from '../../ui/sheet-shell/mui-sheet-shell.component';
 import { LayoutService } from '../../layout-service';
 import { basenameOf, openHydratedFsParent } from '../shell-helpers';
 import { getPersistedFile } from '../../folder-access/file-cache';
@@ -61,7 +61,7 @@ const SWIPE_THRESHOLD_PX = 40;
     MapleIconComponent,
     MuiRatingFlagsComponent,
     InfoPanelComponent,
-    BottomSheetComponent,
+    MuiSheetShellComponent,
     FilmstripComponent,
   ],
   templateUrl: './preview-shell.component.html',
@@ -97,7 +97,7 @@ export class PreviewShellComponent implements OnDestroy {
 
   /** True at the tablet/desktop breakpoint — the shared `LayoutService`
    * signal every shell reads (see root-shell.component.ts). Below this,
-   * Info renders in the phone `<app-bottom-sheet>`; at/above it, Info
+   * Info renders in the phone `<mui-sheet-shell>`; at/above it, Info
    * renders as a right-side pane inline in the template. */
   readonly isTabletPlus = computed(() => this.layoutService.layout() !== 'phone');
 

@@ -114,8 +114,6 @@ export * from './lib/shells/editor-shell/editor-shell.component';
 // Web Preview Surface Task 3 — fast static-image preview (no canvas/WASM).
 export * from './lib/shells/preview-shell/preview-shell.component';
 export * from './lib/shells/preview-shell/preview-video-access';
-// S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
-export * from './lib/shells/bottom-sheet.component';
 
 // Web responsive foundation (#2279) — the phone-tab shell fork is retired;
 // RootShellComponent always renders the pane router-outlet (see its header
@@ -200,20 +198,6 @@ export * from './lib/components/drop-zone/drop-zone.component';
 export * from './lib/components/image-canvas/image-canvas.service';
 export * from './lib/components/image-canvas/image-canvas.component';
 export * from './lib/components/filmstrip/filmstrip.component';
-export * from './lib/components/editor-detail-panel/editor-detail-panel.component';
-export * from './lib/components/editor-detail-panel/develop-tab.component';
-export * from './lib/components/develop/slider.component';
-export * from './lib/components/develop/wb-preset-pills.component';
-export * from './lib/components/develop/tone-section.component';
-export * from './lib/components/develop/white-balance-section.component';
-export * from './lib/components/develop/presence-section.component';
-export * from './lib/components/develop/sharpening-section.component';
-export * from './lib/components/develop/noise-section.component';
-export * from './lib/components/scopes/scopes-container.component';
-export * from './lib/components/scopes/histogram.component';
-export * from './lib/components/scopes/waveform.component';
-export * from './lib/components/scopes/parade.component';
-export * from './lib/components/scopes/vectorscope.component';
 
 export * from './lib/auth/auth.service';
 export * from './lib/auth/auth.guard';

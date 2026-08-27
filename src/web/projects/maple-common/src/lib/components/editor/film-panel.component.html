@@ -55,13 +55,11 @@
 
   @if (hasActiveLook()) {
     <div class="film-strength-row" data-testid="film-strength-row">
-      <pro-living-slider
-        aria-label="Film strength"
+      <mui-living-slider
         label="Strength"
         [value]="strength()"
         [min]="strengthMin"
         [max]="strengthMax"
-        [defaultValue]="strengthMax"
         gradient="linear-gradient(90deg, #4a443b 0%, #a8a097 100%)"
         (valueChange)="onStrengthChange($event)"
         (resetRequest)="onStrengthReset()"

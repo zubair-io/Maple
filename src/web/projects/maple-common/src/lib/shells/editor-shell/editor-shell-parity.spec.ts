@@ -299,7 +299,7 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       fixture.detectChanges();
 
       expect(fixture.nativeElement.querySelector('.info-pane')).toBeNull();
-      const sheetPanel = fixture.nativeElement.querySelector('app-bottom-sheet app-info-panel');
+      const sheetPanel = fixture.nativeElement.querySelector('mui-sheet-shell app-info-panel');
       expect(sheetPanel).not.toBeNull();
       const panelDebugEl = fixture.debugElement.query(By.directive(InfoPanelComponent));
       expect(panelDebugEl.componentInstance.allowServerHistogramFallback()).toBe(false);
