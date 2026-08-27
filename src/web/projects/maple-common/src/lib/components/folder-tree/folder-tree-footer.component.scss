@@ -8,8 +8,4 @@
   @include chrome.toast-shell;
   background: var(--color-error-bg);
   color: var(--color-error-text);
-
-  button {
-    @include chrome.toast-dismiss-button;
-  }
 }

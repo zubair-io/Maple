@@ -32,7 +32,6 @@ import {
 } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDropList, DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
-import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
 import { selectSidebarEntry } from '../../shells/browse-shell/source-selection';
 import { FOLDER_TREE_CRUD_ENABLED } from './folder-tree-crud-capability';
@@ -40,7 +39,7 @@ import type { FolderCrudRequest } from './folder-tree-crud.component';
 import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import { isCopyModifierEvent } from '../../drag-move/drag-move-platform';
 import type { AssetDragData } from '../../drag-move/asset-drag-data';
-import { FolderTreeExpandIconComponent } from './folder-tree-expand-icon.component';
+import { MuiTreeRowComponent } from '../../ui/tree-row/mui-tree-row.component';
 
 /** Touch long-press → context menu. Same constants
  * `folder-tree.component.ts` used before this extraction. */
@@ -58,12 +57,7 @@ export interface FolderCrudRequestEvent {
 @Component({
   selector: 'app-folder-tree-node',
   standalone: true,
-  imports: [
-    MapleIconComponent,
-    DragDropModule,
-    FolderTreeExpandIconComponent,
-    forwardRef(() => FolderTreeNodeComponent),
-  ],
+  imports: [DragDropModule, MuiTreeRowComponent, forwardRef(() => FolderTreeNodeComponent)],
   templateUrl: './folder-tree-node.component.html',
   styleUrl: './folder-tree-node.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -101,8 +95,7 @@ export class FolderTreeNodeComponent {
 
   // ── Selection / expand ──────────────────────────────────────────────────
 
-  onFolderClick(e: MouseEvent): void {
-    e.stopPropagation();
+  onFolderClick(): void {
     // FS-walk / M2-addressed folders load this directory's contents into the
     // grid AND attach its subdirs as tree children in one shot; smart/album/
     // legacy roots are a plain id select. The shared `selectSidebarEntry`
@@ -111,10 +104,11 @@ export class FolderTreeNodeComponent {
     selectSidebarEntry(this.state, this.node().id);
   }
 
-  // Propagation is stopped inside `FolderTreeExpandIconComponent.onClick`
-  // (a child component now — the native click still bubbles through the
-  // real DOM regardless of Angular component boundaries) before it emits
-  // `toggle`, so this handler no longer needs the event itself.
+  // `mui-tree-row`'s own chevron button already stops the click from
+  // bubbling into the row's `pressed` output before toggling its `expanded`
+  // model (MW4, ticket #3031) — matches what
+  // `FolderTreeExpandIconComponent.onClick` did before this migration, so
+  // expanding/collapsing still never also selects the row.
   onChevronClick(): void {
     const node = this.node();
     const willOpen = !this.isOpen();
@@ -163,6 +157,19 @@ export class FolderTreeNodeComponent {
     );
   }
 
+  /** The keydown/pointerdown handlers below are bound on this component's
+   * OWN host tag (`<app-folder-tree-node>` wraps `<mui-tree-row
+   * (keydown)="...">` in its template), which native events reach via
+   * bubbling from `mui-tree-row`'s own internal treeitem div — but
+   * `event.currentTarget` at that point is this component's host, not the
+   * actual focusable/tabbable row element (MW4, ticket #3031). The invoker
+   * is used to restore keyboard focus once the crud menu closes, so it must
+   * resolve to the real interactive element, not this wrapper. */
+  private resolveRowElement(event: Event): HTMLElement {
+    const fromTarget = (event.target as HTMLElement | null)?.closest<HTMLElement>('.mui-tree-row');
+    return fromTarget ?? (event.currentTarget as HTMLElement);
+  }
+
   onContextMenu(event: MouseEvent): void {
     if (!this.isCrudEligible()) return;
     event.preventDefault();
@@ -179,7 +186,7 @@ export class FolderTreeNodeComponent {
     if (!isMenuKey) return;
     event.preventDefault();
     event.stopPropagation();
-    const target = event.currentTarget as HTMLElement;
+    const target = this.resolveRowElement(event);
     const rect = target.getBoundingClientRect();
     this.crudRequested.emit({
       request: { node: this.node(), x: rect.left + 12, y: rect.bottom },
@@ -190,7 +197,7 @@ export class FolderTreeNodeComponent {
   onRowPointerDown(event: PointerEvent): void {
     if (event.pointerType !== 'touch' || !this.isCrudEligible()) return;
     this.longPressStart = { x: event.clientX, y: event.clientY };
-    const target = event.currentTarget as HTMLElement;
+    const target = this.resolveRowElement(event);
     const { clientX, clientY } = event;
     this.longPressTimer = setTimeout(() => {
       this.longPressTimer = null;

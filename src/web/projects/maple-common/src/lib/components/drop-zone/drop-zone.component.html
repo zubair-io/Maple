@@ -4,26 +4,21 @@
 >
   <!-- FS Access "Open folder" button (Chromium only) -->
   @if (folderAccess.hasFsAccess) {
-    <button
-      class="import-btn primary flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-primary bg-primary-dim px-2.5 text-[11px] text-primary transition-[background] duration-[120ms]"
-      (click)="openFolder()"
-      type="button"
-      [disabled]="opening()"
-    >
+    <mui-button variant="primary" size="sm" [disabled]="opening()" (pressed)="openFolder()">
       {{ opening() ? 'Opening...' : 'Open folder' }}
-    </button>
+    </mui-button>
     <div class="h-[18px] w-px bg-border"></div>
   }
 
   <!-- Legacy import buttons (always available as fallback / one-off imports) -->
-  <button
-    class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
-    (click)="filePicker.click()"
-    type="button"
-    aria-label="Import RAW files"
+  <mui-button
+    variant="secondary"
+    size="sm"
+    ariaLabel="Import RAW files"
+    (pressed)="filePicker.click()"
   >
     + Import files
-  </button>
+  </mui-button>
   @if (!folderAccess.hasFsAccess) {
     <!-- Browsers without File System Access cannot grant Maple a writable
          folder handle. Keep the read-only fallback there, but do not expose
@@ -36,13 +31,9 @@
       webkitdirectory
       (change)="onFileInputChange($event)"
     />
-    <button
-      class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
-      (click)="folderPicker.click()"
-      type="button"
-    >
+    <mui-button variant="secondary" size="sm" (pressed)="folderPicker.click()">
       Import folder (read-only)
-    </button>
+    </mui-button>
   }
 
   @if (importing()) {
@@ -77,13 +68,7 @@
     class="readonly-banner flex h-7 flex-shrink-0 items-center gap-2 border-b-[0.5px] px-2.5 text-[11px]"
   >
     <span>Read-only — grant write access to save edits and cache thumbnails.</span>
-    <button
-      class="grant-btn h-[18px] cursor-pointer rounded-[3px] border-[0.5px] px-2 text-[10px]"
-      (click)="requestWrite()"
-      type="button"
-    >
-      Grant write access
-    </button>
+    <mui-button variant="ghost" size="sm" (pressed)="requestWrite()">Grant write access</mui-button>
   </div>
 }
 

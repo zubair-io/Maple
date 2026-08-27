@@ -31,7 +31,7 @@ import { SourcePickerDrawerComponent } from '../source-picker-drawer/source-pick
 import { ToolbarActionsComponent } from './toolbar-actions/toolbar-actions.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
-import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-settings-dialog.component';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import {
@@ -63,7 +63,7 @@ import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summar
     FolderTreeComponent,
     AssetGridComponent,
     DropZoneComponent,
-    MapleIconComponent,
+    MuiButtonComponent,
     PasteSettingsDialogComponent,
     SourcePickerDrawerComponent,
     ToolbarActionsComponent,

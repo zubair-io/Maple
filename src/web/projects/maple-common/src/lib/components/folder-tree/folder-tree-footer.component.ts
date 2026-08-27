@@ -15,11 +15,12 @@ import {
   type FolderCrudMutation,
   type FolderCrudRequest,
 } from './folder-tree-crud.component';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-folder-tree-footer',
   standalone: true,
-  imports: [FolderTreeCrudComponent],
+  imports: [FolderTreeCrudComponent, MuiButtonComponent],
   templateUrl: './folder-tree-footer.component.html',
   styleUrl: './folder-tree-footer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

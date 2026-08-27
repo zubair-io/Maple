@@ -19,8 +19,13 @@
 @if (trashPartialWarning(); as warning) {
   <div class="trash-partial-warning" role="status">
     <span>{{ warning }}</span>
-    <button type="button" (click)="dismissTrashPartialWarning.emit()" aria-label="Dismiss">
-      ✕
-    </button>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Dismiss"
+      (pressed)="dismissTrashPartialWarning.emit()"
+    />
   </div>
 }

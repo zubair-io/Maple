@@ -20,32 +20,26 @@
     @if (layout() === 'phone') {
       <!-- Phone: the inline sidebar is replaced by the source-picker
            overlay drawer (#2280); this hamburger opens it. -->
-      <button
-        type="button"
+      <mui-button
+        variant="ghost"
+        [iconOnly]="true"
+        iconLeading="sidebar"
         data-testid="source-drawer-toggle"
-        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
         title="Open sources"
-        aria-label="Open sources"
-        (click)="openSourceDrawer()"
-      >
-        <maple-icon name="sidebar" [size]="14" color="var(--color-text-muted)" />
-      </button>
+        ariaLabel="Open sources"
+        (pressed)="openSourceDrawer()"
+      />
     } @else {
       <!-- Sidebar toggle -->
-      <button
-        type="button"
-        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
-        [class.is-active]="state.sidebarVisible()"
+      <mui-button
+        variant="ghost"
+        [iconOnly]="true"
+        iconLeading="sidebar"
+        [toggled]="state.sidebarVisible()"
         [title]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar  ⌥⌘S'"
-        [attr.aria-label]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar'"
-        (click)="state.toggleSidebar()"
-      >
-        <maple-icon
-          name="sidebar"
-          [size]="14"
-          [color]="state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'"
-        />
-      </button>
+        [ariaLabel]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar'"
+        (pressed)="state.toggleSidebar()"
+      />
     }
 
     <ng-content select="[browse-controls]" />

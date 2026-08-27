@@ -32,17 +32,10 @@
     </div>
 
     <div class="frn-footer">
-      <button type="button" class="frn-btn frn-btn-ghost" [disabled]="busy()" (click)="onCancel()">
-        Cancel
-      </button>
-      <button
-        type="button"
-        class="frn-btn frn-btn-primary"
-        [disabled]="!isValid() || busy()"
-        (click)="onSubmit()"
-      >
+      <mui-button variant="ghost" [disabled]="busy()" (pressed)="onCancel()">Cancel</mui-button>
+      <mui-button variant="primary" [disabled]="!isValid() || busy()" (pressed)="onSubmit()">
         {{ busy() ? 'Renaming…' : 'Rename' }}
-      </button>
+      </mui-button>
     </div>
   </div>
 </div>

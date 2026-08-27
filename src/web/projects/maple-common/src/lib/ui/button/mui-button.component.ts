@@ -34,6 +34,12 @@ function boolAttr(value: boolean | null): string | null {
   imports: [MuiIconComponent],
   templateUrl: './mui-button.component.html',
   styleUrl: './mui-button.component.scss',
+  // `fullWidth` needs the HOST element itself (not just the inner real
+  // <button>) to stretch inside a flex/grid container — e.g. a dropdown
+  // menu column — hence a host binding rather than a template class.
+  host: {
+    '[class.is-full-width]': 'fullWidth()',
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiButtonComponent {
@@ -58,6 +64,24 @@ export class MuiButtonComponent {
    * to the native button's `aria-pressed`. Same host-vs-interactive-control
    * reasoning as `ariaExpanded` above. */
   readonly ariaPressed = input<boolean | null>(null);
+  /** Forwarded to the native button's `aria-haspopup` (e.g. a kebab menu
+   * trigger) — same host-vs-interactive-control reasoning as `ariaExpanded`. */
+  readonly ariaHasPopup = input<'menu' | 'listbox' | 'true' | null>(null);
+  /** Colored "on" state for a meaningful toggle/selection pill (e.g. Select
+   * mode, an active Sort/Filter pill) — consolidates what MW4 found
+   * duplicated as `.export-btn.is-active`/`.has-selection` across
+   * `toolbar-actions.component.scss` and `asset-grid.component.scss`. */
+  readonly active = input<boolean>(false);
+  /** Subtler "pressed" overlay for an icon-only chrome toggle (e.g. a
+   * sidebar or kebab-menu toggle) — consolidates `.chrome-btn.is-active`,
+   * duplicated across `browse-shell.component.scss` and
+   * `toolbar-actions.component.scss` (MW4). */
+  readonly toggled = input<boolean>(false);
+  /** Stretches to fill its container and left-aligns the label — a
+   * dropdown/overflow-menu item rather than an inline pill (e.g.
+   * `toolbar-actions.component.scss`'s collapsed kebab menu, MW4 ticket
+   * #3031). */
+  readonly fullWidth = input<boolean>(false);
 
   readonly pressed = output<MouseEvent>();
 

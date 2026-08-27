@@ -170,8 +170,10 @@ async function setup(crudEnabled: boolean) {
   return { fixture, state };
 }
 
+// `.mui-tree-row` — the recursive folder row now composes `<mui-tree-row>`
+// (MW4, ticket #3031) rather than rendering its own `.tree-row` markup.
 function rowFor(fixture: ComponentFixture<FolderTreeComponent>, label: string): HTMLElement {
-  const rows = Array.from(fixture.nativeElement.querySelectorAll('.tree-row')) as HTMLElement[];
+  const rows = Array.from(fixture.nativeElement.querySelectorAll('.mui-tree-row')) as HTMLElement[];
   const row = rows.find((r) => r.textContent?.includes(label));
   if (!row) throw new Error(`no tree row found for "${label}"`);
   return row;

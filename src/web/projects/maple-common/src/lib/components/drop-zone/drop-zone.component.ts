@@ -16,6 +16,7 @@ import { Router } from '@angular/router';
 import { FolderAccessService } from '../../folder-access/folder-access.service';
 import { KnownFolder, MapleFolderHandle } from '../../folder-access/folder-access.types';
 import { viewRouteCommands } from '../../addressing/route-address';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 
 /** Result of resolving a drop to a mounted folder — the branch of
  * `DropResolution` this component acts on once reference-mounting succeeded. */
@@ -39,6 +40,7 @@ interface DropStatus {
 @Component({
   selector: 'app-drop-zone',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './drop-zone.component.html',
   styleUrl: './drop-zone.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
