@@ -11,7 +11,7 @@
   role="slider"
   tabindex="0"
   [attr.aria-label]="ariaLabel()"
-  [attr.aria-valuetext]="'x ' + value().x.toFixed(2) + ', y ' + value().y.toFixed(2)"
+  [attr.aria-valuetext]="valueText() ?? 'x ' + value().x.toFixed(2) + ', y ' + value().y.toFixed(2)"
   [attr.aria-disabled]="disabled() ? 'true' : null"
   (pointerdown)="onPointerDown($event)"
   (pointermove)="onPointerMove($event)"
