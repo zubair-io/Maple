@@ -154,7 +154,7 @@ describe('InfoPanelComponent', () => {
     const fixture = makeFixture({ insideSheet: true });
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.info-panel-header')).not.toBeNull();
-    expect(el.querySelector('[data-testid="info-panel-close"]')).not.toBeNull();
+    expect(el.querySelector('button[aria-label="Close"]')).not.toBeNull();
   });
 
   it('hides the inline header when insideSheet=false', () => {
@@ -168,7 +168,7 @@ describe('InfoPanelComponent', () => {
     const spy = vi.fn();
     fixture.componentInstance.close.subscribe(spy);
     const closeBtn = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="info-panel-close"]',
+      'button[aria-label="Close"]',
     ) as HTMLButtonElement;
     closeBtn.click();
     expect(spy).toHaveBeenCalledTimes(1);

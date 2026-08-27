@@ -21,8 +21,14 @@
 // reload, no persistence machinery.
 
 import { Injectable, computed, signal } from '@angular/core';
+import type { MuiToastEntry } from '../../ui/toast-container/mui-toast-container.component';
 
 export type GpuFallbackReason = 'insecure-context' | 'session-open-failed';
+
+/** Stable synthetic id for the single-slot toast list `toasts` feeds to
+ * `mui-toast-container` — this service tracks at most one fallback reason
+ * per session, so a constant id is enough to key the `@for` track. */
+const GPU_FALLBACK_TOAST_ID = 'gpu-fallback';
 
 @Injectable({ providedIn: 'root' })
 export class GpuFallbackNoticeService {
@@ -68,4 +74,24 @@ export class GpuFallbackNoticeService {
   dismiss(): void {
     this.dismissed.set(true);
   }
+
+  /** Presentation mapping for `<mui-toast-container>` (replaces the deleted
+   * `GpuFallbackNoticeComponent` wrapper, toast sweep ticket #3043) — both
+   * `RootShellComponent` and maple-syrup's `HostedRootShellComponent` bind
+   * this straight in, the same way they already share `SidecarSaveStateService
+   * .statusText` (MW2, #3029). */
+  readonly toasts = computed<readonly MuiToastEntry[]>(() =>
+    this.visible()
+      ? [
+          {
+            id: GPU_FALLBACK_TOAST_ID,
+            variant: 'warning',
+            message: this.message(),
+            // Persists until the user dismisses it by hand — matches the
+            // pre-migration notice, which never auto-timed-out.
+            autoDismissMs: null,
+          },
+        ]
+      : [],
+  );
 }

@@ -65,6 +65,7 @@ import {
   toHistogramBins,
   toMuiFlagState,
 } from './info-panel.vm';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { MuiHistogramComponent } from '../ui/histogram/mui-histogram.component';
 import { MuiKeywordRowComponent } from '../ui/keyword-row/mui-keyword-row.component';
 import { MuiLabelValueGridComponent } from '../ui/label-value-grid/mui-label-value-grid.component';
@@ -76,6 +77,7 @@ import type { MuiRatingFlagState } from '../ui/rating-flags/mui-rating-flags.com
   standalone: true,
   imports: [
     InfoFilenameRowComponent,
+    MuiButtonComponent,
     MuiRatingFlagsComponent,
     MuiHistogramComponent,
     MuiLabelValueGridComponent,

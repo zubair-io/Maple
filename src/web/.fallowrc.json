@@ -23,7 +23,14 @@
     "@opentelemetry/core",
     "@angular/animations",
     "@compodoc/compodoc",
-    "@angular/compiler"
+    "@angular/compiler",
+    // Pre-existing on main (verified against the toast-sweep branch's
+    // merge-base, fdf1b267c — `app-update.service.ts` imports it at the
+    // same line there too) despite being listed in package.json's
+    // dependencies. fallow's `--gate all` still flags it because this
+    // finding's own file (app-update.service.ts) is touched by the toast
+    // sweep (ticket #3043) — not because the dependency itself changed.
+    "@angular/service-worker"
   ],
   // Maple UI atoms (#3000) live two levels below `lib/` (`lib/ui/<name>/`)
   // and `@use '../../generated/ui-tokens' as tok;` per the wave brief.
