@@ -79,6 +79,15 @@ export class LandingComponent {
     const meta = event.metaKey || event.ctrlKey;
     if (!meta) return;
     const key = event.key.toLowerCase();
+    // While typing (e.g. in the palette's own input), only ⌘K stays global;
+    // the O-shortcuts defer to the focused editable element.
+    const target = event.target;
+    const editing =
+      target instanceof HTMLElement &&
+      (target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target.isContentEditable);
+    if (editing && key !== 'k') return;
     if (key === 'o' && !event.shiftKey) {
       event.preventDefault();
       this.openPhoto();
