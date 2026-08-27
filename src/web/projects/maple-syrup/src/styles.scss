@@ -16,17 +16,22 @@
 @use '../../maple-common/src/lib/safe-area';
 // Shared reset/scrollbar/input baseline, identical across both app
 // entrypoints (#3000 fallow dedup). The element box-sizing reset below is
-// NOT in this partial — it stays local because Self Hosted wraps it in
-// `@layer base` and this app does not.
+// NOT in this partial — it stays local because both apps wrap it in
+// `@layer base` at their own entrypoint.
 @use '../../maple-common/src/lib/base-chrome';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+// Must live in `@layer base` (matching Self Hosted): an unlayered `* { margin:
+// 0; padding: 0 }` outranks every Tailwind utility in `@layer utilities`, which
+// silently zeroed all mx-auto/p-*/m-* spacing app-wide (#3035).
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 // ── Maple UI catalog page (#3000) ─────────────────────────────────────────────
