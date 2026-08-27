@@ -147,7 +147,7 @@ describe('MuiRatingFlagsComponent', () => {
       expect(fixture.nativeElement.querySelector('.flag-chip')).toBeNull();
     });
 
-    it('renders a PICK chip when flag is pick, and nothing for reject', () => {
+    it('renders a PICK chip when flag is pick', () => {
       const fixture = renderReadonly();
       fixture.componentRef.setInput('flag', 'pick');
       fixture.detectChanges();

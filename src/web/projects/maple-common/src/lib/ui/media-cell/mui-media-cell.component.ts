@@ -97,6 +97,18 @@ export class MuiMediaCellComponent {
    * keyboard-to-click synthesis already covers it — binding this handler
    * there too would double-emit `pressed`. */
   onKeydown(event: KeyboardEvent): void {
-    handleActivationKeydown(event, () => this.pressed.emit(new MouseEvent('click')));
+    // Carry the modifier keys over — asset-grid reads ctrl/meta/shift off
+    // the emitted event for additive/range selection, so keyboard
+    // activation must match mouse behavior.
+    handleActivationKeydown(event, () =>
+      this.pressed.emit(
+        new MouseEvent('click', {
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+        }),
+      ),
+    );
   }
 }
