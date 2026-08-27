@@ -9,9 +9,10 @@
 //                  `asset.rating >= 4`.
 //
 // No reject badge in v0.1 per the spec. Thumbnail loading delegates to
-// `LibraryStateService.ensureThumbnailUrl` via the same effect pattern
-// used by `<maple-asset-thumb>` so the four loader paths (FS-walk /
-// Mongo / .maple cache / WASM decode) stay in one place.
+// `LibraryStateService.ensureThumbnailUrl` via the same effect pattern used
+// by `<maple-asset-tile>` (browse grid) and `<maple-asset-thumb>` (editor
+// filmstrip) so the four loader paths (FS-walk / Mongo / .maple cache /
+// WASM decode) stay in one place.
 
 import {
   ChangeDetectionStrategy,
