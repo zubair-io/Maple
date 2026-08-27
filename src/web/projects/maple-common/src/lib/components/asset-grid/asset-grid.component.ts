@@ -26,6 +26,7 @@ import { Asset, AssetId } from '../../models/asset';
 import { GridFolderItem } from '../../models/folder';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { parseAddress } from '../../addressing/maple-address';
 import { viewRouteCommands } from '../../addressing/route-address';
@@ -44,6 +45,7 @@ interface GridRow {
   standalone: true,
   imports: [
     MapleIconComponent,
+    MuiButtonComponent,
     ScrollingModule,
     DragDropModule,
     AssetThumbComponent,

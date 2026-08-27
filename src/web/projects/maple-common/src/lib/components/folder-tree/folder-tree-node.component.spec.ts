@@ -46,8 +46,12 @@ async function setup(node: SidebarEntry, opts: { crudEnabled?: boolean } = {}) {
   return { fixture, state };
 }
 
+// `mui-tree-row`'s own template root (`.mui-tree-row`) is where the real
+// interaction handlers live (click, and the native contextmenu/keydown
+// listeners this component binds externally on `<mui-tree-row>` still catch
+// events dispatched here via bubbling) — MW4, ticket #3031.
 function row(fixture: { nativeElement: HTMLElement }): HTMLElement {
-  return fixture.nativeElement.querySelector('.tree-row') as HTMLElement;
+  return fixture.nativeElement.querySelector('.mui-tree-row') as HTMLElement;
 }
 
 describe('FolderTreeNodeComponent', () => {
@@ -65,14 +69,14 @@ describe('FolderTreeNodeComponent', () => {
   it('clicking the chevron expands a closed folder with children', async () => {
     const closedParent: SidebarEntry = { ...PARENT_WITH_CHILD, open: false };
     const { fixture, state } = await setup(closedParent);
-    const chevron = fixture.nativeElement.querySelector('.w-3.flex-shrink-0') as HTMLElement;
+    const chevron = fixture.nativeElement.querySelector('.chevron') as HTMLElement;
     chevron.click();
     expect(state.setFolderOpen).toHaveBeenCalledWith('lib1:', true);
   });
 
   it('clicking the chevron collapses an open folder', async () => {
     const { fixture, state } = await setup(PARENT_WITH_CHILD);
-    const chevron = fixture.nativeElement.querySelector('.w-3.flex-shrink-0') as HTMLElement;
+    const chevron = fixture.nativeElement.querySelector('.chevron') as HTMLElement;
     chevron.click();
     expect(state.setFolderOpen).toHaveBeenCalledWith('lib1:', false);
   });

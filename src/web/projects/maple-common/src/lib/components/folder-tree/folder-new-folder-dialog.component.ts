@@ -15,10 +15,12 @@ import {
   signal,
 } from '@angular/core';
 import { validateFolderNameDraft } from './folder-name-validation';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-folder-new-folder-dialog',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './folder-new-folder-dialog.component.html',
   styleUrl: './folder-new-folder-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

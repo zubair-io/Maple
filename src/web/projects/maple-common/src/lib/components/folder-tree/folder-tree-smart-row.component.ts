@@ -4,20 +4,30 @@
 // that file). Plain presentational component, no service imports beyond
 // the pure icon-name lookup it inherited from `FolderTreeComponent`.
 
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
-import { MapleIconComponent, MapleIconName } from '../../icons/maple-icon.component';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  LOCALE_ID,
+  computed,
+  inject,
+  input,
+  output,
+} from '@angular/core';
+import { formatNumber } from '@angular/common';
+import type { MapleIconName } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
+import { MuiTreeRowComponent } from '../../ui/tree-row/mui-tree-row.component';
 
 @Component({
   selector: 'app-folder-tree-smart-row',
   standalone: true,
-  imports: [MapleIconComponent, DecimalPipe],
+  imports: [MuiTreeRowComponent],
   templateUrl: './folder-tree-smart-row.component.html',
-  styleUrl: './folder-tree-smart-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTreeSmartRowComponent {
+  private readonly locale = inject(LOCALE_ID);
+
   readonly entry = input.required<SidebarEntry>();
   readonly selected = input(false);
 
@@ -33,5 +43,13 @@ export class FolderTreeSmartRowComponent {
       x: 'x',
     };
     return entry.icon && map[entry.icon] ? map[entry.icon] : 'dot';
+  });
+
+  /** Pre-formatted (thousands-separated) so migrating this row's plain
+   * `.tree-row` markup onto `mui-tree-row` doesn't lose the `DecimalPipe`
+   * formatting the original template applied inline (MW4, ticket #3031). */
+  protected readonly formattedCount = computed<string | null>(() => {
+    const count = this.entry().count;
+    return count == null ? null : formatNumber(count, this.locale);
   });
 }

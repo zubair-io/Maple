@@ -73,7 +73,7 @@ describe('ToolbarActionsComponent', () => {
     fixture.detectChanges();
 
     const toggle = el().querySelector(
-      '[data-testid="toolbar-overflow-toggle"]',
+      '[data-testid="toolbar-overflow-toggle"] button',
     ) as HTMLButtonElement;
     expect(toggle).not.toBeNull();
     expect(el().querySelector('[aria-label="Copy settings"]')).toBeNull();

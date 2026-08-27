@@ -95,7 +95,7 @@ describe('BrowseShellComponent capability boundary', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-testid="source-sidebar"]')).toBeNull();
     const toggle = fixture.nativeElement.querySelector(
-      '[data-testid="source-drawer-toggle"]',
+      '[data-testid="source-drawer-toggle"] button',
     ) as HTMLButtonElement;
     toggle.click();
     fixture.detectChanges();

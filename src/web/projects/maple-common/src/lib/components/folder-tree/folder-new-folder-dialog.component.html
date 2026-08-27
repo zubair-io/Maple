@@ -33,17 +33,10 @@
     </div>
 
     <div class="fnf-footer">
-      <button type="button" class="fnf-btn fnf-btn-ghost" [disabled]="busy()" (click)="onCancel()">
-        Cancel
-      </button>
-      <button
-        type="button"
-        class="fnf-btn fnf-btn-primary"
-        [disabled]="!isValid() || busy()"
-        (click)="onSubmit()"
-      >
+      <mui-button variant="ghost" [disabled]="busy()" (pressed)="onCancel()">Cancel</mui-button>
+      <mui-button variant="primary" [disabled]="!isValid() || busy()" (pressed)="onSubmit()">
         {{ busy() ? 'Creating…' : 'Create' }}
-      </button>
+      </mui-button>
     </div>
   </div>
 </div>

@@ -6,12 +6,12 @@
 // other part of BrowseShell reads it).
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { MapleIconComponent } from '../../../icons/maple-icon.component';
+import { MuiButtonComponent } from '../../../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-toolbar-actions',
   standalone: true,
-  imports: [NgTemplateOutlet, MapleIconComponent],
+  imports: [NgTemplateOutlet, MuiButtonComponent],
   templateUrl: './toolbar-actions.component.html',
   styleUrl: './toolbar-actions.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

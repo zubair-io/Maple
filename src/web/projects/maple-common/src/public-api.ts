@@ -181,7 +181,6 @@ export * from './lib/editor/copy-paste/adjustment-clipboard.service';
 export * from './lib/editor/copy-paste/paste-settings-dialog.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/folder-tree/folder-tree-node.component';
-export * from './lib/components/folder-tree/folder-tree-expand-icon.component';
 export * from './lib/components/folder-tree/folder-tree-legacy-section.component';
 export * from './lib/components/folder-tree/folder-tree-smart-row.component';
 export * from './lib/components/folder-tree/folder-tree-library-root.component';

@@ -1,0 +1,29 @@
+@if (expandable()) {
+  @if (busy()) {
+    <span class="chevron chevron-busy" aria-label="Loading">
+      <mui-spinner size="sm" placement="inline" />
+    </span>
+  } @else if (error()) {
+    <button
+      type="button"
+      class="chevron chevron-error"
+      [attr.aria-label]="errorTitle() ?? 'Retry'"
+      [title]="errorTitle() ?? null"
+      (click)="toggle.emit($event)"
+    >
+      !
+    </button>
+  } @else {
+    <button
+      type="button"
+      class="chevron"
+      [class.is-expanded]="expanded()"
+      [attr.aria-label]="expanded() ? 'Collapse' : 'Expand'"
+      (click)="toggle.emit($event)"
+    >
+      <mui-icon name="chevron-right" size="sm" />
+    </button>
+  }
+} @else {
+  <span class="chevron-spacer"></span>
+}
