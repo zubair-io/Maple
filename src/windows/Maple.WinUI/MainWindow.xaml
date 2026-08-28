@@ -752,7 +752,7 @@
                                                 <mui:MuiActionButton x:Name="CurveTabBlue" Label="B" ButtonSize="Sm"
                                                         Click="OnCurveChannel" AutomationProperties.Name="Curve blue channel" />
                                             </StackPanel>
-                                            <muim:MuiCurvePlot x:Name="CurvePlot" PlotWidth="272" PlotHeight="270"
+                                            <muim:MuiCurvePlot x:Name="CurvePlot" Height="270" StretchToFit="True"
                                                                PointEditing="True" Smoothing="MonotoneCubic" ShowGrid="True"
                                                                AutomationProperties.Name="Tone curve plot" />
                                             <Grid>
