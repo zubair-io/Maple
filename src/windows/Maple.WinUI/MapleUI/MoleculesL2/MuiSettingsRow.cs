@@ -81,7 +81,11 @@ namespace Maple.UI
         }
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 4 };
-        private readonly StackPanel _headerRow = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        // Auto + Star grid, NOT a horizontal StackPanel: a horizontal panel
+        // measures its children with infinite width, so the collapsible's
+        // description text never receives a wrapping constraint and long
+        // descriptions clip at the pane edge instead of wrapping.
+        private readonly Grid _headerRow = new() { ColumnSpacing = 8 };
         private readonly MuiIcon _leadingIcon = new() { Size = MuiIconSize.Sm16 };
         private readonly MuiCollapsible _collapsible = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
         private readonly StackPanel _body = new() { Orientation = Orientation.Vertical, Spacing = 8 };
@@ -95,6 +99,12 @@ namespace Maple.UI
             _body.Children.Add(_rowContentHost);
             _collapsible.BodyContent = _body;
             _collapsible.ExpandedChanged += (_, expanded) => IsExpanded = expanded;
+            _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(_leadingIcon, 0);
+            Grid.SetColumn(_collapsible, 1);
+            _leadingIcon.VerticalAlignment = VerticalAlignment.Top;
+            _leadingIcon.Margin = new Thickness(0, 10, 0, 0);
             _headerRow.Children.Add(_leadingIcon);
             _headerRow.Children.Add(_collapsible);
             _root.Children.Add(_headerRow);
