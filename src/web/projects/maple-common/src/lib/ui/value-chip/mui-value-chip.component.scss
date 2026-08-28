@@ -14,3 +14,10 @@
   border-radius: tok.$maple-radius-sm;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
+
+.mui-value-chip-divider {
+  width: 1px;
+  height: 10px;
+  background: currentColor;
+  opacity: 0.4;
+}
