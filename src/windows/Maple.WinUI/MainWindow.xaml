@@ -576,8 +576,12 @@
                                            IsHitTestVisible="False"
                                            AutomationProperties.Name="Clipping overlay" />
                                 </Grid>
-                                <controls:CropOverlayControl x:Name="CropOverlay" Visibility="Collapsed"
-                                                             AutomationProperties.Name="Crop overlay" />
+                                <!-- Positioned onto the image footprint from code
+                                     (Margin = fit-rect origin, Bounds = fit-rect
+                                     size) — see UpdateCropDisplay. -->
+                                <muim:MuiCropOverlay x:Name="CropOverlay" Visibility="Collapsed"
+                                                     HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                     AutomationProperties.Name="Crop overlay" />
                             </Grid>
                         </ScrollViewer>
 
@@ -814,30 +818,19 @@
                                         <!-- Crop toolbar (#2582): aspect presets, straighten,
                                              reset/done — the overlay lives on the canvas. -->
                                         <StackPanel x:Name="PanelCropHost" Visibility="Collapsed" Spacing="10">
-                                            <ComboBox x:Name="CropAspectCombo" Header="Aspect"
-                                                      HorizontalAlignment="Stretch"
-                                                      SelectionChanged="OnCropAspectChanged" />
-                                            <StackPanel>
-                                                <Grid>
-                                                    <mui:MuiText Text="Straighten" Variant="RowLabel" />
-                                                    <mui:MuiText x:Name="CropAngleText" Text="0.0°"
-                                                               Variant="ValueChip"
-                                                               HorizontalAlignment="Right" />
-                                                </Grid>
-                                                <Slider x:Name="CropAngleSlider" Minimum="-45" Maximum="45"
-                                                        StepFrequency="0.1" Value="0" Margin="0,-4,0,0"
-                                                        IsThumbToolTipEnabled="False"
-                                                        ValueChanged="OnCropAngleChanged"
-                                                        AutomationProperties.Name="Straighten angle" />
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <mui:MuiButton Label="Reset" Variant="Ghost" ButtonSize="Sm"
-                                                        Click="OnCropReset"
-                                                        AutomationProperties.Name="Reset crop" />
-                                                <mui:MuiButton Label="Done" Variant="Ghost" ButtonSize="Sm"
-                                                        Click="OnCropDone"
-                                                        AutomationProperties.Name="Crop done" />
-                                            </StackPanel>
+                                            <!-- Aspect presets + straighten + reset (#2582 →
+                                                 MN2 #3051): the toolbar's own Reset raises
+                                                 ResetRequested (wired in BuildCropPanel);
+                                                 Done stays an app-side button since ending
+                                                 crop mode is shell behavior, not the
+                                                 toolbar's. -->
+                                            <muim:MuiCropToolbar x:Name="CropToolbar"
+                                                                 Orientation="Vertical"
+                                                                 IsRotateVisible="False" IsFlipVisible="False"
+                                                                 AutomationProperties.Name="Crop toolbar" />
+                                            <mui:MuiButton Label="Done" Variant="Ghost" ButtonSize="Sm"
+                                                    Click="OnCropDone"
+                                                    AutomationProperties.Name="Crop done" />
                                         </StackPanel>
                                         <TextBlock x:Name="PanelFootnote" FontSize="10" TextWrapping="Wrap"
                                                    Foreground="{StaticResource MapleTextMuted}" Visibility="Collapsed" />
