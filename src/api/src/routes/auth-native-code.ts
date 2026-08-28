@@ -101,6 +101,17 @@ export const nativeCodeClaimRoutes = new Elysia().post(
       set.status = 429;
       return { error: 'rate limited' };
     }
+    // Shape guards before any hashing — this is a public route, so refuse
+    // oversized/garbage input cheaply. Verifier per RFC 7636 (base64url,
+    // 43–128); state bounds mirror the issue route's guard.
+    if (!/^[A-Za-z0-9_-]{43,128}$/.test(body.code_verifier)) {
+      set.status = 400;
+      return { error: 'invalid code_verifier' };
+    }
+    if (body.state.length < 8 || body.state.length > 256) {
+      set.status = 400;
+      return { error: 'invalid state' };
+    }
     const redeemed = await claimNativeCode(body.state, body.code_verifier);
     if (!redeemed) {
       set.status = 404;

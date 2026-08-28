@@ -65,7 +65,7 @@ const claim = (state: string, verifier: string, ip = '203.0.113.77') =>
 
 describe('native code claim (#3063)', () => {
   it('404s while nothing is pending, then claims once the web app mints', async () => {
-    const verifier = 'poll-verifier-abcdefghijklmnop';
+    const verifier = 'poll-verifier-abcdefghijklmnopqrstuvwxyz-0123456789';
     const state = 'state-poll-1234';
 
     // App polls before the browser session mints anything → pending.
@@ -97,20 +97,31 @@ describe('native code claim (#3063)', () => {
   });
 
   it('rejects a claim whose verifier does not hash to the stored challenge', async () => {
-    await issue(pkceS256('right-verifier-1234567890'), 'state-poll-wrongv');
-    const r = await claim('state-poll-wrongv', 'wrong-verifier-1234567890');
+    await issue(pkceS256('right-verifier-1234567890-abcdefghijklmnopqrs'), 'state-poll-wrongv');
+    const r = await claim('state-poll-wrongv', 'wrong-verifier-1234567890-abcdefghijklmnopqrs');
     expect(r.status).toBe(404);
   });
 
   it('rejects a claim whose state does not match', async () => {
-    const verifier = 'poll-verifier-state-mismatch1';
+    const verifier = 'poll-verifier-state-mismatch1-abcdefghijklmnop';
     await issue(pkceS256(verifier), 'state-poll-a');
     const r = await claim('state-poll-b', verifier);
     expect(r.status).toBe(404);
   });
 
+  it('400s malformed input before doing any hashing work (public route)', async () => {
+    // Verifier outside RFC 7636 shape (too short / bad charset) and oversized
+    // state are refused up front — they can never match a real ceremony.
+    expect((await claim('state-shape-ok', 'too-short')).status).toBe(400);
+    expect((await claim('state-shape-ok', 'bad+chars/'.repeat(6))).status).toBe(400);
+    expect(
+      (await claim('x'.repeat(257), 'ok-verifier-abcdefghijklmnopqrstuvwxyz-01234')).status,
+    ).toBe(400);
+    expect((await claim('short', 'ok-verifier-abcdefghijklmnopqrstuvwxyz-01234')).status).toBe(400);
+  });
+
   it('consumes the row on claim, so the redirect-delivered code is dead afterwards', async () => {
-    const verifier = 'poll-verifier-exclusive-12345';
+    const verifier = 'poll-verifier-exclusive-12345-abcdefghijklmnop';
     const state = 'state-poll-exclusive';
     await issue(pkceS256(verifier), state);
 
@@ -125,7 +136,11 @@ describe('native code claim (#3063)', () => {
     // The polling bucket allows a 2s cadence for minutes — 60/min. Exhaust it.
     const results: number[] = [];
     for (let i = 0; i < 61; i++) {
-      const r = await claim('state-rl-abcdef', 'rl-verifier-abcdefghijklmn', '203.0.113.99');
+      const r = await claim(
+        'state-rl-abcdef',
+        'rl-verifier-abcdefghijklmnopqrstuvwxyz-01234567',
+        '203.0.113.99',
+      );
       results.push(r.status);
     }
     expect(results.slice(0, 60).every((s) => s === 404)).toBe(true);
