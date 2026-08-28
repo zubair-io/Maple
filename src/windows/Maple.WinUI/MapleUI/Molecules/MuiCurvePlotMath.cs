@@ -28,10 +28,11 @@ namespace Maple.UI
     /// hit-test/canvas-conversion/nudge math AND its `draw()` method's
     /// midpoint-quadratic path construction exactly — same "always monotone
     /// in x, no overshoot" stand-in the web port uses in place of a full
-    /// Fritsch-Carlson monotone spline (deliberately NOT the app's own
-    /// 64-segment monotone-cubic <c>ToneCurveMath</c>, which is a different,
-    /// richer curve used by the real tone-curve editor — this is the
-    /// generic "Curve Plot" primitive, matching the web/Swift ports' own
+    /// Fritsch-Carlson monotone spline (deliberately NOT the pipeline's own
+    /// 64-segment monotone-cubic <see cref="MuiToneCurveMath"/>, which is a
+    /// different, richer curve the real tone-curve editor opts into via
+    /// <see cref="MuiCurvePlot.Smoothing"/> — this default is the generic
+    /// "Curve Plot" primitive, matching the web/Swift ports' own
     /// lighter-weight choice for that primitive).
     /// </summary>
     public static class MuiCurvePlotMath

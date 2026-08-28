@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Maple.UI;
 using Maple.UI.Atoms;
 using Maple.WinUI.ViewModels;
 
@@ -134,11 +135,11 @@ namespace Maple.WinUI
             RefreshCurvePlot();
         }
 
-        private void OnCurvePointsChanged(List<Models.CurvePoint> points)
+        private void OnCurvePointsChanged(object? sender, IReadOnlyList<MuiCurvePoint> points)
         {
             var target = CurveChannelPoints();
             target.Clear();
-            target.AddRange(points);
+            target.AddRange(points.Select(p => new Models.CurvePoint(p.X, p.Y)));
             ViewModel.NotifyAdjustmentEdited();
             CurveResetButton.IsEnabled = points.Count > 0;
         }
@@ -157,8 +158,8 @@ namespace Maple.WinUI
             CurveTabGreen.Selected = _curveChannel == "Green";
             CurveTabBlue.Selected = _curveChannel == "Blue";
             var points = CurveChannelPoints();
-            CurvePlot.SetChannelColor(CurveChannelColors[_curveChannel]);
-            CurvePlot.SetPoints(points);
+            CurvePlot.AccentBrush = new SolidColorBrush(CurveChannelColors[_curveChannel]);
+            CurvePlot.Points = points.Select(p => new MuiCurvePoint(p.X, p.Y)).ToList();
             CurveResetButton.IsEnabled = points.Count > 0;
             UpdateCurveHistogram();
         }
@@ -169,7 +170,7 @@ namespace Maple.WinUI
         {
             if (PanelCurveHost.Visibility != Visibility.Visible || _lastHistogramBins is not { Length: >= 1024 } bins)
                 return;
-            CurvePlot.SetHistogram(bins[768..1024]);
+            CurvePlot.HistogramBins = bins[768..1024];
         }
 
         private void CloseGroupPanel()
