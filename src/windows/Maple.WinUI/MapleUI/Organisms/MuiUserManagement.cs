@@ -14,7 +14,7 @@ namespace Maple.UI
     /// §4.8, "User Management" row: "Invite, list, and revoke access",
     /// built from List Row, QR Code, Dialog, Form Field) — an invite
     /// <see cref="MuiFormField"/>; sending one reveals a persistent
-    /// <see cref="MuiQrPlaceholder"/> invite code (Dialog has no generic
+    /// <see cref="MuiQrCode"/> invite code (Dialog has no generic
     /// body slot to host it in, so it renders inline rather than inside
     /// the confirm popup), a <see cref="MuiListRow"/> per user, and a
     /// confirm <see cref="MuiDialog"/> before revoking access.
@@ -45,7 +45,7 @@ namespace Maple.UI
         private readonly MuiButton _inviteButton = new() { Variant = MuiButtonVariant.Secondary, Label = "Invite" };
         private readonly StackPanel _rows = new() { Orientation = Orientation.Vertical, Spacing = 2 };
         private readonly StackPanel _invitePanel = new() { Orientation = Orientation.Horizontal, Spacing = 12, Visibility = Visibility.Collapsed };
-        private readonly MuiQrPlaceholder _qrCode = new() { PlaceholderSize = MuiQrPlaceholderSize.Md };
+        private readonly MuiQrCode _qrCode = new() { QrSize = MuiQrCodeSize.Md };
         private readonly MuiText _inviteCaption = new() { Variant = MuiTextVariant.Body, ColorRole = MuiTextColorRole.Muted, VerticalAlignment = VerticalAlignment.Center };
         private readonly MuiDialog _revokeDialog = new() { Variant = MuiDialogVariant.Confirm, Title = "Revoke access?", ConfirmLabel = "Revoke", Destructive = true };
         private string? _pendingRevokeId;
