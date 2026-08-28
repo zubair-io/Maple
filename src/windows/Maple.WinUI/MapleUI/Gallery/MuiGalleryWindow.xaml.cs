@@ -353,7 +353,7 @@ namespace Maple.UI.Gallery
                 new MuiAvatar { Name = "Grace Hopper", AvatarSize = MuiAvatarSize.Md, Presence = MuiAvatarPresence.Online },
                 new MuiAvatar { Name = "Cher", AvatarSize = MuiAvatarSize.Lg, Presence = MuiAvatarPresence.Away })));
 
-            AtomsPanel.Children.Add(SpecimenCard("QR Code", "Deterministic placeholder pattern (no real QR dep this wave — see #3012).", Row(
+            AtomsPanel.Children.Add(SpecimenCard("QR Code", "Real, scannable payload encoding (QRCoder via MuiQrMatrix, MN4 #3053).", Row(
                 new MuiQrCode { Payload = "maple-app://pair/abc123", QrSize = MuiQrCodeSize.Sm },
                 new MuiQrCode { Payload = "maple-app://pair/xyz789", QrSize = MuiQrCodeSize.Md })));
 
