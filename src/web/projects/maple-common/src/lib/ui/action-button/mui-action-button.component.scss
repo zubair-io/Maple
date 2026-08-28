@@ -45,6 +45,21 @@
   }
 }
 
+.icon-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.modified-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
 .orientation-stacked {
   flex-direction: column;
   gap: 2px;

@@ -4,9 +4,17 @@
   [class]="'size-' + size() + ' orientation-' + orientation()"
   [class.selected]="selected()"
   [disabled]="disabled()"
+  [attr.title]="title()"
   [attr.aria-pressed]="selected() ? 'true' : 'false'"
+  [attr.aria-hidden]="ariaHidden() ? 'true' : null"
+  [attr.tabindex]="ariaHidden() ? -1 : null"
   (click)="onClick($event)"
 >
-  <mui-icon [name]="icon()" [size]="iconSize()" />
+  <span class="icon-wrap">
+    <mui-icon [name]="icon()" [size]="iconSize()" />
+    @if (modified()) {
+      <span class="modified-dot"></span>
+    }
+  </span>
   <span class="label">{{ label() }}</span>
 </button>
