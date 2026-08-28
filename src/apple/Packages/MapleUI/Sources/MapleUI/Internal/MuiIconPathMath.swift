@@ -22,7 +22,13 @@ enum MuiIconPathMath {
         var current = CGPoint.zero
         var subpathStart = CGPoint.zero
         let scanner = Scanner(string: d)
-        scanner.charactersToBeSkipped = .whitespacesAndNewlines
+        // SVG path data is fixed-format: '.' decimals, comma OR whitespace
+        // separators. Pin the locale so comma-decimal locales don't misparse
+        // "4.6", and skip commas like whitespace per the SVG grammar.
+        scanner.locale = Locale(identifier: "en_US_POSIX")
+        var skipped = CharacterSet.whitespacesAndNewlines
+        skipped.insert(",")
+        scanner.charactersToBeSkipped = skipped
 
         while let letter = scanner.scanCharacters(from: commandLetters)?.last {
             switch letter {
