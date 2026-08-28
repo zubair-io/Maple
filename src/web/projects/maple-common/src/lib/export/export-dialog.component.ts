@@ -77,10 +77,12 @@ export class ExportDialogComponent {
   readonly colorSpaceOptions: readonly MuiSegmentedToggleOption[] = COLOR_SPACE_CHOICES.map(
     (c) => ({ value: c.value, label: c.label }),
   );
-  readonly sizeOptions: readonly MuiExportSizeOption[] = SIZE_PRESETS.map((px) => ({
-    value: px,
-    label: `Long edge ${px} px`,
-  }));
+  readonly sizeOptions: readonly MuiExportSizeOption[] = [
+    // `value: 0` is the modal contract's "Full resolution" sentinel — it must
+    // exist so the default (uncapped) state maps to a selectable option.
+    { value: 0, label: 'Full resolution' },
+    ...SIZE_PRESETS.map((px) => ({ value: px, label: `Long edge ${px} px` })),
+  ];
 
   // ── state ─────────────────────────────────────────────────────────────────
   readonly phase = signal<MuiExportModalPhase>('options');
