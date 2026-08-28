@@ -36,6 +36,10 @@ export class MuiListRowComponent {
   readonly timestampValue = input<Date | number | string | null>(null);
   readonly active = input<boolean>(false);
   readonly disabled = input<boolean>(false);
+  /** Forwarded to the row's own interactive `[role="button"]` element's
+   * `data-testid` — not `<mui-list-row>`'s custom-element host, which
+   * carries no click/keydown handling of its own. */
+  readonly testId = input<string | null>(null);
 
   /** The contract's `onPress` — fires on a click/tap anywhere in the row. */
   readonly pressed = output<void>();
