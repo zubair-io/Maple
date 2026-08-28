@@ -170,7 +170,8 @@ namespace Maple.UI
                     MinRegionWidth, MinRegionHeight)
                 : MuiCropOverlayMath.Translate(Rect, dx, dy, Bounds.Width, Bounds.Height);
             var next = _draggingHandle is { } aspectHandle && AspectRatio is { } aspect
-                ? MuiCropOverlayMath.ConstrainAspect(resized, aspectHandle, aspect, Bounds.Width, Bounds.Height)
+                ? MuiCropOverlayMath.ConstrainAspect(resized, aspectHandle, aspect, Bounds.Width, Bounds.Height,
+                    MinRegionWidth, MinRegionHeight)
                 : resized;
 
             Rect = next;

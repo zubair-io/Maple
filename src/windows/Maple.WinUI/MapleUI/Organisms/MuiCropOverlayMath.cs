@@ -71,18 +71,21 @@ namespace Maple.UI
         /// other axis centered on the region's midline; corner handles make
         /// height follow width, anchored on the stationary horizontal edge.
         /// <paramref name="aspect"/> is width/height in the same pixel space
-        /// as <paramref name="rect"/>. Clamping against the bounds wins over
-        /// the ratio at the frame edges, matching the session's behavior.</summary>
+        /// as <paramref name="rect"/>. The derived axis is clamped into
+        /// [minimum, bounds] — both the bounds AND the per-axis minimum
+        /// floor win over the exact ratio at the extremes, so an aspect
+        /// drag can never shrink the region below the caller's minimum.</summary>
         public static MuiCropRect ConstrainAspect(
             MuiCropRect rect, MuiCropHandle handle, double aspect,
-            double boundsWidth, double boundsHeight)
+            double boundsWidth, double boundsHeight,
+            double minWidth = 0, double minHeight = 0)
         {
             if (aspect <= 0) return rect;
             switch (handle)
             {
                 case MuiCropHandle.Left or MuiCropHandle.Right:
                 {
-                    var height = Math.Min(rect.Width / aspect, boundsHeight);
+                    var height = DerivedExtent(rect.Width / aspect, minHeight, boundsHeight);
                     var cy = rect.Top + rect.Height / 2;
                     var top = Math.Max(0, cy - height / 2);
                     var bottom = Math.Min(boundsHeight, cy + height / 2);
@@ -90,7 +93,7 @@ namespace Maple.UI
                 }
                 case MuiCropHandle.Top or MuiCropHandle.Bottom:
                 {
-                    var width = Math.Min(rect.Height * aspect, boundsWidth);
+                    var width = DerivedExtent(rect.Height * aspect, minWidth, boundsWidth);
                     var cx = rect.Left + rect.Width / 2;
                     var left = Math.Max(0, cx - width / 2);
                     var right = Math.Min(boundsWidth, cx + width / 2);
@@ -100,7 +103,7 @@ namespace Maple.UI
                 {
                     // Corners: height follows width, anchored vertically on
                     // the stationary edge.
-                    var height = Math.Min(rect.Width / aspect, boundsHeight);
+                    var height = DerivedExtent(rect.Width / aspect, minHeight, boundsHeight);
                     if (handle is MuiCropHandle.TopLeft or MuiCropHandle.TopRight)
                     {
                         var top = Math.Max(0, rect.Bottom - height);
@@ -111,6 +114,12 @@ namespace Maple.UI
                 }
             }
         }
+
+        /// <summary>Ratio-derived extent clamped into [minimum, bounds];
+        /// Math.Max guards the degenerate minimum-larger-than-bounds case
+        /// so the clamp range never inverts.</summary>
+        private static double DerivedExtent(double fromRatio, double minimum, double bounds) =>
+            Math.Clamp(fromRatio, Math.Min(Math.Max(0, minimum), bounds), bounds);
 
         /// <summary>Translates the whole region by (dx, dy), clamped so
         /// it stays fully within bounds — used when dragging the crop
