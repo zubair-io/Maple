@@ -13,8 +13,8 @@ namespace Maple.UI
     /// "Histogram" row: "RGB distribution plot", built from _(plot
     /// primitive)_) — draws directly via WinUI Shapes onto a
     /// <see cref="Canvas"/> (the same "hand-rolled Shapes plot" technique
-    /// `Controls/ToneCurvePlotControl.cs` already uses in this codebase,
-    /// rather than a Win2D dependency this project doesn't reference).
+    /// <see cref="MuiCurvePlot"/> uses in this library, rather than a Win2D
+    /// dependency this project doesn't reference).
     ///
     /// R/G/B channel colors are literal, not theme tokens — same
     /// "content-functional, not chrome color" precedent

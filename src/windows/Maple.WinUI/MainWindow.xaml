@@ -6,6 +6,7 @@
     xmlns:conv="using:Maple.WinUI.Converters"
     xmlns:controls="using:Maple.WinUI.Controls"
     xmlns:mui="using:Maple.UI.Atoms"
+    xmlns:muim="using:Maple.UI"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -747,8 +748,9 @@
                                                 <mui:MuiActionButton x:Name="CurveTabBlue" Label="B" ButtonSize="Sm"
                                                         Click="OnCurveChannel" AutomationProperties.Name="Curve blue channel" />
                                             </StackPanel>
-                                            <controls:ToneCurvePlotControl x:Name="CurvePlot" Height="270"
-                                                                           AutomationProperties.Name="Tone curve plot" />
+                                            <muim:MuiCurvePlot x:Name="CurvePlot" PlotWidth="272" PlotHeight="270"
+                                                               PointEditing="True" Smoothing="MonotoneCubic" ShowGrid="True"
+                                                               AutomationProperties.Name="Tone curve plot" />
                                             <Grid>
                                                 <TextBlock Text="Shadows" FontSize="9"
                                                            Foreground="{StaticResource MapleTextMuted}"

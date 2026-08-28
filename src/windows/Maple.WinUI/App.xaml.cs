@@ -141,7 +141,7 @@ namespace Maple.WinUI
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
             RawFfi.VerifyAbi();
-            Controls.ToneCurveMath.VerifyParity();
+            Maple.UI.MuiToneCurveMath.VerifyParity();
             Maple.WinUI.Services.ProtocolRegistrar.EnsureRegistered();
             Maple.WinUI.Services.FileTypeRegistrar.EnsureRegistered();
             MainDispatcherQueue = DispatcherQueue.GetForCurrentThread();

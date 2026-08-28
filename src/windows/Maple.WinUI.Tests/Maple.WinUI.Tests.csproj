@@ -114,6 +114,14 @@
     scaling, heatmap cell sizing, and the play/pause/scrub/mm:ss transport
     state machine are all exercisable here without a live Window.
 
+    `MapleUI\Molecules\MuiToneCurveMath.cs` (MN2, #3051) is the app's shared
+    tone-curve evaluator (Fritsch–Carlson monotone cubic + the plot's editing
+    rules), moved from the app's Controls layer into Maple.UI when
+    `MuiCurvePlot` took over the tone-curve editor. Plain C# over
+    `MuiCurvePoint` (System/System.Collections.Generic/System.Linq only), so
+    the cross-platform parity vector and the materialize/insert/move/remove
+    rules are exercisable here without a live Window.
+
     `MapleUI\Molecules\MuiInlineEditLogic.cs` and
     `MapleUI\MoleculesL2\MuiDialogLogic.cs`, `MuiKeywordRowLogic.cs`,
     `MuiBotOutputTicker.cs`, `MuiFilmstripFollowLogic.cs` (Maple.UI
@@ -222,6 +230,7 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiPlotMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiVectorscopeMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiCurvePlotMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiConnectionGraphMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiHeatmapMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MediaTransportState.cs" LinkBase="MapleUI\Molecules" />
