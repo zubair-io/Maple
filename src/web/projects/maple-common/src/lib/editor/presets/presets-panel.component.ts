@@ -7,8 +7,18 @@
 // `EditorStateService.applyPreset` (sparse merge → ONE undo entry →
 // existing debounced sidecar save).
 //
-// Delete is two-step: the trash affordance flips the row into an inline
-// "Delete?" confirm — no native confirm() dialogs.
+// Chrome now delegates to `mui-presets-panel` (#3046), mounted TWICE — once
+// per section, matching the Built-in/Saved split the design-system
+// organism doesn't have a native notion of:
+//  - Built-in: `showDeleteAction="false"` (bundled presets can't be
+//    deleted), `loading="false"` (the bundled list is always ready).
+//  - Saved: the user's own presets, `confirmMode="inline"` — the row-flip
+//    delete-confirm behavior-preservation decision (#3046: extend
+//    `mui-presets-panel` with an inline mode rather than switching this
+//    workflow to its modal default).
+// Both mounts set `showSaveTrigger="false"`: Save itself stays this
+// wrapper's own always-visible name input + button (never a prompt
+// dialog — that was never the legacy interaction to begin with).
 
 import {
   ChangeDetectionStrategy,
@@ -20,15 +30,17 @@ import {
   signal,
 } from '@angular/core';
 
-import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { EditorStateService } from '../editor-state.service';
 import { capturePresetFields, type Preset } from './preset-model';
 import { PresetsService } from './presets.service';
+import { MuiPresetsPanelComponent } from '../../ui/presets-panel/mui-presets-panel.component';
+import type { MuiPresetItem } from '../../ui/presets-panel/mui-presets-panel.component';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-presets-panel',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MuiPresetsPanelComponent, MuiButtonComponent],
   templateUrl: './presets-panel.component.html',
   styleUrl: './presets-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,8 +54,6 @@ export class PresetsPanelComponent implements OnInit {
 
   /** Draft name for the save row. */
   protected readonly draftName = signal('');
-  /** Preset id currently in the inline delete-confirm state. */
-  protected readonly confirmingDeleteId = signal<string | null>(null);
 
   /** Sparse capture of the current edit state — what "Save" would store. */
   protected readonly capturedFields = computed(() => {
@@ -55,16 +65,43 @@ export class PresetsPanelComponent implements OnInit {
     () => this.capturedCount() > 0 && this.draftName().trim().length > 0 && !this.presets.busy(),
   );
 
+  /** Built-in presets as `mui-presets-panel` items — no timestamp of their
+   *  own, so the field-count summary fills the subtitle line instead. */
+  protected readonly builtinItems = computed<readonly MuiPresetItem[]>(() =>
+    this.presets.builtins.map((p) => ({ id: p.id, name: p.name, subtitle: this.fieldSummary(p) })),
+  );
+  protected readonly userItems = computed<readonly MuiPresetItem[]>(() =>
+    this.presets.userPresets().map((p) => ({
+      id: p.id,
+      name: p.name,
+      subtitle: this.fieldSummary(p),
+    })),
+  );
+
   ngOnInit(): void {
     if (!this.presets.loaded()) {
       void this.presets.load();
     }
   }
 
-  protected apply(preset: Preset): void {
-    if (this.state.applyPreset(preset)) {
+  private findPreset(id: string): Preset | null {
+    return (
+      this.presets.builtins.find((p) => p.id === id) ??
+      this.presets.userPresets().find((p) => p.id === id) ??
+      null
+    );
+  }
+
+  protected onApplied(id: string): void {
+    const preset = this.findPreset(id);
+    if (preset && this.state.applyPreset(preset)) {
       this.applied.emit();
     }
+  }
+
+  protected async onDeleted(id: string): Promise<void> {
+    const preset = this.findPreset(id);
+    if (preset) await this.presets.delete(preset);
   }
 
   protected async save(): Promise<void> {
@@ -78,22 +115,8 @@ export class PresetsPanelComponent implements OnInit {
     this.draftName.set((event.target as HTMLInputElement).value);
   }
 
-  protected requestDelete(preset: Preset): void {
-    this.confirmingDeleteId.set(preset.id);
-  }
-
-  protected cancelDelete(): void {
-    this.confirmingDeleteId.set(null);
-  }
-
-  protected async confirmDelete(preset: Preset): Promise<void> {
-    if (await this.presets.delete(preset)) {
-      this.confirmingDeleteId.set(null);
-    }
-  }
-
   /** One-line summary of a preset's sparse fields, e.g. "2 settings". */
-  protected fieldSummary(preset: Preset): string {
+  private fieldSummary(preset: Preset): string {
     const n = Object.keys(preset.fields).length;
     return n === 1 ? '1 setting' : `${n} settings`;
   }
