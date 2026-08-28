@@ -71,6 +71,12 @@
     on disk), backing up and restoring whatever was there before/after each
     test.
 
+    `Services\StorageReport.cs` (MN3, #3052) is the Settings window's
+    byte-formatting + best-effort directory-size probe — plain System.IO,
+    no WinUI dependency, linked the same way `DiagLog.cs`/`AppSettings.cs`
+    are. Its directory tests use real temp directories (the filesystem IS
+    the contract), mirroring the AppSettings reasoning above.
+
     `MapleUI\Atoms\MuiTimestampFormatter.cs` (Maple.UI Windows-phase atoms) is
     the Timestamp atom's date-math split into a plain C# static class with no
     WinUI/WinRT dependency of its own (System/System.Globalization only), for
@@ -211,6 +217,7 @@
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AppSettings.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\StorageReport.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiTimestampFormatter.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiRemoteImageLoader.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiAvatarPalette.cs" LinkBase="MapleUI" />
