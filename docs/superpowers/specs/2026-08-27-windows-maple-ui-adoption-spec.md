@@ -28,7 +28,7 @@ from on-device verification:
 ## Invariants (binding)
 
 1. **Replace-then-delete, same PR.** A legacy control is deleted in the PR that
-   migrates its last consumer — proven by `grep -rn <ClassName> src/windows`,
+   migrates its last consumer — proven by `git grep -n <ClassName> src/windows`,
    never assumed. `Controls/MapleIconControl.cs` + `MapleIconShapes.cs` are NOT
    legacy — they back `MuiIcon`.
 2. **Behavior-preserving.** Same gestures, same pipeline calls, same rendered

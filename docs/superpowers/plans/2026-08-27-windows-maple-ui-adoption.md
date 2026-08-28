@@ -58,7 +58,7 @@ reviewable commit.
      `MapleUI/` if the Mui control should own it) and update the test
      project's `<Compile Include>` accordingly.
    - Rewire `MainWindow.Panels.cs`/`MainWindow.xaml`; delete
-     `ToneCurvePlotControl.cs` once `grep -rn ToneCurvePlotControl src/windows`
+     `ToneCurvePlotControl.cs` once `git grep -n ToneCurvePlotControl src/windows`
      is empty.
 2. **ColorWheel → MuiColorWheel.** Same procedure; hue/sat events must feed
    the identical view-model path. `MuiColorWheelMath` is the geometry truth.
@@ -103,7 +103,7 @@ deletions in the PR body; gallery still renders (Ctrl+Shift+G smoke).
 
 ## Phase 3 — MN4: sweep + QR (ticket #3053, branch `feature/maple-ui-mn4-sweep-qr`)
 
-1. Sweep: `grep -rn` for raw `new Button(`, local Style definitions, bare
+1. Sweep: `git grep -n` for raw `new Button(`, local Style definitions, bare
    `FontIcon` outside the documented MenuFlyoutItem keeps, and any
    `Controls/`-style hand-rolled chrome in dialogs/pano/rename/qualify
    windows. Migrate stragglers onto Mui atoms or document keeps with reasons
@@ -114,7 +114,7 @@ deletions in the PR body; gallery still renders (Ctrl+Shift+G smoke).
    and verify by scanning the rendered code with a phone (evidence: photo or
    decoded-payload note in the PR). New dependency = call it out prominently
    in the PR body for review.
-3. Final zero-check: `grep -rn "FloatingPill\|PillButton\|MapleEyebrow\|MapleRowLabel\|MapleValueChip\|MapleToolButton\|ColorWheelControl\|CropOverlayControl\|ToneCurvePlotControl" src/windows`
+3. Final zero-check: `git grep -n "FloatingPill\|PillButton\|MapleEyebrow\|MapleRowLabel\|MapleValueChip\|MapleToolButton\|ColorWheelControl\|CropOverlayControl\|ToneCurvePlotControl" src/windows`
    returns nothing; `MapleIconControl`/`MapleIconShapes` remain (they back
    MuiIcon); build + tests + gallery green.
 
