@@ -82,6 +82,11 @@ export class MuiButtonComponent {
    * `toolbar-actions.component.scss`'s collapsed kebab menu, MW4 ticket
    * #3031). */
   readonly fullWidth = input<boolean>(false);
+  /** Forwarded to the native button's `data-testid` — same
+   * host-vs-interactive-control reasoning as `ariaExpanded`: a caller's
+   * integration test needs to find and click the real `<button>`, not
+   * `<mui-button>`'s own custom-element host. */
+  readonly testId = input<string | null>(null);
 
   readonly pressed = output<MouseEvent>();
 

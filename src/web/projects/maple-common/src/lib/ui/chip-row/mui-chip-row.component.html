@@ -5,14 +5,20 @@
         type="button"
         class="chip"
         role="listitem"
-        [class.is-selected]="selectedId() === chip.id"
-        [attr.aria-pressed]="selectedId() === chip.id"
-        (click)="selectChip(chip.id)"
+        [class.is-selected]="isSelected(chip)"
+        [class.is-disabled]="isDisabled(chip)"
+        [disabled]="isDisabled(chip)"
+        [attr.aria-pressed]="isSelected(chip)"
+        [attr.data-testid]="chip.testId ?? null"
+        (click)="selectChip(chip)"
       >
-        <mui-badge [variant]="selectedId() === chip.id ? 'signal' : 'count'" [value]="chip.label" />
+        <mui-badge [variant]="isSelected(chip) ? 'signal' : 'count'" [value]="chip.label" />
+        @if (chip.modified) {
+          <span class="modified-dot"></span>
+        }
       </button>
     } @else {
-      <span class="chip" role="listitem">
+      <span class="chip" role="listitem" [attr.data-testid]="chip.testId ?? null">
         <mui-badge variant="count" [value]="chip.label" />
         <button
           type="button"

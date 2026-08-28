@@ -1,93 +1,23 @@
+// The preset-chip/straighten-bar/reset chrome itself now lives in
+// `mui-crop-toolbar` (#3046) — this wrapper only owns its own layout slot.
+// The Done action is now `mui-button` too (its own chrome), leaving this
+// file with no button styling of its own.
 :host {
   display: block;
 }
 
 .crop-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
   padding: 8px 12px;
 }
 
-.aspect-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-}
-
-.aspect-chip {
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border: 0.5px solid var(--maple-border, rgb(255 255 255 / 14%));
-  background: var(--maple-surface-alt, rgb(255 255 255 / 4%));
-  color: var(--maple-text-muted, rgb(255 255 255 / 60%));
-  font-size: 11px;
-  cursor: pointer;
-  transition:
-    background 100ms,
-    color 100ms,
-    border-color 100ms;
-
-  &:hover {
-    color: var(--maple-text-main, rgb(255 255 255 / 90%));
-  }
-
-  &.is-active {
-    border-color: var(--maple-accent, #4a9eff);
-    color: var(--maple-accent, #4a9eff);
-    background: rgb(74 158 255 / 15%);
-  }
-}
-
-.straighten-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.straighten-label {
-  font-size: 11px;
-  color: var(--maple-text-muted, rgb(255 255 255 / 60%));
-  white-space: nowrap;
-}
-
-.straighten-slider {
+.toolbar {
   flex: 1;
-  min-width: 80px;
-  accent-color: var(--maple-accent, #4a9eff);
-}
-
-.straighten-value {
-  font-family: var(--maple-font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  color: var(--maple-text-main, rgb(255 255 255 / 85%));
-  width: 44px;
-  text-align: right;
-}
-
-.crop-action {
-  height: 24px;
-  padding: 0 12px;
-  border-radius: 12px;
-  border: 0.5px solid var(--maple-border, rgb(255 255 255 / 14%));
-  background: var(--maple-surface-alt, rgb(255 255 255 / 4%));
-  color: var(--maple-text-muted, rgb(255 255 255 / 60%));
-  font-size: 11px;
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
-  &:not(:disabled):hover {
-    color: var(--maple-text-main, rgb(255 255 255 / 90%));
-  }
+  min-width: 0;
 }
 
 .crop-done {
-  border-color: var(--maple-accent, #4a9eff);
-  color: var(--maple-accent, #4a9eff);
+  flex-shrink: 0;
 }
