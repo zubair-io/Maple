@@ -7,6 +7,27 @@ public enum MuiInputSize: Sendable {
     case sm, md
 }
 
+/// The on-screen keyboard a caller wants, decoupled from `numeric`'s
+/// stepper chrome — a compact field (e.g. a port number, a concurrency
+/// count) can ask for the number pad without also getting +/- steppers it
+/// has no room for. `.default` preserves the pre-existing behavior where a
+/// `numeric` config alone implies a decimal keypad.
+public enum MuiInputKeyboard: Sendable, Equatable {
+    case `default`
+    case numberPad
+}
+
+/// The keyboard `MuiInput` actually renders, once `keyboard` and `numeric`
+/// are reconciled. Kept as its own `UIKit`-free enum (rather than resolving
+/// straight to `UIKeyboardType`) so `MuiInput.resolvedKeyboard(...)` stays
+/// unit-testable on every platform, including macOS where `UIKeyboardType`
+/// doesn't exist.
+public enum MuiInputResolvedKeyboard: Sendable, Equatable {
+    case `default`
+    case decimalPad
+    case numberPad
+}
+
 /// Clamp bounds + increment for the numeric variant's steppers (input.md
 /// "Numeric variant with steppers"). Not in the contract's own Props table
 /// (which only names the two variants) — this configures the stepper
@@ -44,6 +65,7 @@ public struct MuiInput: View {
     public let secure: Bool
     public let monospaced: Bool
     public let autocorrectionDisabled: Bool
+    public let keyboard: MuiInputKeyboard
 
     @FocusState private var isFocused: Bool
 
@@ -58,6 +80,11 @@ public struct MuiInput: View {
     ///   - autocorrectionDisabled: Disables autocorrect and (on iOS)
     ///     auto-capitalization — values like URLs and keys where
     ///     autocorrection actively corrupts the entry.
+    ///   - keyboard: The on-screen keyboard, independent of `numeric`'s
+    ///     stepper chrome — `.numberPad` for a compact numeric field (a
+    ///     port, a concurrency count) that has no room for +/- steppers.
+    ///     `.default` keeps the pre-existing behavior of a `numeric` config
+    ///     alone implying a decimal keypad.
     public init(
         value: Binding<String>,
         accessibilityLabel: String,
@@ -75,7 +102,8 @@ public struct MuiInput: View {
         onCommit: (() -> Void)? = nil,
         secure: Bool = false,
         monospaced: Bool = false,
-        autocorrectionDisabled: Bool = false
+        autocorrectionDisabled: Bool = false,
+        keyboard: MuiInputKeyboard = .default
     ) {
         self._value = value
         self.accessibilityLabel = accessibilityLabel
@@ -94,6 +122,7 @@ public struct MuiInput: View {
         self.secure = secure
         self.monospaced = monospaced
         self.autocorrectionDisabled = autocorrectionDisabled
+        self.keyboard = keyboard
     }
 
     public var body: some View {
@@ -111,7 +140,7 @@ public struct MuiInput: View {
                     .disabled(disabled || readOnly)
                     .autocorrectionDisabled(autocorrectionDisabled)
                     #if os(iOS)
-                    .keyboardType(numeric != nil ? .decimalPad : .default)
+                    .keyboardType(Self.uiKeyboardType(for: Self.resolvedKeyboard(keyboard: keyboard, numeric: numeric)))
                     .textInputAutocapitalization(autocorrectionDisabled ? .never : .sentences)
                     #endif
 
@@ -187,6 +216,29 @@ public struct MuiInput: View {
         let points: CGFloat = size == .sm ? 13 : 14
         return monospaced ? .system(size: points, design: .monospaced) : .system(size: points)
     }
+
+    /// Reconciles the caller's `keyboard` request with `numeric`'s
+    /// pre-existing implied-decimal-keypad behavior: an explicit
+    /// `.numberPad` always wins (it's the caller opting a compact field —
+    /// no steppers — into a numeric keyboard on its own); otherwise a
+    /// `numeric` config still implies `.decimalPad`, unchanged from before
+    /// this parameter existed, so no numeric-config call site needs to
+    /// start also passing `keyboard:`. Public + static so the precedence is
+    /// unit-testable without `UIKit`, which doesn't exist on macOS.
+    public static func resolvedKeyboard(keyboard: MuiInputKeyboard, numeric: MuiInputNumericConfig?) -> MuiInputResolvedKeyboard {
+        if keyboard == .numberPad { return .numberPad }
+        return numeric != nil ? .decimalPad : .default
+    }
+
+    #if os(iOS)
+    private static func uiKeyboardType(for resolved: MuiInputResolvedKeyboard) -> UIKeyboardType {
+        switch resolved {
+        case .default: return .default
+        case .decimalPad: return .decimalPad
+        case .numberPad: return .numberPad
+        }
+    }
+    #endif
 
     @ViewBuilder
     private func stepperControls(_ config: MuiInputNumericConfig) -> some View {
