@@ -73,8 +73,19 @@ namespace Maple.WinUI.ViewModels
                     while (true)
                     {
                         await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
-                        var (ok, message) = await client.ClaimNativeCodeAsync(
+                        var (ok, fatal, message) = await client.ClaimNativeCodeAsync(
                             pending.State, pending.Verifier, cts.Token);
+                        if (fatal)
+                        {
+                            // Permanent (bad request / user gone) — the ceremony
+                            // can never complete; stop polling and surface it.
+                            OnUi(() =>
+                            {
+                                if (_pendingSignIn == pending && _signInPollCts == cts)
+                                    CloudStatus = $"Sign-in failed: {message}";
+                            });
+                            return;
+                        }
                         if (!ok)
                             continue; // nothing pending yet (or transient) — keep polling
                         OnUi(() => _ = CompleteClaimedSignInAsync(pending, client, message));
