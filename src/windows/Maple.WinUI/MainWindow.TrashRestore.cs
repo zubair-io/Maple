@@ -19,6 +19,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Microsoft.UI.Xaml.Media;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
@@ -65,11 +66,10 @@ namespace Maple.WinUI
             };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(list, "Trashed photos");
 
-            var summaryText = new TextBlock
+            var summaryText = new MuiText
             {
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
+                Variant = MuiTextVariant.Body,
+                ColorRole = MuiTextColorRole.Muted,
                 Text = $"{items.Count} item{(items.Count == 1 ? "" : "s")} in Maple's trash. Restoring a "
                     + "photo that already has a file at its original location adds \".restored\" to the "
                     + "name instead of overwriting it.",
@@ -105,12 +105,11 @@ namespace Maple.WinUI
 
         private async Task RunRestoreAsync(IReadOnlyList<TrashListItem> selected)
         {
-            var statusText = new TextBlock
+            var statusText = new MuiText
             {
                 Text = $"Restoring 0 of {selected.Count}…",
-                FontSize = 12,
+                Variant = MuiTextVariant.Body,
                 Width = 380,
-                TextWrapping = TextWrapping.Wrap,
             };
             var progressDialog = new ContentDialog
             {
@@ -118,7 +117,7 @@ namespace Maple.WinUI
                 Content = new StackPanel
                 {
                     Spacing = 10,
-                    Children = { new ProgressBar { IsIndeterminate = true }, statusText },
+                    Children = { new MuiProgress { ProgressShape = MuiProgressShape.Bar, IsIndeterminate = true }, statusText },
                 },
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
@@ -171,11 +170,10 @@ namespace Maple.WinUI
             var detail = new StackPanel { Spacing = 6 };
             foreach (var outcome in outcomes.Where(o => !o.Ok))
             {
-                detail.Children.Add(new TextBlock
+                detail.Children.Add(new MuiText
                 {
                     Text = $"{outcome.FileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}",
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
+                    Variant = MuiTextVariant.Body,
                 });
             }
             var reportDialog = new ContentDialog
