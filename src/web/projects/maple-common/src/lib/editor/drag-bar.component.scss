@@ -1,33 +1,9 @@
+// The track/tick/marker chrome itself now lives in `mui-drag-bar` (#3046)
+// — this wrapper only owns its slot's positioning (the 30px-tall band with
+// 24px side insets the value-chip HUD layout reserves for the bar).
 :host {
   display: block;
   height: 30px;
   padding: 0 24px;
   touch-action: none;
-}
-
-.track {
-  width: 100%;
-  height: 100%;
-  display: block;
-  cursor: ew-resize;
-  user-select: none;
-}
-
-.baseline {
-  stroke: var(--color-border);
-  stroke-width: 1;
-}
-
-.tick {
-  stroke: var(--color-border);
-  stroke-width: 1;
-}
-
-.tick-center {
-  stroke: var(--color-border-hi);
-  stroke-width: 1;
-}
-
-.marker {
-  fill: var(--mpl-primary, #ea580c);
 }

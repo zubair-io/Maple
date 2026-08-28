@@ -21,6 +21,7 @@ import {
 import { MuiTextComponent } from '../text/mui-text.component';
 import {
   arrowKeyDelta,
+  consumeArrowKeyDelta,
   endPointerDrag,
   formatSignedValue,
   isPointerDragEnd,
@@ -129,11 +130,8 @@ export class MuiLivingSliderComponent implements OnDestroy {
   }
 
   onKeydown(event: KeyboardEvent): void {
-    const delta = arrowKeyDelta(event.key, this.step());
+    const delta = consumeArrowKeyDelta(event, this.step());
     if (delta === null) return;
-
-    event.preventDefault();
-    event.stopPropagation();
     if (!this.keyGestureActive) {
       this.keyGestureActive = true;
       this.dragStart.emit();

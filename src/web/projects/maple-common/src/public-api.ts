@@ -162,7 +162,6 @@ export * from './lib/info/enrichment.vm';
 export * from './lib/editor/tool-model';
 export * from './lib/editor/tool-sub-param';
 export * from './lib/editor/tool-glyph';
-export * from './lib/editor/drag-bar-math';
 export * from './lib/editor/editor-state.service';
 export * from './lib/editor/drag-bar.component';
 export * from './lib/editor/value-chip.component';

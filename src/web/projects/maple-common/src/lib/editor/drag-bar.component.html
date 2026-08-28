@@ -1,34 +1,15 @@
-<svg
-  #track
-  class="track"
-  [attr.aria-label]="'Drag bar marker, value ' + state.armedDisplayValue()"
+<mui-drag-bar
   data-testid="editor-drag-bar"
-  (pointerdown)="onPointerDown($event)"
-  (pointermove)="onPointerMove($event)"
-  (pointerup)="onPointerUp($event)"
-  (pointercancel)="onPointerUp($event)"
->
-  <!-- 1pt baseline rule. -->
-  <line x1="0" y1="50%" x2="100%" y2="50%" class="baseline" />
-
-  <!-- 21 ticks. -->
-  @for (t of ticksWithLayout(); track t.i) {
-    <line
-      [attr.x1]="t.x"
-      [attr.x2]="t.x"
-      [attr.y1]="15 - t.h / 2"
-      [attr.y2]="15 + t.h / 2"
-      [class.tick]="!t.center"
-      [class.tick-center]="t.center"
-    />
-  }
-
-  <!-- 2pt × 22pt marker. -->
-  <rect
-    class="marker"
-    [attr.x]="markerCx() - markerWidth / 2"
-    [attr.y]="15 - markerHeight / 2"
-    [attr.width]="markerWidth"
-    [attr.height]="markerHeight"
-  />
-</svg>
+  dragMode="relative"
+  [value]="internalValue()"
+  (valueChange)="onValueChange($event)"
+  [min]="valueMin"
+  [max]="valueMax"
+  [disabled]="!state.armedToolAcceptsValueEdits()"
+  [ariaLabel]="ariaLabel()"
+  (dragStart)="onDragStart()"
+  (dragEnd)="onDragEnd()"
+  (fineModeEngaged)="onFineModeEngaged()"
+  (crossedZero)="onCrossedZero()"
+  (reachedExtreme)="onReachedExtreme()"
+/>
