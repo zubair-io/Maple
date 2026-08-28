@@ -326,7 +326,9 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     const buttons = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll('pro-tool-dock button'),
     ) as HTMLButtonElement[];
-    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    // `mui-action-button` (#3046) carries no `aria-label` — its visible
+    // `.label` span IS the accessible name.
+    const btn = buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label);
     expect(btn, `dock button "${label}" must be present`).not.toBeNull();
     return btn!;
   }
@@ -433,7 +435,9 @@ describe('EditorShellComponent — desktop control card yields to other right-si
     const buttons = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll('pro-tool-dock button'),
     ) as HTMLButtonElement[];
-    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    // `mui-action-button` (#3046) carries no `aria-label` — its visible
+    // `.label` span IS the accessible name.
+    const btn = buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label);
     expect(btn, `dock button "${label}" must be present`).not.toBeNull();
     return btn!;
   }
