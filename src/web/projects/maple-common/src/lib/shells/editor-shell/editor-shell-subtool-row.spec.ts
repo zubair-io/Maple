@@ -168,10 +168,13 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
     const buttons = Array.from(
       fixture.nativeElement.querySelectorAll('pro-tool-dock button'),
     ) as HTMLButtonElement[];
-    // JS string comparison, not a CSS attribute selector — jsdom mis-parses
-    // an unescaped `&` inside a bracketed `[aria-label="..."]` value (see
-    // editor-shell-black-white.spec.ts), which this sidesteps.
-    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    // JS string comparison against the rendered label, not a CSS attribute
+    // selector — jsdom mis-parses an unescaped `&` inside a bracketed
+    // `[aria-label="..."]` value (see editor-shell-black-white.spec.ts),
+    // which this sidesteps. `mui-action-button` (#3046) also carries no
+    // `aria-label` at all — its visible `.label` span IS the accessible
+    // name.
+    const btn = buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label);
     expect(btn, `dock button "${label}" must be present`).not.toBeNull();
     return btn!;
   }

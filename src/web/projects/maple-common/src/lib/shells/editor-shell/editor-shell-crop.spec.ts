@@ -159,20 +159,24 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
     TestBed.resetTestingModule();
   });
 
-  function cropDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Crop"]',
-    ) as HTMLButtonElement | null;
+  // `mui-action-button` (#3046) carries no `aria-label` — its visible
+  // `.label` span IS the accessible name — so these match on that text
+  // rather than a `[aria-label="..."]` attribute selector.
+  function dockButtonByLabel(label: string): HTMLButtonElement {
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label);
     expect(btn).not.toBeNull();
     return btn!;
   }
 
+  function cropDockButton(): HTMLButtonElement {
+    return dockButtonByLabel('Crop');
+  }
+
   function curveDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Tone Curve"]',
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
+    return dockButtonByLabel('Tone Curve');
   }
 
   function curvePanel(): Element | null {
@@ -182,7 +186,9 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
   it('dock renders a Crop entry with an accessible label', () => {
     const btn = cropDockButton();
     expect(btn.disabled).toBe(false);
-    expect(btn.getAttribute('aria-label')).toBe('Crop');
+    // `mui-action-button` (#3046) carries no `aria-label` — its visible
+    // `.label` span IS the accessible name.
+    expect(btn.querySelector('.label')?.textContent?.trim()).toBe('Crop');
   });
 
   it('arms the Crop tool and mounts the shared overlay + toolbar when the dock entry is clicked', () => {
@@ -231,14 +237,22 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
     const before = modelFor(ASSET_ID)();
     expect(isIdentityCrop(before.crop)).toBe(true);
 
-    const slider = fixture.nativeElement.querySelector(
+    // The straighten control is `mui-drag-bar`'s pointer-capture div
+    // (#3046) — a real click-to-position drag, not a native
+    // `<input type="range">`'s `.value =` + `input` event.
+    const bar = fixture.nativeElement.querySelector(
       '[data-testid="crop-straighten"]',
-    ) as HTMLInputElement | null;
-    expect(slider).not.toBeNull();
+    ) as HTMLElement | null;
+    expect(bar).not.toBeNull();
+    bar!.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 200, height: 20, right: 200, bottom: 20 }) as DOMRect;
+    bar!.setPointerCapture = () => {};
 
-    slider!.value = '12.5';
-    slider!.dispatchEvent(new Event('pointerdown'));
-    slider!.dispatchEvent(new Event('input'));
+    // x=127.78 on a 200px-wide [-45, 45] bar -> pct=0.6389 ->
+    // raw = -45 + 0.6389*90 = 12.5 (step 0.1 rounds it to exactly 12.5).
+    bar!.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, clientX: 127.78, pointerId: 1, bubbles: true }),
+    );
     fixture.detectChanges();
 
     const after = modelFor(ASSET_ID)();
