@@ -1,7 +1,9 @@
 // Sub-param chip row (#1108) — compact selector above the drag bar.
 // `display: contents` so the host contributes no box at all while a
 // single-param tool is armed (the editor column is then byte-identical
-// to the pre-#1108 layout).
+// to the pre-#1108 layout). The chip chrome itself now lives in
+// `mui-chip-row` (#3046) — this wrapper only owns the row's own
+// centered-flex layout slot.
 :host {
   display: contents;
 }
@@ -10,37 +12,6 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
   padding: 6px 24px 0;
   background: var(--color-bg);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 0.5px solid var(--color-border);
-  background: var(--mpl-surface-alt, #2c2825);
-  color: var(--color-text-muted);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 16px;
-  cursor: pointer;
-
-  &.armed {
-    background: color-mix(in srgb, var(--mpl-primary, #ea580c) 15%, transparent);
-    border-color: var(--mpl-primary, #ea580c);
-    color: var(--mpl-primary, #ea580c);
-    font-weight: 600;
-  }
-}
-
-.dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--mpl-primary, #ea580c);
 }

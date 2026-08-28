@@ -1,20 +1,10 @@
 @if (subParams().length > 0) {
-  <div class="row" data-testid="editor-subparam-row">
-    @for (sub of subParams(); track sub.id) {
-      <button
-        type="button"
-        class="chip"
-        [class.armed]="isArmed(sub)"
-        [attr.aria-pressed]="isArmed(sub)"
-        [attr.aria-label]="sub.label"
-        [attr.data-testid]="'editor-subparam-' + sub.id"
-        (click)="select(sub)"
-      >
-        <span class="label">{{ sub.label }}</span>
-        @if (isModified(sub)) {
-          <span class="dot" aria-hidden="true"></span>
-        }
-      </button>
-    }
-  </div>
+  <mui-chip-row
+    class="row"
+    data-testid="editor-subparam-row"
+    [chips]="chips()"
+    mode="select"
+    [selectedId]="armedId()"
+    (selectedIdChange)="onSelectedIdChange($event)"
+  />
 }

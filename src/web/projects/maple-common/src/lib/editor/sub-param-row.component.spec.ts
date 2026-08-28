@@ -4,6 +4,10 @@
 // chip per sub-param with stable testids, click arms the (tool,
 // subParam) pair, armed styling via aria-pressed, modified dot when the
 // field is off its canonical default.
+//
+// #3046: chrome now delegates to `mui-chip-row` — the modified-dot class
+// is that shared atom's own `.modified-dot` (also used by the crop
+// toolbar's aspect chips), not the retired local `.dot`.
 
 import { TestBed } from '@angular/core/testing';
 import { signal, type Signal } from '@angular/core';
@@ -94,7 +98,7 @@ describe('SubParamRowComponent (#1108)', () => {
     svc.armTool('noise');
     const fixture = render();
     const dotIn = (sel: string) =>
-      fixture.nativeElement.querySelector(`[data-testid="editor-subparam-${sel}"] .dot`);
+      fixture.nativeElement.querySelector(`[data-testid="editor-subparam-${sel}"] .modified-dot`);
     expect(dotIn('luminance')).toBeNull();
     expect(dotIn('color')).toBeNull();
 
