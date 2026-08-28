@@ -5,9 +5,12 @@
         [icon]="item.icon"
         [label]="item.label"
         [orientation]="itemOrientation()"
-        [selected]="activeId() === item.id"
+        [selected]="isSelected(item)"
         [disabled]="item.disabled ?? false"
-        (pressed)="select(item.id, item.disabled)"
+        [title]="item.title ?? null"
+        [ariaHidden]="item.ariaHidden ?? false"
+        [modified]="item.modified ?? false"
+        (pressed)="select(item)"
       />
     } @else {
       <mui-divider [orientation]="dividerOrientation()" />

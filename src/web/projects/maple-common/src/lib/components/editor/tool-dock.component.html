@@ -1,35 +1,10 @@
-<!-- ToolDock — glass column (vertical) or bar (horizontal, phone).
-     Nine entries, circle glyph + label + modified dot (ToolDock.swift). -->
-<nav
-  class="dock"
-  [class.dock--horizontal]="orientation() === 'horizontal'"
-  role="navigation"
-  aria-label="Editor tools"
->
-  @for (entry of entries; track entry.id) {
-    @if (entry.divideBefore) {
-      <div class="dock-divider"></div>
-    }
-    <button
-      class="dock-btn"
-      [class.dock-btn--active]="isActive(entry)"
-      [class.dock-btn--disabled]="entry.disabled"
-      [disabled]="entry.disabled"
-      [title]="titleFor(entry)"
-      [attr.aria-hidden]="ariaHiddenFor(entry)"
-      [attr.tabindex]="tabIndexFor(entry)"
-      [attr.aria-label]="ariaLabelFor(entry)"
-      [attr.aria-current]="ariaCurrentFor(entry)"
-      [attr.aria-pressed]="ariaPressedFor(entry)"
-      (click)="onEntryClick(entry)"
-    >
-      <span class="dock-circle">
-        <maple-icon [name]="$any(entry.icon)" [size]="16" [color]="iconColor(entry)" />
-        @if (isModified(entry)) {
-          <span class="dock-dot"></span>
-        }
-      </span>
-      <span class="dock-label">{{ entry.label }}</span>
-    </button>
-  }
-</nav>
+<!-- ToolDock — glass column (vertical) or bar (horizontal, phone) wrapping
+     `mui-tool-dock`, which owns the circle+label+dot button chrome. -->
+<div class="dock-glass" [class.dock-glass--horizontal]="orientation() === 'horizontal'">
+  <mui-tool-dock
+    [entries]="dockEntries()"
+    [orientation]="orientation()"
+    itemOrientationOverride="stacked"
+    (toolSelected)="onDockToolSelected($event)"
+  />
+</div>

@@ -31,6 +31,20 @@ export class MuiActionButtonComponent {
   readonly orientation = input<MuiActionButtonOrientation>('horizontal');
   readonly selected = input<boolean>(false);
   readonly disabled = input<boolean>(false);
+  /** Tooltip text — e.g. a label plus a "coming soon" note for a disabled
+   * placeholder entry a caller still wants hoverable. Native `title`
+   * attribute; omitted entirely when unset. */
+  readonly title = input<string | null>(null);
+  /** Removes the button from the accessibility tree and tab order
+   * altogether (native `disabled` already blocks interaction and screen
+   * reader activation, but leaves the button announced as a dimmed
+   * control — some callers want a placeholder gone from assistive tech
+   * entirely, mirroring a platform's `.accessibilityHidden(true)`). */
+  readonly ariaHidden = input<boolean>(false);
+  /** Shows a small accent dot at the icon's corner — a lightweight "this
+   * control's underlying state differs from default" indicator, distinct
+   * from `selected` (which reflects the toggle's own pressed state). */
+  readonly modified = input<boolean>(false);
 
   readonly pressed = output<MouseEvent>();
 

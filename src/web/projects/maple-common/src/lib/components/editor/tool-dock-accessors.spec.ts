@@ -1,21 +1,21 @@
-// tool-dock-accessors.spec.ts — unit tests for the view-model accessors
-// (titleFor, ariaHiddenFor, tabIndexFor, ariaLabelFor, ariaCurrentFor,
-// ariaPressedFor, iconColor) that back the circle+label+dot dock markup
-// (Apple parity, ToolDock.swift). These were pulled out of
-// tool-dock.component.html's inline ternaries — the fallow complexity gate
-// flagged the template once the circle+label+modified-dot rewrite added a
-// branch per attribute — so the a11y attribute logic is directly testable
-// rather than only reachable through DOM assertions. Split into its own
-// file (not appended to tool-dock.component.spec.ts) to keep both files
-// under the per-file line budget (#2311).
+// tool-dock-accessors.spec.ts — unit tests for `dockEntries()`, the
+// `MuiToolDockEntry[]` view-model `ToolDockComponent` builds for
+// `<mui-tool-dock>` (title, disabled, ariaHidden, selected, modified per
+// entry). Pulled out of tool-dock.component.spec.ts's DOM-level specs to
+// keep both files under the per-file line budget (#2311) — same split as
+// before #3046's chrome swap, just re-targeted at the entries computed
+// signal instead of the retired per-attribute ternary methods
+// (titleFor/ariaHiddenFor/etc. moved into `dockEntries()` itself).
 //
 // Kept separate from tool-dock.component.spec.ts's DOM-level specs, which
-// already confirm the template wires these methods in correctly end to end.
+// already confirm the template wires this computed signal into
+// `<mui-tool-dock>` correctly end to end.
 
 import { describe, it, expect } from 'vitest';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
-import { ToolDockComponent, type DockEntry } from './tool-dock.component';
+import { ToolDockComponent } from './tool-dock.component';
+import type { MuiToolDockItem } from '../../ui/tool-dock/mui-tool-dock.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
@@ -26,28 +26,15 @@ const NO_FOCUS_LIBRARY_STATE = {
   adjustmentFor: () => signal(defaultAdjustmentModel()),
 };
 
-const groupEntry: DockEntry = {
-  id: 'light',
-  icon: 'tool-exposure',
-  label: 'Light',
-  group: 'light',
-};
-const toolEntry: DockEntry = { id: 'crop', icon: 'tool-crop', label: 'Crop', tool: 'crop' };
-const panelEntry: DockEntry = {
-  id: 'curve',
-  icon: 'tool-contrast',
-  label: 'Tone Curve',
-  panel: true,
-};
-const disabledEntry: DockEntry = {
-  id: 'mask',
-  icon: 'tool-dehaze',
-  label: 'Mask',
-  disabled: true,
-  ticket: '#1541',
-};
+function itemFor(entries: ComponentFixture<ToolDockComponent>, id: string): MuiToolDockItem {
+  const found = entries.componentInstance
+    .dockEntries()
+    .find((e): e is MuiToolDockItem => 'id' in e && e.id === id);
+  expect(found, id).toBeDefined();
+  return found!;
+}
 
-describe('ToolDockComponent — view-model accessors', () => {
+describe('ToolDockComponent — dockEntries() view-model', () => {
   let fixture: ComponentFixture<ToolDockComponent>;
 
   function renderFor(activeGroup: ToolGroup, activeTool: ToolId | null, curveOpen = false): void {
@@ -63,60 +50,43 @@ describe('ToolDockComponent — view-model accessors', () => {
     fixture.detectChanges();
   }
 
-  it('titleFor: plain label enabled, label + ticket disabled', () => {
+  it('title: plain label enabled, label + ticket disabled', () => {
     renderFor('light', null);
-    expect(fixture.componentInstance.titleFor(groupEntry)).toBe('Light');
-    expect(fixture.componentInstance.titleFor(disabledEntry)).toBe('Mask — coming in #1541');
+    expect(itemFor(fixture, 'light').title).toBe('Light');
+    expect(itemFor(fixture, 'mask').title).toBe('Mask — coming in #1541');
   });
 
-  it('enabled entries stay in the accessibility tree (not hidden, tabbable, labeled)', () => {
+  it('enabled entries stay in the accessibility tree (not hidden, labeled)', () => {
     renderFor('light', null);
-    const c = fixture.componentInstance;
-    expect(c.ariaHiddenFor(groupEntry)).toBeNull();
-    expect(c.tabIndexFor(groupEntry)).toBeNull();
-    expect(c.ariaLabelFor(groupEntry)).toBe('Light');
+    const item = itemFor(fixture, 'light');
+    expect(item.ariaHidden).toBe(false);
+    expect(item.disabled).toBeFalsy();
+    expect(item.label).toBe('Light');
   });
 
-  it('disabled entries are hidden, untabbable, and unlabeled', () => {
+  it('disabled entries are hidden from the a11y tree', () => {
     renderFor('light', null);
-    const c = fixture.componentInstance;
-    expect(c.ariaHiddenFor(disabledEntry)).toBe('true');
-    expect(c.tabIndexFor(disabledEntry)).toBe(-1);
-    expect(c.ariaLabelFor(disabledEntry)).toBeNull();
+    const item = itemFor(fixture, 'mask');
+    expect(item.ariaHidden).toBe(true);
+    expect(item.disabled).toBe(true);
   });
 
-  it('ariaCurrentFor: "page" for an active group entry, null when inactive', () => {
+  it('a group entry is selected only while its group is active and no dock tool is armed', () => {
     renderFor('light', null);
-    expect(fixture.componentInstance.ariaCurrentFor(groupEntry)).toBe('page');
-    renderFor('color', null);
-    expect(fixture.componentInstance.ariaCurrentFor(groupEntry)).toBeNull();
+    expect(itemFor(fixture, 'light').selected).toBe(true);
+    expect(itemFor(fixture, 'color').selected).toBe(false);
   });
 
-  it('ariaCurrentFor: "page" for an active tool entry too', () => {
-    renderFor('detail', 'crop');
-    expect(fixture.componentInstance.ariaCurrentFor(toolEntry)).toBe('page');
-  });
-
-  it('ariaCurrentFor: never set for a panel entry, even while its panel is open', () => {
+  it('a panel entry is selected from curveOpen, independent of the active group', () => {
     renderFor('light', null, true);
-    expect(fixture.componentInstance.ariaCurrentFor(panelEntry)).toBeNull();
+    expect(itemFor(fixture, 'curve').selected).toBe(true);
+    expect(itemFor(fixture, 'light').selected).toBe(true);
   });
 
-  it("ariaPressedFor: reflects a panel entry's open state, null for group/tool entries", () => {
-    renderFor('light', null, true);
-    expect(fixture.componentInstance.ariaPressedFor(panelEntry)).toBe(true);
-    renderFor('light', null, false);
-    const c = fixture.componentInstance;
-    expect(c.ariaPressedFor(panelEntry)).toBe(false);
-    expect(c.ariaPressedFor(groupEntry)).toBeNull();
-    expect(c.ariaPressedFor(toolEntry)).toBeNull();
-  });
-
-  it('iconColor: accent when active, dimmed when disabled, default text otherwise', () => {
+  it('marks panel entries with panel: true so the dock treats them as toggles', () => {
     renderFor('light', null);
-    expect(fixture.componentInstance.iconColor(groupEntry)).toBe('var(--pro-accent)');
-    expect(fixture.componentInstance.iconColor(disabledEntry)).toBe('var(--pro-text-dim)');
-    renderFor('color', null);
-    expect(fixture.componentInstance.iconColor(groupEntry)).toBe('var(--pro-text)');
+    expect(itemFor(fixture, 'curve').panel).toBe(true);
+    expect(itemFor(fixture, 'presets').panel).toBe(true);
+    expect(itemFor(fixture, 'light').panel).toBeFalsy();
   });
 });

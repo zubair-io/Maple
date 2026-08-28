@@ -55,4 +55,33 @@ describe('MuiActionButtonComponent', () => {
     button(fixture).click();
     expect(count).toBe(1);
   });
+
+  it('sets the title attribute only when provided', () => {
+    const fixture = render();
+    expect(button(fixture).hasAttribute('title')).toBe(false);
+
+    fixture.componentRef.setInput('title', 'Mask — coming in #1541');
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('title')).toBe('Mask — coming in #1541');
+  });
+
+  it('ariaHidden removes the button from the a11y tree and tab order', () => {
+    const fixture = render();
+    expect(button(fixture).getAttribute('aria-hidden')).toBeNull();
+    expect(button(fixture).getAttribute('tabindex')).toBeNull();
+
+    fixture.componentRef.setInput('ariaHidden', true);
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-hidden')).toBe('true');
+    expect(button(fixture).getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('shows a modified dot only when the modified input is set', () => {
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('.modified-dot')).toBeNull();
+
+    fixture.componentRef.setInput('modified', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.modified-dot')).not.toBeNull();
+  });
 });
