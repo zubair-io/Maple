@@ -107,13 +107,10 @@ struct StageRuntimeSection: View {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            // Pre-migration this used `.keyboardType(.numberPad)` on iOS.
-            // MuiInput's `numeric` config would restore that but also draws
-            // +/- steppers that don't fit this field's 90pt width — kept
-            // the plain-text keyboard rather than take on that layout
-            // change unrequested; flagging the iOS numeric-keypad-hint gap
-            // (same tradeoff as NetworkSettingsView's Port field).
-            MuiInput(value: text, accessibilityLabel: label, monospaced: true)
+            // `keyboard: .numberPad` restores the pre-migration iOS number
+            // pad without `numeric`'s +/- steppers, which don't fit this
+            // field's 90pt width.
+            MuiInput(value: text, accessibilityLabel: label, monospaced: true, keyboard: .numberPad)
                 .frame(maxWidth: 90)
                 .accessibilityIdentifier(identifier)
             Text(hint)

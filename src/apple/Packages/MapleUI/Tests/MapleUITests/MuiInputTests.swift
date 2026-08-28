@@ -41,4 +41,24 @@ final class MuiInputTests: XCTestCase {
             MuiInput.fieldFont(monospaced: false, size: .md)
         )
     }
+
+    func testResolvedKeyboardIsDefaultWithNoNumericConfigAndNoExplicitRequest() {
+        XCTAssertEqual(MuiInput.resolvedKeyboard(keyboard: .default, numeric: nil), .default)
+    }
+
+    func testResolvedKeyboardFallsBackToDecimalPadForANumericConfig() {
+        let config = MuiInputNumericConfig(min: -5, max: 5, step: 0.5)
+        XCTAssertEqual(MuiInput.resolvedKeyboard(keyboard: .default, numeric: config), .decimalPad)
+    }
+
+    func testResolvedKeyboardHonorsAnExplicitNumberPadWithNoNumericConfig() {
+        // The whole point of #3055's follow-up: a compact field can opt into
+        // the numeric keyboard without also getting `numeric`'s steppers.
+        XCTAssertEqual(MuiInput.resolvedKeyboard(keyboard: .numberPad, numeric: nil), .numberPad)
+    }
+
+    func testResolvedKeyboardExplicitNumberPadWinsOverANumericConfig() {
+        let config = MuiInputNumericConfig(min: 0, max: 100, step: 1)
+        XCTAssertEqual(MuiInput.resolvedKeyboard(keyboard: .numberPad, numeric: config), .numberPad)
+    }
 }

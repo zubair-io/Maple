@@ -114,13 +114,13 @@ struct NetworkSettingsView: View {
             }
 
             LabeledContent("Port") {
-                // Pre-migration this used `.keyboardType(.numberPad)` on iOS.
-                // MuiInput only offers a number pad through its `numeric`
-                // config, which also draws +/- steppers this field never
-                // had — a real UX change for a single free-typed value. Kept
-                // the plain-text keyboard rather than take that on
-                // unrequested; flagging the iOS numeric-keypad-hint gap.
-                MuiInput(value: $form.portOverride, accessibilityLabel: "Port", placeholder: "3000", monospaced: true)
+                // `keyboard: .numberPad` restores the pre-migration iOS
+                // number pad without pulling in `numeric`'s +/- steppers,
+                // which this single free-typed field never had.
+                MuiInput(
+                    value: $form.portOverride, accessibilityLabel: "Port",
+                    placeholder: "3000", monospaced: true, keyboard: .numberPad
+                )
                     .accessibilityIdentifier("network.portOverride")
             }
 
