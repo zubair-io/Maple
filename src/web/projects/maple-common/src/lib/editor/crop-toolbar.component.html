@@ -1,58 +1,25 @@
 <div class="crop-toolbar" data-testid="crop-toolbar">
-  <!-- Aspect-ratio presets -->
-  <div class="aspect-row" role="radiogroup" aria-label="Aspect ratio">
-    @for (p of presets; track p.id) {
-      <button
-        type="button"
-        class="aspect-chip"
-        [class.is-active]="activeAspect() === p.id"
-        role="radio"
-        [disabled]="aspectDisabled(p.id)"
-        [attr.aria-checked]="activeAspect() === p.id"
-        [attr.aria-label]="'Aspect ' + p.label"
-        [attr.data-testid]="'crop-aspect-' + p.id"
-        (click)="selectAspect(p.id)"
-      >
-        {{ p.label }}
-      </button>
-    }
-  </div>
-
-  <!-- Straighten dial + reset / done -->
-  <div class="straighten-row">
-    <span class="straighten-label">Straighten</span>
-    <input
-      type="range"
-      class="straighten-slider"
-      [min]="straightenMin"
-      [max]="straightenMax"
-      step="0.1"
-      [value]="angle()"
-      aria-label="Straighten angle"
-      data-testid="crop-straighten"
-      (pointerdown)="onStraightenStart()"
-      (input)="onStraighten($any($event.target).value)"
-    />
-    <span class="straighten-value" data-testid="crop-angle-value">{{ angleLabel() }}</span>
-
-    <button
-      type="button"
-      class="crop-action"
-      [disabled]="!canReset()"
-      aria-label="Reset crop"
-      data-testid="crop-reset"
-      (click)="reset()"
-    >
-      Reset
-    </button>
-    <button
-      type="button"
-      class="crop-action crop-done"
-      aria-label="Done cropping"
-      data-testid="crop-done"
-      (click)="done()"
-    >
-      Done
-    </button>
-  </div>
+  <mui-crop-toolbar
+    class="toolbar"
+    [aspectChips]="aspectChips()"
+    [aspect]="activeAspect()"
+    (aspectChanged)="onAspectChange($event)"
+    [angle]="angle()"
+    (angleChanged)="onStraighten($event)"
+    straightenTestId="crop-straighten"
+    (straightenDragStart)="onStraightenStart()"
+    resetTestId="crop-reset"
+    [resetDisabled]="!canReset()"
+    (resetRequested)="reset()"
+  />
+  <mui-button
+    variant="primary"
+    size="sm"
+    class="crop-done"
+    ariaLabel="Done cropping"
+    testId="crop-done"
+    (pressed)="done()"
+  >
+    Done
+  </mui-button>
 </div>
