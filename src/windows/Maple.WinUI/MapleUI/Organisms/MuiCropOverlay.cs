@@ -37,8 +37,35 @@ namespace Maple.UI
             DependencyProperty.Register(nameof(Bounds), typeof(Size), typeof(MuiCropOverlay),
                 new PropertyMetadata(default(Size), (d, _) => ((MuiCropOverlay)d).Rebuild()));
 
+        public static readonly DependencyProperty AspectRatioProperty =
+            DependencyProperty.Register(nameof(AspectRatio), typeof(double?), typeof(MuiCropOverlay),
+                new PropertyMetadata(null));
+
+        public static readonly DependencyProperty MinRegionWidthProperty =
+            DependencyProperty.Register(nameof(MinRegionWidth), typeof(double), typeof(MuiCropOverlay),
+                new PropertyMetadata(MuiCropOverlayMath.MinSize));
+
+        public static readonly DependencyProperty MinRegionHeightProperty =
+            DependencyProperty.Register(nameof(MinRegionHeight), typeof(double), typeof(MuiCropOverlay),
+                new PropertyMetadata(MuiCropOverlayMath.MinSize));
+
         public MuiCropRect Rect { get => (MuiCropRect)GetValue(RectProperty); set => SetValue(RectProperty, value); }
         public Size Bounds { get => (Size)GetValue(BoundsProperty); set => SetValue(BoundsProperty, value); }
+
+        /// <summary>Fixed width/height ratio (in this overlay's pixel space)
+        /// re-imposed after every handle drag via
+        /// <see cref="MuiCropOverlayMath.ConstrainAspect"/>. Null (default)
+        /// leaves resizes free-form. (MN2, #3051 — the crop session's
+        /// aspect lock.)</summary>
+        public double? AspectRatio { get => (double?)GetValue(AspectRatioProperty); set => SetValue(AspectRatioProperty, value); }
+
+        /// <summary>Per-axis minimum region size in pixels — the app's crop
+        /// session feeds 5% of each footprint axis. Defaults keep the
+        /// original fixed <see cref="MuiCropOverlayMath.MinSize"/>.</summary>
+        public double MinRegionWidth { get => (double)GetValue(MinRegionWidthProperty); set => SetValue(MinRegionWidthProperty, value); }
+
+        /// <inheritdoc cref="MinRegionWidth"/>
+        public double MinRegionHeight { get => (double)GetValue(MinRegionHeightProperty); set => SetValue(MinRegionHeightProperty, value); }
 
         public event EventHandler<MuiCropRect>? RectChanged;
 
@@ -51,7 +78,14 @@ namespace Maple.UI
         private readonly Border _maskBottom = new();
         private readonly Border _maskLeft = new();
         private readonly Border _maskRight = new();
-        private readonly Border _region = new() { BorderThickness = new Thickness(1) };
+        // Transparent (not null) background: a null-background Border only
+        // hit-tests its 1px border stroke, which would make the drag-the-
+        // region-body gesture ungrabbable everywhere but the frame line.
+        private readonly Border _region = new()
+        {
+            BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        };
         private readonly Canvas _gridLines = new() { IsHitTestVisible = false };
         private readonly List<Border> _handles = new();
         private readonly Dictionary<Border, MuiCropHandle> _handleKind = new();
@@ -86,7 +120,9 @@ namespace Maple.UI
 
             _region.PointerPressed += OnRegionPressed;
             PointerMoved += OnPointerMoved;
-            PointerReleased += (_, _) => { _draggingRegion = false; _draggingHandle = null; };
+            PointerReleased += (_, _) => EndDrag();
+            PointerCanceled += (_, _) => EndDrag();
+            PointerCaptureLost += (_, _) => { _draggingRegion = false; _draggingHandle = null; };
 
             Content = _canvas;
             IsHitTestVisible = true;
@@ -99,6 +135,10 @@ namespace Maple.UI
         {
             _draggingHandle = kind;
             _dragOrigin = e.GetCurrentPoint(this).Position;
+            // Capture on the control (the library's pointer-capture-drag
+            // convention — MuiPad2D/MuiCurvePlot) so fast drags that leave
+            // the overlay keep tracking until release.
+            CapturePointer(e.Pointer);
             e.Handled = true;
         }
 
@@ -106,7 +146,15 @@ namespace Maple.UI
         {
             _draggingRegion = true;
             _dragOrigin = e.GetCurrentPoint(this).Position;
+            CapturePointer(e.Pointer);
             e.Handled = true;
+        }
+
+        private void EndDrag()
+        {
+            _draggingRegion = false;
+            _draggingHandle = null;
+            ReleasePointerCaptures();
         }
 
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
@@ -117,9 +165,13 @@ namespace Maple.UI
             var dy = pos.Y - _dragOrigin.Y;
             _dragOrigin = pos;
 
-            var next = _draggingHandle is { } handle
-                ? MuiCropOverlayMath.ApplyHandleDelta(Rect, handle, dx, dy, Bounds.Width, Bounds.Height)
+            var resized = _draggingHandle is { } handle
+                ? MuiCropOverlayMath.ApplyHandleDelta(Rect, handle, dx, dy, Bounds.Width, Bounds.Height,
+                    MinRegionWidth, MinRegionHeight)
                 : MuiCropOverlayMath.Translate(Rect, dx, dy, Bounds.Width, Bounds.Height);
+            var next = _draggingHandle is { } aspectHandle && AspectRatio is { } aspect
+                ? MuiCropOverlayMath.ConstrainAspect(resized, aspectHandle, aspect, Bounds.Width, Bounds.Height)
+                : resized;
 
             Rect = next;
             RectChanged?.Invoke(this, next);
