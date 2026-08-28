@@ -141,7 +141,7 @@ public struct MuiInput: View {
                     .autocorrectionDisabled(autocorrectionDisabled)
                     #if os(iOS)
                     .keyboardType(Self.uiKeyboardType(for: Self.resolvedKeyboard(keyboard: keyboard, numeric: numeric)))
-                    .textInputAutocapitalization(autocorrectionDisabled ? .never : .sentences)
+                    .textInputAutocapitalization(autocorrectionDisabled ? .never : nil)
                     #endif
 
                 if showClear, !value.isEmpty, !disabled, !readOnly {
