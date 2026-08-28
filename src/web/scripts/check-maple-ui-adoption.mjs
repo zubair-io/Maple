@@ -90,6 +90,12 @@ const MIGRATED_DIRECTORIES = [
       new URL('../projects/maple-common/src/lib/components/folder-tile', import.meta.url),
     ),
   ), // MW6 (#3047) — icon + text + selection-ring div, no raw <button> to begin with
+  resolve(fileURLToPath(new URL('../projects/maple-common/src/lib/editor', import.meta.url))), // MW5 remainder (#3046) — the seven deferred editor components (tool-dock,
+  //         value-chip, drag-bar, crop-toolbar, presets-panel, sub-param-row)
+  //         now all compose mui-* organisms; crop-toolbar's Done and
+  //         presets-panel's Save moved onto mui-button too. Supersedes (but
+  //         doesn't replace) the narrower `editor/copy-paste` entry above.
+  resolve(fileURLToPath(new URL('../projects/maple-common/src/lib/export', import.meta.url))), // MW5 remainder (#3046) — export-dialog now composes mui-export-modal
 ];
 
 // Individual files ratcheted on their own because a sibling in the same
@@ -103,6 +109,10 @@ const MIGRATED_FILES = [
   '../projects/maple-common/src/lib/components/folder-tree/folder-new-folder-dialog.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-new-folder-dialog.component.scss',
   '../projects/maple-common/src/lib/trash/trash-node-row.component.html',
+  // MW5 remainder (#3046) — tool-dock.component now composes mui-tool-dock;
+  // its siblings under components/editor/ (film-panel, control-card) are
+  // untouched this wave, so the directory itself isn't clean yet.
+  '../projects/maple-common/src/lib/components/editor/tool-dock.component.html',
 ].map((path) => resolve(fileURLToPath(new URL(path, import.meta.url))));
 
 const TEMPLATE_EXTENSIONS = new Set(['.html']);
