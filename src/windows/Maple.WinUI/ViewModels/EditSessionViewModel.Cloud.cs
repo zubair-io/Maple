@@ -22,6 +22,7 @@ namespace Maple.WinUI.ViewModels
 
         private CloudClient? _cloud;
         private CloudPkcePending? _pendingSignIn;
+        private CancellationTokenSource? _signInPollCts;
         private const int CloudPageLimit = 200;
         private const int CloudMaxAssets = 2000;
 
@@ -31,6 +32,7 @@ namespace Maple.WinUI.ViewModels
         /// CompleteAuthCallbackAsync. Returns (ok, message, devLoginEnabled).</summary>
         public async Task<(bool Ok, string Message, bool DevLoginEnabled)> StartBrowserSignInAsync(string serverUrl)
         {
+            _signInPollCts?.Cancel();
             _cloud?.Dispose();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
@@ -47,7 +49,69 @@ namespace Maple.WinUI.ViewModels
             System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
             CloudStatus = "Waiting for browser sign-in…";
+            StartSignInPolling(_pendingSignIn, _cloud);
             return (true, message, devLogin);
+        }
+
+        /// <summary>Poll the server for the pending ceremony's code (#3063).
+        /// The maple-app:// redirect is the fast path, but Chromium refuses to
+        /// launch an external scheme from a script navigation with no user
+        /// gesture — which is exactly what an already-signed-in browser does
+        /// (the #2964 bootstrap redirect). The signed-in web app still MINTS
+        /// the code server-side, so polling with the private verifier
+        /// completes the sign-in without any browser cooperation. First of
+        /// the redirect/poll paths to complete wins; the other no-ops.</summary>
+        private void StartSignInPolling(CloudPkcePending pending, CloudClient client)
+        {
+            _signInPollCts?.Cancel();
+            var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            _signInPollCts = cts;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
+                        var (ok, message) = await client.ClaimNativeCodeAsync(
+                            pending.State, pending.Verifier, cts.Token);
+                        if (!ok)
+                            continue; // nothing pending yet (or transient) — keep polling
+                        OnUi(() => _ = CompleteClaimedSignInAsync(pending, client, message));
+                        return;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by another ceremony/callback, or the 3-minute
+                    // window elapsed. Only the timeout of a STILL-pending
+                    // ceremony deserves a status update.
+                    OnUi(() =>
+                    {
+                        if (_pendingSignIn == pending && _signInPollCts == cts)
+                            CloudStatus = "Browser sign-in timed out — try again.";
+                    });
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The client was superseded (disposed) between our cancel
+                    // check and the request — this ceremony is over.
+                }
+            }, cts.Token);
+        }
+
+        /// <summary>UI-thread tail of a successful poll claim: mirror of
+        /// CompleteAuthCallbackAsync's post-redeem steps, guarded so a redirect
+        /// callback that already completed this ceremony makes this a no-op.</summary>
+        private async Task CompleteClaimedSignInAsync(
+            CloudPkcePending pending, CloudClient client, string message)
+        {
+            if (_pendingSignIn != pending || _cloud != client)
+                return;
+            _pendingSignIn = null;
+            CloudStatus = message;
+            PersistCloudSession(pending.ServerUrl, client.RefreshToken);
+            await FinishConnectAsync();
         }
 
         /// <summary>Step 2: the maple-app://auth-success?code=…&state=… callback.
@@ -70,6 +134,7 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
             _pendingSignIn = null;
+            _signInPollCts?.Cancel();
 
             var (ok, message) = await _cloud.RedeemNativeCodeAsync(
                 code!, pending.Verifier, CancellationToken.None);
@@ -84,6 +149,7 @@ namespace Maple.WinUI.ViewModels
         /// no email, no browser. Probes first when needed.</summary>
         public async Task<(bool Ok, string Message)> DevSignInAsync(string serverUrl)
         {
+            _signInPollCts?.Cancel();
             _cloud?.Dispose();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);

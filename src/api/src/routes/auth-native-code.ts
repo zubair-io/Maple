@@ -11,7 +11,12 @@ import { usersCollection } from '../db/client.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
-import { issueNativeCode, redeemNativeCode } from '../auth/native_code_store.ts';
+import {
+  issueNativeCode,
+  redeemNativeCode,
+  claimNativeCode,
+  type RedeemedNativeCode,
+} from '../auth/native_code_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { rateLimit, clientIp } from '../auth/rate_limit.ts';
 
@@ -19,6 +24,31 @@ function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
   if (!s || s.length < 16) throw new Error('MAPLE_JWT_SECRET unset or too short');
   return s;
+}
+
+/** Shared tail of /redeem and /claim: turn a consumed code row into the
+ * device-scoped token payload the native app signs in with. */
+async function tokensForRedeemed(redeemed: RedeemedNativeCode) {
+  const user = await (await usersCollection()).findOne({ _id: redeemed.userId });
+  if (!user) return null;
+  const access_token = await signAccessToken(
+    {
+      sub: user._id.toHexString(),
+      email: user.email,
+      role: user.role,
+      file_access: userFileAccess(user),
+    },
+    jwtSecret(),
+  );
+  // Mint a fresh, device-scoped refresh token (its own family) rather than
+  // handing back the discarded webview session's cookie token.
+  const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel);
+  return {
+    access_token,
+    refresh_token: refresh.raw,
+    user: toPublicAuthUser(user),
+    state: redeemed.state,
+  };
 }
 
 /**
@@ -41,31 +71,49 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
       set.status = 400;
       return { error: 'invalid or expired code' };
     }
-    const user = await (await usersCollection()).findOne({ _id: redeemed.userId });
-    if (!user) {
+    const tokens = await tokensForRedeemed(redeemed);
+    if (!tokens) {
       set.status = 401;
       return { error: 'user gone' };
     }
-    const access_token = await signAccessToken(
-      {
-        sub: user._id.toHexString(),
-        email: user.email,
-        role: user.role,
-        file_access: userFileAccess(user),
-      },
-      jwtSecret(),
-    );
-    // Mint a fresh, device-scoped refresh token (its own family) rather than
-    // handing back the discarded webview session's cookie token.
-    const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel);
-    return {
-      access_token,
-      refresh_token: refresh.raw,
-      user: toPublicAuthUser(user),
-      state: redeemed.state,
-    };
+    return tokens;
   },
   { body: t.Object({ code: t.String(), code_verifier: t.String() }) },
+);
+
+/**
+ * Public polling claim (#3063). Chromium blocks the web app's script-initiated
+ * `maple-app://` redirect when the tab has no user gesture — exactly the
+ * already-signed-in browser case (#2963/#2964) — so the code the web app mints
+ * can be stranded server-side. The native app polls here with the ceremony's
+ * `state` and its private PKCE verifier; possession of the verifier proves the
+ * same principal `/redeem` would, without the redirect-bound raw code. 404
+ * while nothing matching is pending (keep polling); single-use thereafter.
+ *
+ * Rate limit: its own per-IP bucket, sized for a 2s poll cadence (60/min) so
+ * polling never starves the shared `auth:` budget the other flows use.
+ */
+export const nativeCodeClaimRoutes = new Elysia().post(
+  '/api/auth/native-code/claim',
+  async ({ body, set, request }) => {
+    const ip = clientIp(request);
+    if (!rateLimit(`native-claim:${ip}`, 60, 60_000)) {
+      set.status = 429;
+      return { error: 'rate limited' };
+    }
+    const redeemed = await claimNativeCode(body.state, body.code_verifier);
+    if (!redeemed) {
+      set.status = 404;
+      return { error: 'no pending code' };
+    }
+    const tokens = await tokensForRedeemed(redeemed);
+    if (!tokens) {
+      set.status = 401;
+      return { error: 'user gone' };
+    }
+    return tokens;
+  },
+  { body: t.Object({ state: t.String(), code_verifier: t.String() }) },
 );
 
 /**

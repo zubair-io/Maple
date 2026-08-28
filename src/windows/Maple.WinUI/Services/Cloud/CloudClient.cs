@@ -107,6 +107,35 @@ namespace Maple.WinUI.Services.Cloud
             return (true, $"Signed in as {tokens.User?.Email ?? "user"}.");
         }
 
+        /// <summary>Poll-claim the pending ceremony's code by state + private
+        /// PKCE verifier (POST /api/auth/native-code/claim, #3063). The
+        /// completion channel that does not depend on the browser launching
+        /// maple-app:// — Chromium refuses that launch without a user gesture,
+        /// which is exactly the already-signed-in-browser case. Returns
+        /// Ok=true once signed in; Ok=false means keep polling (nothing
+        /// pending yet, rate-limited, or a transient network error).</summary>
+        public async Task<(bool Ok, string Message)> ClaimNativeCodeAsync(
+            string state, string codeVerifier, CancellationToken ct)
+        {
+            try
+            {
+                using var response = await _http.PostAsync("api/auth/native-code/claim",
+                    JsonContent(new { state, code_verifier = codeVerifier }), ct);
+                if (!response.IsSuccessStatusCode)
+                    return (false, $"no code yet ({(int)response.StatusCode})");
+                var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
+                if (string.IsNullOrEmpty(tokens?.AccessToken))
+                    return (false, "claim returned no access token");
+                _accessToken = tokens!.AccessToken;
+                RefreshToken = tokens.RefreshToken;
+                return (true, $"Signed in as {tokens.User?.Email ?? "user"}.");
+            }
+            catch (HttpRequestException ex)
+            {
+                return (false, $"claim unreachable: {ex.Message}");
+            }
+        }
+
         /// <summary>Silent reconnect from a persisted refresh token
         /// (POST /api/auth/refresh with the body token; server rotates it).</summary>
         public async Task<bool> RestoreSessionAsync(string refreshToken, CancellationToken ct)
