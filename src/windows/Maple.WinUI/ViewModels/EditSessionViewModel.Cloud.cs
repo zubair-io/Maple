@@ -108,7 +108,21 @@ namespace Maple.WinUI.ViewModels
                     // The client was superseded (disposed) between our cancel
                     // check and the request — this ceremony is over.
                 }
-            }, cts.Token);
+                finally
+                {
+                    // Free the CTS timer promptly. On the UI thread, and only
+                    // after un-publishing the field, so the Cancel() call sites
+                    // (all UI-thread) can never touch a disposed CTS.
+                    OnUi(() =>
+                    {
+                        if (_signInPollCts == cts)
+                            _signInPollCts = null;
+                        cts.Dispose();
+                    });
+                }
+            });
+            // (No cts.Token on Task.Run: a pre-canceled token would skip the
+            // body entirely and leak the CTS past its finally.)
         }
 
         /// <summary>UI-thread tail of a successful poll claim: mirror of
