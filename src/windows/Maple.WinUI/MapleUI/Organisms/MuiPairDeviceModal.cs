@@ -14,7 +14,7 @@ namespace Maple.UI
     /// Code, QR Scanner, Progress, Progress Step) — a vertical list of
     /// three <see cref="MuiProgressStep"/>s (Show code / Scan / Connect),
     /// each Pending/Active/Done off <see cref="Step"/>; the Active step's
-    /// own body swaps in a <see cref="MuiQrPlaceholder"/>, a
+    /// own body swaps in a <see cref="MuiQrCode"/>, a
     /// <see cref="MuiQrScanner"/>, or an indeterminate
     /// <see cref="MuiProgress"/> ring.
     /// </summary>
@@ -48,7 +48,7 @@ namespace Maple.UI
         private readonly MuiProgressStep _showCodeStep = new() { Index = 0, Label = "Show a code on this device", ContinueLabel = "I've scanned it" };
         private readonly MuiProgressStep _scanStep = new() { Index = 1, Label = "Scan the other device's code", ContinueLabel = "Continue" };
         private readonly MuiProgressStep _connectStep = new() { Index = 2, Label = "Connecting…" };
-        private readonly MuiQrPlaceholder _qrCode = new() { PlaceholderSize = MuiQrPlaceholderSize.Lg };
+        private readonly MuiQrCode _qrCode = new() { QrSize = MuiQrCodeSize.Lg };
         private readonly MuiQrScanner _scanner = new();
         private readonly MuiProgress _connecting = new() { ProgressShape = MuiProgressShape.Ring, IsIndeterminate = true };
         private readonly MuiButton _close = new() { Variant = MuiButtonVariant.Ghost, Label = "Close" };
