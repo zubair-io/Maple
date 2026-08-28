@@ -49,5 +49,26 @@ namespace Maple.WinUI.Tests
                 Directory.Delete(root, recursive: true);
             }
         }
+
+        [Fact]
+        public void TryDirectorySizeBytes_CountsHiddenFiles()
+        {
+            // EnumerationOptions' DEFAULT AttributesToSkip silently drops
+            // hidden/system files — the probe overrides it to 0 so cache
+            // contents count regardless of attributes. This pins that.
+            var root = Path.Combine(Path.GetTempPath(), "maple-storage-report-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(root);
+                var hidden = Path.Combine(root, "hidden.bin");
+                File.WriteAllBytes(hidden, new byte[64]);
+                File.SetAttributes(hidden, FileAttributes.Hidden);
+                Assert.Equal(64, StorageReport.TryDirectorySizeBytes(root));
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 }
