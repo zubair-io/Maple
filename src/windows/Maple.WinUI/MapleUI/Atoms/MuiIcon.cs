@@ -56,6 +56,14 @@ namespace Maple.UI.Atoms
         public MuiIcon()
         {
             IsTabStop = false;
+            // ContentControl's default content alignment is Left/TOP, so a
+            // stretched host (a grid cell, a row taller than the glyph)
+            // parks the glyph in the top-left corner instead of on the
+            // neighboring text's centerline — the icon-vs-text misalignment
+            // visible across list rows and collapsible headers. An icon
+            // glyph centers within whatever box it is given.
+            HorizontalContentAlignment = HorizontalAlignment.Center;
+            VerticalContentAlignment = VerticalAlignment.Center;
             // Decorative by default (icon.md § Accessibility): most Icon
             // instances sit next to a labeled control, so they're hidden
             // from assistive tech unless the host explicitly needs one
