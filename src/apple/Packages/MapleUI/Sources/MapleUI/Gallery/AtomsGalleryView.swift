@@ -1,6 +1,6 @@
-// AtomsGalleryView.swift — Atoms tab: specimen cards for all 22 atoms —
-// wave 1's 10 (catalog §1.1 Actions, §1.2 Content) plus wave 2's 12 (§1.3
-// Form controls, §1.4 Media, §1.5 Feedback).
+// AtomsGalleryView.swift — Atoms tab: specimen cards for all 23 atoms —
+// wave 1's 10 (catalog §1.1 Actions, §1.2 Content), wave 2's 12 (§1.3
+// Form controls, §1.4 Media, §1.5 Feedback), plus MA2's Toggle (#3055).
 
 import SwiftUI
 
@@ -22,6 +22,7 @@ struct AtomsGalleryView: View {
                 listCard
                 inputCard
                 checkboxCard
+                toggleCard
                 segmentedToggleCard
                 imageCard
                 remoteImageCard
@@ -136,6 +137,16 @@ struct AtomsGalleryView: View {
             VStack(spacing: MuiTokens.spacingSm) {
                 MuiInput(value: .constant(""), accessibilityLabel: "Search", placeholder: "Search…", prefixIcon: "magnifyingglass", showClear: true)
                 MuiInput(value: .constant("bad-value"), accessibilityLabel: "Email", error: "Enter a valid email")
+                // Secure entry + monospaced + no-autocorrect: the URL/API-key
+                // trio added for Settings/ServerAdmin (#3055 MA2).
+                MuiInput(
+                    value: .constant("sk-live-••••••••"), accessibilityLabel: "API key",
+                    secure: true, monospaced: true, autocorrectionDisabled: true
+                )
+                MuiInput(
+                    value: .constant("192.168.1.42"), accessibilityLabel: "LAN address",
+                    monospaced: true, keyboard: .numberPad
+                )
             }
         }
     }
@@ -146,6 +157,16 @@ struct AtomsGalleryView: View {
                 MuiCheckbox(state: .checked, label: "Checked") {}
                 MuiCheckbox(state: .unchecked, label: "Unchecked") {}
                 MuiCheckbox(state: .indeterminate, label: "Mixed") {}
+            }
+        }
+    }
+
+    private var toggleCard: some View {
+        GallerySpecimenCard(name: "Toggle", purpose: "Single immediate-effect on/off switch") {
+            VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
+                MuiToggle(checked: .constant(false), label: "Off")
+                MuiToggle(checked: .constant(true), label: "On")
+                MuiToggle(checked: .constant(true), label: "Disabled", disabled: true)
             }
         }
     }
