@@ -14,8 +14,10 @@ import {
 } from '../../src/db/client.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';
+import { withTestEnv } from '../../src/db/test-db.test-helpers.ts';
 
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
+withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
+const JWT_SECRET = 'x'.repeat(32);
 const app = new Elysia()
   .use(nativeCodeClaimRoutes)
   // Mirror index.ts: wrap the self-gating issue route so its `requireAuth`
@@ -40,7 +42,7 @@ beforeEach(async () => {
   userId = ins.insertedId;
   bearer = await signAccessToken(
     { sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
-    process.env.MAPLE_JWT_SECRET!,
+    JWT_SECRET,
   );
 });
 
