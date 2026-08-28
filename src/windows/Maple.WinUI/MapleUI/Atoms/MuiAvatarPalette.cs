@@ -20,9 +20,9 @@ namespace Maple.UI.Atoms
     public static class MuiAvatarPalette
     {
         /// <summary>32-bit FNV-1a — small, dependency-free, stable across
-        /// processes and platforms (unlike <c>string.GetHashCode()</c>).
-        /// Also reused by MuiQrPlaceholderPattern for the same
-        /// "deterministic forever" reason.</summary>
+        /// processes and platforms (unlike <c>string.GetHashCode()</c>),
+        /// for the same "deterministic forever" reason the palette pick
+        /// itself needs.</summary>
         public static uint StableHash(string value)
         {
             const uint offsetBasis = 2166136261;
