@@ -123,17 +123,23 @@ namespace Maple.WinUI
             var section = new MuiSettingsSection
             {
                 Title = "LIBRARY FOLDERS",
-                Rows = folders.Count == 0
-                    ? new[]
-                    {
-                        new MuiSettingsSectionRow("none", "No library folders yet", "folder",
-                            "Add a folder from the sidebar's + button (or File → Open Folder…)."),
-                    }
-                    : folders.Select((folder, i) => new MuiSettingsSectionRow(
-                        $"folder-{i}", folder, "folder",
-                        Directory.Exists(folder) ? "Available" : "Not currently reachable")).ToList(),
+                Rows = LibraryRows(folders, _ => "Checking availability…"),
             };
             _paneHost.Children.Add(section);
+
+            if (folders.Count > 0)
+            {
+                // Reachability probes stay OFF the UI thread — a dead mapped
+                // network root blocks Directory.Exists for tens of seconds
+                // (the exact hang InitializeLibrary's own comment documents).
+                var queue = DispatcherQueue;
+                Task.Run(() =>
+                {
+                    var reachable = folders.ToDictionary(f => f, f => Directory.Exists(f));
+                    queue.TryEnqueue(() => section.Rows = LibraryRows(
+                        folders, f => reachable[f] ? "Available" : "Not currently reachable"));
+                });
+            }
             _paneHost.Children.Add(new MuiText
             {
                 Text = "Folders are managed from the sidebar: + adds one, a folder's context menu removes or renames it.",
@@ -141,6 +147,17 @@ namespace Maple.WinUI
                 ColorRole = MuiTextColorRole.Muted,
             });
         }
+
+        private static IReadOnlyList<MuiSettingsSectionRow> LibraryRows(
+            IReadOnlyList<string> folders, Func<string, string> describe) =>
+            folders.Count == 0
+                ? new[]
+                {
+                    new MuiSettingsSectionRow("none", "No library folders yet", "folder",
+                        "Add a folder from the sidebar's + button (or File → Open Folder…)."),
+                }
+                : folders.Select((folder, i) => new MuiSettingsSectionRow(
+                    $"folder-{i}", folder, "folder", describe(folder))).ToList();
 
         // --- Maple Cloud ---
 
@@ -237,9 +254,20 @@ namespace Maple.WinUI
             input.Committed += (_, text) =>
             {
                 var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-                AppSettings.Update(s => assign(s, value));
-                saved.State = MuiStatusTextState.Saved;
-                saved.Text = value is null ? "Saved — using the default location" : "Saved";
+                try
+                {
+                    AppSettings.Update(s => assign(s, value));
+                    saved.State = MuiStatusTextState.Saved;
+                    saved.Text = value is null ? "Saved — using the default location" : "Saved";
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A settings-file write failure must not bubble out of a
+                    // UI event handler (it would take the app down) — it
+                    // becomes the row's error state instead.
+                    saved.State = MuiStatusTextState.Error;
+                    saved.Text = $"Couldn't save: {ex.Message}";
+                }
                 saved.Visibility = Visibility.Visible;
             };
             var content = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6 };
@@ -267,7 +295,7 @@ namespace Maple.WinUI
                 var logPath = Path.Combine(MapleAppData, "maple.log");
                 long? logSize = null;
                 try { if (File.Exists(logPath)) logSize = new FileInfo(logPath).Length; }
-                catch (IOException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
 
                 queue.TryEnqueue(() => section.Rows = BuildStorageRows(null, sizes[0], sizes[1], logSize));
             });
@@ -276,9 +304,12 @@ namespace Maple.WinUI
         private static IReadOnlyList<MuiSettingsSectionRow> BuildStorageRows(
             string? pendingText, long? thumbs = null, long? cloud = null, long? log = null)
         {
+            // Null size = the probe couldn't measure (missing directory, or
+            // unreadable/offline) — say so rather than claiming "empty";
+            // an existing-but-empty directory measures as 0 B.
             string Describe(string path, long? bytes) => pendingText is not null
                 ? $"{path} — {pendingText}"
-                : bytes is { } b ? $"{path} — {StorageReport.FormatBytes(b)}" : $"{path} — empty";
+                : bytes is { } b ? $"{path} — {StorageReport.FormatBytes(b)}" : $"{path} — not present (or unreadable)";
 
             return new[]
             {
