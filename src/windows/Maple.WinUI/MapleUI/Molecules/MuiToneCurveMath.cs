@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Maple.WinUI.Models;
 
-namespace Maple.WinUI.Controls
+namespace Maple.UI
 {
     /// <summary>
     /// Port of the shared tone-curve evaluator (web tone-curve-math.ts, itself
@@ -11,21 +10,29 @@ namespace Maple.WinUI.Controls
     /// Fritsch–Carlson monotone cubic Hermite over [0,1]² knots. Plus the
     /// plot's editing rules (tone-curve-edit.ts): materialization, insert
     /// collision, endpoint pinning, delete-to-identity.
+    ///
+    /// Moved from <c>Maple.WinUI.Controls.ToneCurveMath</c> in the MN2 wave
+    /// (#3051): <see cref="MuiCurvePlot"/> owns the tone-curve editing
+    /// gestures now, so the control-agnostic math lives beside it, WinUI-free
+    /// (same split as <see cref="MuiCurvePlotMath"/>) and linkable into
+    /// Maple.WinUI.Tests without a live Window. Operates on the plot's own
+    /// normalized <see cref="MuiCurvePoint"/>; the app converts to its
+    /// sidecar-facing <c>Models.CurvePoint</c> at the boundary.
     /// </summary>
-    public static class ToneCurveMath
+    public static class MuiToneCurveMath
     {
         public const double MinXGap = 1.0 / 256;
         public const double HitRadius = 0.045;          // authoring units
 
         /// <summary>Clamp both coords to [0,1], sort by x, de-dupe equal-x
         /// neighbours keeping the LATER point (matches Rust dedup_by).</summary>
-        public static List<CurvePoint> PrepareCurve(IReadOnlyList<CurvePoint> points)
+        public static List<MuiCurvePoint> PrepareCurve(IReadOnlyList<MuiCurvePoint> points)
         {
             var sorted = points
-                .Select(p => new CurvePoint(Clamp01(p.X), Clamp01(p.Y)))
+                .Select(p => new MuiCurvePoint(Clamp01(p.X), Clamp01(p.Y)))
                 .OrderBy(p => p.X)
                 .ToList();
-            var deduped = new List<CurvePoint>(sorted.Count);
+            var deduped = new List<MuiCurvePoint>(sorted.Count);
             foreach (var p in sorted)
             {
                 if (deduped.Count > 0 && deduped[^1].X == p.X)
@@ -38,7 +45,7 @@ namespace Maple.WinUI.Controls
 
         /// <summary>Evaluate the prepared curve at x. Empty = identity,
         /// single knot = constant, outside the knot span = clamped ends.</summary>
-        public static double Eval(IReadOnlyList<CurvePoint> knots, double x)
+        public static double Eval(IReadOnlyList<MuiCurvePoint> knots, double x)
         {
             var n = knots.Count;
             if (n == 0) return Clamp01(x);
@@ -96,13 +103,13 @@ namespace Maple.WinUI.Controls
 
         /// <summary>An empty (identity) curve materializes as the anchor pair
         /// so the first click yields 3 knots, never a lone constant knot.</summary>
-        public static List<CurvePoint> Materialize(IReadOnlyList<CurvePoint> points) =>
+        public static List<MuiCurvePoint> Materialize(IReadOnlyList<MuiCurvePoint> points) =>
             points.Count > 0
-                ? new List<CurvePoint>(points)
-                : new List<CurvePoint> { new(0, 0), new(1, 1) };
+                ? new List<MuiCurvePoint>(points)
+                : new List<MuiCurvePoint> { new(0, 0), new(1, 1) };
 
         /// <summary>Nearest knot within the hit radius, or -1.</summary>
-        public static int HitTest(IReadOnlyList<CurvePoint> points, double x, double y)
+        public static int HitTest(IReadOnlyList<MuiCurvePoint> points, double x, double y)
         {
             var best = -1;
             var bestDist = HitRadius;
@@ -121,32 +128,32 @@ namespace Maple.WinUI.Controls
 
         /// <summary>Insert at (x, y); returns the new index, or -1 when an
         /// existing knot is within MinXGap in x (collision no-op).</summary>
-        public static int InsertPoint(List<CurvePoint> points, double x, double y)
+        public static int InsertPoint(List<MuiCurvePoint> points, double x, double y)
         {
             if (points.Any(p => Math.Abs(p.X - x) < MinXGap))
                 return -1;
             var insertAt = points.TakeWhile(p => p.X < x).Count();
-            points.Insert(insertAt, new CurvePoint(Clamp01(x), Clamp01(y)));
+            points.Insert(insertAt, new MuiCurvePoint(Clamp01(x), Clamp01(y)));
             return insertAt;
         }
 
         /// <summary>Drag constraints: endpoints move vertically only; interior
         /// x stays MinXGap clear of its neighbours; y is just clamped.</summary>
-        public static void MovePoint(List<CurvePoint> points, int index, double x, double y)
+        public static void MovePoint(List<MuiCurvePoint> points, int index, double x, double y)
         {
             var cx = index == 0 ? 0
                 : index == points.Count - 1 ? 1
                 : Math.Clamp(Clamp01(x), points[index - 1].X + MinXGap, points[index + 1].X - MinXGap);
-            points[index] = new CurvePoint(cx, Clamp01(y));
+            points[index] = new MuiCurvePoint(cx, Clamp01(y));
         }
 
         /// <summary>Remove a knot; the bare anchor pair collapses back to the
         /// canonical empty identity so untouched sidecars stay byte-clean.</summary>
-        public static void RemovePoint(List<CurvePoint> points, int index)
+        public static void RemovePoint(List<MuiCurvePoint> points, int index)
         {
             points.RemoveAt(index);
             if (points.Count == 2
-                && points[0] == new CurvePoint(0, 0) && points[1] == new CurvePoint(1, 1))
+                && points[0] == new MuiCurvePoint(0, 0) && points[1] == new MuiCurvePoint(1, 1))
                 points.Clear();
         }
 
@@ -159,8 +166,8 @@ namespace Maple.WinUI.Controls
         {
             var knots = PrepareCurve(new[]
             {
-                new CurvePoint(0, 0), new CurvePoint(0.25, 0.15),
-                new CurvePoint(0.6, 0.72), new CurvePoint(1, 1),
+                new MuiCurvePoint(0, 0), new MuiCurvePoint(0.25, 0.15),
+                new MuiCurvePoint(0.6, 0.72), new MuiCurvePoint(1, 1),
             });
             var expected = new[]
             {
