@@ -6,8 +6,11 @@ using Maple.UI.Atoms;
 
 namespace Maple.UI
 {
-    /// <summary>One row within a Settings Section.</summary>
-    public sealed record MuiSettingsSectionRow(string Id, string Label, string? IconName = null, string? Description = null, UIElement? RowContent = null);
+    /// <summary>One row within a Settings Section. StartExpanded (MN3,
+    /// #3052) discloses the row's description/content immediately — for
+    /// rows whose control is the section's point (a toggle, a primary
+    /// action) rather than collapsed detail.</summary>
+    public sealed record MuiSettingsSectionRow(string Id, string Label, string? IconName = null, string? Description = null, UIElement? RowContent = null, bool StartExpanded = false);
 
     /// <summary>
     /// Maple.UI Settings Section organism (unified-component-catalog.md
@@ -73,6 +76,7 @@ namespace Maple.UI
                     Description = row.Description,
                     RowContent = row.RowContent,
                     ShowDivider = i < rows.Count - 1,
+                    IsExpanded = row.StartExpanded,
                 });
             }
         }
