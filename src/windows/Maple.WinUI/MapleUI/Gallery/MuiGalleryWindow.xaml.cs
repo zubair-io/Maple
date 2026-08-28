@@ -354,8 +354,8 @@ namespace Maple.UI.Gallery
                 new MuiAvatar { Name = "Cher", AvatarSize = MuiAvatarSize.Lg, Presence = MuiAvatarPresence.Away })));
 
             AtomsPanel.Children.Add(SpecimenCard("QR Code", "Deterministic placeholder pattern (no real QR dep this wave — see #3012).", Row(
-                new MuiQrPlaceholder { Payload = "maple-app://pair/abc123", PlaceholderSize = MuiQrPlaceholderSize.Sm },
-                new MuiQrPlaceholder { Payload = "maple-app://pair/xyz789", PlaceholderSize = MuiQrPlaceholderSize.Md })));
+                new MuiQrCode { Payload = "maple-app://pair/abc123", QrSize = MuiQrCodeSize.Sm },
+                new MuiQrCode { Payload = "maple-app://pair/xyz789", QrSize = MuiQrCodeSize.Md })));
 
             AtomsPanel.Children.Add(SpecimenCard("Canvas Surface", "Letterbox host for a GPU-rendered layer, loading state.", Row(
                 new MuiCanvasSurface { Width = 160, Height = 100, IsLoading = true },
