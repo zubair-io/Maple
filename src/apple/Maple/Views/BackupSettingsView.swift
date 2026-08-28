@@ -9,6 +9,7 @@ import SwiftUI
 import OSLog
 import Photos
 import MapleCore
+import MapleUI
 import MapleBackup
 
 private let settingsLog = Logger(subsystem: "app.justmaple.aperture", category: "Backup.SettingsView")
@@ -70,15 +71,15 @@ struct BackupSettingsView: View {
       }
       .listRowBackground(MapleTokens.surface)
       Section("Inclusion") {
-        Toggle("Live Photos", isOn: $settings.includeLivePhotos)
-        Toggle("Videos", isOn: $settings.includeVideos)
-        Toggle("Bursts (every frame)", isOn: $settings.includeBursts)
-        Toggle("iCloud Shared Library", isOn: $settings.includeSharedLibrary)
-        Toggle("Shared Albums", isOn: $settings.includeSharedAlbums)
+        MuiToggle(checked: $settings.includeLivePhotos, label: "Live Photos")
+        MuiToggle(checked: $settings.includeVideos, label: "Videos")
+        MuiToggle(checked: $settings.includeBursts, label: "Bursts (every frame)")
+        MuiToggle(checked: $settings.includeSharedLibrary, label: "iCloud Shared Library")
+        MuiToggle(checked: $settings.includeSharedAlbums, label: "Shared Albums")
       }
       .listRowBackground(MapleTokens.surface)
       Section("Network") {
-        Toggle("Wi-Fi only", isOn: $settings.wifiOnly)
+        MuiToggle(checked: $settings.wifiOnly, label: "Wi-Fi only")
       }
       .listRowBackground(MapleTokens.surface)
       if hasStarted {

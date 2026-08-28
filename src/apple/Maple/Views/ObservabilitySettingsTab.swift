@@ -11,6 +11,7 @@
 import SwiftUI
 import OSLog
 import MapleCore
+import MapleUI
 
 private let settingsLog = Logger(subsystem: "app.justmaple.aperture", category: "Observability.SettingsView")
 
@@ -31,7 +32,7 @@ struct ObservabilitySettingsTab: View {
       }
       .listRowBackground(MapleTokens.surface)
       Section("Telemetry") {
-        Toggle("Send telemetry from this device", isOn: $settings.enabled)
+        MuiToggle(checked: $settings.enabled, label: "Send telemetry from this device")
           .accessibilityIdentifier("observability.enabled")
         Text("Logs, errors, and traces are sent directly to the SigNoz instance configured on the selected server. The ingestion key is stored only in this app's cache.")
           .font(.caption)

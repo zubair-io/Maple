@@ -10,6 +10,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct WorkersSettingsView: View {
     let client: WorkersAdminClient
@@ -106,10 +107,11 @@ struct WorkersSettingsView: View {
                 }
             } else if let loadError {
                 Section {
-                    Text("Failed to load worker status: \(loadError)")
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("workers.loadError")
-                    Button("Retry") { Task { await loadFallback() } }
+                    MuiBanner(
+                        variant: .error, message: "Failed to load worker status: \(loadError)",
+                        actionLabel: "Retry", actionPressed: { Task { await loadFallback() } }
+                    )
+                    .accessibilityIdentifier("workers.loadError")
                 }
                 .listRowBackground(MapleTokens.surface)
             } else {
@@ -167,32 +169,29 @@ struct WorkersSettingsView: View {
             }
             .accessibilityIdentifier("workers.summary")
 
+            // MuiBanner's icon is fixed per variant (info-circle / warning-
+            // triangle / xmark-circle) rather than caller-chosen, so the
+            // bespoke hourglass/antenna glyphs below are gone — an accepted
+            // visual delta from standardizing on the shared atom, not a
+            // functional change.
             if let pending = WorkersSettingsVM.countsPendingNotice(
                 hasCountedData: feed.hasCountedData, hasPayload: feed.payload != nil)
             {
-                Label(pending, systemImage: "hourglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                MuiBanner(variant: .info, message: pending)
                     .accessibilityIdentifier("workers.countsPending")
             }
             if let loadError {
-                Label(loadError, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                MuiBanner(variant: .warning, message: loadError)
                     .accessibilityIdentifier("workers.statusFetchError")
             }
             if let notice = WorkersSettingsVM.connectionNotice(
                 isLive: isLive, hasPayload: feed.payload != nil)
             {
-                Label(notice, systemImage: "antenna.radiowaves.left.and.right.slash")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                MuiBanner(variant: .warning, message: notice)
                     .accessibilityIdentifier("workers.connectionNotice")
             }
             if let actionError {
-                Label(actionError, systemImage: "xmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                MuiBanner(variant: .error, message: actionError)
                     .accessibilityIdentifier("workers.actionError")
             }
         }

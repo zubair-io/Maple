@@ -44,10 +44,11 @@ struct CloudflareSettingsView: View {
                 .listRowBackground(MapleTokens.surface)
             case .failed(let message):
                 Section {
-                    Text("Failed to load config: \(message)")
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("cloudflare.loadError")
-                    Button("Retry") { Task { await load() } }
+                    MuiBanner(
+                        variant: .error, message: "Failed to load config: \(message)",
+                        actionLabel: "Retry", actionPressed: { Task { await load() } }
+                    )
+                    .accessibilityIdentifier("cloudflare.loadError")
                 }
                 .listRowBackground(MapleTokens.surface)
             case .loaded(let config):
@@ -67,49 +68,43 @@ struct CloudflareSettingsView: View {
     @ViewBuilder
     private func credentialsSection(_ config: CloudflareConfig) -> some View {
         Section("Cloudflare R2") {
-            Toggle("Upload thumbnails to Cloudflare", isOn: $form.enabled)
+            MuiToggle(checked: $form.enabled, label: "Upload thumbnails to Cloudflare")
                 .accessibilityIdentifier("cloudflare.enabled")
             Text(CloudflareSettingsVM.statusSummary(config))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             LabeledContent("Account ID") {
-                TextField("", text: $form.accountID, prompt: Text("a1b2c3d4e5f6…"))
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("cloudflare.accountID")
+                MuiInput(
+                    value: $form.accountID, accessibilityLabel: "Account ID",
+                    placeholder: "a1b2c3d4e5f6…", monospaced: true, autocorrectionDisabled: true
+                )
+                .accessibilityIdentifier("cloudflare.accountID")
             }
 
             LabeledContent("Bucket name") {
-                TextField("", text: $form.bucket, prompt: Text("maple-thumbs"))
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("cloudflare.bucket")
+                MuiInput(
+                    value: $form.bucket, accessibilityLabel: "Bucket name",
+                    placeholder: "maple-thumbs", monospaced: true, autocorrectionDisabled: true
+                )
+                .accessibilityIdentifier("cloudflare.bucket")
             }
 
             LabeledContent("Access key ID") {
-                TextField("", text: $form.accessKeyID, prompt: Text("AKIAEXAMPLE…"))
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("cloudflare.accessKeyID")
+                MuiInput(
+                    value: $form.accessKeyID, accessibilityLabel: "Access key ID",
+                    placeholder: "AKIAEXAMPLE…", monospaced: true, autocorrectionDisabled: true
+                )
+                .accessibilityIdentifier("cloudflare.accessKeyID")
             }
 
             LabeledContent("Secret access key") {
-                SecureField(
-                    "",
-                    text: $form.secretAccessKey,
-                    prompt: Text(CloudflareSettingsVM.secretPlaceholder(secretIsSet: secretIsSet)))
-                    .font(.system(.body, design: .monospaced))
-                    .accessibilityIdentifier("cloudflare.secretAccessKey")
+                MuiInput(
+                    value: $form.secretAccessKey, accessibilityLabel: "Secret access key",
+                    placeholder: CloudflareSettingsVM.secretPlaceholder(secretIsSet: secretIsSet),
+                    secure: true, monospaced: true
+                )
+                .accessibilityIdentifier("cloudflare.secretAccessKey")
             }
             Text("Write-only — never sent back. Leave blank to keep the saved key.")
                 .font(.caption)
