@@ -17,18 +17,16 @@ namespace Maple.UI
     /// with no atom dependency) — a hue disc with a radial saturation fade,
     /// draggable puck, keyboard arrows, and double-tap reset.
     ///
-    /// Studies and reuses the rendering TECHNIQUE of the app's existing
-    /// <c>Maple.WinUI.Controls.ColorWheelControl</c> (conic-hue +
-    /// radial-fade <see cref="WriteableBitmap"/>, same polar convention:
-    /// hue 0° right, increasing counter-clockwise, puck radius =
-    /// saturation) rather than wrapping that control directly — this
-    /// version is TOKEN-styled (the surface/rim colors come from
-    /// `MapleSurfaceColor`/`MapleTextMain`, not the app control's literal
-    /// hex/white) and drives its pointer math through the standalone,
-    /// unit-tested <see cref="MuiColorWheelMath"/> rather than duplicating
-    /// that logic as private methods a second time. ColorWheelControl
-    /// itself is untouched — it's an existing, already-shipped app control
-    /// outside this molecule wave's scope.
+    /// Uses the same rendering TECHNIQUE the app's original hand-rolled
+    /// grading wheel established (conic-hue + radial-fade
+    /// <see cref="WriteableBitmap"/>, same polar convention: hue 0° right,
+    /// increasing counter-clockwise, puck radius = saturation), TOKEN-styled
+    /// (the surface/rim colors come from `MapleSurfaceColor`/`MapleTextMain`
+    /// rather than literal hex/white) and driving its pointer math through
+    /// the standalone, unit-tested <see cref="MuiColorWheelMath"/>. As of
+    /// the MN2 wave (#3051) this molecule IS the app's grading wheel — the
+    /// legacy control it studied is deleted and MainWindow's Grade panel
+    /// builds four of these.
     /// </summary>
     public sealed class MuiColorWheel : ContentControl
     {

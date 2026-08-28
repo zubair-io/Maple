@@ -12,15 +12,14 @@ namespace Maple.UI
     /// as <see cref="MuiSliderMath"/> — linkable into Maple.WinUI.Tests
     /// without a live Window.
     ///
-    /// Mirrors the same polar convention already shipped twice in this repo
-    /// — the Pro Editor's `color-wheel-math.ts` and the Windows app's own
-    /// <c>Maple.WinUI.Controls.ColorWheelControl</c>: hue 0° points right and
-    /// runs counter-clockwise, puck radius carries saturation, the centre
-    /// reads neutral (hue 0, saturation 0). Kept as its own small pure port
-    /// (matching `mui-color-wheel.component.ts`'s split from the app
-    /// component) rather than reaching into ColorWheelControl's private
-    /// pointer handlers, which aren't exposed for reuse and aren't
-    /// unit-testable without a live Window.
+    /// Mirrors the polar convention the Pro Editor's `color-wheel-math.ts`
+    /// ships: hue 0° points right and runs counter-clockwise, puck radius
+    /// carries saturation, the centre reads neutral (hue 0, saturation 0).
+    /// Kept as its own small pure port (matching
+    /// `mui-color-wheel.component.ts`'s split from the app component) so the
+    /// pointer math is unit-testable without a live Window. This IS the
+    /// geometry truth for the wheel — its web sibling had a
+    /// puck-50%-too-high bug caught in the parity build.
     /// </summary>
     public static class MuiColorWheelMath
     {
