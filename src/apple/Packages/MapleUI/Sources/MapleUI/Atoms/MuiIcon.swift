@@ -51,7 +51,12 @@ public struct MuiIcon: View {
 
     public var body: some View {
         Group {
-            if let color {
+            if let mirroredPath = MuiIconRegistry.path(for: name) {
+                // #3024: "cloud"/"calendar" mirror Windows' hand-drawn paths
+                // byte-for-byte instead of resolving to an SF Symbol, so
+                // they read identically to the Windows/Web chrome.
+                strokeGlyph(mirroredPath)
+            } else if let color {
                 Image(systemName: name)
                     .font(.system(size: size.points))
                     .foregroundStyle(color)
@@ -66,6 +71,25 @@ public struct MuiIcon: View {
         .frame(width: size.points, height: size.points)
         .accessibilityHidden(accessibilityLabel == nil)
         .accessibilityLabel(accessibilityLabel ?? "")
+    }
+
+    /// Renders a `MuiIconRegistry` path at the requested size, scaled up
+    /// from its native 16×16 design space so the stroke width scales
+    /// proportionally with it — the same effect an SVG viewBox or XAML
+    /// Viewbox gives the Web/Windows versions of the same glyph.
+    @ViewBuilder
+    private func strokeGlyph(_ path: Path) -> some View {
+        let stroked = path.stroke(
+            style: StrokeStyle(lineWidth: MuiIconRegistry.strokeWidth, lineCap: .round, lineJoin: .round))
+        Group {
+            if let color {
+                stroked.foregroundStyle(color)
+            } else {
+                stroked
+            }
+        }
+        .frame(width: 16, height: 16)
+        .scaleEffect(size.points / 16)
     }
 }
 
@@ -86,6 +110,20 @@ public struct MuiIcon: View {
     VStack(spacing: 12) {
         MuiIcon(name: "heart.fill").foregroundStyle(MuiTokens.errorText)
         MuiIcon(name: "checkmark.circle.fill").foregroundStyle(MuiTokens.successText)
+    }
+    .padding()
+    .background(MuiTokens.bg)
+}
+
+#Preview("MuiIcon — Mirrored glyphs (#3024)") {
+    HStack(alignment: .bottom, spacing: 16) {
+        ForEach([MuiIconSize.xs, .sm, .md, .lg, .xl], id: \.points) { size in
+            VStack(spacing: 4) {
+                MuiIcon(name: "cloud", size: size, color: MuiTokens.textMain)
+                MuiIcon(name: "calendar", size: size, color: MuiTokens.textMain)
+                Text("\(Int(size.points))").font(.caption2).foregroundStyle(MuiTokens.textMuted)
+            }
+        }
     }
     .padding()
     .background(MuiTokens.bg)
