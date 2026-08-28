@@ -171,6 +171,12 @@ namespace Maple.UI
 
         public MuiCurvePlot()
         {
+            // Transparent (not null) background: the pointer handlers live on
+            // the canvas, and a background-less Canvas only hit-tests its
+            // child shapes — presses on empty plot area (the click-to-insert
+            // gesture, and grabs near but not exactly on a knot) would fall
+            // through to the frame and never reach OnPointerPressed.
+            _canvas.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
             _canvas.Children.Add(_histogram);
             for (var i = 0; i < 6; i++)
             {
@@ -205,9 +211,6 @@ namespace Maple.UI
             _frame.Height = PlotHeight;
             _canvas.Width = PlotWidth;
             _canvas.Height = PlotHeight;
-            // The canvas is transparent by default and would only hit-test
-            // its child shapes; the frame's background is what makes the
-            // whole plot press/insert-able.
             _frame.Background = R("MapleImageCanvas");
             _frame.BorderBrush = R("MapleBorder");
 
