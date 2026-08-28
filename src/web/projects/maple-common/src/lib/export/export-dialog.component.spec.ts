@@ -46,6 +46,13 @@ function exportButton(fixture: { nativeElement: Element }): HTMLButtonElement {
 }
 
 describe('ExportDialogComponent', () => {
+  it('includes the value-0 "Full resolution" sentinel the modal contract requires', async () => {
+    const { fixture } = await setup();
+    const options = fixture.componentInstance.sizeOptions;
+    expect(options[0]).toEqual({ value: 0, label: 'Full resolution' });
+    expect(options.length).toBeGreaterThan(1);
+  });
+
   it('renders the mui-export-modal open with the format/color-space/size choice tables', async () => {
     const { fixture } = await setup();
     expect(fixture.nativeElement.querySelector('mui-overlay-shell')).not.toBeNull();
