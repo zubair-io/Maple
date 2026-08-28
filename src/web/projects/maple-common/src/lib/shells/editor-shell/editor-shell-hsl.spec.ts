@@ -179,12 +179,20 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     TestBed.resetTestingModule();
   });
 
-  function colorDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Color"]',
-    ) as HTMLButtonElement | null;
+  // `mui-action-button` (#3046) carries no `aria-label` — its visible
+  // `.label` span IS the accessible name — so these match on that text
+  // rather than a `[aria-label="..."]` attribute selector.
+  function dockButtonByLabel(label: string): HTMLButtonElement {
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label);
     expect(btn).not.toBeNull();
     return btn!;
+  }
+
+  function colorDockButton(): HTMLButtonElement {
+    return dockButtonByLabel('Color');
   }
 
   function subtoolChip(label: string): HTMLButtonElement {
@@ -207,27 +215,15 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
   }
 
   function curveDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Tone Curve"]',
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
+    return dockButtonByLabel('Tone Curve');
   }
 
   function cropDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Crop"]',
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
+    return dockButtonByLabel('Crop');
   }
 
   function presetsDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Presets"]',
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
+    return dockButtonByLabel('Presets');
   }
 
   function hslPanel(): Element | null {
@@ -282,7 +278,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     // The dock's Color entry is a GROUP entry — it stays highlighted for
     // any tool armed within `color`, HSL included (it's the sub-tool row's
     // own chip, checked below, that distinguishes HSL from a plain slider).
-    expect(colorDockButton().classList.contains('dock-btn--active')).toBe(true);
+    expect(colorDockButton().getAttribute('aria-pressed')).toBe('true');
     expect(subtoolChip('HSL').classList.contains('subtool-chip--active')).toBe(true);
     expect(subtoolChip('B&W').classList.contains('subtool-chip--active')).toBe(false);
   });
@@ -302,7 +298,9 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     fixture.detectChanges();
 
     expect(editorState.armedSubParamId()).toBe('hueOrange');
-    expect(orangeChip!.classList.contains('armed')).toBe(true);
+    // `mui-chip-row` (#3046) marks the selected chip with `.is-selected`,
+    // not the retired local `.armed` class.
+    expect(orangeChip!.classList.contains('is-selected')).toBe(true);
   });
 
   it('a drag-bar edit on the default-armed sub-param writes hueAdjustmentRed', () => {
