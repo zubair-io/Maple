@@ -95,8 +95,19 @@ namespace Maple.UI.Atoms
                     _cells[y * moduleCount + x].Fill = matrix[y, x] ? fill : null;
             }
 
-            AutomationProperties.SetName(this, "QR code");
+            // Default the automation name, but never clobber one the
+            // consumer set explicitly (e.g. "Pairing QR code") — the same
+            // ownership rule MuiActionButton/MuiListRow follow: we own the
+            // name only while it is empty or the value we last set.
+            var currentName = AutomationProperties.GetName(this);
+            if (string.IsNullOrEmpty(currentName) || currentName == _autoName)
+            {
+                AutomationProperties.SetName(this, "QR code");
+                _autoName = "QR code";
+            }
         }
+
+        private string? _autoName;
 
         /// <summary>The module count varies with QR version (payload
         /// length), so the row/column/cell skeleton is rebuilt whenever it
