@@ -21,7 +21,7 @@ namespace Maple.WinUI
         private string _colorTab = "Basic";
         private string _effectsTab = "Basic";
         private string _curveChannel = "Luma";
-        private readonly Dictionary<string, Controls.ColorWheelControl> _gradeWheels = new();
+        private readonly Dictionary<string, MuiColorWheel> _gradeWheels = new();
 
         private static readonly Dictionary<string, Windows.UI.Color> CurveChannelColors = new()
         {
@@ -245,8 +245,8 @@ namespace Maple.WinUI
         }
 
         /// <summary>Build the four wheel cells (wheel + caption + luminance
-        /// slider) and the balance slider. Wheels are code-built because their
-        /// pointer math and puck placement live in ColorWheelControl.</summary>
+        /// slider) and the balance slider. Wheels are code-built per zone so
+        /// each MuiColorWheel wires straight to its zone view model.</summary>
         private void BuildGradePanel()
         {
             var cells = new Dictionary<string, StackPanel>
@@ -259,17 +259,15 @@ namespace Maple.WinUI
             var gradeSliders = AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders;
             foreach (var zone in ViewModel.GradeZones)
             {
-                var wheel = new Controls.ColorWheelControl
+                var wheel = new MuiColorWheel
                 {
-                    Width = 108,
-                    Height = 108,
+                    WheelSize = 108,
                     HorizontalAlignment = HorizontalAlignment.Center,
+                    AccessibleLabel = $"{zone.Name} color wheel",
                 };
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
-                    wheel, $"{zone.Name} color wheel");
                 var vm = zone;
-                wheel.WheelChanged += (h, s) => vm.ApplyWheel(h, s);
-                wheel.ResetRequested += () => vm.Reset();
+                wheel.ValueChanged += (_, v) => vm.ApplyWheel(v.Hue, v.Saturation);
+                wheel.ResetRequested += (_, _) => vm.Reset();
                 _gradeWheels[zone.Name] = wheel;
 
                 var label = new TextBlock
@@ -288,7 +286,8 @@ namespace Maple.WinUI
                 void SyncCaption()
                 {
                     value.Text = vm.ValueText;
-                    wheel.SetValue(vm.Hue, vm.Saturation);
+                    wheel.Hue = vm.Hue;
+                    wheel.Saturation = vm.Saturation;
                 }
                 vm.PropertyChanged += (_, _) => SyncCaption();
                 SyncCaption();
@@ -314,8 +313,13 @@ namespace Maple.WinUI
         private void SyncGradeWheels()
         {
             foreach (var zone in ViewModel.GradeZones)
+            {
                 if (_gradeWheels.TryGetValue(zone.Name, out var wheel))
-                    wheel.SetValue(zone.Hue, zone.Saturation);
+                {
+                    wheel.Hue = zone.Hue;
+                    wheel.Saturation = zone.Saturation;
+                }
+            }
         }
 
         private void OnResetGroup(object sender, RoutedEventArgs e)
