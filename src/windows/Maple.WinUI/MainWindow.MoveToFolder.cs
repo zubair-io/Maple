@@ -19,6 +19,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Microsoft.UI.Xaml.Media;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
@@ -58,7 +59,7 @@ namespace Maple.WinUI
                 return;
             }
 
-            var folderLabel = new TextBlock { Text = "Destination folder", FontSize = 12 };
+            var folderLabel = new MuiText { Text = "Destination folder", Variant = MuiTextVariant.Body };
             var folderList = new ListView
             {
                 ItemsSource = folders,
@@ -78,11 +79,10 @@ namespace Maple.WinUI
             modeCombo.Items.Add("Copy");
             modeCombo.SelectedIndex = 0;
 
-            var summaryText = new TextBlock
+            var summaryText = new MuiText
             {
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
+                Variant = MuiTextVariant.Body,
+                ColorRole = MuiTextColorRole.Muted,
                 Text = BuildMoveToFolderSummary(eligible.Count, skippedCloud),
             };
 

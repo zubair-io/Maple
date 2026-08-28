@@ -25,6 +25,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
@@ -105,12 +106,11 @@ namespace Maple.WinUI
 
             var sources = EditSessionViewModel.BuildTrashSources(eligible);
 
-            var statusText = new TextBlock
+            var statusText = new MuiText
             {
                 Text = $"Deleting 0 of {sources.Count}…",
-                FontSize = 12,
+                Variant = MuiTextVariant.Body,
                 Width = 380,
-                TextWrapping = TextWrapping.Wrap,
             };
             var progressDialog = new ContentDialog
             {
@@ -118,7 +118,7 @@ namespace Maple.WinUI
                 Content = new StackPanel
                 {
                     Spacing = 10,
-                    Children = { new ProgressBar { IsIndeterminate = true }, statusText },
+                    Children = { new MuiProgress { ProgressShape = MuiProgressShape.Bar, IsIndeterminate = true }, statusText },
                 },
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
@@ -199,7 +199,7 @@ namespace Maple.WinUI
             var dialog = new ContentDialog
             {
                 Title = total == 1 ? "Delete this photo?" : $"Delete {total} photos?",
-                Content = new TextBlock { Text = string.Join("\n\n", lines), TextWrapping = TextWrapping.Wrap },
+                Content = new MuiText { Text = string.Join("\n\n", lines), Variant = MuiTextVariant.Body },
                 PrimaryButtonText = primaryText,
                 CloseButtonText = "Cancel",
                 // Escape/dismiss defaults to Cancel, not the destructive
@@ -227,11 +227,10 @@ namespace Maple.WinUI
             var detail = new StackPanel { Spacing = 6 };
             foreach (var outcome in outcomes.Where(o => o.Kind == TrashOutcomeKind.Error))
             {
-                detail.Children.Add(new TextBlock
+                detail.Children.Add(new MuiText
                 {
                     Text = $"{outcome.FileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}",
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
+                    Variant = MuiTextVariant.Body,
                 });
             }
             var reportDialog = new ContentDialog

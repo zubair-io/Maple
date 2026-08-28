@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Windows.Graphics.Imaging;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Pano;
@@ -53,12 +54,11 @@ namespace Maple.WinUI
             // ~180 MB of hash verification — never on the UI thread.
             var state = await provisioner.CheckAsync();
             var panel = new StackPanel { Spacing = 10, Width = 380 };
-            panel.Children.Add(new TextBlock
+            panel.Children.Add(new MuiText
             {
                 Text = $"{frames.Count} frames, stitched in filename order. This runs "
                      + "the full ML alignment pipeline and can take several minutes.",
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 12,
+                Variant = MuiTextVariant.Body,
             });
             var retentionCombo = new ComboBox
             {
@@ -87,25 +87,23 @@ namespace Maple.WinUI
                 strategyCombo.Items.Add(label);
             strategyCombo.SelectedIndex = 0;
             panel.Children.Add(strategyCombo);
-            var provisionText = new TextBlock
+            var provisionText = new MuiText
             {
                 Text = state.Summary,
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.6,
+                Variant = MuiTextVariant.Body,
+                ColorRole = MuiTextColorRole.Muted,
             };
             panel.Children.Add(provisionText);
             if (!state.IsProvisioned)
             {
-                panel.Children.Add(new TextBlock
+                panel.Children.Add(new MuiText
                 {
                     Text = "First run downloads the pinned ALIKED + LightGlue models "
                          + "(~57 MB, SHA-256 verified) and ONNX Runtime 1.23.2 "
                          + "(~120 MB) from their official releases into "
                          + @"%LOCALAPPDATA%\Maple.",
-                    FontSize = 11,
-                    TextWrapping = TextWrapping.Wrap,
-                    Opacity = 0.6,
+                    Variant = MuiTextVariant.Body,
+                    ColorRole = MuiTextColorRole.Muted,
                 });
             }
 
@@ -145,11 +143,10 @@ namespace Maple.WinUI
             var jpegPath = Path.Combine(folder, $"{baseName}.jpg");
 
             var cts = new CancellationTokenSource();
-            var statusText = new TextBlock
+            var statusText = new MuiText
             {
                 Text = "Preparing…",
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 12,
+                Variant = MuiTextVariant.Body,
                 Width = 380,
             };
             var progressDialog = new ContentDialog
@@ -158,7 +155,7 @@ namespace Maple.WinUI
                 Content = new StackPanel
                 {
                     Spacing = 10,
-                    Children = { new ProgressBar { IsIndeterminate = true }, statusText },
+                    Children = { new MuiProgress { ProgressShape = MuiProgressShape.Bar, IsIndeterminate = true }, statusText },
                 },
                 CloseButtonText = "Cancel",
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,

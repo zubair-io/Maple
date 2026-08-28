@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Maple.WinUI.Services;
 
 namespace Maple.WinUI
@@ -77,13 +78,12 @@ namespace Maple.WinUI
                     {
                         Children =
                         {
-                            new TextBlock { Text = label, FontSize = 13 },
-                            new TextBlock
+                            new MuiText { Text = label, Variant = MuiTextVariant.Body },
+                            new MuiText
                             {
                                 Text = detail,
-                                FontSize = 11,
-                                TextWrapping = TextWrapping.Wrap,
-                                Opacity = 0.6,
+                                Variant = MuiTextVariant.Body,
+                                ColorRole = MuiTextColorRole.Muted,
                             },
                         },
                     },
@@ -120,13 +120,12 @@ namespace Maple.WinUI
                 Minimum = 1, Maximum = 100, Value = 92, StepFrequency = 1,
                 Header = "Quality",
             };
-            var qualityHint = new TextBlock
+            var qualityHint = new MuiText
             {
                 Text = "Higher keeps more detail and makes a larger file. "
                      + "90–95 is visually lossless on most photographs.",
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.6,
+                Variant = MuiTextVariant.Body,
+                ColorRole = MuiTextColorRole.Muted,
             };
             panel.Children.Add(qualitySlider);
             panel.Children.Add(qualityHint);
@@ -190,15 +189,13 @@ namespace Maple.WinUI
                 PlaceholderText = "https://your-maple-server",
             };
             panel.Children.Add(urlBox);
-            panel.Children.Add(new TextBlock
+            panel.Children.Add(new MuiText
             {
                 Text = "“Sign in with browser” opens your server's passkey sign-in; the app "
                      + "receives a one-time code and never sees your credentials. "
                      + "“Dev sign-in” only works on servers started with MAPLE_DEV_AUTH=1.",
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 11,
-                Foreground = (Microsoft.UI.Xaml.Media.SolidColorBrush)
-                    Application.Current.Resources["MapleTextMuted"],
+                Variant = MuiTextVariant.Body,
+                ColorRole = MuiTextColorRole.Muted,
             });
 
             var dialog = new ContentDialog
