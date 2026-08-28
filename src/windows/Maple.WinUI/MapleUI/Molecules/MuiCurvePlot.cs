@@ -281,8 +281,8 @@ namespace Maple.UI
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (!e.GetCurrentPoint(_canvas).Properties.IsLeftButtonPressed) return;
-            var pos = e.GetCurrentPoint(_canvas).Position;
+            if (!e.GetCurrentPoint(_frame).Properties.IsLeftButtonPressed) return;
+            var pos = e.GetCurrentPoint(_frame).Position;
 
             if (PointEditing)
             {
@@ -318,7 +318,7 @@ namespace Maple.UI
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {
             if (_activeIndex is not { } index || e.Pointer.PointerId != _activePointerId) return;
-            var pos = e.GetCurrentPoint(_canvas).Position;
+            var pos = e.GetCurrentPoint(_frame).Position;
 
             if (PointEditing)
             {
@@ -348,7 +348,7 @@ namespace Maple.UI
         private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (!PointEditing) return;
-            var (ax, ay) = ToAuthoring(e.GetPosition(_canvas));
+            var (ax, ay) = ToAuthoring(e.GetPosition(_frame));
             var working = MuiToneCurveMath.Materialize(Points);
             var hit = MuiToneCurveMath.HitTest(working, ax, ay);
             // Pinned endpoints are not deletable.
