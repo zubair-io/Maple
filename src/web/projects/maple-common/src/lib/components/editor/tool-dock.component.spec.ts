@@ -9,12 +9,18 @@
 // group's sliders would otherwise show). HSL/B&W/Grade have no dock entry any
 // more — they're reached from the Colour/Effects sub-tool row instead (see
 // `control-card.component.ts`, `editor-shell-subtool-row.spec.ts`).
+//
+// #3046: the circle+label+dot chrome moved into `mui-tool-dock`/
+// `mui-action-button` — buttons are located here by their rendered `.label`
+// text (mui-action-button carries no `aria-label`, the visible label IS the
+// accessible name) and "active" is read via `aria-pressed`, not a
+// `dock-btn--active` class.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
-import { ToolDockComponent, type DockEntry } from './tool-dock.component';
+import { ToolDockComponent } from './tool-dock.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
@@ -68,15 +74,17 @@ function nativeEl(fixture: { nativeElement: unknown }): HTMLElement {
 }
 
 function buttons(fixture: { nativeElement: unknown }): HTMLButtonElement[] {
-  return Array.from(nativeEl(fixture).querySelectorAll<HTMLButtonElement>('button.dock-btn'));
+  return Array.from(
+    nativeEl(fixture).querySelectorAll<HTMLButtonElement>('mui-action-button button'),
+  );
 }
 
 function buttonFor(fixture: { nativeElement: unknown }, label: string): HTMLButtonElement {
-  return buttons(fixture).find((b) => b.getAttribute('aria-label') === label)!;
+  return buttons(fixture).find((b) => b.querySelector('.label')?.textContent?.trim() === label)!;
 }
 
 function dotFor(fixture: { nativeElement: unknown }, label: string): Element | null {
-  return buttonFor(fixture, label).querySelector('.dock-dot');
+  return buttonFor(fixture, label).querySelector('.modified-dot');
 }
 
 // ── Accent dot (`isModified`, fix round 1) ──────────────────────────────────
@@ -176,7 +184,7 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
   it('marks the active group entry active and emits groupChange on click', () => {
     const fixture = render({ activeGroup: 'color' });
     const colorBtn = buttonFor(fixture, 'Color');
-    expect(colorBtn.classList.contains('dock-btn--active')).toBe(true);
+    expect(colorBtn.getAttribute('aria-pressed')).toBe('true');
 
     let emitted: string | undefined;
     fixture.componentInstance.groupChange.subscribe((g) => (emitted = g));
@@ -197,10 +205,8 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
 
   it('disabled entries (Mask/Heal) are non-interactive and show a ticket tooltip', () => {
     const fixture = render({});
-    // Disabled entries carry no `aria-label` (kept out of the a11y tree, see
-    // the "Apple 9-entry parity" suite), so locate by title instead.
     const maskBtn = nativeEl(fixture).querySelector(
-      '.dock-btn[title^="Mask"]',
+      'button[title^="Mask"]',
     ) as HTMLButtonElement | null;
     expect(maskBtn).not.toBeNull();
     expect(maskBtn!.disabled).toBe(true);
@@ -244,7 +250,7 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
   it('reflects curveOpen as the active state on the Tone Curve entry', () => {
     const fixture = render({ orientation: 'horizontal', curveOpen: true });
     const curveBtn = buttonFor(fixture, 'Tone Curve');
-    expect(curveBtn.classList.contains('dock-btn--active')).toBe(true);
+    expect(curveBtn.getAttribute('aria-pressed')).toBe('true');
   });
 
   // Regression guard for the #1807 follow-up (72px→64px dock-height fix):
@@ -254,13 +260,13 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
   // jsdom has no box model or real scrollbar rendering, so this cannot
   // assert the 8px gap or the 64px bar height directly (that was verified
   // in a real browser instead). What jsdom's CSS engine *can* confirm is
-  // that the stylesheet still declares `overflow-x: auto` on `.dock` — a
-  // regression that flipped it to `hidden`/`scroll`/`visible` while adding
-  // the scrollbar-hiding rules would break real scrolling and this test
-  // would catch it.
+  // that the stylesheet still declares `overflow-x: auto` on the glass
+  // wrapper — a regression that flipped it to `hidden`/`scroll`/`visible`
+  // while adding the scrollbar-hiding rules would break real scrolling and
+  // this test would catch it.
   it('keeps overflow-x: auto on the horizontal dock (scrolling stays live; only scrollbar chrome is hidden)', () => {
     const fixture = render({ orientation: 'horizontal' });
-    const dockEl = nativeEl(fixture).querySelector('.dock') as HTMLElement;
+    const dockEl = nativeEl(fixture).querySelector('.dock-glass') as HTMLElement;
     expect(getComputedStyle(dockEl).overflowX).toBe('auto');
   });
 });
@@ -282,14 +288,6 @@ describe('ToolDockComponent — Crop entry (#1813)', () => {
     fixture.detectChanges();
   }
 
-  function button(label: string): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      `button[aria-label="${label}"]`,
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
-  }
-
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ToolDockComponent],
@@ -299,8 +297,7 @@ describe('ToolDockComponent — Crop entry (#1813)', () => {
 
   it('renders an enabled Crop entry', () => {
     renderCrop('light', 'exposure');
-    const btn = button('Crop');
-    expect(btn.disabled).toBe(false);
+    expect(buttonFor(fixture, 'Crop').disabled).toBe(false);
   });
 
   it('clicking Crop emits toolChange("crop"), not groupChange', () => {
@@ -310,7 +307,7 @@ describe('ToolDockComponent — Crop entry (#1813)', () => {
     fixture.componentInstance.toolChange.subscribe((t) => (toolEmitted = t));
     fixture.componentInstance.groupChange.subscribe((g) => (groupEmitted = g));
 
-    button('Crop').click();
+    buttonFor(fixture, 'Crop').click();
 
     expect(toolEmitted).toBe('crop');
     expect(groupEmitted).toBeNull();
@@ -318,20 +315,20 @@ describe('ToolDockComponent — Crop entry (#1813)', () => {
 
   it('Crop highlights only when armedTool is crop — Detail does not also highlight', () => {
     renderCrop('detail', 'crop');
-    expect(button('Crop').classList.contains('dock-btn--active')).toBe(true);
-    expect(button('Detail').classList.contains('dock-btn--active')).toBe(false);
+    expect(buttonFor(fixture, 'Crop').getAttribute('aria-pressed')).toBe('true');
+    expect(buttonFor(fixture, 'Detail').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('Detail highlights normally when a detail-group tool other than crop is armed', () => {
     renderCrop('detail', 'sharpen');
-    expect(button('Detail').classList.contains('dock-btn--active')).toBe(true);
-    expect(button('Crop').classList.contains('dock-btn--active')).toBe(false);
+    expect(buttonFor(fixture, 'Detail').getAttribute('aria-pressed')).toBe('true');
+    expect(buttonFor(fixture, 'Crop').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('neither Crop nor Detail highlight when a different group is active', () => {
     renderCrop('light', 'exposure');
-    expect(button('Crop').classList.contains('dock-btn--active')).toBe(false);
-    expect(button('Detail').classList.contains('dock-btn--active')).toBe(false);
+    expect(buttonFor(fixture, 'Crop').getAttribute('aria-pressed')).toBe('false');
+    expect(buttonFor(fixture, 'Detail').getAttribute('aria-pressed')).toBe('false');
   });
 });
 
@@ -352,14 +349,6 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
     fixture.detectChanges();
   }
 
-  function button(label: string): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      `button[aria-label="${label}"]`,
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
-  }
-
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ToolDockComponent],
@@ -369,7 +358,7 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
 
   it('renders an enabled Presets entry', () => {
     renderPresets(false, false);
-    expect(button('Presets').disabled).toBe(false);
+    expect(buttonFor(fixture, 'Presets').disabled).toBe(false);
   });
 
   it('clicking Presets emits presetsPanelToggle, not curvePanelToggle', () => {
@@ -379,7 +368,7 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
     fixture.componentInstance.presetsPanelToggle.subscribe(() => presetsToggled++);
     fixture.componentInstance.curvePanelToggle.subscribe(() => curveToggled++);
 
-    button('Presets').click();
+    buttonFor(fixture, 'Presets').click();
 
     expect(presetsToggled).toBe(1);
     expect(curveToggled).toBe(0);
@@ -392,7 +381,7 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
     fixture.componentInstance.presetsPanelToggle.subscribe(() => presetsToggled++);
     fixture.componentInstance.curvePanelToggle.subscribe(() => curveToggled++);
 
-    button('Tone Curve').click();
+    buttonFor(fixture, 'Tone Curve').click();
 
     expect(curveToggled).toBe(1);
     expect(presetsToggled).toBe(0);
@@ -400,14 +389,14 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
 
   it('Presets highlights only from presetsOpen — Tone Curve is independent', () => {
     renderPresets(true, false);
-    expect(button('Tone Curve').classList.contains('dock-btn--active')).toBe(true);
-    expect(button('Presets').classList.contains('dock-btn--active')).toBe(false);
+    expect(buttonFor(fixture, 'Tone Curve').getAttribute('aria-pressed')).toBe('true');
+    expect(buttonFor(fixture, 'Presets').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('Tone Curve highlights only from curveOpen — Presets is independent', () => {
     renderPresets(false, true);
-    expect(button('Presets').classList.contains('dock-btn--active')).toBe(true);
-    expect(button('Tone Curve').classList.contains('dock-btn--active')).toBe(false);
+    expect(buttonFor(fixture, 'Presets').getAttribute('aria-pressed')).toBe('true');
+    expect(buttonFor(fixture, 'Tone Curve').getAttribute('aria-pressed')).toBe('false');
   });
 });
 
@@ -426,18 +415,16 @@ describe('Apple 9-entry parity', () => {
     ];
     for (const orientation of ['vertical', 'horizontal'] as const) {
       const fixture = render({ orientation });
-      const labels = Array.from(
-        (fixture.nativeElement as HTMLElement).querySelectorAll('.dock-btn .dock-label'),
-      ).map((n) => n.textContent!.trim());
+      const labels = buttons(fixture).map(
+        (b) => b.querySelector('.label')?.textContent?.trim() ?? '',
+      );
       expect(labels, orientation).toEqual(expected);
     }
   });
 
   it('no longer offers HSL, B&W, Grade or Optics buttons', () => {
     const fixture = render({});
-    const labels = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll('.dock-btn'),
-    ).map((n) => n.getAttribute('aria-label'));
+    const labels = buttons(fixture).map((b) => b.querySelector('.label')?.textContent?.trim());
     for (const gone of ['HSL', 'B&W', 'Grade', 'Optics']) {
       expect(labels).not.toContain(gone);
     }
@@ -445,21 +432,22 @@ describe('Apple 9-entry parity', () => {
 
   it('draws a divider before Crop', () => {
     const fixture = render({});
-    const el = fixture.nativeElement as HTMLElement;
-    const nodes = Array.from(el.querySelectorAll('.dock-divider, .dock-btn'));
-    const dividerIndex = nodes.findIndex((n) => n.classList.contains('dock-divider'));
-    const cropIndex = nodes.findIndex((n) => n.getAttribute('aria-label') === 'Crop');
+    const nodes = Array.from(nativeEl(fixture).querySelectorAll('mui-divider, mui-action-button'));
+    const dividerIndex = nodes.findIndex((n) => n.tagName.toLowerCase() === 'mui-divider');
+    const cropIndex = nodes.findIndex(
+      (n) => n.querySelector('.label')?.textContent?.trim() === 'Crop',
+    );
     expect(dividerIndex).toBeGreaterThan(-1);
     expect(dividerIndex).toBe(cropIndex - 1);
   });
 
   it('keeps disabled placeholders out of the accessibility tree', () => {
     const fixture = render({});
-    const mask = (fixture.nativeElement as HTMLElement).querySelector('[aria-label="Mask"]');
-    expect(mask).toBeNull();
-    const placeholders = (fixture.nativeElement as HTMLElement).querySelectorAll(
-      '.dock-btn--disabled[aria-hidden="true"]',
-    );
-    expect(placeholders.length).toBe(2);
+    const maskBtn = buttonFor(fixture, 'Mask');
+    expect(maskBtn.getAttribute('aria-hidden')).toBe('true');
+    expect(maskBtn.getAttribute('tabindex')).toBe('-1');
+
+    const hidden = nativeEl(fixture).querySelectorAll('button[aria-hidden="true"]');
+    expect(hidden.length).toBe(2); // Mask + Heal
   });
 });
