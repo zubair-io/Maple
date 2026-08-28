@@ -38,10 +38,11 @@ struct SourcesSettingsView: View {
                 .listRowBackground(MapleTokens.surface)
             case .failed(let message):
                 Section {
-                    Text("Failed to load sources: \(message)")
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("sources.loadError")
-                    Button("Retry") { Task { await load(fresh: false) } }
+                    MuiBanner(
+                        variant: .error, message: "Failed to load sources: \(message)",
+                        actionLabel: "Retry", actionPressed: { Task { await load(fresh: false) } }
+                    )
+                    .accessibilityIdentifier("sources.loadError")
                 }
                 .listRowBackground(MapleTokens.surface)
             case .loaded(let folders):

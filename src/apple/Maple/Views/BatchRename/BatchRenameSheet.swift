@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 // MARK: - BatchRenameSheet
 
@@ -28,7 +29,9 @@ struct BatchRenameSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if case .unsupported(let reason) = vm.routing {
-                    unsupportedBanner(reason)
+                    MuiBanner(variant: .error, message: reason)
+                        .padding(12)
+                        .accessibilityIdentifier("batch-rename-unsupported-banner")
                 }
                 BatchRenameTemplateSection(vm: vm)
                 Divider()
@@ -50,18 +53,6 @@ struct BatchRenameSheet: View {
             }
             await vm.refreshPreview()
         }
-    }
-
-    // MARK: - Unsupported banner
-
-    private func unsupportedBanner(_ reason: String) -> some View {
-        Text(reason)
-            .font(.callout)
-            .foregroundStyle(MapleTokens.errorText)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MapleTokens.errorText.opacity(0.1))
-            .accessibilityIdentifier("batch-rename-unsupported-banner")
     }
 
     // MARK: - Toolbar
