@@ -399,7 +399,7 @@ namespace Maple.UI.Gallery
         /// <summary>A tiny flat-color bitmap for the Image specimen's
         /// "loaded" state — this gallery ships no bundled sample photo, so a
         /// synthesized swatch stands in. Same PixelBuffer-write approach
-        /// Controls/ColorWheelControl.cs's BuildDiscBitmap already uses.</summary>
+        /// MuiColorWheel's BuildDiscBitmap already uses.</summary>
         private static WriteableBitmap SolidBitmap(byte r, byte g, byte b)
         {
             const int size = 8;
