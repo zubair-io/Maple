@@ -37,13 +37,11 @@ struct DescribeSettingsRow: View {
     var body: some View {
         Section("Describe") {
             LabeledContent("Ollama URL") {
-                TextField("", text: $form.providerURL, prompt: Text("http://localhost:11434"))
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("enrichment.describe.providerURL")
+                MuiInput(
+                    value: $form.providerURL, accessibilityLabel: "Ollama URL",
+                    placeholder: "http://localhost:11434", monospaced: true, autocorrectionDisabled: true
+                )
+                .accessibilityIdentifier("enrichment.describe.providerURL")
             }
 
             LabeledContent("Model") {

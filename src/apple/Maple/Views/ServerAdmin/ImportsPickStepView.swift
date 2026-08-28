@@ -9,6 +9,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct ImportsPickStepView: View {
     let libraries: [CloudFolder]
@@ -30,9 +31,7 @@ struct ImportsPickStepView: View {
     var body: some View {
         if let queuedNotice {
             Section {
-                Label(queuedNotice, systemImage: "checkmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                MuiBanner(variant: .success, message: queuedNotice)
                     .accessibilityIdentifier("imports.queuedNotice")
             }
             .listRowBackground(MapleTokens.surface)

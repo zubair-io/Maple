@@ -40,6 +40,12 @@ interactive atom wraps it.
 - `name`: the glyph identifier — the _meaning_ of this string is platform/backing-set-specific
   until the icon-system decision above is made (an SF Symbol name, an SVG registry key, a Material
   Symbols ligature name, etc.) — the contract is stable even though the value space isn't yet.
+  One bounded exception (#3024): `"cloud"` and `"calendar"` resolve to a custom-drawn glyph
+  (`MuiIconRegistry`) mirroring Windows' `MapleIconShapes.cs` path data byte-for-byte, rather than
+  an SF Symbol — Windows drew these first for its chrome, and the three platforms needed to look
+  pixel-identical rather than falling back to whatever each platform's native glyph happens to
+  look like. Every other name still resolves to an SF Symbol; this is a two-icon carve-out, not a
+  reopening of the backing-set decision above.
 - `size`: `xs | sm | md | lg | xl` (default `md`).
 - `color`: optional override; defaults to `currentColor`.
 

@@ -21,6 +21,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct EnrichmentSettingsView: View {
     let client: EnrichmentConfigClient
@@ -47,10 +48,11 @@ struct EnrichmentSettingsView: View {
                 .listRowBackground(MapleTokens.surface)
             case .failed(let message):
                 Section {
-                    Text("Failed to load config: \(message)")
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("enrichment.loadError")
-                    Button("Retry") { Task { await load() } }
+                    MuiBanner(
+                        variant: .error, message: "Failed to load config: \(message)",
+                        actionLabel: "Retry", actionPressed: { Task { await load() } }
+                    )
+                    .accessibilityIdentifier("enrichment.loadError")
                 }
                 .listRowBackground(MapleTokens.surface)
             case .loaded(let config):

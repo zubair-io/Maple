@@ -41,9 +41,23 @@ public struct MuiInput: View {
     public let disabled: Bool
     public let readOnly: Bool
     public let onCommit: (() -> Void)?
+    public let secure: Bool
+    public let monospaced: Bool
+    public let autocorrectionDisabled: Bool
 
     @FocusState private var isFocused: Bool
 
+    /// - Parameters:
+    ///   - secure: Renders `SecureField` instead of `TextField` — password
+    ///     and API-key fields (not in input.md's Variants table today; the
+    ///     unified catalog only names `default`/`search`, but Settings and
+    ///     Server Admin have real credential fields that need it).
+    ///   - monospaced: `.system(design: .monospaced)` value text — URLs,
+    ///     API keys, and other values where character-by-character alignment
+    ///     matters more than the type scale's default face.
+    ///   - autocorrectionDisabled: Disables autocorrect and (on iOS)
+    ///     auto-capitalization — values like URLs and keys where
+    ///     autocorrection actively corrupts the entry.
     public init(
         value: Binding<String>,
         accessibilityLabel: String,
@@ -58,7 +72,10 @@ public struct MuiInput: View {
         error: String? = nil,
         disabled: Bool = false,
         readOnly: Bool = false,
-        onCommit: (() -> Void)? = nil
+        onCommit: (() -> Void)? = nil,
+        secure: Bool = false,
+        monospaced: Bool = false,
+        autocorrectionDisabled: Bool = false
     ) {
         self._value = value
         self.accessibilityLabel = accessibilityLabel
@@ -74,6 +91,9 @@ public struct MuiInput: View {
         self.disabled = disabled
         self.readOnly = readOnly
         self.onCommit = onCommit
+        self.secure = secure
+        self.monospaced = monospaced
+        self.autocorrectionDisabled = autocorrectionDisabled
     }
 
     public var body: some View {
@@ -83,14 +103,16 @@ public struct MuiInput: View {
                     MuiIcon(name: prefixIcon, size: .sm, color: MuiTokens.textMuted)
                 }
 
-                TextField(placeholder, text: $value, onCommit: { onCommit?() })
+                field
                     .textFieldStyle(.plain)
-                    .font(.system(size: fontSize))
+                    .font(fieldFont)
                     .foregroundStyle(MuiTokens.textMain)
                     .focused($isFocused)
                     .disabled(disabled || readOnly)
+                    .autocorrectionDisabled(autocorrectionDisabled)
                     #if os(iOS)
                     .keyboardType(numeric != nil ? .decimalPad : .default)
+                    .textInputAutocapitalization(autocorrectionDisabled ? .never : .sentences)
                     #endif
 
                 if showClear, !value.isEmpty, !disabled, !readOnly {
@@ -141,6 +163,29 @@ public struct MuiInput: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(value)
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        if secure {
+            SecureField(placeholder, text: $value, onCommit: { onCommit?() })
+        } else {
+            TextField(placeholder, text: $value, onCommit: { onCommit?() })
+        }
+    }
+
+    private var fieldFont: Font {
+        Self.fieldFont(monospaced: monospaced, size: size)
+    }
+
+    /// The value-text font, switching to the monospaced design when
+    /// requested (input.md doesn't name this variant; added for URL/API-key
+    /// fields in Settings/Server Admin where character alignment matters).
+    /// Public + static so the size/design pairing is unit-testable without
+    /// rendering a view — `Font` is `Equatable`.
+    public static func fieldFont(monospaced: Bool, size: MuiInputSize) -> Font {
+        let points: CGFloat = size == .sm ? 13 : 14
+        return monospaced ? .system(size: points, design: .monospaced) : .system(size: points)
     }
 
     @ViewBuilder
@@ -210,6 +255,23 @@ public struct MuiInput: View {
                 MuiInput(value: $errorValue, accessibilityLabel: "Email", error: "Enter a valid email address")
                 MuiInput(value: .constant("Locked"), accessibilityLabel: "Locked field", disabled: true)
                 MuiInput(value: .constant("Read only"), accessibilityLabel: "Read only field", readOnly: true)
+            }
+            .padding()
+            .background(MuiTokens.bg)
+        }
+    }
+    return Demo()
+}
+
+#Preview("MuiInput — Secure, monospaced, no-autocorrect") {
+    struct Demo: View {
+        @State private var apiKey = "sk-live-••••••••"
+        @State private var serverURL = "https://cloud.justmaple.app"
+
+        var body: some View {
+            VStack(spacing: 12) {
+                MuiInput(value: $apiKey, accessibilityLabel: "API key", secure: true, monospaced: true, autocorrectionDisabled: true)
+                MuiInput(value: $serverURL, accessibilityLabel: "Server URL", monospaced: true, autocorrectionDisabled: true)
             }
             .padding()
             .background(MuiTokens.bg)
