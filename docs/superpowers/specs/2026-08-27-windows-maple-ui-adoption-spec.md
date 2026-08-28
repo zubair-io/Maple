@@ -19,11 +19,11 @@ hand-rolled legacy they replace — is complete for the main window chrome
 legacy `Themes/Styles.xaml` deleted). Three waves remain, and each benefits
 from on-device verification:
 
-| Wave | Ticket | Scope |
-| ---- | ------ | ----- |
-| MN2 | #3051 | Editor controls: `Controls/ColorWheelControl.cs`, `Controls/CropOverlayControl.cs`, `Controls/ToneCurvePlotControl.cs` → `MuiColorWheel`, `MuiCropOverlay` (+`MuiCropToolbar`), `MuiCurvePlot`/`MuiToneCurvePanel` |
-| MN3 | #3052 | Greenfield Settings surface on `MuiPageSettings`/`MuiSettingsSection` |
-| MN4 | #3053 | Legacy-zero sweep + real QR dependency (replaces `MuiQrPlaceholder`, see the #3012 note) |
+| Wave | Ticket | Scope                                                                                                                                                                                                              |
+| ---- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MN2  | #3051  | Editor controls: `Controls/ColorWheelControl.cs`, `Controls/CropOverlayControl.cs`, `Controls/ToneCurvePlotControl.cs` → `MuiColorWheel`, `MuiCropOverlay` (+`MuiCropToolbar`), `MuiCurvePlot`/`MuiToneCurvePanel` |
+| MN3  | #3052  | Greenfield Settings surface on `MuiPageSettings`/`MuiSettingsSection`                                                                                                                                              |
+| MN4  | #3053  | Legacy-zero sweep + real QR dependency (replaces `MuiQrPlaceholder`, see the #3012 note)                                                                                                                           |
 
 ## Invariants (binding)
 
