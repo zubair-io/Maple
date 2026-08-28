@@ -115,6 +115,9 @@ namespace Maple.UI
             _panel.Tapped += (_, e) => e.Handled = true;
             _panel.KeyDown += OnPanelKeyDown;
             _scrim.SizeChanged += (_, e) => UpdatePanelMaxHeight(e.NewSize.Height);
+            // A popup-mode open that happened before the shell entered the
+            // tree (no XamlRoot yet) is deferred — re-apply once loaded.
+            Loaded += (_, _) => ApplyOpenState();
 
             Rebuild();
             ApplyOpenState();
@@ -154,11 +157,16 @@ namespace Maple.UI
             else
             {
                 Visibility = Visibility.Collapsed;
-                if (XamlRoot != null)
+                if (XamlRoot is null)
                 {
-                    _popup.XamlRoot = XamlRoot;
-                    XamlRoot.Changed += OnXamlRootChanged;
+                    // Not in the visual tree yet — a Popup cannot open
+                    // without a XamlRoot (WinRT throws, e.g. when IsOpen is
+                    // set from an object initializer before the shell
+                    // loads). The Loaded handler re-applies this state.
+                    return;
                 }
+                _popup.XamlRoot = XamlRoot;
+                XamlRoot.Changed += OnXamlRootChanged;
                 _popup.Child = _scrim;
                 _popup.IsOpen = true;
                 ResizeScrim();
