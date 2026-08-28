@@ -112,27 +112,33 @@ namespace Maple.WinUI.Services.Cloud
         /// completion channel that does not depend on the browser launching
         /// maple-app:// — Chromium refuses that launch without a user gesture,
         /// which is exactly the already-signed-in-browser case. Returns
-        /// Ok=true once signed in; Ok=false means keep polling (nothing
-        /// pending yet, rate-limited, or a transient network error).</summary>
-        public async Task<(bool Ok, string Message)> ClaimNativeCodeAsync(
+        /// Ok=true once signed in. Ok=false + Fatal=false means keep polling:
+        /// 404 (nothing pending yet), 429 (rate-limited), 5xx and network
+        /// errors are all transient here. Ok=false + Fatal=true is a
+        /// permanent, operator-visible failure (bad request, user deleted) —
+        /// the ceremony can never complete, so stop polling and surface it.</summary>
+        public async Task<(bool Ok, bool Fatal, string Message)> ClaimNativeCodeAsync(
             string state, string codeVerifier, CancellationToken ct)
         {
             try
             {
                 using var response = await _http.PostAsync("api/auth/native-code/claim",
                     JsonContent(new { state, code_verifier = codeVerifier }), ct);
+                var status = (int)response.StatusCode;
+                if (status == 404 || status == 429 || status >= 500)
+                    return (false, false, $"no code yet ({status})");
                 if (!response.IsSuccessStatusCode)
-                    return (false, $"no code yet ({(int)response.StatusCode})");
+                    return (false, true, $"sign-in claim rejected ({status}).");
                 var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
                 if (string.IsNullOrEmpty(tokens?.AccessToken))
-                    return (false, "claim returned no access token");
+                    return (false, true, "claim returned no access token.");
                 _accessToken = tokens!.AccessToken;
                 RefreshToken = tokens.RefreshToken;
-                return (true, $"Signed in as {tokens.User?.Email ?? "user"}.");
+                return (true, false, $"Signed in as {tokens.User?.Email ?? "user"}.");
             }
             catch (HttpRequestException ex)
             {
-                return (false, $"claim unreachable: {ex.Message}");
+                return (false, false, $"claim unreachable: {ex.Message}");
             }
         }
 
