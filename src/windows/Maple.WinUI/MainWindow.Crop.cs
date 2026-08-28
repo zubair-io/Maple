@@ -3,15 +3,17 @@ using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Maple.UI;
 using Maple.WinUI.Models;
 
 namespace Maple.WinUI
 {
     /// <summary>
-    /// Crop mode (#2582). While the Crop tool is armed the canvas shows the
-    /// FULL frame with a live rotate (the web's CSS-rotate straighten preview
-    /// — empty corners show exactly what the renderer will produce) under the
-    /// interactive overlay. Disarming applies the display crop client-side,
+    /// Crop mode (#2582, editor controls on Maple.UI since MN2 #3051). While
+    /// the Crop tool is armed the canvas shows the FULL frame with a live
+    /// rotate (the web's CSS-rotate straighten preview — empty corners show
+    /// exactly what the renderer will produce) under the interactive
+    /// MuiCropOverlay. Disarming applies the display crop client-side,
     /// Apple-style: rotate the content about the canvas centre, clip to the
     /// crop rect, and scale the result to fill the fit box. The develop paths
     /// (export, preview publish) apply the same crop in raw-core via the
@@ -23,26 +25,43 @@ namespace Maple.WinUI
         {
             ("free", "Free", null),
             ("original", "Original", null),          // resolved from the frame
-            ("1:1", "1 : 1", 1.0),
-            ("3:2", "3 : 2", 3.0 / 2),
-            ("4:3", "4 : 3", 4.0 / 3),
-            ("16:9", "16 : 9", 16.0 / 9),
-            ("2:3", "2 : 3", 2.0 / 3),
-            ("3:4", "3 : 4", 3.0 / 4),
-            ("9:16", "9 : 16", 9.0 / 16),
+            ("1:1", "1:1", 1.0),
+            ("3:2", "3:2", 3.0 / 2),
+            ("4:3", "4:3", 4.0 / 3),
+            ("16:9", "16:9", 16.0 / 9),
+            ("2:3", "2:3", 2.0 / 3),
+            ("3:4", "3:4", 3.0 / 4),
+            ("9:16", "9:16", 9.0 / 16),
         };
 
+        private const double MinCropFraction = 0.05;
+
         private bool _cropArmed;
-        private bool _cropUiSyncing;
 
         private void BuildCropPanel()
         {
-            foreach (var (_, label, _) in CropAspects)
-                CropAspectCombo.Items.Add(label);
-            CropAspectCombo.SelectedIndex = 0;
-            CropOverlay.CropChanged += crop =>
+            CropToolbar.AspectPresets = CropAspects.Select(a => new MuiChip(a.Id, a.Label)).ToList();
+            CropToolbar.SelectedAspectId = "free";
+            CropToolbar.AspectSelected += (_, _) => OnCropAspectSelected();
+            CropToolbar.StraightenChanged += (_, angle) =>
             {
-                ViewModel.Adjustments.Crop = crop;
+                ViewModel.Adjustments.Crop = ViewModel.Adjustments.Crop with { Angle = angle };
+                ViewModel.NotifyAdjustmentEdited();
+                UpdateCropDisplay();
+            };
+            CropToolbar.ResetRequested += (_, _) => OnCropReset(CropToolbar, new RoutedEventArgs());
+            CropOverlay.RectChanged += (_, rect) =>
+            {
+                if (ContentFitRect() is not { } f || f.W <= 0 || f.H <= 0)
+                    return;
+                var crop = ViewModel.Adjustments.Crop;
+                ViewModel.Adjustments.Crop = crop with
+                {
+                    Left = rect.X / f.W,
+                    Top = rect.Y / f.H,
+                    Right = (rect.X + rect.Width) / f.W,
+                    Bottom = (rect.Y + rect.Height) / f.H,
+                };
                 ViewModel.NotifyAdjustmentEdited();
             };
         }
@@ -51,11 +70,8 @@ namespace Maple.WinUI
         {
             _cropArmed = true;
             // Aspect is transient per entry (web crop-session contract).
-            _cropUiSyncing = true;
-            CropAspectCombo.SelectedIndex = 0;
-            CropAngleSlider.Value = ViewModel.Adjustments.Crop.Angle;
-            CropAngleText.Text = $"{ViewModel.Adjustments.Crop.Angle:0.0}°";
-            _cropUiSyncing = false;
+            CropToolbar.SelectedAspectId = "free";
+            CropToolbar.StraightenAngle = ViewModel.Adjustments.Crop.Angle;
             ResetZoom();                              // overlay math assumes fit
             UpdateCropDisplay();
         }
@@ -114,10 +130,21 @@ namespace Maple.WinUI
                     : null;
                 if (footprint is { } f && _mode == ShellMode.Edit)
                 {
+                    var c = crop.RectIsValid ? crop : CropState.Identity with { Angle = crop.Angle };
                     CropOverlay.Visibility = Visibility.Visible;
-                    CropOverlay.SetState(f.X, f.Y, f.W, f.H,
-                        crop.RectIsValid ? crop : CropState.Identity with { Angle = crop.Angle },
-                        ActiveAspectRatio(f.W, f.H));
+                    // The overlay's canvas is Bounds-sized and Left/Top
+                    // aligned inside ZoomHost — the margin walks it onto the
+                    // image footprint, so overlay pixel space == footprint
+                    // space (the coordinate contract MuiCropOverlay
+                    // documents against MuiImageCanvas).
+                    CropOverlay.Margin = new Thickness(f.X, f.Y, 0, 0);
+                    CropOverlay.Bounds = new Windows.Foundation.Size(f.W, f.H);
+                    CropOverlay.MinRegionWidth = f.W * MinCropFraction;
+                    CropOverlay.MinRegionHeight = f.H * MinCropFraction;
+                    CropOverlay.AspectRatio = ActiveAspectRatio(f.W, f.H);
+                    CropOverlay.Rect = new MuiCropRect(
+                        c.Left * f.W, c.Top * f.H,
+                        (c.Right - c.Left) * f.W, (c.Bottom - c.Top) * f.H);
                 }
                 return;
             }
@@ -166,20 +193,22 @@ namespace Maple.WinUI
             };
         }
 
+        /// <summary>Aspect (width/height) in footprint-pixel space — the
+        /// space MuiCropOverlay resizes in. The footprint preserves the
+        /// image's aspect, so preset ratios pass through unchanged.</summary>
         private double? ActiveAspectRatio(double footprintW, double footprintH)
         {
-            var id = CropAspects[Math.Max(0, CropAspectCombo.SelectedIndex)].Id;
+            var id = CropToolbar.SelectedAspectId;
             return id switch
             {
-                "free" => null,
                 "original" => footprintW / footprintH,
-                _ => CropAspects[CropAspectCombo.SelectedIndex].Ratio,
+                _ => CropAspects.FirstOrDefault(a => a.Id == id).Ratio,
             };
         }
 
-        private void OnCropAspectChanged(object sender, SelectionChangedEventArgs e)
+        private void OnCropAspectSelected()
         {
-            if (_cropUiSyncing || !_cropArmed || ContentFitRect() is not { } f)
+            if (!_cropArmed || ContentFitRect() is not { } f)
                 return;
             if (ActiveAspectRatio(f.W, f.H) is not { } ratio)
             {
@@ -203,25 +232,12 @@ namespace Maple.WinUI
             UpdateCropDisplay();
         }
 
-        private void OnCropAngleChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
-        {
-            if (_cropUiSyncing)
-                return;
-            CropAngleText.Text = $"{e.NewValue:0.0}°";
-            ViewModel.Adjustments.Crop = ViewModel.Adjustments.Crop with { Angle = e.NewValue };
-            ViewModel.NotifyAdjustmentEdited();
-            UpdateCropDisplay();
-        }
-
         private void OnCropReset(object sender, RoutedEventArgs e)
         {
             ViewModel.Adjustments.Crop = CropState.Identity;
             ViewModel.NotifyAdjustmentEdited();
-            _cropUiSyncing = true;
-            CropAspectCombo.SelectedIndex = 0;
-            CropAngleSlider.Value = 0;
-            CropAngleText.Text = "0.0°";
-            _cropUiSyncing = false;
+            CropToolbar.SelectedAspectId = "free";
+            CropToolbar.StraightenAngle = 0;
             UpdateCropDisplay();
         }
 
@@ -230,11 +246,7 @@ namespace Maple.WinUI
         /// <summary>Model → crop UI (undo, sidecar reload, photo switch).</summary>
         private void SyncCropFromModel()
         {
-            var crop = ViewModel.Adjustments.Crop;
-            _cropUiSyncing = true;
-            CropAngleSlider.Value = crop.Angle;
-            CropAngleText.Text = $"{crop.Angle:0.0}°";
-            _cropUiSyncing = false;
+            CropToolbar.StraightenAngle = ViewModel.Adjustments.Crop.Angle;
             UpdateCropDisplay();
         }
     }
