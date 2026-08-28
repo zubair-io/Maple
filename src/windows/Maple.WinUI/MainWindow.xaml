@@ -69,6 +69,8 @@
                              instead, not here. -->
                         <MenuFlyoutItem Text="Restore from Maple Trash…" Click="OnRestoreFromMapleTrash" />
                         <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Settings…" Click="OnOpenSettings" />
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnMenuExit" />
                     </MenuFlyout>
                 </mui:MuiButton.Flyout>

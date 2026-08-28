@@ -6,9 +6,30 @@ using Maple.WinUI.Services;
 
 namespace Maple.WinUI
 {
-    /// <summary>Folder picker and export dialogs.</summary>
+    /// <summary>Folder picker, export dialogs, and the Settings window.</summary>
     public sealed partial class MainWindow
     {
+        private SettingsWindow? _settingsWindow;
+
+        /// <summary>File → Settings… (MN3, #3052). One window at a time —
+        /// reopening just activates the existing one. Actions that already
+        /// have an owner here (cloud connect dialog, sidebar toggle) are
+        /// handed over as callbacks so Settings never duplicates their
+        /// state handling.</summary>
+        private void OnOpenSettings(object sender, RoutedEventArgs e)
+        {
+            if (_settingsWindow == null)
+            {
+                var window = new SettingsWindow(
+                    ViewModel,
+                    openCloudConnect: () => OnConnectCloud(this, new RoutedEventArgs()),
+                    toggleSidebar: () => OnToggleSidebar(this, new RoutedEventArgs()));
+                window.Closed += (_, _) => _settingsWindow = null;
+                _settingsWindow = window;
+            }
+            _settingsWindow.Activate();
+        }
+
         private async void OnOpenDirectory(object sender, RoutedEventArgs e)
         {
             var picker = new Windows.Storage.Pickers.FolderPicker
