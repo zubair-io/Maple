@@ -88,6 +88,10 @@ namespace Maple.UI
             DependencyProperty.Register(nameof(ShowGrid), typeof(bool), typeof(MuiCurvePlot),
                 new PropertyMetadata(false, (d, _) => ((MuiCurvePlot)d).Rebuild()));
 
+        public static readonly DependencyProperty StretchToFitProperty =
+            DependencyProperty.Register(nameof(StretchToFit), typeof(bool), typeof(MuiCurvePlot),
+                new PropertyMetadata(false, (d, _) => ((MuiCurvePlot)d).Rebuild()));
+
         public IReadOnlyList<MuiCurvePoint> Points
         {
             get => (IReadOnlyList<MuiCurvePoint>)GetValue(PointsProperty);
@@ -148,6 +152,17 @@ namespace Maple.UI
             set => SetValue(ShowGridProperty, value);
         }
 
+        /// <summary>Sizes the plot to the control's own arranged bounds
+        /// (host-driven layout: e.g. stretch-width in a panel with a fixed
+        /// Height) instead of the fixed <see cref="PlotWidth"/>/<see
+        /// cref="PlotHeight"/>. Off by default — the plain primitive keeps
+        /// its fixed plot box.</summary>
+        public bool StretchToFit
+        {
+            get => (bool)GetValue(StretchToFitProperty);
+            set => SetValue(StretchToFitProperty, value);
+        }
+
         /// <summary>Fires with the full point list on every edit (drag tick,
         /// insert, delete, or arrow-key nudge).</summary>
         public event EventHandler<IReadOnlyList<MuiCurvePoint>>? PointsChanged;
@@ -197,6 +212,7 @@ namespace Maple.UI
             _canvas.PointerCaptureLost += (_, _) => { _activeIndex = null; _activePointerId = null; };
             _canvas.DoubleTapped += OnDoubleTapped;
             KeyDown += OnKeyDown;
+            _frame.SizeChanged += (_, _) => { if (StretchToFit) Rebuild(); };
 
             Rebuild();
         }
@@ -205,12 +221,31 @@ namespace Maple.UI
 
         private Brush Accent => AccentBrush ?? R("MaplePrimary");
 
+        /// <summary>The live plot box — the arranged frame size when
+        /// <see cref="StretchToFit"/> is on, the fixed plot box otherwise.
+        /// Everything (rendering, hit-testing, authoring conversion) keys
+        /// off this so pointer math always matches what is drawn.</summary>
+        private (double W, double H) PlotBox => StretchToFit
+            ? (_frame.ActualWidth, _frame.ActualHeight)
+            : (PlotWidth, PlotHeight);
+
         private void Rebuild()
         {
-            _frame.Width = PlotWidth;
-            _frame.Height = PlotHeight;
-            _canvas.Width = PlotWidth;
-            _canvas.Height = PlotHeight;
+            if (StretchToFit)
+            {
+                _frame.Width = double.NaN;
+                _frame.Height = double.NaN;
+                HorizontalContentAlignment = HorizontalAlignment.Stretch;
+                VerticalContentAlignment = VerticalAlignment.Stretch;
+            }
+            else
+            {
+                _frame.Width = PlotWidth;
+                _frame.Height = PlotHeight;
+            }
+            var (w, h) = PlotBox;
+            _canvas.Width = double.IsNaN(w) ? 0 : Math.Max(0, w);
+            _canvas.Height = double.IsNaN(h) ? 0 : Math.Max(0, h);
             _frame.Background = R("MapleImageCanvas");
             _frame.BorderBrush = R("MapleBorder");
 
@@ -219,16 +254,16 @@ namespace Maple.UI
             {
                 var f = 0.25 * (i + 1);
                 var v = _gridLines[i];
-                v.X1 = f * PlotWidth; v.X2 = f * PlotWidth; v.Y1 = 0; v.Y2 = PlotHeight;
+                v.X1 = f * w; v.X2 = f * w; v.Y1 = 0; v.Y2 = h;
                 var hz = _gridLines[i + 3];
-                hz.X1 = 0; hz.X2 = PlotWidth; hz.Y1 = f * PlotHeight; hz.Y2 = f * PlotHeight;
+                hz.X1 = 0; hz.X2 = w; hz.Y1 = f * h; hz.Y2 = f * h;
             }
             foreach (var line in _gridLines)
             {
                 line.Stroke = R("MapleBorder");
                 line.Visibility = showGrid;
             }
-            _diagonal.X1 = 0; _diagonal.Y1 = PlotHeight; _diagonal.X2 = PlotWidth; _diagonal.Y2 = 0;
+            _diagonal.X1 = 0; _diagonal.Y1 = h; _diagonal.X2 = w; _diagonal.Y2 = 0;
             _diagonal.Stroke = R("MapleBorderHi");
             _diagonal.Visibility = showGrid;
 
@@ -238,9 +273,11 @@ namespace Maple.UI
 
         // --- pointer interaction ---
 
-        private (double X, double Y) ToAuthoring(Windows.Foundation.Point pos) => (
-            PlotWidth > 0 ? pos.X / PlotWidth : 0,
-            PlotHeight > 0 ? 1 - pos.Y / PlotHeight : 0);
+        private (double X, double Y) ToAuthoring(Windows.Foundation.Point pos)
+        {
+            var (w, h) = PlotBox;
+            return (w > 0 ? pos.X / w : 0, h > 0 ? 1 - pos.Y / h : 0);
+        }
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
@@ -266,7 +303,8 @@ namespace Maple.UI
                 return;
             }
 
-            var hitIndex = MuiCurvePlotMath.HitTest(Points, pos.X, pos.Y, PlotWidth, PlotHeight);
+            var (bw, bh) = PlotBox;
+            var hitIndex = MuiCurvePlotMath.HitTest(Points, pos.X, pos.Y, bw, bh);
             if (hitIndex is null) return;
 
             _activeIndex = hitIndex;
@@ -293,7 +331,8 @@ namespace Maple.UI
                 return;
             }
 
-            var next = MuiCurvePlotMath.FromCanvasPoint(pos.X, pos.Y, PlotWidth, PlotHeight);
+            var (bw, bh) = PlotBox;
+            var next = MuiCurvePlotMath.FromCanvasPoint(pos.X, pos.Y, bw, bh);
             UpdatePoint(index, next);
             e.Handled = true;
         }
@@ -366,9 +405,8 @@ namespace Maple.UI
 
         private void Render()
         {
-            var w = PlotWidth;
-            var h = PlotHeight;
-            if (w <= 0 || h <= 0) return;
+            var (w, h) = PlotBox;
+            if (double.IsNaN(w) || double.IsNaN(h) || w <= 0 || h <= 0) return;
 
             var pts = Points;
             _curvePath.Stroke = Accent;
@@ -473,10 +511,9 @@ namespace Maple.UI
 
         private void RenderHistogram()
         {
-            var w = PlotWidth;
-            var h = PlotHeight;
+            var (w, h) = PlotBox;
             var bins = HistogramBins;
-            if (w <= 0 || h <= 0 || bins is not { Length: > 0 })
+            if (double.IsNaN(w) || double.IsNaN(h) || w <= 0 || h <= 0 || bins is not { Length: > 0 })
             {
                 _histogram.Points = new PointCollection();
                 return;
