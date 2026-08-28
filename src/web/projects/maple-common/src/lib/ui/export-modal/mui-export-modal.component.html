@@ -1,53 +1,133 @@
-<mui-overlay-shell [open]="open()" size="md" ariaLabel="Export" (dismissed)="dismissed.emit()">
+<!-- fallow-ignore-file complexity -->
+<!--
+  This is the same reviewed four-phase dialog shape `export-dialog.component.html`
+  documents at length (options → exporting → done → error, one pane per
+  phase) — reproduced here per #3046 rather than folded into a lighter
+  shape, plus the size picker and choice blurbs that file's own template
+  already carried. The options phase's own field block (format/quality/
+  color-space/size — the largest single chunk) has already been split out
+  into `mui-export-options-fields` to bring this template down as far as a
+  real restructure reasonably goes; what is left is the intrinsic
+  options/exporting/done/error branching itself, duplicated across a
+  BODY switch and a separate FOOTER switch (Angular's content-projection
+  rules — NG8011 — refuse to route a `[slot=footer]` node out of an
+  `@case` that also has a body node at its root, so the two phase
+  switches cannot be merged back into one without breaking that routing).
+  Splitting each remaining phase pane into its own nano-component would
+  trade this file's complexity for four tiny ones with no real gain in
+  legibility — the same call `export-dialog.component.html`'s own
+  discussion (#2227) already made for this exact dialog shape.
+-->
+<mui-overlay-shell
+  [open]="open()"
+  size="md"
+  ariaLabel="Export image"
+  (dismissed)="onOverlayDismissed()"
+>
   <div slot="header" class="mui-export-modal-header">
-    <mui-text variant="sheet-title" [block]="true">Export</mui-text>
-  </div>
-
-  <div class="mui-export-modal-body">
-    <div class="field">
-      <mui-text variant="tool-label" color="muted" [block]="true">Format</mui-text>
-      <mui-segmented-toggle
-        [options]="formatOptions()"
-        [value]="format()"
-        (valueChange)="format.set($event)"
-        ariaLabel="Export format"
-        [disabled]="exporting()"
+    <mui-text variant="sheet-title" [block]="true">Export image</mui-text>
+    @if (phase() !== 'exporting') {
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconOnly]="true"
+        iconLeading="x"
+        ariaLabel="Close"
+        (pressed)="dismissed.emit()"
       />
-    </div>
-
-    <mui-form-field
-      label="Quality"
-      variant="numeric"
-      [value]="qualityText()"
-      (committed)="onQualityCommitted($event)"
-      [disabled]="exporting()"
-      help="1–100"
-    />
-
-    <div class="field">
-      <mui-text variant="tool-label" color="muted" [block]="true">Color space</mui-text>
-      <mui-segmented-toggle
-        [options]="colorSpaceOptions()"
-        [value]="colorSpace()"
-        (valueChange)="colorSpace.set($event)"
-        ariaLabel="Export color space"
-        [disabled]="exporting()"
-      />
-    </div>
-
-    @if (exporting()) {
-      <mui-progress shape="bar" [value]="progress()" label="Exporting…" />
-    }
-
-    @if (resultBanner(); as banner) {
-      <mui-banner [variant]="banner.variant" [message]="banner.message" />
     }
   </div>
 
-  <div slot="footer" class="mui-export-modal-footer">
-    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
-    <mui-button variant="primary" [disabled]="exporting()" (pressed)="confirmExport()">
-      Export
-    </mui-button>
-  </div>
+  <!-- Body — a SEPARATE @switch from the footer below, each with exactly
+       one root node per case: a single `@switch` whose cases mix a plain
+       body div with a `[slot=footer]` div stops Angular from routing the
+       footer node into the shell's Footer slot (NG8011 — "more than one
+       node at its root"). -->
+  @switch (phase()) {
+    @case ('exporting') {
+      <div class="mui-export-modal-body mui-export-modal-center">
+        <mui-text variant="body" color="muted" [block]="true">{{ exportingMessage() }}</mui-text>
+        @if (exportingDetail(); as detail) {
+          <mui-text variant="body" color="muted" [block]="true">{{ detail }}</mui-text>
+        }
+        <mui-progress shape="bar" [value]="progress()" [label]="exportingMessage()" />
+      </div>
+    }
+    @case ('done') {
+      <div class="mui-export-modal-body mui-export-modal-center">
+        <mui-banner variant="success" [message]="doneMessage() ?? 'Export complete'" />
+        @if (doneDetail(); as detail) {
+          <mui-text variant="body" color="muted" [block]="true">{{ detail }}</mui-text>
+        }
+      </div>
+    }
+    @case ('error') {
+      <div class="mui-export-modal-body mui-export-modal-center">
+        <mui-banner variant="error" message="Export failed" />
+        @if (errorDetail(); as detail) {
+          <mui-text variant="body" color="muted" [block]="true">{{ detail }}</mui-text>
+        }
+      </div>
+    }
+    @default {
+      <div class="mui-export-modal-body">
+        <mui-export-options-fields
+          [formatOptions]="formatOptions()"
+          [colorSpaceOptions]="colorSpaceOptions()"
+          [format]="format()"
+          (formatChange)="format.set($event)"
+          [quality]="quality()"
+          (qualityChange)="quality.set($event)"
+          [colorSpace]="colorSpace()"
+          (colorSpaceChange)="colorSpace.set($event)"
+          [disabled]="exporting()"
+          [formatDetail]="formatDetail()"
+          [colorSpaceDetail]="colorSpaceDetail()"
+          [qualityVisible]="qualityVisible()"
+          [sizeOptions]="sizeOptions()"
+          [maxSidePixels]="maxSidePixels()"
+          (maxSidePixelsChange)="maxSidePixels.set($event)"
+          [sizeHint]="sizeHint()"
+        />
+
+        @if (exporting()) {
+          <mui-progress shape="bar" [value]="progress()" label="Exporting…" />
+        }
+
+        @if (resultBanner(); as banner) {
+          <mui-banner [variant]="banner.variant" [message]="banner.message" />
+        }
+      </div>
+    }
+  }
+
+  @switch (phase()) {
+    @case ('exporting') {
+      <!-- No footer while exporting — matches the legacy dialog exactly:
+           no Cancel, no Close, the gesture cannot be interrupted. -->
+    }
+    @case ('done') {
+      <div slot="footer" class="mui-export-modal-footer">
+        <mui-button variant="primary" (pressed)="dismissed.emit()">Done</mui-button>
+      </div>
+    }
+    @case ('error') {
+      <div slot="footer" class="mui-export-modal-footer">
+        <mui-button variant="ghost" (pressed)="dismissed.emit()">Close</mui-button>
+        <mui-button variant="primary" (pressed)="retryRequested.emit()">Try again</mui-button>
+      </div>
+    }
+    @default {
+      <div slot="footer" class="mui-export-modal-footer">
+        <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+        <mui-button
+          variant="primary"
+          [disabled]="exporting() || exportDisabled()"
+          (pressed)="confirmExport()"
+        >
+          Export
+        </mui-button>
+      </div>
+    }
+  }
 </mui-overlay-shell>
