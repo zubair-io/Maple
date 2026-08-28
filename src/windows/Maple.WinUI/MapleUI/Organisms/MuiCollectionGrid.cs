@@ -176,6 +176,15 @@ namespace Maple.UI
 
         private void LayoutRows()
         {
+            // Detach every cell from its old row before re-adding: clearing
+            // _rows alone orphans the row panels but leaves the (reused)
+            // cells parented to them, and re-adding a still-parented element
+            // throws through the WinRT ABI on the next SizeChanged relayout.
+            foreach (var child in _rows.Children)
+            {
+                if (child is StackPanel oldRow)
+                    oldRow.Children.Clear();
+            }
             _rows.Children.Clear();
             var items = Items ?? Array.Empty<MuiCollectionGridItem>();
             if (items.Count == 0) return;
