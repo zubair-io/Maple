@@ -1,0 +1,54 @@
+<div class="field">
+  <mui-text variant="tool-label" color="muted" [block]="true">Format</mui-text>
+  <mui-segmented-toggle
+    [options]="formatOptions()"
+    [value]="format()"
+    (valueChange)="format.set($event)"
+    ariaLabel="Export format"
+    [disabled]="disabled()"
+  />
+  @if (formatDetail(); as detail) {
+    <mui-text variant="body" color="muted" [block]="true" class="field-hint">{{ detail }}</mui-text>
+  }
+</div>
+
+@if (qualityVisible()) {
+  <mui-form-field
+    label="Quality"
+    variant="numeric"
+    [value]="qualityText()"
+    (committed)="onQualityCommitted($event)"
+    [disabled]="disabled()"
+    help="1–100"
+  />
+}
+
+<div class="field">
+  <mui-text variant="tool-label" color="muted" [block]="true">Color space</mui-text>
+  <mui-segmented-toggle
+    [options]="colorSpaceOptions()"
+    [value]="colorSpace()"
+    (valueChange)="colorSpace.set($event)"
+    ariaLabel="Export color space"
+    [disabled]="disabled()"
+  />
+  @if (colorSpaceDetail(); as detail) {
+    <mui-text variant="body" color="muted" [block]="true" class="field-hint">{{ detail }}</mui-text>
+  }
+</div>
+
+@if (sizeOptions().length > 0) {
+  <div class="field">
+    <mui-text variant="tool-label" color="muted" [block]="true">Size</mui-text>
+    <mui-segmented-toggle
+      [options]="sizeToggleOptions()"
+      [value]="sizeValueText()"
+      (valueChange)="onSizeChange($event)"
+      ariaLabel="Export size"
+      [disabled]="disabled()"
+    />
+    @if (sizeHint(); as hint) {
+      <mui-text variant="body" color="muted" [block]="true" class="field-hint">{{ hint }}</mui-text>
+    }
+  </div>
+}

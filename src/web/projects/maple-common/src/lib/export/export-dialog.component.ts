@@ -4,13 +4,22 @@
 //
 // The parent binds [visible] and [asset] and listens for (dismiss); the dialog
 // owns the whole flow, matching PanoDialogComponent.
+//
+// Chrome + focus-trap machinery now delegate entirely to `mui-export-modal`
+// (#3046), extended with `phase` (the exact options → exporting → done →
+// error state machine this file's own comments and discussion #2227
+// establish — reproduced verbatim, not simplified into a lighter inline
+// progress-bar shape) and the size/resolution picker `mui-export-modal`
+// shipped without. `mui-overlay-shell` (which `mui-export-modal` is built
+// on) already owns focus-on-open, Escape, Tab containment, and scrim-click
+// dismiss generically — this wrapper's own job is purely the view-model
+// (format/color-space/size choice tables + their blurbs, kept live as the
+// user picks before submitting) and running the actual export against
+// `ImageExportService`.
 
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
-  OnDestroy,
-  ViewChild,
   computed,
   effect,
   inject,
@@ -18,7 +27,6 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { DOCUMENT } from '@angular/common';
 import type { Asset } from '../models/asset';
 import type {
   ExportColorSpace,
@@ -34,28 +42,23 @@ import {
   outputDimensions,
   supportsQuality,
 } from './export-dialog.vm';
-
-type DialogPhase = 'options' | 'exporting' | 'done' | 'error';
-
-const FOCUSABLE_SELECTOR = [
-  'a[href]:not([tabindex="-1"])',
-  'button:not([disabled]):not([tabindex="-1"])',
-  'input:not([disabled]):not([tabindex="-1"])',
-  'select:not([disabled]):not([tabindex="-1"])',
-  'textarea:not([disabled]):not([tabindex="-1"])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(', ');
+import { MuiExportModalComponent } from '../ui/export-modal/mui-export-modal.component';
+import type {
+  MuiExportModalPhase,
+  MuiExportSettings,
+  MuiExportSizeOption,
+} from '../ui/export-modal/mui-export-modal.component';
+import type { MuiSegmentedToggleOption } from '../ui/segmented-toggle/mui-segmented-toggle.component';
 
 @Component({
   selector: 'app-export-dialog',
   standalone: true,
+  imports: [MuiExportModalComponent],
   templateUrl: './export-dialog.component.html',
   styleUrl: './export-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ExportDialogComponent implements OnDestroy {
-  @ViewChild('dialog') private dialog?: ElementRef<HTMLElement>;
-
+export class ExportDialogComponent {
   // ── inputs / outputs ───────────────────────────────────────────────────────
   readonly visible = input<boolean>(false);
   /** The image to export. `null` disables the confirm button. */
@@ -65,17 +68,22 @@ export class ExportDialogComponent implements OnDestroy {
 
   // ── services ───────────────────────────────────────────────────────────────
   private readonly exporter = inject(ImageExportService);
-  private readonly document = inject(DOCUMENT);
-  private previouslyFocused: HTMLElement | null = null;
-  private focusTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ── static choice tables (read by the template) ───────────────────────────
-  readonly formatChoices = FORMAT_CHOICES;
-  readonly colorSpaceChoices = COLOR_SPACE_CHOICES;
-  readonly sizePresets = SIZE_PRESETS;
+  // ── choice tables, translated to mui-segmented-toggle's string-value shape ─
+  readonly formatOptions: readonly MuiSegmentedToggleOption[] = FORMAT_CHOICES.map((c) => ({
+    value: c.value,
+    label: c.label,
+  }));
+  readonly colorSpaceOptions: readonly MuiSegmentedToggleOption[] = COLOR_SPACE_CHOICES.map(
+    (c) => ({ value: c.value, label: c.label }),
+  );
+  readonly sizeOptions: readonly MuiExportSizeOption[] = SIZE_PRESETS.map((px) => ({
+    value: px,
+    label: `Long edge ${px} px`,
+  }));
 
   // ── state ─────────────────────────────────────────────────────────────────
-  readonly phase = signal<DialogPhase>('options');
+  readonly phase = signal<MuiExportModalPhase>('options');
   readonly errorMessage = signal<string>('');
   readonly outcome = signal<ExportOutcome | null>(null);
 
@@ -87,14 +95,13 @@ export class ExportDialogComponent implements OnDestroy {
   readonly maxSidePixels = signal<number>(0);
 
   readonly qualityVisible = computed(() => supportsQuality(this.format()));
-  readonly busy = computed(() => this.phase() === 'exporting');
 
   /**
    * The blurb shown under each picker for whichever option is selected.
    *
    * Resolved here rather than by scanning the choice table in the template —
-   * the lookup is a view-model rule, and the template stays a flat rendering
-   * of the current state.
+   * the lookup is a view-model rule, threaded into `mui-export-modal` as a
+   * plain string input.
    */
   readonly formatDetail = computed(
     () => FORMAT_CHOICES.find((choice) => choice.value === this.format())?.detail ?? '',
@@ -108,6 +115,11 @@ export class ExportDialogComponent implements OnDestroy {
   readonly outcomeSize = computed(() => {
     const result = this.outcome();
     return result ? `${result.width} × ${result.height} px` : '';
+  });
+
+  readonly doneMessage = computed(() => {
+    const result = this.outcome();
+    return result ? `Exported ${result.filename}` : null;
   });
 
   /**
@@ -128,51 +140,11 @@ export class ExportDialogComponent implements OnDestroy {
     // Reset back to a fresh options form each time the dialog is opened, so a
     // previous run's error or success banner never greets the next export.
     effect(() => {
-      if (this.visible()) {
-        const active = this.document.activeElement;
-        if (active instanceof HTMLElement) this.previouslyFocused = active;
-        this.phase.set('options');
-        this.errorMessage.set('');
-        this.outcome.set(null);
-        this.scheduleInitialFocus();
-      } else {
-        this.clearFocusTimer();
-        this.restoreFocus();
-      }
-    });
-  }
-
-  ngOnDestroy(): void {
-    this.clearFocusTimer();
-    this.restoreFocus();
-  }
-
-  /**
-   * Move focus into the modal after Angular has mounted its conditional DOM.
-   * A zero-delay task is intentional: the input effect runs before the next
-   * template pass, so a synchronous query would still see no dialog.
-   */
-  private scheduleInitialFocus(): void {
-    this.clearFocusTimer();
-    this.focusTimer = setTimeout(() => {
-      this.focusTimer = null;
       if (!this.visible()) return;
-      const root = this.dialog?.nativeElement;
-      const close = root?.querySelector<HTMLElement>('.export-close');
-      (close ?? root)?.focus();
+      this.phase.set('options');
+      this.errorMessage.set('');
+      this.outcome.set(null);
     });
-  }
-
-  private clearFocusTimer(): void {
-    if (this.focusTimer === null) return;
-    clearTimeout(this.focusTimer);
-    this.focusTimer = null;
-  }
-
-  private restoreFocus(): void {
-    const target = this.previouslyFocused;
-    this.previouslyFocused = null;
-    if (target?.isConnected) target.focus();
   }
 
   onFormatChange(value: string): void {
@@ -183,28 +155,24 @@ export class ExportDialogComponent implements OnDestroy {
     this.colorSpace.set(value as ExportColorSpace);
   }
 
-  onQualityChange(value: string): void {
-    const parsed = Number(value);
-    this.quality.set(
-      Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : DEFAULT_QUALITY,
-    );
+  onQualityChange(value: number): void {
+    this.quality.set(value);
   }
 
-  onSizeChange(value: string): void {
-    const parsed = Number(value);
-    this.maxSidePixels.set(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+  onMaxSidePixelsChange(value: number): void {
+    this.maxSidePixels.set(value);
   }
 
-  async onExport(): Promise<void> {
+  async onExportRequested(settings: MuiExportSettings): Promise<void> {
     const asset = this.asset();
-    if (!asset || this.busy()) return;
+    if (!asset || this.phase() === 'exporting') return;
 
     const options: RawExportOptions = {
-      format: this.format(),
-      quality: this.quality(),
-      colorSpace: this.colorSpace(),
+      format: settings.format as ExportFormat,
+      quality: settings.quality,
+      colorSpace: settings.colorSpace as ExportColorSpace,
       // 0 is the "native resolution" sentinel the pipeline expects.
-      maxSidePixels: this.maxSidePixels() || undefined,
+      maxSidePixels: settings.maxSidePixels || undefined,
     };
 
     this.phase.set('exporting');
@@ -217,49 +185,9 @@ export class ExportDialogComponent implements OnDestroy {
     }
   }
 
-  onBackdropClick(): void {
-    if (!this.busy()) this.dismiss.emit();
-  }
-
-  onClose(): void {
-    if (!this.busy()) this.dismiss.emit();
-  }
-
-  /** Keep keyboard interaction inside the modal and prevent Editor's global
-   * Escape handler from navigating away while Export is open. */
-  onDialogKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      this.dismissFromEscape(event);
-      return;
-    }
-    if (event.key === 'Tab') this.trapTab(event);
-  }
-
-  private dismissFromEscape(event: KeyboardEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    if (this.busy()) return;
+  onDismissed(): void {
+    if (this.phase() === 'exporting') return;
     this.dismiss.emit();
-  }
-
-  private trapTab(event: KeyboardEvent): void {
-    const root = this.dialog?.nativeElement;
-    if (!root) return;
-    const focusable = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-    if (focusable.length === 0) {
-      event.preventDefault();
-      root.focus();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && this.document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && this.document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 
   onRetry(): void {
