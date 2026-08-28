@@ -13,15 +13,16 @@
       aria-label="New preset name"
       data-testid="preset-name-input"
     />
-    <button
-      type="button"
+    <mui-button
+      variant="primary"
+      size="sm"
       class="save-button"
       [disabled]="!canSave()"
-      (click)="save()"
-      data-testid="preset-save"
+      testId="preset-save"
+      (pressed)="save()"
     >
       Save
-    </button>
+    </mui-button>
   </div>
   <p class="save-hint" data-testid="preset-save-hint">
     @if (capturedCount() === 0) {
@@ -37,78 +38,21 @@
 
   <div class="lists">
     <h3 class="section">Built-in</h3>
-    <ul class="preset-list">
-      @for (preset of presets.builtins; track preset.id) {
-        <li class="preset-row">
-          <button
-            type="button"
-            class="apply-button"
-            (click)="apply(preset)"
-            [attr.aria-label]="'Apply preset ' + preset.name"
-            [attr.data-testid]="'preset-apply-' + preset.id"
-          >
-            <span class="name">{{ preset.name }}</span>
-            <span class="meta">{{ fieldSummary(preset) }}</span>
-          </button>
-        </li>
-      }
-    </ul>
+    <mui-presets-panel
+      [presets]="builtinItems()"
+      [showSaveTrigger]="false"
+      [showDeleteAction]="false"
+      (applied)="onApplied($event)"
+    />
 
     <h3 class="section">Saved</h3>
-    @if (!presets.loaded()) {
-      <p class="empty" data-testid="presets-loading">Loading…</p>
-    } @else if (presets.userPresets().length === 0) {
-      <p class="empty" data-testid="presets-empty">
-        Nothing saved yet — name your current edit above.
-      </p>
-    } @else {
-      <ul class="preset-list">
-        @for (preset of presets.userPresets(); track preset.id) {
-          <li class="preset-row">
-            @if (confirmingDeleteId() === preset.id) {
-              <span class="confirm-label">Delete “{{ preset.name }}”?</span>
-              <button
-                type="button"
-                class="icon-button danger"
-                (click)="confirmDelete(preset)"
-                [attr.aria-label]="'Confirm delete ' + preset.name"
-                [attr.data-testid]="'preset-delete-confirm-' + preset.id"
-              >
-                <maple-icon name="check" [size]="16"></maple-icon>
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                (click)="cancelDelete()"
-                aria-label="Cancel delete"
-                [attr.data-testid]="'preset-delete-cancel-' + preset.id"
-              >
-                <maple-icon name="x" [size]="16"></maple-icon>
-              </button>
-            } @else {
-              <button
-                type="button"
-                class="apply-button"
-                (click)="apply(preset)"
-                [attr.aria-label]="'Apply preset ' + preset.name"
-                [attr.data-testid]="'preset-apply-' + preset.id"
-              >
-                <span class="name">{{ preset.name }}</span>
-                <span class="meta">{{ fieldSummary(preset) }}</span>
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                (click)="requestDelete(preset)"
-                [attr.aria-label]="'Delete preset ' + preset.name"
-                [attr.data-testid]="'preset-delete-' + preset.id"
-              >
-                <maple-icon name="x" [size]="16"></maple-icon>
-              </button>
-            }
-          </li>
-        }
-      </ul>
-    }
+    <mui-presets-panel
+      [presets]="userItems()"
+      [loading]="!presets.loaded()"
+      [showSaveTrigger]="false"
+      confirmMode="inline"
+      (applied)="onApplied($event)"
+      (deleted)="onDeleted($event)"
+    />
   </div>
 </div>

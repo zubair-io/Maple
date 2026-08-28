@@ -1,9 +1,11 @@
 <div class="mui-presets-panel">
-  <div class="header">
-    <mui-button variant="secondary" size="sm" iconLeading="plus" (pressed)="openSavePrompt()">
-      Save preset
-    </mui-button>
-  </div>
+  @if (showSaveTrigger()) {
+    <div class="header">
+      <mui-button variant="secondary" size="sm" iconLeading="plus" (pressed)="openSavePrompt()">
+        Save preset
+      </mui-button>
+    </div>
+  }
 
   @if (loading()) {
     <mui-spinner placement="centered" />
@@ -15,22 +17,57 @@
     />
   } @else {
     @for (preset of presets(); track preset.id) {
-      <mui-list-row
-        icon="star"
-        [label]="preset.name"
-        [timestampValue]="preset.updatedAt"
-        (pressed)="applied.emit(preset.id)"
-      >
-        <mui-button
-          trailing
-          variant="ghost"
-          size="sm"
-          [iconOnly]="true"
-          iconLeading="trash"
-          ariaLabel="Delete preset"
-          (pressed)="openConfirmDelete(preset.id, $event)"
-        />
-      </mui-list-row>
+      @if (isConfirmingDelete(preset.id)) {
+        <mui-list-row
+          icon="star"
+          [label]="'Delete “' + preset.name + '”?'"
+          [disabled]="true"
+          [testId]="'preset-delete-confirm-row-' + preset.id"
+        >
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            [iconOnly]="true"
+            iconLeading="check"
+            ariaLabel="Confirm delete"
+            [testId]="'preset-delete-confirm-' + preset.id"
+            (pressed)="confirmInlineDelete(preset.id)"
+          />
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            [iconOnly]="true"
+            iconLeading="x"
+            ariaLabel="Cancel delete"
+            [testId]="'preset-delete-cancel-' + preset.id"
+            (pressed)="cancelInlineDelete()"
+          />
+        </mui-list-row>
+      } @else {
+        <mui-list-row
+          icon="star"
+          [label]="preset.name"
+          [timestampValue]="timestampFor(preset)"
+          [subtitle]="subtitleFor(preset)"
+          [testId]="'preset-apply-' + preset.id"
+          (pressed)="applied.emit(preset.id)"
+        >
+          @if (showDeleteAction()) {
+            <mui-button
+              trailing
+              variant="ghost"
+              size="sm"
+              [iconOnly]="true"
+              iconLeading="trash"
+              ariaLabel="Delete preset"
+              [testId]="'preset-delete-' + preset.id"
+              (pressed)="requestDelete(preset.id, $event)"
+            />
+          }
+        </mui-list-row>
+      }
     }
   }
 
@@ -43,14 +80,16 @@
     (confirmed)="confirmDelete()"
     (dismissed)="closeDialog()"
   />
-  <mui-dialog
-    [open]="dialogMode() === 'savePrompt'"
-    title="Save preset"
-    variant="prompt"
-    confirmLabel="Save"
-    promptPlaceholder="Preset name"
-    [(promptValue)]="savePromptValue"
-    (confirmed)="confirmSave($event)"
-    (dismissed)="closeDialog()"
-  />
+  @if (showSaveTrigger()) {
+    <mui-dialog
+      [open]="dialogMode() === 'savePrompt'"
+      title="Save preset"
+      variant="prompt"
+      confirmLabel="Save"
+      promptPlaceholder="Preset name"
+      [(promptValue)]="savePromptValue"
+      (confirmed)="confirmSave($event)"
+      (dismissed)="closeDialog()"
+    />
+  }
 </div>

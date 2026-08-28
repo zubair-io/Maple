@@ -2,6 +2,7 @@
   class="mui-list-row"
   role="button"
   [attr.tabindex]="disabled() ? -1 : 0"
+  [attr.data-testid]="testId()"
   [class.is-active]="active()"
   [class.is-disabled]="disabled()"
   [attr.aria-current]="active() ? 'true' : null"
