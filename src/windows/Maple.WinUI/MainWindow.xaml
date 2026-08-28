@@ -315,7 +315,8 @@
                                         ToolTipService.ToolTip="Connect to a Self-Hosted server"
                                         AutomationProperties.Name="Connect Maple Cloud" />
                             </Grid>
-                            <mui:MuiText Text="{Binding CloudStatus}" Variant="ToolLabel" Margin="8,0,4,4" />
+                            <mui:MuiText Text="{Binding CloudStatus}" Variant="ToolLabel" ColorRole="Muted"
+                                         Margin="8,0,4,4" />
                             <mui:MuiButton Label="Connect to server…" IconName="cloud" Variant="Secondary"
                                     ButtonSize="Sm" IconColor="{StaticResource MaplePrimary}"
                                     HorizontalAlignment="Stretch" Margin="4,2,4,4"
