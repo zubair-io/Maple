@@ -85,7 +85,10 @@ namespace Maple.UI
         // measures its children with infinite width, so the collapsible's
         // description text never receives a wrapping constraint and long
         // descriptions clip at the pane edge instead of wrapping.
-        private readonly Grid _headerRow = new() { ColumnSpacing = 8 };
+        // ColumnSpacing 4, not 8: the collapsible header button carries 4px
+        // of its own left padding, so 4 + 4 gives the icon→chevron gap the
+        // same 8px the header's chevron→label spacing uses.
+        private readonly Grid _headerRow = new() { ColumnSpacing = 4 };
         private readonly MuiIcon _leadingIcon = new() { Size = MuiIconSize.Sm16 };
         private readonly MuiCollapsible _collapsible = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
         private readonly StackPanel _body = new() { Orientation = Orientation.Vertical, Spacing = 8 };
@@ -103,8 +106,14 @@ namespace Maple.UI
             _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             Grid.SetColumn(_leadingIcon, 0);
             Grid.SetColumn(_collapsible, 1);
+            // Top-aligned 32px-tall icon box: 32 is the collapsible header
+            // button's height (WinUI Button MinHeight), so the glyph —
+            // centered within its own box by MuiIcon — sits on the header
+            // label's centerline, and stays there when the row expands
+            // (centering against the whole expanded row would drift it
+            // down into the body).
+            _leadingIcon.Height = 32;
             _leadingIcon.VerticalAlignment = VerticalAlignment.Top;
-            _leadingIcon.Margin = new Thickness(0, 10, 0, 0);
             _headerRow.Children.Add(_leadingIcon);
             _headerRow.Children.Add(_collapsible);
             _root.Children.Add(_headerRow);
