@@ -106,6 +106,12 @@ namespace Maple.UI
             _root.Children.Add(_headerRow);
             _root.Children.Add(_bar);
             Content = _root;
+            // ContentControl's default content alignment is Left/Top, which
+            // collapses the (width-less) tick track to its 0-desired width in
+            // any stretch host — e.g. a vertical crop toolbar. Stretch fills
+            // the control's own arranged width; fixed-width hosts see no
+            // change (the slot already equals the desired width there).
+            HorizontalContentAlignment = HorizontalAlignment.Stretch;
             IsTabStop = true;
 
             _bar.PointerPressed += OnPointerPressed;
