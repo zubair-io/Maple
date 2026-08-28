@@ -135,7 +135,14 @@ namespace Maple.WinUI
                 var queue = DispatcherQueue;
                 Task.Run(() =>
                 {
-                    var reachable = folders.ToDictionary(f => f, f => Directory.Exists(f));
+                    // Indexer assignment + case-insensitive keys: a
+                    // hand-edited settings.json can hold duplicate (or
+                    // differently-cased) folder entries, and ToDictionary
+                    // would throw on them — silently killing this background
+                    // task and leaving the rows stuck on "Checking…".
+                    var reachable = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var folder in folders)
+                        reachable[folder] = Directory.Exists(folder);
                     queue.TryEnqueue(() => section.Rows = LibraryRows(
                         folders, f => reachable[f] ? "Available" : "Not currently reachable"));
                 });
@@ -328,7 +335,9 @@ namespace Maple.WinUI
 
         private void BuildAboutSection()
         {
-            var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+            // Plain ToString(): the fieldCount overload throws when the
+            // version carries fewer components than asked for.
+            var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
             _paneHost.Children.Add(new MuiSettingsSection
             {
                 Title = "ABOUT",

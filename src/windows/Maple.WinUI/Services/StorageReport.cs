@@ -26,19 +26,28 @@ namespace Maple.WinUI.Services
         }
 
         /// <summary>Recursive size of a directory, or null when it does not
-        /// exist or cannot be enumerated (network share offline, access
-        /// denied). Individual unreadable files are skipped rather than
-        /// failing the whole probe.</summary>
+        /// exist or cannot be enumerated at all (network share offline, root
+        /// access denied). Inaccessible subdirectories/files are skipped by
+        /// the enumeration itself (IgnoreInaccessible) rather than aborting
+        /// the whole probe, and nothing is filtered by attribute — hidden
+        /// and system files count toward the size (EnumerationOptions
+        /// defaults would silently skip them).</summary>
         public static long? TryDirectorySizeBytes(string path)
         {
             try
             {
                 if (!Directory.Exists(path))
                     return null;
-                return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                var options = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                    AttributesToSkip = 0,
+                };
+                return new DirectoryInfo(path).EnumerateFiles("*", options)
                     .Sum(file =>
                     {
-                        try { return new FileInfo(file).Length; }
+                        try { return file.Length; }
                         catch (IOException) { return 0; }
                         catch (UnauthorizedAccessException) { return 0; }
                     });
