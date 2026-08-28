@@ -163,15 +163,18 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     TestBed.resetTestingModule();
   });
 
-  // Filters by attribute value in JS rather than a `[aria-label="..."]` CSS
-  // attribute selector — jsdom's selector engine mis-parses an unescaped `&`
-  // inside a bracketed attribute-value string (reproduced standalone against
-  // node_modules/jsdom; not an app bug), and "B&W" is exactly that label.
+  // Filters by rendered label text in JS rather than a `[aria-label="..."]`
+  // CSS attribute selector — jsdom's selector engine mis-parses an
+  // unescaped `&` inside a bracketed attribute-value string (reproduced
+  // standalone against node_modules/jsdom; not an app bug), and "B&W" is
+  // exactly that label. `mui-action-button` (#3046) carries no `aria-label`
+  // at all — its visible `.label` span IS the accessible name — so this
+  // matches on that instead of an attribute either way.
   function dockButton(label: string): HTMLButtonElement | null {
     const buttons = Array.from(
       fixture.nativeElement.querySelectorAll('pro-tool-dock button'),
     ) as HTMLButtonElement[];
-    return buttons.find((b) => b.getAttribute('aria-label') === label) ?? null;
+    return buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label) ?? null;
   }
 
   function requireDockButton(label: string): HTMLButtonElement {
@@ -271,7 +274,7 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     // The dock's Color entry is a GROUP entry — it stays highlighted for any
     // tool armed within `color`, bwMix included (it's the sub-tool row's own
     // chip, checked below, that distinguishes bwMix from a plain slider).
-    expect(requireDockButton('Color').classList.contains('dock-btn--active')).toBe(true);
+    expect(requireDockButton('Color').getAttribute('aria-pressed')).toBe('true');
     expect(subtoolChip('B&W').classList.contains('subtool-chip--active')).toBe(true);
     expect(subtoolChip('HSL').classList.contains('subtool-chip--active')).toBe(false);
   });

@@ -168,28 +168,28 @@ describe('EditorShellComponent — presets port (#1815)', () => {
     TestBed.resetTestingModule();
   });
 
-  function presetsDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Presets"]',
-    ) as HTMLButtonElement | null;
+  // `mui-action-button` (#3046) carries no `aria-label` — its visible
+  // `.label` span IS the accessible name — so these match on that text
+  // rather than a `[aria-label="..."]` attribute selector.
+  function dockButtonByLabel(label: string): HTMLButtonElement {
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.querySelector('.label')?.textContent?.trim() === label);
     expect(btn).not.toBeNull();
     return btn!;
+  }
+
+  function presetsDockButton(): HTMLButtonElement {
+    return dockButtonByLabel('Presets');
   }
 
   function curveDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Tone Curve"]',
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
+    return dockButtonByLabel('Tone Curve');
   }
 
   function cropDockButton(): HTMLButtonElement {
-    const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Crop"]',
-    ) as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    return btn!;
+    return dockButtonByLabel('Crop');
   }
 
   function presetsPanel(): Element | null {
@@ -203,7 +203,9 @@ describe('EditorShellComponent — presets port (#1815)', () => {
   it('dock renders a Presets entry with an accessible label', () => {
     const btn = presetsDockButton();
     expect(btn.disabled).toBe(false);
-    expect(btn.getAttribute('aria-label')).toBe('Presets');
+    // `mui-action-button` (#3046) carries no `aria-label` — its visible
+    // `.label` span IS the accessible name.
+    expect(btn.querySelector('.label')?.textContent?.trim()).toBe('Presets');
   });
 
   it('clicking the Presets dock entry mounts the shared presets panel', () => {
@@ -307,7 +309,7 @@ describe('EditorShellComponent — presets port (#1815)', () => {
     presetsDockButton().click();
     fixture.detectChanges();
 
-    expect(presetsDockButton().classList.contains('dock-btn--active')).toBe(true);
-    expect(curveDockButton().classList.contains('dock-btn--active')).toBe(false);
+    expect(presetsDockButton().getAttribute('aria-pressed')).toBe('true');
+    expect(curveDockButton().getAttribute('aria-pressed')).toBe('false');
   });
 });
