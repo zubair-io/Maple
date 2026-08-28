@@ -47,9 +47,6 @@ export class CropToolbarComponent {
   private readonly canvas = inject(ImageCanvasService);
   protected readonly crop = inject(CropSessionService);
 
-  protected readonly straightenMin = STRAIGHTEN_MIN;
-  protected readonly straightenMax = STRAIGHTEN_MAX;
-
   private readonly model = computed(() => {
     const id = this.editor.imageId();
     return id ? this.library.adjustmentFor(id)() : null;
@@ -121,7 +118,10 @@ export class CropToolbarComponent {
     const id = this.editor.imageId();
     const m = this.model();
     if (!id || !m) return;
-    this.library.updateAdjustment(id, { crop: { ...m.crop, angle } });
+    // The reference renderer only accepts a ±45° band; mui-crop-toolbar has
+    // no min/max inputs, so the wrapper owns the clamp.
+    const clamped = Math.min(STRAIGHTEN_MAX, Math.max(STRAIGHTEN_MIN, angle));
+    this.library.updateAdjustment(id, { crop: { ...m.crop, angle: clamped } });
   }
 
   protected reset(): void {

@@ -100,7 +100,9 @@ export class PresetsPanelComponent implements OnInit {
   }
 
   protected async onDeleted(id: string): Promise<void> {
-    const preset = this.findPreset(id);
+    // Only user presets are deletable — never resolve a built-in here even
+    // if an id slipped through.
+    const preset = this.presets.userPresets().find((p) => p.id === id) ?? null;
     if (preset) await this.presets.delete(preset);
   }
 
