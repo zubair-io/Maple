@@ -1,4 +1,11 @@
 <div class="mui-value-chip">
-  <mui-text variant="chip-label" color="on-accent">{{ label() }}</mui-text>
+  @for (seg of resolvedSegments(); track $index; let last = $last) {
+    <mui-text variant="chip-label" color="on-accent" [attr.data-testid]="seg.testId ?? null">{{
+      seg.text
+    }}</mui-text>
+    @if (!last) {
+      <span class="mui-value-chip-divider" aria-hidden="true"></span>
+    }
+  }
   <mui-badge variant="count" [value]="value()" />
 </div>

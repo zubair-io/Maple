@@ -1,35 +1,8 @@
+// The eyebrow/divider/value chrome itself now lives in `mui-value-chip`
+// (#3046) — this wrapper only owns positioning behavior: the chip is a
+// HUD overlay floating above the canvas and must never intercept pointer
+// events meant for the image underneath it.
 :host {
   display: inline-block;
   pointer-events: none;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(15, 13, 11, 0.6);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  font-family: var(--font-mono, 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace);
-  font-size: 10px;
-}
-
-.eyebrow {
-  color: var(--color-text-muted);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.divider {
-  width: 1px;
-  height: 10px;
-  background: rgba(168, 162, 158, 0.4);
-}
-
-.value {
-  color: var(--mpl-primary, #ea580c);
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
 }
