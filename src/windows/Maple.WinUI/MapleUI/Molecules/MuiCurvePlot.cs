@@ -513,7 +513,9 @@ namespace Maple.UI
         {
             var (w, h) = PlotBox;
             var bins = HistogramBins;
-            if (double.IsNaN(w) || double.IsNaN(h) || w <= 0 || h <= 0 || bins is not { Length: > 0 })
+            // Length > 1: the x step divides by (Length - 1), so a single
+            // bin would put NaN into the polygon points.
+            if (double.IsNaN(w) || double.IsNaN(h) || w <= 0 || h <= 0 || bins is not { Length: > 1 })
             {
                 _histogram.Points = new PointCollection();
                 return;

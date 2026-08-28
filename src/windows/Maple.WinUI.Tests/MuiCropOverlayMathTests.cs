@@ -168,5 +168,24 @@ namespace Maple.WinUI.Tests
             Assert.Equal(160, result.Height, 10);
             Assert.Equal(260, result.Bottom, 10);
         }
+
+        [Fact]
+        public void ConstrainAspect_FloorsDerivedAxisAtMinimum_OverRatio()
+        {
+            // Width 200 at a very wide 10:1 ratio wants height 20, but the
+            // caller's minimum height (80) floors it — the minimum wins over
+            // the exact ratio, so an aspect drag can never undercut the
+            // per-axis region minimums ApplyHandleDelta already enforced.
+            var result = MuiCropOverlayMath.ConstrainAspect(
+                Rect, MuiCropHandle.Right, 10.0, 1000, 1000, minWidth: 80, minHeight: 80);
+            Assert.Equal(80, result.Height, 10);
+        }
+
+        [Fact]
+        public void ConstrainAspect_WithoutMinimums_KeepsExactRatio()
+        {
+            var result = MuiCropOverlayMath.ConstrainAspect(Rect, MuiCropHandle.Right, 10.0, 1000, 1000);
+            Assert.Equal(20, result.Height, 10);
+        }
     }
 }
