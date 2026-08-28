@@ -1,7 +1,6 @@
-// ToolDockComponent — glass circle-and-label dock, vertical on tablet/desktop,
-// horizontal (scrolling) on phone (#1535, phone dock: #1807).
-// Nine Apple-parity entries: Light · Color · Effects · Detail · Crop ·
-// Tone Curve · Presets · Mask · Heal. Same set in both orientations
+// ToolDockComponent — domain wrapper around `mui-tool-dock` (Maple UI
+// organism). Nine Apple-parity entries: Light · Color · Effects · Detail ·
+// Crop · Tone Curve · Presets · Mask · Heal. Same set in both orientations
 // (MobileControlBar.swift:124) — a divider separates the four group buttons
 // from the special tools (ToolDock.swift:34).
 // Light / Color / Effects / Detail switch the active ToolGroup.
@@ -21,11 +20,21 @@
 // signal that more tools are coming.
 // Mask / Heal are visibly disabled with a tooltip + code comment referencing
 // the milestone ticket — NOT fake panels (CLAUDE.md #6) — and kept out of the
-// accessibility tree entirely (`aria-hidden`, `tabindex="-1"`, no
-// `aria-label`), mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`.
+// accessibility tree entirely via `mui-tool-dock`'s `ariaHidden` entry field
+// (`aria-hidden` + `tabindex="-1"`, no accessible name), mirroring Apple's
+// `DisabledDockPlaceholder.accessibilityHidden(true)`.
+//
+// The circle+label+dot glass chrome itself (#3046) now lives in
+// `mui-tool-dock`/`mui-action-button` — this wrapper's own job is building
+// the `MuiToolDockEntry[]` view-model from the nine Apple entries plus the
+// focused asset's `AdjustmentModel`, and translating the dock's generic
+// `toolSelected(id)` press back into the four typed outputs callers already
+// depend on (`groupChange`/`toolChange`/`curvePanelToggle`/`presetsPanelToggle`).
 
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
-import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { MuiToolDockComponent } from '../../ui/tool-dock/mui-tool-dock.component';
+import type { MuiToolDockEntry } from '../../ui/tool-dock/mui-tool-dock.component';
+import type { MapleIconName } from '../../icons/maple-icon.component';
 import {
   TOOLS_IN_GROUP,
   defaultDisplayValue,
@@ -55,7 +64,7 @@ type DockOrientation = 'vertical' | 'horizontal';
 export interface DockEntry {
   id: string;
   /** Icon name in the MapleIcon registry. */
-  icon: string;
+  icon: MapleIconName;
   /** Tooltip label. */
   label: string;
   /** If set, clicking this entry switches the active group. */
@@ -71,8 +80,8 @@ export interface DockEntry {
   ticket?: string;
   /** If true, clicking this entry opens a floating panel rather than switching a group. */
   panel?: boolean;
-  /** Draw a horizontal rule above this entry — separates the four group
-   *  entries from the special tools (ToolDock.swift:34). */
+  /** Draw a divider above this entry — separates the four group entries
+   *  from the special tools (ToolDock.swift:34). */
   divideBefore?: boolean;
 }
 
@@ -121,7 +130,7 @@ const DOCK_TOOL_IDS = new Set<ToolId>(
 @Component({
   selector: 'pro-tool-dock',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MuiToolDockComponent],
   templateUrl: './tool-dock.component.html',
   styleUrl: './tool-dock.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -159,12 +168,6 @@ export class ToolDockComponent {
     const id = this.libraryState.focusedAssetId();
     return id ? this.libraryState.adjustmentFor(id)() : null;
   });
-
-  /** The nine dock entries. No longer orientation-dependent: the phone bar
-   *  and the desktop column show the same set (MobileControlBar.swift:124).
-   *  A plain reference to the module constant, not a computed — nothing it
-   *  could recompute from ever changes. */
-  readonly entries = DOCK_ENTRIES;
 
   /** Accent dot: true when any tool this entry covers holds a non-default
    *  value. For a GROUP entry that means every tool in the group — including
@@ -252,13 +255,6 @@ export class ToolDockComponent {
     return !!entry.group && entry.group === this.activeGroup();
   }
 
-  // ── Template view-model accessors ─────────────────────────────────────────
-  // The circle+label+dot markup (Apple parity) needs several state-dependent
-  // attributes per entry. Named accessors here (rather than inline template
-  // ternaries) keep the template a flat list of bindings and make the a11y
-  // logic unit-testable in isolation (docs/best-practices.md § "Angular" —
-  // "view models in components").
-
   /** Tooltip text: the label alone when enabled, or the label plus the
    *  milestone ticket when disabled — surfaces the same info a screen
    *  reader user loses by being routed around the disabled button. */
@@ -266,45 +262,27 @@ export class ToolDockComponent {
     return entry.disabled ? `${entry.label} — coming in ${entry.ticket}` : entry.label;
   }
 
-  /** Disabled placeholders are hidden from the accessibility tree entirely,
-   *  mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`. */
-  ariaHiddenFor(entry: DockEntry): 'true' | null {
-    return entry.disabled ? 'true' : null;
-  }
-
-  /** Disabled placeholders are pulled out of tab order (paired with the
-   *  `aria-hidden` above — both are needed to fully remove them from
-   *  keyboard and screen-reader navigation). */
-  tabIndexFor(entry: DockEntry): number | null {
-    return entry.disabled ? -1 : null;
-  }
-
-  /** Enabled entries expose their label as the accessible name; disabled
-   *  placeholders carry none (they're already `aria-hidden`, so a label
-   *  would be dead weight, not a fallback). */
-  ariaLabelFor(entry: DockEntry): string | null {
-    return entry.disabled ? null : entry.label;
-  }
-
-  /** `aria-current="page"` marks a GROUP entry as the current view. Panel
-   *  entries (Curve/Presets) use `aria-pressed` instead — they're toggles,
-   *  not navigation — so this is explicitly gated to non-panel entries. */
-  ariaCurrentFor(entry: DockEntry): 'page' | null {
-    return !entry.panel && this.isActive(entry) ? 'page' : null;
-  }
-
-  /** `aria-pressed` marks a PANEL entry (Curve/Presets) as a toggle button;
-   *  group and tool entries are navigation, not toggles, so they get null. */
-  ariaPressedFor(entry: DockEntry): boolean | null {
-    return entry.panel ? this.isActive(entry) : null;
-  }
-
-  /** Icon tint: accent when active, dimmed when disabled, default text
-   *  color otherwise. */
-  iconColor(entry: DockEntry): string {
-    if (this.isActive(entry)) return 'var(--pro-accent)';
-    return entry.disabled ? 'var(--pro-text-dim)' : 'var(--pro-text)';
-  }
+  /** The `MuiToolDockEntry[]` view-model fed to `<mui-tool-dock>` — the nine
+   *  Apple entries, each carrying this frame's active/modified/hidden state,
+   *  with a divider spliced in ahead of Crop. */
+  readonly dockEntries = computed<readonly MuiToolDockEntry[]>(() => {
+    const out: MuiToolDockEntry[] = [];
+    for (const entry of DOCK_ENTRIES) {
+      if (entry.divideBefore) out.push({ divider: true });
+      out.push({
+        id: entry.id,
+        icon: entry.icon,
+        label: entry.label,
+        disabled: entry.disabled,
+        modified: this.isModified(entry),
+        selected: this.isActive(entry),
+        panel: entry.panel,
+        ariaHidden: !!entry.disabled,
+        title: this.titleFor(entry),
+      });
+    }
+    return out;
+  });
 
   onEntryClick(entry: DockEntry): void {
     if (entry.disabled) return;
@@ -319,5 +297,12 @@ export class ToolDockComponent {
     if (entry.group) {
       this.groupChange.emit(entry.group);
     }
+  }
+
+  /** `<mui-tool-dock>` presses back a bare entry id — resolve it against the
+   *  nine Apple entries and dispatch the same way `onEntryClick` always has. */
+  onDockToolSelected(id: string): void {
+    const entry = DOCK_ENTRIES.find((e) => e.id === id);
+    if (entry) this.onEntryClick(entry);
   }
 }
