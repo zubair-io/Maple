@@ -162,8 +162,31 @@ namespace Maple.UI
             // list-row.md § States, Disabled: 40-50% opacity.
             Opacity = IsEnabled ? 1.0 : 0.45;
 
-            var name = Active ? $"{Label}, current" : Label;
+            // Default the automation base name to the label, but never
+            // clobber a name the consumer set explicitly — the same
+            // ownership rule MuiActionButton adopted after MN1. Because
+            // this control also composes the ", current" Active suffix
+            // (see the KNOWN GAP note above) onto whatever base is in
+            // effect, the consumer's base is remembered separately: any
+            // name that differs from what THIS control last wrote must
+            // have come from the consumer, and stays the base from then
+            // on. Comparing against the last written value alone would
+            // re-adopt the consumer's text as "ours" and revert to Label
+            // on the following rebuild.
+            var currentName = AutomationProperties.GetName(this);
+            if (!string.IsNullOrEmpty(currentName) && currentName != _lastSetName)
+            {
+                _consumerBaseName = currentName.EndsWith(", current", StringComparison.Ordinal)
+                    ? currentName[..^", current".Length]
+                    : currentName;
+            }
+            var baseName = _consumerBaseName ?? Label;
+            var name = Active ? $"{baseName}, current" : baseName;
             AutomationProperties.SetName(this, name);
+            _lastSetName = name;
         }
+
+        private string? _lastSetName;
+        private string? _consumerBaseName;
     }
 }
