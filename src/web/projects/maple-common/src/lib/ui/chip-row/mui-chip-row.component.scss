@@ -12,6 +12,7 @@
 }
 
 .chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: tok.$maple-spacing-xs;
@@ -24,7 +25,7 @@
 button.chip {
   cursor: pointer;
 
-  &:hover .mui-badge {
+  &:hover:not(.is-disabled) .mui-badge {
     filter: brightness(1.1);
   }
 
@@ -32,6 +33,21 @@ button.chip {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
+
+  &.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.modified-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-primary);
 }
 
 .remove {
