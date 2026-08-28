@@ -1,0 +1,13 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
