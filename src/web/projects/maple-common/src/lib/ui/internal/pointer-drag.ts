@@ -50,6 +50,19 @@ export function arrowKeyDelta(key: string, step: number): number | null {
   return null;
 }
 
+/** `arrowKeyDelta` plus the "consume the event" pairing every `onKeydown`
+ * handler needs whenever it acts on the key — `null` for a non-arrow key
+ * leaves the event alone (no preventDefault/stopPropagation) so it can
+ * still bubble to an ancestor shortcut; a real delta always stops it there
+ * (mui-drag-bar, mui-living-slider — unified-component-catalog.md §2.1). */
+export function consumeArrowKeyDelta(event: KeyboardEvent, step: number): number | null {
+  const delta = arrowKeyDelta(event.key, step);
+  if (delta === null) return null;
+  event.preventDefault();
+  event.stopPropagation();
+  return delta;
+}
+
 /** Maps a value's position within `[min, max]` to a `[0, 100]` percentage —
  * the shared `thumbPct`/`markerPct`/`trackPct` calc for the scrub controls.
  * `fallbackPct` covers the degenerate `min === max` case each control
