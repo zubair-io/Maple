@@ -1,3 +1,8 @@
+// The preset-row/apply-button/delete-confirm chrome itself now lives in
+// `mui-presets-panel` (#3046) — this wrapper only owns its own layout
+// slot, the always-visible save row (never a prompt dialog — that was
+// never the legacy interaction), and the Built-in/Saved section headers
+// the design-system organism has no native notion of.
 :host {
   display: block;
   height: 100%;
@@ -41,24 +46,6 @@
   }
 }
 
-.save-button {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--mpl-primary, #ea580c);
-  background: color-mix(in srgb, var(--mpl-primary, #ea580c) 15%, transparent);
-  color: var(--mpl-primary, #ea580c);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-
-  &:disabled {
-    border-color: var(--color-border);
-    background: transparent;
-    color: var(--color-text-muted);
-    cursor: default;
-  }
-}
-
 .save-hint {
   margin: 0;
   font-size: 12px;
@@ -86,92 +73,5 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.preset-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.preset-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.apply-button {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  border: 0.5px solid var(--color-border);
-  background: var(--mpl-surface-alt, #2c2825);
-  color: var(--mpl-text-main, #e8e6e3);
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--color-surface-hover, #3a3836);
-  }
-
-  .name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .meta {
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--color-text-muted);
-  }
-}
-
-.icon-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 0.5px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-
-  &:hover {
-    background: var(--color-surface-hover, #3a3836);
-    color: var(--mpl-text-main, #e8e6e3);
-  }
-
-  &.danger {
-    border-color: var(--mpl-primary, #ea580c);
-    color: var(--mpl-primary, #ea580c);
-  }
-}
-
-.confirm-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  color: var(--mpl-text-main, #e8e6e3);
-}
-
-.empty {
-  margin: 0;
-  font-size: 13px;
   color: var(--color-text-muted);
 }
