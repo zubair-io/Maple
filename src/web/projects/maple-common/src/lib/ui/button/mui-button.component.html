@@ -9,6 +9,7 @@
   [class.is-toggled]="toggled()"
   [class.is-full-width]="fullWidth()"
   [disabled]="isDisabled()"
+  [attr.data-testid]="testId()"
   [attr.aria-busy]="loading() ? 'true' : null"
   [attr.aria-label]="ariaLabel()"
   [attr.aria-expanded]="ariaExpandedAttr()"
