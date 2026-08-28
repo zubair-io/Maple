@@ -85,3 +85,30 @@ export async function redeemNativeCode(
   if (!row) return null;
   return { userId: row.user_id, deviceLabel: row.device_label, state: row.state };
 }
+
+/** Atomically consume a pending code by `state` + PKCE verifier, WITHOUT the
+ * raw code (#3063). The polling completion channel: Chromium refuses to launch
+ * `maple-app://` from a script navigation with no user gesture, so a browser
+ * that was already signed in mints the code but can never deliver it via the
+ * redirect. The raw code only ever existed to bind that redirect hop; a caller
+ * who proves possession of the private verifier (and the ceremony's own
+ * `state`) is the same principal, so the same CAS applies — single-use,
+ * unexpired, challenge must hash-match. Returns null while nothing is pending
+ * (the app keeps polling) or when the verifier/state don't match. */
+export async function claimNativeCode(
+  state: string,
+  codeVerifier: string,
+): Promise<RedeemedNativeCode | null> {
+  const c = await nativeAuthCodesCollection();
+  const row = await c.findOneAndUpdate(
+    {
+      state,
+      code_challenge: pkceS256(codeVerifier),
+      consumed_at: null,
+      expires_at: { $gt: new Date() },
+    },
+    { $set: { consumed_at: new Date().toISOString() } },
+  );
+  if (!row) return null;
+  return { userId: row.user_id, deviceLabel: row.device_label, state: row.state };
+}
