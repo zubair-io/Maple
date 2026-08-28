@@ -18,6 +18,7 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
@@ -151,10 +152,10 @@ namespace Maple.WinUI
             var dialog = new ContentDialog
             {
                 Title = "Move to Trash",
-                Content = new TextBlock
+                Content = new MuiText
                 {
                     Text = $"Move “{node.Name}” and everything inside it to {destination}?",
-                    TextWrapping = TextWrapping.Wrap,
+                    Variant = MuiTextVariant.Body,
                 },
                 PrimaryButtonText = "Move to Trash",
                 CloseButtonText = "Cancel",

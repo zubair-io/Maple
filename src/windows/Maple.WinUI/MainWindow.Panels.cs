@@ -15,7 +15,7 @@ namespace Maple.WinUI
     /// star row, EXIF flyout, and histogram plot.</summary>
     public sealed partial class MainWindow
     {
-        private readonly Button[] _starButtons = new Button[5];
+        private readonly MuiButton[] _starButtons = new MuiButton[5];
         private readonly Dictionary<string, MuiActionButton> _railButtons = new();
         private string? _activeGroup;
         private string _colorTab = "Basic";
@@ -372,18 +372,21 @@ namespace Maple.WinUI
 
         // --- Star row (Preview pill) ---
 
+        /// <summary>MuiButton stars, not MuiRatingFlags: the molecule's
+        /// same-star click DECREMENTS and it bundles a cycling flag icon,
+        /// while this pill's contract is click-current-to-clear plus the
+        /// separate Pick/Reject buttons — behavior preserved as-is (MN4).</summary>
         private void BuildStarRow()
         {
             for (var i = 0; i < 5; i++)
             {
                 var stars = i + 1;
-                var button = new Button
+                var button = new MuiButton
                 {
-                    Content = Controls.MapleIconControl.Build(
-                        "star", 13, (SolidColorBrush)Application.Current.Resources["MapleBorderHi"]),
-                    Padding = new Thickness(3, 2, 3, 2),
-                    Background = null,
-                    BorderThickness = new Thickness(0),
+                    IconName = "star",
+                    Variant = MuiButtonVariant.Ghost,
+                    ButtonSize = MuiButtonSize.Sm,
+                    IconColor = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"],
                 };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Set rating {stars}");
                 button.Click += (_, _) =>
@@ -406,9 +409,8 @@ namespace Maple.WinUI
             var muted = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"];
             for (var i = 0; i < 5; i++)
             {
-                _starButtons[i].Content = i < rating
-                    ? Controls.MapleIconControl.Build("star-filled", 13, star)
-                    : Controls.MapleIconControl.Build("star", 13, muted);
+                _starButtons[i].IconName = i < rating ? "star-filled" : "star";
+                _starButtons[i].IconColor = i < rating ? star : muted;
             }
         }
 
@@ -425,19 +427,17 @@ namespace Maple.WinUI
             void AddRow(StackPanel host, string label, string value)
             {
                 var grid = new Grid();
-                grid.Children.Add(new TextBlock
+                grid.Children.Add(new MuiText
                 {
                     Text = label,
-                    FontSize = 12,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
+                    Variant = MuiTextVariant.Body,
+                    ColorRole = MuiTextColorRole.Muted,
                 });
-                grid.Children.Add(new TextBlock
+                grid.Children.Add(new MuiText
                 {
                     Text = value,
-                    FontSize = 12,
-                    FontFamily = new FontFamily("Consolas"),
+                    Variant = MuiTextVariant.Filename,          // mono, per the value column's Consolas
                     HorizontalAlignment = HorizontalAlignment.Right,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMain"],
                 });
                 host.Children.Add(grid);
             }

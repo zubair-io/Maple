@@ -3,6 +3,7 @@ using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Maple.UI.Atoms;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
 
@@ -68,11 +69,11 @@ namespace Maple.WinUI
             var tokenRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             foreach (var (label, token) in BatchRenameTokens)
             {
-                var button = new Button
+                var button = new MuiButton
                 {
-                    Content = label,
-                    FontSize = 11,
-                    Padding = new Thickness(8, 4, 8, 4),
+                    Label = label,
+                    Variant = MuiButtonVariant.Secondary,
+                    ButtonSize = MuiButtonSize.Sm,
                 };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Insert {label} token");
                 button.Click += (_, _) => InsertToken(templateBox, token);
@@ -95,12 +96,7 @@ namespace Maple.WinUI
             collisionCombo.Items.Add("Stop and show an error");
             collisionCombo.SelectedIndex = 0;
 
-            var summaryText = new TextBlock
-            {
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
-            };
+            var summaryText = new MuiText { Variant = MuiTextVariant.Body, ColorRole = MuiTextColorRole.Muted };
 
             var previewPanel = new StackPanel { Spacing = 4 };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(previewPanel, "Batch rename preview");
@@ -168,12 +164,11 @@ namespace Maple.WinUI
             int sequencePadWidth,
             CollisionPolicy collision)
         {
-            var statusText = new TextBlock
+            var statusText = new MuiText
             {
                 Text = $"Renaming 0 of {eligible.Count}…",
-                FontSize = 12,
+                Variant = MuiTextVariant.Body,
                 Width = 380,
-                TextWrapping = TextWrapping.Wrap,
             };
             var progressDialog = new ContentDialog
             {
@@ -181,7 +176,7 @@ namespace Maple.WinUI
                 Content = new StackPanel
                 {
                     Spacing = 10,
-                    Children = { new ProgressBar { IsIndeterminate = true }, statusText },
+                    Children = { new MuiProgress { ProgressShape = MuiProgressShape.Bar, IsIndeterminate = true }, statusText },
                 },
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
@@ -240,11 +235,10 @@ namespace Maple.WinUI
             var detail = new StackPanel { Spacing = 6 };
             foreach (var outcome in outcomes.Where(o => o.Kind != BatchRenameOutcomeKind.Relocated))
             {
-                detail.Children.Add(new TextBlock
+                detail.Children.Add(new MuiText
                 {
                     Text = $"{outcome.OldFileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}",
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
+                    Variant = MuiTextVariant.Body,
                 });
             }
             var reportDialog = new ContentDialog
@@ -285,21 +279,21 @@ namespace Maple.WinUI
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            var oldText = new TextBlock
+            var oldText = new MuiText
             {
                 Text = row.OldFileName,
-                FontSize = 12,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
+                Variant = MuiTextVariant.Filename,
+                ColorRole = MuiTextColorRole.Muted,
+                Truncate = true,
             };
             Grid.SetColumn(oldText, 0);
             Grid.SetRow(oldText, 0);
 
-            var arrow = new TextBlock
+            var arrow = new MuiText
             {
                 Text = "→",
-                FontSize = 12,
-                Opacity = 0.5,
+                Variant = MuiTextVariant.Body,
+                ColorRole = MuiTextColorRole.Muted,
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
             Grid.SetColumn(arrow, 1);
@@ -315,15 +309,12 @@ namespace Maple.WinUI
             // with the reason it can't be attempted; a duplicate keeps
             // showing the name plus a second, non-blocking warning line.
             var isError = row.Error != null;
-            var newText = new TextBlock
+            var newText = new MuiText
             {
                 Text = isError ? (row.Error ?? string.Empty) : (row.NewFileName ?? string.Empty),
-                FontSize = 12,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextWrapping = isError ? TextWrapping.Wrap : TextWrapping.NoWrap,
-                Foreground = isError
-                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xD1, 0x58, 0x4A))
-                    : (SolidColorBrush)Application.Current.Resources["MapleTextMain"],
+                Variant = isError ? MuiTextVariant.Body : MuiTextVariant.Filename,
+                ColorRole = isError ? MuiTextColorRole.Error : MuiTextColorRole.Main,
+                Truncate = !isError,               // errors wrap in full, names ellipsize
             };
             Grid.SetColumn(newText, 2);
             Grid.SetRow(newText, 0);
@@ -334,12 +325,11 @@ namespace Maple.WinUI
 
             if (!isError && row.IsDuplicateWithinBatch)
             {
-                var warning = new TextBlock
+                var warning = new MuiText
                 {
                     Text = "Same name as another row — resolved by the conflict policy at apply time.",
-                    FontSize = 10,
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xC9, 0x9A, 0x3A)),
+                    Variant = MuiTextVariant.ToolLabel,
+                    ColorRole = MuiTextColorRole.Warning,
                 };
                 Grid.SetColumn(warning, 2);
                 Grid.SetRow(warning, 1);

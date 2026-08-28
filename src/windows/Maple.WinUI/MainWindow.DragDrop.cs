@@ -24,6 +24,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI.Atoms;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.ApplicationModel.DataTransfer.DragDrop;
@@ -304,12 +305,11 @@ namespace Maple.WinUI
                 : DragMoveCollisionChoice.KeepBoth;
 
             var verb = mode == RelocateMode.Copy ? "Copying" : "Moving";
-            var statusText = new TextBlock
+            var statusText = new MuiText
             {
                 Text = $"{verb} 0 of {photos.Count}…",
-                FontSize = 12,
+                Variant = MuiTextVariant.Body,
                 Width = 380,
-                TextWrapping = TextWrapping.Wrap,
             };
             var progressDialog = new ContentDialog
             {
@@ -317,7 +317,7 @@ namespace Maple.WinUI
                 Content = new StackPanel
                 {
                     Spacing = 10,
-                    Children = { new ProgressBar { IsIndeterminate = true }, statusText },
+                    Children = { new MuiProgress { ProgressShape = MuiProgressShape.Bar, IsIndeterminate = true }, statusText },
                 },
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
@@ -387,7 +387,7 @@ namespace Maple.WinUI
                 var text = outcome.Kind == DragMoveOutcomeKind.Relocated
                     ? $"{outcome.FileName ?? "(unknown)"}: {outcome.Note}"
                     : $"{outcome.FileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}";
-                detail.Children.Add(new TextBlock { Text = text, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+                detail.Children.Add(new MuiText { Text = text, Variant = MuiTextVariant.Body });
             }
             var reportDialog = new ContentDialog
             {
@@ -415,12 +415,12 @@ namespace Maple.WinUI
             var dialog = new ContentDialog
             {
                 Title = "Some photos already exist there",
-                Content = new TextBlock
+                Content = new MuiText
                 {
                     Text = collisionCount == 1
                         ? "1 photo already has a file with that name in the destination folder."
                         : $"{collisionCount} photos already have a file with that name in the destination folder.",
-                    TextWrapping = TextWrapping.Wrap,
+                    Variant = MuiTextVariant.Body,
                 },
                 PrimaryButtonText = "Keep Both",
                 SecondaryButtonText = "Replace",

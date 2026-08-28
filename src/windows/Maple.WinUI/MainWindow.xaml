@@ -212,12 +212,10 @@
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
                                 <mui:MuiText Text="FOLDERS" Variant="Eyebrow" VerticalAlignment="Center" />
-                                <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
-                                        BorderThickness="0" Click="OnOpenDirectory"
-                                        AutomationProperties.Name="Add folder">
-                                    <controls:MapleIconControl IconName="plus" Size="12"
-                                                               IconBrush="{StaticResource MapleTextMuted}" />
-                                </Button>
+                                <mui:MuiButton IconName="plus" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MapleTextMuted}"
+                                        HorizontalAlignment="Right" Click="OnOpenDirectory"
+                                        AutomationProperties.Name="Add folder" />
                             </Grid>
                             <!-- Own capped scroll area: a deep archive must not
                                  swallow the whole sidebar and push the other
@@ -311,24 +309,19 @@
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
                                 <mui:MuiText Text="MAPLE CLOUD" Variant="Eyebrow" VerticalAlignment="Center" />
-                                <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
-                                        BorderThickness="0" Click="OnConnectCloud"
+                                <mui:MuiButton IconName="cloud" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MapleTextMuted}"
+                                        HorizontalAlignment="Right" Click="OnConnectCloud"
                                         ToolTipService.ToolTip="Connect to a Self-Hosted server"
-                                        AutomationProperties.Name="Connect Maple Cloud">
-                                    <mui:MuiIcon IconName="cloud" Size="Xs14" IconColor="{StaticResource MapleTextMuted}" />
-                                </Button>
+                                        AutomationProperties.Name="Connect Maple Cloud" />
                             </Grid>
-                            <TextBlock Text="{Binding CloudStatus}" FontSize="10" Margin="8,0,4,4"
-                                       TextWrapping="Wrap" Foreground="{StaticResource MapleTextMuted}" />
-                            <Button HorizontalAlignment="Stretch" Margin="4,2,4,4" Padding="8,6"
+                            <mui:MuiText Text="{Binding CloudStatus}" Variant="ToolLabel" Margin="8,0,4,4" />
+                            <mui:MuiButton Label="Connect to server…" IconName="cloud" Variant="Secondary"
+                                    ButtonSize="Sm" IconColor="{StaticResource MaplePrimary}"
+                                    HorizontalAlignment="Stretch" Margin="4,2,4,4"
                                     Click="OnConnectCloud"
                                     Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
-                                    AutomationProperties.Name="Connect to Maple Cloud server">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <mui:MuiIcon IconName="cloud" Size="Xs14" IconColor="{StaticResource MaplePrimary}" />
-                                    <TextBlock Text="Connect to server…" FontSize="12" />
-                                </StackPanel>
-                            </Button>
+                                    AutomationProperties.Name="Connect to Maple Cloud server" />
                             <ListView x:Name="CloudFoldersList" ItemsSource="{Binding CloudFolders}"
                                       SelectionMode="Single" SelectionChanged="OnSelectCloudFolder">
                                 <ListView.ItemTemplate>
@@ -351,13 +344,11 @@
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
                                 <mui:MuiText Text="TIMELINE" Variant="Eyebrow" VerticalAlignment="Center" />
-                                <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
-                                        BorderThickness="0" Click="OnClearTimelineFilter"
+                                <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MapleTextMuted}"
+                                        HorizontalAlignment="Right" Click="OnClearTimelineFilter"
                                         ToolTipService.ToolTip="Show all dates"
-                                        AutomationProperties.Name="Clear timeline filter">
-                                    <controls:MapleIconControl IconName="x" Size="11"
-                                                               IconBrush="{StaticResource MapleTextMuted}" />
-                                </Button>
+                                        AutomationProperties.Name="Clear timeline filter" />
                             </Grid>
                             <TreeView ItemsSource="{Binding Timeline.Nodes}" SelectionMode="None"
                                       ItemInvoked="OnTimelineNodeInvoked"
@@ -590,9 +581,10 @@
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
                                     Visibility="{Binding IsDecoding, Converter={StaticResource BoolVisible}}">
-                            <ProgressRing IsActive="{Binding IsDecoding}" Width="20" Height="20" />
-                            <TextBlock Text="{Binding DecodeStatus}" FontSize="12"
-                                       Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
+                            <mui:MuiSpinner IsSpinning="{Binding IsDecoding}" SpinnerSize="Sm" DelayMs="0"
+                                            VerticalAlignment="Center" />
+                            <mui:MuiText Text="{Binding DecodeStatus}" Variant="Body" ColorRole="Muted"
+                                         VerticalAlignment="Center" />
                         </StackPanel>
 
                         <!-- Preview top pill -->
