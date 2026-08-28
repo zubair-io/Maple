@@ -53,7 +53,11 @@ import { eventsRoutes } from './routes/events.ts';
 import { videoRoutes } from './routes/video.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import { authRoutes } from './routes/auth.ts';
-import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
+import {
+  nativeCodeRedeemRoutes,
+  nativeCodeIssueRoutes,
+  nativeCodeClaimRoutes,
+} from './routes/auth-native-code.ts';
 import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
 import { accountRoutes } from './routes/auth-account.ts';
 import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
@@ -139,6 +143,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
     // code for tokens here; no bearer (this is how the app first gets tokens).
     .use(nativeCodeRedeemRoutes)
+    // Native PKCE code claim (public, #3063) — the Windows shell polls this
+    // with state + verifier when the browser can't deliver the maple-app://
+    // redirect (Chromium blocks scheme launches without a user gesture).
+    .use(nativeCodeClaimRoutes)
     // Web-to-web-LAN session handoff redeem (public) — the LAN-origin page
     // exchanges its one-time code for tokens here; no bearer (this is how
     // that origin first gets tokens). See routes/auth-lan-handoff.ts.
