@@ -9,6 +9,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct StageSpecificPanel: View {
     let stage: StageStatus
@@ -169,14 +170,13 @@ private struct MigrationsPanel: View {
             ForEach(migrations) { migration in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
-                        Toggle(
-                            migration.title,
-                            isOn: Binding(
+                        MuiToggle(
+                            checked: Binding(
                                 get: { migration.enabled },
-                                set: { on in Task { await set(migration, enabled: on) } })
+                                set: { on in Task { await set(migration, enabled: on) } }),
+                            label: migration.title,
+                            disabled: busy == migration.id
                         )
-                        .font(.callout)
-                        .disabled(busy == migration.id)
                         .accessibilityIdentifier("workers.migration.toggle.\(migration.id)")
                     }
                     Text(WorkersRuntimeVM.migrationProgress(migration))

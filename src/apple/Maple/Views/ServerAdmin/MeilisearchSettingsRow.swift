@@ -37,27 +37,26 @@ struct MeilisearchSettingsRow: View {
     var body: some View {
         Section("Meilisearch") {
             LabeledContent("URL") {
-                TextField("", text: $form.url, prompt: Text("http://localhost:7700"))
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("enrichment.meilisearch.url")
+                MuiInput(
+                    value: $form.url, accessibilityLabel: "URL",
+                    placeholder: "http://localhost:7700", monospaced: true, autocorrectionDisabled: true
+                )
+                .accessibilityIdentifier("enrichment.meilisearch.url")
             }
 
             LabeledContent("API key") {
-                SecureField(
-                    "", text: $form.apiKey,
-                    prompt: Text(EnrichmentSettingsVM.meilisearchAPIKeyPlaceholder(apiKeyIsSet: apiKeyIsSet)))
-                    .font(.system(.body, design: .monospaced))
-                    .accessibilityIdentifier("enrichment.meilisearch.apiKey")
+                MuiInput(
+                    value: $form.apiKey, accessibilityLabel: "API key",
+                    placeholder: EnrichmentSettingsVM.meilisearchAPIKeyPlaceholder(apiKeyIsSet: apiKeyIsSet),
+                    secure: true, monospaced: true
+                )
+                .accessibilityIdentifier("enrichment.meilisearch.apiKey")
             }
             Text("Write-only — never sent back. Leave blank to keep the saved key.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Enable hybrid semantic search", isOn: $form.semanticEnabled)
+            MuiToggle(checked: $form.semanticEnabled, label: "Enable hybrid semantic search")
                 .accessibilityIdentifier("enrichment.meilisearch.semanticEnabled")
 
             LabeledContent("Ollama URL (from Describe)") {
@@ -68,8 +67,7 @@ struct MeilisearchSettingsRow: View {
             .accessibilityIdentifier("enrichment.meilisearch.embedderURL")
 
             LabeledContent("Embedding model") {
-                TextField("", text: $form.embedderModel, prompt: Text("bge-m3"))
-                    .font(.system(.body, design: .monospaced))
+                MuiInput(value: $form.embedderModel, accessibilityLabel: "Embedding model", placeholder: "bge-m3", monospaced: true)
                     .accessibilityIdentifier("enrichment.meilisearch.embedderModel")
             }
 

@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import MapleUI
 
@@ -20,5 +21,24 @@ final class MuiInputTests: XCTestCase {
     func testStepFromNonNumericCurrentTreatsItAsZero() {
         let config = MuiInputNumericConfig(min: -5, max: 5, step: 1)
         XCTAssertEqual(MuiInput.steppedValue(current: "", delta: 1, config: config), "1")
+    }
+
+    func testFieldFontDefaultsToSystemDesign() {
+        XCTAssertEqual(MuiInput.fieldFont(monospaced: false, size: .md), .system(size: 14))
+    }
+
+    func testFieldFontSwitchesToMonospacedDesign() {
+        XCTAssertEqual(MuiInput.fieldFont(monospaced: true, size: .md), .system(size: 14, design: .monospaced))
+    }
+
+    func testFieldFontRespectsSmallSize() {
+        XCTAssertEqual(MuiInput.fieldFont(monospaced: true, size: .sm), .system(size: 13, design: .monospaced))
+    }
+
+    func testFieldFontMonospacedDiffersFromDefault() {
+        XCTAssertNotEqual(
+            MuiInput.fieldFont(monospaced: true, size: .md),
+            MuiInput.fieldFont(monospaced: false, size: .md)
+        )
     }
 }

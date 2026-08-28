@@ -13,6 +13,7 @@
 // registry library selection).
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct GeneratedSearchSection: View {
@@ -33,11 +34,14 @@ struct GeneratedSearchSection: View {
     var body: some View {
         Section("Generated searches") {
             if let config {
-                Toggle("Run daily", isOn: Binding(
-                    get: { !config.paused },
-                    set: { enabled in Task { await setPaused(!enabled) } }
-                ))
-                .disabled(isBusy)
+                MuiToggle(
+                    checked: Binding(
+                        get: { !config.paused },
+                        set: { enabled in Task { await setPaused(!enabled) } }
+                    ),
+                    label: "Run daily",
+                    disabled: isBusy
+                )
                 .accessibilityIdentifier("generatedSearch.runDaily")
 
                 Button {

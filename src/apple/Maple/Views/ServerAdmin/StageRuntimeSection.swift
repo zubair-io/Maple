@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct StageRuntimeSection: View {
     let stage: StageStatus
@@ -106,12 +107,14 @@ struct StageRuntimeSection: View {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("", text: text)
-                .font(.system(.callout, design: .monospaced))
+            // Pre-migration this used `.keyboardType(.numberPad)` on iOS.
+            // MuiInput's `numeric` config would restore that but also draws
+            // +/- steppers that don't fit this field's 90pt width — kept
+            // the plain-text keyboard rather than take on that layout
+            // change unrequested; flagging the iOS numeric-keypad-hint gap
+            // (same tradeoff as NetworkSettingsView's Port field).
+            MuiInput(value: text, accessibilityLabel: label, monospaced: true)
                 .frame(maxWidth: 90)
-                #if os(iOS)
-                .keyboardType(.numberPad)
-                #endif
                 .accessibilityIdentifier(identifier)
             Text(hint)
                 .font(.caption2)

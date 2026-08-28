@@ -34,13 +34,11 @@ struct GeocodeSettingsRow: View {
     var body: some View {
         Section("Geocode") {
             LabeledContent("Nominatim URL") {
-                TextField("", text: $form.nominatimURL, prompt: Text("https://nominatim.example.com"))
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("enrichment.geocode.nominatimURL")
+                MuiInput(
+                    value: $form.nominatimURL, accessibilityLabel: "Nominatim URL",
+                    placeholder: "https://nominatim.example.com", monospaced: true, autocorrectionDisabled: true
+                )
+                .accessibilityIdentifier("enrichment.geocode.nominatimURL")
             }
 
             LabeledContent("Rate limit (req/sec)") {

@@ -39,10 +39,11 @@ struct NetworkSettingsView: View {
                 .listRowBackground(MapleTokens.surface)
             case .failed(let message):
                 Section {
-                    Text("Failed to load config: \(message)")
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("network.loadError")
-                    Button("Retry") { Task { await load() } }
+                    MuiBanner(
+                        variant: .error, message: "Failed to load config: \(message)",
+                        actionLabel: "Retry", actionPressed: { Task { await load() } }
+                    )
+                    .accessibilityIdentifier("network.loadError")
                 }
                 .listRowBackground(MapleTokens.surface)
             case .loaded(let config):
@@ -104,26 +105,30 @@ struct NetworkSettingsView: View {
     @ViewBuilder
     private var overrideSection: some View {
         Section("Override") {
-            TextField("LAN address", text: $form.ipOverride, prompt: Text("192.168.1.42"))
-                .font(.system(.body, design: .monospaced))
-                #if os(iOS)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                #endif
+            LabeledContent("LAN address") {
+                MuiInput(
+                    value: $form.ipOverride, accessibilityLabel: "LAN address",
+                    placeholder: "192.168.1.42", monospaced: true, autocorrectionDisabled: true
+                )
                 .accessibilityIdentifier("network.ipOverride")
+            }
 
-            TextField("Port", text: $form.portOverride, prompt: Text("3000"))
-                .font(.system(.body, design: .monospaced))
-                #if os(iOS)
-                .keyboardType(.numberPad)
-                #endif
-                .accessibilityIdentifier("network.portOverride")
+            LabeledContent("Port") {
+                // Pre-migration this used `.keyboardType(.numberPad)` on iOS.
+                // MuiInput only offers a number pad through its `numeric`
+                // config, which also draws +/- steppers this field never
+                // had — a real UX change for a single free-typed value. Kept
+                // the plain-text keyboard rather than take that on
+                // unrequested; flagging the iOS numeric-keypad-hint gap.
+                MuiInput(value: $form.portOverride, accessibilityLabel: "Port", placeholder: "3000", monospaced: true)
+                    .accessibilityIdentifier("network.portOverride")
+            }
 
             Text("Blank uses the server's listen port.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Advertise a LAN address to clients", isOn: $form.enabled)
+            MuiToggle(checked: $form.enabled, label: "Advertise a LAN address to clients")
                 .accessibilityIdentifier("network.enabled")
 
             serverAdminActionButton(
