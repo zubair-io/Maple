@@ -59,6 +59,41 @@ describe('MuiChipRowComponent', () => {
     expect(fixture.componentInstance.draft()).toBe('');
   });
 
+  it('select mode: a disabled chip cannot be selected and carries no aria-pressed toggle', () => {
+    const fixture = render('select');
+    fixture.componentRef.setInput('chips', [
+      ...CHIPS,
+      { id: 'locked', label: 'Locked', disabled: true },
+    ]);
+    fixture.detectChanges();
+    const chips = fixture.nativeElement.querySelectorAll('.chip') as NodeListOf<HTMLButtonElement>;
+    const locked = chips[3];
+    expect(locked.disabled).toBe(true);
+
+    locked.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedId()).toBeNull();
+  });
+
+  it('renders a modified dot only for chips flagged modified', () => {
+    const fixture = render('select');
+    fixture.componentRef.setInput('chips', [
+      { id: 'all', label: 'All', modified: true },
+      { id: 'photos', label: 'Photos' },
+    ]);
+    fixture.detectChanges();
+    const chips = fixture.nativeElement.querySelectorAll('.chip');
+    expect(chips[0].querySelector('.modified-dot')).not.toBeNull();
+    expect(chips[1].querySelector('.modified-dot')).toBeNull();
+  });
+
+  it('passes testId through as the chip’s own data-testid', () => {
+    const fixture = render('select');
+    fixture.componentRef.setInput('chips', [{ id: 'all', label: 'All', testId: 'chip-all' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="chip-all"]')).not.toBeNull();
+  });
+
   it('ignores an empty/whitespace-only add commit', () => {
     const fixture = render('editable');
     const added: string[] = [];

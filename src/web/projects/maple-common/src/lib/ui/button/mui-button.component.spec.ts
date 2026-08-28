@@ -37,6 +37,14 @@ describe('MuiButtonComponent', () => {
     }
   });
 
+  it('testId is passed through onto the real button, not the host', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('testId', 'crop-reset');
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('data-testid')).toBe('crop-reset');
+    expect(fixture.nativeElement.getAttribute('data-testid')).toBeNull();
+  });
+
   it('emits pressed on click', () => {
     const fixture = render();
     let emitted: MouseEvent | null = null;

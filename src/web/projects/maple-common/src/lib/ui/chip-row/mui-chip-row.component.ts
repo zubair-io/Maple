@@ -10,6 +10,18 @@ import { MuiInputComponent } from '../input/mui-input.component';
 export interface MuiChip {
   readonly id: string;
   readonly label: string;
+  /** `select` mode only: renders the chip inert (dimmed, unclickable, kept
+   * out of the aria-pressed toggle contract) — a preset that genuinely
+   * cannot apply right now (e.g. a fixed aspect ratio with no known image
+   * dimensions to snap to) rather than one merely unselected. */
+  readonly disabled?: boolean;
+  /** Shows an accent dot on this chip — "this chip's underlying state
+   * differs from default," independent of `selected`. */
+  readonly modified?: boolean;
+  /** Passed straight through as this chip's own `data-testid` — lets a
+   * caller's integration test find and assert ONE specific chip without
+   * depending on row order or a CSS structural selector. */
+  readonly testId?: string;
 }
 
 export type MuiChipRowMode = 'select' | 'removable' | 'editable';
@@ -34,8 +46,22 @@ export class MuiChipRowComponent {
 
   readonly draft = signal('');
 
-  selectChip(id: string): void {
-    this.selectedId.set(id);
+  // ── Template view-model accessors ─────────────────────────────────────────
+  // Pulled out of inline template ternaries (each occurrence read as its own
+  // branch to the complexity gate) — same reasoning as
+  // `export-dialog.component.ts`'s `formatDetail()`/`colorSpaceDetail()`.
+
+  isSelected(chip: MuiChip): boolean {
+    return this.selectedId() === chip.id;
+  }
+
+  isDisabled(chip: MuiChip): boolean {
+    return !!chip.disabled;
+  }
+
+  selectChip(chip: MuiChip): void {
+    if (chip.disabled) return;
+    this.selectedId.set(chip.id);
   }
 
   removeChip(id: string, event: Event): void {
