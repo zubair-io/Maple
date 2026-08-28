@@ -181,7 +181,11 @@ namespace Maple.UI
         }
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
-        private static Color TokenColor(string key) => ((SolidColorBrush)R(key)).Color;
+        // The `Maple*Color` tokens are raw Color resources (Themes/Tokens.xaml
+        // defines the brushes FROM them) — read them directly; casting
+        // through SolidColorBrush throws InvalidCastException at first
+        // construction.
+        private static Color TokenColor(string key) => (Color)Application.Current.Resources[key];
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
