@@ -10,9 +10,9 @@
     </div>
   </header>
 
-  <div class="net-body set-body-wrap">
+  <div class="net-body set-body-wrap max-[767px]:p-4 max-[767px]:gap-[22px]">
     @if (loadState().kind === 'loading') {
-      <p class="muted">Loading configuration…</p>
+      <p class="text-[var(--s-text-dim)] italic text-[12.5px] m-0">Loading configuration…</p>
     } @else if (loadState().kind === 'error') {
       @if (loadState(); as ls) {
         @if (ls.kind === 'error') {
@@ -24,28 +24,42 @@
       <section>
         <div class="set-subhead">Current (resolved)</div>
         @if (config(); as cfg) {
-          <dl class="config-grid set-config-grid">
-            <dt>Advertising a LAN address</dt>
+          <dl class="config-grid set-config-grid max-[767px]:grid-cols-1 max-[767px]:gap-y-1">
+            <dt
+              class="max-[767px]:text-[11px] max-[767px]:uppercase max-[767px]:tracking-[0.08em] max-[767px]:mt-2"
+            >
+              Advertising a LAN address
+            </dt>
             <dd>{{ cfg.enabled ? 'Yes' : 'No' }}</dd>
 
-            <dt>Address</dt>
+            <dt
+              class="max-[767px]:text-[11px] max-[767px]:uppercase max-[767px]:tracking-[0.08em] max-[767px]:mt-2"
+            >
+              Address
+            </dt>
             <dd class="set-mono">
               @if (cfg.local_ip) {
                 {{ cfg.local_ip }}
               } @else {
-                <span class="muted">none</span>
+                <span class="text-[var(--s-text-dim)] italic text-[12.5px]">none</span>
               }
               <span class="prov">({{ sourceLabel(cfg.source.local_ip) }})</span>
             </dd>
 
-            <dt>Port</dt>
+            <dt
+              class="max-[767px]:text-[11px] max-[767px]:uppercase max-[767px]:tracking-[0.08em] max-[767px]:mt-2"
+            >
+              Port
+            </dt>
             <dd class="set-mono">
               {{ cfg.local_port }}
               <span class="prov">({{ sourceLabel(cfg.source.local_port) }})</span>
             </dd>
           </dl>
           @if (cfg.source.local_ip === 'unavailable' && cfg.enabled) {
-            <p class="section-hint warn">
+            <p
+              class="m-0 mt-2.5 mb-3.5 text-[11.5px] leading-[1.5] max-w-[540px] text-[var(--s-warn,#d99a3d)]"
+            >
               No LAN address could be auto-detected — this is expected when the server runs in
               Docker with default bridge networking (the container only sees its own internal bridge
               IP, not the host's real LAN IP). Set an override below with the host's actual LAN IP
@@ -58,7 +72,7 @@
       <!-- Editable override ---------------------------------------------------- -->
       <section>
         <div class="set-subhead">Override</div>
-        <p class="section-hint">
+        <p class="m-0 mb-3.5 text-[11.5px] text-[var(--s-text-muted)] leading-[1.5] max-w-[540px]">
           Leave the address blank to use auto-detection. Set it explicitly when auto-detection is
           wrong (the common case under Docker) or you want to advertise a specific interface.
         </p>
