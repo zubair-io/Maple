@@ -1,18 +1,23 @@
 @if (visible()) {
   <div
-    class="bm-backdrop"
+    class="bm-backdrop fixed inset-0 z-[1000] flex items-center justify-center bg-black/55"
     role="dialog"
     aria-modal="true"
     aria-label="Edit metadata"
     (click)="onBackdropClick()"
   >
-    <div class="bm-card" (click)="$event.stopPropagation()">
+    <div
+      class="flex max-h-[90vh] w-full max-w-[560px] flex-col overflow-hidden rounded-lg border-[0.5px] border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
+      (click)="$event.stopPropagation()"
+    >
       <!-- Header -->
-      <div class="bm-header">
-        <span class="bm-title">
+      <div
+        class="flex shrink-0 items-center justify-between border-b-[0.5px] border-border px-4 py-[14px]"
+      >
+        <span class="text-[13px] font-semibold tracking-[-0.01em] text-text-main">
           Edit Metadata
           @if (assetCount() > 0) {
-            <span class="bm-count">({{ assetCount() }})</span>
+            <span class="bm-count ml-1 font-normal text-text-muted">({{ assetCount() }})</span>
           }
         </span>
         @if (phase() !== 'applying') {
@@ -24,9 +29,13 @@
 
       <!-- Error state -->
       @if (phase() === 'error') {
-        <div class="bm-body bm-center">
-          <p class="bm-error-msg">{{ errorMessage() }}</p>
-          <div class="bm-footer">
+        <div class="flex flex-1 flex-col items-center gap-5 overflow-y-auto p-4">
+          <p class="m-0 text-[12px] leading-[1.5] text-[color:var(--color-error,#cc3333)]">
+            {{ errorMessage() }}
+          </p>
+          <div
+            class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+          >
             <button type="button" class="dlg-button dlg-button-ghost" (click)="onClose()">
               Close
             </button>
@@ -36,25 +45,29 @@
 
       <!-- Relocate offer state -->
       @if (refileOfferVisible()) {
-        <div class="bm-body bm-center">
+        <div class="flex flex-1 flex-col items-center gap-5 overflow-y-auto p-4">
           @if (refileErrors().length > 0) {
-            <p class="bm-error-msg">
+            <p class="m-0 text-[12px] leading-[1.5] text-[color:var(--color-error,#cc3333)]">
               {{ refileErrors().length }} {{ refileErrors().length === 1 ? 'photo' : 'photos' }}
               could not be moved. The metadata was still applied successfully.
             </p>
           } @else if (refileApplying()) {
-            <p class="bm-hint">Moving photos into location folders…</p>
+            <p class="text-[10px] leading-[1.4] text-text-muted">
+              Moving photos into location folders…
+            </p>
           } @else {
             <p>
               Move {{ refileCount() }} {{ refileCount() === 1 ? 'photo' : 'photos' }} into
               {{ refileCount() === 1 ? 'its location folder' : 'their location folders' }}?
             </p>
-            <p class="bm-hint">
+            <p class="text-[10px] leading-[1.4] text-text-muted">
               Files will be placed under <code>year/state/city</code> inside their library. The move
               is crash-safe and the file bytes are never altered.
             </p>
           }
-          <div class="bm-footer">
+          <div
+            class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+          >
             @if (!refileApplying() && refileErrors().length === 0) {
               <button type="button" class="dlg-button dlg-button-ghost" (click)="onRefileSkip()">
                 Skip
@@ -77,7 +90,7 @@
 
       <!-- Confirm / applying / done state -->
       @if (confirmVisible()) {
-        <div class="bm-body">
+        <div class="flex flex-1 flex-col gap-5 overflow-y-auto p-4">
           <app-batch-metadata-confirm-dialog
             [visible]="confirmVisible()"
             [assetCount]="assetCount()"
@@ -92,32 +105,44 @@
 
       <!-- Form state -->
       @if (phase() === 'form') {
-        <div class="bm-body">
+        <div class="flex flex-1 flex-col gap-5 overflow-y-auto p-4">
           <!-- ── Section: Culling ───────────────────────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">Culling</h3>
+          <section class="flex flex-col gap-2.5">
+            <h3
+              class="bm-section-title m-0 border-b-[0.5px] border-border pb-1.5 text-[10px] font-bold tracking-[0.06em] text-text-muted uppercase"
+            >
+              Culling
+            </h3>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-rating">Rating (0–5 stars)</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-rating"
+                >Rating (0–5 stars)</label
+              >
               <input
                 id="bm-rating"
                 type="number"
                 min="0"
                 max="5"
                 step="1"
-                class="bm-input"
-                [class.is-mixed]="mixed().rating === MIXED && !touched().has('rating')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="mixedFieldClass(mixed().rating === MIXED && !touched().has('rating'))"
                 [placeholder]="mixed().rating === MIXED ? '(mixed)' : ''"
                 [value]="ratingVal()"
                 (input)="onRatingInput($any($event.target).value)"
               />
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-flag">Flag</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-flag"
+                >Flag</label
+              >
               <select
                 id="bm-flag"
-                class="bm-select"
+                class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                 [value]="flagVal()"
                 (change)="onFlagChange($any($event.target).value)"
               >
@@ -134,11 +159,15 @@
               </select>
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-colorlabel">Color Label</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-colorlabel"
+                >Color Label</label
+              >
               <select
                 id="bm-colorlabel"
-                class="bm-select"
+                class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                 [value]="colorLabelVal()"
                 (change)="onColorLabelChange($any($event.target).value)"
               >
@@ -154,16 +183,20 @@
                 }
                 <option value="__clear__">None (clear)</option>
               </select>
-              <span class="bm-hint"
+              <span class="text-[10px] leading-[1.4] text-text-muted"
                 >Selecting "None (clear)" removes the label from all selected photos.</span
               >
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-hidden">Hidden State</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-hidden"
+                >Hidden State</label
+              >
               <select
                 id="bm-hidden"
-                class="bm-select"
+                class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                 [value]="hiddenVal()"
                 (change)="onHiddenChange($any($event.target).value)"
               >
@@ -178,22 +211,34 @@
                 <option value="false">Visible</option>
                 <option value="__clear__">Clear (default)</option>
               </select>
-              <span class="bm-hint">Hiding images excludes them from standard browse results.</span>
+              <span class="text-[10px] leading-[1.4] text-text-muted"
+                >Hiding images excludes them from standard browse results.</span
+              >
             </div>
           </section>
 
           <!-- ── Section: Capture ───────────────────────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">Capture</h3>
+          <section class="flex flex-col gap-2.5">
+            <h3
+              class="bm-section-title m-0 border-b-[0.5px] border-border pb-1.5 text-[10px] font-bold tracking-[0.06em] text-text-muted uppercase"
+            >
+              Capture
+            </h3>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-datetime">Date / Time</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-datetime"
+                >Date / Time</label
+              >
               <input
                 id="bm-datetime"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="
-                  mixed().dateTimeOriginal === MIXED && !touched().has('dateTimeOriginal')
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="
+                  mixedFieldClass(
+                    mixed().dateTimeOriginal === MIXED && !touched().has('dateTimeOriginal')
+                  )
                 "
                 [placeholder]="
                   mixed().dateTimeOriginal === MIXED
@@ -208,13 +253,17 @@
               />
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-timezone">Time Zone (IANA or offset)</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-timezone"
+                >Time Zone (IANA or offset)</label
+              >
               <input
                 id="bm-timezone"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().timeZone === MIXED && !touched().has('timeZone')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="mixedFieldClass(mixed().timeZone === MIXED && !touched().has('timeZone'))"
                 [placeholder]="
                   mixed().timeZone === MIXED ? '(mixed)' : 'e.g. Europe/Paris or +02:00'
                 "
@@ -225,28 +274,40 @@
           </section>
 
           <!-- ── Section: GPS / Location ────────────────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">GPS Location</h3>
+          <section class="flex flex-col gap-2.5">
+            <h3
+              class="bm-section-title m-0 border-b-[0.5px] border-border pb-1.5 text-[10px] font-bold tracking-[0.06em] text-text-muted uppercase"
+            >
+              GPS Location
+            </h3>
 
             <!-- Address search -->
-            <div class="bm-field">
-              <label class="bm-label" for="bm-geocode">Search by address</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-geocode"
+                >Search by address</label
+              >
               <input
                 id="bm-geocode"
                 type="text"
-                class="bm-input"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                 placeholder="Type an address…"
                 [value]="geocodeQuery()"
                 (input)="onGeocodeQueryInput($any($event.target).value)"
               />
               @if (geocodeLoading()) {
-                <span class="bm-hint">Searching…</span>
+                <span class="text-[10px] leading-[1.4] text-text-muted">Searching…</span>
               }
               @if (geocodeCandidates().length > 0) {
-                <ul class="bm-candidates" role="listbox" aria-label="Address suggestions">
+                <ul
+                  class="m-0 list-none overflow-hidden rounded-[5px] border-[0.5px] border-border bg-surface p-0"
+                  role="listbox"
+                  aria-label="Address suggestions"
+                >
                   @for (c of geocodeCandidates(); track c.displayName) {
                     <li
-                      class="bm-candidate"
+                      class="cursor-pointer px-[10px] py-[7px] text-[12px] text-text-main transition-[background] duration-100 [&+&]:border-t-[0.5px] [&+&]:border-border hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
                       role="option"
                       tabindex="0"
                       (click)="onGeocodeSelect(c)"
@@ -260,15 +321,21 @@
             </div>
 
             <!-- Manual coords -->
-            <div class="bm-row">
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-lat">Latitude</label>
+            <div class="flex gap-2.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-lat"
+                  >Latitude</label
+                >
                 <input
                   id="bm-lat"
                   type="number"
                   step="any"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().gpsLatitude === MIXED && !touched().has('gpsLatitude')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="
+                    mixedFieldClass(mixed().gpsLatitude === MIXED && !touched().has('gpsLatitude'))
+                  "
                   [placeholder]="mixed().gpsLatitude === MIXED ? '(mixed)' : ''"
                   [value]="gpsLatitudeVal()"
                   (input)="
@@ -276,15 +343,21 @@
                   "
                 />
               </div>
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-lon">Longitude</label>
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-lon"
+                  >Longitude</label
+                >
                 <input
                   id="bm-lon"
                   type="number"
                   step="any"
-                  class="bm-input"
-                  [class.is-mixed]="
-                    mixed().gpsLongitude === MIXED && !touched().has('gpsLongitude')
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="
+                    mixedFieldClass(
+                      mixed().gpsLongitude === MIXED && !touched().has('gpsLongitude')
+                    )
                   "
                   [placeholder]="mixed().gpsLongitude === MIXED ? '(mixed)' : ''"
                   [value]="gpsLongitudeVal()"
@@ -295,14 +368,20 @@
               </div>
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-alt">Altitude (meters)</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-alt"
+                >Altitude (meters)</label
+              >
               <input
                 id="bm-alt"
                 type="number"
                 step="any"
-                class="bm-input"
-                [class.is-mixed]="mixed().gpsAltitude === MIXED && !touched().has('gpsAltitude')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="
+                  mixedFieldClass(mixed().gpsAltitude === MIXED && !touched().has('gpsAltitude'))
+                "
                 [placeholder]="mixed().gpsAltitude === MIXED ? '(mixed)' : ''"
                 [value]="gpsAltitudeVal()"
                 (input)="
@@ -313,16 +392,26 @@
           </section>
 
           <!-- ── Section: IPTC Place Text ───────────────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">Place Names (IPTC)</h3>
+          <section class="flex flex-col gap-2.5">
+            <h3
+              class="bm-section-title m-0 border-b-[0.5px] border-border pb-1.5 text-[10px] font-bold tracking-[0.06em] text-text-muted uppercase"
+            >
+              Place Names (IPTC)
+            </h3>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-subloc">Sublocation</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-subloc"
+                >Sublocation</label
+              >
               <input
                 id="bm-subloc"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().sublocation === MIXED && !touched().has('sublocation')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="
+                  mixedFieldClass(mixed().sublocation === MIXED && !touched().has('sublocation'))
+                "
                 [placeholder]="mixed().sublocation === MIXED ? '(mixed)' : ''"
                 [value]="sublocationVal()"
                 (input)="
@@ -331,26 +420,34 @@
               />
             </div>
 
-            <div class="bm-row">
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-city">City</label>
+            <div class="flex gap-2.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-city"
+                  >City</label
+                >
                 <input
                   id="bm-city"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().city === MIXED && !touched().has('city')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="mixedFieldClass(mixed().city === MIXED && !touched().has('city'))"
                   [placeholder]="mixed().city === MIXED ? '(mixed)' : ''"
                   [value]="cityVal()"
                   (input)="cityVal.set($any($event.target).value); onFieldChange('city')"
                 />
               </div>
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-state">State / Province</label>
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-state"
+                  >State / Province</label
+                >
                 <input
                   id="bm-state"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().state === MIXED && !touched().has('state')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="mixedFieldClass(mixed().state === MIXED && !touched().has('state'))"
                   [placeholder]="mixed().state === MIXED ? '(mixed)' : ''"
                   [value]="stateVal()"
                   (input)="stateVal.set($any($event.target).value); onFieldChange('state')"
@@ -358,27 +455,37 @@
               </div>
             </div>
 
-            <div class="bm-row">
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-country">Country</label>
+            <div class="flex gap-2.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-country"
+                  >Country</label
+                >
                 <input
                   id="bm-country"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().country === MIXED && !touched().has('country')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="mixedFieldClass(mixed().country === MIXED && !touched().has('country'))"
                   [placeholder]="mixed().country === MIXED ? '(mixed)' : ''"
                   [value]="countryVal()"
                   (input)="countryVal.set($any($event.target).value); onFieldChange('country')"
                 />
               </div>
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-countrycode">Country Code (ISO 3166-1)</label>
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-countrycode"
+                  >Country Code (ISO 3166-1)</label
+                >
                 <input
                   id="bm-countrycode"
                   type="text"
-                  class="bm-input"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                   maxlength="3"
-                  [class.is-mixed]="mixed().countryCode === MIXED && !touched().has('countryCode')"
+                  [class]="
+                    mixedFieldClass(mixed().countryCode === MIXED && !touched().has('countryCode'))
+                  "
                   [placeholder]="mixed().countryCode === MIXED ? '(mixed)' : 'e.g. FR'"
                   [value]="countryCodeVal()"
                   (input)="
@@ -390,69 +497,97 @@
           </section>
 
           <!-- ── Section: Description & Cataloging ──────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">Description &amp; Cataloging</h3>
+          <section class="flex flex-col gap-2.5">
+            <h3
+              class="bm-section-title m-0 border-b-[0.5px] border-border pb-1.5 text-[10px] font-bold tracking-[0.06em] text-text-muted uppercase"
+            >
+              Description &amp; Cataloging
+            </h3>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-title">Title</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-title"
+                >Title</label
+              >
               <input
                 id="bm-title"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().title === MIXED && !touched().has('title')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="mixedFieldClass(mixed().title === MIXED && !touched().has('title'))"
                 [placeholder]="mixed().title === MIXED ? '(mixed)' : ''"
                 [value]="titleVal()"
                 (input)="titleVal.set($any($event.target).value); onFieldChange('title')"
               />
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-caption">Caption (Notes)</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-caption"
+                >Caption (Notes)</label
+              >
               <textarea
                 id="bm-caption"
-                class="bm-textarea"
+                class="resize-y rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 py-1.5 font-[inherit] text-[12px] leading-[1.5] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                 rows="3"
-                [class.is-mixed]="mixed().caption === MIXED && !touched().has('caption')"
+                [class]="mixedFieldClass(mixed().caption === MIXED && !touched().has('caption'))"
                 [placeholder]="mixed().caption === MIXED ? '(mixed)' : ''"
                 [value]="captionVal()"
                 (input)="captionVal.set($any($event.target).value); onFieldChange('caption')"
               ></textarea>
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-headline">Headline</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-headline"
+                >Headline</label
+              >
               <input
                 id="bm-headline"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().headline === MIXED && !touched().has('headline')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="mixedFieldClass(mixed().headline === MIXED && !touched().has('headline'))"
                 [placeholder]="mixed().headline === MIXED ? '(mixed)' : ''"
                 [value]="headlineVal()"
                 (input)="headlineVal.set($any($event.target).value); onFieldChange('headline')"
               />
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-keywords">Keywords (comma-separated)</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-keywords"
+                >Keywords (comma-separated)</label
+              >
               <input
                 id="bm-keywords"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().keywords === MIXED && !touched().has('keywords')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="mixedFieldClass(mixed().keywords === MIXED && !touched().has('keywords'))"
                 [placeholder]="mixed().keywords === MIXED ? '(mixed)' : 'travel, france, street'"
                 [value]="keywordsVal()"
                 (input)="keywordsVal.set($any($event.target).value); onFieldChange('keywords')"
               />
-              <span class="bm-hint">Replaces the full keyword set on all selected photos.</span>
+              <span class="text-[10px] leading-[1.4] text-text-muted"
+                >Replaces the full keyword set on all selected photos.</span
+              >
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-instructions">Instructions</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-instructions"
+                >Instructions</label
+              >
               <input
                 id="bm-instructions"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().instructions === MIXED && !touched().has('instructions')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="
+                  mixedFieldClass(mixed().instructions === MIXED && !touched().has('instructions'))
+                "
                 [placeholder]="mixed().instructions === MIXED ? '(mixed)' : ''"
                 [value]="instructionsVal()"
                 (input)="
@@ -463,30 +598,44 @@
           </section>
 
           <!-- ── Section: Creator & Rights ─────────────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">Creator &amp; Rights</h3>
+          <section class="flex flex-col gap-2.5">
+            <h3
+              class="bm-section-title m-0 border-b-[0.5px] border-border pb-1.5 text-[10px] font-bold tracking-[0.06em] text-text-muted uppercase"
+            >
+              Creator &amp; Rights
+            </h3>
 
-            <div class="bm-row">
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-creator">Creator / Author</label>
+            <div class="flex gap-2.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-creator"
+                  >Creator / Author</label
+                >
                 <input
                   id="bm-creator"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().creator === MIXED && !touched().has('creator')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="mixedFieldClass(mixed().creator === MIXED && !touched().has('creator'))"
                   [placeholder]="mixed().creator === MIXED ? '(mixed)' : ''"
                   [value]="creatorVal()"
                   (input)="creatorVal.set($any($event.target).value); onFieldChange('creator')"
                 />
               </div>
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-jobtitle">Creator Job Title</label>
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-jobtitle"
+                  >Creator Job Title</label
+                >
                 <input
                   id="bm-jobtitle"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="
-                    mixed().creatorJobTitle === MIXED && !touched().has('creatorJobTitle')
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="
+                    mixedFieldClass(
+                      mixed().creatorJobTitle === MIXED && !touched().has('creatorJobTitle')
+                    )
                   "
                   [placeholder]="mixed().creatorJobTitle === MIXED ? '(mixed)' : ''"
                   [value]="creatorJobTitleVal()"
@@ -498,14 +647,20 @@
               </div>
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-copyright">Copyright Notice</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-copyright"
+                >Copyright Notice</label
+              >
               <input
                 id="bm-copyright"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="
-                  mixed().copyrightNotice === MIXED && !touched().has('copyrightNotice')
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="
+                  mixedFieldClass(
+                    mixed().copyrightNotice === MIXED && !touched().has('copyrightNotice')
+                  )
                 "
                 [placeholder]="mixed().copyrightNotice === MIXED ? '(mixed)' : '© 2026 Your Name'"
                 [value]="copyrightNoticeVal()"
@@ -516,11 +671,15 @@
               />
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-copyrightStatus">Copyright Status</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-copyrightStatus"
+                >Copyright Status</label
+              >
               <select
                 id="bm-copyrightStatus"
-                class="bm-select"
+                class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
                 [value]="copyrightStatusVal()"
                 (change)="
                   copyrightStatusVal.set($any($event.target).value);
@@ -540,39 +699,53 @@
               </select>
             </div>
 
-            <div class="bm-field">
-              <label class="bm-label" for="bm-usageterms">Usage Terms</label>
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                for="bm-usageterms"
+                >Usage Terms</label
+              >
               <input
                 id="bm-usageterms"
                 type="text"
-                class="bm-input"
-                [class.is-mixed]="mixed().usageTerms === MIXED && !touched().has('usageTerms')"
+                class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                [class]="
+                  mixedFieldClass(mixed().usageTerms === MIXED && !touched().has('usageTerms'))
+                "
                 [placeholder]="mixed().usageTerms === MIXED ? '(mixed)' : ''"
                 [value]="usageTermsVal()"
                 (input)="usageTermsVal.set($any($event.target).value); onFieldChange('usageTerms')"
               />
             </div>
 
-            <div class="bm-row">
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-credit">Credit</label>
+            <div class="flex gap-2.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-credit"
+                  >Credit</label
+                >
                 <input
                   id="bm-credit"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().credit === MIXED && !touched().has('credit')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="mixedFieldClass(mixed().credit === MIXED && !touched().has('credit'))"
                   [placeholder]="mixed().credit === MIXED ? '(mixed)' : ''"
                   [value]="creditVal()"
                   (input)="creditVal.set($any($event.target).value); onFieldChange('credit')"
                 />
               </div>
-              <div class="bm-field bm-field-half">
-                <label class="bm-label" for="bm-source">Source</label>
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <label
+                  class="text-[10px] font-semibold tracking-[0.03em] text-text-muted uppercase"
+                  for="bm-source"
+                  >Source</label
+                >
                 <input
                   id="bm-source"
                   type="text"
-                  class="bm-input"
-                  [class.is-mixed]="mixed().source === MIXED && !touched().has('source')"
+                  class="h-[30px] rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] outline-none transition-[border-color] duration-[120ms] focus:border-[color:var(--color-accent,#0066cc)]"
+                  [class]="mixedFieldClass(mixed().source === MIXED && !touched().has('source'))"
                   [placeholder]="mixed().source === MIXED ? '(mixed)' : ''"
                   [value]="sourceVal()"
                   (input)="sourceVal.set($any($event.target).value); onFieldChange('source')"
@@ -583,7 +756,9 @@
         </div>
 
         <!-- Footer -->
-        <div class="bm-footer">
+        <div
+          class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+        >
           <button type="button" class="dlg-button dlg-button-ghost" (click)="onReset()">
             Reset
           </button>
