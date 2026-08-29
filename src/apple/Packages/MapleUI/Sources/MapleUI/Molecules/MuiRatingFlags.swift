@@ -50,7 +50,11 @@ public struct MuiRatingFlags: View {
 
     public var body: some View {
         if readonly {
-            readonlyBody
+            // Truly render nothing (no focusable element, no accessibility
+            // label) when there is no state to show.
+            if rating > 0 || flag != .none {
+                readonlyBody
+            }
         } else {
             interactiveBody
         }
