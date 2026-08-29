@@ -8,8 +8,7 @@
     [height]="pixelSize()"
   ></canvas>
   @if (renderError()) {
-    <div class="error max-w-[160px] text-center text-[11px] text-error-text" role="alert">
-      {{ renderError() }}
-    </div>
+    <!-- prettier-ignore -->
+    <div class="error max-w-[160px] text-center text-[11px] text-error-text" role="alert">{{ renderError() }}</div>
   }
 </div>
