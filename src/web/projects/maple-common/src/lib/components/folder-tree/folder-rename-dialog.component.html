@@ -1,21 +1,21 @@
 <div
-  class="frn-backdrop"
+  class="dlg-backdrop"
   role="dialog"
   aria-modal="true"
   [attr.aria-label]="'Rename ' + currentName()"
   (click)="onBackdropClick()"
   (keydown.escape)="onCancel()"
 >
-  <div class="frn-card" (click)="$event.stopPropagation()">
-    <div class="frn-header">
-      <span class="frn-title">Rename Folder</span>
+  <div class="dlg-card frn-card" (click)="$event.stopPropagation()">
+    <div class="dlg-header">
+      <span class="dlg-title">Rename Folder</span>
     </div>
 
     <div class="frn-body">
       <input
         #nameInput
         type="text"
-        class="frn-input"
+        class="dlg-input frn-input"
         placeholder="Name"
         [value]="name()"
         [attr.aria-label]="'Folder name'"

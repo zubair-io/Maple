@@ -1,20 +1,5 @@
-@use '../../styles/dialog-chrome' as chrome;
-
-.fnf-backdrop {
-  @include chrome.dialog-backdrop;
-}
-
 .fnf-card {
-  @include chrome.dialog-card-base;
   max-width: 360px;
-}
-
-.fnf-header {
-  @include chrome.dialog-header;
-}
-
-.fnf-title {
-  @include chrome.dialog-title;
 }
 
 .fnf-body {
@@ -28,10 +13,6 @@
   font-size: 12px;
   color: var(--color-text-muted);
   margin: 0;
-}
-
-.fnf-input {
-  @include chrome.dialog-input;
 }
 
 .fnf-error {

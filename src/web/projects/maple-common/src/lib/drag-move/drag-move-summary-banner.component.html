@@ -1,4 +1,4 @@
-<div class="dms-banner" role="status">
+<div class="dlg-toast dms-banner" role="status">
   <div class="dms-text">
     <span>{{ headline() }}</span>
     @if (summary().skipped > 0) {
@@ -15,5 +15,7 @@
       </span>
     }
   </div>
-  <button type="button" (click)="onDismiss()" aria-label="Dismiss">✕</button>
+  <button type="button" class="dlg-toast-dismiss" (click)="onDismiss()" aria-label="Dismiss">
+    ✕
+  </button>
 </div>
