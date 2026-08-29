@@ -1,19 +1,29 @@
-<section class="contracts-section">
-  <h2>Atom contracts</h2>
-  <p class="contracts-intro">
+<section class="mt-16">
+  <h2 class="m-0 mb-2 pb-2 text-[1.25rem] font-semibold border-b border-[#e7e5e4]">
+    Atom contracts
+  </h2>
+  <p class="m-0 mb-6 text-[0.875rem] text-[#78716c]">
     The binding specification for each implemented atom &mdash; rendered from the same contract
     documents CI lints.
   </p>
   @if (loading()) {
-    <p class="status-line">Loading component contracts&hellip;</p>
+    <p class="text-[#78716c]">Loading component contracts&hellip;</p>
   } @else if (loadFailed()) {
-    <p class="status-line">The component contracts could not be loaded. Try reloading the page.</p>
+    <p class="text-[#78716c]">
+      The component contracts could not be loaded. Try reloading the page.
+    </p>
   } @else {
-    <div class="contract-grid">
+    <div class="flex flex-col gap-6">
       @for (contract of contracts(); track contract.slug) {
-        <article class="contract-card" [id]="contract.slug">
-          <h3>{{ contract.title }}</h3>
-          <div class="contract-body" [innerHTML]="contract.html"></div>
+        <article
+          class="contract-card bg-white border border-[#e7e5e4] rounded-lg p-6"
+          [id]="contract.slug"
+        >
+          <h3 class="m-0 mb-3 text-[1.125rem] font-semibold">{{ contract.title }}</h3>
+          <div
+            class="contract-body text-[0.875rem] leading-[1.6]"
+            [innerHTML]="contract.html"
+          ></div>
         </article>
       }
     </div>

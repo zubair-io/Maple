@@ -1,56 +1,13 @@
 // Atom contracts section of the catalog's Atoms tab. Ported from
 // maple-ui-page.component.scss as part of the shell split (#3000).
-
-.contracts-section {
-  margin-top: 64px;
-
-  h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin: 0 0 8px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #e7e5e4;
-  }
-
-  .contracts-intro {
-    color: #78716c;
-    font-size: 0.875rem;
-    margin: 0 0 24px;
-  }
-}
-
-.status-line {
-  color: #78716c;
-}
-
-.contract-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.contract-card {
-  background: #ffffff;
-  border: 1px solid #e7e5e4;
-  border-radius: 8px;
-  padding: 24px;
-
-  > h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0 0 12px;
-  }
-}
-
+//
+// The markdown body is rendered via [innerHTML] (contract.html), so it never
+// passes through this component's template — Emulated view encapsulation's
+// scoping attribute never lands on it. `::ng-deep` reaches it anyway — same
+// rationale as map-view's `.map-pin` rule (see that file's header comment).
+// This is genuinely foreign DOM, so it's kept as residue rather than moved
+// to template utility classes.
 .contract-body {
-  font-size: 0.875rem;
-  line-height: 1.6;
-
-  // The markdown body is rendered via [innerHTML] (contract.html), so it
-  // never passes through this component's template — Emulated view
-  // encapsulation's scoping attribute never lands on it. `::ng-deep` reaches
-  // it anyway — same rationale as map-view's `.map-pin` rule (see that
-  // file's header comment).
   ::ng-deep {
     h2 {
       font-size: 0.75rem;
