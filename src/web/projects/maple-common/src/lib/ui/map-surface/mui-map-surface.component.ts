@@ -135,6 +135,7 @@ function toClusterPin(group: readonly MuiPositionedAnnotation[]): MuiMapPin {
   ],
   templateUrl: './mui-map-surface.component.html',
   styleUrl: './mui-map-surface.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiMapSurfaceComponent {

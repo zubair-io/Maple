@@ -1,60 +1,11 @@
-@use '../../generated/ui-tokens' as tok;
-
-:host {
-  display: block;
-}
-
-.mui-map-surface {
-  position: relative;
-  overflow: hidden;
-  border-radius: tok.$maple-radius-md;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-}
-
+// Residue: the pannable grid backdrop's `background-image` is two
+// perpendicular `linear-gradient()` rulers forming a repeating 32×32px
+// grid, keyed off `--color-border` — not expressible as a Tailwind utility
+// (no arbitrary-value form composes two gradients + a tiled background-size
+// cleanly without duplicating the token reference twice inline).
 .backdrop {
-  position: absolute;
-  inset: 0;
-  cursor: grab;
-  touch-action: none;
   background-image:
     linear-gradient(var(--color-border) 1px, transparent 1px),
     linear-gradient(90deg, var(--color-border) 1px, transparent 1px);
   background-size: 32px 32px;
-  opacity: 0.6;
-
-  &:active {
-    cursor: grabbing;
-  }
-}
-
-.heatmap-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.7;
-}
-
-.empty-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pin {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  line-height: 0;
-}
-
-.heatmap-toggle {
-  position: absolute;
-  top: tok.$maple-spacing-sm;
-  right: tok.$maple-spacing-sm;
 }
