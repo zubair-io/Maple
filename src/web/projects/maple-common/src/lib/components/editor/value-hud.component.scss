@@ -1,46 +1,9 @@
-// ValueHud styles — fade-in/out, mono value, accent, progress rail.
-// Pro tokens imported once globally in styles.scss (#1537).
-
-:host {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  // Absolute overlay — positioned by the shell
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--pro-motion-hud-out);
-
-  &.hud--visible {
-    opacity: 1;
-    transition: opacity var(--pro-motion-hud-in);
-  }
-}
-
-.hud-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.hud-eyebrow {
-  font-size: 11px;
-  color: var(--pro-text-muted);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  user-select: none;
-}
+// value-hud.component.scss — residue only (Tailwind port #3071 Task 9).
+// `:host-context()` reaches into shadow-DOM-crossing ancestry (the editor
+// shell's `.shell--desktop` class) — Tailwind has no equivalent variant,
+// so the desktop-size overrides stay plain CSS.
 
 .hud-value {
-  font-family: var(--font-mono, monospace);
-  font-variant-numeric: tabular-nums;
-  // Phone default: 30px; desktop override in shell via container query
-  font-size: 30px;
-  font-weight: 300;
-  color: var(--pro-accent);
-  line-height: 1;
-  user-select: none;
-
   // Desktop override applied by the editor shell via a class on :host
   :host-context(.shell--desktop) & {
     font-size: 22px;
@@ -48,38 +11,7 @@
 }
 
 .hud-rail {
-  position: relative;
-  // Phone: 200px; desktop: 240px
-  width: 200px;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 1px;
-  overflow: hidden;
-
   :host-context(.shell--desktop) & {
     width: 240px;
   }
-}
-
-.hud-rail-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: var(--pro-accent);
-  border-radius: 1px;
-  min-width: 2px;
-  max-width: 100%;
-  transition: width 16ms linear;
-}
-
-// Center tick mark
-.hud-rail-center {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: calc(50% - 0.75px);
-  width: 1.5px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 1px;
 }

@@ -92,7 +92,7 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
   standalone: true,
   imports: [MuiLivingSliderComponent, MapleIconComponent],
   templateUrl: './control-card.component.html',
-  styleUrl: './control-card.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ControlCardComponent {
@@ -171,6 +171,20 @@ export class ControlCardComponent {
   isSubtoolActive(id: ToolId | null): boolean {
     const armed = this.activeTool();
     return id === null ? !this.isArmedSubtool(armed) : id === armed;
+  }
+
+  /** Mutually-exclusive color/border/weight quadruple for a sub-tool
+   * chip's active state (Tailwind port #3071) — `subtool-chip--active`
+   * kept bare (asserted via `classList.contains` in
+   * control-card.component.spec.ts), folded into one computed string
+   * alongside the color/border/weight it drives, rather than a base class
+   * plus a conditional add-on. */
+  protected subtoolChipClass(active: boolean): string {
+    const base =
+      'subtool-chip shrink-0 cursor-pointer rounded-[20px] border-[0.5px] px-[11px] py-[3px] text-[11px] transition-[background,border-color] duration-[120ms] ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]';
+    return active
+      ? `${base} subtool-chip--active border-[color:var(--pro-accent)] bg-[color:var(--pro-accent-28)] font-semibold text-[color:var(--pro-accent)]`
+      : `${base} border-[color:var(--pro-border)] bg-transparent text-[color:var(--pro-text-muted)]`;
   }
 
   onSubtoolClick(id: ToolId | null): void {

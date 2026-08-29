@@ -18,13 +18,23 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
   styleUrl: './value-hud.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'pointer-events-none',
-    '[class.hud--visible]': 'visible()',
+    class: 'pointer-events-none flex items-center justify-center',
+    '[class]': 'hostVisibilityClass()',
   },
 })
 export class ValueHudComponent {
   /** Whether the HUD should be shown. */
   visible = input<boolean>(false);
+
+  /** Mutually-exclusive opacity/transition pair (Tailwind port #3071) —
+   * `.hud--visible` used to override the base `:host`'s `opacity: 0` and
+   * fade-out transition token with a different fade-in token; folded into
+   * one computed host-class string per the port's host-class rule. */
+  protected hostVisibilityClass(): string {
+    return this.visible()
+      ? 'hud--visible opacity-100 transition-opacity [transition-duration:var(--pro-motion-hud-in)]'
+      : 'opacity-0 transition-opacity [transition-duration:var(--pro-motion-hud-out)]';
+  }
   /** Eyebrow text — group and tool name (e.g. "Light · Exposure"). */
   eyebrow = input<string>('');
   /** Pre-formatted signed value string (e.g. "+2.30"). */
