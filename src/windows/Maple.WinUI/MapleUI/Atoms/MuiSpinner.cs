@@ -84,7 +84,7 @@ namespace Maple.UI.Atoms
             // color — the spinner rendered in whatever accent Windows is set
             // to instead of Maple primary (MuiProgress's ring already pins
             // this; this wrapper missed it).
-            _ring.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MaplePrimary"];
+            _ring.Foreground = (Brush)Application.Current.Resources["MaplePrimary"];
 
             _delayTimer.Tick += (_, _) =>
             {
