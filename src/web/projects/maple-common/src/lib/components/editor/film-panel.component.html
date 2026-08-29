@@ -1,9 +1,9 @@
 <!-- FilmPanelComponent — category chip row + filtered catalog picker +
      strength slider (#2683, #2780). One category's looks at a time, not all
      100 stacked into a single scroll — see the file banner. -->
-<div class="film-panel" data-testid="film-panel">
+<div class="flex min-h-0 flex-col gap-2.5 p-2.5" data-testid="film-panel">
   <div
-    class="film-category-row"
+    class="flex gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     role="group"
     aria-label="Film categories"
     data-testid="film-category-row"
@@ -11,8 +11,7 @@
     @for (category of categories; track category.id) {
       <button
         type="button"
-        class="film-category-chip"
-        [class.film-category-chip--active]="isCategoryActive(category.id)"
+        [class]="filmCategoryChipClass(isCategoryActive(category.id))"
         [attr.aria-pressed]="isCategoryActive(category.id)"
         [attr.data-testid]="'film-category-' + category.id"
         (click)="selectCategory(category.id)"
@@ -22,12 +21,15 @@
     }
   </div>
 
-  <div class="film-look-list" role="listbox" aria-label="Film looks">
+  <div
+    class="flex max-h-[240px] flex-col gap-0.5 overflow-y-auto"
+    role="listbox"
+    aria-label="Film looks"
+  >
     <button
       type="button"
-      class="film-look-row film-look-row--none"
+      [class]="filmLookRowClass(!hasActiveLook(), true)"
       role="option"
-      [class.film-look-row--active]="!hasActiveLook()"
       [attr.aria-selected]="!hasActiveLook()"
       data-testid="film-look-none"
       (click)="selectNone()"
@@ -35,14 +37,17 @@
       None
     </button>
 
-    <div class="film-category">
-      <div class="film-category-label">{{ activeGroup().label }}</div>
+    <div class="mt-1.5 flex flex-col gap-0.5 first-of-type:mt-1">
+      <div
+        class="px-2 pt-1 pb-0.5 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
+      >
+        {{ activeGroup().label }}
+      </div>
       @for (look of activeGroup().looks; track look.id) {
         <button
           type="button"
-          class="film-look-row"
+          [class]="filmLookRowClass(isActive(look.id), false)"
           role="option"
-          [class.film-look-row--active]="isActive(look.id)"
           [attr.aria-selected]="isActive(look.id)"
           [attr.data-testid]="'film-look-row-' + look.id"
           (click)="selectLook(look.id)"
@@ -54,7 +59,7 @@
   </div>
 
   @if (hasActiveLook()) {
-    <div class="film-strength-row" data-testid="film-strength-row">
+    <div class="border-t border-border pt-1" data-testid="film-strength-row">
       <mui-living-slider
         label="Strength"
         [value]="strength()"

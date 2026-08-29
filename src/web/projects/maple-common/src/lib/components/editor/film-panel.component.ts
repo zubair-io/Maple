@@ -120,7 +120,7 @@ const STRENGTH_RANGE = ADJUSTMENT_RANGES.filmStrength;
   standalone: true,
   imports: [MuiLivingSliderComponent],
   templateUrl: './film-panel.component.html',
-  styleUrl: './film-panel.component.scss',
+  host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FilmPanelComponent {
@@ -184,6 +184,35 @@ export class FilmPanelComponent {
 
   isCategoryActive(category: FilmCategory): boolean {
     return this.selectedCategory() === category;
+  }
+
+  /** Mutually-exclusive color/border/weight quadruple for a category
+   * chip's active state (Tailwind port #3071) — same shape as
+   * `ControlCardComponent.subtoolChipClass`, rescoped here since Angular's
+   * `styleUrl` encapsulation can't share the class across components. */
+  protected filmCategoryChipClass(active: boolean): string {
+    const base =
+      'film-category-chip shrink-0 cursor-pointer rounded-[20px] border-[0.5px] px-[11px] py-[3px] text-[11px] whitespace-nowrap transition-[background,border-color] duration-[120ms] ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]';
+    return active
+      ? `${base} film-category-chip--active border-[color:var(--pro-accent)] bg-[color:var(--pro-accent-28)] font-semibold text-[color:var(--pro-accent)]`
+      : `${base} border-[color:var(--pro-border)] bg-transparent text-[color:var(--pro-text-muted)]`;
+  }
+
+  /** Mutually-exclusive color/background pair for a film-look row
+   * (Tailwind port #3071) — `film-look-row` and `film-look-row--active`
+   * kept bare (asserted via `querySelectorAll`/`classList.contains` in
+   * film-panel.component.spec.ts). `isNone` adds the "None" row's always-
+   * bold top-rounded-only treatment on top, independent of active state. */
+  protected filmLookRowClass(active: boolean, isNone: boolean): string {
+    const base =
+      'film-look-row block w-full cursor-pointer rounded-md border-none px-2.5 py-[7px] text-left text-[13px]';
+    const noneExtra = isNone
+      ? ' film-look-row--none rounded-t-md rounded-b-none border-b border-border font-semibold'
+      : '';
+    const colorState = active
+      ? ' film-look-row--active bg-[color-mix(in_srgb,var(--mpl-primary,#ea580c)_18%,transparent)] font-semibold text-[color:var(--mpl-primary,#ea580c)]'
+      : ' text-[color:var(--mpl-text-main,#e8e6e3)] hover:bg-[color-mix(in_srgb,var(--mpl-text-main,#e8e6e3)_6%,transparent)]';
+    return base + noneExtra + colorState;
   }
 
   selectCategory(category: FilmCategory): void {

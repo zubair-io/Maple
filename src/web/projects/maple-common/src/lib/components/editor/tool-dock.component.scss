@@ -1,56 +1,10 @@
-// ToolDock — vertical glass column (tablet/desktop) or horizontal glass bar
-// (phone, #1807) wrapping `mui-tool-dock`. Pro tokens imported once globally
-// in styles.scss (#1537). The button/circle/label/dot chrome itself now
-// lives in `mui-tool-dock`/`mui-action-button` (#3046) — this file only owns
-// the glass card the dock sits inside.
-
-:host {
-  display: flex;
-  flex-direction: column;
-}
-
-:host.dock-host--horizontal {
-  flex-direction: row;
-}
-
-.dock-glass {
-  display: flex;
-  padding: 8px 6px;
-  background: var(--pro-glass-bg);
-  backdrop-filter: var(--pro-glass-blur);
-  -webkit-backdrop-filter: var(--pro-glass-blur);
-  border: 0.5px solid var(--pro-glass-border);
-  box-shadow: var(--pro-glass-shadow);
-  border-radius: var(--pro-glass-radius-card);
-
-  // Tablet/desktop: heavier glass
-  @media (min-width: 768px) {
-    background: var(--pro-glass-bg-heavy);
-    backdrop-filter: var(--pro-glass-blur-heavy);
-    -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
-    border-radius: var(--pro-glass-radius-card-desktop);
-  }
-
-  // Horizontal bar (phone bottom dock, #1807): row of icons, full-width card.
-  // Nine labelled buttons no longer fit a 375px viewport, so the row scrolls
-  // horizontally instead of shrinking to fit — Apple's phone bar does the
-  // same (MobileControlBar.swift:122).
-  &.dock-glass--horizontal {
-    width: 100%;
-    padding: 6px;
-    overflow-x: auto;
-
-    // Scrollbar chrome (classic desktop Chrome: ~8-10px track) would push
-    // the bar's rendered height past its box-model 64px and eat the 8px
-    // gap to `.phone-card-anchor` above it (`bottom: calc(72px + 12px +
-    // safe-area)` assumes exactly 64px — see #1807 follow-up). iOS/Android
-    // overlay scrollbars occupy 0px already, so hiding the track here only
-    // affects desktop-narrow rendering, not real phones; scrolling itself
-    // (`overflow-x: auto`) is untouched.
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-  }
+// tool-dock.component.scss — residue only (Tailwind port #3071 Task 9).
+// `overflow-x: auto` on the horizontal (phone) dock is asserted via
+// `getComputedStyle` in tool-dock.component.spec.ts — that unit spec does
+// not load the global Tailwind stylesheet, so the `overflow-x-auto`
+// utility class computes to nothing there. Kept as plain CSS so the
+// computed-style assertion holds regardless of whether Tailwind is
+// wired into the render.
+.dock-glass--horizontal {
+  overflow-x: auto;
 }
