@@ -135,10 +135,34 @@ const DOCK_TOOL_IDS = new Set<ToolId>(
   styleUrl: './tool-dock.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.dock-host--horizontal]': "orientation() === 'horizontal'",
+    '[class]': 'hostClass()',
   },
 })
 export class ToolDockComponent {
+  /** Mutually-exclusive flex-direction pair (Tailwind port #3071) —
+   * `:host.dock-host--horizontal` used to override the base `:host`'s
+   * `flex-direction: column`; folded into one computed host-class string
+   * per the port's host-class rule (a conditional `:host` block becomes
+   * one computed `[class]` returning the whole set, never a static class
+   * plus a conditional add-on). `dock-host--horizontal` kept bare for any
+   * external `::ng-deep` styling that may target it. */
+  protected hostClass(): string {
+    return this.orientation() === 'horizontal'
+      ? 'flex flex-row dock-host--horizontal'
+      : 'flex flex-col';
+  }
+
+  /** Mutually-exclusive layout pair for the glass card's vertical-column vs
+   * horizontal-bar presentation (Tailwind port #3071) — `dock-glass` and
+   * `dock-glass--horizontal` kept bare (asserted in
+   * tool-dock.component.spec.ts). */
+  protected dockGlassClass(): string {
+    const base =
+      'dock-glass flex rounded-[var(--pro-glass-radius-card)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-1.5 py-2 shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur)] md:rounded-[var(--pro-glass-radius-card-desktop)] md:bg-[color:var(--pro-glass-bg-heavy)] md:[backdrop-filter:var(--pro-glass-blur-heavy)]';
+    return this.orientation() === 'horizontal'
+      ? `${base} dock-glass--horizontal w-full overflow-x-auto p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`
+      : base;
+  }
   /** Currently active tool group. */
   activeGroup = input.required<ToolGroup>();
   /** Currently armed tool — only consulted for `tool`-entries (e.g. Crop), so
