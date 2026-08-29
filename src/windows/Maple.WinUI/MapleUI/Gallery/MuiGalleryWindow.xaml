@@ -21,14 +21,22 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel
+        <!-- Tab strip doubles as the title bar (#3079) — tabs stay
+             interactive on the left, the space to their right is the system
+             drag region, caption buttons overlay the far right. -->
+        <Grid Grid.Row="0"
+              BorderThickness="0,0,0,1"
+              BorderBrush="{StaticResource MapleBorder}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel
             x:Name="TabStrip"
-            Grid.Row="0"
+            Grid.Column="0"
             Orientation="Horizontal"
             Spacing="4"
-            Padding="16,12"
-            BorderThickness="0,0,0,1"
-            BorderBrush="{StaticResource MapleBorder}">
+            Padding="16,12">
             <Button x:Name="TabTokens" Content="Tokens" Tag="Tokens" Click="OnTabClick" />
             <Button x:Name="TabAtoms" Content="Atoms" Tag="Atoms" Click="OnTabClick" />
             <Button x:Name="TabMoleculesL1" Content="Molecules L1" Tag="MoleculesL1" Click="OnTabClick" />
@@ -36,7 +44,10 @@
             <Button x:Name="TabOrganisms" Content="Organisms" Tag="Organisms" Click="OnTabClick" />
             <Button x:Name="TabTemplates" Content="Templates" Tag="Templates" Click="OnTabClick" />
             <Button x:Name="TabPages" Content="Pages" Tag="Pages" Click="OnTabClick" />
-        </StackPanel>
+            </StackPanel>
+
+            <Grid x:Name="TitleBarDragRegion" Grid.Column="1" Background="Transparent" />
+        </Grid>
 
         <Grid Grid.Row="1">
             <ScrollViewer x:Name="TokensPage" Padding="24">
