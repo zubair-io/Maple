@@ -1,34 +1,7 @@
-:host {
-  display: block;
-  height: 100%;
-  min-height: 0;
-  container-type: inline-size;
-}
-
-.mui-tab-shell {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
-.tab-bar {
-  flex: 0 0 auto;
-}
-
-.content {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-
-// Explicit override — always tab-bar-at-bottom regardless of width.
-.placement-bottom {
-  flex-direction: column-reverse;
-}
-
-// Phone-tier breakpoint: below 640px, the tab bar moves to the bottom
-// (thumb reach) the same way `placement="bottom"` does explicitly.
+// Residue: phone-tier container query. Below 640px, the auto-placement tab
+// bar moves to the bottom (thumb reach) — no Tailwind utility expresses a
+// custom-breakpoint container query cleanly alongside the mutually
+// exclusive placement classes, so this stays plain CSS.
 @container (max-width: 640px) {
   .placement-auto {
     flex-direction: column-reverse;

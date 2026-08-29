@@ -22,6 +22,7 @@ import { MuiTreeRowChevronComponent } from './mui-tree-row-chevron.component';
   ],
   templateUrl: './mui-tree-row.component.html',
   styleUrl: './mui-tree-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTreeRowComponent {

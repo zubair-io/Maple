@@ -5,7 +5,7 @@
 // caller with zero tools passes an empty `entries` array and the dock
 // simply renders nothing, no loading/empty chrome of its own.
 
-import { ChangeDetectionStrategy, Component, input, model, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, model, output } from '@angular/core';
 import { MuiActionButtonComponent } from '../action-button/mui-action-button.component';
 import type { MuiActionButtonOrientation } from '../action-button/mui-action-button.component';
 import { MuiDividerComponent } from '../divider/mui-divider.component';
@@ -59,7 +59,7 @@ export type MuiToolDockOrientation = 'vertical' | 'horizontal';
   standalone: true,
   imports: [MuiActionButtonComponent, MuiDividerComponent],
   templateUrl: './mui-tool-dock.component.html',
-  styleUrl: './mui-tool-dock.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiToolDockComponent {
@@ -96,6 +96,12 @@ export class MuiToolDockComponent {
   dividerOrientation(): MuiDividerOrientation {
     return this.orientation() === 'vertical' ? 'horizontal' : 'vertical';
   }
+
+  readonly rootClass = computed(() =>
+    this.orientation() === 'horizontal'
+      ? 'mui-tool-dock is-horizontal flex flex-row items-center gap-1'
+      : 'mui-tool-dock flex flex-col items-stretch gap-1',
+  );
 
   /** Whether an item shows as active — the caller's explicit `selected`
    * when given, else a fallback to the dock's own single-select

@@ -1,17 +1,23 @@
-<div
-  class="mui-toast"
-  [class]="'variant-' + variant() + ' surface-' + surface()"
-  [class.is-entered]="entered()"
-  [class.is-leaving]="leaving()"
->
-  <mui-icon [name]="icon()" size="sm" [color]="iconColor()" />
-  <span class="message">{{ message() }}</span>
+<div [class]="rootClass()">
+  <mui-icon class="flex-none" [name]="icon()" size="sm" [color]="iconColor()" />
+  <span class="message flex-1">{{ message() }}</span>
   @if (actionLabel()) {
-    <button type="button" class="action" (click)="onActionClick()">{{ actionLabel() }}</button>
+    <button
+      type="button"
+      class="action flex-none border-none bg-transparent text-primary font-semibold text-[12px] cursor-pointer hover:underline"
+      (click)="onActionClick()"
+    >
+      {{ actionLabel() }}
+    </button>
   }
   @if (dismissible()) {
-    <button type="button" class="close" aria-label="Dismiss" (click)="dismiss()">
-      <mui-icon name="x" size="xs" />
+    <button
+      type="button"
+      class="close flex-none inline-flex border-none bg-transparent text-text-muted cursor-pointer p-0 hover:text-text-main"
+      aria-label="Dismiss"
+      (click)="dismiss()"
+    >
+      <mui-icon class="flex-none" name="x" size="xs" />
     </button>
   }
 </div>

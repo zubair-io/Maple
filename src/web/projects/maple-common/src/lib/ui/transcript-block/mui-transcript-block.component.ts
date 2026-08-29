@@ -21,7 +21,7 @@ export interface MuiTranscriptEntry {
   standalone: true,
   imports: [MuiTextComponent, MuiTimestampComponent],
   templateUrl: './mui-transcript-block.component.html',
-  styleUrl: './mui-transcript-block.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTranscriptBlockComponent {

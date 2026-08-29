@@ -1,5 +1,5 @@
 <mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
-  <div class="mui-todo-popover">
+  <div class="mui-todo-popover flex flex-col gap-2 p-2 min-w-[220px]">
     <mui-form-field
       label="Task"
       [(value)]="title"

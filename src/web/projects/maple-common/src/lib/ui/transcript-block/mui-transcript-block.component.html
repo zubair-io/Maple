@@ -1,10 +1,14 @@
-<div class="mui-transcript-block" role="list">
+<div class="mui-transcript-block flex flex-col gap-2" role="list">
   @for (entry of entries(); track entry.id) {
-    <div class="row" role="listitem">
-      <mui-timestamp [value]="entryTime(entry)" format="time-only" class="time" />
-      <div class="line">
+    <div class="row flex items-baseline gap-2" role="listitem">
+      <mui-timestamp
+        [value]="entryTime(entry)"
+        format="time-only"
+        class="time flex-none text-text-muted [font-variant-numeric:tabular-nums]"
+      />
+      <div class="line flex items-baseline gap-1 min-w-0">
         @if (entry.speaker) {
-          <mui-text variant="chip-label" color="muted" class="speaker">{{
+          <mui-text variant="chip-label" color="muted" class="speaker flex-none font-bold">{{
             entry.speaker
           }}</mui-text>
         }

@@ -31,7 +31,7 @@ export interface MuiVersionItem {
     MuiTextComponent,
   ],
   templateUrl: './mui-version-history-panel.component.html',
-  styleUrl: './mui-version-history-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiVersionHistoryPanelComponent {

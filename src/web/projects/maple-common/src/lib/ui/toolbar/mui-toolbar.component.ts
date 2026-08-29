@@ -37,7 +37,7 @@ export type MuiToolbarEntry = MuiToolbarActionItem | MuiToolbarDivider;
     MuiPopoverComponent,
   ],
   templateUrl: './mui-toolbar.component.html',
-  styleUrl: './mui-toolbar.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiToolbarComponent {

@@ -1,12 +1,15 @@
 @if (expandable()) {
   @if (busy()) {
-    <span class="chevron chevron-busy" aria-label="Loading">
+    <span
+      class="chevron chevron-busy inline-flex items-center justify-center w-4 h-4 flex-none border-none bg-transparent text-text-muted cursor-default transition-transform duration-[120ms] ease-in-out"
+      aria-label="Loading"
+    >
       <mui-spinner size="sm" placement="inline" />
     </span>
   } @else if (error()) {
     <button
       type="button"
-      class="chevron chevron-error"
+      class="chevron chevron-error inline-flex items-center justify-center w-4 h-4 flex-none border-none bg-transparent cursor-pointer transition-transform duration-[120ms] ease-in-out text-error-text text-[11px] font-semibold leading-none"
       [attr.aria-label]="errorTitle() ?? 'Retry'"
       [title]="errorTitle() ?? null"
       (click)="toggle.emit($event)"
@@ -16,8 +19,10 @@
   } @else {
     <button
       type="button"
-      class="chevron"
-      [class.is-expanded]="expanded()"
+      [class]="
+        'chevron inline-flex items-center justify-center w-4 h-4 flex-none border-none bg-transparent text-text-muted cursor-pointer transition-transform duration-[120ms] ease-in-out' +
+        (expanded() ? ' is-expanded rotate-90' : '')
+      "
       [attr.aria-label]="expanded() ? 'Collapse' : 'Expand'"
       (click)="toggle.emit($event)"
     >
@@ -25,5 +30,5 @@
     </button>
   }
 } @else {
-  <span class="chevron-spacer"></span>
+  <span class="chevron-spacer w-4 flex-none"></span>
 }

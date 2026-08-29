@@ -29,7 +29,7 @@ export interface MuiTab {
   standalone: true,
   imports: [MuiIconComponent, MuiTextComponent],
   templateUrl: './mui-tabs.component.html',
-  styleUrl: './mui-tabs.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTabsComponent implements AfterViewInit {

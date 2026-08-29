@@ -1,12 +1,15 @@
-<div class="mui-tabs" role="tablist" [attr.aria-label]="ariaLabel()">
+<div
+  class="mui-tabs relative flex items-center gap-6 border-b border-border"
+  role="tablist"
+  [attr.aria-label]="ariaLabel()"
+>
   @for (tab of tabs(); track tab.id; let i = $index) {
     <button
       #tabBtn
       type="button"
-      class="tab"
+      class="tab inline-flex items-center gap-1 border-none bg-transparent py-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
       role="tab"
       [id]="'mui-tab-' + tab.id"
-      [class.is-active]="activeId() === tab.id"
       [attr.aria-selected]="activeId() === tab.id"
       [attr.tabindex]="activeId() === tab.id ? 0 : -1"
       (click)="select(tab.id)"
@@ -21,7 +24,7 @@
     </button>
   }
   <div
-    class="indicator"
+    class="indicator absolute -bottom-px h-[2px] bg-primary transition-[left,width] duration-[120ms] ease-in-out"
     [style.left.px]="indicatorLeft()"
     [style.width.px]="indicatorWidth()"
   ></div>

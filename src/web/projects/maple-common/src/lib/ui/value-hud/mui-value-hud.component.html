@@ -1,7 +1,13 @@
-<div class="mui-value-hud">
-  <mui-text variant="eyebrow" color="muted" [block]="true" class="label">{{ label() }}</mui-text>
+<div class="mui-value-hud flex flex-col items-start gap-1">
+  <mui-text
+    variant="eyebrow"
+    color="muted"
+    [block]="true"
+    class="label tracking-[0.08em] uppercase"
+    >{{ label() }}</mui-text
+  >
   <mui-text variant="sheet-title" color="main" [block]="true" class="value">{{ value() }}</mui-text>
   @if (progressPct() !== null) {
-    <mui-progress [value]="progressPct()" size="sm" class="track" />
+    <mui-progress [value]="progressPct()" size="sm" class="track w-[120px]" />
   }
 </div>

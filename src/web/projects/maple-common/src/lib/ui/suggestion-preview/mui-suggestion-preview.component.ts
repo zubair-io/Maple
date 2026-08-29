@@ -10,7 +10,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiTextComponent],
   templateUrl: './mui-suggestion-preview.component.html',
-  styleUrl: './mui-suggestion-preview.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSuggestionPreviewComponent {

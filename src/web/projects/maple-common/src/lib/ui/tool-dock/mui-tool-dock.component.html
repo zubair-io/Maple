@@ -1,4 +1,4 @@
-<div class="mui-tool-dock" [class.is-horizontal]="orientation() === 'horizontal'" role="toolbar">
+<div [class]="rootClass()" role="toolbar">
   @for (entry of entries(); track $index) {
     @if (asItem(entry); as item) {
       <mui-action-button

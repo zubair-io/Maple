@@ -1,10 +1,15 @@
-<div class="mui-value-chip">
+<div
+  class="mui-value-chip inline-flex items-center gap-2 bg-bg text-text-main px-2 py-1 rounded-sm shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+>
   @for (seg of resolvedSegments(); track $index; let last = $last) {
     <mui-text variant="chip-label" color="on-accent" [attr.data-testid]="seg.testId ?? null">{{
       seg.text
     }}</mui-text>
     @if (!last) {
-      <span class="mui-value-chip-divider" aria-hidden="true"></span>
+      <span
+        class="mui-value-chip-divider w-px h-[10px] bg-current opacity-40"
+        aria-hidden="true"
+      ></span>
     }
   }
   <mui-badge variant="count" [value]="value()" />

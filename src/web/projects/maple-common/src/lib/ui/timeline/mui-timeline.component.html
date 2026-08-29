@@ -1,5 +1,5 @@
 @if (loading()) {
-  <div class="state-wrap">
+  <div class="state-wrap flex items-center justify-center min-h-[160px]">
     <mui-spinner placement="centered" />
   </div>
 } @else if (error()) {
@@ -9,16 +9,21 @@
 } @else {
   @if (filters().length > 0) {
     <mui-chip-row
-      class="filters"
+      class="filters block mb-4"
       mode="select"
       [chips]="filters()"
       [(selectedId)]="activeFilterId"
     />
   }
   @for (group of groups(); track group.id) {
-    <mui-text variant="eyebrow" [block]="true" class="group-header">{{ group.label }}</mui-text>
+    <mui-text
+      variant="eyebrow"
+      [block]="true"
+      class="group-header sticky top-0 z-[1] bg-bg py-2 text-text-muted"
+      >{{ group.label }}</mui-text
+    >
     <mui-collection-grid
-      class="group-grid"
+      class="group-grid block mb-6"
       [items]="group.items"
       [columns]="columns()"
       [viewportHeight]="groupViewportHeight(group)"

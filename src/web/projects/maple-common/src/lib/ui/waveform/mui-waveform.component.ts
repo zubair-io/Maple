@@ -14,7 +14,7 @@ import type { PlotFrame } from '../internal/plot-canvas';
   selector: 'mui-waveform',
   standalone: true,
   templateUrl: './mui-waveform.component.html',
-  styleUrl: './mui-waveform.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiWaveformComponent extends SizedCanvasPlotBase {

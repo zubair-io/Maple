@@ -46,7 +46,7 @@ const TOOLBAR_ENTRIES: readonly MuiToolbarEntry[] = [
   standalone: true,
   imports: [MuiCanvasSurfaceComponent, MuiToolbarComponent, MuiInputComponent, MuiButtonComponent],
   templateUrl: './mui-whiteboard-canvas.component.html',
-  styleUrl: './mui-whiteboard-canvas.component.scss',
+  host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiWhiteboardCanvasComponent {

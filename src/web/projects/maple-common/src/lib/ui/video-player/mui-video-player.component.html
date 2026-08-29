@@ -1,7 +1,7 @@
-<div class="mui-video-player">
+<div class="mui-video-player flex flex-col gap-1">
   <video
     #video
-    class="video"
+    class="video block w-full rounded-lg bg-image-canvas"
     [src]="src()"
     [poster]="poster() ?? undefined"
     (play)="onPlay()"
@@ -10,7 +10,7 @@
     (loadedmetadata)="onLoadedMetadata()"
     (timeupdate)="onTimeUpdate()"
   ></video>
-  <div class="controls">
+  <div class="controls flex items-center gap-2">
     <mui-button
       variant="ghost"
       size="sm"

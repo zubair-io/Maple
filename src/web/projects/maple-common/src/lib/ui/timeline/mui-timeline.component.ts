@@ -44,7 +44,7 @@ const MAX_VISIBLE_ROWS = 3;
     MuiTextComponent,
   ],
   templateUrl: './mui-timeline.component.html',
-  styleUrl: './mui-timeline.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTimelineComponent {

@@ -1,6 +1,6 @@
-<div class="mui-toast-container" [class]="'position-' + position()" [class.is-inline]="inline()">
+<div [class]="containerClass()">
   @for (toast of toasts(); track toast.id; let i = $index) {
-    <div class="slot" [style.transition-delay.ms]="i * exitStaggerMs">
+    <div class="slot pointer-events-auto" [style.transition-delay.ms]="i * exitStaggerMs">
       <mui-toast
         [variant]="toast.variant"
         [message]="toast.message"

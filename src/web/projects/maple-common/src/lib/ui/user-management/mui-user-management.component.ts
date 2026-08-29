@@ -43,7 +43,7 @@ export interface MuiManagedUser {
     MuiTextComponent,
   ],
   templateUrl: './mui-user-management.component.html',
-  styleUrl: './mui-user-management.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiUserManagementComponent {

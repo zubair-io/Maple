@@ -14,7 +14,7 @@ import type { MuiChip } from '../chip-row/mui-chip-row.component';
   standalone: true,
   imports: [MuiChipRowComponent],
   templateUrl: './mui-vision-row.component.html',
-  styleUrl: './mui-vision-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiVisionRowComponent {

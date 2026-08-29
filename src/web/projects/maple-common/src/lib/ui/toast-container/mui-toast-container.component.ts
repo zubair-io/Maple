@@ -3,7 +3,7 @@
 // per-index delay so a multi-toast dismissal cascades rather than all
 // vanishing on the same frame.
 
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { MuiToastComponent } from '../toast/mui-toast.component';
 import type { MuiToastVariant } from '../toast/mui-toast.component';
 
@@ -24,7 +24,7 @@ const EXIT_STAGGER_MS = 60;
   standalone: true,
   imports: [MuiToastComponent],
   templateUrl: './mui-toast-container.component.html',
-  styleUrl: './mui-toast-container.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiToastContainerComponent {
@@ -39,4 +39,18 @@ export class MuiToastContainerComponent {
   readonly dismissed = output<string>();
 
   readonly exitStaggerMs = EXIT_STAGGER_MS;
+
+  private static readonly POSITION_CLASS: Record<MuiToastContainerPosition, string> = {
+    'top-right': 'position-top-right top-6 right-6 items-end',
+    'bottom-right': 'position-bottom-right bottom-6 right-6 items-end flex-col-reverse',
+    'bottom-center':
+      'position-bottom-center bottom-6 left-1/2 -translate-x-1/2 items-center flex-col-reverse',
+  };
+
+  readonly containerClass = computed(() => {
+    const base = 'mui-toast-container z-[100] flex flex-col gap-2 pointer-events-none';
+    const position = MuiToastContainerComponent.POSITION_CLASS[this.position()];
+    const placement = this.inline() ? 'is-inline absolute' : 'fixed';
+    return `${base} ${placement} ${position}`;
+  });
 }

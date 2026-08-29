@@ -12,7 +12,7 @@
 // (a caller that already knows its context, e.g. always-phone tvOS remote
 // navigation, shouldn't have to fight the auto behavior).
 
-import { ChangeDetectionStrategy, Component, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 import { MuiTabsComponent } from '../tabs/mui-tabs.component';
 import type { MuiTab } from '../tabs/mui-tabs.component';
 
@@ -24,6 +24,7 @@ export type MuiTabShellPlacement = 'auto' | 'top' | 'bottom';
   imports: [MuiTabsComponent],
   templateUrl: './mui-tab-shell.component.html',
   styleUrl: './mui-tab-shell.component.scss',
+  host: { class: 'block h-full min-h-0 @container' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTabShellComponent {
@@ -34,4 +35,11 @@ export class MuiTabShellComponent {
    * container-query breakpoint; 'top'/'bottom' force one side regardless of
    * width. */
   readonly placement = input<MuiTabShellPlacement>('auto');
+
+  readonly rootClass = computed(() => {
+    const base = 'mui-tab-shell flex flex-col h-full min-h-0';
+    if (this.placement() === 'bottom') return `${base} placement-bottom flex-col-reverse`;
+    if (this.placement() === 'auto') return `${base} placement-auto`;
+    return base;
+  });
 }
