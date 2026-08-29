@@ -1,7 +1,7 @@
 <label
-  class="mui-checkbox relative inline-flex items-center gap-1 cursor-pointer before:content-[''] before:absolute before:left-0 before:top-1/2 before:w-11 before:h-11 before:-translate-y-1/2"
+  class="mui-checkbox relative inline-flex items-center gap-1 before:content-[''] before:absolute before:left-0 before:top-1/2 before:w-11 before:h-11 before:-translate-y-1/2"
   [class.is-disabled]="disabled()"
-  [class]="disabled() ? 'cursor-not-allowed opacity-45' : ''"
+  [class]="labelStateClasses()"
 >
   <input
     type="checkbox"
@@ -14,10 +14,10 @@
     (change)="onChange($any($event.target).checked)"
   />
   <span
-    class="mark inline-flex items-center justify-center w-[18px] h-[18px] flex-none border border-border rounded-xs bg-transparent transition-[background-color,border-color] duration-150 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:border-primary peer-focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)]"
+    class="mark inline-flex items-center justify-center w-[18px] h-[18px] flex-none border rounded-xs transition-[background-color,border-color] duration-150 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:border-primary peer-focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)]"
     [class.is-checked]="isChecked()"
     [class.is-indeterminate]="isIndeterminate()"
-    [class]="isChecked() || isIndeterminate() ? 'bg-primary border-primary' : ''"
+    [class]="markStateClasses()"
     aria-hidden="true"
   >
     @if (isIndeterminate()) {
