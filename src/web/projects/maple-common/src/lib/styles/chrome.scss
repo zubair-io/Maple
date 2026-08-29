@@ -1,0 +1,114 @@
+// Shared `mui-chrome-*` component classes (ticket #3071 Task 2).
+//
+// Replaces the internal SCSS mixins formerly at
+// `ui/internal/{modal-form,menu-item,control-shell,media-transport}.scss` —
+// declaration-for-declaration identical, wrapped in `@layer components` so
+// Tailwind utility classes in consumer templates still win the cascade.
+// Wired into both app entrypoints (projects/maple/src/styles.scss,
+// projects/maple-syrup/src/styles.scss). Not part of the public API surface
+// (see ../ui/public-api.ts).
+
+@use '../generated/ui-tokens' as tok;
+
+@layer components {
+  // ── modal-form (was internal/_modal-form.scss `shell`/`footer`) ──────────
+  // `shell` bundled `:host`/.header/.title/.body-stack behind one
+  // `$body-gap`-parameterized mixin. Callers used three gap values
+  // (sm/md/lg) — each becomes a modifier class on top of the shared base.
+  .mui-chrome-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: tok.$maple-spacing-md tok.$maple-spacing-lg;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .mui-chrome-modal-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--color-text-main);
+  }
+
+  .mui-chrome-modal-body-stack {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mui-chrome-modal-body-stack-gap-sm {
+    gap: tok.$maple-spacing-sm;
+  }
+
+  .mui-chrome-modal-body-stack-gap-md {
+    gap: tok.$maple-spacing-md;
+  }
+
+  .mui-chrome-modal-body-stack-gap-lg {
+    gap: tok.$maple-spacing-lg;
+  }
+
+  .mui-chrome-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: tok.$maple-spacing-sm;
+    padding: tok.$maple-spacing-md tok.$maple-spacing-lg;
+    border-top: 1px solid var(--color-border);
+  }
+
+  // ── menu-item (was internal/_menu-item.scss `menu-item-base`) ────────────
+  .mui-chrome-menu-item-base {
+    display: flex;
+    align-items: center;
+    gap: tok.$maple-spacing-sm;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--color-text-main);
+    border-radius: tok.$maple-radius-sm;
+    padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  // ── control-shell (was internal/_control-shell.scss) ─────────────────────
+  .mui-chrome-control-column {
+    display: flex;
+    flex-direction: column;
+    gap: tok.$maple-spacing-xs;
+  }
+
+  .mui-chrome-control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: tok.$maple-spacing-sm;
+  }
+
+  .mui-chrome-control-readout {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .mui-chrome-control-disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  // ── media-transport (was internal/_media-transport.scss) ─────────────────
+  .mui-chrome-transport-button {
+    min-width: 28px;
+  }
+
+  .mui-chrome-scrubber-track {
+    flex: 1;
+    cursor: pointer;
+    padding: tok.$maple-spacing-xs 0;
+  }
+
+  .mui-chrome-time-readout {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+}

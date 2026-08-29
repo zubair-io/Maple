@@ -29,7 +29,7 @@
           @for (item of split().overflow; track item.id) {
             <button
               type="button"
-              class="overflow-item"
+              class="overflow-item mui-chrome-menu-item-base"
               [disabled]="item.disabled ?? false"
               (click)="selectOverflow(item)"
             >

@@ -29,6 +29,7 @@ export interface MuiShareMember {
   ],
   templateUrl: './mui-share-modal.component.html',
   styleUrl: './mui-share-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiShareModalComponent {

@@ -1,6 +1,6 @@
 <mui-overlay-shell [open]="open()" size="md" ariaLabel="Results" (dismissed)="onDismiss()">
-  <div slot="header" class="header">
-    <span class="title">Results</span>
+  <div slot="header" class="mui-chrome-modal-header">
+    <span class="mui-chrome-modal-title">Results</span>
     <mui-button
       variant="ghost"
       size="sm"
@@ -11,7 +11,7 @@
     />
   </div>
 
-  <div class="body-stack">
+  <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-sm">
     @if (results().length === 0) {
       <mui-empty-state
         icon="check"
@@ -38,7 +38,7 @@
     }
   </div>
 
-  <div slot="footer" class="footer">
+  <div slot="footer" class="mui-chrome-modal-footer">
     @if (failedIds().length > 0) {
       <mui-button variant="secondary" (pressed)="retryFailed()">
         Retry {{ failedIds().length }} failed

@@ -1,19 +1,5 @@
-@use '../internal/control-shell' as shell;
-
 :host {
   display: block;
-}
-
-.mui-drag-bar {
-  @include shell.labeled-control-column;
-}
-
-.row {
-  @include shell.control-row;
-}
-
-.readout {
-  @include shell.control-readout;
 }
 
 .bar {
@@ -57,8 +43,4 @@
   height: 100%;
   background: var(--color-text-main);
   transform: translateX(-50%);
-}
-
-.is-disabled {
-  @include shell.control-disabled-state;
 }
