@@ -1,5 +1,8 @@
 @if (toast(); as message) {
-  <div class="dlg-toast tsb-toast" role="status">
+  <div
+    class="dlg-toast static mt-2 mx-4 translate-x-0 border-[0.5px] border-border bg-surface-hover text-text-main"
+    role="status"
+  >
     <span>{{ message }}</span>
     <button
       type="button"
@@ -13,5 +16,5 @@
 }
 
 @if (loadError(); as error) {
-  <div class="tsb-error" role="alert">{{ error }}</div>
+  <div class="mt-2 mx-4 text-[11px] text-error-text" role="alert">{{ error }}</div>
 }

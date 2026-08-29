@@ -12,7 +12,6 @@ import type { TrashItem } from './trash.types';
   standalone: true,
   imports: [DecimalPipe],
   templateUrl: './trash-item-row.component.html',
-  styleUrl: './trash-item-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrashItemRowComponent {
