@@ -13,7 +13,6 @@ import type { BatchRenameApplyResult } from './batch-rename.types';
   standalone: true,
   imports: [BatchRenamePreviewListComponent],
   templateUrl: './batch-rename-results.component.html',
-  styleUrl: './batch-rename-results.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BatchRenameResultsComponent {

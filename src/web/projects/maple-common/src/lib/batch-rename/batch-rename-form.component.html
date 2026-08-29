@@ -1,9 +1,9 @@
-<div class="brn-body">
-  <label class="brn-field">
-    <span class="brn-label">Template</span>
+<div class="flex min-h-0 flex-col gap-2.5 overflow-y-auto p-4">
+  <label class="flex flex-1 flex-col gap-1">
+    <span class="text-[11px] font-medium text-text-muted">Template</span>
     <input
       type="text"
-      class="dlg-input brn-input"
+      class="dlg-input disabled:opacity-60"
       [value]="template()"
       [attr.maxlength]="maxTemplateLength()"
       [disabled]="busy()"
@@ -13,11 +13,11 @@
     />
   </label>
 
-  <div class="brn-tokens">
+  <div class="flex flex-wrap gap-1.5">
     @for (help of tokenHelp(); track help.token) {
       <button
         type="button"
-        class="brn-token-btn"
+        class="h-6 cursor-pointer rounded-sm border-[0.5px] border-border bg-input-bg px-2 font-mono text-[11px] text-text-main enabled:hover:border-primary disabled:cursor-default disabled:opacity-50"
         [disabled]="busy()"
         [title]="help.label"
         (click)="insertToken.emit(help.token)"
@@ -27,12 +27,12 @@
     }
   </div>
 
-  <div class="brn-row">
-    <label class="brn-field brn-field-small">
-      <span class="brn-label">Start at</span>
+  <div class="flex gap-2.5">
+    <label class="flex min-w-0 flex-1 flex-col gap-1">
+      <span class="text-[11px] font-medium text-text-muted">Start at</span>
       <input
         type="number"
-        class="dlg-input brn-input"
+        class="dlg-input disabled:opacity-60"
         min="0"
         [value]="sequenceStart()"
         [disabled]="busy()"
@@ -40,11 +40,11 @@
         (input)="sequenceStartInput.emit($any($event.target).value)"
       />
     </label>
-    <label class="brn-field brn-field-small">
-      <span class="brn-label">Pad width</span>
+    <label class="flex min-w-0 flex-1 flex-col gap-1">
+      <span class="text-[11px] font-medium text-text-muted">Pad width</span>
       <input
         type="number"
-        class="dlg-input brn-input"
+        class="dlg-input disabled:opacity-60"
         min="0"
         [value]="sequencePadWidth()"
         [disabled]="busy()"
@@ -52,10 +52,10 @@
         (input)="sequencePadWidthInput.emit($any($event.target).value)"
       />
     </label>
-    <label class="brn-field brn-field-small">
-      <span class="brn-label">On collision</span>
+    <label class="flex min-w-0 flex-1 flex-col gap-1">
+      <span class="text-[11px] font-medium text-text-muted">On collision</span>
       <select
-        class="dlg-input brn-input"
+        class="dlg-input disabled:opacity-60"
         [disabled]="busy()"
         aria-label="Collision resolution"
         (change)="collisionChange.emit($any($event.target).value)"
@@ -70,16 +70,18 @@
   </div>
 
   @if (hasUnresolved()) {
-    <p class="brn-warning">{{ unresolvedMessage() }}</p>
+    <p class="brn-warning m-0 text-[11px] text-[color:var(--color-warning-text,#b8860b)]">
+      {{ unresolvedMessage() }}
+    </p>
   }
   @if (previewError(); as err) {
-    <p class="brn-error">{{ err }}</p>
+    <p class="brn-error m-0 text-[11px] text-error-text">{{ err }}</p>
   }
   @if (applyError(); as err) {
-    <p class="brn-error">{{ err }}</p>
+    <p class="brn-error m-0 text-[11px] text-error-text">{{ err }}</p>
   }
   @if (duplicateCount() > 0) {
-    <p class="brn-warning">
+    <p class="brn-warning m-0 text-[11px] text-[color:var(--color-warning-text,#b8860b)]">
       {{ duplicateCount() }} file{{ duplicateCount() === 1 ? '' : 's' }} in this template would
       render the same name as another file — the collision policy above resolves it during Apply.
     </p>
@@ -93,7 +95,7 @@
   />
 </div>
 
-<div class="brn-footer">
+<div class="flex shrink-0 justify-end gap-2 border-t-[0.5px] border-border px-4 py-3">
   <button
     type="button"
     class="dlg-button dlg-button-ghost brn-btn brn-btn-ghost"

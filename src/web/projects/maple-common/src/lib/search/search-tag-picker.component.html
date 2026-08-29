@@ -1,26 +1,32 @@
-<div class="picker" data-testid="tag-picker">
-  <header class="hint">
-    <span class="at">&#64;{{ fragment() }}</span>
-    <span class="tip">Type to filter people &amp; places</span>
+<div class="flex h-full min-h-0 flex-col bg-surface text-text-main" data-testid="tag-picker">
+  <header class="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
+    <span class="font-['Lato',sans-serif] text-[14px] leading-none font-semibold text-primary"
+      >&#64;{{ fragment() }}</span
+    >
+    <span class="font-['Lato',sans-serif] text-[11px] leading-none text-text-muted"
+      >Type to filter people &amp; places</span
+    >
   </header>
-  <div class="lists">
+  <div class="min-h-0 flex-1 overflow-y-auto p-2">
     @if (isEmpty()) {
-      <p class="none" data-testid="tag-picker-empty">No matching people or places</p>
+      <p class="mui-chrome-option-none p-[10px]" data-testid="tag-picker-empty">
+        No matching people or places
+      </p>
     }
     @for (section of sections(); track section.kind) {
-      <h3 class="eyebrow">{{ section.title }}</h3>
+      <h3 class="mui-chrome-option-eyebrow px-[10px] pt-2 pb-1.5">{{ section.title }}</h3>
       @for (row of section.rows; track row.value) {
         <button
           type="button"
-          class="row"
+          class="mui-chrome-option-row rounded-lg px-[10px] py-2"
           [class.selected]="row.selected"
           [attr.data-testid]="'tag-' + section.kind + '-' + row.value"
           (click)="pick.emit({ kind: section.kind, value: row.value })"
         >
           @if (section.kind === 'person') {
-            <span class="avatar">{{ initial(row.value) }}</span>
+            <span class="mui-chrome-option-avatar">{{ initial(row.value) }}</span>
           } @else {
-            <span class="avatar">
+            <span class="mui-chrome-option-avatar">
               <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true">
                 <path
                   d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
@@ -31,10 +37,16 @@
               </svg>
             </span>
           }
-          <span class="name">{{ row.value }}</span>
-          <span class="count">{{ row.countLabel }}</span>
+          <span class="mui-chrome-option-name">{{ row.value }}</span>
+          <span class="mui-chrome-option-count">{{ row.countLabel }}</span>
           @if (row.selected) {
-            <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+            <svg
+              class="mui-chrome-option-check"
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              aria-hidden="true"
+            >
               <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
               <path
                 d="M4 7.2l2 2 4-4.5"
