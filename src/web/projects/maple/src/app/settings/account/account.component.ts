@@ -38,7 +38,6 @@ interface Credential {
     MuiButtonComponent,
   ],
   templateUrl: './account.component.html',
-  styleUrl: './account.component.scss',
   host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
