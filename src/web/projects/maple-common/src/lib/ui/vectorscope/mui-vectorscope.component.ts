@@ -25,7 +25,7 @@ export interface MuiVectorscopeSample {
   selector: 'mui-vectorscope',
   standalone: true,
   templateUrl: './mui-vectorscope.component.html',
-  styleUrl: './mui-vectorscope.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiVectorscopeComponent {

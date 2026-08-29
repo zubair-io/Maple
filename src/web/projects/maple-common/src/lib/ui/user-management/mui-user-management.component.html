@@ -1,6 +1,6 @@
-<div class="mui-user-management">
-  <div class="invite">
-    <div class="invite-field">
+<div class="mui-user-management flex flex-col gap-6">
+  <div class="invite flex items-end gap-6 p-4 border border-border rounded-lg bg-surface">
+    <div class="invite-field flex-1 min-w-0">
       <mui-form-field
         label="Invite by email"
         [(value)]="inviteValue"
@@ -9,14 +9,14 @@
       />
     </div>
     @if (inviteLink()) {
-      <div class="invite-qr">
+      <div class="invite-qr flex flex-col items-center gap-1 flex-none">
         <mui-qr-code [value]="inviteLink()" size="sm" ariaLabel="Invite link QR code" />
         <mui-text variant="body" color="muted">Scan to accept invite</mui-text>
       </div>
     }
   </div>
 
-  <div class="users">
+  <div class="users flex flex-col border border-border rounded-lg bg-surface overflow-hidden">
     @for (user of users(); track user.id) {
       <mui-list-row [label]="user.name" [subtitle]="user.email + ' · ' + user.role">
         <mui-button trailing variant="ghost" size="sm" (pressed)="requestRevoke(user)">

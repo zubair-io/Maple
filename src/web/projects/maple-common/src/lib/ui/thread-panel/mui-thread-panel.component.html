@@ -1,8 +1,8 @@
-<div class="mui-thread-panel">
+<div class="mui-thread-panel flex flex-col h-full gap-2">
   @if (loading()) {
     <mui-spinner placement="centered" />
   } @else {
-    <div class="messages">
+    <div class="messages flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
       @if (messages().length === 0) {
         <mui-empty-state icon="info" title="No replies yet" message="Start the conversation." />
       } @else {
@@ -17,8 +17,14 @@
       }
     </div>
   }
-  <div class="composer">
-    <mui-input [(value)]="draft" placeholder="Reply…" (committed)="send()" [disabled]="sending()" />
+  <div class="composer flex items-center gap-1 flex-none">
+    <mui-input
+      class="flex-1 min-w-0"
+      [(value)]="draft"
+      placeholder="Reply…"
+      (committed)="send()"
+      [disabled]="sending()"
+    />
     <mui-button
       variant="primary"
       size="sm"

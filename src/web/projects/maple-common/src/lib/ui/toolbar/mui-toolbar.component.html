@@ -1,4 +1,4 @@
-<div class="mui-toolbar" role="toolbar">
+<div class="mui-toolbar flex items-center gap-1" role="toolbar">
   @for (entry of split().visible; track $index) {
     @if (asItem(entry); as item) {
       <mui-action-button
@@ -13,7 +13,7 @@
     }
   }
   @if (split().overflow.length > 0) {
-    <div class="overflow-anchor">
+    <div class="overflow-anchor relative flex">
       <mui-action-button
         icon="ellipsis-horizontal"
         label="More"
@@ -25,11 +25,11 @@
         placement="bottom"
         (closeRequested)="overflowOpen.set(false)"
       >
-        <div class="overflow-menu">
+        <div class="overflow-menu flex flex-col gap-[2px] p-1 min-w-[160px]">
           @for (item of split().overflow; track item.id) {
             <button
               type="button"
-              class="overflow-item mui-chrome-menu-item-base"
+              class="overflow-item mui-chrome-menu-item-base enabled:hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45"
               [disabled]="item.disabled ?? false"
               (click)="selectOverflow(item)"
             >

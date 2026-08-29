@@ -1,10 +1,12 @@
 <div
-  class="mui-tree-row"
+  class="mui-tree-row flex items-center gap-1 py-1 px-4 border-l-2 border-transparent cursor-pointer"
   role="treeitem"
   tabindex="0"
   [style.padding-left.px]="indentPx()"
   [class.is-active]="active()"
   [class.is-disabled]="disabled()"
+  [class.opacity-50]="disabled()"
+  [class.pointer-events-none]="disabled()"
   [attr.aria-expanded]="expandable() ? expanded() : null"
   [attr.aria-current]="active() ? 'true' : null"
   [attr.aria-haspopup]="ariaHasPopup()"
@@ -20,8 +22,15 @@
     [errorTitle]="errorTitle()"
     (toggle)="toggle($event)"
   />
-  <mui-icon [name]="icon()" size="sm" class="row-icon" [class.row-icon-muted]="isIconMuted()" />
-  <mui-text variant="row-label" [truncate]="true" class="row-label">{{ label() }}</mui-text>
+  <mui-icon
+    [name]="icon()"
+    size="sm"
+    class="row-icon flex-none"
+    [class]="isIconMuted() ? 'row-icon-muted text-text-muted' : 'text-primary'"
+  />
+  <mui-text variant="row-label" [truncate]="true" class="row-label flex-1 min-w-0">{{
+    label()
+  }}</mui-text>
   @if (loading()) {
     <mui-spinner size="sm" placement="inline" />
   } @else if (count() !== null) {

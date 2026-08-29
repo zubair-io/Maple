@@ -17,7 +17,7 @@ import { MuiSpinnerComponent } from '../spinner/mui-spinner.component';
   standalone: true,
   imports: [MuiIconComponent, MuiSpinnerComponent],
   templateUrl: './mui-tree-row-chevron.component.html',
-  styleUrl: './mui-tree-row-chevron.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTreeRowChevronComponent {
