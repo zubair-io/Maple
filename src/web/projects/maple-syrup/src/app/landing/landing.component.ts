@@ -47,7 +47,7 @@ export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
   standalone: true,
   imports: [MuiBannerComponent, MuiCommandMenuComponent, MuiListRowComponent],
   templateUrl: './landing.component.html',
-  styleUrl: './landing.component.scss',
+  host: { class: 'block w-full h-[100dvh] bg-bg text-text-main overflow-auto' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LandingComponent {
