@@ -16,7 +16,9 @@
           }
         </span>
         @if (phase() !== 'applying') {
-          <button type="button" class="bm-close" aria-label="Close" (click)="onClose()">✕</button>
+          <button type="button" class="dlg-close-button" aria-label="Close" (click)="onClose()">
+            ✕
+          </button>
         }
       </div>
 
@@ -25,7 +27,9 @@
         <div class="bm-body bm-center">
           <p class="bm-error-msg">{{ errorMessage() }}</p>
           <div class="bm-footer">
-            <button type="button" class="bm-btn bm-btn-ghost" (click)="onClose()">Close</button>
+            <button type="button" class="dlg-button dlg-button-ghost" (click)="onClose()">
+              Close
+            </button>
           </div>
         </div>
       }
@@ -52,14 +56,20 @@
           }
           <div class="bm-footer">
             @if (!refileApplying() && refileErrors().length === 0) {
-              <button type="button" class="bm-btn bm-btn-ghost" (click)="onRefileSkip()">
+              <button type="button" class="dlg-button dlg-button-ghost" (click)="onRefileSkip()">
                 Skip
               </button>
-              <button type="button" class="bm-btn bm-btn-primary" (click)="onRefileAccept()">
+              <button
+                type="button"
+                class="dlg-button dlg-button-primary"
+                (click)="onRefileAccept()"
+              >
                 Move
               </button>
             } @else {
-              <button type="button" class="bm-btn bm-btn-ghost" (click)="onClose()">Close</button>
+              <button type="button" class="dlg-button dlg-button-ghost" (click)="onClose()">
+                Close
+              </button>
             }
           </div>
         </div>
@@ -574,10 +584,12 @@
 
         <!-- Footer -->
         <div class="bm-footer">
-          <button type="button" class="bm-btn bm-btn-ghost" (click)="onReset()">Reset</button>
+          <button type="button" class="dlg-button dlg-button-ghost" (click)="onReset()">
+            Reset
+          </button>
           <button
             type="button"
-            class="bm-btn bm-btn-primary"
+            class="dlg-button dlg-button-primary"
             [disabled]="touched().size === 0"
             (click)="onApply()"
           >
