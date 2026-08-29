@@ -1,26 +1,10 @@
-@use '../styles/dialog-chrome' as chrome;
-
-.tp-backdrop {
-  @include chrome.dialog-backdrop;
-}
-
 .tp-card {
-  @include chrome.dialog-card-base;
   max-width: 560px;
   max-height: 70vh;
 }
 
 .tp-header {
-  @include chrome.dialog-header;
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.tp-title {
-  @include chrome.dialog-title;
-}
-
-.tp-close {
-  @include chrome.dialog-close-button;
 }

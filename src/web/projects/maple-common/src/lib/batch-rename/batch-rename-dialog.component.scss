@@ -1,20 +1,8 @@
-@use '../styles/dialog-chrome' as chrome;
-
-.brn-backdrop {
-  @include chrome.dialog-backdrop;
-}
-
 .brn-card {
-  @include chrome.dialog-card-base;
   max-width: 560px;
   max-height: 80vh;
 }
 
 .brn-header {
-  @include chrome.dialog-header;
   flex-shrink: 0;
-}
-
-.brn-title {
-  @include chrome.dialog-title;
 }

@@ -7,8 +7,6 @@
 // that became the ONLY component rendering that markup (#2718 review) —
 // no more need for a shared mixin when there's a single consumer.
 
-@use '../styles/dialog-chrome' as chrome;
-
 @mixin body {
   .brn-body {
     padding: 16px;
@@ -34,6 +32,9 @@
   }
 }
 
+// `.brn-btn` no longer carries the shared button base (that's `dlg-button`
+// from `styles/chrome.scss`, added directly in the consumer templates) — the
+// footer mixin now only owns layout.
 @mixin footer {
   .brn-footer {
     display: flex;
@@ -42,9 +43,5 @@
     padding: 12px 16px;
     border-top: 0.5px solid var(--color-border);
     flex-shrink: 0;
-  }
-
-  .brn-btn {
-    @include chrome.dialog-button;
   }
 }

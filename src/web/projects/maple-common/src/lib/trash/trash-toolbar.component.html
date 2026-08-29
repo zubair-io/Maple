@@ -1,7 +1,7 @@
 <div class="tt-toolbar">
   <button
     type="button"
-    class="tt-btn"
+    class="dlg-button tt-btn"
     [disabled]="disabledReason() !== null"
     [attr.title]="disabledReason()"
     [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
@@ -11,7 +11,7 @@
   </button>
   <button
     type="button"
-    class="tt-btn tt-btn-destructive"
+    class="dlg-button tt-btn tt-btn-destructive"
     [disabled]="disabledReason() !== null"
     [attr.title]="disabledReason()"
     [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"

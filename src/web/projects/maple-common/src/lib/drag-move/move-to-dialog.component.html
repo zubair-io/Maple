@@ -1,14 +1,14 @@
 <div
-  class="mtd-backdrop"
+  class="dlg-backdrop"
   role="dialog"
   aria-modal="true"
   aria-label="Move to…"
   (click)="onBackdropClick()"
   (keydown.escape)="onCancel()"
 >
-  <div class="mtd-card" (click)="$event.stopPropagation()">
-    <div class="mtd-header">
-      <span class="mtd-title">Move to…</span>
+  <div class="dlg-card mtd-card" (click)="$event.stopPropagation()">
+    <div class="dlg-header mtd-header">
+      <span class="dlg-title">Move to…</span>
       <mui-button
         variant="ghost"
         size="sm"

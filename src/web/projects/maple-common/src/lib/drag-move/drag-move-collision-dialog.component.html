@@ -1,14 +1,14 @@
 <div
-  class="dmc-backdrop"
+  class="dlg-backdrop dmc-backdrop"
   role="alertdialog"
   aria-modal="true"
   [attr.aria-label]="'\'' + filename() + '\' already exists at the destination'"
   (click)="onBackdropClick()"
   (keydown.escape)="onSkip()"
 >
-  <div class="dmc-card" (click)="$event.stopPropagation()">
-    <div class="dmc-header">
-      <span class="dmc-title">File already exists</span>
+  <div class="dlg-card dmc-card" (click)="$event.stopPropagation()">
+    <div class="dlg-header">
+      <span class="dlg-title">File already exists</span>
     </div>
 
     <div class="dmc-body">

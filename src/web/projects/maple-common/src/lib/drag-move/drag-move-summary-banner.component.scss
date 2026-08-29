@@ -1,19 +1,13 @@
-@use '../styles/dialog-chrome' as chrome;
-
 // Same fixed-toast placement/chrome as `folder-tree.component.scss`'s
 // `.trash-partial-warning` — both are "background op just finished, here's
 // what happened" toasts anchored to the bottom of the viewport. Shared
-// layout lives in `chrome.toast-shell` / `chrome.toast-dismiss-button`
-// (#2644 review — this was a byte-identical copy before extraction).
+// layout lives in the `dlg-toast` / `dlg-toast-dismiss` classes in
+// `styles/chrome.scss` (#2644 review — this was a byte-identical copy
+// before extraction).
 .dms-banner {
-  @include chrome.toast-shell;
   background: var(--color-surface);
   border: 0.5px solid var(--color-border);
   color: var(--color-text-main);
-
-  button {
-    @include chrome.toast-dismiss-button;
-  }
 }
 
 .dms-text {

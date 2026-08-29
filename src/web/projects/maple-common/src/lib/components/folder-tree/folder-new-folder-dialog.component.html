@@ -1,14 +1,14 @@
 <div
-  class="fnf-backdrop"
+  class="dlg-backdrop"
   role="dialog"
   aria-modal="true"
   [attr.aria-label]="'New Folder in ' + parentLabel()"
   (click)="onBackdropClick()"
   (keydown.escape)="onCancel()"
 >
-  <div class="fnf-card" (click)="$event.stopPropagation()">
-    <div class="fnf-header">
-      <span class="fnf-title">New Folder</span>
+  <div class="dlg-card fnf-card" (click)="$event.stopPropagation()">
+    <div class="dlg-header">
+      <span class="dlg-title">New Folder</span>
     </div>
 
     <div class="fnf-body">
@@ -16,7 +16,7 @@
       <input
         #nameInput
         type="text"
-        class="fnf-input"
+        class="dlg-input fnf-input"
         placeholder="Name"
         [value]="name()"
         [attr.aria-label]="'Folder name'"

@@ -44,7 +44,7 @@
 />
 
 @if (trash.resultSummary(); as summary) {
-  <div class="trash-selected-summary" role="status">
+  <div class="dlg-toast trash-selected-summary" role="status">
     <span>
       @if (summary.failed.length > 0) {
         Sent {{ summary.trashed }} of {{ summary.total }} to Trash — {{ summary.failed.length }}
@@ -53,6 +53,13 @@
         Sent {{ summary.trashed }} item(s) to Trash.
       }
     </span>
-    <button type="button" (click)="trash.dismissSummary()" aria-label="Dismiss">✕</button>
+    <button
+      type="button"
+      class="dlg-toast-dismiss"
+      (click)="trash.dismissSummary()"
+      aria-label="Dismiss"
+    >
+      ✕
+    </button>
   </div>
 }
