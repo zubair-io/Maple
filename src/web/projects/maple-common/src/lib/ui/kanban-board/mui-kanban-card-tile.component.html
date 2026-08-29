@@ -7,7 +7,7 @@
     [badgeLabel]="card().badgeLabel ?? null"
   />
 } @else {
-  <div class="card-plain">
+  <div class="card-plain flex flex-col gap-1 rounded-md border border-border bg-surface-alt p-2">
     <mui-text variant="row-label" [truncate]="true">{{ card().title }}</mui-text>
     @if (card().subtitle) {
       <mui-text variant="body" color="muted" [truncate]="true">

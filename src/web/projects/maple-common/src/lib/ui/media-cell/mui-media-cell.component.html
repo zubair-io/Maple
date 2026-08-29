@@ -11,7 +11,7 @@
        split exists to avoid. -->
   <button
     type="button"
-    class="mui-media-cell overlay"
+    class="mui-media-cell overlay relative block h-full w-full cursor-pointer overflow-hidden rounded-[2px] border-none bg-transparent p-0 text-left outline-none"
     [class.is-selected]="selected()"
     [class.is-dimmed]="dimmed()"
     [attr.aria-label]="ariaLabel()"
@@ -23,13 +23,25 @@
       [alt]="alt()"
       fit="fill"
       radius="none"
+      class="block h-full w-full"
       [placeholderBackground]="placeholderBackground()"
     />
-    <div class="thumb-ring" aria-hidden="true"></div>
-    <div class="overlay-slot top-left"><ng-content select="[mediaCellTopLeft]" /></div>
-    <div class="overlay-slot top-right"><ng-content select="[mediaCellTopRight]" /></div>
+    <div
+      class="thumb-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-75 ease-out"
+      aria-hidden="true"
+    ></div>
+    <div
+      class="overlay-slot top-left pointer-events-none absolute top-[5px] left-[5px] flex flex-col items-start gap-[3px]"
+    >
+      <ng-content select="[mediaCellTopLeft]" />
+    </div>
+    <div
+      class="overlay-slot top-right pointer-events-none absolute top-[5px] right-[5px] flex flex-row-reverse items-start gap-[3px]"
+    >
+      <ng-content select="[mediaCellTopRight]" />
+    </div>
     <mui-rating-flags
-      class="overlay-rating"
+      class="overlay-rating pointer-events-none absolute right-[5px] bottom-[5px] left-[5px]"
       [rating]="rating()"
       [flag]="flag()"
       [readonly]="true"
@@ -37,7 +49,7 @@
   </button>
 } @else {
   <div
-    class="mui-media-cell"
+    class="mui-media-cell flex w-full flex-col gap-1 rounded-lg border-none bg-transparent p-1 cursor-pointer"
     [class]="'size-' + size()"
     [class.is-selected]="selected()"
     role="button"
@@ -47,17 +59,21 @@
     (click)="onCellClick($event)"
     (keydown)="onKeydown($event)"
   >
-    <div class="thumb">
+    <div class="thumb relative rounded-md outline-2 outline-offset-2 outline-transparent">
       <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="sm" [aspectRatio]="1" />
       @if (badges().length > 0) {
-        <div class="badges">
+        <div class="badges absolute top-1 left-1 flex gap-0.5">
           @for (badge of badges(); track badge) {
             <mui-badge variant="count" size="sm" [value]="badge" />
           }
         </div>
       }
     </div>
-    <div class="meta" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
+    <div
+      class="meta flex items-center justify-between gap-1"
+      (click)="$event.stopPropagation()"
+      (keydown)="$event.stopPropagation()"
+    >
       <mui-inline-rename-field
         [(value)]="filename"
         [ariaLabel]="'Rename ' + filename()"

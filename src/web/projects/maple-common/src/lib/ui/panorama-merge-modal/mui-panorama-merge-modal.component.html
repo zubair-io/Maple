@@ -4,18 +4,18 @@
   ariaLabel="Panorama Merge"
   (dismissed)="dismissed.emit()"
 >
-  <div slot="header" class="mui-panorama-merge-modal-header">
+  <div slot="header" class="mui-panorama-merge-modal-header border-b border-border px-6 py-4">
     <mui-text variant="sheet-title" [block]="true">Panorama Merge</mui-text>
   </div>
 
-  <div class="mui-panorama-merge-modal-body">
-    <div class="frames">
+  <div class="mui-panorama-merge-modal-body flex flex-col gap-4">
+    <div class="frames flex flex-wrap gap-1">
       @for (frame of frames(); track frame.id) {
-        <mui-media-cell class="frame" [src]="frame.src" [alt]="frame.alt" size="sm" />
+        <mui-media-cell class="frame w-24" [src]="frame.src" [alt]="frame.alt" size="sm" />
       }
     </div>
 
-    <div class="field">
+    <div class="field flex flex-col gap-1">
       <mui-text variant="tool-label" color="muted" [block]="true">Projection</mui-text>
       <mui-segmented-toggle
         [options]="projectionOptions"
@@ -26,7 +26,7 @@
       />
     </div>
 
-    <div class="field">
+    <div class="field flex flex-col gap-1">
       <mui-text variant="tool-label" color="muted" [block]="true">Blend mode</mui-text>
       <mui-segmented-toggle
         [options]="blendModeOptions"
@@ -42,7 +42,10 @@
     }
   </div>
 
-  <div slot="footer" class="mui-panorama-merge-modal-footer">
+  <div
+    slot="footer"
+    class="mui-panorama-merge-modal-footer flex justify-end gap-1 border-t border-border px-6 py-4"
+  >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
     <mui-button
       variant="primary"
