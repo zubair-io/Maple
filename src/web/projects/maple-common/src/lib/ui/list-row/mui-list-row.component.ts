@@ -11,7 +11,7 @@
 // icon, toggle, chevron, or a Button), not a fixed enum, so it's a
 // projected slot rather than a typed input.
 
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { MuiIconComponent } from '../icon/mui-icon.component';
 import type { MapleIconName } from '../icon/mui-icon.component';
 import { MuiTextComponent } from '../text/mui-text.component';
@@ -44,6 +44,14 @@ export class MuiListRowComponent {
 
   /** The contract's `onPress` — fires on a click/tap anywhere in the row. */
   readonly pressed = output<void>();
+
+  /** Mutually-exclusive computed string, not a static base plus a
+   * conditional add-on: `disabled` folds `opacity-45` + `pointer-events-none`
+   * into the one class the row can be in, per TAILWIND-CONVERSION.md's
+   * variant-class rule. */
+  protected readonly disabledClasses = computed(() =>
+    this.disabled() ? 'opacity-45 pointer-events-none' : '',
+  );
 
   onRowClick(): void {
     if (this.disabled()) return;
