@@ -32,7 +32,7 @@ export type MuiInputSize = 'sm' | 'md';
   standalone: true,
   imports: [MuiIconComponent],
   templateUrl: './mui-input.component.html',
-  styleUrl: './mui-input.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiInputComponent {
@@ -77,6 +77,44 @@ export class MuiInputComponent {
   readonly isFilled = computed(() => this.value().trim().length > 0);
   readonly showClear = computed(
     () => this.variant() === 'search' && this.isFilled() && !this.disabled() && !this.readOnly(),
+  );
+
+  /** One computed string per stateful surface rather than static + `[class.x]`
+   * bindings for each state — several states share a CSS property (border
+   * color from both focus and error) and the original stylesheet's cascade
+   * ORDER decided the winner when both applied at once (`.is-error` declared
+   * after `.is-focused`, so error wins). Folding the precedence into a single
+   * JS branch reproduces that outcome without depending on Tailwind's
+   * utility-generation order to replay it. */
+  readonly fieldClasses = computed(() => {
+    const padding = this.size() === 'sm' ? 'px-2 py-1' : 'px-4 py-2';
+    const borderColor = this.error()
+      ? 'border-error-text'
+      : this.focused()
+        ? 'border-primary'
+        : 'border-border';
+    const focusRing =
+      this.error() && this.focused()
+        ? 'shadow-[0_0_0_2px_color-mix(in_srgb,var(--color-error-text)_20%,transparent)]'
+        : '';
+    const disabledState = this.disabled() ? 'opacity-45 pointer-events-none' : '';
+    return [
+      'field relative flex items-center gap-1 bg-input-bg border rounded-lg transition-[border-color,box-shadow] duration-200',
+      padding,
+      borderColor,
+      focusRing,
+      disabledState,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  });
+
+  readonly helperClasses = 'helper text-[11px] text-error-text';
+
+  readonly controlClasses = computed(() =>
+    this.size() === 'sm'
+      ? 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-xs placeholder:text-text-muted'
+      : 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-[13px] placeholder:text-text-muted',
   );
 
   onInput(raw: string): void {
