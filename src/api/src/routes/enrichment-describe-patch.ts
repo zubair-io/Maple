@@ -35,49 +35,58 @@ export interface DescribePatch {
   cap: number | null | undefined;
 }
 
+/** `undefined` (field omitted) and `null` (clear) both pass straight
+ * through; only a supplied string is checked. */
+function providerError(provider: string | null | undefined): string | null {
+  if (typeof provider !== 'string' || asDescribeProvider(provider) !== null) return null;
+  return `Invalid describe_provider: must be one of "ollama", "anthropic", "openai", "gemini" (got "${provider}")`;
+}
+
+function capError(cap: number | null | undefined): string | null {
+  if (typeof cap !== 'number') return null;
+  const valid =
+    Number.isFinite(cap) && cap > MIN_DESCRIBE_DAILY_CAP_USD && cap <= MAX_DESCRIBE_DAILY_CAP_USD;
+  return valid
+    ? null
+    : `Invalid describe_daily_cap_usd: must be a number in (${MIN_DESCRIBE_DAILY_CAP_USD}, ${MAX_DESCRIBE_DAILY_CAP_USD}] (got ${cap})`;
+}
+
+/** The URL and the server list resolve together: a supplied list is
+ * authoritative for the default endpoint too — entry 0's URL becomes
+ * `describe_provider_url`, so the services that read that single field
+ * (semantic-search embedder, generated-search) follow the operator's
+ * chosen default. */
+function resolveEndpoints(
+  body: DescribePatchBody,
+): Pick<DescribePatch, 'url' | 'servers'> | { error: string } {
+  const validatedUrl =
+    body.describe_provider_url === undefined
+      ? undefined
+      : validateHttpUrl(body.describe_provider_url);
+  if (validatedUrl && typeof validatedUrl === 'object') {
+    return { error: `Invalid describe_provider_url: ${validatedUrl.error}` };
+  }
+
+  if (body.describe_servers === undefined) return { url: validatedUrl, servers: undefined };
+
+  const servers = validateDescribeServers(body.describe_servers);
+  if (servers && 'error' in servers) {
+    return { error: `Invalid describe_servers: ${servers.error}` };
+  }
+  return { url: servers ? servers[0]!.url : validatedUrl, servers };
+}
+
 export function validateDescribePatch(body: DescribePatchBody): DescribePatch | { error: string } {
-  const provider = body.describe_provider;
-  if (typeof provider === 'string' && asDescribeProvider(provider) === null) {
-    return {
-      error: `Invalid describe_provider: must be one of "ollama", "anthropic", "openai", "gemini" (got "${provider}")`,
-    };
-  }
+  const error = providerError(body.describe_provider) ?? capError(body.describe_daily_cap_usd);
+  if (error) return { error };
 
-  let url: string | null | undefined;
-  if (body.describe_provider_url !== undefined) {
-    const validated = validateHttpUrl(body.describe_provider_url);
-    if (validated && typeof validated === 'object' && 'error' in validated) {
-      return { error: `Invalid describe_provider_url: ${validated.error}` };
-    }
-    url = validated as string | null;
-  }
+  const endpoints = resolveEndpoints(body);
+  if ('error' in endpoints) return endpoints;
 
-  // The server list, when supplied, is authoritative for the default
-  // endpoint too — entry 0's URL becomes `describe_provider_url` so the
-  // services that read that single field (semantic-search embedder,
-  // generated-search) follow the operator's chosen default.
-  let servers: DescribeServerConfig[] | null | undefined;
-  if (body.describe_servers !== undefined) {
-    const validated = validateDescribeServers(body.describe_servers);
-    if (validated && 'error' in validated) {
-      return { error: `Invalid describe_servers: ${validated.error}` };
-    }
-    servers = validated;
-    if (servers) url = servers[0]!.url;
-  }
-
-  const cap = body.describe_daily_cap_usd;
-  if (typeof cap === 'number') {
-    if (
-      !Number.isFinite(cap) ||
-      cap <= MIN_DESCRIBE_DAILY_CAP_USD ||
-      cap > MAX_DESCRIBE_DAILY_CAP_USD
-    ) {
-      return {
-        error: `Invalid describe_daily_cap_usd: must be a number in (${MIN_DESCRIBE_DAILY_CAP_USD}, ${MAX_DESCRIBE_DAILY_CAP_USD}] (got ${cap})`,
-      };
-    }
-  }
-
-  return { provider, url, servers, cap };
+  return {
+    provider: body.describe_provider,
+    url: endpoints.url,
+    servers: endpoints.servers,
+    cap: body.describe_daily_cap_usd,
+  };
 }

@@ -250,6 +250,24 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   };
 }
 
+/** Face slice of the seed. Grouped like the Meilisearch slice below so
+ * `blankEnrichment` stays a readable assembly of per-domain groups rather
+ * than one long fallback chain. */
+function blankFace(ec: EnrichmentConfigResponse | null) {
+  // `text` keeps the null-coalescing in one place: a per-field `?? ''`
+  // chain reads fine but scores as one branch each, and this block is all
+  // the same rule — an unset field is an empty input.
+  const text = (value: string | null | undefined): string => value ?? '';
+  return {
+    face_model_dir: text(ec?.face_model_dir),
+    face_detector_url: text(ec?.face_detector_url),
+    face_detector_sha256: text(ec?.face_detector_sha256),
+    face_recognizer_url: text(ec?.face_recognizer_url),
+    face_recognizer_sha256: text(ec?.face_recognizer_sha256),
+    face_min_detection_size: String(ec?.face_min_detection_size ?? 0.06),
+  };
+}
+
 function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
   return {
     meilisearch_semantic_enabled: ec?.meilisearch_semantic_enabled ?? false,
@@ -268,12 +286,7 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     transcribe_model_tier: ec?.transcribe_model_tier ?? 'medium.en',
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
-    face_model_dir: ec?.face_model_dir ?? '',
-    face_detector_url: ec?.face_detector_url ?? '',
-    face_detector_sha256: ec?.face_detector_sha256 ?? '',
-    face_recognizer_url: ec?.face_recognizer_url ?? '',
-    face_recognizer_sha256: ec?.face_recognizer_sha256 ?? '',
-    face_min_detection_size: String(ec?.face_min_detection_size ?? 0.06),
+    ...blankFace(ec),
     meilisearch_url: ec?.meilisearch_url ?? '',
     // Never seeded from the response — the key is write-only.
     meilisearch_api_key: '',
@@ -294,7 +307,7 @@ export const MAX_DESCRIBE_SERVER_CONCURRENCY = 32;
  * non-empty list (it derives one from the single URL when nothing is
  * saved), but an older API build might not, so fall back to the single URL
  * and finally to one blank row. */
-export function blankDescribeServers(ec: EnrichmentConfigResponse | null): DescribeServerForm[] {
+function blankDescribeServers(ec: EnrichmentConfigResponse | null): DescribeServerForm[] {
   const saved = ec?.describe_servers ?? [];
   if (saved.length > 0) {
     return saved.map((server) => ({
