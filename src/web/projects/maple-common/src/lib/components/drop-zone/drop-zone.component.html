@@ -27,6 +27,7 @@
     <input
       #folderPicker
       type="file"
+      class="hidden"
       multiple
       webkitdirectory
       (change)="onFileInputChange($event)"
@@ -56,6 +57,7 @@
   <input
     #filePicker
     type="file"
+    class="hidden"
     multiple
     accept=".dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.pef,.srw,.x3f,.3fr,.mef,.erf,.fff,.dcr,.mos,.iiq,.mrw,.raw"
     (change)="onFileInputChange($event)"
@@ -65,7 +67,7 @@
 <!-- Read-only banner: shown when folder was opened without write permission -->
 @if (showReadOnlyBanner()) {
   <div
-    class="readonly-banner flex h-7 flex-shrink-0 items-center gap-2 border-b-[0.5px] px-2.5 text-[11px]"
+    class="readonly-banner flex h-7 flex-shrink-0 items-center gap-2 border-b-[0.5px] px-2.5 text-[11px] bg-[color-mix(in_srgb,var(--color-warning,#d97706)_12%,var(--color-surface))] border-[color-mix(in_srgb,var(--color-warning,#d97706)_40%,transparent)] text-[color:var(--color-warning,#d97706)]"
   >
     <span>Read-only — grant write access to save edits and cache thumbnails.</span>
     <mui-button variant="ghost" size="sm" (pressed)="requestWrite()">Grant write access</mui-button>
