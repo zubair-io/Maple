@@ -52,6 +52,7 @@ const DEFAULT_PRIORITIES: readonly MuiChip[] = [
   ],
   templateUrl: './mui-card-detail-modal.component.html',
   styleUrl: './mui-card-detail-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiCardDetailModalComponent {

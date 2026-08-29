@@ -19,6 +19,10 @@
 // NOT in this partial — it stays local because both apps wrap it in
 // `@layer base` at their own entrypoint.
 @use '../../maple-common/src/lib/base-chrome';
+// `mui-chrome-*` component classes shared by the internal mui organism
+// mixins (modal-form, menu-item, control-shell, media-transport — #3071
+// Task 2), wrapped in `@layer components`.
+@use '../../maple-common/src/lib/styles/chrome';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 // Must live in `@layer base` (matching Self Hosted): an unlayered `* { margin:

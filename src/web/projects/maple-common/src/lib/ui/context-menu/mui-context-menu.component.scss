@@ -1,5 +1,4 @@
 @use '../../generated/ui-tokens' as tok;
-@use '../internal/menu-item' as menu;
 
 :host {
   display: contents;
@@ -14,8 +13,6 @@
 }
 
 .item {
-  @include menu.menu-item-base;
-
   &:hover:not(:disabled),
   &.active:not(:disabled) {
     background: var(--color-bg-hover);

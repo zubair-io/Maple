@@ -1,6 +1,6 @@
 <mui-overlay-shell [open]="open()" size="md" ariaLabel="Pair Device" (dismissed)="onDismiss()">
-  <div slot="header" class="header">
-    <span class="title">Pair a Device</span>
+  <div slot="header" class="mui-chrome-modal-header">
+    <span class="mui-chrome-modal-title">Pair a Device</span>
     <mui-button
       variant="ghost"
       size="sm"
@@ -11,7 +11,7 @@
     />
   </div>
 
-  <div class="body-stack">
+  <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-lg">
     <div class="steps">
       @for (row of steps(); track row.index) {
         <mui-progress-step

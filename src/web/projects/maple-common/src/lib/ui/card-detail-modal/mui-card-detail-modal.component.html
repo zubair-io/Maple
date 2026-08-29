@@ -1,6 +1,6 @@
 <mui-overlay-shell [open]="open()" size="lg" ariaLabel="Card Detail" (dismissed)="onDismiss()">
-  <div slot="header" class="header">
-    <span class="title">Card Detail</span>
+  <div slot="header" class="mui-chrome-modal-header">
+    <span class="mui-chrome-modal-title">Card Detail</span>
     <mui-button
       variant="ghost"
       size="sm"
@@ -11,7 +11,7 @@
     />
   </div>
 
-  <div class="body-stack">
+  <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-md">
     <mui-form-field
       label="Title"
       placeholder="Card title"
@@ -39,7 +39,7 @@
     </div>
   </div>
 
-  <div slot="footer" class="footer">
+  <div slot="footer" class="mui-chrome-modal-footer">
     <mui-button variant="ghost" (pressed)="onDismiss()">Cancel</mui-button>
     <mui-button variant="primary" [disabled]="!canSave()" (pressed)="save()">Save</mui-button>
   </div>

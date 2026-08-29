@@ -1,6 +1,6 @@
 <mui-overlay-shell [open]="open()" size="md" ariaLabel="Share" (dismissed)="onDismiss()">
-  <div slot="header" class="header">
-    <span class="title">Share</span>
+  <div slot="header" class="mui-chrome-modal-header">
+    <span class="mui-chrome-modal-title">Share</span>
     <mui-button
       variant="ghost"
       size="sm"
@@ -11,7 +11,7 @@
     />
   </div>
 
-  <div class="body-stack">
+  <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-lg">
     <mui-avatar-group [avatars]="avatarMembers()" [max]="6" size="md" />
 
     <div class="invite-row">

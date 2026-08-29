@@ -50,6 +50,7 @@ const STATUS_LABEL: Record<MuiResultStatus, string> = {
   ],
   templateUrl: './mui-result-report-modal.component.html',
   styleUrl: './mui-result-report-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiResultReportModalComponent {
