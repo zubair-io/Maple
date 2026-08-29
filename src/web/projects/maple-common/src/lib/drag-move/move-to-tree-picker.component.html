@@ -6,34 +6,33 @@
   @let reasonId = reasonElementId(entry);
 
   <div
-    class="mtd-row"
+    [class]="rowClass(isSelected, !!disabledReason)"
     role="treeitem"
     [attr.aria-selected]="isSelected"
     [attr.aria-disabled]="!!disabledReason"
     [attr.aria-describedby]="reasonId"
-    [class.selected]="isSelected"
-    [class.disabled]="!!disabledReason"
     [style.padding-left.px]="8 + level() * 16"
     [title]="titleFor(entry)"
     (click)="onRowClick(entry)"
   >
     <button
       type="button"
-      class="mtd-chevron"
-      [class.mtd-chevron-hidden]="!expandable"
-      [class.open]="open"
+      class="mtd-chevron flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-[10px] text-text-muted transition-transform duration-[120ms]"
+      [class.invisible]="!expandable"
+      [class.cursor-default]="!expandable"
+      [class.rotate-90]="open"
       [disabled]="!expandable"
       [attr.aria-label]="open ? 'Collapse' : 'Expand'"
       (click)="toggleOpen(entry); $event.stopPropagation()"
     >
       ▸
     </button>
-    <span class="mtd-label">{{ entry.label }}</span>
+    <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
     <!-- Visually-hidden: the row's `title` already covers hover, this
          covers keyboard/AT users who can't hover (#2644 review). Always
          rendered (empty when the row is eligible) so the row's own
          `aria-describedby` binding above stays unconditional. -->
-    <span class="mtd-visually-hidden" [id]="reasonId">{{ disabledReason }}</span>
+    <span class="sr-only" [id]="reasonId">{{ disabledReason }}</span>
   </div>
 
   @if (showChildren(entry)) {

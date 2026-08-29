@@ -6,8 +6,8 @@
   (click)="onBackdropClick()"
   (keydown.escape)="onCancel()"
 >
-  <div class="dlg-card mtd-card" (click)="$event.stopPropagation()">
-    <div class="dlg-header mtd-header">
+  <div class="dlg-card max-w-[420px] max-h-[70vh]" (click)="$event.stopPropagation()">
+    <div class="dlg-header flex items-center justify-between">
       <span class="dlg-title">Move to…</span>
       <mui-button
         variant="ghost"
@@ -19,8 +19,8 @@
       />
     </div>
 
-    <div class="mtd-body">
-      <div class="mtd-tree" role="tree">
+    <div class="min-h-[120px] overflow-y-auto p-2">
+      <div class="flex flex-col" role="tree">
         <app-move-to-tree-picker
           [nodes]="rootFolders()"
           [selectedId]="selectedNodeId()"
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div class="mtd-footer">
+    <div class="flex justify-end gap-2 border-t-[0.5px] border-border px-4 py-3">
       <mui-button variant="ghost" (pressed)="onCancel()">Cancel</mui-button>
       <mui-button variant="primary" [disabled]="!canConfirm()" (pressed)="onConfirm()">
         Move

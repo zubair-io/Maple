@@ -22,12 +22,27 @@ import { DRAG_MOVE_CAPABILITY } from './drag-move-capability';
   standalone: true,
   imports: [MoveToTreePickerComponent],
   templateUrl: './move-to-tree-picker.component.html',
-  styleUrl: './move-to-tree-picker.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MoveToTreePickerComponent {
   readonly nodes = input.required<SidebarEntry[]>();
   readonly level = input<number>(0);
+
+  /** Mutually-exclusive color/background/cursor triplet for a row's
+   * selected/disabled/default state (Tailwind port #3071) — folded into
+   * one computed string rather than a base class plus conditional
+   * add-ons. */
+  protected rowClass(selected: boolean, disabled: boolean): string {
+    const base =
+      'flex h-7 cursor-pointer items-center gap-1.5 rounded-[5px] text-[12px] select-none';
+    if (disabled) {
+      return `${base} disabled cursor-not-allowed text-text-muted opacity-50`;
+    }
+    if (selected) {
+      return `${base} selected bg-primary-dim font-medium text-primary`;
+    }
+    return `${base} text-text-main hover:bg-surface-hover`;
+  }
   readonly selectedId = input<string | null>(null);
   readonly sourceFolderId = input.required<string>();
 

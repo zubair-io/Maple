@@ -13,7 +13,6 @@ import type { DragMoveSummary } from './drag-move.types';
   selector: 'app-drag-move-summary-banner',
   standalone: true,
   templateUrl: './drag-move-summary-banner.component.html',
-  styleUrl: './drag-move-summary-banner.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DragMoveSummaryBannerComponent {
