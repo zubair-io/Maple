@@ -26,7 +26,6 @@ export interface BatchRenameCollisionOption {
   standalone: true,
   imports: [BatchRenamePreviewListComponent],
   templateUrl: './batch-rename-form.component.html',
-  styleUrl: './batch-rename-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BatchRenameFormComponent {
