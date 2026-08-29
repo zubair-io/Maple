@@ -85,16 +85,26 @@ import type { MuiRatingFlagState } from '../ui/rating-flags/mui-rating-flags.com
     NgComponentOutlet,
   ],
   templateUrl: './info-panel.component.html',
-  styleUrl: './info-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     'data-testid': 'info-panel',
     class: 'block bg-sidebar overflow-auto',
-    '[class.inside-sheet]': 'insideSheet()',
+    '[class]': 'paddingClass()',
   },
 })
 export class InfoPanelComponent {
   protected readonly extension = inject(INFO_PANEL_EXTENSION);
+
+  /** Mutually-exclusive padding pair (Tailwind port #3071) —
+   * `:host(.inside-sheet)` used to override the base `:host`'s
+   * `padding: 16px` shorthand on just the bottom side; expanded into two
+   * full, non-overlapping per-side class sets (rather than a shorthand
+   * `p-4` plus a conditional `pb-8` add-on) per the port's host-class
+   * rule, so precedence never depends on Tailwind's utility registration
+   * order. `inside-sheet` kept bare for any external `::ng-deep` styling. */
+  protected paddingClass(): string {
+    return this.insideSheet() ? 'inside-sheet pt-4 pr-4 pb-8 pl-4' : 'pt-4 pr-4 pb-4 pl-4';
+  }
   private readonly state = inject(LibraryStateService);
   private readonly serverIo = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly canvas = inject(ImageCanvasService);
