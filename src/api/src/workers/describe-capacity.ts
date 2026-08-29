@@ -15,7 +15,12 @@
  * value converges no matter which process notices the change first.
  */
 
-import { MAX_TOTAL_DESCRIBE_CAPACITY } from '../enrichment/describe-servers.ts';
+import {
+  DEFAULT_DESCRIBE_SERVER_CONCURRENCY,
+  MAX_TOTAL_DESCRIBE_CAPACITY,
+  type DescribeServerConfig,
+} from '../enrichment/describe-servers.ts';
+import type { ResolvedEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
@@ -40,4 +45,50 @@ export async function syncDescribeStageCapacity(rawCapacity: number): Promise<vo
     // from being applied. The next refresh tick retries.
     log.warn({ err }, 'failed to sync describe stage concurrency');
   }
+}
+
+/** The describe stage's saved concurrency, or `null` when no config doc
+ * exists yet (fresh install). */
+async function readDescribeStageConcurrency(): Promise<number | null> {
+  try {
+    const db = await getDb();
+    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+    return (await repo.load('describe'))?.concurrency ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The server list the runtime should actually use.
+ *
+ * When the operator has saved a list, it is authoritative — the per-server
+ * numbers are theirs. When they have NOT (every deploy that predates the
+ * server list, and every one that never opened the new UI), the resolver
+ * derives a single server from `describe_provider_url` at a built-in
+ * default concurrency — and that default must not become the deploy's new
+ * throughput. An operator who had raised the describe stage to 8 would
+ * otherwise find it silently running at 2 after the upgrade: the pool caps
+ * in-flight calls per server, and `syncDescribeStageCapacity` would write
+ * the derived total back over their setting.
+ *
+ * So for a derived list the single server inherits the stage's existing
+ * concurrency, which makes the upgrade a no-op: one server, same number of
+ * concurrent requests to the same URL as before. The operator opts into
+ * per-server tuning by saving a list, at which point their numbers win.
+ */
+export async function describeServersForRuntime(
+  cfg: ResolvedEnrichmentConfig,
+  // Seam: the tests drive the derivation without a database. Production
+  // callers never pass this.
+  readConcurrency: () => Promise<number | null> = readDescribeStageConcurrency,
+): Promise<DescribeServerConfig[]> {
+  if (cfg.source.describe_servers === 'db') return cfg.describe_servers;
+  const saved = await readConcurrency();
+  return [
+    {
+      url: cfg.describe_provider_url,
+      concurrency: saved ?? DEFAULT_DESCRIBE_SERVER_CONCURRENCY,
+    },
+  ];
 }
