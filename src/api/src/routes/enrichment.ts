@@ -23,12 +23,10 @@ import { Elysia, t } from 'elysia';
 import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 import {
-  MAX_DESCRIBE_DAILY_CAP_USD,
   MAX_FACE_MIN_DETECTION_SIZE,
   MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
   MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
-  MIN_DESCRIBE_DAILY_CAP_USD,
   MIN_FACE_MIN_DETECTION_SIZE,
   MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
