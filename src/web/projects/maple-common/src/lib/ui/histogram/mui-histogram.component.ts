@@ -20,8 +20,8 @@ const CHANNEL_COLOR = {
   selector: 'mui-histogram',
   standalone: true,
   templateUrl: './mui-histogram.component.html',
-  styleUrl: './mui-histogram.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiHistogramComponent extends RgbChannelPlotBase {
   protected readonly channelColor = CHANNEL_COLOR;

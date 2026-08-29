@@ -47,8 +47,8 @@ export interface MuiFilterGroup {
     MuiFormFieldComponent,
   ],
   templateUrl: './mui-filter-panel.component.html',
-  styleUrl: './mui-filter-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiFilterPanelComponent {
   readonly groups = input.required<readonly MuiFilterGroup[]>();

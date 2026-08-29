@@ -139,7 +139,19 @@ function nudgeDelta(
 interface MuiCropHandleLayout extends MuiCropHandleSpec {
   readonly left: number;
   readonly top: number;
+  readonly cursorClass: string;
 }
+
+const HANDLE_CURSOR_CLASS: Record<MuiCropHandleId, string> = {
+  n: 'cursor-ns-resize',
+  s: 'cursor-ns-resize',
+  e: 'cursor-ew-resize',
+  w: 'cursor-ew-resize',
+  nw: 'cursor-nwse-resize',
+  se: 'cursor-nwse-resize',
+  ne: 'cursor-nesw-resize',
+  sw: 'cursor-nesw-resize',
+};
 
 @Component({
   selector: 'mui-crop-overlay',
@@ -147,6 +159,7 @@ interface MuiCropHandleLayout extends MuiCropHandleSpec {
   templateUrl: './mui-crop-overlay.component.html',
   styleUrl: './mui-crop-overlay.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'relative block pointer-events-none' },
 })
 export class MuiCropOverlayComponent {
   readonly containerSize = input.required<{ readonly width: number; readonly height: number }>();
@@ -187,7 +200,12 @@ export class MuiCropOverlayComponent {
       sw: { left: r.x, top: bottom },
       w: { left: r.x, top: midY },
     };
-    return HANDLES.map((h) => ({ ...h, left: positions[h.id].left, top: positions[h.id].top }));
+    return HANDLES.map((h) => ({
+      ...h,
+      left: positions[h.id].left,
+      top: positions[h.id].top,
+      cursorClass: HANDLE_CURSOR_CLASS[h.id],
+    }));
   });
 
   onHandlePointerDown(event: PointerEvent, handle: MuiCropHandleId): void {

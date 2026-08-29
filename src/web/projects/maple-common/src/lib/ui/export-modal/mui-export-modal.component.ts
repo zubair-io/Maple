@@ -60,8 +60,8 @@ export interface MuiExportSizeOption {
     MuiTextComponent,
   ],
   templateUrl: './mui-export-modal.component.html',
-  styleUrl: './mui-export-modal.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'contents' },
 })
 export class MuiExportModalComponent {
   readonly open = input<boolean>(false);
