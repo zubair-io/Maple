@@ -69,7 +69,7 @@ namespace Maple.UI.Atoms
 
             // #3069: same ProgressRing system-accent default as MuiSpinner —
             // pin the loading ring to Maple primary.
-            _spinner.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MaplePrimary"];
+            _spinner.Foreground = R("MaplePrimary");
 
             Rebuild();
         }
