@@ -9,8 +9,12 @@
 //
 // `InfoTab` keeps the same name + initializer the rest of `DetailPanel`
 // already calls so the swap is invisible to existing call sites.
-// Reusable shared types (`InfoRow`, `SectionHeader`) also live here
-// rather than in the parent file — they were Info-only helpers.
+//
+// The `InfoRow` / `SectionHeader` ad-hoc row helpers that used to live
+// here were deleted in the Maple UI adoption epic (#3019, wave MA3) —
+// `git grep` proved zero consumers anywhere in the app target; the S6
+// panel's own rows render through `CameraLocationGrid`, which now
+// delegates to MapleUI's `MuiLabelValueGrid`.
 
 import MapleCore
 import SwiftUI
@@ -22,56 +26,5 @@ struct InfoTab: View {
 
   var body: some View {
     InfoPanelView(session: session, isInsideSheet: false)
-  }
-}
-
-// MARK: - InfoRow
-
-/// Kept available for any callers that still render an ad-hoc info row
-/// outside `InfoPanelView`. Not used by the S6 panel itself, which
-/// renders rows via `CameraLocationGrid.KVRow` with its own layout.
-struct InfoRow: View {
-  let label: String
-  let value: String
-
-  init(_ label: String, _ value: String) {
-    self.label = label
-    self.value = value
-  }
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      Text(label)
-        .font(MapleTokens.Typography.body)
-        .foregroundStyle(MapleTokens.textMuted)
-        .frame(width: 96, alignment: .trailing)
-      Text(value)
-        .font(MapleTokens.Typography.rowLabel)
-        .foregroundStyle(MapleTokens.textMain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .lineLimit(3)
-        .textSelection(.enabled)
-    }
-    .padding(.horizontal, MapleTokens.Spacing.panelInset)
-    .padding(.vertical, 4)
-  }
-}
-
-// MARK: - SectionHeader
-
-/// Shared eyebrow section header — used by the Develop tab's
-/// `CollapsibleSection`. Kept here (vs the parent file) because it's
-/// most heavily used by Info-shaped layouts.
-struct SectionHeader: View {
-  let title: String
-  init(_ title: String) { self.title = title }
-
-  var body: some View {
-    Text(title.uppercased())
-      .font(MapleTokens.Typography.eyebrow)
-      .foregroundStyle(MapleTokens.textMuted)
-      .tracking(1.4)
-      .padding(.horizontal, MapleTokens.Spacing.panelInset)
-      .padding(.bottom, 4)
   }
 }
