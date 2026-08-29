@@ -8,26 +8,26 @@
       </p>
     </div>
     <div class="actions">
-      <span class="chip ok">
+      <span class="chip set-chip ok">
         <span class="chip-val">{{ summary().running }}</span>
         <span class="chip-label">Running</span>
       </span>
-      <span class="chip">
+      <span class="chip set-chip">
         <span class="chip-val">{{ summary().paused }}</span>
         <span class="chip-label">Paused</span>
       </span>
-      <span class="chip" [class.err]="summary().dead > 0">
+      <span class="chip set-chip" [class.err]="summary().dead > 0">
         <span class="chip-val">{{ summary().dead | number }}</span>
         <span class="chip-label">Dead</span>
       </span>
-      <span class="chip">
+      <span class="chip set-chip">
         <span class="chip-val">{{ summary().pending | number }}</span>
         <span class="chip-label">Pending</span>
       </span>
       <mui-button
         variant="ghost"
         size="sm"
-        class="chip chip-btn"
+        class="chip set-chip chip-btn"
         [class.err]="damagedCount() > 0"
         data-testid="damaged-chip"
         [title]="
@@ -82,7 +82,7 @@
                   [size]="14"
                   [color]="s.status === 'paused' ? '#78706a' : '#a8a29e'"
                 />
-                <span class="mono">{{ s.name }}</span>
+                <span class="mono set-mono">{{ s.name }}</span>
               </span>
 
               <span class="status-pill">
@@ -166,9 +166,9 @@
             @if (s.name === 'missing-reaper') {
               <div class="block">
                 <div class="set-subhead">Missing-file cleanup</div>
-                <div class="field">
+                <div class="field set-field">
                   <div class="field-label">Prune window</div>
-                  <div class="num-input">
+                  <div class="num-input set-num-input">
                     <mui-input
                       variant="numeric"
                       [min]="1"
@@ -270,9 +270,9 @@
               @if (decodeWorkers.config(); as perf) {
                 <div class="block">
                   <div class="set-subhead">RAW decode workers</div>
-                  <div class="field">
+                  <div class="field set-field">
                     <div class="field-label">Parallel RAW decodes</div>
-                    <div class="num-input">
+                    <div class="num-input set-num-input">
                       <mui-input
                         variant="numeric"
                         [min]="perf.min"
@@ -343,7 +343,7 @@
 
                 @switch (meta(s).enrichment) {
                   @case ('transcribe') {
-                    <div class="field">
+                    <div class="field set-field">
                       <div class="field-label">Whisper model</div>
                       <select
                         aria-label="Whisper model"
@@ -365,9 +365,9 @@
                   }
                   @case ('describe') {
                     <div class="grid-2col">
-                      <div class="field field-wide">
+                      <div class="field field-wide set-field">
                         <div class="field-label">Ollama URL</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'describe_provider_url')"
                             (valueChange)="setEnrichment(s, 'describe_provider_url', $event)"
@@ -386,8 +386,8 @@
                         </div>
                         <div class="field-hint">
                           Empty uses the default
-                          <span class="mono">http://localhost:11434</span>. Point at a remote Ollama
-                          if the model lives on a different machine.
+                          <span class="mono set-mono">http://localhost:11434</span>. Point at a
+                          remote Ollama if the model lives on a different machine.
                         </div>
                         @if (testState(s).kind === 'ok') {
                           <div class="test-result set-test-result ok">
@@ -400,9 +400,9 @@
                           </div>
                         }
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Model</div>
-                        <div class="text-input mono readonly">
+                        <div class="text-input set-text-input mono readonly">
                           <mui-input
                             [value]="fixedDescribeModel"
                             [readOnly]="true"
@@ -410,10 +410,10 @@
                           />
                         </div>
                         <div class="field-hint">
-                          Locked to <span class="mono">{{ fixedDescribeModel }}</span
+                          Locked to <span class="mono set-mono">{{ fixedDescribeModel }}</span
                           >. The structured-JSON parser only accepts this model's output shape —
                           pull the matching tag with
-                          <span class="mono">ollama pull {{ fixedDescribeModel }}</span
+                          <span class="mono set-mono">ollama pull {{ fixedDescribeModel }}</span
                           >.
                         </div>
                       </div>
@@ -422,9 +422,9 @@
 
                   @case ('geocode') {
                     <div class="grid-2col">
-                      <div class="field field-wide">
+                      <div class="field field-wide set-field">
                         <div class="field-label">Nominatim URL</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'nominatim_url')"
                             (valueChange)="setEnrichment(s, 'nominatim_url', $event)"
@@ -456,9 +456,9 @@
                           </div>
                         }
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Rate limit</div>
-                        <div class="num-input">
+                        <div class="num-input set-num-input">
                           <mui-input
                             variant="numeric"
                             [min]="0.1"
@@ -512,9 +512,9 @@
                       </div>
                     }
                     <div class="grid-2col">
-                      <div class="field field-wide">
+                      <div class="field field-wide set-field">
                         <div class="field-label">Model directory</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'face_model_dir')"
                             (valueChange)="setEnrichment(s, 'face_model_dir', $event)"
@@ -523,12 +523,12 @@
                         </div>
                         <div class="field-hint">
                           Where the worker stages scrfd_10g.onnx and arcface_r100_glint360k.onnx.
-                          Empty falls back to <span class="mono">~/.maple/models/</span>.
+                          Empty falls back to <span class="mono set-mono">~/.maple/models/</span>.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Detector download URL</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'face_detector_url')"
                             (valueChange)="setEnrichment(s, 'face_detector_url', $event)"
@@ -537,13 +537,14 @@
                           />
                         </div>
                         <div class="field-hint">
-                          Used only when <span class="mono">scrfd_10g.onnx</span> isn't already in
-                          the model dir. Empty auto-downloads the InsightFace antelopev2 bundle.
+                          Used only when <span class="mono set-mono">scrfd_10g.onnx</span> isn't
+                          already in the model dir. Empty auto-downloads the InsightFace antelopev2
+                          bundle.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Detector sha256</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'face_detector_sha256')"
                             (valueChange)="setEnrichment(s, 'face_detector_sha256', $event)"
@@ -552,9 +553,9 @@
                           />
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Minimum face size</div>
-                        <div class="num-input">
+                        <div class="num-input set-num-input">
                           <mui-input
                             variant="numeric"
                             [min]="0"
@@ -613,9 +614,9 @@
                       </div>
                     }
                     <div class="grid-2col">
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Recognizer download URL</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'face_recognizer_url')"
                             (valueChange)="setEnrichment(s, 'face_recognizer_url', $event)"
@@ -624,13 +625,14 @@
                           />
                         </div>
                         <div class="field-hint">
-                          Used only when <span class="mono">arcface_r100_glint360k.onnx</span> isn't
+                          Used only when
+                          <span class="mono set-mono">arcface_r100_glint360k.onnx</span> isn't
                           already in the model dir. Empty auto-downloads the antelopev2 bundle.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Recognizer sha256</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'face_recognizer_sha256')"
                             (valueChange)="setEnrichment(s, 'face_recognizer_sha256', $event)"
@@ -644,9 +646,9 @@
 
                   @case ('meili') {
                     <div class="grid-2col">
-                      <div class="field field-wide">
+                      <div class="field field-wide set-field">
                         <div class="field-label">Meilisearch URL</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'meilisearch_url')"
                             (valueChange)="setEnrichment(s, 'meilisearch_url', $event)"
@@ -665,8 +667,8 @@
                         </div>
                         <div class="field-hint">
                           Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
-                          back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env var (or
-                          disables the sidecar — search then uses the Mongo text index).
+                          back to the <span class="mono set-mono">MAPLE_MEILISEARCH_URL</span> env
+                          var (or disables the sidecar — search then uses the Mongo text index).
                         </div>
                         @if (testState(s).kind === 'ok') {
                           <div class="test-result set-test-result ok">
@@ -679,9 +681,9 @@
                           </div>
                         }
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">API key</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [masked]="true"
                             autocomplete="off"
@@ -699,10 +701,10 @@
                           Master or search key for the instance, sent as a bearer token and stored
                           in the database. Leave blank to keep the saved key. With no saved key,
                           falls back to
-                          <span class="mono">MAPLE_MEILISEARCH_API_KEY</span>.
+                          <span class="mono set-mono">MAPLE_MEILISEARCH_API_KEY</span>.
                         </div>
                       </div>
-                      <div class="field field-wide">
+                      <div class="field field-wide set-field">
                         <mui-checkbox
                           label="Enable hybrid semantic search"
                           [checked]="enrichmentValue(s, 'meilisearch_semantic_enabled')"
@@ -715,9 +717,9 @@
                           migration to become searchable by meaning.
                         </div>
                       </div>
-                      <div class="field field-wide">
+                      <div class="field field-wide set-field">
                         <div class="field-label">Ollama URL (from Describe)</div>
-                        <div class="text-input mono readonly">
+                        <div class="text-input set-text-input mono readonly">
                           <mui-input
                             [readOnly]="true"
                             [value]="
@@ -733,9 +735,9 @@
                           Meilisearch must be able to reach it from its own host or container.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Embedding model</div>
-                        <div class="text-input mono">
+                        <div class="text-input set-text-input mono">
                           <mui-input
                             [value]="enrichmentValue(s, 'meilisearch_embedder_model')"
                             (valueChange)="setEnrichment(s, 'meilisearch_embedder_model', $event)"
@@ -746,12 +748,12 @@
                         </div>
                         <div class="field-hint">
                           Ollama model used for both document and query vectors. Default:
-                          <span class="mono">bge-m3</span>.
+                          <span class="mono set-mono">bge-m3</span>.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Semantic blend</div>
-                        <div class="num-input">
+                        <div class="num-input set-num-input">
                           <mui-input
                             variant="numeric"
                             [min]="0"
@@ -767,9 +769,9 @@
                           0 uses keyword ranking only; 1 uses vector similarity only. Default: 0.5.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Index task timeout</div>
-                        <div class="num-input">
+                        <div class="num-input set-num-input">
                           <mui-input
                             variant="numeric"
                             [min]="30"
@@ -787,9 +789,9 @@
                           for slower Ollama hosts.
                         </div>
                       </div>
-                      <div class="field">
+                      <div class="field set-field">
                         <div class="field-label">Service search requests / minute</div>
-                        <div class="num-input">
+                        <div class="num-input set-num-input">
                           <mui-input
                             variant="numeric"
                             [min]="1"
@@ -815,9 +817,9 @@
             <div class="block">
               <div class="set-subhead">Stage runtime</div>
               <div class="grid-2col">
-                <div class="field">
+                <div class="field set-field">
                   <div class="field-label">Concurrency</div>
-                  <div class="num-input">
+                  <div class="num-input set-num-input">
                     <mui-input
                       variant="numeric"
                       [min]="1"
@@ -829,9 +831,9 @@
                   </div>
                   <div class="field-hint">1 – 100</div>
                 </div>
-                <div class="field">
+                <div class="field set-field">
                   <div class="field-label">Max attempts</div>
-                  <div class="num-input">
+                  <div class="num-input set-num-input">
                     <mui-input
                       variant="numeric"
                       [min]="1"
@@ -938,7 +940,9 @@
         <div class="row-grid import-summary set-worker-row-grid set-worker-row-cells" summary>
           <span class="stage-id">
             <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
-            <span class="mono" [title]="j.source_root">{{ imports.basename(j.source_root) }}</span>
+            <span class="mono set-mono" [title]="j.source_root">{{
+              imports.basename(j.source_root)
+            }}</span>
           </span>
           <span class="status-pill">
             <span class="status-dot" [style.background]="imports.statusColor(j.status)"></span>
@@ -960,7 +964,7 @@
         } @else if (imports.detail(); as d) {
           <div class="import-detail">
             <div class="import-detail-head">
-              <code class="mono" [title]="d.source_root">{{ d.source_root }}</code>
+              <code class="mono set-mono" [title]="d.source_root">{{ d.source_root }}</code>
               <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
               <span class="lib-name">{{ imports.libraryName(d) }}</span>
               @if (imports.retryable(j)) {
@@ -989,8 +993,8 @@
               </div>
               @for (f of d.files.slice(0, imports.maxFilesShown); track f.src) {
                 <div class="import-file">
-                  <span class="mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
-                  <span class="mono" [title]="f.dest">{{ f.dest }}</span>
+                  <span class="mono set-mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
+                  <span class="mono set-mono" [title]="f.dest">{{ f.dest }}</span>
                   <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
                 </div>
                 @if (j.status === 'failed' && f.error; as fileError) {
@@ -1031,7 +1035,7 @@
       <div class="log-header">
         <div class="log-title" [id]="'log-drawer-title-' + log.stage.name">
           <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'" />
-          <span class="mono">{{ log.stage.name }}</span>
+          <span class="mono set-mono">{{ log.stage.name }}</span>
           @if (!log.loading) {
             <span class="log-subtitle">
               {{
@@ -1163,7 +1167,7 @@
                 <div class="log-entry-err">{{ item.reason }}</div>
               }
               <div class="log-entry-meta">
-                <span class="mono" data-testid="damaged-maple-id">{{
+                <span class="mono set-mono" data-testid="damaged-maple-id">{{
                   item.maple_id ?? item.id
                 }}</span>
                 @if (item.stage) {
