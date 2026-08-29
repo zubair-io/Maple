@@ -11,7 +11,6 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
   selector: 'app-trash-status-banner',
   standalone: true,
   templateUrl: './trash-status-banner.component.html',
-  styleUrl: './trash-status-banner.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrashStatusBannerComponent {
