@@ -1,57 +1,23 @@
-@use '../../generated/ui-tokens' as tok;
+// Residue: `row-interaction` mixin family is shared with mui-list-row
+// (out of this task's alphabetical range, `stat`..`whiteboard-canvas`) —
+// converting it here would leave that consumer referencing a deleted
+// partial. Kept until both callers migrate together.
 @use '../internal/row-interaction' as row;
 
-:host {
-  display: block;
-}
-
 .mui-tree-row {
-  display: flex;
-  align-items: center;
-  gap: tok.$maple-spacing-xs;
-  padding: tok.$maple-spacing-xs tok.$maple-spacing-md;
-  border-left: 2px solid transparent;
-  cursor: pointer;
-
   @include row.row-hover-focus;
 
   &.is-active {
     @include row.row-active-base;
   }
-
-  &.is-disabled {
-    opacity: 0.5;
-    pointer-events: none;
-  }
 }
 
 // Drag-over highlight when a consumer attaches CDK's `cdkDropList` directly
-// to `<mui-tree-row>` itself (Angular directives attach to any host
-// element, custom or native, and CDK applies `.cdk-drop-list-receiving` to
-// that same element) — the class lands on THIS component's own host tag,
-// not the inner `.mui-tree-row` div, hence `:host(...)` rather than a
-// descendant selector. No extra input is needed to drive this (MW4, ticket
-// #3031; matches the pre-migration look from `_tree-row-chrome.scss`).
+// to `<mui-tree-row>` itself — lands on this component's own host tag, not
+// the inner `.mui-tree-row` div, hence `:host(...)` rather than a
+// descendant selector (MW4, ticket #3031).
 :host(.cdk-drop-list-receiving) {
   background: var(--color-primary-dim);
   outline: 1.5px dashed var(--color-primary);
   outline-offset: -1.5px;
-}
-
-// Chevron/busy-spinner/error-glyph styling now lives in
-// `mui-tree-row-chevron.component.scss` (MW4, ticket #3031 — extracted
-// alongside its template to clear a fallow complexity finding).
-
-.row-icon {
-  color: var(--color-primary);
-  flex: 0 0 auto;
-
-  &.row-icon-muted {
-    color: var(--color-text-muted);
-  }
-}
-
-.row-label {
-  flex: 1;
-  min-width: 0;
 }

@@ -1,4 +1,10 @@
-<span class="mui-status-text" [class]="'state-' + state()" [attr.role]="role()">
+<span
+  class="mui-status-text inline-flex items-center gap-1"
+  [class]="'state-' + state()"
+  [attr.role]="role()"
+>
   <mui-icon [name]="presentation().icon" size="xs" [color]="presentation().colorVar" />
-  <span class="text" [style.color]="presentation().colorVar">{{ displayText() }}</span>
+  <span class="text text-[12px] whitespace-nowrap" [style.color]="presentation().colorVar">{{
+    displayText()
+  }}</span>
 </span>

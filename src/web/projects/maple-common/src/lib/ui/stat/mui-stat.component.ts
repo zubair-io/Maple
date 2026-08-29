@@ -17,11 +17,17 @@ const TREND_GLYPH: Record<MuiStatTrend, string> = {
   flat: '–',
 };
 
+const TREND_CLASS: Record<MuiStatTrend, string> = {
+  up: 'trend-up text-success-text',
+  down: 'trend-down text-error-text',
+  flat: 'trend-flat text-text-muted',
+};
+
 @Component({
   selector: 'mui-stat',
   standalone: true,
   templateUrl: './mui-stat.component.html',
-  styleUrl: './mui-stat.component.scss',
+  host: { class: 'inline-block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiStatComponent {
@@ -35,4 +41,17 @@ export class MuiStatComponent {
     const trend = this.trend();
     return trend ? TREND_GLYPH[trend] : '';
   });
+
+  readonly rootClass = computed(() => `mui-stat flex flex-col gap-[2px] size-${this.size()}`);
+
+  readonly valueClass = computed(() =>
+    this.size() === 'sm'
+      ? 'value text-text-main font-semibold leading-[1.1] text-[16px]'
+      : 'value text-text-main font-semibold leading-[1.1] text-[26px]',
+  );
+
+  readonly deltaClass = computed(
+    () =>
+      `delta inline-flex items-center gap-1 text-[12px] font-semibold ${TREND_CLASS[this.trend() ?? 'flat']}`,
+  );
 }

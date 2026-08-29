@@ -19,7 +19,7 @@ const DEFAULT_PRIORITIES: readonly MuiChip[] = [
   standalone: true,
   imports: [MuiChipRowComponent, MuiFormFieldComponent, MuiPopoverComponent],
   templateUrl: './mui-todo-popover.component.html',
-  styleUrl: './mui-todo-popover.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTodoPopoverComponent {

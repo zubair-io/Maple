@@ -1,13 +1,13 @@
-<div class="mui-tone-curve-panel">
+<div class="mui-tone-curve-panel flex flex-col gap-4">
   <mui-tabs [tabs]="channels()" [(activeId)]="activeChannelId" />
   <mui-curve-plot
-    class="plot"
+    class="plot self-center"
     [points]="activePoints()"
     (pointsChange)="onCurveChange($event)"
     [width]="200"
     [height]="140"
   />
-  <div class="parametrics">
+  <div class="parametrics flex flex-col gap-2">
     <mui-living-slider
       label="Highlights"
       [min]="-100"

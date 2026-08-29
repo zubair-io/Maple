@@ -1,36 +1,5 @@
-@use '../../generated/ui-tokens' as tok;
-
-:host {
-  display: block;
-}
-
-.mui-typing-indicator {
-  display: flex;
-  align-items: center;
-  gap: tok.$maple-spacing-xs;
-}
-
-.dots {
-  display: inline-flex;
-  gap: 3px;
-}
-
-.dot {
-  width: 4px;
-  height: 4px;
-  border-radius: tok.$maple-radius-full;
-  background: var(--color-text-muted);
-  animation: typing-bounce 1.2s infinite ease-in-out;
-
-  &:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-
-  &:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-}
-
+// Residue: @keyframes name is global and referenced via an arbitrary
+// `[animation:...]` value in the template.
 @keyframes typing-bounce {
   0%,
   60%,

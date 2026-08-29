@@ -22,7 +22,7 @@ export interface MuiSuggestionItem {
   standalone: true,
   imports: [MuiPopoverComponent, MuiIconComponent, MuiTextComponent],
   templateUrl: './mui-suggestion-menu.component.html',
-  styleUrl: './mui-suggestion-menu.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSuggestionMenuComponent {
@@ -63,5 +63,10 @@ export class MuiSuggestionMenuComponent {
 
   selectItem(item: MuiSuggestionItem): void {
     this.select.emit(item.id);
+  }
+
+  itemClass(index: number): string {
+    const base = 'item mui-chrome-menu-item-base hover:bg-bg-hover';
+    return this.activeIndex() === index ? `${base} active bg-bg-hover` : base;
   }
 }
