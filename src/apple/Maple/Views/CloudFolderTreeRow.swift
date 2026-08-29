@@ -15,6 +15,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct CloudFolderTreeRow: View {
   let serverURL: URL
@@ -131,50 +132,32 @@ struct CloudFolderTreeRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 6) {
-        // Left-side chevron Button — toggles expansion only. Mirror of
-        // the local FolderTreeRow's chevron exactly: same SF symbol,
-        // same point size, same rotation, same opacity rule for empty
-        // leaves.
-        Button(action: {
-          withAnimation(.easeInOut(duration: 0.12)) {
-            toggleExpanded()
+      // Row shell — MapleUI's `MuiTreeRow` (Maple UI adoption epic #3019,
+      // MA4), replacing the hand-rolled chevron-Button + folder-icon-Button
+      // pair this row used to compose directly. Mirror of the local
+      // `FolderTreeRow`'s row shell exactly — both source-tree rows share
+      // this same shape so the sidebar reads as a single tree regardless of
+      // whether a row is local or cloud. Everything below (drag/drop
+      // targets, context menu, alerts) attaches as external modifiers,
+      // since `MuiTreeRow` only owns the row's own chrome.
+      MuiTreeRow(
+        label: displayName,
+        icon: "folder",
+        expandable: hasChildren,
+        expanded: Binding(
+          get: { isExpanded },
+          set: { _ in
+            withAnimation(.easeInOut(duration: 0.12)) {
+              toggleExpanded()
+            }
           }
-        }) {
-          Image(systemName: "chevron.right")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(MapleTokens.textMuted)
-            .opacity(hasChildren ? 0.6 : 0.15)
-            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            .frame(width: 14, height: 14)
-        }
-        .buttonStyle(.plain)
-        .disabled(!hasChildren)
-
-        // Folder icon + label Button — the navigate target. Tinted
-        // primary when selected, same as the local tree.
-        Button(action: { onPickPath(serverURL, libraryFolderID, absPath) }) {
-          HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
-            Image(systemName: "folder")
-              .font(.system(size: 16))
-              .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
-              .frame(width: 22, alignment: .center)
-            Text(displayName)
-              .font(depth == 0 ? MapleTokens.Typography.rowLabel : MapleTokens.Typography.body)
-              .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
-              .lineLimit(1)
-              .truncationMode(.middle)
-            Spacer()
-          }
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-      }
-      .padding(.leading, indent)
-      .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
-      .padding(.vertical, MapleTokens.Spacing.rowVertical)
-      .background(isDropTargeted ? MapleTokens.primary.opacity(0.15)
-                  : (isSelected ? MapleTokens.bgActive : Color.clear))
+        ),
+        depth: depth,
+        loading: isLoading,
+        active: isSelected,
+        pressed: { onPickPath(serverURL, libraryFolderID, absPath) }
+      )
+      .background(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
       // Drag-onto-source-tree (#2646). See `FolderTreeRow`'s identical
       // modifier (`LibrarySidebar.swift`) for the payload/modifier-key
       // contract — this is its Cloud-row twin.
@@ -301,17 +284,12 @@ struct CloudFolderTreeRow: View {
         if isExpanded { refresh() }
       }
 
-      // Children — same depth-recursive pattern as the local tree.
+      // Children — same depth-recursive pattern as the local tree. No
+      // separate "Loading…" child row: `MuiTreeRow`'s own `loading:` param
+      // already shows a trailing spinner on the row itself above.
       if isExpanded {
         if isLoading {
-          HStack {
-            ProgressView().controlSize(.small)
-            Text("Loading…")
-              .font(MapleTokens.Typography.body)
-              .foregroundStyle(MapleTokens.textMuted)
-          }
-          .padding(.leading, indent + MapleTokens.Spacing.treeIndent)
-          .padding(.vertical, 4)
+          EmptyView()
         } else if loadFailed {
           Text("Couldn't load")
             .font(MapleTokens.Typography.body)

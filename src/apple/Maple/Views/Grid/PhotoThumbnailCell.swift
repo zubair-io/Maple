@@ -8,7 +8,11 @@
 //
 // Overlay visuals are ported verbatim from the existing cells:
 //   - phone pick-dot + ≥4★ gold   ← LibraryCell.phoneBadgeOverlay
-//   - desktop FlagBadge + StarView ← LibraryCell.badgeOverlay(.desktop)
+//   - desktop rating/flag row      ← LibraryCell.badgeOverlay(.desktop), now
+//                                     MapleUI's `MuiRatingFlags(readonly:)`
+//                                     (Maple UI adoption epic #3019, MA4) —
+//                                     replaces the hand-rolled FlagBadge +
+//                                     StarView pair from DesignTokens.swift
 //   - cloud rating ★               ← CloudTimelineCell (rating top-leading)
 //   - merged sync badge            ← CloudTimelineMergedCell.badgeView
 //
@@ -22,6 +26,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 // MARK: - PhotoThumbnailCell
 
@@ -251,8 +256,10 @@ private struct GridCellOverlayView: View {
 
     // MARK: Desktop badge layout (iPad / Mac)
 
-    /// FlagBadge + StarView row at bottom-leading.
-    /// Matches `LibraryCell.badgeOverlay(.desktop)` exactly.
+    /// Rating/flag row at bottom-leading, via MapleUI's read-only
+    /// `MuiRatingFlags` (Maple UI adoption epic #3019, MA4) — replaces the
+    /// hand-rolled `FlagBadge` + `StarView` pair this cell used to compose
+    /// directly (`LibraryCell.badgeOverlay(.desktop)`'s original shape).
     @ViewBuilder
     private var desktopBadges: some View {
         let stars = overlays.rating
@@ -277,18 +284,15 @@ private struct GridCellOverlayView: View {
                 }
             }
         } else {
-            // Library / browse surface: FlagBadge + StarView bottom-leading
+            // Library / browse surface: rating/flag row bottom-leading.
             if flag != .none || stars > 0 {
                 ZStack(alignment: .bottomLeading) {
                     Color.clear
-                    HStack(spacing: 2) {
-                        if flag != .none {
-                            FlagBadge(flag: flag)
-                        }
-                        if stars > 0 {
-                            StarView(count: stars)
-                        }
-                    }
+                    MuiRatingFlags(
+                        rating: .constant(stars),
+                        flag: .constant(RatingFlagsRow.muiFlag(for: flag)),
+                        readonly: true
+                    )
                     .padding(4)
                 }
             }
