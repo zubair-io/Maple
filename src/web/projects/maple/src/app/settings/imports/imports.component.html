@@ -11,25 +11,33 @@
 
   <div class="imports-body set-body-wrap">
     @if (error(); as e) {
-      <p class="error">{{ e }}</p>
+      <p class="error text-[var(--s-danger,#d6453f)] text-[13px] m-0">{{ e }}</p>
     }
 
     @if (step() === 'pick' && started(); as kind) {
-      <div class="notice" role="status">
+      <div
+        class="notice flex items-center gap-2 py-2.5 px-3.5 rounded-lg text-[13px] text-[var(--s-text)] bg-[var(--s-accent-bg,rgba(96,165,250,0.12))] border border-[var(--s-border)]"
+        role="status"
+      >
         <maple-settings-icon name="check" [size]="14" />
         <span>
           Import queued{{ kind === 'auto' ? ' (auto)' : '' }} — running in the background. Track it
-          on the <a routerLink="/settings/workers">Workers page</a>, or start another below.
+          on the
+          <a
+            routerLink="/settings/workers"
+            class="text-[var(--s-accent,#3b82f6)] no-underline hover:underline"
+            >Workers page</a
+          >, or start another below.
         </span>
       </div>
     }
 
     <!-- ──────────────────────────── STEP 1: pick ─────────────────────── -->
     @if (step() === 'pick') {
-      <section>
+      <section class="flex flex-col gap-3">
         <div class="set-subhead">1 · Target library</div>
         <select
-          class="lib-select"
+          class="lib-select appearance-auto py-2 px-2.5 text-[13px] border border-[var(--s-border)] rounded-md bg-[var(--s-surface,#fff)] text-[var(--s-text)] max-w-[520px]"
           [ngModel]="targetLibraryId()"
           (ngModelChange)="onLibraryChange($event)"
         >
@@ -41,16 +49,19 @@
       </section>
 
       @if (targetLibraryId()) {
-        <section>
+        <section class="flex flex-col gap-3">
           <div class="set-subhead">2 · Source folder</div>
 
           @if (selectedSource(); as src) {
-            <div class="picked-row">
+            <div class="picked-row flex items-center gap-2.5">
               <maple-settings-icon name="check" [size]="14" />
-              <code class="mono">{{ src }}</code>
+              <code
+                class="mono flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs"
+                >{{ src }}</code
+              >
               <mui-button variant="ghost" size="sm" (pressed)="clearSource()">Change</mui-button>
             </div>
-            <div class="actions">
+            <div class="actions flex gap-2.5 mt-1">
               <mui-button variant="primary" size="sm" [loading]="busy()" (pressed)="runScan()">
                 Pick Folder Name(s)
               </mui-button>
@@ -65,8 +76,10 @@
               </mui-button>
             </div>
           } @else {
-            <div class="browser">
-              <div class="browser-bar">
+            <div class="browser border border-[var(--s-border)] rounded-lg overflow-hidden">
+              <div
+                class="browser-bar flex items-center gap-2.5 py-2 px-3 bg-[var(--s-surface-2,rgba(0,0,0,0.03))] border-b border-[var(--s-border)]"
+              >
                 <mui-button
                   variant="ghost"
                   size="sm"
@@ -75,34 +88,39 @@
                 >
                   <maple-settings-icon name="back" [size]="12" /> Up
                 </mui-button>
-                <code class="mono path">{{ currentPath() ?? '/' }}</code>
+                <code
+                  class="mono path overflow-hidden text-ellipsis whitespace-nowrap font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs"
+                  >{{ currentPath() ?? '/' }}</code
+                >
               </div>
 
-              <div class="card-list">
+              <div class="card-list flex flex-col max-h-[320px] overflow-y-auto">
                 @for (d of listing()?.dirs ?? []; track d.path) {
                   <mui-button
                     variant="ghost"
-                    class="row-btn"
+                    class="row-btn block w-full"
                     [disabled]="busy()"
                     (pressed)="open(d.path)"
                   >
                     <maple-settings-icon name="chev-r" [size]="14" />
-                    <span class="name">{{ d.name }}</span>
+                    <span class="name font-medium">{{ d.name }}</span>
                   </mui-button>
                 } @empty {
-                  <p class="empty">No subfolders here.</p>
+                  <p class="empty text-[var(--s-text-muted)] text-[13px] m-0">
+                    No subfolders here.
+                  </p>
                 }
               </div>
 
               @if (currentBlocked()) {
-                <p class="hint blocked">
+                <p class="hint blocked text-[var(--s-danger,#d6453f)] py-0 px-3 text-[13px] m-0">
                   This folder is inside the target library — pick a source outside it.
                 </p>
               }
               <mui-button
                 variant="primary"
                 size="sm"
-                class="use-here"
+                class="use-here m-3 self-start"
                 [disabled]="busy() || currentBlocked() || !currentPath()"
                 (pressed)="useFolder(currentPath()!)"
               >
@@ -116,39 +134,55 @@
 
     <!-- ────────────────────────── STEP 2: review ──────────────────────── -->
     @if (step() === 'review' && scan(); as s) {
-      <section>
+      <section class="flex flex-col gap-3">
         <div class="set-subhead">3 · Review groups</div>
-        <p class="summary">
+        <p class="summary text-[13px] text-[var(--s-text-muted)] m-0">
           {{ s.totals.images }} photos · {{ s.totals.movies }} movies ·
           {{ s.totals.sidecars }} sidecars → <strong>{{ libraryLabel(targetLibraryId()) }}</strong>
         </p>
-        <p class="hint">
+        <p class="hint text-[var(--s-text-muted)] text-[13px] m-0">
           Groups are by capture date (from each photo's EXIF, or its file date when it has none).
           Leave a folder name blank to use the default destination shown below each row — an
           already-indexed photo captured within 30 minutes of one of these files always takes
           priority over that default, for just those files.
         </p>
 
-        <div class="bucket-table">
-          <div class="bucket-head">
-            <span>Year</span><span>Folder name — will go to</span><span class="num">Photos</span>
-            <span class="num">Movies</span><span class="num">Sidecars</span>
+        <div class="bucket-table border border-[var(--s-border)] rounded-lg overflow-hidden">
+          <div
+            class="bucket-head grid grid-cols-[64px_1fr_70px_70px_80px] items-center gap-2.5 py-2 px-3 bg-[var(--s-surface-2,rgba(0,0,0,0.03))] border-b border-[var(--s-border)] text-[11px] uppercase tracking-[0.04em] text-[var(--s-text-muted)]"
+          >
+            <span>Year</span><span>Folder name — will go to</span
+            ><span class="num text-right [font-variant-numeric:tabular-nums] text-[13px]"
+              >Photos</span
+            >
+            <span class="num text-right [font-variant-numeric:tabular-nums] text-[13px]"
+              >Movies</span
+            ><span class="num text-right [font-variant-numeric:tabular-nums] text-[13px]"
+              >Sidecars</span
+            >
           </div>
           @for (b of s.buckets; track b.key) {
-            <div class="bucket-row">
-              <span class="mono">{{ b.year }}</span>
-              <div class="folder-cell">
+            <div
+              class="bucket-row grid grid-cols-[64px_1fr_70px_70px_80px] items-center gap-2.5 py-2 px-3 border-b border-[var(--s-border)] last:border-b-0"
+            >
+              <span class="mono font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs">{{
+                b.year
+              }}</span>
+              <div class="folder-cell flex flex-col gap-1 min-w-0">
                 <mui-input
-                  class="label-input"
+                  class="label-input block w-full"
                   [value]="labels()[b.key] || ''"
                   (valueChange)="setLabel(b.key, $event)"
                   placeholder="(leave blank for the default)"
                   [ariaLabel]="'Folder name for ' + b.key"
                 />
-                <p class="dest-preview">
-                  → <code class="mono">{{ effectiveDest(b) }}</code>
+                <p class="dest-preview m-0 text-[11px] text-[var(--s-text-muted)] break-words">
+                  →
+                  <code class="mono font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs">{{
+                    effectiveDest(b)
+                  }}</code>
                   @if (b.nearbyMatchCount > 0 && !hasOverride(b)) {
-                    <span class="nearby-note">
+                    <span class="nearby-note text-[var(--s-warning,#b8860b)]">
                       ({{ b.nearbyMatchCount }}
                       {{ b.nearbyMatchCount === 1 ? 'file' : 'files' }} will instead join existing
                       photos in {{ b.nearbyMatchFolders.join(', ') }})
@@ -156,14 +190,20 @@
                   }
                 </p>
               </div>
-              <span class="num">{{ b.imageCount }}</span>
-              <span class="num">{{ b.movieCount }}</span>
-              <span class="num">{{ b.sidecarCount }}</span>
+              <span class="num text-right [font-variant-numeric:tabular-nums] text-[13px]">{{
+                b.imageCount
+              }}</span>
+              <span class="num text-right [font-variant-numeric:tabular-nums] text-[13px]">{{
+                b.movieCount
+              }}</span>
+              <span class="num text-right [font-variant-numeric:tabular-nums] text-[13px]">{{
+                b.sidecarCount
+              }}</span>
             </div>
           }
         </div>
 
-        <div class="actions">
+        <div class="actions flex gap-2.5 mt-1">
           <mui-button variant="ghost" size="sm" [disabled]="busy()" (pressed)="backToPick()">
             Back
           </mui-button>
@@ -176,12 +216,12 @@
 
     <!-- ───────────────────────── STEP 3: progress ─────────────────────── -->
     @if (step() === 'progress') {
-      <section>
+      <section class="flex flex-col gap-3">
         <div class="set-subhead">Importing</div>
         @if (active(); as a) {
-          <div class="progress-wrap">
+          <div class="progress-wrap flex items-center gap-3">
             <div
-              class="bar"
+              class="bar flex-1 h-2 rounded-[4px] bg-[var(--s-surface-2,rgba(0,0,0,0.08))] overflow-hidden"
               role="progressbar"
               aria-label="Import progress"
               [attr.aria-valuenow]="percent()"
@@ -189,23 +229,32 @@
               aria-valuemax="100"
               [attr.aria-valuetext]="a.progress.current + ' of ' + a.progress.total + ' files'"
             >
-              <div class="fill" [style.width.%]="percent()"></div>
+              <div
+                class="fill h-full bg-[var(--s-accent,#3b82f6)] transition-[width] duration-300 ease-in-out"
+                [style.width.%]="percent()"
+              ></div>
             </div>
-            <span class="pct">{{ percent() }}%</span>
+            <span
+              class="pct [font-variant-numeric:tabular-nums] text-[13px] min-w-[38px] text-right"
+              >{{ percent() }}%</span
+            >
           </div>
-          <p class="summary">
+          <p class="summary text-[13px] text-[var(--s-text-muted)] m-0">
             {{ a.progress.current }} / {{ a.progress.total }} files ·
-            <span class="ok">{{ a.counts.copied }} copied</span> · {{ a.counts.skipped }} skipped ·
-            <span [class.bad]="a.counts.failed > 0">{{ a.counts.failed }} failed</span>
+            <span class="ok text-[var(--s-success,#2e9e57)]">{{ a.counts.copied }} copied</span> ·
+            {{ a.counts.skipped }} skipped ·
+            <span [class]="a.counts.failed > 0 ? 'bad text-[var(--s-danger,#d6453f)]' : 'bad'"
+              >{{ a.counts.failed }} failed</span
+            >
           </p>
-          <p class="status-line">
+          <p class="status-line text-[13px] m-0">
             Status: <strong>{{ a.status }}</strong>
             @if (a.error) {
-              <span class="bad"> — {{ a.error }}</span>
+              <span class="bad text-[var(--s-danger,#d6453f)]"> — {{ a.error }}</span>
             }
           </p>
 
-          <div class="actions">
+          <div class="actions flex gap-2.5 mt-1">
             @if (!terminal()) {
               <mui-button
                 variant="ghost"
@@ -220,7 +269,7 @@
             }
           </div>
         } @else {
-          <p class="empty">Loading import status…</p>
+          <p class="empty text-[var(--s-text-muted)] text-[13px] m-0">Loading import status…</p>
         }
       </section>
     }
