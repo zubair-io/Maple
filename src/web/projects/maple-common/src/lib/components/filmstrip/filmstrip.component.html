@@ -1,10 +1,10 @@
 <div
-  class="strip-title flex items-center justify-between shrink-0 pl-2.5 pr-1.5 pt-2 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted"
+  class="strip-title flex items-center justify-between shrink-0 border-b-[0.5px] border-border pl-2.5 pr-1.5 pt-2 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted"
 >
   <span>FILMSTRIP</span>
   <button
     type="button"
-    class="strip-toggle"
+    class="strip-toggle -m-0.5 inline-flex cursor-pointer items-center justify-center rounded p-0.5 text-text-muted transition-colors duration-[120ms] ease-out hover:bg-white/8"
     (click)="collapsed.set(!collapsed())"
     [attr.aria-expanded]="!collapsed()"
     [attr.aria-label]="collapsed() ? 'Show filmstrip' : 'Hide filmstrip'"
@@ -14,7 +14,8 @@
       name="back"
       [size]="11"
       color="var(--color-text-muted)"
-      [class.strip-toggle--collapsed]="collapsed()"
+      class="block transition-transform duration-[160ms] ease-out"
+      [class.rotate-180]="collapsed()"
     />
   </button>
 </div>
