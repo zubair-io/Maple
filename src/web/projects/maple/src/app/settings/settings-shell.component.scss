@@ -1,18 +1,11 @@
-// Palette + typography for the redesigned Settings surfaces are declared
-// in settings-chrome.scss (`settings-vars` mixin) — single source of
-// truth so the shell sidebar and the page content never disagree on a
-// colour.
-@use 'settings-chrome' as chrome;
-
-// The shell is the template root of every routed Settings page, so its host
-// carries the same definite height as the page host above it — see
-// `settings-page-host` in settings-chrome.scss for why the whole chain has to
-// be definite for `.page` to scroll.
-:host {
-  @include chrome.settings-vars;
-  @include chrome.settings-page-host;
-  width: 100%;
-}
+// Palette + typography for the redesigned Settings surfaces come from the
+// `set-vars`/`set-page-host` host classes (settings-chrome-classes.scss,
+// wired via `host: { class: '...' }` in settings-shell.component.ts) —
+// single source of truth so the shell sidebar and the page content never
+// disagree on a colour. The shell is the template root of every routed
+// Settings page, so its host carries the same definite height as the page
+// host above it — see `.set-page-host` for why the whole chain has to be
+// definite for `.page` to scroll.
 
 .settings-shell {
   display: flex;

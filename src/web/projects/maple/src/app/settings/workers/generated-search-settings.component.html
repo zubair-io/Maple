@@ -6,18 +6,18 @@
   [showDivider]="false"
   data-testid="generated-search-row"
 >
-  <div class="wrow-summary" summary data-testid="generated-search-row-summary">
-    <span class="wrow-id">
-      <span class="mono">generated-search</span>
+  <div class="wrow-summary set-wrow-summary" summary data-testid="generated-search-row-summary">
+    <span class="wrow-id set-wrow-id">
+      <span class="set-mono">generated-search</span>
     </span>
-    <span class="status-pill">
+    <span class="status-pill set-wrow-status-pill">
       <span class="status-dot" [style.background]="statusColor()"></span>
       <span class="status-label" data-testid="gs-status">
         {{ statusLabel() }}
       </span>
     </span>
-    <span class="wrow-readout" data-testid="gs-summary">{{ summaryLine() }}</span>
-    <span class="wrow-spacer"></span>
+    <span class="wrow-readout set-wrow-readout" data-testid="gs-summary">{{ summaryLine() }}</span>
+    <span class="wrow-spacer set-wrow-spacer"></span>
     <mui-button
       variant="ghost"
       size="sm"
