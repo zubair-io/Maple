@@ -13,7 +13,7 @@ import { BrowseActionButtonComponent } from './browse-action-button.component';
   standalone: true,
   imports: [BrowseActionButtonComponent],
   templateUrl: './self-hosted-browse-actions.component.html',
-  styleUrl: './self-hosted-browse-actions.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SelfHostedBrowseActionsComponent {
