@@ -133,7 +133,7 @@
                 }
               </span>
               <span
-                class="mono r tput inline-flex items-baseline gap-1 justify-end text-[var(--s-text-muted)] text-xs"
+                class="mono r tput inline-flex items-baseline gap-1 justify-end text-[var(--s-text-muted)] text-[12px]"
                 data-label="Throughput"
               >
                 @if (s.throughput > 0) {
@@ -263,11 +263,11 @@
                         {{ m.status }}
                       </span>
                     </div>
-                    <div class="migration-desc mt-0.5 mb-1 text-xs text-[var(--s-text-muted)]">
+                    <div class="migration-desc mt-0.5 mb-1 text-[12px] text-[var(--s-text-muted)]">
                       {{ m.description }}
                     </div>
                     <div
-                      class="migration-progress flex items-center gap-3 text-xs text-[var(--s-text-mid)]"
+                      class="migration-progress flex items-center gap-3 text-[12px] text-[var(--s-text-mid)]"
                     >
                       <span>{{ m.processed | number }} processed</span>
                       <span>{{ m.remaining | number }} remaining</span>
@@ -538,7 +538,7 @@
                           "
                         />
                         <span
-                          class="banner-status text-xs text-[var(--s-ok)] font-medium group-[.warn]:text-[var(--s-warn)]"
+                          class="banner-status text-[12px] text-[var(--s-ok)] font-medium group-[.warn]:text-[var(--s-warn)]"
                         >
                           {{
                             enrichmentConfig()!.face_models!.status === 'loaded'
@@ -645,7 +645,7 @@
                           "
                         />
                         <span
-                          class="banner-status text-xs text-[var(--s-ok)] font-medium group-[.warn]:text-[var(--s-warn)]"
+                          class="banner-status text-[12px] text-[var(--s-ok)] font-medium group-[.warn]:text-[var(--s-warn)]"
                         >
                           {{
                             enrichmentConfig()!.face_models!.status === 'loaded'
@@ -1044,7 +1044,7 @@
           <div class="import-detail pt-0.5 pr-6 pb-2.5 pl-[54px]">
             <div class="import-detail-head flex items-center gap-2 mb-2.5">
               <code
-                class="mono set-mono text-xs text-[var(--s-text-mid)]"
+                class="mono set-mono text-[13px] text-[var(--s-text-mid)]"
                 [title]="d.source_root"
                 >{{ d.source_root }}</code
               >
@@ -1069,7 +1069,7 @@
             </div>
             @if (j.status === 'failed' && d.error; as importError) {
               <p
-                class="import-detail-error mb-2.5 mt-0 py-1.5 px-2.5 text-xs text-[var(--s-err)] bg-[color-mix(in_srgb,var(--s-err)_10%,transparent)] border-[0.5px] border-[color-mix(in_srgb,var(--s-err)_35%,transparent)] rounded-md"
+                class="import-detail-error mb-2.5 mt-0 py-1.5 px-2.5 text-[12px] text-[var(--s-err)] bg-[color-mix(in_srgb,var(--s-err)_10%,transparent)] border-[0.5px] border-[color-mix(in_srgb,var(--s-err)_35%,transparent)] rounded-md"
                 data-testid="import-detail-error"
               >
                 {{ importError }}
@@ -1079,13 +1079,13 @@
               class="import-files border-[0.5px] border-[var(--s-border)] rounded-lg overflow-hidden overflow-y-auto max-h-[320px]"
             >
               <div
-                class="import-file head grid grid-cols-[1fr_1.4fr_auto] gap-3.5 py-1.5 px-3 text-xs sticky top-0 bg-[var(--s-surface2)] text-[var(--s-text-dim)] uppercase text-[10px] [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
+                class="import-file head grid grid-cols-[1fr_1.4fr_auto] gap-3.5 py-1.5 px-3 text-[12px] sticky top-0 bg-[var(--s-surface2)] text-[var(--s-text-dim)] uppercase text-[10px] [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
               >
                 <span>Source</span><span>Destination</span><span class="r text-right">Status</span>
               </div>
               @for (f of d.files.slice(0, imports.maxFilesShown); track f.src) {
                 <div
-                  class="import-file grid grid-cols-[1fr_1.4fr_auto] gap-3.5 py-1.5 px-3 text-xs border-t-[0.5px] border-t-[var(--s-border)] [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
+                  class="import-file grid grid-cols-[1fr_1.4fr_auto] gap-3.5 py-1.5 px-3 text-[12px] border-t-[0.5px] border-t-[var(--s-border)] [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
                 >
                   <span class="mono set-mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
                   <span class="mono set-mono" [title]="f.dest">{{ f.dest }}</span>
@@ -1150,7 +1150,7 @@
           <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'" />
           <span class="mono set-mono text-[13px] text-[var(--s-text)]">{{ log.stage.name }}</span>
           @if (!log.loading) {
-            <span class="log-subtitle text-xs text-[var(--s-text-dim)] ml-1">
+            <span class="log-subtitle text-[12px] text-[var(--s-text-dim)] ml-1">
               {{
                 log.items.length === 0
                   ? 'No failed jobs'
@@ -1198,7 +1198,7 @@
               class="log-entry py-2.5 px-4.5 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0"
             >
               <div
-                class="log-entry-path font-[var(--s-mono)] text-xs text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[3px]"
+                class="log-entry-path font-[var(--s-mono)] text-[12px] text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[3px]"
               >
                 {{ item.abs_path ?? item.id }}
               </div>
@@ -1245,7 +1245,7 @@
           <maple-settings-icon name="x" [size]="14" [color]="'#f87171'" />
           <span>Damaged files</span>
           @if (!log.loading) {
-            <span class="log-subtitle text-xs text-[var(--s-text-dim)] ml-1">
+            <span class="log-subtitle text-[12px] text-[var(--s-text-dim)] ml-1">
               {{
                 log.items.length === 0
                   ? 'None'
@@ -1295,7 +1295,7 @@
               data-testid="damaged-entry"
             >
               <div
-                class="log-entry-path font-[var(--s-mono)] text-xs text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[3px]"
+                class="log-entry-path font-[var(--s-mono)] text-[12px] text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[3px]"
               >
                 {{ item.abs_path ?? item.id }}
               </div>
