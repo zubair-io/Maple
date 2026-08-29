@@ -6,18 +6,18 @@
   (click)="onBackdropClick()"
   (keydown.escape)="onSkip()"
 >
-  <div class="dlg-card dmc-card" (click)="$event.stopPropagation()">
+  <div class="dlg-card max-w-[380px]" (click)="$event.stopPropagation()">
     <div class="dlg-header">
       <span class="dlg-title">File already exists</span>
     </div>
 
-    <div class="dmc-body">
-      <p class="dmc-message">
+    <div class="p-4">
+      <p class="m-0 text-[12px] leading-[1.4] text-text-main">
         "{{ filename() }}" already exists at the destination. Skip it, replace it, or keep both?
       </p>
     </div>
 
-    <div class="dmc-footer">
+    <div class="dmc-footer flex justify-end gap-2 border-t-[0.5px] border-border px-4 py-3">
       <mui-button #skipButton variant="ghost" (pressed)="onSkip()">Skip</mui-button>
       <mui-button variant="ghost" (pressed)="onKeepBoth()">Keep Both</mui-button>
       <mui-button variant="primary" (pressed)="onReplace()">Replace</mui-button>

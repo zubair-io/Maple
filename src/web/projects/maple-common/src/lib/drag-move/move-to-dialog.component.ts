@@ -49,7 +49,6 @@ import { MuiButtonComponent } from '../ui/button/mui-button.component';
   standalone: true,
   imports: [MoveToTreePickerComponent, MuiButtonComponent],
   templateUrl: './move-to-dialog.component.html',
-  styleUrl: './move-to-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MoveToDialogComponent {
