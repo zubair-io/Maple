@@ -7,7 +7,6 @@ import { MAPLE_UI_COLORS, MAPLE_UI_MOTION, MAPLE_UI_RADIUS, MAPLE_UI_SPACING } f
 @Component({
   selector: 'app-tier-tokens',
   templateUrl: './tier-tokens.component.html',
-  styleUrl: './tier-tokens.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TierTokensComponent {
