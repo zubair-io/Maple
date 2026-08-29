@@ -1,6 +1,8 @@
-<div class="search" data-testid="search-root">
-  <div class="main">
-    <div class="bar-area">
+<div class="flex h-full min-h-0" data-testid="search-root">
+  <div
+    class="mx-auto flex min-w-0 max-w-none flex-1 flex-col gap-3 overflow-y-auto p-3 md:max-w-[1100px]"
+  >
+    <div class="relative">
       <app-search-bar
         [query]="query()"
         [chips]="visibleChips()"
@@ -13,8 +15,14 @@
         (filtersTap)="onFiltersTap()"
       />
       @if (tagPickerOpen()) {
-        <div class="tag-backdrop" data-testid="tag-picker-backdrop" (click)="onTagDismiss()"></div>
-        <div class="tag-host">
+        <div
+          class="fixed inset-0 z-30 bg-black/45 lg:bg-transparent"
+          data-testid="tag-picker-backdrop"
+          (click)="onTagDismiss()"
+        ></div>
+        <div
+          class="fixed inset-x-0 bottom-0 z-[31] flex h-[70%] max-h-[70%] w-auto overflow-hidden rounded-t-2xl border-0 lg:absolute lg:inset-auto lg:top-[calc(100%+6px)] lg:left-0 lg:h-auto lg:max-h-[60vh] lg:w-[min(420px,100%)] lg:rounded-[14px] lg:border lg:border-border lg:shadow-[0_12px_32px_rgba(0,0,0,0.35)]"
+        >
           <app-search-tag-picker
             [fragment]="tagFragment() ?? ''"
             [people]="facetPeople()"
@@ -30,13 +38,21 @@
     @if (showRecents()) {
       <app-recent-queries [recent]="recent()" (recentTap)="onRecentTap($event)" />
     } @else {
-      <div class="meta-row">
-        <span class="results-count" data-testid="search-result-count">{{ totalLabel() }}</span>
+      <div class="flex items-center justify-between gap-2">
+        <span
+          class="font-['Lato',sans-serif] text-[11px] leading-none font-semibold tracking-[0.05em] text-text-muted uppercase"
+          data-testid="search-result-count"
+          >{{ totalLabel() }}</span
+        >
         @if (hasText()) {
-          <span class="sort-static" title="Text searches rank by relevance">Best match</span>
+          <span
+            class="font-['Lato',sans-serif] text-[12px] leading-[1.2] text-text-muted"
+            title="Text searches rank by relevance"
+            >Best match</span
+          >
         } @else {
           <select
-            class="sort"
+            class="cursor-pointer border-none bg-transparent py-1 font-['Lato',sans-serif] text-[12px] leading-[1.2] text-text-muted focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-[color:var(--color-primary)]"
             data-testid="search-sort"
             aria-label="Sort results"
             [value]="sort()"
@@ -62,12 +78,12 @@
 
   @if (panelOpen()) {
     <div
-      class="sheet-backdrop"
+      class="fixed inset-0 z-40 bg-black/45 lg:hidden"
       data-testid="filter-sheet-backdrop"
       (click)="onPanelDismiss()"
     ></div>
   }
-  <div class="filter-host" [class.open]="panelOpen()" data-testid="filter-host">
+  <div [class]="filterHostClass(panelOpen())" data-testid="filter-host">
     <app-search-filter-panel
       [filters]="filters()"
       [people]="facetPeople()"

@@ -1,13 +1,13 @@
-<div class="panel" data-testid="filter-panel">
+<div class="flex h-full min-h-0 flex-col bg-surface text-text-main" data-testid="filter-panel">
   @if (asSheet()) {
-    <div class="grab" aria-hidden="true"></div>
+    <div class="mx-auto mt-2.5 h-1 w-9 shrink-0 rounded-full bg-border" aria-hidden="true"></div>
   }
-  <header class="head">
-    <h2 class="title">Filters</h2>
+  <header class="flex shrink-0 items-center justify-between border-b border-border px-5 py-3.5">
+    <h2 class="m-0 font-['Lato',sans-serif] text-[16px] leading-[1.2] font-semibold">Filters</h2>
     @if (asSheet()) {
       <button
         type="button"
-        class="close"
+        class="flex cursor-pointer border-none bg-none p-1 text-text-muted"
         aria-label="Close filters"
         data-testid="filter-close"
         (click)="dismiss.emit()"
@@ -24,15 +24,19 @@
     }
   </header>
 
-  <div class="body">
-    <section class="section">
-      <h3 class="eyebrow">Date range</h3>
-      <div class="preset-row">
+  <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
+    <section class="flex flex-col gap-2">
+      <h3
+        class="m-0 font-['Lato',sans-serif] text-[11px] leading-none font-semibold tracking-[0.05em] text-text-muted uppercase"
+      >
+        Date range
+      </h3>
+      <div class="flex flex-wrap gap-2">
         @for (p of presets; track p.id) {
           <button
             type="button"
-            class="preset"
-            [class.active]="filters().datePreset === p.id"
+            class="h-7 cursor-pointer rounded-full border px-3 font-['Lato',sans-serif] text-[12px] leading-none"
+            [class]="presetClass(filters().datePreset === p.id)"
             [attr.aria-pressed]="filters().datePreset === p.id"
             [attr.data-testid]="'filter-preset-' + p.id"
             (click)="onPreset(p.id)"
@@ -41,10 +45,10 @@
           </button>
         }
       </div>
-      <div class="range-row">
+      <div class="flex gap-2">
         <input
           type="date"
-          class="date"
+          class="min-w-0 flex-1 rounded-[10px] border border-border bg-input-bg px-2.5 py-2 font-['Lato',sans-serif] text-[13px] leading-[1.2] text-text-main [color-scheme:dark_light]"
           aria-label="From date"
           data-testid="filter-date-from"
           [value]="filters().from ?? ''"
@@ -52,7 +56,7 @@
         />
         <input
           type="date"
-          class="date"
+          class="min-w-0 flex-1 rounded-[10px] border border-border bg-input-bg px-2.5 py-2 font-['Lato',sans-serif] text-[13px] leading-[1.2] text-text-main [color-scheme:dark_light]"
           aria-label="To date"
           data-testid="filter-date-to"
           [value]="filters().to ?? ''"
@@ -77,16 +81,21 @@
     />
   </div>
 
-  <footer class="foot">
+  <footer class="flex shrink-0 gap-2 border-t border-border px-5 py-3.5">
     <button
       type="button"
-      class="btn secondary"
+      class="h-10 flex-1 cursor-pointer rounded-[10px] border border-border bg-transparent font-['Lato',sans-serif] text-[13px] leading-none font-semibold text-text-main"
       data-testid="filter-clear-all"
       (click)="clearAll.emit()"
     >
       Clear all
     </button>
-    <button type="button" class="btn primary" data-testid="filter-apply" (click)="dismiss.emit()">
+    <button
+      type="button"
+      class="h-10 flex-1 cursor-pointer rounded-[10px] border-none bg-primary font-['Lato',sans-serif] text-[13px] leading-none font-semibold text-white"
+      data-testid="filter-apply"
+      (click)="dismiss.emit()"
+    >
       {{ showLabel() }}
     </button>
   </footer>

@@ -28,7 +28,7 @@ import { SearchResult } from '../api/search.service';
   selector: 'app-photo-results-section',
   standalone: true,
   templateUrl: './photo-results-section.component.html',
-  styleUrl: './photo-results-section.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PhotoResultsSectionComponent implements AfterViewInit, OnDestroy {

@@ -12,7 +12,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
   selector: 'app-recent-queries',
   standalone: true,
   templateUrl: './recent-queries.component.html',
-  styleUrl: './recent-queries.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RecentQueriesComponent {
