@@ -28,7 +28,7 @@
   <button
     type="submit"
     [disabled]="busy() || !email || code.length !== 8"
-    class="submit-btn inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed"
+    class="inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed enabled:hover:bg-[color-mix(in_srgb,var(--color-primary)_88%,white)] disabled:bg-primary-dim disabled:text-text-muted"
   >
     Create passkey
   </button>
