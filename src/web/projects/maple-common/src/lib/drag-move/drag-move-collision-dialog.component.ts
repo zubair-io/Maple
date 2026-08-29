@@ -31,7 +31,6 @@ import { MuiButtonComponent } from '../ui/button/mui-button.component';
   standalone: true,
   imports: [MuiButtonComponent],
   templateUrl: './drag-move-collision-dialog.component.html',
-  styleUrl: './drag-move-collision-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DragMoveCollisionDialogComponent implements AfterViewInit {
