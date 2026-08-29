@@ -1,5 +1,5 @@
-<div class="knobs">
-  <label>
+<div class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">
+  <label class="flex flex-col gap-1 text-[0.85rem]">
     Collections per day
     <mui-input
       variant="numeric"
@@ -10,7 +10,7 @@
       (committed)="patchNumber('collections_per_day', $event)"
     />
   </label>
-  <label>
+  <label class="flex flex-col gap-1 text-[0.85rem]">
     Minimum photos
     <mui-input
       variant="numeric"
@@ -21,7 +21,7 @@
       (committed)="patchNumber('min_results', $event)"
     />
   </label>
-  <label>
+  <label class="flex flex-col gap-1 text-[0.85rem]">
     Retry rounds
     <mui-input
       variant="numeric"
@@ -32,7 +32,7 @@
       (committed)="patchNumber('max_rounds', $event)"
     />
   </label>
-  <label>
+  <label class="flex flex-col gap-1 text-[0.85rem]">
     Keep for (days)
     <mui-input
       variant="numeric"
@@ -43,7 +43,7 @@
       (committed)="patchNumber('retention_days', $event)"
     />
   </label>
-  <label class="wide">
+  <label class="flex flex-col gap-1 text-[0.85rem] col-span-full">
     Model
     <mui-input
       placeholder="inherit from describe stage"
@@ -52,7 +52,7 @@
       (committed)="patch('model', $event)"
     />
   </label>
-  <div class="toggle wide">
+  <div class="flex flex-row items-center gap-2 col-span-full">
     <mui-checkbox
       label="Dry run — log what it would save, write nothing"
       [checked]="draft().dry_run"

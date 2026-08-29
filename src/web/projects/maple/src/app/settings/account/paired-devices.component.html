@@ -1,7 +1,7 @@
 <section class="paired-devices">
   <div class="set-subhead">Paired devices</div>
   @if (error(); as err) {
-    <p class="error" role="alert">{{ err }}</p>
+    <p class="text-[12.5px] text-[var(--s-err)] mb-[10px] mt-0" role="alert">{{ err }}</p>
   }
   @if (sessions(); as list) {
     @if (list.length === 0) {
