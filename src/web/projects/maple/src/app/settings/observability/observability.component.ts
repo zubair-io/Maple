@@ -64,7 +64,6 @@ type ConnState =
     MuiInputComponent,
   ],
   templateUrl: './observability.component.html',
-  styleUrl: './observability.component.scss',
   host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -255,6 +254,16 @@ export class ObservabilityComponent implements OnInit {
    * response carries only this boolean. */
   protected keyConfigured(cfg: ObservabilityConfigResponse): boolean {
     return cfg.ingestion_key_set;
+  }
+
+  /** Classes for a Signals pill (traces/logs/metrics) — one mutually-exclusive
+   * computed string per #3071's variant-class rule rather than a base class
+   * plus a conditional `on` add-on. */
+  protected pillClasses(on: boolean): string {
+    const base = 'text-[11px] py-0.5 px-2 rounded-[4px] border-[0.5px] tracking-[0.2px]';
+    return on
+      ? `${base} bg-[var(--s-accent-bg)] border-[var(--s-accent)] text-[var(--s-text-mid)]`
+      : `${base} bg-[var(--s-surface2)] border-[var(--s-border)] text-[var(--s-text-dim)]`;
   }
 
   /** Placeholder for the write-only key input — tells the operator whether a

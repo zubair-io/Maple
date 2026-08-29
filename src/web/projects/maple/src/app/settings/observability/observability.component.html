@@ -21,13 +21,15 @@
     </div>
   </header>
 
-  <div class="obs-body set-body-wrap">
+  <div class="obs-body set-body-wrap max-[767px]:p-4 max-[767px]:gap-[22px]">
     <!-- Master local toggle ------------------------------------------------ -->
     <section>
-      <div class="toggle-row">
-        <div class="toggle-text">
-          <div class="toggle-title">Telemetry in this browser</div>
-          <div class="toggle-sub">
+      <div class="toggle-row flex items-start justify-between gap-6">
+        <div class="min-w-0">
+          <div class="text-[13.5px] font-medium text-[var(--s-text)]">
+            Telemetry in this browser
+          </div>
+          <div class="text-[11.5px] text-[var(--s-text-muted)] mt-1 leading-[1.5] max-w-[540px]">
             A per-browser opt-out. Turning this off stops this session from exporting, independent
             of the deployment-wide server setting.
           </div>
@@ -39,7 +41,13 @@
         />
       </div>
 
-      <div class="status-line" [class.ok]="active()">
+      <div
+        [class]="
+          active()
+            ? 'flex items-center gap-2 mt-3.5 text-[12.5px] text-[var(--s-ok)]'
+            : 'flex items-center gap-2 mt-3.5 text-[12.5px] text-[var(--s-text-muted)]'
+        "
+      >
         <maple-settings-icon [name]="active() ? 'check' : 'dot'" [size]="13" />
         @if (active()) {
           <span>Telemetry is active — traces and logs are exporting to SigNoz.</span>
@@ -52,7 +60,7 @@
     <!-- Editable server config --------------------------------------------- -->
     <section>
       <div class="set-subhead">Configuration</div>
-      <p class="section-hint">
+      <p class="m-0 mb-3.5 text-[11.5px] text-[var(--s-text-muted)] leading-[1.5] max-w-[540px]">
         Stored on the server (in the database) and pulled by every client. Set the SigNoz OTLP/HTTP
         endpoint and, if your instance requires one, an ingestion key.
       </p>
@@ -79,7 +87,8 @@
             data-testid="obs-key-input"
           />
           <span class="fhint set-fhint">
-            Sent as the <code>signoz-access-token</code> header. Leave blank to keep the saved key.
+            Sent as the <code class="text-[11px]">signoz-access-token</code> header. Leave blank to
+            keep the saved key.
           </span>
         </div>
 
@@ -175,7 +184,7 @@
             @if (cfg.endpoint) {
               {{ cfg.endpoint }}
             } @else {
-              <span class="muted">not set</span>
+              <span class="text-[var(--s-text-dim)] italic text-[12.5px]">not set</span>
             }
             <span class="prov">({{ sourceLabel(cfg.source.endpoint) }})</span>
           </dd>
@@ -183,9 +192,12 @@
           <dt>Ingestion key</dt>
           <dd>
             @if (keyConfigured(cfg)) {
-              <span class="badge-ok">configured</span>
+              <span
+                class="text-[11px] py-0.5 px-[7px] rounded-[4px] bg-[var(--s-ok-bg)] text-[var(--s-ok)]"
+                >configured</span
+              >
             } @else {
-              <span class="muted">none</span>
+              <span class="text-[var(--s-text-dim)] italic text-[12.5px]">none</span>
             }
             <span class="prov">({{ sourceLabel(cfg.source.ingestion_key) }})</span>
           </dd>
@@ -198,11 +210,10 @@
 
           <dt>Signals</dt>
           <dd>
-            <span class="pill" [class.on]="cfg.traces_enabled">traces</span>
-            <span class="pill" [class.on]="cfg.logs_enabled">logs</span>
+            <span [class]="pillClasses(cfg.traces_enabled)">traces</span>
+            <span [class]="pillClasses(cfg.logs_enabled)">logs</span>
             <span
-              class="pill"
-              [class.on]="cfg.metrics_enabled"
+              [class]="pillClasses(cfg.metrics_enabled)"
               title="Metrics are not exported from the web client yet"
               >metrics</span
             >
@@ -214,14 +225,14 @@
       } @else if (lastError(); as e) {
         <p class="error">Failed to load config: {{ e }}</p>
       } @else {
-        <p class="muted">Loading configuration…</p>
+        <p class="text-[var(--s-text-dim)] italic text-[12.5px] m-0">Loading configuration…</p>
       }
     </section>
 
     <!-- Cache status ------------------------------------------------------- -->
     <section>
       <div class="set-subhead">Local cache</div>
-      <div class="cache-line">
+      <div class="flex items-center gap-2 text-[12.5px] text-[var(--s-text-muted)]">
         <maple-settings-icon name="thumb" [size]="14" />
         @if (cachedAtLabel(); as ts) {
           <span>Configuration cached in IndexedDB · last refreshed {{ ts }}</span>
@@ -234,7 +245,7 @@
     <!-- Test event --------------------------------------------------------- -->
     <section>
       <div class="set-subhead">Test</div>
-      <div class="test-row">
+      <div class="flex items-center gap-3.5 flex-wrap">
         <mui-button
           variant="primary"
           size="sm"
