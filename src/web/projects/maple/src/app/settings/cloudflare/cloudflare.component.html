@@ -133,7 +133,9 @@
         </div>
 
         <!-- Test credentials -->
-        <div class="form-actions set-record-form-actions test-actions">
+        <div
+          class="form-actions set-record-form-actions test-actions pb-5 border-b-[0.5px] border-b-border"
+        >
           @if (testState().kind === 'error') {
             <span class="save-error set-record-save-error">{{ $any(testState()).message }}</span>
           }
@@ -174,15 +176,27 @@
            surfaced here — the operator retrieves it directly from the
            server (see cloudflare.component.ts header comment) rather than
            through an app-served endpoint. -->
-      <section class="jwt-panel">
-        <div class="jwt-panel-header">
-          <h2>Worker authentication</h2>
-          <p>
+      <section class="mt-8 pt-6 border-t-[0.5px] border-t-border">
+        <div class="mb-3.5">
+          <h2 class="text-[13px] font-semibold text-text-main m-0 mb-1.5">Worker authentication</h2>
+          <p class="text-[11px] text-text-muted leading-[1.5] m-0">
             The Cloudflare Worker that fronts thumbnail requests validates the same bearer tokens
             this server issues. It needs the server's JWT signing secret, which this app does not
             display — retrieve it directly from the server (MongoDB
-            <code>server_state</code> collection, <code>_id: "jwt_secret"</code>, field
-            <code>value</code>) and run <code>wrangler secret put JWT_SECRET</code> on the Worker.
+            <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
+              >server_state</code
+            >
+            collection,
+            <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
+              >_id: "jwt_secret"</code
+            >, field
+            <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
+              >value</code
+            >) and run
+            <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
+              >wrangler secret put JWT_SECRET</code
+            >
+            on the Worker.
           </p>
         </div>
       </section>
@@ -191,14 +205,22 @@
            already-indexed ones) is the cf-thumb-sync pipeline stage, not a
            button on this page — see Settings → Workers for progress,
            pause/resume, and dead-letter status, same as every other stage. -->
-      <section class="jwt-panel">
-        <div class="jwt-panel-header">
-          <h2>Syncing existing thumbnails</h2>
-          <p>
+      <section class="mt-8 pt-6 border-t-[0.5px] border-t-border">
+        <div class="mb-3.5">
+          <h2 class="text-[13px] font-semibold text-text-main m-0 mb-1.5">
+            Syncing existing thumbnails
+          </h2>
+          <p class="text-[11px] text-text-muted leading-[1.5] m-0">
             Mirroring thumbnails to R2 — both newly-generated ones and the backlog of
-            already-indexed ones — runs as the <code>cf-thumb-sync</code> pipeline stage. Once
-            uploads are enabled and saved above, unpause that stage on the
-            <a routerLink="/settings/workers">Workers</a> page to start it.
+            already-indexed ones — runs as the
+            <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
+              >cf-thumb-sync</code
+            >
+            pipeline stage. Once uploads are enabled and saved above, unpause that stage on the
+            <a routerLink="/settings/workers" class="text-[color:var(--color-accent,#0066cc)]"
+              >Workers</a
+            >
+            page to start it.
           </p>
         </div>
       </section>
