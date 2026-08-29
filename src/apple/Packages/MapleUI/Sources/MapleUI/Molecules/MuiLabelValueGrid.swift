@@ -40,10 +40,14 @@ public struct MuiLabelValueGrid: View {
                 GridRow {
                     MuiText(row.label, variant: .body, color: .muted)
                     if row.isLink, let linkTapped {
+                        // Path-style values: middle truncation keeps the most
+                        // useful tail component visible.
                         MuiLink(title: row.value, href: "", action: { linkTapped(row.id) })
-                            .lineLimit(2)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     } else {
                         MuiText(row.value, variant: .rowLabel, truncate: true)
+                            .textSelection(.enabled)
                     }
                 }
             }
