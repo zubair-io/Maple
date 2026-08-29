@@ -39,7 +39,7 @@ const SIDEBAR_COLLAPSE_PX = 640;
   selector: 'mui-split-layout',
   standalone: true,
   templateUrl: './mui-split-layout.component.html',
-  styleUrl: './mui-split-layout.component.scss',
+  host: { class: 'block h-full min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSplitLayoutComponent implements OnDestroy {

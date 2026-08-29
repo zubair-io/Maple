@@ -1,5 +1,5 @@
 @if (open()) {
-  <div #panel class="mui-popover" [class]="'placement-' + placement()" role="dialog" tabindex="-1">
+  <div #panel [class]="panelClasses()" role="dialog" tabindex="-1">
     <ng-content />
   </div>
 }

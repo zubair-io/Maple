@@ -52,7 +52,7 @@ type MuiPresetsPanelDialogMode = 'none' | 'confirmDelete' | 'savePrompt';
     MuiSpinnerComponent,
   ],
   templateUrl: './mui-presets-panel.component.html',
-  styleUrl: './mui-presets-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPresetsPanelComponent {
