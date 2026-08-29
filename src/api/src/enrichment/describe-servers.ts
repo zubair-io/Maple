@@ -35,13 +35,50 @@ export interface DescribeServerConfig {
  * number — matches the describe stage's historical single-server
  * `defaults.concurrency`. */
 export const DEFAULT_DESCRIBE_SERVER_CONCURRENCY = 2;
-export const MIN_DESCRIBE_SERVER_CONCURRENCY = 1;
+const MIN_CONCURRENCY = 1;
 /** A single Ollama host serving a 12B vision model saturates long before
  * this; the ceiling only exists to catch a mistyped three-digit value. */
-export const MAX_DESCRIBE_SERVER_CONCURRENCY = 32;
+const MAX_CONCURRENCY = 32;
 /** Bounded so a runaway client can't write an unbounded array into the
  * settings doc. Eight distinct GPU boxes is already an unusual deploy. */
 export const MAX_DESCRIBE_SERVERS = 8;
+
+/** Normalise one entry's URL. Returns the cleaned URL or the reason it
+ * cannot be used. */
+function parseUrl(raw: unknown): string | { error: string } {
+  if (typeof raw !== 'string') return { error: 'url is required' };
+  const url = validateHttpUrl(raw);
+  if (url === null) return { error: 'url is required' };
+  return typeof url === 'object' ? { error: url.error } : url;
+}
+
+/** Absent/null takes the default; anything else must be an integer in
+ * range. */
+function parseConcurrency(raw: unknown): number | { error: string } {
+  if (raw === undefined || raw === null) return DEFAULT_DESCRIBE_SERVER_CONCURRENCY;
+  const valid =
+    typeof raw === 'number' &&
+    Number.isInteger(raw) &&
+    raw >= MIN_CONCURRENCY &&
+    raw <= MAX_CONCURRENCY;
+  return valid
+    ? raw
+    : { error: `concurrency must be an integer between ${MIN_CONCURRENCY} and ${MAX_CONCURRENCY}` };
+}
+
+/** Validate one list entry. Both entry points share this so the write path
+ * (400) and the read path (drop) can never disagree on what "valid" means. */
+function parseEntry(entry: unknown): DescribeServerConfig | { error: string } {
+  if (typeof entry !== 'object' || entry === null) {
+    return { error: 'must be an object with a url' };
+  }
+  const fields = entry as Record<string, unknown>;
+  const url = parseUrl(fields.url);
+  if (typeof url === 'object') return url;
+  const concurrency = parseConcurrency(fields.concurrency);
+  if (typeof concurrency === 'object') return concurrency;
+  return { url, concurrency };
+}
 
 /**
  * Validate + normalise a client-supplied `describe_servers` value.
@@ -65,34 +102,13 @@ export function validateDescribeServers(
   const seen = new Set<string>();
   const out: DescribeServerConfig[] = [];
   for (const [index, entry] of raw.entries()) {
-    if (typeof entry !== 'object' || entry === null) {
-      return { error: `server ${index + 1}: must be an object with a url` };
+    const parsed = parseEntry(entry);
+    if ('error' in parsed) return { error: `server ${index + 1}: ${parsed.error}` };
+    if (seen.has(parsed.url)) {
+      return { error: `server ${index + 1}: duplicate url ${parsed.url}` };
     }
-    const { url: rawUrl, concurrency: rawConcurrency } = entry as Record<string, unknown>;
-    if (typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
-      return { error: `server ${index + 1}: url is required` };
-    }
-    const url = validateHttpUrl(rawUrl);
-    if (url === null) return { error: `server ${index + 1}: url is required` };
-    if (typeof url === 'object') return { error: `server ${index + 1}: ${url.error}` };
-    if (seen.has(url)) return { error: `server ${index + 1}: duplicate url ${url}` };
-    seen.add(url);
-
-    const concurrency =
-      rawConcurrency === undefined || rawConcurrency === null
-        ? DEFAULT_DESCRIBE_SERVER_CONCURRENCY
-        : rawConcurrency;
-    if (
-      typeof concurrency !== 'number' ||
-      !Number.isInteger(concurrency) ||
-      concurrency < MIN_DESCRIBE_SERVER_CONCURRENCY ||
-      concurrency > MAX_DESCRIBE_SERVER_CONCURRENCY
-    ) {
-      return {
-        error: `server ${index + 1}: concurrency must be an integer between ${MIN_DESCRIBE_SERVER_CONCURRENCY} and ${MAX_DESCRIBE_SERVER_CONCURRENCY}`,
-      };
-    }
-    out.push({ url, concurrency });
+    seen.add(parsed.url);
+    out.push(parsed);
   }
   return out;
 }
@@ -108,23 +124,22 @@ export function normalizeDescribeServers(raw: unknown): DescribeServerConfig[] |
   const seen = new Set<string>();
   const out: DescribeServerConfig[] = [];
   for (const entry of raw.slice(0, MAX_DESCRIBE_SERVERS)) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const { url: rawUrl, concurrency: rawConcurrency } = entry as Record<string, unknown>;
-    if (typeof rawUrl !== 'string') continue;
-    const url = validateHttpUrl(rawUrl);
-    if (url === null || typeof url === 'object') continue;
-    if (seen.has(url)) continue;
-    seen.add(url);
-    const concurrency =
-      typeof rawConcurrency === 'number' &&
-      Number.isInteger(rawConcurrency) &&
-      rawConcurrency >= MIN_DESCRIBE_SERVER_CONCURRENCY &&
-      rawConcurrency <= MAX_DESCRIBE_SERVER_CONCURRENCY
-        ? rawConcurrency
-        : DEFAULT_DESCRIBE_SERVER_CONCURRENCY;
-    out.push({ url, concurrency });
+    const parsed = parseEntry(entry);
+    // A bad concurrency alone is not worth dropping a server the operator
+    // clearly meant to configure — fall back to the default for it.
+    const usable = 'error' in parsed ? retryWithDefaultConcurrency(entry) : parsed;
+    if (!usable || seen.has(usable.url)) continue;
+    seen.add(usable.url);
+    out.push(usable);
   }
   return out.length > 0 ? out : null;
+}
+
+/** Second chance for an entry whose only problem was the number. */
+function retryWithDefaultConcurrency(entry: unknown): DescribeServerConfig | null {
+  if (typeof entry !== 'object' || entry === null) return null;
+  const retry = parseEntry({ ...(entry as Record<string, unknown>), concurrency: undefined });
+  return 'error' in retry ? null : retry;
 }
 
 /** Total in-flight describe requests allowed across every configured

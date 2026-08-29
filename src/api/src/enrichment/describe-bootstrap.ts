@@ -17,7 +17,6 @@
 
 import { child as childLogger } from '../log.ts';
 import { DescribeServerPool } from './describe-server-pool.ts';
-import { totalDescribeCapacity } from './describe-servers.ts';
 import { syncDescribeStageCapacity } from '../workers/describe-capacity.ts';
 import { loadEnrichmentConfig, DESCRIBE_VISION_OLLAMA_TAG } from './enrichment-config.repo.ts';
 import {
@@ -76,7 +75,7 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
   // Otherwise a claimed asset either sits holding a lease waiting for
   // admission (fan-out too high) or servers idle with backlog waiting
   // (too low). The operator tunes per-server concurrency; this is derived.
-  await syncDescribeStageCapacity(totalDescribeCapacity(resolved.describe_servers));
+  await syncDescribeStageCapacity(pool.capacity);
 
   log.info(
     { servers: pool.servers.map((s) => s.url), model: LOCKED_MODEL },
