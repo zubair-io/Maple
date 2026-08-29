@@ -34,6 +34,23 @@ export class MuiCheckboxComponent {
   readonly isChecked = computed(() => this.checked() === true);
   readonly isIndeterminate = computed(() => this.checked() === 'indeterminate');
 
+  /** `disabled` and the default cursor share the `cursor` property — folded
+   * into one mutually-exclusive computed string rather than a static
+   * `cursor-pointer` plus a conditional `cursor-not-allowed` add-on, so the
+   * two `cursor-*` utilities (equal specificity) never both apply at once. */
+  readonly labelStateClasses = computed(() =>
+    this.disabled() ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
+  );
+
+  /** Checked/indeterminate and the default unchecked look share
+   * `background-color`/`border-color` — same one-mutually-exclusive-string
+   * reasoning as `labelStateClasses`. */
+  readonly markStateClasses = computed(() =>
+    this.isChecked() || this.isIndeterminate()
+      ? 'bg-primary border-primary'
+      : 'bg-transparent border-border',
+  );
+
   onChange(next: boolean): void {
     this.checkedChange.emit(next);
   }
