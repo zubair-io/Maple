@@ -13,7 +13,7 @@
 
 import { ObjectId, type Db, type MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach } from 'bun:test';
-import { tryConnectTestMongo } from '../db/test-db.test-helpers.ts';
+import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 
 /** Collections every imports suite writes to and must clear between cases. */
@@ -35,6 +35,9 @@ export function file(src: string): ImportFileEntry {
 export interface ImportsTestDb {
   /** False when no Mongo is reachable — every case returns early (skip-pass). */
   readonly reachable: boolean;
+  /** Scratch database name. Exposed so a suite can assert that the code
+   * under test is pointed at it (see the guard case in `repo.test.ts`). */
+  readonly dbName: string;
   /** The scratch database. Only valid while `reachable`. */
   readonly db: Db;
   /** Stable library identity for the suite's fixtures. */
@@ -50,6 +53,14 @@ export function useImportsTestDb(dbName: string, label: string): ImportsTestDb {
   let reachable = false;
   let db: Db | null = null;
   const lib = { id: new ObjectId(), root: '/srv/lib' };
+
+  // FIRST, so the `getDb()` inside the code under test resolves to this
+  // suite's scratch database. Without it the repo functions write to the
+  // default database while the assertions below read the scratch one, and
+  // every case fails on a machine that actually has Mongo. Bun runs
+  // root-level `beforeAll` hooks in registration order, so this has to be
+  // claimed before the hook below runs.
+  withTestDb(dbName);
 
   beforeAll(async () => {
     mongo = await tryConnectTestMongo();
@@ -83,6 +94,7 @@ export function useImportsTestDb(dbName: string, label: string): ImportsTestDb {
   });
 
   return {
+    dbName,
     get reachable() {
       return reachable;
     },
