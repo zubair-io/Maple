@@ -6,18 +6,35 @@
     </div>
   </header>
 
-  <div class="account-body">
+  <div
+    class="account-body px-9 py-6 flex flex-col gap-7 max-w-[760px] max-[767px]:p-4 max-[767px]:gap-[22px]"
+  >
     @if (user(); as u) {
       <section>
         <div class="set-subhead">Identity</div>
-        <dl class="identity">
-          <dt>Email</dt>
-          <dd class="set-mono">{{ u.email }}</dd>
-          <dt>Role</dt>
-          <dd>
-            <span class="role">{{ u.role[0].toUpperCase() + u.role.slice(1) }}</span>
+        <dl
+          class="identity grid grid-cols-[140px_1fr] gap-y-2 gap-x-4 m-0 max-[767px]:grid-cols-1 max-[767px]:gap-y-1"
+        >
+          <dt
+            class="text-[12.5px] text-[var(--s-text-muted)] max-[767px]:text-[11px] max-[767px]:uppercase max-[767px]:tracking-[0.08em]"
+          >
+            Email
+          </dt>
+          <dd class="m-0 text-[13px] text-[var(--s-text)] set-mono max-[767px]:mb-2">
+            {{ u.email }}
+          </dd>
+          <dt
+            class="text-[12.5px] text-[var(--s-text-muted)] max-[767px]:text-[11px] max-[767px]:uppercase max-[767px]:tracking-[0.08em]"
+          >
+            Role
+          </dt>
+          <dd class="m-0 text-[13px] text-[var(--s-text)] max-[767px]:mb-2">
+            <span class="mr-2">{{ u.role[0].toUpperCase() + u.role.slice(1) }}</span>
             @if (isOwner()) {
-              <span class="owner-chip">OWNER</span>
+              <span
+                class="font-mono text-[9px] py-0.5 px-[5px] rounded-[3px] bg-[var(--s-accent-bg)] text-[var(--s-accent)] tracking-[0.4px]"
+                >OWNER</span
+              >
             }
           </dd>
         </dl>
@@ -25,7 +42,7 @@
     }
 
     <section>
-      <div class="section-row">
+      <div class="flex items-center justify-between mb-2.5">
         <div class="set-subhead">Passkeys</div>
         <mui-button
           variant="ghost"
@@ -43,7 +60,7 @@
       } @else {
         <div class="card-list set-card-list">
           @for (c of credentials(); track c.id) {
-            <div class="card-row">
+            <div class="card-row set-card-row max-[767px]:flex-wrap">
               <maple-settings-icon name="key" [size]="16" [color]="'#a8a29e'" />
               <div class="card-text">
                 <div class="card-name">{{ c.device_label }}</div>
@@ -97,7 +114,7 @@
 
     <section>
       <div class="set-subhead">Session</div>
-      <div class="session-actions">
+      <div class="session-actions flex gap-2 max-[767px]:flex-col max-[767px]:items-stretch">
         <mui-button
           variant="destructive"
           size="sm"
@@ -110,7 +127,7 @@
     </section>
 
     @if (error(); as e) {
-      <p class="error">{{ e }}</p>
+      <p class="error text-[var(--s-err)] text-[12.5px] m-0">{{ e }}</p>
     }
   </div>
 </maple-settings-shell>
