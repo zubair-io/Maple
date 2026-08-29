@@ -261,6 +261,12 @@ export async function setImportFiles(
       $set: {
         scan_pending: false,
         'progress.total': files.length,
+        // A re-scan replaces the file rows wholesale, so the per-file counter
+        // from the previous attempt no longer refers to anything. Leaving it
+        // would show a completion rate against the NEW total that the run has
+        // not earned (and, when the re-scan finds fewer files, one above
+        // 100%). The worker starts this run's count at 0; match it here.
+        'progress.current': 0,
         lease_expires_at: leaseExpiresAt,
         updated_at: nowDate.toISOString(),
       },
