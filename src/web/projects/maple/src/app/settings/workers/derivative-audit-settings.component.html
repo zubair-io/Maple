@@ -118,7 +118,10 @@
       </div>
 
       @if (stageCounts().length > 0) {
-        <div class="flex flex-wrap items-center gap-1.5 text-xs" data-testid="audit-stage-counts">
+        <div
+          class="flex flex-wrap items-center gap-1.5 text-[12px]"
+          data-testid="audit-stage-counts"
+        >
           <span class="text-[var(--s-text-dim)]">Last pass re-armed:</span>
           @for (s of stageCounts(); track s.stage) {
             <span

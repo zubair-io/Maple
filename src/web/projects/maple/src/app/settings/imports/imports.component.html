@@ -56,7 +56,7 @@
             <div class="picked-row flex items-center gap-2.5">
               <maple-settings-icon name="check" [size]="14" />
               <code
-                class="mono flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs"
+                class="mono flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-[12px]"
                 >{{ src }}</code
               >
               <mui-button variant="ghost" size="sm" (pressed)="clearSource()">Change</mui-button>
@@ -89,7 +89,7 @@
                   <maple-settings-icon name="back" [size]="12" /> Up
                 </mui-button>
                 <code
-                  class="mono path overflow-hidden text-ellipsis whitespace-nowrap font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs"
+                  class="mono path overflow-hidden text-ellipsis whitespace-nowrap font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-[12px]"
                   >{{ currentPath() ?? '/' }}</code
                 >
               </div>
@@ -165,7 +165,7 @@
             <div
               class="bucket-row grid grid-cols-[64px_1fr_70px_70px_80px] items-center gap-2.5 py-2 px-3 border-b border-[var(--s-border)] last:border-b-0"
             >
-              <span class="mono font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs">{{
+              <span class="mono font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-[12px]">{{
                 b.year
               }}</span>
               <div class="folder-cell flex flex-col gap-1 min-w-0">
@@ -178,9 +178,10 @@
                 />
                 <p class="dest-preview m-0 text-[11px] text-[var(--s-text-muted)] break-words">
                   →
-                  <code class="mono font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-xs">{{
-                    effectiveDest(b)
-                  }}</code>
+                  <code
+                    class="mono font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-[12px]"
+                    >{{ effectiveDest(b) }}</code
+                  >
                   @if (b.nearbyMatchCount > 0 && !hasOverride(b)) {
                     <span class="nearby-note text-[var(--s-warning,#b8860b)]">
                       ({{ b.nearbyMatchCount }}
