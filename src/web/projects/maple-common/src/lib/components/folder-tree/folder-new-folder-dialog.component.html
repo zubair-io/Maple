@@ -6,13 +6,15 @@
   (click)="onBackdropClick()"
   (keydown.escape)="onCancel()"
 >
-  <div class="dlg-card fnf-card" (click)="$event.stopPropagation()">
+  <div class="dlg-card fnf-card max-w-[360px]" (click)="$event.stopPropagation()">
     <div class="dlg-header">
       <span class="dlg-title">New Folder</span>
     </div>
 
-    <div class="fnf-body">
-      <p class="fnf-hint">Creates a new folder inside "{{ parentLabel() }}".</p>
+    <div class="flex flex-col gap-2 p-4">
+      <p class="m-0 text-[12px] text-text-muted">
+        Creates a new folder inside "{{ parentLabel() }}".
+      </p>
       <input
         #nameInput
         type="text"
@@ -25,14 +27,14 @@
         [attr.aria-invalid]="!isValid() && name().length > 0 ? 'true' : null"
       />
       @if (name().length > 0 && validationMessage(); as msg) {
-        <p class="fnf-error">{{ msg }}</p>
+        <p class="fnf-error m-0 text-[11px] text-error-text">{{ msg }}</p>
       }
       @if (serverError(); as err) {
-        <p class="fnf-error">{{ err }}</p>
+        <p class="fnf-error m-0 text-[11px] text-error-text">{{ err }}</p>
       }
     </div>
 
-    <div class="fnf-footer">
+    <div class="flex justify-end gap-2 border-t-[0.5px] border-border px-4 py-3">
       <mui-button variant="ghost" [disabled]="busy()" (pressed)="onCancel()">Cancel</mui-button>
       <mui-button variant="primary" [disabled]="!isValid() || busy()" (pressed)="onSubmit()">
         {{ busy() ? 'Creating…' : 'Create' }}

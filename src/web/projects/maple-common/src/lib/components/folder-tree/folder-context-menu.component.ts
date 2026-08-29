@@ -42,7 +42,6 @@ const MENU_MARGIN = 8;
   standalone: true,
   imports: [MapleIconComponent],
   templateUrl: './folder-context-menu.component.html',
-  styleUrl: './folder-context-menu.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderContextMenuComponent implements AfterViewInit {
