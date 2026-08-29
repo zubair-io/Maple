@@ -1,20 +1,22 @@
-<div class="brn-preview" role="list" [attr.aria-label]="ariaLabel()">
+<div
+  class="flex max-h-[280px] flex-col gap-0.5 overflow-y-auto rounded-md border-[0.5px] border-border p-2"
+  role="list"
+  [attr.aria-label]="ariaLabel()"
+>
   @if (loading()) {
-    <p class="brn-preview-status">{{ loadingLabel() }}</p>
+    <p class="m-0 p-1 text-[12px] text-text-muted">{{ loadingLabel() }}</p>
   } @else {
     @for (row of rows(); track row.key) {
-      <div class="brn-preview-row" role="listitem" [class.brn-preview-row-error]="row.isError">
-        <span class="brn-preview-old">{{ row.oldText }}</span>
-        <span class="brn-preview-arrow">→</span>
-        <span class="brn-preview-new" [class.brn-preview-new-error]="row.isError">
+      <div [class]="rowClass(row.isError)" role="listitem">
+        <span
+          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-text-muted"
+          >{{ row.oldText }}</span
+        >
+        <span class="shrink-0 text-text-muted">→</span>
+        <span [class]="newTextClass(row.isError)">
           {{ row.newText }}
           @if (row.badge; as badge) {
-            <span
-              class="brn-badge"
-              [class.brn-badge-success]="badge.kind === 'success'"
-              [class.brn-badge-warning]="badge.kind === 'warning'"
-              >{{ badge.label }}</span
-            >
+            <span [class]="badgeClass(badge.kind)">{{ badge.label }}</span>
           }
         </span>
       </div>
