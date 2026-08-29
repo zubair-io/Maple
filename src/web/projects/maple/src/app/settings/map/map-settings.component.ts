@@ -33,7 +33,6 @@ type SaveState =
   standalone: true,
   imports: [SettingsShellComponent, MuiButtonComponent, MuiInputComponent],
   templateUrl: './map-settings.component.html',
-  styleUrl: './map-settings.component.scss',
   host: { class: 'set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

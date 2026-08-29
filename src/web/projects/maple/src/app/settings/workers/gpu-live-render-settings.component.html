@@ -21,8 +21,8 @@
     <span class="wrow-spacer set-wrow-spacer"></span>
   </div>
 
-  <div class="gpu-body">
-    <p class="gpu-desc">
+  <div class="flex flex-col gap-3.5 px-4 pt-1 pb-3">
+    <p class="m-0 text-[12.5px] leading-[1.5] text-[var(--s-text-muted)] max-w-[60ch]">
       Routes the browser editor's live render through the wgpu + WGSL GPU chain instead of the
       threaded-CPU <span class="set-mono">render_bytes</span> path. Turning it off is the runtime
       kill switch: no redeploy, no restart. Open clients pick the change up within a minute and
@@ -31,7 +31,7 @@
     </p>
 
     @if (error(); as msg) {
-      <div class="gpu-error" data-testid="gpu-live-error">{{ msg }}</div>
+      <div class="text-[12.5px] text-[var(--s-err)]" data-testid="gpu-live-error">{{ msg }}</div>
     }
 
     <mui-checkbox
@@ -42,7 +42,7 @@
       (checkedChange)="setEnabled($event)"
     />
 
-    <p class="gpu-hint" data-testid="gpu-live-local">
+    <p class="m-0 text-[12.5px] text-[var(--s-text-muted)]" data-testid="gpu-live-local">
       This browser: {{ localGpuEnabled() ? 'GPU live render' : 'CPU fallback' }}
     </p>
   </div>
