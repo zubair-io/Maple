@@ -1,9 +1,12 @@
-<div class="mui-settings-shell">
-  <div class="nav" [style.--mui-settings-nav-width.px]="navWidth()">
+<div class="mui-settings-shell flex h-full min-h-0">
+  <div
+    class="nav w-[var(--mui-settings-nav-width)] flex-none overflow-auto"
+    [style.--mui-settings-nav-width.px]="navWidth()"
+  >
     <ng-content select="[slot=nav]" />
   </div>
-  <div class="pane-wrap">
-    <div class="pane" [style.max-width.px]="paneMaxWidth()">
+  <div class="flex min-h-0 min-w-0 flex-1 justify-center overflow-auto">
+    <div class="pane min-w-0 flex-1 p-6" [style.max-width.px]="paneMaxWidth()">
       <ng-content />
     </div>
   </div>

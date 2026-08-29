@@ -15,7 +15,7 @@ import { MuiSpinnerComponent } from '../spinner/mui-spinner.component';
   standalone: true,
   imports: [MuiImageComponent, MuiSpinnerComponent],
   templateUrl: './mui-preview-image.component.html',
-  styleUrl: './mui-preview-image.component.scss',
+  host: { class: 'block h-full w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPreviewImageComponent {

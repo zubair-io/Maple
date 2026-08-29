@@ -49,7 +49,6 @@ const STATUS_LABEL: Record<MuiResultStatus, string> = {
     MuiOverlayShellComponent,
   ],
   templateUrl: './mui-result-report-modal.component.html',
-  styleUrl: './mui-result-report-modal.component.scss',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

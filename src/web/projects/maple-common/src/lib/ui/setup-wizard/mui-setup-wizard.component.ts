@@ -32,7 +32,7 @@ import { MuiWizardStepDirective } from './mui-wizard-step.directive';
   standalone: true,
   imports: [MuiButtonComponent, MuiProgressStepComponent, NgTemplateOutlet],
   templateUrl: './mui-setup-wizard.component.html',
-  styleUrl: './mui-setup-wizard.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSetupWizardComponent {

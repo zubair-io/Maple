@@ -1,22 +1,22 @@
-<div class="mui-qr-scanner">
+<div class="flex flex-col gap-2">
   @if (cameraActive()) {
     <mui-canvas-surface
-      class="viewfinder"
+      class="w-full max-w-[240px]"
       [contentAspect]="4 / 3"
       (canvasReady)="onCanvasReady($event)"
     />
-    <video #video class="hidden-video" muted playsinline></video>
+    <video #video class="hidden" muted playsinline></video>
     <mui-button variant="ghost" size="sm" (pressed)="stopCamera()">Stop camera</mui-button>
   } @else {
     <mui-button variant="secondary" iconLeading="camera" (pressed)="startCamera()">
       Use camera
     </mui-button>
     @if (cameraError()) {
-      <p class="error">{{ cameraError() }}</p>
+      <p class="m-0 text-[12px] text-error-text">{{ cameraError() }}</p>
     }
   }
 
-  <div class="paste">
+  <div class="paste flex gap-1">
     <mui-input
       [value]="pasteValue()"
       (valueChange)="pasteValue.set($event)"

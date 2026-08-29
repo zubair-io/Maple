@@ -14,8 +14,9 @@
   <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-lg">
     <mui-avatar-group [avatars]="avatarMembers()" [max]="6" size="md" />
 
-    <div class="invite-row">
+    <div class="invite-row flex items-end gap-2">
       <mui-form-field
+        class="flex-1"
         label="Invite by email"
         placeholder="name@example.com"
         [value]="inviteValue()"
@@ -27,7 +28,7 @@
       >
     </div>
 
-    <div class="member-list">
+    <div class="member-list flex flex-col gap-[2px] border-t border-border pt-2">
       @for (member of members(); track member.id) {
         <mui-list-row icon="person-circle" [label]="member.name" [subtitle]="member.role">
           <mui-button

@@ -1,8 +1,12 @@
 <div
   #wheelEl
-  class="mui-color-wheel relative rounded-full bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]"
+  class="mui-color-wheel relative rounded-full bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)] touch-none cursor-crosshair outline-offset-4 focus-visible:outline-2 focus-visible:outline-text-main"
   [class.is-disabled]="disabled()"
+  [class.opacity-45]="disabled()"
+  [class.pointer-events-none]="disabled()"
   [class.is-dragging]="dragging()"
+  [class.outline-2]="dragging()"
+  [class.outline-text-main]="dragging()"
   [style.width.px]="size()"
   [style.height.px]="size()"
   role="slider"
@@ -16,5 +20,9 @@
   (pointercancel)="onPointerUp($event)"
   (keydown)="onKeydown($event)"
 >
-  <div class="puck" [style.left.%]="puckPos().left" [style.top.%]="puckPos().top"></div>
+  <div
+    class="puck absolute w-[10px] h-[10px] rounded-full bg-white border-2 border-text-main -translate-x-1/2 -translate-y-1/2 pointer-events-none shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
+    [style.left.%]="puckPos().left"
+    [style.top.%]="puckPos().top"
+  ></div>
 </div>

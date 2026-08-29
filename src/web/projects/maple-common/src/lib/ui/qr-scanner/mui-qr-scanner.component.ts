@@ -32,7 +32,7 @@ import { MuiInputComponent } from '../input/mui-input.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiCanvasSurfaceComponent, MuiInputComponent],
   templateUrl: './mui-qr-scanner.component.html',
-  styleUrl: './mui-qr-scanner.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiQrScannerComponent implements OnDestroy {

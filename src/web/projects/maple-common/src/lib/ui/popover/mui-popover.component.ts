@@ -13,6 +13,7 @@ import {
   Component,
   ElementRef,
   OnDestroy,
+  computed,
   effect,
   input,
   output,
@@ -21,11 +22,25 @@ import {
 
 export type MuiPopoverPlacement = 'top' | 'bottom' | 'left' | 'right';
 
+const BASE_CLASSES =
+  'mui-popover absolute z-[100] min-w-max rounded-lg border border-border bg-surface shadow-[0_12px_28px_rgba(0,0,0,0.35)] outline-none';
+
+// One mutually-exclusive computed string per placement — each carries both
+// the bare `placement-<x>` marker class (asserted in mui-popover.component
+// .spec.ts and relied on by consumers) and the positioning utilities that
+// used to live under `.placement-<x>` in the SCSS.
+const PLACEMENT_CLASSES: Record<MuiPopoverPlacement, string> = {
+  bottom: 'placement-bottom top-[calc(100%+4px)] left-0',
+  top: 'placement-top bottom-[calc(100%+4px)] left-0',
+  right: 'placement-right left-[calc(100%+4px)] top-0',
+  left: 'placement-left right-[calc(100%+4px)] top-0',
+};
+
 @Component({
   selector: 'mui-popover',
   standalone: true,
   templateUrl: './mui-popover.component.html',
-  styleUrl: './mui-popover.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPopoverComponent implements OnDestroy {
@@ -36,6 +51,8 @@ export class MuiPopoverComponent implements OnDestroy {
   readonly closeRequested = output<void>();
 
   readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+
+  readonly panelClasses = computed(() => `${BASE_CLASSES} ${PLACEMENT_CLASSES[this.placement()]}`);
 
   private readonly onDocumentClick = (event: MouseEvent): void => {
     const panelEl = this.panel()?.nativeElement;

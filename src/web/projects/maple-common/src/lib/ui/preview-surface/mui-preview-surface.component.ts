@@ -39,7 +39,7 @@ const TOOLBAR_ENTRIES: readonly MuiToolbarEntry[] = [
     MuiVideoPlayerComponent,
   ],
   templateUrl: './mui-preview-surface.component.html',
-  styleUrl: './mui-preview-surface.component.scss',
+  host: { class: 'block h-full w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPreviewSurfaceComponent {

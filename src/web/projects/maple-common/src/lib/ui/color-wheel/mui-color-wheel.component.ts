@@ -42,7 +42,6 @@ function clamp01(v: number): number {
   selector: 'mui-color-wheel',
   standalone: true,
   templateUrl: './mui-color-wheel.component.html',
-  styleUrl: './mui-color-wheel.component.scss',
   host: { class: 'inline-block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

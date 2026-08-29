@@ -31,7 +31,7 @@ import { MuiSuggestionMenuComponent } from '../suggestion-menu/mui-suggestion-me
     MuiSuggestionMenuComponent,
   ],
   templateUrl: './mui-search.component.html',
-  styleUrl: './mui-search.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSearchComponent {

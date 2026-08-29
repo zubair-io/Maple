@@ -1,4 +1,4 @@
-<div class="mui-preview-image">
+<div class="relative h-full w-full">
   <mui-image
     #img
     [src]="src()"
@@ -8,7 +8,7 @@
     [aspectRatio]="aspectRatio()"
   />
   @if (!img.loaded() && !img.broken()) {
-    <div class="overlay">
+    <div class="overlay absolute inset-0 flex items-center justify-center">
       <mui-spinner placement="centered" />
     </div>
   }

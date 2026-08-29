@@ -1,25 +1,27 @@
-<div class="mui-preview-surface">
+<div class="flex h-full w-full flex-col gap-2 box-border bg-surface">
   <mui-page-header [title]="title()" [showBack]="true" (back)="closed.emit()">
     @if (items().length > 0) {
       <mui-toolbar actions [entries]="toolbarEntries" (itemSelected)="toolbarAction.emit($event)" />
     }
   </mui-page-header>
 
-  <div class="stage">
+  <div
+    class="stage box-border flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-image-canvas p-4"
+  >
     @if (activeItem(); as item) {
       @if (item.kind === 'video') {
-        <mui-video-player class="stage-media" [src]="item.src" />
+        <mui-video-player class="h-full w-full" [src]="item.src" />
       } @else {
-        <mui-preview-image class="stage-media" [src]="item.src" [alt]="item.alt" fit="fit" />
+        <mui-preview-image class="h-full w-full" [src]="item.src" [alt]="item.alt" fit="fit" />
       }
     } @else {
-      <div class="empty-state">No media to preview</div>
+      <div class="empty-state text-center text-[0.875rem] text-text-muted">No media to preview</div>
     }
   </div>
 
   @if (items().length > 0) {
     <mui-filmstrip-row
-      class="filmstrip"
+      class="flex-none"
       [items]="items()"
       [(activeId)]="activeId"
       (activated)="onFilmstripActivated($event)"

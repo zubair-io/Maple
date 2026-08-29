@@ -1,6 +1,6 @@
 <div
   #editor
-  class="editor"
+  class="editor min-h-40 rounded-lg border border-border bg-surface p-4 text-[14px] leading-[1.6] text-text-main outline-none focus-visible:border-border-hi"
   contenteditable="true"
   (input)="onInput($event)"
   (keyup)="onSelectionChange()"
@@ -8,7 +8,7 @@
   [attr.aria-label]="'Document body'"
 ></div>
 
-<div class="rte-anchor" [style.left.px]="bubblePos().x" [style.top.px]="bubblePos().y">
+<div class="absolute h-0 w-0" [style.left.px]="bubblePos().x" [style.top.px]="bubblePos().y">
   <mui-bubble-menu
     [open]="bubbleMenuOpen()"
     placement="top"
@@ -18,7 +18,7 @@
   />
 </div>
 
-<div class="rte-anchor" [style.left.px]="commandPos().x" [style.top.px]="commandPos().y">
+<div class="absolute h-0 w-0" [style.left.px]="commandPos().x" [style.top.px]="commandPos().y">
   <mui-command-menu
     [open]="commandMenuOpen()"
     placement="bottom"
@@ -29,13 +29,15 @@
 </div>
 
 @if (blocks().length > 0) {
-  <div class="rte-preview">
-    <div class="rte-preview-label">Structured preview</div>
+  <div class="flex flex-col gap-2 border-t border-border pt-2">
+    <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+      Structured preview
+    </div>
     @for (block of blocks(); track $index) {
       @if (block.type === 'code') {
         <mui-code-block [code]="block.content" language="text" />
       } @else if (block.html.trim().length > 0) {
-        <div class="rte-preview-text" [innerHTML]="block.html"></div>
+        <div class="text-[13px] leading-[1.6] text-text-main" [innerHTML]="block.html"></div>
       }
     }
   </div>

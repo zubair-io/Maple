@@ -20,6 +20,7 @@ export interface MuiSegmentedToggleOption {
   styleUrl: './mui-segmented-toggle.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
+    class: 'inline-flex',
     role: 'radiogroup',
     '[attr.aria-label]': 'ariaLabel()',
   },
@@ -36,6 +37,27 @@ export class MuiSegmentedToggleComponent {
       this.options().findIndex((option) => option.value === this.value()),
     ),
   );
+
+  /** Mutually-exclusive: disabled changes `opacity`/`pointer-events`, both
+   * only ever set here — never a base class plus a conditional add-on. */
+  readonly trackClasses = computed(() =>
+    this.disabled()
+      ? 'track is-disabled relative flex gap-[2px] rounded-md bg-surface p-[3px] opacity-45 pointer-events-none'
+      : 'track relative flex gap-[2px] rounded-md bg-surface p-[3px]',
+  );
+
+  private static readonly SEGMENT_BASE =
+    'segment relative z-1 flex-1 cursor-pointer whitespace-nowrap rounded-sm border-none bg-transparent px-4 py-1 text-[12px] font-semibold text-text-muted transition-[color_150ms] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)]';
+  private static readonly SEGMENT_SELECTED = 'is-selected text-text-main';
+
+  /** Mutually-exclusive: only `color` changes between selected/unselected,
+   * both set by the base class. */
+  segmentClasses(optionValue: string): string {
+    const base = MuiSegmentedToggleComponent.SEGMENT_BASE;
+    return optionValue === this.value()
+      ? `${base} ${MuiSegmentedToggleComponent.SEGMENT_SELECTED}`
+      : base;
+  }
 
   select(option: MuiSegmentedToggleOption): void {
     if (this.disabled()) return;

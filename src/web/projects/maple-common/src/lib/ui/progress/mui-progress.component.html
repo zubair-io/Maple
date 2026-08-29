@@ -1,6 +1,5 @@
 <div
-  class="mui-progress"
-  [class]="'shape-' + shape() + ' size-' + size()"
+  [class]="rootClasses()"
   role="progressbar"
   [attr.aria-valuenow]="clampedValue()"
   [attr.aria-valuemin]="isIndeterminate() ? null : 0"
@@ -8,18 +7,23 @@
   [attr.aria-label]="label()"
 >
   @if (shape() === 'bar') {
-    <div class="bar-track">
+    <div [class]="trackClasses()">
       @if (isIndeterminate()) {
-        <div class="bar-fill indeterminate"></div>
+        <div [class]="fillClasses()"></div>
       } @else {
-        <div class="bar-fill" [style.width.%]="clampedValue()"></div>
+        <div [class]="fillClasses()" [style.width.%]="clampedValue()"></div>
       }
     </div>
   } @else {
-    <svg class="ring" [class.indeterminate]="isIndeterminate()" viewBox="0 0 36 36">
-      <circle class="ring-track" cx="18" cy="18" [attr.r]="ringRadius" />
+    <svg [class]="ringClasses()" viewBox="0 0 36 36">
       <circle
-        class="ring-fill"
+        class="ring-track fill-none stroke-surface stroke-[3]"
+        cx="18"
+        cy="18"
+        [attr.r]="ringRadius"
+      />
+      <circle
+        class="ring-fill fill-none stroke-primary stroke-[3] [stroke-linecap:round] transition-[stroke-dashoffset_200ms_ease]"
         cx="18"
         cy="18"
         [attr.r]="ringRadius"
@@ -29,6 +33,6 @@
     </svg>
   }
   @if (label()) {
-    <span class="label">{{ label() }}</span>
+    <span class="label whitespace-nowrap text-[12px] text-text-muted">{{ label() }}</span>
   }
 </div>

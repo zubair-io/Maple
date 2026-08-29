@@ -15,7 +15,7 @@ import type { MuiRatingFlagState } from './mui-rating-flags.component';
   standalone: true,
   imports: [MapleIconComponent],
   templateUrl: './mui-rating-flags-display.component.html',
-  styleUrl: './mui-rating-flags-display.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiRatingFlagsDisplayComponent {

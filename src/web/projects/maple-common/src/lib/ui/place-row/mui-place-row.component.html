@@ -1,4 +1,4 @@
-<div class="mui-place-row">
+<div class="mui-place-row flex items-center gap-1">
   @if (editing()) {
     <mui-input
       [value]="draft()"
@@ -8,7 +8,11 @@
       (focusout)="commit()"
     />
   } @else {
-    <button type="button" class="display" (click)="startEditing()">
+    <button
+      type="button"
+      class="display inline-flex max-w-full cursor-text items-center gap-1 -mx-2 -my-1 rounded-md border border-transparent px-2 py-1 text-left hover:border-border hover:bg-surface-hover"
+      (click)="startEditing()"
+    >
       <mui-text variant="row-label" [truncate]="true">{{ place() || 'Unknown location' }}</mui-text>
     </button>
     @if (overridden()) {
