@@ -6,7 +6,7 @@ import { LibraryStateService, MapleIconComponent } from '@maple-common';
   standalone: true,
   imports: [MapleIconComponent],
   templateUrl: './self-hosted-sidebar-body.component.html',
-  styleUrl: './self-hosted-sidebar-body.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SelfHostedSidebarBodyComponent {

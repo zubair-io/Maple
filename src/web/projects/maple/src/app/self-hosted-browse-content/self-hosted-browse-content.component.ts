@@ -33,7 +33,7 @@ import { SelfHostedConditionalDialogsComponent } from '../self-hosted-conditiona
     SelfHostedConditionalDialogsComponent,
   ],
   templateUrl: './self-hosted-browse-content.component.html',
-  styleUrl: './self-hosted-browse-content.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SelfHostedBrowseContentComponent implements OnInit {

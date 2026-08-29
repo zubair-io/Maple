@@ -1,6 +1,6 @@
 <button
   type="button"
-  class="tree-row mx-2 flex h-7 w-[calc(100%_-_16px)] cursor-pointer appearance-none items-center gap-1.5 rounded-md border-none bg-transparent pl-2 pr-3 text-left text-text-muted"
+  class="tree-row mx-2 flex h-7 w-[calc(100%_-_16px)] cursor-pointer appearance-none items-center gap-1.5 rounded-md border-none bg-transparent pl-2 pr-3 text-left text-text-muted [&.selected]:bg-primary-dim [&.selected]:text-primary [&.selected]:font-medium [&:hover:not(.selected)]:bg-bg-hover [&:hover:not(.selected)]:text-text-main"
   [class.selected]="state.viewMode() === 'timeline'"
   (click)="state.setViewMode('timeline')"
 >
@@ -14,7 +14,7 @@
 
 <button
   type="button"
-  class="tree-row mx-2 flex h-7 w-[calc(100%_-_16px)] cursor-pointer appearance-none items-center gap-1.5 rounded-md border-none bg-transparent pl-2 pr-3 text-left text-text-muted"
+  class="tree-row mx-2 flex h-7 w-[calc(100%_-_16px)] cursor-pointer appearance-none items-center gap-1.5 rounded-md border-none bg-transparent pl-2 pr-3 text-left text-text-muted [&.selected]:bg-primary-dim [&.selected]:text-primary [&.selected]:font-medium [&:hover:not(.selected)]:bg-bg-hover [&:hover:not(.selected)]:text-text-main"
   [class.selected]="state.viewMode() === 'map'"
   (click)="state.setViewMode('map')"
 >
