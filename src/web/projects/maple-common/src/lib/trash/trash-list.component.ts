@@ -18,7 +18,7 @@ import type { TrashItem } from './trash.types';
   standalone: true,
   imports: [TrashItemRowComponent, TrashStatusBannerComponent],
   templateUrl: './trash-list.component.html',
-  styleUrl: './trash-list.component.scss',
+  host: { class: 'flex flex-col min-h-0 flex-1' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrashListComponent {

@@ -1,7 +1,7 @@
-<div class="tt-toolbar">
+<div class="flex gap-2 border-b-[0.5px] border-border px-4 py-2.5">
   <button
     type="button"
-    class="dlg-button tt-btn"
+    class="dlg-button h-7 border-border bg-transparent text-text-main enabled:hover:bg-surface-hover"
     [disabled]="disabledReason() !== null"
     [attr.title]="disabledReason()"
     [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
@@ -11,7 +11,7 @@
   </button>
   <button
     type="button"
-    class="dlg-button tt-btn tt-btn-destructive"
+    class="dlg-button h-7 border-border bg-transparent text-error-text enabled:hover:bg-surface-hover"
     [disabled]="disabledReason() !== null"
     [attr.title]="disabledReason()"
     [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
