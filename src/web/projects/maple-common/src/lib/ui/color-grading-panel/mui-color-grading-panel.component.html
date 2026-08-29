@@ -1,6 +1,6 @@
-<div class="mui-color-grading-panel">
-  <div class="columns">
-    <div class="column">
+<div class="mui-color-grading-panel flex flex-col gap-4">
+  <div class="columns flex gap-4">
+    <div class="column flex-1 flex flex-col items-center gap-2 min-w-0">
       <mui-text variant="tool-label" color="muted">Shadows</mui-text>
       <mui-color-wheel [(value)]="shadows" [size]="72" ariaLabel="Shadows color wheel" />
       <mui-living-slider
@@ -12,7 +12,7 @@
         (resetRequest)="shadowsLuminance.set(0)"
       />
     </div>
-    <div class="column">
+    <div class="column flex-1 flex flex-col items-center gap-2 min-w-0">
       <mui-text variant="tool-label" color="muted">Midtones</mui-text>
       <mui-color-wheel [(value)]="midtones" [size]="72" ariaLabel="Midtones color wheel" />
       <mui-living-slider
@@ -24,7 +24,7 @@
         (resetRequest)="midtonesLuminance.set(0)"
       />
     </div>
-    <div class="column">
+    <div class="column flex-1 flex flex-col items-center gap-2 min-w-0">
       <mui-text variant="tool-label" color="muted">Highlights</mui-text>
       <mui-color-wheel [(value)]="highlights" [size]="72" ariaLabel="Highlights color wheel" />
       <mui-living-slider
@@ -37,7 +37,7 @@
       />
     </div>
   </div>
-  <div class="global-sliders">
+  <div class="global-sliders flex flex-col gap-2">
     <mui-living-slider
       label="Blending"
       [(value)]="blending"

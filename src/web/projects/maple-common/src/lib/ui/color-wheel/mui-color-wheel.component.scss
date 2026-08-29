@@ -1,14 +1,10 @@
+// Residue only — layout/shape moved to template utilities (see
+// mui-color-wheel.component.html) per the Tailwind conversion recipe.
+// `drag-surface-interaction`/`puck-dot` stay as a shared mixin (also
+// consumed by mui-pad-2d, not yet converted) rather than duplicated here.
 @use '../internal/draggable-surface' as drag;
 
-:host {
-  display: inline-block;
-}
-
 .mui-color-wheel {
-  position: relative;
-  border-radius: 50%;
-  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
-
   @include drag.drag-surface-interaction;
 }
 

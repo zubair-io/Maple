@@ -1,6 +1,6 @@
-<div class="mui-backlinks-panel">
+<div class="mui-backlinks-panel flex flex-col gap-[2px]">
   @if (loading()) {
-    <div class="state-slot">
+    <div class="state-slot flex items-center justify-center py-6">
       <mui-spinner size="md" placement="centered" />
     </div>
   } @else if (links().length === 0) {

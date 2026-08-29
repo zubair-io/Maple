@@ -29,7 +29,7 @@ export type MuiBubbleMenuEntry = MuiBubbleMenuItem | MuiBubbleMenuDivider;
   standalone: true,
   imports: [MuiPopoverComponent, MuiIconComponent, MuiDividerComponent],
   templateUrl: './mui-bubble-menu.component.html',
-  styleUrl: './mui-bubble-menu.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBubbleMenuComponent {

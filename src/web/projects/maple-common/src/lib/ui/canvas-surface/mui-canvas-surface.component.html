@@ -1,8 +1,17 @@
-<div class="mui-canvas-surface">
-  <canvas #canvas class="canvas" [style.aspect-ratio]="contentAspect()"></canvas>
+<div
+  class="mui-canvas-surface relative flex items-center justify-center w-full h-full bg-image-canvas overflow-hidden"
+>
+  <canvas
+    #canvas
+    class="canvas block max-w-full max-h-full"
+    [style.aspect-ratio]="contentAspect()"
+  ></canvas>
   @if (loading()) {
-    <div class="overlay" aria-hidden="true">
-      <span class="spinner"></span>
+    <div
+      class="overlay absolute inset-0 flex items-center justify-center bg-image-canvas"
+      aria-hidden="true"
+    >
+      <span class="spinner w-6 h-6 rounded-full border-2 border-border border-t-primary"></span>
     </div>
   }
 </div>

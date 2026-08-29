@@ -1,10 +1,14 @@
-<div class="mui-banner" [class]="'variant-' + variant()" [attr.role]="role()">
+<div
+  class="mui-banner flex items-center gap-2 py-2 px-4 rounded-lg"
+  [class]="'variant-' + variant() + ' ' + bannerBgClasses()"
+  [attr.role]="role()"
+>
   @if (variant() === 'loading') {
-    <mui-spinner size="sm" placement="inline" class="banner-icon" />
+    <mui-spinner size="sm" placement="inline" class="banner-icon" [class]="iconClasses()" />
   } @else {
-    <mui-icon [name]="icon()!" size="sm" class="banner-icon" />
+    <mui-icon [name]="icon()!" size="sm" class="banner-icon" [class]="iconClasses()" />
   }
-  <mui-text variant="body" class="message">{{ message() }}</mui-text>
+  <mui-text variant="body" class="message flex-1 min-w-0">{{ message() }}</mui-text>
   @if (linkLabel() && linkHref()) {
     <mui-link [href]="linkHref()!">{{ linkLabel() }}</mui-link>
   }

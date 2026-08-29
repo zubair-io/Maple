@@ -14,7 +14,7 @@ import { MediaTransportBase } from '../internal/media-transport';
   standalone: true,
   imports: [MuiButtonComponent, MuiProgressComponent],
   templateUrl: './mui-audio-player.component.html',
-  styleUrl: './mui-audio-player.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiAudioPlayerComponent extends MediaTransportBase {

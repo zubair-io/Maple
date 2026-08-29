@@ -53,7 +53,7 @@ export interface MuiMentionableUser {
     MuiTypingIndicatorComponent,
   ],
   templateUrl: './mui-chat.component.html',
-  styleUrl: './mui-chat.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiChatComponent {

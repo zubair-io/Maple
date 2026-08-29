@@ -1,13 +1,13 @@
-<div class="mui-adjustments-panel">
+<div class="mui-adjustments-panel flex flex-col gap-4">
   <mui-tabs [tabs]="tabDefs()" [(activeId)]="activeTabId" />
-  <div class="groups">
+  <div class="groups flex flex-col gap-2">
     @for (group of activeGroups(); track group.id) {
       <mui-collapsible
         [label]="group.label"
         [open]="openGroupIds().includes(group.id)"
         (openChange)="toggleGroup(group.id, $event)"
       >
-        <div class="sliders">
+        <div class="sliders flex flex-col gap-2">
           @for (slider of group.sliders; track slider.id) {
             <mui-living-slider
               [label]="slider.label"

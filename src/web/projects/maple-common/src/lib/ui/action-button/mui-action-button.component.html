@@ -1,7 +1,18 @@
 <button
   type="button"
-  class="mui-action-button"
-  [class]="'size-' + size() + ' orientation-' + orientation()"
+  class="mui-action-button inline-flex items-center gap-1 rounded-md border border-transparent font-sans leading-[1.2] font-medium cursor-pointer transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)]"
+  [class]="
+    'size-' +
+    size() +
+    ' orientation-' +
+    orientation() +
+    ' ' +
+    colorClasses() +
+    ' ' +
+    sizeClasses() +
+    ' ' +
+    orientationClasses()
+  "
   [class.selected]="selected()"
   [disabled]="disabled()"
   [attr.title]="title()"
@@ -10,10 +21,12 @@
   [attr.tabindex]="ariaHidden() ? -1 : null"
   (click)="onClick($event)"
 >
-  <span class="icon-wrap">
+  <span class="icon-wrap relative inline-flex">
     <mui-icon [name]="icon()" [size]="iconSize()" />
     @if (modified()) {
-      <span class="modified-dot"></span>
+      <span
+        class="modified-dot absolute -right-0.5 -bottom-0.5 w-[5px] h-[5px] rounded-full bg-primary"
+      ></span>
     }
   </span>
   <span class="label">{{ label() }}</span>

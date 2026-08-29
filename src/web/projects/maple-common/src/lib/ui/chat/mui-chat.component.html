@@ -1,5 +1,5 @@
-<div class="mui-chat">
-  <div class="messages">
+<div class="mui-chat flex flex-col h-full min-h-0">
+  <div class="messages flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 p-4">
     @for (message of messages(); track message.id) {
       <mui-chat-message
         [author]="message.author"
@@ -13,7 +13,10 @@
     }
   </div>
 
-  <div class="composer" (keydown)="onComposerKeydown($event)">
+  <div
+    class="composer relative flex-none py-2 px-4 border-t border-border"
+    (keydown)="onComposerKeydown($event)"
+  >
     <mui-input
       [value]="composerValue()"
       (valueChange)="composerValue.set($event)"

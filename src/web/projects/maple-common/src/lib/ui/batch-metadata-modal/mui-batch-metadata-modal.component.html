@@ -4,11 +4,11 @@
   ariaLabel="Batch Metadata"
   (dismissed)="dismissed.emit()"
 >
-  <div slot="header" class="mui-batch-metadata-modal-header">
+  <div slot="header" class="mui-batch-metadata-modal-header py-4 px-6 border-b border-border">
     <mui-text variant="sheet-title" [block]="true">Batch Metadata</mui-text>
   </div>
 
-  <div class="mui-batch-metadata-modal-body">
+  <div class="mui-batch-metadata-modal-body flex flex-col gap-4">
     <mui-text variant="body" color="muted">{{ itemCount() }} item(s) selected</mui-text>
 
     <mui-form-field
@@ -19,7 +19,7 @@
       [disabled]="applying()"
     />
 
-    <div class="field">
+    <div class="field flex flex-col gap-1">
       <mui-text variant="tool-label" color="muted" [block]="true">Keywords</mui-text>
       <mui-chip-row
         [chips]="keywordChips()"
@@ -44,7 +44,10 @@
     }
   </div>
 
-  <div slot="footer" class="mui-batch-metadata-modal-footer">
+  <div
+    slot="footer"
+    class="mui-batch-metadata-modal-footer flex justify-end gap-1 py-4 px-6 border-t border-border"
+  >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
     <mui-button variant="primary" [disabled]="applying()" (pressed)="requestApply()">
       Apply

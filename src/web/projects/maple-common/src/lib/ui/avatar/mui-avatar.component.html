@@ -1,9 +1,17 @@
-<div class="mui-avatar" [class]="'size-' + size()">
+<div
+  class="mui-avatar relative flex-none rounded-full overflow-visible"
+  [class]="'size-' + size() + ' ' + sizeClasses()"
+>
   @if (showImage()) {
-    <img class="photo" [src]="src()!" [alt]="name()" (error)="onError()" />
+    <img
+      class="photo block w-full h-full rounded-full object-cover"
+      [src]="src()!"
+      [alt]="name()"
+      (error)="onError()"
+    />
   } @else {
     <div
-      class="fallback"
+      class="fallback flex items-center justify-center w-full h-full rounded-full font-semibold"
       [style.background]="fallbackColor().bg"
       [style.color]="fallbackColor().fg"
       role="img"
@@ -13,6 +21,10 @@
     </div>
   }
   @if (presence()) {
-    <span class="presence" [class]="'presence-' + presence()" [attr.aria-label]="presence()"></span>
+    <span
+      class="presence absolute right-0 bottom-0 w-[30%] h-[30%] min-w-2 min-h-2 rounded-full border-2 border-bg"
+      [class]="'presence-' + presence() + ' ' + presenceClasses()"
+      [attr.aria-label]="presence()"
+    ></span>
   }
 </div>

@@ -1,6 +1,6 @@
-<div class="mui-bot-output">
+<div class="mui-bot-output flex items-start gap-2">
   <mui-avatar [name]="botName()" size="sm" />
-  <div class="content">
+  <div class="content flex items-center gap-1 min-w-0">
     <mui-text variant="body" color="muted" [block]="true">{{ visibleText() }}</mui-text>
     @if (isRevealing()) {
       <mui-progress shape="ring" size="sm" [value]="null" label="Generating" />

@@ -1,9 +1,9 @@
-<div class="mui-backup-monitor">
+<div class="mui-backup-monitor flex flex-col gap-4">
   @if (lastResult(); as result) {
     <mui-banner [variant]="result.variant" [message]="result.message" />
   }
 
-  <div class="fields">
+  <div class="fields flex flex-col gap-4 p-4 border border-border rounded-lg bg-surface">
     <mui-form-field
       label="Destination"
       [(value)]="destinationPath"
@@ -19,7 +19,7 @@
     />
   </div>
 
-  <div class="run">
+  <div class="run flex items-center gap-4">
     @if (running()) {
       <mui-progress shape="bar" size="md" [value]="progress()" label="Backup running…" />
     }

@@ -1,5 +1,11 @@
-<div class="mui-app-shell" [class.side-nav]="navPlacement() === 'side'">
-  <div class="nav"><ng-content select="[slot=nav]" /></div>
-  <div class="content"><ng-content /></div>
+<div
+  class="mui-app-shell flex h-full min-h-0"
+  [class.side-nav]="navPlacement() === 'side'"
+  [class]="directionClasses()"
+>
+  <div class="nav flex-none" [class]="navAlignClasses()"><ng-content select="[slot=nav]" /></div>
+  <div class="content flex-1 min-w-0 min-h-0 overflow-auto"><ng-content /></div>
 </div>
-<div class="overlay"><ng-content select="[slot=overlay]" /></div>
+<div class="overlay absolute inset-0 z-10 pointer-events-none">
+  <ng-content select="[slot=overlay]" />
+</div>

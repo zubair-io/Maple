@@ -3,7 +3,7 @@
 // pill used inside toolbars; unlike Button it always carries an icon and is
 // meant to sit shoulder-to-shoulder with siblings of the same size.
 
-import { ChangeDetectionStrategy, Component, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, output } from '@angular/core';
 import { input } from '@angular/core';
 import { MuiIconComponent } from '../icon/mui-icon.component';
 import type { MapleIconName, MuiIconSize } from '../icon/mui-icon.component';
@@ -21,7 +21,7 @@ const ICON_SIZE_BY_BUTTON_SIZE: Record<MuiActionButtonSize, MuiIconSize> = {
   standalone: true,
   imports: [MuiIconComponent],
   templateUrl: './mui-action-button.component.html',
-  styleUrl: './mui-action-button.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiActionButtonComponent {
@@ -49,6 +49,23 @@ export class MuiActionButtonComponent {
   readonly pressed = output<MouseEvent>();
 
   readonly iconSize = () => ICON_SIZE_BY_BUTTON_SIZE[this.size()];
+
+  /** `selected` colors win outright over the default+hover pair — mutually
+   * exclusive, one computed string per the conversion recipe (matches the
+   * established mui-button `active`/`toggled` pattern). */
+  readonly colorClasses = computed(() =>
+    this.selected()
+      ? 'bg-primary-dim text-primary border-primary'
+      : 'bg-transparent text-text-muted border-transparent enabled:hover:bg-surface-hover enabled:hover:text-text-main',
+  );
+
+  readonly sizeClasses = computed(() =>
+    this.size() === 'sm' ? 'text-[10px] p-1' : 'text-[11px] py-1 px-2',
+  );
+
+  readonly orientationClasses = computed(() =>
+    this.orientation() === 'stacked' ? 'flex-col gap-[2px] text-center' : '',
+  );
 
   onClick(event: MouseEvent): void {
     if (this.disabled()) return;
