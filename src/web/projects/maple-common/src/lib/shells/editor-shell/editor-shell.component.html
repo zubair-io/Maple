@@ -7,41 +7,44 @@
      these two bodies used to be duplicated near-verbatim in each branch). -->
 <ng-template #cardBodySubParamTpl>
   @if (bwMixArmed()) {
-    <div class="bw-panel">
+    <div class="bw-panel contents">
       <button
-        class="bw-toggle"
-        [class.bw-toggle--on]="blackWhiteOn()"
+        class="group flex w-full cursor-pointer items-center gap-2.5 border-none bg-none px-4 font-[inherit] text-[color:var(--pro-text)]"
         role="switch"
         [attr.aria-checked]="blackWhiteOn()"
         aria-label="Black & White"
         data-testid="bw-toggle"
         (click)="onBlackWhiteToggle()"
       >
-        <span class="bw-toggle-track">
-          <span class="bw-toggle-thumb"></span>
+        <span
+          class="bw-toggle-track bg-[color:var(--pro-glass-border)] group-aria-checked:bg-[color:var(--pro-accent)]"
+        >
+          <span
+            class="bw-toggle-thumb bg-[color:var(--pro-text)] group-aria-checked:translate-x-[14px] group-aria-checked:bg-white"
+          ></span>
         </span>
-        <span class="bw-toggle-label">Black &amp; White</span>
+        <span class="text-[13px] font-medium">Black &amp; White</span>
       </button>
       <div
-        class="bw-panel-sliders"
-        [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
+        class="flex w-full flex-col items-center gap-2.5 transition-opacity duration-150 ease-in-out"
+        [class]="bwPanelSlidersClass()"
         [attr.aria-disabled]="!blackWhiteOn()"
         data-testid="bw-panel-sliders"
       >
-        <app-value-chip />
-        <div class="hsl-panel-chips">
+        <app-value-chip class="pointer-events-none" />
+        <div class="w-full overflow-x-auto">
           <app-sub-param-row />
         </div>
-        <app-drag-bar />
+        <app-drag-bar class="w-full" />
       </div>
     </div>
   } @else {
-    <div class="hsl-panel">
-      <app-value-chip />
-      <div class="hsl-panel-chips">
+    <div class="hsl-panel contents">
+      <app-value-chip class="pointer-events-none" />
+      <div class="w-full overflow-x-auto">
         <app-sub-param-row />
       </div>
-      <app-drag-bar />
+      <app-drag-bar class="w-full" />
     </div>
   }
 </ng-template>
@@ -54,25 +57,29 @@
   <film-panel />
 </ng-template>
 
-<div class="shell" [class.shell--desktop]="isDesktop()">
+<div
+  class="relative h-full w-full touch-none bg-[color:var(--pro-canvas)]"
+  [class.shell--desktop]="isDesktop()"
+>
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
-  <div #canvasWrap class="canvas-layer" (pointerdown)="onCanvasPointerDown($event)">
-    <editor-image-canvas [hideToolbar]="true" />
+  <div #canvasWrap class="absolute inset-0 z-0" (pointerdown)="onCanvasPointerDown($event)">
+    <editor-image-canvas class="h-full w-full" [hideToolbar]="true" />
   </div>
 
   <!-- ── Chrome layers (float above canvas) ──────────────────────────── -->
 
   <!-- Chrome opacity wrapper — transitions on recede/scrub -->
   <div
-    class="chrome-layer"
-    [class.chrome--receded]="chromeState() === 'receded'"
-    [class.chrome--scrubbing]="chromeState() === 'scrubbing'"
+    class="pointer-events-none absolute inset-0 z-10 transition-opacity [transition-duration:var(--pro-motion-recede)]"
+    [class]="chromeLayerOpacityClass()"
   >
     <!-- ── Top bar ────────────────────────────────────────────────── -->
-    <div class="top-bar">
+    <div
+      class="pointer-events-auto absolute top-[14px] left-1/2 z-10 flex h-11 max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-1 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur)] md:max-w-[calc(100vw-96px)] md:gap-2 md:bg-[color:var(--pro-glass-bg-heavy)] md:[backdrop-filter:var(--pro-glass-blur-heavy)]"
+    >
       <!-- Back button -->
       <button
-        class="top-btn"
+        class="flex shrink-0 items-center gap-1 rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-2 py-1 outline-none transition-colors duration-[120ms] ease-out appearance-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         title="Back to Library (Esc)"
         aria-label="Back to Library"
         (click)="goBack()"
@@ -81,15 +88,18 @@
       </button>
 
       <!-- Asset name -->
-      <span class="top-name">{{ assetName() }}</span>
+      <span
+        class="max-w-[min(200px,40vw)] shrink overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text)]"
+        >{{ assetName() }}</span
+      >
 
       <!-- Center spacer -->
-      <div class="top-spacer"></div>
+      <div class="shrink-0 grow-0 basis-1"></div>
 
       <!-- Histogram (tablet/desktop) -->
       @if (isTabletPlus() && currentAdj()) {
-        <div class="top-histogram">
-          <editor-histogram [adjustment]="currentAdj()!" />
+        <div class="h-[30px] w-[70px] shrink-0 overflow-hidden rounded-md bg-white/5 opacity-90">
+          <editor-histogram class="block h-full w-full" [adjustment]="currentAdj()!" />
         </div>
       }
 
@@ -98,8 +108,8 @@
            than the tool dock because it is a global image action, not a tool
            selection; the dock is a `role="navigation"` tool switcher. -->
       <button
-        class="top-text-btn"
-        [class.top-text-btn--busy]="editorState.autoInFlight()"
+        class="flex h-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md border-[0.5px] px-1.5 font-[inherit] text-[10px] font-semibold tracking-[0.06em] outline-none transition-[background,color,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        [class]="autoButtonClass()"
         title="Auto adjust"
         aria-label="Auto adjust"
         data-testid="editor-shell-auto"
@@ -109,14 +119,17 @@
       >
         AUTO
       </button>
-      <span class="auto-result" role="status" aria-live="polite">{{
-        editorState.autoResult() ?? ''
-      }}</span>
+      <span
+        class="max-w-[160px] overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text-muted)]"
+        role="status"
+        aria-live="polite"
+        >{{ editorState.autoResult() ?? '' }}</span
+      >
 
       <!-- RESET (#1370 M1) — every develop slider to its factory default, WB
            to camera As Shot, profile to Auto; crop/rotation untouched. -->
       <button
-        class="top-text-btn"
+        class="flex h-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-1.5 font-[inherit] text-[10px] font-semibold tracking-[0.06em] text-[color:var(--pro-text-muted)] outline-none transition-[background,color,border-color] duration-[120ms] ease-out appearance-none enabled:hover:bg-white/10 enabled:hover:text-[color:var(--pro-text)] disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         title="Reset all adjustments"
         aria-label="Reset all adjustments"
         data-testid="editor-shell-reset"
@@ -128,8 +141,8 @@
 
       <!-- Before/After split toggle -->
       <button
-        class="top-icon-btn"
-        [class.top-icon-btn--active]="canvasSvc.showBeforeAfter()"
+        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        [class]="iconBtnClass(canvasSvc.showBeforeAfter())"
         title="Before/After (\)"
         aria-label="Toggle before/after"
         [attr.aria-pressed]="canvasSvc.showBeforeAfter()"
@@ -141,7 +154,7 @@
 
       <!-- Undo (long-press → redo) — mirrors the S5 editor's header button. -->
       <button
-        class="top-icon-btn"
+        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none hover:border-[color:var(--pro-border)] hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         title="Undo (⌘Z) / hold for Redo (⌘⇧Z)"
         aria-label="Undo"
         data-testid="editor-shell-undo"
@@ -155,8 +168,8 @@
 
       <!-- Info -->
       <button
-        class="top-icon-btn"
-        [class.top-icon-btn--active]="infoOpen()"
+        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        [class]="iconBtnClass(infoOpen())"
         title="Info"
         aria-label="Info"
         [attr.aria-pressed]="infoOpen()"
@@ -168,8 +181,8 @@
 
       <!-- Export -->
       <button
-        class="export-btn"
-        [class.export-btn--enabled]="state.focusedAssetId() !== null"
+        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,color,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        [class]="exportBtnClass(state.focusedAssetId() !== null)"
         [disabled]="state.focusedAssetId() === null"
         title="Export"
         aria-label="Export"
@@ -182,14 +195,16 @@
 
     <!-- ── Left filmstrip rail (tablet/desktop) ──────────────────── -->
     @if (isTabletPlus() && hasMultiplePhotos()) {
-      <div class="filmstrip-anchor">
+      <div
+        class="pointer-events-auto absolute top-1/2 left-3 w-[110px] -translate-y-1/2 overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+      >
         <editor-filmstrip />
       </div>
     }
 
     <!-- ── Right tool dock (tablet/desktop only) ─────────────────── -->
     @if (isTabletPlus()) {
-      <div class="tool-dock-anchor">
+      <div class="pointer-events-auto absolute top-1/2 right-3 -translate-y-1/2">
         <pro-tool-dock
           [activeGroup]="activeGroup()"
           [activeTool]="activeTool()"
@@ -205,7 +220,7 @@
         @if (curveOpen()) {
           <div class="curve-panel">
             <pro-tone-curve />
-            <div class="curve-panel-divider"></div>
+            <div class="mx-2.5 h-[0.5px] bg-[color:var(--pro-border)]"></div>
             <pro-wb-pad />
           </div>
         }
@@ -245,11 +260,11 @@
              alongside — unlike HSL/bwMix/Color Grading below. -->
         @if (noiseArmed()) {
           <div class="subparam-panel">
-            <app-value-chip />
-            <div class="hsl-panel-chips">
+            <app-value-chip class="pointer-events-none" />
+            <div class="w-full overflow-x-auto">
               <app-sub-param-row />
             </div>
-            <app-drag-bar />
+            <app-drag-bar class="w-full" />
           </div>
         }
       </div>
@@ -278,7 +293,9 @@
            Info, which has no phone equivalent of the collision (Info is a
            bottom sheet there, not a competing floating panel). -->
       @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed() && !infoOpen()) {
-        <div class="control-card-anchor">
+        <div
+          class="control-card-anchor pointer-events-auto absolute top-1/2 right-[88px] w-[300px] -translate-y-1/2"
+        >
           <pro-control-card
             [activeGroup]="activeGroup()"
             [activeTool]="activeTool()"
@@ -338,7 +355,9 @@
            dock-side panels turned out to overlap too, just not as
            obviously as phone's single shared anchor slot). -->
       @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed()) {
-        <div class="phone-card-anchor">
+        <div
+          class="phone-card-anchor pointer-events-auto absolute right-3 bottom-[calc(72px+12px+var(--safe-area-inset-bottom))] left-3"
+        >
           <pro-control-card
             [activeGroup]="activeGroup()"
             [activeTool]="activeTool()"
@@ -375,7 +394,7 @@
       @if (curveOpen()) {
         <div class="phone-curve-panel">
           <pro-tone-curve />
-          <div class="curve-panel-divider"></div>
+          <div class="mx-2.5 h-[0.5px] bg-[color:var(--pro-border)]"></div>
           <pro-wb-pad />
         </div>
       }
@@ -401,16 +420,18 @@
            phone control card's projected `cardBodySubParam` slot above. -->
       @if (noiseArmed()) {
         <div class="phone-subparam-panel">
-          <app-value-chip />
-          <div class="hsl-panel-chips">
+          <app-value-chip class="pointer-events-none" />
+          <div class="w-full overflow-x-auto">
             <app-sub-param-row />
           </div>
-          <app-drag-bar />
+          <app-drag-bar class="w-full" />
         </div>
       }
 
       <!-- Bottom horizontal tool dock -->
-      <div class="phone-dock-anchor">
+      <div
+        class="pointer-events-auto absolute right-3 bottom-[calc(12px+var(--safe-area-inset-bottom))] left-3"
+      >
         <pro-tool-dock
           orientation="horizontal"
           [activeGroup]="activeGroup()"
@@ -427,7 +448,7 @@
   </div>
 
   <!-- ── Value HUD (always visible layer, fades with its own signal) ── -->
-  <div class="hud-layer">
+  <div class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
     <pro-value-hud
       [visible]="hudVisible()"
       [eyebrow]="hudEyebrow()"
@@ -441,7 +462,9 @@
        surface. -->
   @if (isTabletPlus()) {
     @if (infoOpen()) {
-      <div class="info-pane">
+      <div
+        class="info-pane pointer-events-auto absolute inset-y-0 right-16 z-[15] w-[min(340px,30vw)] overflow-y-auto rounded-[var(--pro-glass-radius-card-desktop)] border-r-[0.5px] border-l-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+      >
         <app-info-panel
           [asset]="state.focusedAsset()"
           [insideSheet]="false"

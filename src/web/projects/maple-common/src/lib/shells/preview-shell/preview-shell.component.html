@@ -1,20 +1,30 @@
-<div class="preview-shell">
-  <div class="preview-main">
-    <div class="top-bar">
-      <button class="top-btn" title="Back" aria-label="Back" (click)="goBack()">
+<div class="flex h-full w-full flex-row">
+  <div class="preview-main relative min-w-0 flex-1">
+    <div
+      class="absolute top-[14px] left-1/2 z-10 flex h-11 max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-2 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
+    >
+      <button
+        class="flex shrink-0 items-center gap-1 rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-2 py-1 outline-none transition-colors duration-[120ms] ease-out appearance-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        title="Back"
+        aria-label="Back"
+        (click)="goBack()"
+      >
         <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
       </button>
-      <span class="top-name">{{ assetName() }}</span>
+      <span
+        class="max-w-[min(200px,40vw)] shrink overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text)]"
+        >{{ assetName() }}</span
+      >
     </div>
 
     <div
-      class="preview-image-wrap"
+      class="absolute inset-0 grid place-items-center"
       (pointerdown)="onImagePointerDown($event)"
       (pointerup)="onImagePointerUp($event)"
     >
       @if (videoUrl(); as video) {
         <video
-          class="preview-video"
+          class="h-full w-full bg-black object-contain"
           [src]="video"
           [poster]="previewUrl() ?? thumbUrl()"
           controls
@@ -26,7 +36,7 @@
         ></video>
       } @else {
         @if (thumbUrl(); as t) {
-          <img class="preview-img preview-img--thumb" [src]="t" alt="" />
+          <img class="absolute max-h-full max-w-full object-contain" [src]="t" alt="" />
         }
         @if (previewUrl(); as p) {
           <!-- subscribePreviewUrl() may fall through to the thumbnail URL (a
@@ -37,19 +47,29 @@
              network preview, or a Hosted embedded-preview extraction), p differs
              and the full still stacks over the thumb. -->
           @if (p !== thumbUrl()) {
-            <img class="preview-img preview-img--full" [src]="p" alt="" />
+            <img
+              class="absolute max-h-full max-w-full animate-[preview-fade_160ms_ease-out] object-contain"
+              [src]="p"
+              alt=""
+            />
           }
         }
       }
     </div>
 
-    <div class="filmstrip-anchor">
+    <div
+      class="absolute top-[74px] bottom-[82px] left-3 z-10 w-[110px] overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] pointer-events-auto shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+    >
       <editor-filmstrip routeMode="view" />
     </div>
 
-    <div class="action-bar" role="toolbar" aria-label="Preview actions">
+    <div
+      class="action-bar absolute bottom-[14px] left-1/2 z-10 flex h-[52px] -translate-x-1/2 items-center gap-1 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
+      role="toolbar"
+      aria-label="Preview actions"
+    >
       <button
-        class="action-btn"
+        class="flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-[10px] border-none bg-transparent px-3 py-1.5 text-[11px] text-[color:var(--pro-text-muted)] outline-none transition-[background,color] duration-[120ms] ease-out appearance-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         aria-label="Flag"
         [attr.aria-expanded]="flagOpen()"
         aria-controls="preview-flag-popover"
@@ -57,11 +77,15 @@
       >
         <maple-icon name="flag" [size]="18" /> <span>Flag</span>
       </button>
-      <button class="action-btn action-btn--primary" aria-label="Edit" (click)="edit()">
+      <button
+        class="flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-[10px] border-none bg-transparent px-3 py-1.5 text-[11px] text-[color:var(--pro-accent)] outline-none transition-[background,color] duration-[120ms] ease-out appearance-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        aria-label="Edit"
+        (click)="edit()"
+      >
         <maple-icon name="edit" [size]="18" /> <span>Edit</span>
       </button>
       <button
-        class="action-btn"
+        class="flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-[10px] border-none bg-transparent px-3 py-1.5 text-[11px] text-[color:var(--pro-text-muted)] outline-none transition-[background,color] duration-[120ms] ease-out appearance-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         aria-label="Info"
         [attr.aria-pressed]="infoOpen()"
         (click)="toggleInfo()"
@@ -71,7 +95,10 @@
     </div>
 
     @if (flagOpen()) {
-      <div id="preview-flag-popover" class="flag-popover">
+      <div
+        id="preview-flag-popover"
+        class="flag-popover absolute bottom-[74px] left-1/2 z-[11] -translate-x-1/2 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-3 py-2 [backdrop-filter:var(--pro-glass-blur)]"
+      >
         <mui-rating-flags
           variant="pills"
           [rating]="flagPopoverRating()"
@@ -86,7 +113,9 @@
 
   @if (isTabletPlus()) {
     @if (infoOpen()) {
-      <div class="info-pane">
+      <div
+        class="info-pane w-[min(340px,30vw)] shrink-0 overflow-y-auto border-l-[0.5px] border-[color:var(--pro-border)]"
+      >
         <app-info-panel
           [asset]="state.focusedAsset()"
           [insideSheet]="false"
