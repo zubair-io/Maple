@@ -28,7 +28,6 @@ export interface GeneratedSearchDraft {
   standalone: true,
   imports: [MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
   templateUrl: './generated-search-knobs.component.html',
-  styleUrl: './generated-search-knobs.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GeneratedSearchKnobsComponent {
