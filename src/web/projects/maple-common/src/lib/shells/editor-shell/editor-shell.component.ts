@@ -122,9 +122,8 @@ import {
 } from './editor-shell-undo';
 import { type ToolGroup, type ToolId } from '../../editor/tool-model';
 import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
-
-/** Chrome visibility states driven by idle timer + scrub. */
-type ChromeState = 'full' | 'receded' | 'scrubbing';
+import { type ChromeState, HOST_CLASS } from './editor-shell.classes';
+import * as sc from './editor-shell.classes';
 
 @Component({
   selector: 'editor-shell',
@@ -154,10 +153,7 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: {
-    class:
-      'pro-editor-shell block w-screen h-dvh box-border overflow-hidden bg-[color:var(--pro-canvas)]',
-  },
+  host: { class: HOST_CLASS },
 })
 export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   state = inject(LibraryStateService);
@@ -229,7 +225,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   hasMultiplePhotos = computed(() => this.state.assetsInSelectedFolder().length > 1);
 
   // ── Pro editor state ──────────────────────────────────────────────────
-
   /** Currently active tool group (mirrors EditorStateService). */
   readonly activeGroup = computed<ToolGroup>(() => this.editorState.armedGroup());
 
@@ -265,16 +260,8 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly blackWhiteOn = computed<boolean>(
     () => this.editorState.currentAdjustment()?.blackWhite === 'On',
   );
-
-  /** Mutually-exclusive de-emphasise/disable pair for the gray-mixer
-   * sliders while Black & White is Off (Tailwind port #3071) — folded into
-   * one computed string rather than a base class plus a conditional
-   * `opacity`/`pointer-events` add-on. */
-  readonly bwPanelSlidersClass = computed<string>(() =>
-    // `bw-panel-sliders--inactive` kept bare — asserted via
-    // `classList.contains` in editor-shell-black-white.spec.ts.
-    this.blackWhiteOn() ? '' : 'bw-panel-sliders--inactive opacity-40 pointer-events-none',
-  );
+  // Gray-mixer sliders class while B&W Off — see editor-shell.classes.ts.
+  readonly bwPanelSlidersClass = computed(() => sc.bwPanelSlidersClass(this.blackWhiteOn()));
 
   /** True when LayoutService.layout() is tablet or desktop (≥768px). */
   readonly isTabletPlus = computed<boolean>(() => this.layoutService.layout() !== 'phone');
@@ -298,61 +285,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** Export options dialog (#943) — modal, so it has no anchor to share. */
   readonly exportOpen = signal<boolean>(false);
-
   // Chrome recede (idle-timer/resize-observer/pointermove machinery lives in
   // editor-shell-chrome.ts, extracted to stay under the per-file LOC budget).
   readonly chromeState = signal<ChromeState>('full');
-
-  /** Mutually-exclusive opacity triplet for the chrome layer's recede/scrub
-   * states (Tailwind port #3071) — `full`/`receded`/`scrubbing` all set
-   * `opacity`, so this is one computed string rather than a base class
-   * plus conditional add-ons. */
-  readonly chromeLayerOpacityClass = computed<string>(() => {
-    switch (this.chromeState()) {
-      case 'receded':
-        return 'opacity-30';
-      case 'scrubbing':
-        return 'opacity-[0.15]';
-      default:
-        return 'opacity-100';
-    }
-  });
-
-  /** Mutually-exclusive color/border/opacity triplet for the top bar's icon
-   * toggle buttons (before/after split, info) (Tailwind port #3071) — the
-   * `--active` state used to win over `:hover` on the shared `background`/
-   * `border-color` properties via declaration order; folded into one
-   * computed string rather than a base class plus a conditional add-on. */
-  protected iconBtnClass(active: boolean): string {
-    return active
-      ? 'bg-[color:var(--pro-accent-28)] border-[0.5px] border-[color:var(--pro-accent)]'
-      : 'border-[0.5px] border-transparent bg-transparent hover:border-[color:var(--pro-border)] hover:bg-white/8';
-  }
-
-  /** Mutually-exclusive color/border/opacity triplet for the top bar's
-   * Export icon button (Tailwind port #3071) — same rationale as
-   * {@link iconBtnClass}. */
-  protected exportBtnClass(enabled: boolean): string {
-    return enabled
-      ? 'bg-[color:var(--pro-accent-28)] text-[color:var(--pro-accent)] border-[0.5px] border-[color:var(--pro-accent)]'
-      : 'bg-white/4 text-[color:var(--pro-text-dim)] border-[0.5px] border-[color:var(--pro-border)] opacity-50 cursor-default';
-  }
-
-  /** Mutually-exclusive color/border/opacity triplet for the AUTO button's
-   * busy/disabled/default states (Tailwind port #3071) — `.top-text-btn--busy`
-   * used to win over both `:hover` and `:disabled` on `color`/`border-color`/
-   * `opacity` via declaration order (it was the last matching rule); folded
-   * into one computed string with the same busy-first precedence rather than
-   * a base class plus conditional add-ons. */
-  protected autoButtonClass(): string {
-    if (this.editorState.autoInFlight()) {
-      return 'text-[color:var(--pro-accent)] border-[color:var(--pro-accent)] bg-white/5 opacity-100 cursor-pointer';
-    }
-    if (this.autoDisabled()) {
-      return 'text-[color:var(--pro-text-muted)] border-[color:var(--pro-border)] bg-white/5 opacity-40 cursor-default';
-    }
-    return 'text-[color:var(--pro-text-muted)] border-[color:var(--pro-border)] bg-white/5 opacity-100 cursor-pointer enabled:hover:bg-white/10 enabled:hover:text-[color:var(--pro-text)]';
-  }
+  // Class helpers below (chrome opacity, top-bar buttons) live in editor-shell.classes.ts.
+  readonly chromeLayerOpacityClass = computed(() => sc.chromeLayerOpacityClass(this.chromeState()));
+  protected iconBtnClass = (active: boolean) => sc.iconBtnClass(active);
+  protected exportBtnClass = (enabled: boolean) => sc.exportBtnClass(enabled);
+  protected autoButtonClass = () =>
+    sc.autoButtonClass(this.editorState.autoInFlight(), this.autoDisabled());
   private readonly _chrome: ChromeRecedeState = newChromeRecedeState();
 
   // Canvas scrub (gesture handlers live in editor-shell-scrub.ts, extracted
@@ -580,7 +521,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!id) return null;
     return this.state.adjustmentFor(id)();
   });
-
   // ── Asset name ────────────────────────────────────────────────────────
   readonly assetName = computed<string>(() => {
     const a = this.state.focusedAsset();

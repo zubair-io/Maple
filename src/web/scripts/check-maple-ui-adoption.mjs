@@ -105,9 +105,7 @@ const MIGRATED_FILES = [
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-smart-row.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-footer.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-rename-dialog.component.html',
-  '../projects/maple-common/src/lib/components/folder-tree/folder-rename-dialog.component.scss',
   '../projects/maple-common/src/lib/components/folder-tree/folder-new-folder-dialog.component.html',
-  '../projects/maple-common/src/lib/components/folder-tree/folder-new-folder-dialog.component.scss',
   '../projects/maple-common/src/lib/trash/trash-node-row.component.html',
   // MW5 remainder (#3046) — tool-dock.component now composes mui-tool-dock;
   // its siblings under components/editor/ (film-panel, control-card) are
