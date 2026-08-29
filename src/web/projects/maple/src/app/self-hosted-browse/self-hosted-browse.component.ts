@@ -18,7 +18,7 @@ import { SelfHostedBrowseController } from './self-hosted-browse.controller';
   ],
   providers: [SelfHostedBrowseController],
   templateUrl: './self-hosted-browse.component.html',
-  styleUrl: './self-hosted-browse.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SelfHostedBrowseComponent {
