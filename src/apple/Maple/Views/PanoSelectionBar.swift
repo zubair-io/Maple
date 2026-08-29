@@ -4,9 +4,22 @@
 // "Merge to panorama…" CTA, and a "Select All" / "Deselect All" toggle.
 //
 // Ticket: #1236 / Part of #1234
+//
+// Buttons migrated onto MapleUI's `MuiButton` (Maple UI adoption epic
+// #3019, MA4) — this is regular in-content chrome (unlike the OS-native
+// `ToolbarItem`/`ToolbarContent` buttons in `AppShellToolbar.swift` /
+// `AppShellIPhoneToolbar.swift`, which stay hand-rolled: `MuiButton` paints
+// its own filled/bordered pill background, and wrapping a native macOS/iOS
+// titlebar or nav-bar `ToolbarItem` around one would double-chrome a
+// design-system button inside the system's own toolbar material). Each
+// button's richer accessibility label/hint (e.g. "Merge N selected images
+// into a panorama") is layered on as an external `.accessibilityLabel`/
+// `.accessibilityHint` modifier after construction — the last one applied
+// wins, overriding `MuiButton`'s own default (its visible label text).
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 // MARK: - PanoSelectionBar
 
@@ -43,17 +56,18 @@ struct PanoSelectionBar: View {
                 // assets.count are 0 the condition is vacuously true and
                 // "Deselect All" would appear with nothing to deselect.
                 let allSelected = !vm.assets.isEmpty && vm.selectedIDs.count == vm.assets.count
-                Button {
+                MuiButton(
+                    label: allSelected ? "Deselect All" : "Select All",
+                    variant: .ghost,
+                    size: .sm,
+                    disabled: vm.assets.isEmpty
+                ) {
                     if allSelected {
                         vm.clearSelection()
                     } else {
                         vm.assets.forEach { vm.select($0.id) }
                     }
-                } label: {
-                    Text(allSelected ? "Deselect All" : "Select All")
-                        .font(.subheadline)
                 }
-                .disabled(vm.assets.isEmpty)
                 .accessibilityLabel(allSelected
                     ? "Deselect all images"
                     : "Select all images")
@@ -70,29 +84,27 @@ struct PanoSelectionBar: View {
 
                 // Right: Edit Metadata CTA (optional — nil suppresses the button)
                 if let onEditMetadata {
-                    Button {
-                        onEditMetadata()
-                    } label: {
-                        Label("Edit Metadata\u{2026}", systemImage: "pencil.and.list.clipboard")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .disabled(vm.selectedIDs.isEmpty)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    MuiButton(
+                        label: "Edit Metadata\u{2026}",
+                        variant: .secondary,
+                        size: .sm,
+                        leadingIcon: "pencil.and.list.clipboard",
+                        disabled: vm.selectedIDs.isEmpty,
+                        action: onEditMetadata
+                    )
                     .accessibilityLabel("Edit metadata for \(vm.selectedIDs.count) selected images")
                 }
 
                 // Right: Batch Rename CTA (#2641, optional — nil suppresses the button)
                 if let onBatchRename {
-                    Button {
-                        onBatchRename()
-                    } label: {
-                        Label("Batch Rename\u{2026}", systemImage: "textformat")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .disabled(vm.selectedIDs.isEmpty)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    MuiButton(
+                        label: "Batch Rename\u{2026}",
+                        variant: .secondary,
+                        size: .sm,
+                        leadingIcon: "textformat",
+                        disabled: vm.selectedIDs.isEmpty,
+                        action: onBatchRename
+                    )
                     .accessibilityIdentifier("pano-selection-bar-batch-rename")
                     .accessibilityLabel("Batch rename \(vm.selectedIDs.count) selected images")
                 }
@@ -100,15 +112,14 @@ struct PanoSelectionBar: View {
                 // Right: sync settings CTA (#944) — applies the focused image's
                 // current edit across the rest of the selection, no copy needed.
                 if let onSyncSettings {
-                    Button {
-                        onSyncSettings()
-                    } label: {
-                        Label("Sync Settings\u{2026}", systemImage: "arrow.triangle.2.circlepath")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .disabled(!canSync)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    MuiButton(
+                        label: "Sync Settings\u{2026}",
+                        variant: .secondary,
+                        size: .sm,
+                        leadingIcon: "arrow.triangle.2.circlepath",
+                        disabled: !canSync,
+                        action: onSyncSettings
+                    )
                     .accessibilityLabel("Sync adjustments from the focused image to the rest of the selection")
                     .accessibilityHint(canSync
                         ? "Double tap to apply"
@@ -118,15 +129,14 @@ struct PanoSelectionBar: View {
                 // Right: paste-selected-groups CTA (#944) — opens the group
                 // picker sheet for a selective paste.
                 if let onPasteSelectedGroups {
-                    Button {
-                        onPasteSelectedGroups()
-                    } label: {
-                        Label("Paste Selected\u{2026}", systemImage: "list.bullet.clipboard")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .disabled(!canPaste)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    MuiButton(
+                        label: "Paste Selected\u{2026}",
+                        variant: .secondary,
+                        size: .sm,
+                        leadingIcon: "list.bullet.clipboard",
+                        disabled: !canPaste,
+                        action: onPasteSelectedGroups
+                    )
                     .accessibilityLabel("Paste selected adjustment groups onto the selected images")
                     .accessibilityHint(canPaste
                         ? "Double tap to choose which groups to paste"
@@ -136,15 +146,14 @@ struct PanoSelectionBar: View {
                 // Right: paste-adjustments CTA (#944) — pastes every group
                 // from the clipboard onto the checked selection.
                 if let onPasteAdjustments {
-                    Button {
-                        onPasteAdjustments()
-                    } label: {
-                        Label("Paste Adjustments", systemImage: "doc.on.clipboard")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .disabled(!canPaste)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    MuiButton(
+                        label: "Paste Adjustments",
+                        variant: .secondary,
+                        size: .sm,
+                        leadingIcon: "doc.on.clipboard",
+                        disabled: !canPaste,
+                        action: onPasteAdjustments
+                    )
                     .accessibilityLabel("Paste all copied adjustments onto \(vm.selectedIDs.count) selected images")
                     .accessibilityHint(canPaste
                         ? "Double tap to apply"
@@ -152,15 +161,14 @@ struct PanoSelectionBar: View {
                 }
 
                 // Right: merge CTA
-                Button {
-                    onMerge()
-                } label: {
-                    Label("Merge to Panorama\u{2026}", systemImage: "photo.stack")
-                        .font(.subheadline.weight(.medium))
-                }
-                .disabled(!vm.canMergePanorama)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                MuiButton(
+                    label: "Merge to Panorama\u{2026}",
+                    variant: .primary,
+                    size: .sm,
+                    leadingIcon: "photo.stack",
+                    disabled: !vm.canMergePanorama,
+                    action: onMerge
+                )
                 .accessibilityLabel("Merge \(vm.selectedIDs.count) selected images into a panorama")
                 .accessibilityHint(vm.canMergePanorama
                     ? "Double tap to open panorama merge view"
