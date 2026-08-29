@@ -24,7 +24,7 @@ export function safeReturnUrl(raw: string | null): string {
   selector: 'maple-sign-in',
   imports: [FormsModule, RouterLink],
   templateUrl: './sign-in.component.html',
-  styleUrl: './sign-in.component.scss',
+  host: { class: 'flex items-center justify-center w-full h-full bg-bg text-text-main p-6' },
 })
 export class SignInComponent implements OnInit {
   private auth = inject(AuthService);
