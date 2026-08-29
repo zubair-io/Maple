@@ -1,7 +1,0 @@
-// export-dialog.component.scss — edited-image export options dialog (#943).
-// All chrome now lives in `mui-export-modal`/`mui-overlay-shell` (#3046) —
-// this wrapper renders a single `<mui-export-modal>` with no markup of its
-// own to style.
-:host {
-  display: contents;
-}

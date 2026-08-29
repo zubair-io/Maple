@@ -18,7 +18,6 @@ import { FolderTreeNodeComponent, type FolderCrudRequestEvent } from './folder-t
   standalone: true,
   imports: [MapleIconComponent, FolderTreeNodeComponent],
   templateUrl: './folder-tree-legacy-section.component.html',
-  styleUrl: './folder-tree-legacy-section.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTreeLegacySectionComponent {

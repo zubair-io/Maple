@@ -17,7 +17,6 @@ import type { ApiAssetDetail } from '../api/bun-api-backend.service';
   standalone: true,
   imports: [MuiCollapsibleComponent],
   templateUrl: './info-transcript.component.html',
-  styleUrl: './info-transcript.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'block',

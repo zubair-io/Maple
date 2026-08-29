@@ -55,7 +55,7 @@ import type { MuiSegmentedToggleOption } from '../ui/segmented-toggle/mui-segmen
   standalone: true,
   imports: [MuiExportModalComponent],
   templateUrl: './export-dialog.component.html',
-  styleUrl: './export-dialog.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExportDialogComponent {

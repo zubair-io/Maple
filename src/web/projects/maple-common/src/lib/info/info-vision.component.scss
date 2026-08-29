@@ -1,7 +1,0 @@
-/* OCR text panel — monospace + scrollable. Tailwind line-height
-   classes don't quite hit the design spec, so a tiny custom rule. */
-.ocr-pre {
-  max-height: 8em;
-  overflow-y: auto;
-  line-height: 1.4;
-}

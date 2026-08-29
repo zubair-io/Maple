@@ -1,8 +1,0 @@
-// The eyebrow/divider/value chrome itself now lives in `mui-value-chip`
-// (#3046) — this wrapper only owns positioning behavior: the chip is a
-// HUD overlay floating above the canvas and must never intercept pointer
-// events meant for the image underneath it.
-:host {
-  display: inline-block;
-  pointer-events: none;
-}

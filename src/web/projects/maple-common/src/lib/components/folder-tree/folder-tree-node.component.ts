@@ -59,7 +59,7 @@ export interface FolderCrudRequestEvent {
   standalone: true,
   imports: [DragDropModule, MuiTreeRowComponent, forwardRef(() => FolderTreeNodeComponent)],
   templateUrl: './folder-tree-node.component.html',
-  styleUrl: './folder-tree-node.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTreeNodeComponent {

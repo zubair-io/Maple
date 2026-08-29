@@ -1,9 +1,0 @@
-// The track/tick/marker chrome itself now lives in `mui-drag-bar` (#3046)
-// — this wrapper only owns its slot's positioning (the 30px-tall band with
-// 24px side insets the value-chip HUD layout reserves for the bar).
-:host {
-  display: block;
-  height: 30px;
-  padding: 0 24px;
-  touch-action: none;
-}
