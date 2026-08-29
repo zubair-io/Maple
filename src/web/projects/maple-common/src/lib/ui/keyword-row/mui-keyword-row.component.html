@@ -1,9 +1,9 @@
-<div class="mui-keyword-row">
+<div class="mui-keyword-row flex flex-wrap items-center gap-2">
   @if (keywords().length > 0) {
     <mui-chip-row [chips]="keywords()" mode="removable" (removed)="removed.emit($event)" />
   }
   <mui-input
-    class="add"
+    class="add w-[100px]"
     size="sm"
     [value]="draft()"
     (valueChange)="draft.set($event)"

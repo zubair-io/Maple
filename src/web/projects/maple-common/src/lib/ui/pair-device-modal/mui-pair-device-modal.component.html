@@ -12,7 +12,7 @@
   </div>
 
   <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-lg">
-    <div class="steps">
+    <div class="steps flex flex-col gap-2">
       @for (row of steps(); track row.index) {
         <mui-progress-step
           [index]="row.index"
@@ -25,12 +25,12 @@
     </div>
 
     @if (step() === 0) {
-      <div class="panel show-code">
+      <div class="panel show-code flex flex-col items-center gap-4 rounded-lg bg-surface-alt p-6">
         <mui-qr-code [value]="pairingCode()" size="lg" ariaLabel="Pairing code" />
         <mui-text variant="body" color="muted">Scan this code on the other device.</mui-text>
       </div>
     } @else if (step() === 1) {
-      <div class="panel scan">
+      <div class="panel scan flex flex-col items-center gap-4 rounded-lg bg-surface-alt p-6">
         <mui-qr-scanner (scanned)="onScannerCode()" />
         @if (scanning()) {
           <mui-progress
@@ -42,7 +42,7 @@
         }
       </div>
     } @else {
-      <div class="panel connect">
+      <div class="panel connect flex flex-col items-center gap-4 rounded-lg bg-surface-alt p-6">
         @if (connected()) {
           <mui-text variant="row-label" color="success">Device connected</mui-text>
           <mui-button variant="primary" (pressed)="finish()">Done</mui-button>

@@ -15,7 +15,7 @@ import { MuiInputComponent } from '../input/mui-input.component';
   standalone: true,
   imports: [MuiChipRowComponent, MuiInputComponent],
   templateUrl: './mui-keyword-row.component.html',
-  styleUrl: './mui-keyword-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiKeywordRowComponent {

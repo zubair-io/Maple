@@ -1,4 +1,4 @@
-<div class="mui-inline-rename-field">
+<div class="mui-inline-rename-field flex items-center">
   @if (editing()) {
     <mui-input
       [value]="draft()"
@@ -11,14 +11,14 @@
   } @else {
     <button
       type="button"
-      class="display"
+      class="display inline-flex max-w-full cursor-text items-center gap-1 rounded-md border border-transparent px-2 py-1 text-left enabled:hover:border-border enabled:hover:bg-surface-hover disabled:cursor-default disabled:opacity-60"
       [disabled]="disabled()"
       [attr.aria-label]="'Rename ' + value()"
       (click)="startEditing()"
     >
       <mui-text variant="row-label" [truncate]="true">{{ value() }}</mui-text>
       @if (justCommitted()) {
-        <mui-icon name="check" size="xs" class="confirm" />
+        <mui-icon name="check" size="xs" class="confirm flex-none text-success-text" />
       }
     </button>
   }

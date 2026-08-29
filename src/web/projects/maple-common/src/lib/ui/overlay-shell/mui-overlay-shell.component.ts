@@ -19,7 +19,7 @@
 // scrolls (`overflow: auto`), so long content never pushes the actions off
 // screen.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { OverlayFocusBase } from '../internal/overlay-focus';
 
 export type MuiOverlayShellSize = 'sm' | 'md' | 'lg' | 'full';
@@ -27,15 +27,24 @@ export type MuiOverlayShellSize = 'sm' | 'md' | 'lg' | 'full';
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+const SIZE_CLASSES: Record<MuiOverlayShellSize, string> = {
+  sm: 'max-w-[360px]',
+  md: 'max-w-[560px]',
+  lg: 'max-w-[800px]',
+  full: 'max-h-full h-full max-w-full rounded-none',
+};
+
 @Component({
   selector: 'mui-overlay-shell',
   standalone: true,
   templateUrl: './mui-overlay-shell.component.html',
-  styleUrl: './mui-overlay-shell.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiOverlayShellComponent extends OverlayFocusBase {
   readonly size = input<MuiOverlayShellSize>('md');
+
+  protected readonly sizeClasses = computed(() => SIZE_CLASSES[this.size()]);
   /** Accessible name for the `role="dialog"` panel — there's no built-in
    * title (that's Header's job), so the caller supplies one directly. */
   readonly ariaLabel = input<string>('Dialog');

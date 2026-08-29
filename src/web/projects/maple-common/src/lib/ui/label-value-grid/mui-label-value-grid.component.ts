@@ -15,7 +15,7 @@ export interface MuiLabelValueRow {
   standalone: true,
   imports: [MuiTextComponent],
   templateUrl: './mui-label-value-grid.component.html',
-  styleUrl: './mui-label-value-grid.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiLabelValueGridComponent {

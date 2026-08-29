@@ -28,7 +28,7 @@ const DEFAULT_FILTERS: readonly MuiChip[] = [
   standalone: true,
   imports: [MuiChipRowComponent, MuiEmptyStateComponent, MuiListRowComponent],
   templateUrl: './mui-notification-feed.component.html',
-  styleUrl: './mui-notification-feed.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiNotificationFeedComponent {

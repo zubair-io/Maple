@@ -1,5 +1,11 @@
-<div class="mui-mobile-control-bar">
-  <div class="tool-row" role="tablist" aria-label="Tools">
+<div
+  class="mui-mobile-control-bar box-border flex w-full flex-col gap-2 border-t border-border bg-surface px-4 pt-2 pb-[calc(8px+env(safe-area-inset-bottom,0px))]"
+>
+  <div
+    class="tool-row flex items-stretch justify-between gap-1 *:flex-1"
+    role="tablist"
+    aria-label="Tools"
+  >
     @for (tool of tools(); track tool.id) {
       <mui-action-button
         [icon]="tool.icon"

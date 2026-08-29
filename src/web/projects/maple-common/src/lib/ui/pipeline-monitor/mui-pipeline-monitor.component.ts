@@ -71,7 +71,7 @@ const STATUS_ICON_COLOR: Record<MuiPipelineStageStatus, string> = {
     MuiTextComponent,
   ],
   templateUrl: './mui-pipeline-monitor.component.html',
-  styleUrl: './mui-pipeline-monitor.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPipelineMonitorComponent {

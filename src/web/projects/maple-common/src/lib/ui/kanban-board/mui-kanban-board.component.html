@@ -1,5 +1,5 @@
 @if (loading()) {
-  <div class="state-wrap">
+  <div class="state-wrap flex min-h-[160px] items-center justify-center">
     <mui-spinner placement="centered" />
   </div>
 } @else if (error()) {
@@ -7,16 +7,24 @@
 } @else if (columns().length === 0) {
   <mui-empty-state icon="folder" [title]="emptyMessage()" />
 } @else {
-  <div class="board">
+  <div class="board flex items-start gap-4 overflow-x-auto">
     @for (column of workingColumns(); track column.id) {
-      <div class="column" (dragover)="$event.preventDefault()" (drop)="onDrop(column.id, $event)">
-        <div class="column-header">
+      <div
+        class="column flex flex-none basis-[260px] flex-col gap-2 rounded-lg border border-border bg-surface p-2"
+        (dragover)="$event.preventDefault()"
+        (drop)="onDrop(column.id, $event)"
+      >
+        <div class="column-header flex items-center justify-between">
           <mui-text variant="tool-label">{{ column.title }}</mui-text>
           <mui-text variant="chip-label" color="muted">{{ column.cards.length }}</mui-text>
         </div>
-        <div class="cards">
+        <div class="cards flex min-h-8 flex-col gap-2">
           @for (card of column.cards; track card.id) {
-            <div class="card-wrap" draggable="true" (dragstart)="onDragStart(card.id, column.id)">
+            <div
+              class="card-wrap cursor-grab active:cursor-grabbing"
+              draggable="true"
+              (dragstart)="onDragStart(card.id, column.id)"
+            >
               <mui-kanban-card-tile [card]="card" />
             </div>
           }
