@@ -44,6 +44,10 @@ import { TRASH_CAPABILITY } from '../../trash/trash-capability';
     FolderTreeFooterComponent,
   ],
   styleUrl: './folder-tree.component.scss',
+  host: {
+    class:
+      'block w-full h-full box-border overflow-y-auto pb-3 border-r-[0.5px] border-border bg-sidebar',
+  },
   templateUrl: './folder-tree.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

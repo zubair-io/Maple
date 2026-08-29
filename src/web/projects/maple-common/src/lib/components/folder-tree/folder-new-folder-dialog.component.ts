@@ -22,7 +22,6 @@ import { MuiButtonComponent } from '../../ui/button/mui-button.component';
   standalone: true,
   imports: [MuiButtonComponent],
   templateUrl: './folder-new-folder-dialog.component.html',
-  styleUrl: './folder-new-folder-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderNewFolderDialogComponent implements AfterViewInit {
