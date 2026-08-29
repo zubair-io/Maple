@@ -1,11 +1,11 @@
-<div class="dlg-toast dms-banner" role="status">
-  <div class="dms-text">
+<div class="dlg-toast border-[0.5px] border-border bg-surface text-text-main" role="status">
+  <div class="flex min-w-0 flex-col gap-0.5">
     <span>{{ headline() }}</span>
     @if (summary().skipped > 0) {
-      <span class="dms-detail">{{ summary().skipped }} skipped</span>
+      <span class="text-[11px] text-text-muted">{{ summary().skipped }} skipped</span>
     }
     @if (summary().failed.length > 0) {
-      <span class="dms-detail dms-detail-error">
+      <span class="overflow-hidden text-[11px] text-ellipsis whitespace-nowrap text-error-text">
         {{ summary().failed.length }} failed:
         {{
           summary()
