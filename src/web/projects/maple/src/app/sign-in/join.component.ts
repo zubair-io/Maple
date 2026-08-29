@@ -14,7 +14,7 @@ import { AuthService, errorMessage } from '@maple-common';
   selector: 'maple-join',
   imports: [FormsModule, RouterLink],
   templateUrl: './join.component.html',
-  styleUrl: './join.component.scss',
+  host: { class: 'flex items-center justify-center w-full h-full bg-bg text-text-main p-6' },
 })
 export class JoinComponent {
   private auth = inject(AuthService);
