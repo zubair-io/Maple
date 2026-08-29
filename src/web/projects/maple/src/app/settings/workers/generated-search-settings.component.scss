@@ -1,9 +1,9 @@
-@use '../settings-chrome' as chrome;
-
 // Row chrome (:host + the collapsed summary cells) is shared with the other
-// Workers-page embedded panels — without this the summary row renders as
-// unstyled text next to its neatly-aligned siblings.
-@include chrome.workers-embedded-panel;
+// Workers-page embedded panels — see the `set-vars`/
+// `set-workers-embedded-panel-host` host classes (settings-chrome-classes.scss,
+// wired via `host: { class: '...' }` in generated-search-settings.component.ts)
+// and the `.set-wrow-*` template classes; without them the summary row
+// renders as unstyled text next to its neatly-aligned siblings.
 
 .panel {
   display: flex;

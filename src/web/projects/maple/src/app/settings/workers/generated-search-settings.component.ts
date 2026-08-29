@@ -49,6 +49,7 @@ import { GeneratedSearchCollectionsComponent } from './generated-search-collecti
   ],
   templateUrl: './generated-search-settings.component.html',
   styleUrl: './generated-search-settings.component.scss',
+  host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GeneratedSearchSettingsComponent implements OnInit {

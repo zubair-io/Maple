@@ -1,5 +1,5 @@
 <maple-settings-shell section="network">
-  <header class="page-header">
+  <header class="set-page-header">
     <div class="titles">
       <h1>Network</h1>
       <p>
@@ -10,7 +10,7 @@
     </div>
   </header>
 
-  <div class="net-body">
+  <div class="net-body set-body-wrap">
     @if (loadState().kind === 'loading') {
       <p class="muted">Loading configuration…</p>
     } @else if (loadState().kind === 'error') {
@@ -22,14 +22,14 @@
     } @else {
       <!-- Current (resolved) -------------------------------------------------- -->
       <section>
-        <div class="subhead">Current (resolved)</div>
+        <div class="set-subhead">Current (resolved)</div>
         @if (config(); as cfg) {
-          <dl class="config-grid">
+          <dl class="config-grid set-config-grid">
             <dt>Advertising a LAN address</dt>
             <dd>{{ cfg.enabled ? 'Yes' : 'No' }}</dd>
 
             <dt>Address</dt>
-            <dd class="mono">
+            <dd class="set-mono">
               @if (cfg.local_ip) {
                 {{ cfg.local_ip }}
               } @else {
@@ -39,7 +39,7 @@
             </dd>
 
             <dt>Port</dt>
-            <dd class="mono">
+            <dd class="set-mono">
               {{ cfg.local_port }}
               <span class="prov">({{ sourceLabel(cfg.source.local_port) }})</span>
             </dd>
@@ -57,12 +57,12 @@
 
       <!-- Editable override ---------------------------------------------------- -->
       <section>
-        <div class="subhead">Override</div>
+        <div class="set-subhead">Override</div>
         <p class="section-hint">
           Leave the address blank to use auto-detection. Set it explicitly when auto-detection is
           wrong (the common case under Docker) or you want to advertise a specific interface.
         </p>
-        <div class="form-grid">
+        <div class="form-grid set-form-grid">
           <div class="field">
             <span class="flabel">LAN address</span>
             <mui-input
@@ -81,11 +81,11 @@
               ariaLabel="Port"
               (committed)="save()"
             />
-            <span class="fhint">Blank uses the server's listen port.</span>
+            <span class="fhint set-fhint">Blank uses the server's listen port.</span>
           </div>
         </div>
 
-        <div class="check-row">
+        <div class="check-row set-check-row">
           <mui-checkbox
             label="Advertise a LAN address to clients"
             [checked]="fEnabled()"
@@ -93,7 +93,7 @@
           />
         </div>
 
-        <div class="form-actions">
+        <div class="form-actions set-form-actions-row">
           <mui-button
             variant="primary"
             [loading]="saveState().kind === 'saving'"
@@ -104,10 +104,12 @@
 
           @if (saveState(); as ss) {
             @if (ss.kind === 'saved') {
-              <span class="test-ok"><maple-settings-icon name="check" [size]="13" /> Saved.</span>
+              <span class="test-ok set-test-ok"
+                ><maple-settings-icon name="check" [size]="13" /> Saved.</span
+              >
             }
             @if (ss.kind === 'error') {
-              <span class="test-err"
+              <span class="test-err set-test-err"
                 ><maple-settings-icon name="x" [size]="13" /> {{ ss.message }}</span
               >
             }

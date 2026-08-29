@@ -1,18 +1,8 @@
 // cloudflare.component.scss — Settings > Cloudflare page (#1757).
-// Reuses the same field-row / text-input chrome as the Pano/Observability settings pages.
-
-@use '../settings-chrome' as chrome;
-
-// Definite host height so the shell's `.page` can be the scroll container.
-:host {
-  @include chrome.settings-page-host;
-}
-
-// The page's own content wrapper, header, banner/field/form-actions chrome —
-// shared byte-for-byte with Map/Pano (minus field-source, which this page
-// has no use for) — #3020 dedup. See settings-chrome.scss's
-// `settings-record-form-chrome`.
-@include chrome.settings-record-form-chrome;
+// Reuses the same field-row / text-input chrome as the Pano/Observability
+// settings pages via the shared `.set-record-*` classes
+// (settings-chrome-classes.scss) used in the template — see `set-page-host`
+// on the host (cloudflare.component.ts) for the definite-height rationale.
 
 .test-actions {
   padding-bottom: 20px;

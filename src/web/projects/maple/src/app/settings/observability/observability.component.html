@@ -4,7 +4,7 @@
      most 4 lines). Splitting these settings tables is follow-up refactor
      work, not part of a behavior-preserving migration. -->
 <maple-settings-shell section="observability">
-  <header class="page-header">
+  <header class="set-page-header">
     <div class="titles">
       <h1>Observability</h1>
       <p>
@@ -21,7 +21,7 @@
     </div>
   </header>
 
-  <div class="obs-body">
+  <div class="obs-body set-body-wrap">
     <!-- Master local toggle ------------------------------------------------ -->
     <section>
       <div class="toggle-row">
@@ -51,12 +51,12 @@
 
     <!-- Editable server config --------------------------------------------- -->
     <section>
-      <div class="subhead">Configuration</div>
+      <div class="set-subhead">Configuration</div>
       <p class="section-hint">
         Stored on the server (in the database) and pulled by every client. Set the SigNoz OTLP/HTTP
         endpoint and, if your instance requires one, an ingestion key.
       </p>
-      <div class="form-grid">
+      <div class="form-grid set-form-grid-260">
         <div class="field">
           <span class="flabel">OTLP/HTTP endpoint</span>
           <mui-input
@@ -78,7 +78,7 @@
             ariaLabel="Ingestion key"
             data-testid="obs-key-input"
           />
-          <span class="fhint">
+          <span class="fhint set-fhint">
             Sent as the <code>signoz-access-token</code> header. Leave blank to keep the saved key.
           </span>
         </div>
@@ -96,11 +96,11 @@
             ariaLabel="Trace sample ratio"
             data-testid="obs-ratio-input"
           />
-          <span class="fhint">Between 0 and 1. 1 keeps every trace.</span>
+          <span class="fhint set-fhint">Between 0 and 1. 1 keeps every trace.</span>
         </div>
       </div>
 
-      <div class="check-row">
+      <div class="check-row set-check-row">
         <mui-checkbox
           label="Enabled (server-wide)"
           [checked]="fEnabled()"
@@ -115,7 +115,7 @@
         />
       </div>
 
-      <div class="form-actions">
+      <div class="form-actions set-form-actions-row">
         <mui-button
           variant="primary"
           size="sm"
@@ -137,22 +137,24 @@
 
         @if (saveState(); as ss) {
           @if (ss.kind === 'saved') {
-            <span class="test-ok"><maple-settings-icon name="check" [size]="13" /> Saved.</span>
+            <span class="test-ok set-test-ok"
+              ><maple-settings-icon name="check" [size]="13" /> Saved.</span
+            >
           }
           @if (ss.kind === 'error') {
-            <span class="test-err"
+            <span class="test-err set-test-err"
               ><maple-settings-icon name="x" [size]="13" /> {{ ss.message }}</span
             >
           }
         }
         @if (connState(); as cs) {
           @if (cs.kind === 'ok') {
-            <span class="test-ok">
+            <span class="test-ok set-test-ok">
               <maple-settings-icon name="check" [size]="13" /> Endpoint reachable.
             </span>
           }
           @if (cs.kind === 'error') {
-            <span class="test-err"
+            <span class="test-err set-test-err"
               ><maple-settings-icon name="x" [size]="13" /> {{ cs.message }}</span
             >
           }
@@ -162,14 +164,14 @@
 
     <!-- Pulled server config (resolved + provenance) ----------------------- -->
     <section>
-      <div class="subhead">Current (resolved)</div>
+      <div class="set-subhead">Current (resolved)</div>
       @if (config(); as cfg) {
-        <dl class="config-grid">
+        <dl class="config-grid set-config-grid-160">
           <dt>Server enabled</dt>
           <dd>{{ cfg.enabled ? 'Yes' : 'No' }}</dd>
 
           <dt>Endpoint</dt>
-          <dd class="mono">
+          <dd class="set-mono">
             @if (cfg.endpoint) {
               {{ cfg.endpoint }}
             } @else {
@@ -189,10 +191,10 @@
           </dd>
 
           <dt>Service namespace</dt>
-          <dd class="mono">{{ cfg.service_namespace }}</dd>
+          <dd class="set-mono">{{ cfg.service_namespace }}</dd>
 
           <dt>Service name</dt>
-          <dd class="mono">maple-web</dd>
+          <dd class="set-mono">maple-web</dd>
 
           <dt>Signals</dt>
           <dd>
@@ -207,7 +209,7 @@
           </dd>
 
           <dt>Sample ratio</dt>
-          <dd class="mono">{{ cfg.sample_ratio }}</dd>
+          <dd class="set-mono">{{ cfg.sample_ratio }}</dd>
         </dl>
       } @else if (lastError(); as e) {
         <p class="error">Failed to load config: {{ e }}</p>
@@ -218,7 +220,7 @@
 
     <!-- Cache status ------------------------------------------------------- -->
     <section>
-      <div class="subhead">Local cache</div>
+      <div class="set-subhead">Local cache</div>
       <div class="cache-line">
         <maple-settings-icon name="thumb" [size]="14" />
         @if (cachedAtLabel(); as ts) {
@@ -231,7 +233,7 @@
 
     <!-- Test event --------------------------------------------------------- -->
     <section>
-      <div class="subhead">Test</div>
+      <div class="set-subhead">Test</div>
       <div class="test-row">
         <mui-button
           variant="primary"
@@ -245,7 +247,7 @@
         </mui-button>
         @switch (testState().kind) {
           @case ('sent') {
-            <span class="test-ok">
+            <span class="test-ok set-test-ok">
               <maple-settings-icon name="check" [size]="13" />
               Sent — check the SigNoz logs view for "Maple web test event".
             </span>
@@ -253,7 +255,7 @@
           @case ('error') {
             @if (testState(); as st) {
               @if (st.kind === 'error') {
-                <span class="test-err">
+                <span class="test-err set-test-err">
                   <maple-settings-icon name="x" [size]="13" />
                   {{ st.message }}
                 </span>

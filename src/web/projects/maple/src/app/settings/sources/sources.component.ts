@@ -33,6 +33,7 @@ type LoadState = { kind: 'loading' } | { kind: 'loaded' } | { kind: 'error'; mes
   ],
   templateUrl: './sources.component.html',
   styleUrl: './sources.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourcesComponent implements OnInit {

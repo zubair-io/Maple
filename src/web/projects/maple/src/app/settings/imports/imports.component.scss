@@ -1,20 +1,12 @@
-@use '../settings-chrome' as chrome;
+// Palette/typography/page-host + the shared `.set-page-header`/`.set-subhead`
+// atoms used in the template come from `set-vars`/`set-page-host` host
+// classes (settings-chrome-classes.scss, wired via `host: { class: '...' }`
+// in imports.component.ts).
 
-:host {
-  @include chrome.settings-vars;
-  @include chrome.settings-page-host;
-}
-:host {
-  @include chrome.settings-atoms;
-}
-
+// Shared padding/flex/gap/max-width now come from `.set-body-wrap` on the
+// template element (imports.component.html) — only the nested `section`
+// rule stays local.
 .imports-body {
-  padding: 24px 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  max-width: 820px;
-
   section {
     display: flex;
     flex-direction: column;

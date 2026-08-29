@@ -6,8 +6,8 @@
      Splitting this settings form is follow-up refactor work, not part of a
      behavior-preserving migration. -->
 <maple-settings-shell section="pano">
-  <div class="page">
-    <header class="page-header">
+  <div class="page set-record-page">
+    <header class="page-header set-record-page-header">
       <div class="titles">
         <h1>Panorama</h1>
         <p>
@@ -19,25 +19,27 @@
     </header>
 
     @if (loading()) {
-      <div class="banner-loading">Loading…</div>
+      <div class="banner-loading set-banner-loading">Loading…</div>
     } @else if (loadError()) {
-      <div class="banner-error">{{ loadError() }}</div>
+      <div class="banner-error set-banner-error-record">{{ loadError() }}</div>
     } @else {
-      <form class="settings-form" (submit)="$event.preventDefault()">
+      <form class="settings-form set-record-form" (submit)="$event.preventDefault()">
         <!-- Every field already saves via mui-input's (committed) output on
              Enter — this handler only stops the browser's *native* form
              submit (full page reload) that Enter would otherwise also
              trigger, since mui-input doesn't call preventDefault itself. -->
         <!-- Enable toggle -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="pano-enabled">Panorama stitching</label>
-            <span class="field-hint">
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="pano-enabled"
+              >Panorama stitching</label
+            >
+            <span class="field-hint set-record-field-hint">
               When off, the "Merge to panorama…" action is hidden and POST /api/pano/stitch returns
               409.
             </span>
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-checkbox
               inputId="pano-enabled"
               ariaLabel="Panorama stitching"
@@ -48,19 +50,23 @@
         </div>
 
         <!-- maple-cli path -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="pano-cli-path">maple-cli binary path</label>
-            <span class="field-hint">
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="pano-cli-path"
+              >maple-cli binary path</label
+            >
+            <span class="field-hint set-record-field-hint">
               Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
               with: <code>cargo build --release --bin maple-cli</code> (in
               <code>src/raw-pipeline/</code>).
             </span>
             @if (config()?.source?.maple_cli_path) {
-              <span class="field-source">{{ sourceLabel(config()?.source?.maple_cli_path) }}</span>
+              <span class="field-source set-field-source">{{
+                sourceLabel(config()?.source?.maple_cli_path)
+              }}</span>
             }
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="pano-cli-path"
               [(value)]="fCliPath"
@@ -72,21 +78,23 @@
         </div>
 
         <!-- Models dir -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="pano-models-dir"
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="pano-models-dir"
               >Models directory (MAPLE_PANO_MODELS)</label
             >
-            <span class="field-hint">
+            <span class="field-hint set-record-field-hint">
               Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions are
               listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. Leave blank to use the
               <code>MAPLE_PANO_MODELS</code> environment variable.
             </span>
             @if (config()?.source?.models_dir) {
-              <span class="field-source">{{ sourceLabel(config()?.source?.models_dir) }}</span>
+              <span class="field-source set-field-source">{{
+                sourceLabel(config()?.source?.models_dir)
+              }}</span>
             }
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="pano-models-dir"
               [(value)]="fModelsDir"
@@ -98,12 +106,12 @@
         </div>
 
         <!-- ORT dylib path -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="pano-ort-dylib-path"
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="pano-ort-dylib-path"
               >ONNX Runtime dylib (ORT_DYLIB_PATH)</label
             >
-            <span class="field-hint">
+            <span class="field-hint set-record-field-hint">
               Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
               1.23. Required by the ALIKED and LightGlue models. The default location on macOS after
               <code>brew install onnxruntime</code> is
@@ -111,10 +119,12 @@
               <code>ORT_DYLIB_PATH</code> environment variable.
             </span>
             @if (config()?.source?.ort_dylib_path) {
-              <span class="field-source">{{ sourceLabel(config()?.source?.ort_dylib_path) }}</span>
+              <span class="field-source set-field-source">{{
+                sourceLabel(config()?.source?.ort_dylib_path)
+              }}</span>
             }
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="pano-ort-dylib-path"
               [(value)]="fOrtDylibPath"
@@ -144,12 +154,12 @@
         }
 
         <!-- Save / status -->
-        <div class="form-actions">
+        <div class="form-actions set-record-form-actions">
           @if (saveState().kind === 'error') {
-            <span class="save-error">{{ $any(saveState()).message }}</span>
+            <span class="save-error set-record-save-error">{{ $any(saveState()).message }}</span>
           }
           @if (saveState().kind === 'saved') {
-            <span class="save-ok">Saved.</span>
+            <span class="save-ok set-record-save-ok">Saved.</span>
           }
           <mui-button
             variant="primary"

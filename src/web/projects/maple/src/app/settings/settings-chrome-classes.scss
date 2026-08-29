@@ -1,0 +1,797 @@
+// Shared `set-*` classes for the redesigned Settings pages (ticket #3071
+// Task 10). Replaces the internal `settings-chrome.scss` mixin file —
+// declaration-for-declaration identical, flattened into classes and wrapped
+// in `@layer components` so Tailwind utility classes in consumer templates
+// still win the cascade. Imported once from `projects/maple/src/styles.scss`
+// (maple-syrup doesn't use Settings, so this stays app-local rather than
+// moving to `maple-common`).
+//
+// Not part of the shared `mui-chrome-*` family in
+// `projects/maple-common/src/lib/styles/chrome.scss` — these are Settings-only
+// and use the `--s-*` custom-property palette rather than `--color-*` tokens
+// directly (except the record-form / body-wrap families, which read
+// `--color-*` directly — see note at each block below, same as the source
+// mixin file).
+
+@layer components {
+  // ── settings-vars — apply on the page host alongside `set-page-host` ──────
+  .set-vars {
+    --s-bg: #0d0c0b;
+    --s-surface: var(--color-bg);
+    --s-surface2: var(--color-surface);
+    --s-surface3: var(--color-surface-alt);
+    --s-hover: #3a3633;
+    --s-border: #3a3633;
+    --s-border-hi: #4d4744;
+    --s-text: #f5f4f2;
+    --s-text-mid: #d6d3d1;
+    --s-text-muted: var(--color-text-muted);
+    --s-text-dim: #78706a;
+    --s-accent: var(--color-primary);
+    --s-accent-bg: rgba(196, 73, 58, 0.12);
+    --s-accent-bg2: rgba(196, 73, 58, 0.18);
+    --s-ok: var(--color-success-text);
+    --s-ok-bg: rgba(74, 222, 128, 0.12);
+    --s-warn: var(--color-warn);
+    --s-err: var(--color-error-text);
+    --s-paused: #a8a29e;
+
+    // Sidebar width, exposed so page-content rules (e.g. the People bulk
+    // toolbar's fixed-position offset) don't have to hardcode the same pixel
+    // constants the shell uses. Responsive collapse follows the same
+    // breakpoints as the shell — see settings-shell.component.scss.
+    --s-sidebar-width: 240px;
+
+    --s-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    --s-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+    display: block;
+    background: var(--s-bg);
+    color: var(--s-text);
+    font-family: var(--s-font);
+
+    @media (max-width: 1023px) {
+      --s-sidebar-width: 196px;
+    }
+    @media (max-width: 767px) {
+      --s-sidebar-width: 0px;
+    }
+  }
+
+  // Sizing for the *routed* Settings pages — see settings-chrome.scss's
+  // former `settings-page-host` doc comment for the definite-height
+  // rationale. Embedded panels (mirror-settings, derivative-audit-settings,
+  // paired-devices) deliberately do NOT use this.
+  .set-page-host {
+    display: block;
+    height: 100%;
+    min-height: 0;
+  }
+
+  // ── settings-atoms ────────────────────────────────────────────────────────
+  .set-page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 32px 36px 22px;
+    border-bottom: 0.5px solid var(--s-border);
+    gap: 16px;
+
+    .titles {
+      min-width: 0;
+    }
+    h1 {
+      margin: 0;
+      font-family: var(--s-font);
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--s-text);
+      letter-spacing: -0.4px;
+    }
+    p {
+      margin: 6px 0 0;
+      font-family: var(--s-font);
+      font-size: 13px;
+      color: var(--s-text-muted);
+      max-width: 720px;
+      line-height: 1.55;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding-bottom: 4px;
+      flex-wrap: wrap;
+    }
+  }
+
+  .set-subhead {
+    font-family: var(--s-font);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--s-text-dim);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    margin-top: 4px;
+  }
+
+  .set-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 5px;
+    background: var(--s-surface);
+    border: 0.5px solid var(--s-border);
+
+    .chip-val {
+      font-family: var(--s-mono);
+      font-size: 13px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      color: var(--s-text-mid);
+    }
+    .chip-label {
+      font-family: var(--s-font);
+      font-size: 10.5px;
+      color: var(--s-text-muted);
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+
+    &.ok {
+      background: rgba(74, 222, 128, 0.08);
+      border-color: rgba(74, 222, 128, 0.25);
+      .chip-val {
+        color: var(--s-ok);
+      }
+    }
+    &.err {
+      background: rgba(248, 113, 113, 0.08);
+      border-color: rgba(248, 113, 113, 0.25);
+      .chip-val {
+        color: var(--s-err);
+      }
+    }
+
+    // Clickable variant (e.g. the Damaged pill opens its drawer).
+    &.chip-btn {
+      font: inherit;
+      cursor: pointer;
+      transition: border-color 0.12s ease;
+
+      &:hover {
+        border-color: var(--s-text-muted);
+      }
+      &:focus-visible {
+        outline: 2px solid var(--s-accent);
+        outline-offset: 1px;
+      }
+    }
+  }
+
+  .set-field {
+    .field-label {
+      font-family: var(--s-font);
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--s-text);
+      margin-bottom: 6px;
+      letter-spacing: 0.1px;
+    }
+    .field-hint {
+      font-family: var(--s-font);
+      font-size: 11px;
+      color: var(--s-text-muted);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+    &.field-wide {
+      grid-column: span 2;
+    }
+  }
+
+  .set-text-input {
+    display: flex;
+    gap: 6px;
+
+    .text-input-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      background: var(--s-bg);
+      border: 0.5px solid var(--s-border);
+      border-radius: 5px;
+      padding: 0 10px;
+      height: 32px;
+    }
+    input {
+      flex: 1;
+      height: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-family: var(--s-font);
+      font-size: 12.5px;
+      color: var(--s-text);
+      &::placeholder {
+        color: var(--s-text-dim);
+      }
+    }
+    &.mono input {
+      font-family: var(--s-mono);
+    }
+    &.readonly {
+      .text-input-wrap {
+        background: transparent;
+        border-style: dashed;
+      }
+      input {
+        color: var(--s-text-muted);
+        cursor: default;
+      }
+    }
+  }
+
+  .set-num-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    input {
+      width: 92px;
+      height: 32px;
+      padding: 0 8px;
+      background: var(--s-bg);
+      border: 0.5px solid var(--s-border);
+      border-radius: 5px;
+      font-family: var(--s-mono);
+      font-size: 12px;
+      color: var(--s-text);
+      font-variant-numeric: tabular-nums;
+      outline: none;
+    }
+    .num-suffix {
+      font-family: var(--s-font);
+      font-size: 11.5px;
+      color: var(--s-text-muted);
+    }
+  }
+
+  .set-mono {
+    font-family: var(--s-mono);
+  }
+
+  // ── Worker / stage table row ──────────────────────────────────────────────
+  // The 10-column grid + the cells common to every row in it — see
+  // workers.component.scss for consumer context. `.set-worker-row-grid` +
+  // `.set-worker-row-cells` are applied together on the plain (unwrapped)
+  // table row; `.set-workers-embedded-panel-*` classes below are the
+  // mui-settings-row summary variant.
+  .set-worker-row-grid {
+    display: grid;
+    grid-template-columns:
+      minmax(min-content, 1.6fr) /* stage */
+      minmax(min-content, 1fr) /* status */
+      minmax(min-content, 0.6fr) /* concur */
+      minmax(min-content, 0.8fr) /* in flight */
+      minmax(min-content, 1.4fr) /* ready / blocked */
+      minmax(min-content, 0.7fr) /* dead */
+      minmax(min-content, 1fr) /* throughput */
+      32px /* kebab */
+      32px; /* pause */
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    height: 56px;
+  }
+
+  .set-worker-row-cells {
+    .stage-id {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+
+      .mono {
+        font-size: 13px;
+        color: var(--s-text);
+        letter-spacing: 0.2px;
+      }
+    }
+    .r {
+      text-align: right;
+      font-family: var(--s-mono);
+      font-size: 12.5px;
+      font-variant-numeric: tabular-nums;
+      color: var(--s-text);
+      white-space: nowrap;
+    }
+    .r.mid {
+      color: var(--s-text-mid);
+    }
+    .dim {
+      color: var(--s-text-dim);
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .status-label {
+        font-size: 12.5px;
+        color: var(--s-text-mid);
+      }
+    }
+  }
+
+  // ── Embedded Workers-page panel ───────────────────────────────────────────
+  // Apply `.set-vars` + `.set-workers-embedded-panel-host` on `:host` (via
+  // `host: { class: '...' }` on the component) instead of the former
+  // `workers-embedded-panel` mixin's `:host { @include settings-vars; ... }`
+  // block, then use the summary-slot classes below in the template.
+  .set-workers-embedded-panel-host {
+    display: block;
+    // No `min-height: 0` here on purpose — see settings-chrome.scss history;
+    // main dropped it from both embedded panels while the mixin was in
+    // flight, so reinstating it via the hoist would silently revert that.
+    background: transparent;
+  }
+
+  .set-wrow-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  .set-wrow-id {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 150px;
+
+    .mono {
+      color: var(--s-text);
+    }
+  }
+
+  .set-wrow-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: none;
+    }
+    .status-label {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--s-text-mid);
+    }
+  }
+
+  .set-wrow-readout {
+    font-size: 12px;
+    color: var(--s-text-dim);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .set-wrow-spacer {
+    flex: 1;
+  }
+
+  // At ≤1023px the worker/stage table stops being a table: each
+  // `mui-settings-row` becomes a self-contained bordered card. Used by the
+  // Workers page rows so they read as cards on tablet/phone. `--srow-border:
+  // none` drops the inner list separator the card border replaces.
+  .set-row-mobile-card {
+    display: block;
+    border: 0.5px solid var(--s-border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    background: var(--s-surface);
+    --srow-border: none;
+  }
+
+  // ── Single-record "settings form" page chrome ─────────────────────────────
+  // Shared by the Map / Pano / Cloudflare pages. Unlike the classes above,
+  // these read the raw `--color-*` design tokens directly rather than the
+  // `--s-*` custom-property system, matching the source mixin.
+  .set-record-page {
+    padding: 24px 32px;
+    max-width: 680px;
+  }
+
+  .set-record-page-header {
+    margin-bottom: 28px;
+
+    h1 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--color-text-main);
+      margin: 0 0 6px;
+      letter-spacing: -0.02em;
+    }
+
+    p {
+      font-size: 12px;
+      color: var(--color-text-muted);
+      margin: 0;
+      line-height: 1.55;
+    }
+  }
+
+  .set-banner-loading,
+  .set-banner-error-record {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+
+  .set-banner-loading {
+    color: var(--color-text-muted);
+  }
+
+  .set-banner-error-record {
+    background: color-mix(in srgb, var(--color-error, #cc3333) 10%, transparent);
+    color: var(--color-error, #cc3333);
+    border: 0.5px solid color-mix(in srgb, var(--color-error, #cc3333) 30%, transparent);
+  }
+
+  .set-record-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .set-record-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 20px;
+    border-bottom: 0.5px solid var(--color-border);
+  }
+
+  .set-record-field-label-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .set-record-field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-main);
+  }
+
+  .set-record-field-hint {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+
+    code {
+      font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
+      font-size: 10px;
+      background: var(--color-surface-hover);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+  }
+
+  .set-record-field-control {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .set-record-form-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 4px;
+  }
+
+  .set-record-save-error {
+    font-size: 12px;
+    color: var(--color-error, #cc3333);
+  }
+
+  .set-record-save-ok {
+    font-size: 12px;
+    color: var(--color-success, #33aa55);
+  }
+
+  // The small "where this value came from" caption under a field-row's
+  // label. Shared only by Map/Pano (Cloudflare has no such field).
+  .set-field-source {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    font-style: italic;
+  }
+
+  // ── Network / Observability page chrome ───────────────────────────────────
+  // Both use the `--s-*` custom-property system, unlike the record-form
+  // pages above. The page-body wrapper class name itself (`.net-body` /
+  // `.obs-body`) stays local to each page.
+  .set-body-wrap {
+    padding: 24px 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    max-width: 820px;
+  }
+
+  // `$min-width` from the source mixin had exactly one call site
+  // (Observability, 260px) that differed from the 220px default — see
+  // observability.component.scss.
+  .set-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px 18px;
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .flabel {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--s-text-muted);
+    }
+  }
+
+  .set-form-grid-260 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px 18px;
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .flabel {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--s-text-muted);
+    }
+  }
+
+  // Base `.fhint` — Observability layers on an extra nested `code` rule in
+  // its own residue SCSS after using this, Network doesn't need one.
+  .set-fhint {
+    font-size: 11px;
+    color: var(--s-text-muted);
+  }
+
+  .set-check-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 14px;
+  }
+
+  .set-form-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  // The resolved-config `<dl>` grid. `$label-width` was the one place
+  // Network (200px) and Observability (160px) genuinely differed — two
+  // modifier classes for the two call sites.
+  .set-config-grid {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    row-gap: 10px;
+    column-gap: 16px;
+    margin: 0;
+
+    dt {
+      font-size: 12.5px;
+      color: var(--s-text-muted);
+    }
+    dd {
+      margin: 0;
+      font-size: 13px;
+      color: var(--s-text);
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+
+      &.mono {
+        font-family: var(--s-mono);
+        font-size: 12.5px;
+      }
+    }
+
+    .muted {
+      color: var(--s-text-dim);
+      font-style: italic;
+    }
+    .prov {
+      font-size: 11px;
+      color: var(--s-text-dim);
+    }
+  }
+
+  .set-config-grid-160 {
+    @extend .set-config-grid;
+    grid-template-columns: 160px 1fr;
+  }
+
+  // The mobile collapse of `.set-config-grid` — same breakpoint/behavior on
+  // both pages, just paired with each page's own body-wrap class in the
+  // media query (kept local — see each component's own `@media` block).
+  .set-config-grid-mobile {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+
+    dt {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 8px;
+    }
+  }
+
+  // ── Account / Paired-devices card-list chrome ─────────────────────────────
+  .set-card-list {
+    border: 0.5px solid var(--s-border);
+    border-radius: 6px;
+    background: var(--s-surface);
+  }
+
+  .set-card-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 0.5px solid var(--s-border);
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    .card-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .card-name {
+      font-size: 13px;
+      color: var(--s-text);
+      font-weight: 500;
+    }
+    .card-meta {
+      font-size: 11px;
+      color: var(--s-text-muted);
+      margin-top: 2px;
+    }
+  }
+
+  .set-card-list-empty {
+    font-size: 12.5px;
+    color: var(--s-text-muted);
+    font-style: italic;
+    margin: 0;
+  }
+
+  // ── Mirror / Workers shared row-chrome fragments ──────────────────────────
+  // `$margin` was the one place `.banner-error` genuinely differed between
+  // mirror (embedded inline under a row, default `14px 0 0`) and workers
+  // (full page with its own outer gutters, `16px 36px 0`) — two modifier
+  // classes.
+  .set-banner-error {
+    margin: 14px 0 0;
+    padding: 10px 14px;
+    border-radius: 5px;
+    background: rgba(248, 113, 113, 0.1);
+    border: 0.5px solid rgba(248, 113, 113, 0.35);
+    color: var(--s-err);
+    font-size: 12.5px;
+  }
+
+  .set-banner-error-workers {
+    @extend .set-banner-error;
+    margin: 16px 36px 0;
+  }
+
+  .set-test-result {
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+
+    &.ok {
+      color: var(--s-ok);
+    }
+    &.err {
+      color: var(--s-err);
+    }
+  }
+
+  // The `.row-footer` layout + status-text tail — each caller keeps its own
+  // distinct spacing/border declarations on `.row-footer` itself (those
+  // genuinely differ) as residue and adds this class alongside it for the
+  // shared flex layout + `.footer-spacer`/`.save-error`/`.save-ok` children.
+  .set-row-footer-tail {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    .footer-spacer {
+      flex: 1;
+    }
+    .save-error {
+      font-size: 11.5px;
+      color: var(--s-err);
+    }
+    .save-ok {
+      font-size: 11.5px;
+      color: var(--s-ok);
+    }
+  }
+
+  .set-test-ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--s-ok);
+  }
+  .set-test-err {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--s-err);
+  }
+
+  .set-test-status-error {
+    color: var(--s-err);
+    font-size: 12.5px;
+    margin: 0;
+  }
+
+  // The "ghost pill" chrome shared by a plain nav `<a>` styled to match a
+  // ghost mui-button next to it and a `<select>` doing the same — both
+  // replicate the deleted `.btn-ghost` mixin's look by hand since neither is
+  // an actual `<button>` mui-button could style directly.
+  .set-ghost-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--s-text);
+    border: 0.5px solid var(--s-border-hi);
+    font-family: var(--s-font);
+    font-size: 12.5px;
+  }
+}

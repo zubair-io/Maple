@@ -102,6 +102,7 @@ import {
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
+  host: { class: 'set-vars set-page-host' },
   providers: [
     DamagedPanelService,
     MigrationPanelService,

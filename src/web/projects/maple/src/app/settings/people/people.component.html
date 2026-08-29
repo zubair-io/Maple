@@ -103,7 +103,7 @@
         <div class="detail-actions">
           @if (bulk.mergePickerOpen()) {
             <select
-              class="merge-select"
+              class="merge-select set-ghost-pill"
               [disabled]="bulk.peopleBulkBusy() > 0 || bulk.detailMergeTargets().length === 0"
               aria-label="Merge this person into"
               (change)="
@@ -441,7 +441,7 @@
     <!-- Flex column so the header stays fixed and the virtual-scroll
          viewport owns the remaining height (and its own scroll). -->
     <div class="people-list-view">
-      <header class="page-header">
+      <header class="set-page-header">
         <div class="titles">
           <h1>People</h1>
           <p>
@@ -469,9 +469,9 @@
               Select
             </mui-button>
           }
-          <a class="nav-link" routerLink="/settings/people/hidden">Hidden</a>
-          <a class="nav-link" routerLink="/settings/people/excluded">Excluded</a>
-          <a class="nav-link" routerLink="/settings/workers">Worker settings</a>
+          <a class="nav-link set-ghost-pill" routerLink="/settings/people/hidden">Hidden</a>
+          <a class="nav-link set-ghost-pill" routerLink="/settings/people/excluded">Excluded</a>
+          <a class="nav-link set-ghost-pill" routerLink="/settings/workers">Worker settings</a>
           <mui-button
             variant="primary"
             size="sm"

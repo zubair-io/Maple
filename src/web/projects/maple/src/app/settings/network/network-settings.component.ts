@@ -47,6 +47,7 @@ type SaveState =
   ],
   templateUrl: './network-settings.component.html',
   styleUrl: './network-settings.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NetworkSettingsComponent implements OnInit {

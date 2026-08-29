@@ -1,18 +1,9 @@
 // pano-settings.component.scss — Settings > Pano page (#1231).
-// Reuses the same field-row / text-input chrome as the Observability settings page.
-
-@use '../settings-chrome' as chrome;
-
-// Definite host height so the shell's `.page` can be the scroll container.
-:host {
-  @include chrome.settings-page-host;
-}
-
-// The page's own content wrapper, header, banner/field/form-actions chrome —
-// shared byte-for-byte with Map and (minus field-source) Cloudflare (#3020
-// dedup). See settings-chrome.scss's `settings-record-form-chrome`.
-@include chrome.settings-record-form-chrome;
-@include chrome.settings-field-source-chrome;
+// Reuses the same field-row / text-input chrome as the Observability settings
+// page via the shared `.set-record-*`/`.set-field-source` classes
+// (settings-chrome-classes.scss) used in the template — see `set-page-host`
+// on the host (pano-settings.component.ts) for the definite-height
+// rationale.
 
 // Strategy support info row
 .info-row {
