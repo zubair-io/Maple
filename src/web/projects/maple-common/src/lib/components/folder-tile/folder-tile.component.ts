@@ -25,7 +25,7 @@ import { handleActivationKeydown } from '../../ui/internal/activation-keydown';
   standalone: true,
   imports: [MuiIconComponent, MuiTextComponent],
   templateUrl: './folder-tile.component.html',
-  styleUrl: './folder-tile.component.scss',
+  host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTileComponent {
