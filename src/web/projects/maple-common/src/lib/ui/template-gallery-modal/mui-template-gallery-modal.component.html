@@ -1,6 +1,6 @@
 <mui-overlay-shell [open]="open()" size="lg" ariaLabel="Templates" (dismissed)="onDismiss()">
-  <div slot="header" class="header">
-    <span class="title">Templates</span>
+  <div slot="header" class="mui-chrome-modal-header">
+    <span class="mui-chrome-modal-title">Templates</span>
     <mui-button
       variant="ghost"
       size="sm"
@@ -11,7 +11,7 @@
     />
   </div>
 
-  <div class="body-stack">
+  <div class="mui-chrome-modal-body-stack mui-chrome-modal-body-stack-gap-md">
     <mui-search-bar
       [value]="search()"
       (valueChange)="search.set($event)"

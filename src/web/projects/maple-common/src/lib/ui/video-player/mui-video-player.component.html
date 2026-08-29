@@ -14,15 +14,17 @@
     <mui-button
       variant="ghost"
       size="sm"
-      class="transport"
+      class="transport mui-chrome-transport-button"
       [ariaLabel]="playing() ? 'Pause' : 'Play'"
       (pressed)="togglePlay()"
     >
       {{ playing() ? '❚❚' : '▶' }}
     </mui-button>
-    <div class="scrubber" (click)="seek($event)">
+    <div class="scrubber mui-chrome-scrubber-track" (click)="seek($event)">
       <mui-progress shape="bar" size="sm" [value]="progressPercent()" />
     </div>
-    <span class="time">{{ formatDuration(currentTime()) }} / {{ formatDuration(duration()) }}</span>
+    <span class="time mui-chrome-time-readout"
+      >{{ formatDuration(currentTime()) }} / {{ formatDuration(duration()) }}</span
+    >
   </div>
 </div>

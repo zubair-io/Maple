@@ -1,8 +1,14 @@
-<div class="mui-drag-bar" [class.is-disabled]="disabled()">
+<div
+  class="mui-drag-bar mui-chrome-control-column"
+  [class.is-disabled]="disabled()"
+  [class.mui-chrome-control-disabled]="disabled()"
+>
   @if (label()) {
-    <div class="row">
+    <div class="row mui-chrome-control-row">
       <mui-text variant="tool-label" color="muted" class="label">{{ label() }}</mui-text>
-      <mui-text variant="value-chip" color="main" class="readout">{{ valueLabel() }}</mui-text>
+      <mui-text variant="value-chip" color="main" class="readout mui-chrome-control-readout">{{
+        valueLabel()
+      }}</mui-text>
     </div>
   }
   <div
