@@ -21,8 +21,6 @@
 import { beforeAll, afterAll } from 'bun:test';
 import { MongoClient } from 'mongodb';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
 /**
  * Connect to the test Mongo, or return `null` when none is reachable — the
  * signal every Mongo-backed suite uses to skip-pass rather than fail on a
@@ -33,7 +31,12 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
  * and on whether the half-open client was closed after a failed connect.
  */
 export async function tryConnectTestMongo(): Promise<MongoClient | null> {
-  const client = new MongoClient(MONGO_URI, {
+  // Read the env at connect time, not at module scope. Bun evaluates every
+  // module body during the import phase, before any hook runs, so a value
+  // captured up there is the one from before any `beforeAll` that sets it —
+  // the same trap `withTestEnv` above exists to avoid.
+  const uri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+  const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 1500,
     connectTimeoutMS: 1500,
   });
