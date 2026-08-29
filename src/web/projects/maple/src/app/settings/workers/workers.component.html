@@ -1,13 +1,15 @@
 <maple-settings-shell section="workers">
-  <header class="set-page-header">
+  <header
+    class="set-page-header max-[767px]:flex-col max-[767px]:items-stretch max-[767px]:pt-5 max-[767px]:px-4 max-[767px]:pb-3.5"
+  >
     <div class="titles">
-      <h1>Workers</h1>
-      <p>
+      <h1 class="max-[767px]:text-[22px]">Workers</h1>
+      <p class="max-[767px]:text-[12.5px]">
         Every stage of the photo pipeline — ingest, enrichment, and search index. Click a row to
         inspect and tune.
       </p>
     </div>
-    <div class="actions">
+    <div class="actions max-[767px]:pb-0">
       <span class="chip set-chip ok">
         <span class="chip-val">{{ summary().running }}</span>
         <span class="chip-label">Running</span>
@@ -44,28 +46,38 @@
   </header>
 
   @if (error()) {
-    <div class="banner-error set-banner-error-workers">
+    <div
+      class="banner-error set-banner-error-workers max-[767px]:mt-3 max-[767px]:mx-4 max-[767px]:mb-0"
+    >
       {{ error() }}
     </div>
   }
 
-  <div class="workers-body">
+  <div
+    class="workers-body py-5 px-9 pb-24 max-[1023px]:py-3 max-[1023px]:px-5 max-[1023px]:pb-16 max-[767px]:py-2 max-[767px]:px-4 max-[767px]:pb-14"
+  >
     <!-- Column header -->
-    <div class="row-grid col-header set-worker-row-grid">
+    <div
+      class="row-grid col-header set-worker-row-grid h-9 text-[10.5px] font-medium text-[var(--s-text-dim)] tracking-[0.1em] uppercase border-b-[0.5px] border-b-[var(--s-border)] pl-10 max-[1023px]:hidden"
+    >
       <span>Stage</span>
       <span>Status</span>
-      <span class="r">Concur</span>
-      <span class="r">In flight</span>
-      <span class="r">Ready / blocked</span>
-      <span class="r">Dead</span>
-      <span class="r">Throughput</span>
+      <span class="r text-right">Concur</span>
+      <span class="r text-right">In flight</span>
+      <span class="r text-right">Ready / blocked</span>
+      <span class="r text-right">Dead</span>
+      <span class="r text-right">Throughput</span>
       <span></span>
-      <span class="c">Pause</span>
+      <span class="c text-center">Pause</span>
     </div>
 
     @for (g of groupedStages(); track g.group) {
       @if (g.rows.length > 0) {
-        <div class="group-label">{{ g.group }}</div>
+        <div
+          class="group-label py-3.5 px-4.5 pb-1.5 text-[10px] font-semibold text-[var(--s-text-dim)] tracking-[0.18em] uppercase max-[1023px]:pt-4 max-[1023px]:px-0.5 max-[1023px]:pb-2"
+        >
+          {{ g.group }}
+        </div>
         @for (s of g.rows; track s.name) {
           <mui-settings-row
             [customSummary]="true"
@@ -110,7 +122,7 @@
                 }
               </span>
               <span
-                class="mono r dead-cell"
+                class="mono r dead-cell inline-flex items-center gap-1.5 justify-end text-[var(--s-text-dim)] [&.has-dead]:text-[var(--s-err)]"
                 data-testid="dead-cell"
                 data-label="Dead"
                 [class.has-dead]="s.dead > 0"
@@ -120,9 +132,14 @@
                   <maple-settings-icon name="retry" [size]="11" [color]="'#f87171'" />
                 }
               </span>
-              <span class="mono r tput" data-label="Throughput">
+              <span
+                class="mono r tput inline-flex items-baseline gap-1 justify-end text-[var(--s-text-muted)] text-xs"
+                data-label="Throughput"
+              >
                 @if (s.throughput > 0) {
-                  <span class="tput-val">{{ throughputLabel(s) }}</span>
+                  <span class="tput-val text-[13px] text-[var(--s-text)]">{{
+                    throughputLabel(s)
+                  }}</span>
                   <span class="dim"> /min</span>
                 } @else {
                   <span class="dim">—</span>
@@ -158,13 +175,22 @@
               </mui-button>
             </div>
 
-            <div class="desc-bar">
-              <p>{{ meta(s).description }}</p>
-              <span class="group-tag">{{ meta(s).group }}</span>
+            <div
+              class="desc-bar py-3 pr-6 pb-3.5 pl-[54px] flex gap-4 items-start max-[1023px]:py-3 max-[1023px]:px-4"
+            >
+              <p
+                class="m-0 text-[12.5px] text-[var(--s-text-mid)] leading-[1.55] max-w-[640px] flex-1"
+              >
+                {{ meta(s).description }}
+              </p>
+              <span
+                class="group-tag font-[var(--s-mono)] text-[10.5px] text-[var(--s-text-dim)] tracking-[0.4px] uppercase whitespace-nowrap pt-0.5"
+                >{{ meta(s).group }}</span
+              >
             </div>
 
             @if (s.name === 'missing-reaper') {
-              <div class="block">
+              <div class="block pt-0 pr-6 pb-4.5 pl-[54px] max-[1023px]:px-4 max-[1023px]:pb-4">
                 <div class="set-subhead">Missing-file cleanup</div>
                 <div class="field set-field">
                   <div class="field-label">Prune window</div>
@@ -186,14 +212,17 @@
                     suspends only deletion — never recovery.
                   </div>
                 </div>
-                <div class="row-footer set-row-footer-tail">
-                  <span class="footer-spacer"></span>
+                <div
+                  class="row-footer set-row-footer-tail pt-3.5 pr-6 pb-0 pl-[54px] mt-3 border-t-[0.5px] border-t-[var(--s-border)] max-[1023px]:pt-3.5 max-[1023px]:px-4 max-[1023px]:pb-0 max-[767px]:flex-col-reverse max-[767px]:items-stretch max-[767px]:gap-2"
+                >
+                  <span class="footer-spacer flex-1 max-[767px]:hidden"></span>
                   @if (reaperPrune.error(); as msg) {
                     <span class="save-error">{{ msg }}</span>
                   } @else if (reaperPrune.saveState() === 'success') {
                     <span class="save-ok">Saved.</span>
                   }
                   <mui-button
+                    class="max-[767px]:w-full max-[767px]:justify-center"
                     variant="primary"
                     size="sm"
                     [disabled]="!reaperPrune.loaded()"
@@ -208,36 +237,48 @@
             }
 
             @if (s.name === 'migration') {
-              <div class="block">
+              <div class="block pt-0 pr-6 pb-4.5 pl-[54px] max-[1023px]:px-4 max-[1023px]:pb-4">
                 <div class="set-subhead">Migrations</div>
                 @if (migration.error(); as msg) {
                   <p class="save-error">{{ msg }}</p>
                 }
                 @for (m of migration.list(); track m.id) {
-                  <div class="migration-row" [attr.data-testid]="'migration-' + m.id">
-                    <div class="migration-main">
+                  <div
+                    class="migration-row py-2 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0"
+                    [attr.data-testid]="'migration-' + m.id"
+                  >
+                    <div class="migration-main flex items-center justify-between gap-2">
                       <mui-checkbox
-                        class="migration-toggle"
+                        class="migration-toggle flex items-center"
                         [label]="m.title"
                         [checked]="m.enabled"
                         [disabled]="migration.isBusy(m.id)"
                         (checkedChange)="migration.toggle(m, $event)"
                         [attr.data-testid]="'migration-toggle-' + m.id"
                       />
-                      <span class="migration-status" [class.is-error]="m.status === 'error'">
+                      <span
+                        class="migration-status font-[var(--s-mono)] text-[11px] text-[var(--s-text-dim)] uppercase [&.is-error]:text-[var(--s-err)]"
+                        [class.is-error]="m.status === 'error'"
+                      >
                         {{ m.status }}
                       </span>
                     </div>
-                    <div class="migration-desc">{{ m.description }}</div>
-                    <div class="migration-progress">
+                    <div class="migration-desc mt-0.5 mb-1 text-xs text-[var(--s-text-muted)]">
+                      {{ m.description }}
+                    </div>
+                    <div
+                      class="migration-progress flex items-center gap-3 text-xs text-[var(--s-text-mid)]"
+                    >
                       <span>{{ m.processed | number }} processed</span>
                       <span>{{ m.remaining | number }} remaining</span>
                       @if (m.errors > 0) {
-                        <span class="is-error">{{ m.errors | number }} errors</span>
+                        <span class="is-error text-[var(--s-err)]"
+                          >{{ m.errors | number }} errors</span
+                        >
                       }
                       @if (m.failedPermanently) {
                         <span
-                          class="is-error"
+                          class="is-error text-[var(--s-err)]"
                           [attr.data-testid]="'migration-failed-permanently-' + m.id"
                         >
                           {{ m.failedPermanently | number }} dead-lettered
@@ -247,7 +288,7 @@
                         <mui-button
                           variant="ghost"
                           size="sm"
-                          class="migration-reset"
+                          class="migration-reset ml-auto"
                           [disabled]="migration.isBusy(m.id)"
                           (pressed)="migration.reset(m)"
                           [attr.data-testid]="'migration-reset-' + m.id"
@@ -268,7 +309,7 @@
 
             @if (s.name === 'preview') {
               @if (decodeWorkers.config(); as perf) {
-                <div class="block">
+                <div class="block pt-0 pr-6 pb-4.5 pl-[54px] max-[1023px]:px-4 max-[1023px]:pb-4">
                   <div class="set-subhead">RAW decode workers</div>
                   <div class="field set-field">
                     <div class="field-label">Parallel RAW decodes</div>
@@ -295,8 +336,10 @@
                       (typically 4) is a good starting point for faster ingest.
                     </div>
                   </div>
-                  <div class="row-footer set-row-footer-tail">
-                    <span class="footer-spacer"></span>
+                  <div
+                    class="row-footer set-row-footer-tail pt-3.5 pr-6 pb-0 pl-[54px] mt-3 border-t-[0.5px] border-t-[var(--s-border)] max-[1023px]:pt-3.5 max-[1023px]:px-4 max-[1023px]:pb-0 max-[767px]:flex-col-reverse max-[767px]:items-stretch max-[767px]:gap-2"
+                  >
+                    <span class="footer-spacer flex-1 max-[767px]:hidden"></span>
                     @if (decodeWorkers.saveState() === 'error' && decodeWorkers.saveError()) {
                       <span class="save-error">{{ decodeWorkers.saveError() }}</span>
                     } @else if (decodeWorkers.saveState() === 'success') {
@@ -305,7 +348,7 @@
                     <mui-button
                       variant="primary"
                       size="sm"
-                      class="perf-save"
+                      class="perf-save max-[767px]:w-full max-[767px]:justify-center"
                       [loading]="decodeWorkers.saveState() === 'saving'"
                       (pressed)="decodeWorkers.save()"
                     >
@@ -317,7 +360,7 @@
             }
 
             @if (meta(s).enrichment) {
-              <div class="block">
+              <div class="block pt-0 pr-6 pb-4.5 pl-[54px] max-[1023px]:px-4 max-[1023px]:pb-4">
                 <div class="set-subhead">
                   @switch (meta(s).enrichment) {
                     @case ('describe') {
@@ -364,7 +407,7 @@
                     </div>
                   }
                   @case ('describe') {
-                    <div class="grid-2col">
+                    <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                       <div class="field field-wide set-field">
                         <div class="field-label">Ollama URL</div>
                         <div class="text-input set-text-input mono">
@@ -421,7 +464,7 @@
                   }
 
                   @case ('geocode') {
-                    <div class="grid-2col">
+                    <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                       <div class="field field-wide set-field">
                         <div class="field-label">Nominatim URL</div>
                         <div class="text-input set-text-input mono">
@@ -480,7 +523,7 @@
                   @case ('face-detect') {
                     @if (enrichmentConfig()?.face_models) {
                       <div
-                        class="face-banner"
+                        class="face-banner group col-span-2 max-[767px]:col-span-1 max-[767px]:flex-col max-[767px]:items-start max-[767px]:gap-1 mb-4 bg-[rgba(74,222,128,0.08)] border-[0.5px] border-[rgba(74,222,128,0.4)] rounded-[5px] py-2 px-3 flex items-center gap-2.5 flex-wrap [&.warn]:bg-[rgba(251,191,36,0.08)] [&.warn]:border-[rgba(251,191,36,0.4)]"
                         [class.warn]="enrichmentConfig()!.face_models!.status === 'error'"
                       >
                         <maple-settings-icon
@@ -494,24 +537,29 @@
                               : '#fbbf24'
                           "
                         />
-                        <span class="banner-status">
+                        <span
+                          class="banner-status text-xs text-[var(--s-ok)] font-medium group-[.warn]:text-[var(--s-warn)]"
+                        >
                           {{
                             enrichmentConfig()!.face_models!.status === 'loaded'
                               ? 'Models loaded.'
                               : 'Models not yet loaded.'
                           }}
                         </span>
-                        <span class="banner-detail mono">
+                        <span
+                          class="banner-detail mono set-mono text-[11.5px] text-[var(--s-text-mid)]"
+                        >
                           scrfd_10g.onnx ·
                           {{ formatBytes(enrichmentConfig()!.face_models!.detector.bytes) }}
                         </span>
-                        <span class="banner-spacer"></span>
-                        <span class="banner-path mono">{{
-                          enrichmentConfig()!.face_models!.detector.path
-                        }}</span>
+                        <span class="banner-spacer flex-1"></span>
+                        <span
+                          class="banner-path mono set-mono text-[11px] text-[var(--s-text-muted)]"
+                          >{{ enrichmentConfig()!.face_models!.detector.path }}</span
+                        >
                       </div>
                     }
-                    <div class="grid-2col">
+                    <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                       <div class="field field-wide set-field">
                         <div class="field-label">Model directory</div>
                         <div class="text-input set-text-input mono">
@@ -582,7 +630,7 @@
                   @case ('face-embed') {
                     @if (enrichmentConfig()?.face_models) {
                       <div
-                        class="face-banner"
+                        class="face-banner group col-span-2 max-[767px]:col-span-1 max-[767px]:flex-col max-[767px]:items-start max-[767px]:gap-1 mb-4 bg-[rgba(74,222,128,0.08)] border-[0.5px] border-[rgba(74,222,128,0.4)] rounded-[5px] py-2 px-3 flex items-center gap-2.5 flex-wrap [&.warn]:bg-[rgba(251,191,36,0.08)] [&.warn]:border-[rgba(251,191,36,0.4)]"
                         [class.warn]="enrichmentConfig()!.face_models!.status === 'error'"
                       >
                         <maple-settings-icon
@@ -596,24 +644,29 @@
                               : '#fbbf24'
                           "
                         />
-                        <span class="banner-status">
+                        <span
+                          class="banner-status text-xs text-[var(--s-ok)] font-medium group-[.warn]:text-[var(--s-warn)]"
+                        >
                           {{
                             enrichmentConfig()!.face_models!.status === 'loaded'
                               ? 'Models loaded.'
                               : 'Models not yet loaded.'
                           }}
                         </span>
-                        <span class="banner-detail mono">
+                        <span
+                          class="banner-detail mono set-mono text-[11.5px] text-[var(--s-text-mid)]"
+                        >
                           arcface_r100_glint360k.onnx ·
                           {{ formatBytes(enrichmentConfig()!.face_models!.recognizer.bytes) }}
                         </span>
-                        <span class="banner-spacer"></span>
-                        <span class="banner-path mono">{{
-                          enrichmentConfig()!.face_models!.recognizer.path
-                        }}</span>
+                        <span class="banner-spacer flex-1"></span>
+                        <span
+                          class="banner-path mono set-mono text-[11px] text-[var(--s-text-muted)]"
+                          >{{ enrichmentConfig()!.face_models!.recognizer.path }}</span
+                        >
                       </div>
                     }
-                    <div class="grid-2col">
+                    <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                       <div class="field set-field">
                         <div class="field-label">Recognizer download URL</div>
                         <div class="text-input set-text-input mono">
@@ -645,7 +698,7 @@
                   }
 
                   @case ('meili') {
-                    <div class="grid-2col">
+                    <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                       <div class="field field-wide set-field">
                         <div class="field-label">Meilisearch URL</div>
                         <div class="text-input set-text-input mono">
@@ -814,9 +867,9 @@
               </div>
             }
 
-            <div class="block">
+            <div class="block pt-0 pr-6 pb-4.5 pl-[54px] max-[1023px]:px-4 max-[1023px]:pb-4">
               <div class="set-subhead">Stage runtime</div>
-              <div class="grid-2col">
+              <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                 <div class="field set-field">
                   <div class="field-label">Concurrency</div>
                   <div class="num-input set-num-input">
@@ -848,7 +901,9 @@
               </div>
             </div>
 
-            <div class="row-footer set-row-footer-tail">
+            <div
+              class="row-footer set-row-footer-tail pt-3.5 pr-6 pb-0 pl-[54px] mt-3 border-t-[0.5px] border-t-[var(--s-border)] max-[1023px]:pt-3.5 max-[1023px]:px-4 max-[1023px]:pb-0 max-[767px]:flex-col-reverse max-[767px]:items-stretch max-[767px]:gap-2"
+            >
               @if (s.dead > 0) {
                 <mui-button
                   variant="destructive"
@@ -869,11 +924,13 @@
                 <maple-settings-icon name="open" [size]="12" />
                 Open logs
               </mui-button>
-              <span class="footer-spacer"></span>
+              <span class="footer-spacer flex-1 max-[767px]:hidden"></span>
               @if (saveError(s); as msg) {
                 <span class="save-error">{{ msg }}</span>
               } @else if (saveDisabledReason(s); as msg) {
-                <span class="save-disabled-hint">
+                <span
+                  class="save-disabled-hint text-[11.5px] text-[var(--s-text-muted)] inline-flex items-center gap-1.5"
+                >
                   {{ msg }}
                   @if (enrichmentConfigError()) {
                     <mui-button variant="ghost" size="sm" (pressed)="retryEnrichmentConfig()">
@@ -884,10 +941,16 @@
               } @else if (saveState(s) === 'success') {
                 <span class="save-ok">Saved.</span>
               }
-              <mui-button variant="ghost" size="sm" (pressed)="resetForm(s)">
+              <mui-button
+                class="max-[767px]:w-full max-[767px]:justify-center"
+                variant="ghost"
+                size="sm"
+                (pressed)="resetForm(s)"
+              >
                 Reset to defaults
               </mui-button>
               <mui-button
+                class="max-[767px]:w-full max-[767px]:justify-center"
                 variant="primary"
                 size="sm"
                 data-testid="save-changes-btn"
@@ -908,7 +971,11 @@
          pipeline stages above: Backup (mirror replication) and the
          derivative-audit self-heal worker (re-arms thumb/preview/description/R2
          when a derivative drifts, most often after a file move). -->
-    <div class="group-label">Maintenance</div>
+    <div
+      class="group-label py-3.5 px-4.5 pb-1.5 text-[10px] font-semibold text-[var(--s-text-dim)] tracking-[0.18em] uppercase max-[1023px]:pt-4 max-[1023px]:px-0.5 max-[1023px]:pb-2"
+    >
+      Maintenance
+    </div>
     <maple-mirror-settings />
     <maple-derivative-audit-settings />
     <maple-generated-search-settings />
@@ -916,17 +983,25 @@
     <!-- Rendering — runtime knobs for what the web editor does on the client,
          as opposed to the server-side stages above. Today: the GPU live-render
          ramp/kill switch (#1062). -->
-    <div class="group-label">Rendering</div>
+    <div
+      class="group-label py-3.5 px-4.5 pb-1.5 text-[10px] font-semibold text-[var(--s-text-dim)] tracking-[0.18em] uppercase max-[1023px]:pt-4 max-[1023px]:px-0.5 max-[1023px]:pb-2"
+    >
+      Rendering
+    </div>
     <maple-gpu-live-render-settings />
 
     <!-- Import — its own pipeline group, rendered last (ticket #755). Rows
          expand in place to show src → library + the per-file list. -->
-    <div class="group-label import-group">
+    <div class="group-label import-group flex justify-between items-baseline">
       <span>Import</span>
-      <a class="new-import-link" routerLink="/settings/imports">+ New import</a>
+      <a
+        class="new-import-link text-[11px] font-semibold normal-case text-[var(--s-accent)] no-underline hover:underline"
+        routerLink="/settings/imports"
+        >+ New import</a
+      >
     </div>
     @if (imports.error(); as e) {
-      <p class="import-error">{{ e }}</p>
+      <p class="import-error py-2 px-4.5 text-[12.5px] text-[var(--s-err)] m-0">{{ e }}</p>
     }
     @for (j of imports.jobs(); track j.id) {
       <mui-settings-row
@@ -948,30 +1023,40 @@
             <span class="status-dot" [style.background]="imports.statusColor(j.status)"></span>
             <span class="status-label">{{ j.status }}</span>
           </span>
-          <span class="import-counts mono">
+          <span
+            class="import-counts mono set-mono col-start-3 col-end-[-1] text-[12.5px] text-[var(--s-text-mid)] whitespace-nowrap"
+          >
             @if (imports.active(j)) {
               {{ j.progress.current }} / {{ j.progress.total }} ·
             }
             {{ j.counts.copied }} copied · {{ j.counts.skipped }} skipped
             @if (j.counts.failed > 0) {
-              · <span class="has-dead">{{ j.counts.failed }} failed</span>
+              · <span class="has-dead text-[var(--s-err)]">{{ j.counts.failed }} failed</span>
             }
           </span>
         </div>
 
         @if (imports.detailLoading()) {
-          <p class="import-detail-hint">Loading…</p>
+          <p class="import-detail-hint py-2 px-4.5 text-[12.5px] text-[var(--s-text-dim)] m-0">
+            Loading…
+          </p>
         } @else if (imports.detail(); as d) {
-          <div class="import-detail">
-            <div class="import-detail-head">
-              <code class="mono set-mono" [title]="d.source_root">{{ d.source_root }}</code>
+          <div class="import-detail pt-0.5 pr-6 pb-2.5 pl-[54px]">
+            <div class="import-detail-head flex items-center gap-2 mb-2.5">
+              <code
+                class="mono set-mono text-xs text-[var(--s-text-mid)]"
+                [title]="d.source_root"
+                >{{ d.source_root }}</code
+              >
               <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
-              <span class="lib-name">{{ imports.libraryName(d) }}</span>
+              <span class="lib-name text-[12.5px] text-[var(--s-text)] font-medium">{{
+                imports.libraryName(d)
+              }}</span>
               @if (imports.retryable(j)) {
                 <mui-button
                   variant="destructive"
                   size="sm"
-                  class="import-retry"
+                  class="import-retry ml-auto"
                   data-testid="import-retry"
                   [loading]="imports.retryingId() === j.id"
                   [disabled]="imports.retryingId() !== null"
@@ -983,29 +1068,45 @@
               }
             </div>
             @if (j.status === 'failed' && d.error; as importError) {
-              <p class="import-detail-error" data-testid="import-detail-error">
+              <p
+                class="import-detail-error mb-2.5 mt-0 py-1.5 px-2.5 text-xs text-[var(--s-err)] bg-[color-mix(in_srgb,var(--s-err)_10%,transparent)] border-[0.5px] border-[color-mix(in_srgb,var(--s-err)_35%,transparent)] rounded-md"
+                data-testid="import-detail-error"
+              >
                 {{ importError }}
               </p>
             }
-            <div class="import-files">
-              <div class="import-file head">
-                <span>Source</span><span>Destination</span><span class="r">Status</span>
+            <div
+              class="import-files border-[0.5px] border-[var(--s-border)] rounded-lg overflow-hidden overflow-y-auto max-h-[320px]"
+            >
+              <div
+                class="import-file head grid grid-cols-[1fr_1.4fr_auto] gap-3.5 py-1.5 px-3 text-xs sticky top-0 bg-[var(--s-surface2)] text-[var(--s-text-dim)] uppercase text-[10px] [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
+              >
+                <span>Source</span><span>Destination</span><span class="r text-right">Status</span>
               </div>
               @for (f of d.files.slice(0, imports.maxFilesShown); track f.src) {
-                <div class="import-file">
+                <div
+                  class="import-file grid grid-cols-[1fr_1.4fr_auto] gap-3.5 py-1.5 px-3 text-xs border-t-[0.5px] border-t-[var(--s-border)] [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
+                >
                   <span class="mono set-mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
                   <span class="mono set-mono" [title]="f.dest">{{ f.dest }}</span>
-                  <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
+                  <span
+                    class="r file-state text-right data-[state=copied]:text-[var(--s-ok)] data-[state=failed]:text-[var(--s-err)]"
+                    [attr.data-state]="f.state"
+                    >{{ f.state }}</span
+                  >
                 </div>
                 @if (j.status === 'failed' && f.error; as fileError) {
-                  <div class="import-file-error" data-testid="import-file-error">
+                  <div
+                    class="import-file-error pt-0.5 pr-3 pb-1.5 pl-3 text-[11.5px] text-[var(--s-err)] break-words"
+                    data-testid="import-file-error"
+                  >
                     {{ fileError }}
                   </div>
                 }
               }
             </div>
             @if (d.files.length > imports.maxFilesShown) {
-              <p class="import-detail-hint">
+              <p class="import-detail-hint py-2 px-4.5 text-[12.5px] text-[var(--s-text-dim)] m-0">
                 Showing first {{ imports.maxFilesShown }} of {{ d.files.length }} files.
               </p>
             }
@@ -1013,31 +1114,43 @@
         }
       </mui-settings-row>
     } @empty {
-      <p class="import-empty">No imports yet.</p>
+      <p class="import-empty py-2 px-4.5 text-[12.5px] text-[var(--s-text-dim)] m-0">
+        No imports yet.
+      </p>
     }
 
     @if (stages().length === 0 && !error()) {
-      <p class="loading">Loading…</p>
+      <p class="loading py-4 text-[13px] text-[var(--s-text-muted)]">Loading…</p>
     }
   </div>
 </maple-settings-shell>
 
 @if (deadLog(); as log) {
-  <div class="log-backdrop" data-testid="log-backdrop" (click)="closeLog()" role="presentation">
+  <div
+    class="log-backdrop fixed inset-0 bg-black/55 z-[100] flex items-end justify-center"
+    data-testid="log-backdrop"
+    (click)="closeLog()"
+    role="presentation"
+  >
     <div
-      class="log-drawer"
+      class="log-drawer w-full max-w-[860px] max-h-[60vh] bg-[var(--s-surface2)] border-[0.5px] border-[var(--s-border)] rounded-t-lg flex flex-col overflow-hidden"
       data-testid="log-drawer"
       (click)="$event.stopPropagation()"
       role="dialog"
       aria-modal="true"
       [attr.aria-labelledby]="'log-drawer-title-' + log.stage.name"
     >
-      <div class="log-header">
-        <div class="log-title" [id]="'log-drawer-title-' + log.stage.name">
+      <div
+        class="log-header flex items-center justify-between py-[13px] px-4 border-b-[0.5px] border-b-[var(--s-border)] shrink-0 gap-3"
+      >
+        <div
+          class="log-title flex items-center gap-2 min-w-0"
+          [id]="'log-drawer-title-' + log.stage.name"
+        >
           <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'" />
-          <span class="mono set-mono">{{ log.stage.name }}</span>
+          <span class="mono set-mono text-[13px] text-[var(--s-text)]">{{ log.stage.name }}</span>
           @if (!log.loading) {
-            <span class="log-subtitle">
+            <span class="log-subtitle text-xs text-[var(--s-text-dim)] ml-1">
               {{
                 log.items.length === 0
                   ? 'No failed jobs'
@@ -1046,7 +1159,7 @@
             </span>
           }
         </div>
-        <div class="log-actions">
+        <div class="log-actions flex items-center gap-2 shrink-0">
           @if (!log.loading && log.items.length > 0) {
             <mui-button
               variant="destructive"
@@ -1071,20 +1184,32 @@
       </div>
 
       @if (log.loading) {
-        <div class="log-empty">Loading…</div>
+        <div class="log-empty py-6 px-4.5 text-[13px] text-[var(--s-text-muted)]">Loading…</div>
       } @else if (log.error) {
-        <div class="log-error">{{ log.error }}</div>
+        <div class="log-error py-3 px-4.5 text-[12.5px] text-[var(--s-err)]">{{ log.error }}</div>
       } @else if (log.items.length === 0) {
-        <div class="log-empty">No failed jobs for this stage.</div>
+        <div class="log-empty py-6 px-4.5 text-[13px] text-[var(--s-text-muted)]">
+          No failed jobs for this stage.
+        </div>
       } @else {
-        <div class="log-list">
+        <div class="log-list overflow-y-auto flex-1">
           @for (item of log.items; track item.id) {
-            <div class="log-entry">
-              <div class="log-entry-path">{{ item.abs_path ?? item.id }}</div>
+            <div
+              class="log-entry py-2.5 px-4.5 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0"
+            >
+              <div
+                class="log-entry-path font-[var(--s-mono)] text-xs text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[3px]"
+              >
+                {{ item.abs_path ?? item.id }}
+              </div>
               @if (item.last_error) {
-                <div class="log-entry-err">{{ item.last_error }}</div>
+                <div
+                  class="log-entry-err font-[var(--s-mono)] text-[11.5px] text-[var(--s-err)] mb-1 break-words"
+                >
+                  {{ item.last_error }}
+                </div>
               }
-              <div class="log-entry-meta">
+              <div class="log-entry-meta text-[11px] text-[var(--s-text-dim)] flex gap-4">
                 <span>{{ item.attempts }} attempt{{ item.attempts === 1 ? '' : 's' }}</span>
                 @if (item.processed_at) {
                   <span>{{ formatDate(item.processed_at) }}</span>
@@ -1100,25 +1225,27 @@
 
 @if (damaged.drawer(); as log) {
   <div
-    class="log-backdrop"
+    class="log-backdrop fixed inset-0 bg-black/55 z-[100] flex items-end justify-center"
     data-testid="damaged-backdrop"
     (click)="damaged.close()"
     role="presentation"
   >
     <div
-      class="log-drawer"
+      class="log-drawer w-full max-w-[860px] max-h-[60vh] bg-[var(--s-surface2)] border-[0.5px] border-[var(--s-border)] rounded-t-lg flex flex-col overflow-hidden"
       data-testid="damaged-drawer"
       (click)="$event.stopPropagation()"
       role="dialog"
       aria-modal="true"
       aria-labelledby="damaged-drawer-title"
     >
-      <div class="log-header">
-        <div class="log-title" id="damaged-drawer-title">
+      <div
+        class="log-header flex items-center justify-between py-[13px] px-4 border-b-[0.5px] border-b-[var(--s-border)] shrink-0 gap-3"
+      >
+        <div class="log-title flex items-center gap-2 min-w-0" id="damaged-drawer-title">
           <maple-settings-icon name="x" [size]="14" [color]="'#f87171'" />
           <span>Damaged files</span>
           @if (!log.loading) {
-            <span class="log-subtitle">
+            <span class="log-subtitle text-xs text-[var(--s-text-dim)] ml-1">
               {{
                 log.items.length === 0
                   ? 'None'
@@ -1127,7 +1254,7 @@
             </span>
           }
         </div>
-        <div class="log-actions">
+        <div class="log-actions flex items-center gap-2 shrink-0">
           @if (!log.loading && log.items.length > 0) {
             <mui-button
               variant="destructive"
@@ -1153,20 +1280,33 @@
       </div>
 
       @if (log.loading) {
-        <div class="log-empty">Loading…</div>
+        <div class="log-empty py-6 px-4.5 text-[13px] text-[var(--s-text-muted)]">Loading…</div>
       } @else if (log.error) {
-        <div class="log-error">{{ log.error }}</div>
+        <div class="log-error py-3 px-4.5 text-[12.5px] text-[var(--s-err)]">{{ log.error }}</div>
       } @else if (log.items.length === 0) {
-        <div class="log-empty">No damaged files. The pipeline can read every indexed file.</div>
+        <div class="log-empty py-6 px-4.5 text-[13px] text-[var(--s-text-muted)]">
+          No damaged files. The pipeline can read every indexed file.
+        </div>
       } @else {
-        <div class="log-list">
+        <div class="log-list overflow-y-auto flex-1">
           @for (item of log.items; track item.id) {
-            <div class="log-entry" data-testid="damaged-entry">
-              <div class="log-entry-path">{{ item.abs_path ?? item.id }}</div>
+            <div
+              class="log-entry py-2.5 px-4.5 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0"
+              data-testid="damaged-entry"
+            >
+              <div
+                class="log-entry-path font-[var(--s-mono)] text-xs text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[3px]"
+              >
+                {{ item.abs_path ?? item.id }}
+              </div>
               @if (item.reason) {
-                <div class="log-entry-err">{{ item.reason }}</div>
+                <div
+                  class="log-entry-err font-[var(--s-mono)] text-[11.5px] text-[var(--s-err)] mb-1 break-words"
+                >
+                  {{ item.reason }}
+                </div>
               }
-              <div class="log-entry-meta">
+              <div class="log-entry-meta text-[11px] text-[var(--s-text-dim)] flex gap-4">
                 <span class="mono set-mono" data-testid="damaged-maple-id">{{
                   item.maple_id ?? item.id
                 }}</span>
