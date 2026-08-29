@@ -77,7 +77,7 @@ function formatRelative(target: Date, now: Date): string {
   selector: 'mui-timestamp',
   standalone: true,
   templateUrl: './mui-timestamp.component.html',
-  styleUrl: './mui-timestamp.component.scss',
+  host: { class: 'inline' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTimestampComponent {

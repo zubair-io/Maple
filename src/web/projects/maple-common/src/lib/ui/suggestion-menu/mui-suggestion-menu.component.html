@@ -1,11 +1,14 @@
 <mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
-  <div class="mui-suggestion-menu" role="listbox" (keydown)="onKeydown($event)">
+  <div
+    class="mui-suggestion-menu flex flex-col gap-[2px] p-1 min-w-[180px] max-h-[220px] overflow-y-auto"
+    role="listbox"
+    (keydown)="onKeydown($event)"
+  >
     @for (item of items(); track item.id; let i = $index) {
       <button
         type="button"
         role="option"
-        class="item mui-chrome-menu-item-base"
-        [class.active]="activeIndex() === i"
+        [class]="itemClass(i)"
         [attr.aria-selected]="activeIndex() === i"
         (click)="selectItem(item)"
         (mouseenter)="activeIndex.set(i)"
@@ -15,7 +18,9 @@
         }
         <mui-text variant="body">{{ item.label }}</mui-text>
         @if (item.meta) {
-          <mui-text variant="chip-label" color="muted" class="meta">{{ item.meta }}</mui-text>
+          <mui-text variant="chip-label" color="muted" class="meta ml-auto">{{
+            item.meta
+          }}</mui-text>
         }
       </button>
     }

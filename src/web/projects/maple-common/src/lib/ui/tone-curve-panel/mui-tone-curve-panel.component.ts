@@ -33,7 +33,7 @@ const DEFAULT_CURVE_POINTS: readonly MuiCurvePoint[] = [
   standalone: true,
   imports: [MuiCurvePlotComponent, MuiLivingSliderComponent, MuiTabsComponent],
   templateUrl: './mui-tone-curve-panel.component.html',
-  styleUrl: './mui-tone-curve-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiToneCurvePanelComponent {

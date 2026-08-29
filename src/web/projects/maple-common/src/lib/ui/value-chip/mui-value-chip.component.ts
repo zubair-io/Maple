@@ -26,7 +26,7 @@ export interface MuiValueChipSegment {
   standalone: true,
   imports: [MuiBadgeComponent, MuiTextComponent],
   templateUrl: './mui-value-chip.component.html',
-  styleUrl: './mui-value-chip.component.scss',
+  host: { class: 'inline-block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiValueChipComponent {

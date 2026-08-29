@@ -1,12 +1,17 @@
 <mui-tabs [tabs]="tabs" [(activeId)]="viewMode" ariaLabel="Structured data view" />
 
 @if (viewMode() === 'code') {
-  <div class="code-pane">
+  <div class="code-pane flex flex-col gap-2">
     @if (error(); as message) {
-      <div class="error-banner" role="alert">{{ message }}</div>
+      <div
+        class="error-banner rounded-sm bg-error-bg text-error-text text-[12px] leading-[1.4] px-2 py-1"
+        role="alert"
+      >
+        {{ message }}
+      </div>
     }
     <textarea
-      class="code-editor"
+      class="code-editor min-h-[200px] px-4 py-2 border border-border rounded-lg bg-image-canvas text-text-main font-mono text-[12px] leading-[1.5] resize-y outline-none focus-visible:border-border-hi"
       spellcheck="false"
       [value]="codeText()"
       (input)="onCodeInput($event)"
@@ -14,9 +19,13 @@
     ></textarea>
   </div>
 } @else {
-  <div class="form-pane">
+  <div class="form-pane flex flex-col gap-2">
     @if (formEntries().length === 0) {
-      <div class="empty">No fields yet — add one from the Code tab.</div>
+      <div
+        class="empty p-4 border border-dashed border-border rounded-lg text-text-muted text-[12px] text-center"
+      >
+        No fields yet — add one from the Code tab.
+      </div>
     }
     @for (entry of formEntries(); track entry[0]) {
       <mui-form-field

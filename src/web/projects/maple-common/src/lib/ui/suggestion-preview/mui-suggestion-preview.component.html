@@ -1,7 +1,7 @@
-<div class="mui-suggestion-preview">
+<div class="mui-suggestion-preview flex items-center justify-between gap-2">
   <mui-text variant="body" [truncate]="true">{{ description() }}</mui-text>
   @if (resolved() === null) {
-    <div class="actions">
+    <div class="actions flex items-center gap-1 flex-none">
       <mui-button
         variant="ghost"
         size="sm"

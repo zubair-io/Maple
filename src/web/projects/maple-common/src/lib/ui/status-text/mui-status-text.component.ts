@@ -41,7 +41,7 @@ const PRESENTATION: Record<MuiStatusTextState, StatusPresentation> = {
   standalone: true,
   imports: [MuiIconComponent],
   templateUrl: './mui-status-text.component.html',
-  styleUrl: './mui-status-text.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiStatusTextComponent {

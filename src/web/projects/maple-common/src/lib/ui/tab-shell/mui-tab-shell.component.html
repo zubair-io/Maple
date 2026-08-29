@@ -1,10 +1,6 @@
-<div
-  class="mui-tab-shell"
-  [class.placement-auto]="placement() === 'auto'"
-  [class.placement-bottom]="placement() === 'bottom'"
->
-  <div class="tab-bar">
+<div [class]="rootClass()">
+  <div class="tab-bar flex-none">
     <mui-tabs [tabs]="tabs()" [(activeId)]="activeId" [ariaLabel]="ariaLabel()" />
   </div>
-  <div class="content"><ng-content /></div>
+  <div class="content flex-1 min-h-0 overflow-auto"><ng-content /></div>
 </div>

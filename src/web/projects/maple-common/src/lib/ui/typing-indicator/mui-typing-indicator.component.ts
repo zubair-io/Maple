@@ -12,7 +12,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   templateUrl: './mui-typing-indicator.component.html',
   styleUrl: './mui-typing-indicator.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { role: 'status', 'aria-live': 'polite' },
+  host: { class: 'block', role: 'status', 'aria-live': 'polite' },
 })
 export class MuiTypingIndicatorComponent {
   readonly name = input.required<string>();
