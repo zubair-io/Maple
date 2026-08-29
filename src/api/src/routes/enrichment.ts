@@ -47,6 +47,7 @@ import { readWorkerStatus } from '../workers/worker-status.repo.ts';
 import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 import { validateDescribePatch } from './enrichment-describe-patch.ts';
+import { describeServersForRuntime } from '../workers/describe-capacity.ts';
 import {
   createMeilisearchClient,
   reconfigureMeilisearch,
@@ -166,10 +167,15 @@ function boundedIntegerError(
  * goes over HTTP, replacing it with a boolean "is a key set" indicator. The
  * raw key is never echoed to clients; `source.meilisearch_api_key` (db/env/
  * unset) is safe to keep so the UI can show provenance. */
-function toPublicConfig(resolved: ResolvedEnrichmentConfig) {
+async function toPublicConfig(resolved: ResolvedEnrichmentConfig) {
   const { meilisearch_api_key, ...safe } = resolved;
   return {
     ...safe,
+    // Report the list the RUNTIME will use, not the resolver's placeholder:
+    // for a deploy that hasn't saved one, the derived single server inherits
+    // the describe stage's existing concurrency, and the settings UI has to
+    // show that number or the operator reads a value the worker never uses.
+    describe_servers: await describeServersForRuntime(resolved),
     meilisearch_api_key_set:
       typeof meilisearch_api_key === 'string' && meilisearch_api_key.length > 0,
   };
@@ -200,7 +206,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
     const probe = probeFaceModelFiles(resolved.face_model_dir);
     const status = (await readWorkerStatus())?.face_models ?? getFaceModelsStatus();
     return {
-      ...toPublicConfig(resolved),
+      ...(await toPublicConfig(resolved)),
       face_models: {
         status: status.kind,
         error_detail: status.errorDetail,
@@ -505,7 +511,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       }
 
       // Strip the secret key before returning.
-      return toPublicConfig(resolved);
+      return await toPublicConfig(resolved);
     },
     // #2353 — owner-only; scoped to just this handler so GET/test stay member-accessible.
     { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
