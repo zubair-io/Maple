@@ -7,7 +7,7 @@
 // plus the four color roles and truncation/line-clamp behavior called for
 // in the catalog row.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 export type MuiTextVariant =
   | 'source-title'
@@ -26,7 +26,6 @@ export type MuiTextColor = 'main' | 'muted' | 'on-accent' | 'success' | 'warning
   selector: 'mui-text',
   standalone: true,
   templateUrl: './mui-text.component.html',
-  styleUrl: './mui-text.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiTextComponent {
@@ -41,4 +40,67 @@ export class MuiTextComponent {
    * "styled text block" used as its own paragraph/row rather than inline
    * within a sentence. */
   readonly block = input<boolean>(false);
+
+  readonly isTruncating = computed(() => this.truncate());
+  readonly isLineClamping = computed(() => !this.truncate() && this.lineClamp() !== null);
+
+  /** Only four of the nine type-scale variants have a bundled `text-*`
+   * utility in tokens.scss (the ones with a non-default font-family baked
+   * in); the rest reuse the generated size/line-height/weight utility and
+   * add `font-sans` alongside, since Tailwind v4's `--text-*` theme
+   * namespace can't carry a `--font-family` modifier (see tokens.scss). */
+  readonly variantClasses = computed(() => {
+    switch (this.variant()) {
+      case 'source-title':
+        return 'text-source-title';
+      case 'sheet-title':
+        return 'text-sheet-title';
+      case 'value-chip':
+        return 'text-value-chip';
+      case 'filename':
+        return 'text-filename';
+      case 'eyebrow':
+        return 'text-eyebrow font-sans uppercase';
+      default:
+        return `text-${this.variant()} font-sans`;
+    }
+  });
+
+  readonly colorClasses = computed(() => {
+    switch (this.color()) {
+      case 'muted':
+        return 'text-text-muted';
+      case 'success':
+        return 'text-success-text';
+      case 'warning':
+        return 'text-warn';
+      case 'error':
+        return 'text-error-text';
+      // 'on-accent': no dedicated token exists — text-main (near-white)
+      // already reads correctly over the primary/error accent fills used
+      // across the system (see button.md's primary-fill label color).
+      default:
+        return 'text-text-main';
+    }
+  });
+
+  /** `block` wins over both truncate's `inline-block` and line-clamp's
+   * `display: -webkit-box` when combined (matches the original
+   * `.block.truncate, .block.line-clamp { display: block; }` override) —
+   * folded into one computed rather than three competing display utilities
+   * of equal specificity. */
+  readonly displayClasses = computed(() => {
+    if (this.block()) return 'block';
+    if (this.isTruncating()) return 'inline-block max-w-full';
+    if (this.isLineClamping()) return '[display:-webkit-box]';
+    return 'inline';
+  });
+
+  readonly truncateClasses = computed(() =>
+    this.isTruncating() ? 'overflow-hidden text-ellipsis whitespace-nowrap align-bottom' : '',
+  );
+
+  readonly lineClampClasses = computed(() =>
+    this.isLineClamping() ? '[-webkit-box-orient:vertical] overflow-hidden' : '',
+  );
 }
