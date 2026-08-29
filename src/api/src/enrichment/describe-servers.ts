@@ -42,6 +42,12 @@ const MAX_CONCURRENCY = 32;
 /** Bounded so a runaway client can't write an unbounded array into the
  * settings doc. Eight distinct GPU boxes is already an unusual deploy. */
 export const MAX_DESCRIBE_SERVERS = 8;
+/** The describe stage's dispatch fan-out is the sum of these numbers, and
+ * that fan-out is a stage concurrency — which `PATCH /api/workers/:name/config`
+ * caps at 100. Enforcing the same ceiling here keeps the two surfaces from
+ * disagreeing: without it, 8 servers × 32 could persist a stage concurrency
+ * no operator could have set through the workers route. */
+export const MAX_TOTAL_DESCRIBE_CAPACITY = 100;
 
 /** Normalise one entry's URL. Returns the cleaned URL or the reason it
  * cannot be used. */
@@ -109,6 +115,13 @@ export function validateDescribeServers(
     }
     seen.add(parsed.url);
     out.push(parsed);
+  }
+
+  const total = totalDescribeCapacity(out);
+  if (total > MAX_TOTAL_DESCRIBE_CAPACITY) {
+    return {
+      error: `total concurrency across servers must be at most ${MAX_TOTAL_DESCRIBE_CAPACITY} (got ${total})`,
+    };
   }
   return out;
 }

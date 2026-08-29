@@ -181,9 +181,9 @@ export interface DescribeServerForm {
 
 /** Per-stage form state for the enrichment domain config. */
 export interface EnrichmentForm {
-  // Describe — `describe_model` is intentionally absent: the runtime
-  // hardcodes qwen3-VL (see FIXED_DESCRIBE_MODEL below), so the UI
-  // displays it read-only and never sends it.
+  // Describe — `describe_model` is intentionally absent: the runtime pins
+  // one vision model (see FIXED_DESCRIBE_MODEL below), so the UI displays
+  // it read-only and never sends it.
   describe_provider_url: string;
   /** Ordered describe servers. Row 0 is the default: its URL is what every
    * other Ollama consumer (semantic search) uses, which is why "make
@@ -323,15 +323,22 @@ function blankDescribeServers(ec: EnrichmentConfigResponse | null): DescribeServ
   ];
 }
 
+/** Read one row's concurrency the way the save path will. Unparseable text
+ * saves as 1 rather than dropping the server, so the capacity label must
+ * count it as 1 too — otherwise the number on screen disagrees with what
+ * the server persists and dispatches. */
+function rowConcurrency(server: DescribeServerForm): number {
+  const parsed = Number(server.concurrency.trim());
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
+}
+
 /** Total in-flight describe requests the configured servers allow. This is
  * the describe stage's concurrency — the server derives it on save, and the
  * Stage runtime block shows it read-only. */
 export function describeCapacity(servers: readonly DescribeServerForm[]): number {
-  return servers.reduce((sum, server) => {
-    const parsed = Number(server.concurrency.trim());
-    const valid = Number.isInteger(parsed) && parsed >= 1;
-    return sum + (server.url.trim().length > 0 && valid ? parsed : 0);
-  }, 0);
+  return servers
+    .filter((server) => server.url.trim().length > 0)
+    .reduce((sum, server) => sum + rowConcurrency(server), 0);
 }
 
 /** Build the describe slice of the PUT body. Blank rows are dropped (the UI
@@ -340,13 +347,7 @@ export function describeCapacity(servers: readonly DescribeServerForm[]): number
 export function describeFormToPatch(form: EnrichmentForm) {
   const servers = form.describe_servers
     .filter((server) => server.url.trim().length > 0)
-    .map((server) => {
-      const parsed = Number(server.concurrency.trim());
-      return {
-        url: server.url.trim(),
-        concurrency: Number.isInteger(parsed) && parsed >= 1 ? parsed : 1,
-      };
-    });
+    .map((server) => ({ url: server.url.trim(), concurrency: rowConcurrency(server) }));
   return {
     describe_servers: servers.length > 0 ? servers : null,
     // Entry 0 is the default endpoint; sending it keeps older API builds

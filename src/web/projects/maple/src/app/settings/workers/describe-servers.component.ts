@@ -3,9 +3,10 @@
 //
 // The describe stage can be pointed at several Ollama endpoints, each with
 // its own concurrency, and it fails over to the next one when a server is
-// unreachable or erroring. Row order is meaningful: row 1 is the DEFAULT
-// server, whose URL is what every other Ollama consumer (semantic search)
-// uses — so "Make default" is a move-to-front, not a separate flag.
+// unreachable or erroring. Row order is meaningful: the first row (index 0)
+// is the DEFAULT server, whose URL is what every other Ollama consumer
+// (semantic search) uses — so "Make default" is a move-to-front, not a
+// separate flag.
 //
 // The list is owned by the parent form (`WorkersComponent`'s enrichment
 // form) and edited here through `servers` / `serversChange`; this component
