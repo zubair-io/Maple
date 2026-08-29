@@ -15,6 +15,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
   standalone: true,
   templateUrl: './mui-settings-shell.component.html',
   styleUrl: './mui-settings-shell.component.scss',
+  host: { class: 'block h-full min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSettingsShellComponent {

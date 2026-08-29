@@ -17,7 +17,7 @@ const TABS: readonly MuiTab[] = [
   standalone: true,
   imports: [MuiBadgeComponent, MuiCodeBlockComponent, MuiTabsComponent],
   templateUrl: './mui-response-viewer.component.html',
-  styleUrl: './mui-response-viewer.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiResponseViewerComponent {

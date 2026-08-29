@@ -1,11 +1,9 @@
 @if (open()) {
-  <div class="mui-sheet-shell-scrim" [class.contained]="contained()" (click)="onScrimClick()"></div>
+  <div [class]="scrimClasses()" (click)="onScrimClick()"></div>
   <div
     #sheetEl
-    class="mui-sheet-shell"
+    [class]="sheetClasses()"
     data-testid="bottom-sheet"
-    [class.contained]="contained()"
-    [class.dragging]="isDragging()"
     [style.height.%]="heightFraction() * 100"
     [style.transform]="'translateY(' + dragOffsetPx() + 'px)'"
     role="dialog"
@@ -13,7 +11,7 @@
     tabindex="-1"
   >
     <div
-      class="drag-area"
+      class="drag-area flex h-[30px] flex-none items-start justify-center pt-2 [touch-action:none] cursor-grab active:cursor-grabbing"
       aria-hidden="true"
       data-testid="bottom-sheet-drag-area"
       (pointerdown)="onPointerDown($event)"
@@ -21,8 +19,8 @@
       (pointerup)="onPointerUp($event)"
       (pointercancel)="onPointerCancel($event)"
     >
-      <div class="grab-handle"></div>
+      <div class="grab-handle h-1 w-[38px] flex-none rounded-sm bg-border-hi"></div>
     </div>
-    <div class="body"><ng-content /></div>
+    <div class="body flex-1 overflow-auto [touch-action:auto]"><ng-content /></div>
   </div>
 }

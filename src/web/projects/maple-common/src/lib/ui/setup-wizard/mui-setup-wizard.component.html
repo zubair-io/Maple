@@ -1,5 +1,5 @@
-<div class="mui-setup-wizard">
-  <div class="indicator">
+<div class="flex flex-col gap-6">
+  <div class="indicator flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
     @for (label of steps(); track label + $index) {
       <mui-progress-step
         [index]="$index + 1"
@@ -11,13 +11,15 @@
     }
   </div>
 
-  <div class="step-body">
+  <div
+    class="step-body flex min-h-[96px] flex-col gap-2 rounded-lg border border-border bg-surface-alt p-4"
+  >
     @if (activeTemplate(); as template) {
       <ng-container [ngTemplateOutlet]="template" />
     }
   </div>
 
-  <div class="footer">
+  <div class="footer flex justify-between gap-2">
     <mui-button variant="secondary" [disabled]="stepIndex() === 0" (pressed)="goBack()">
       Back
     </mui-button>

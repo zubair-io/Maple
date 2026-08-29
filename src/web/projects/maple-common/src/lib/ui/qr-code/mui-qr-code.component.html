@@ -1,12 +1,15 @@
-<div class="mui-qr-code" [class]="'size-' + size()">
+<div class="inline-flex flex-col items-center gap-1">
   <canvas
     #canvas
     role="img"
+    class="block rounded-md"
     [attr.aria-label]="ariaLabel() ?? 'QR code for ' + value()"
     [width]="pixelSize()"
     [height]="pixelSize()"
   ></canvas>
   @if (renderError()) {
-    <div class="error" role="alert">{{ renderError() }}</div>
+    <div class="error max-w-[160px] text-center text-[11px] text-error-text" role="alert">
+      {{ renderError() }}
+    </div>
   }
 </div>

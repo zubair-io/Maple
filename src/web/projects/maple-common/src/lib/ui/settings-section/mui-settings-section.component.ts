@@ -119,7 +119,7 @@ function toDisplayRow(row: MuiSettingsSectionRow): MuiSettingsSectionDisplayRow 
     MuiTextComponent,
   ],
   templateUrl: './mui-settings-section.component.html',
-  styleUrl: './mui-settings-section.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSettingsSectionComponent {

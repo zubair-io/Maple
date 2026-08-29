@@ -1,4 +1,4 @@
-<div class="mui-preview-list">
+<div class="mui-preview-list flex flex-col">
   @for (item of items(); track item.id) {
     <mui-list-row [label]="item.before" (pressed)="pressed.emit(item.id)">
       <mui-text trailing variant="chip-label" color="muted" [truncate]="true">

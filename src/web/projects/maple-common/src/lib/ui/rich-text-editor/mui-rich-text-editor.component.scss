@@ -1,61 +1,9 @@
-@use '../../generated/ui-tokens' as tok;
+// Residue: `:empty::before` placeholder text — a `content:`-bearing
+// pseudo-element (Tailwind's `before:content-[...]` arbitrary utility can't
+// cleanly carry this smart-quoted, multi-word string plus an `:empty`
+// compound selector) — see TAILWIND-CONVERSION.md "Residue rules".
 
-:host {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: tok.$maple-spacing-md;
-}
-
-.editor {
-  min-height: 160px;
-  padding: tok.$maple-spacing-md;
-  border: 1px solid var(--color-border);
-  border-radius: tok.$maple-radius-md;
-  background: var(--color-surface);
-  color: var(--color-text-main);
-  font-size: 14px;
-  line-height: 1.6;
-  outline: none;
-
-  &:focus-visible {
-    border-color: var(--color-border-hi);
-  }
-
-  &:empty::before {
-    content: 'Type "/" for a command…';
-    color: var(--color-text-muted);
-  }
-}
-
-// Zero-size anchor points, positioned absolutely against the host's own
-// coordinate space — mui-popover positions its panel relative to this box
-// (`top`/`bottom`: calc(100% + spacing)), so this is the real anchor
-// contract, not a guess.
-.rte-anchor {
-  position: absolute;
-  width: 0;
-  height: 0;
-}
-
-.rte-preview {
-  display: flex;
-  flex-direction: column;
-  gap: tok.$maple-spacing-sm;
-  padding-top: tok.$maple-spacing-sm;
-  border-top: 1px solid var(--color-border);
-}
-
-.rte-preview-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.editor:empty::before {
+  content: 'Type "/" for a command…';
   color: var(--color-text-muted);
-}
-
-.rte-preview-text {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-text-main);
 }

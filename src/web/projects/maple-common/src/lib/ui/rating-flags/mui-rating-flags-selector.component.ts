@@ -20,13 +20,25 @@ const FLAG_CYCLE: Record<MuiRatingFlagState, MuiRatingFlagState> = {
   standalone: true,
   imports: [MuiIconComponent],
   templateUrl: './mui-rating-flags-selector.component.html',
-  styleUrl: './mui-rating-flags-selector.component.scss',
+  host: { class: 'inline-flex items-center' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiRatingFlagsSelectorComponent {
   readonly flag = model<MuiRatingFlagState>('none');
   readonly disabled = input<boolean>(false);
   readonly variant = input<MuiRatingFlagsVariant>('cycle');
+
+  private static readonly PILL_BASE =
+    'pill inline-flex cursor-pointer items-center justify-center rounded-md border-[0.5px] border-border bg-transparent px-1 py-[2px] leading-none text-text-muted disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary';
+  private static readonly PILL_ACTIVE = 'is-active border-primary bg-surface-alt text-text-main';
+
+  /** One mutually-exclusive computed string per pill, rather than a base
+   * class plus a conditional `is-active` add-on — the active state changes
+   * `border-color`/`background`/`color`, all also set by the base class. */
+  pillClasses(state: MuiRatingFlagState): string {
+    const base = MuiRatingFlagsSelectorComponent.PILL_BASE;
+    return this.flag() === state ? `${base} ${MuiRatingFlagsSelectorComponent.PILL_ACTIVE}` : base;
+  }
 
   readonly flagIconColor = computed(() => {
     switch (this.flag()) {
