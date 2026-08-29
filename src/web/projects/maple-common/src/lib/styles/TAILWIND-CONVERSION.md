@@ -27,3 +27,7 @@ Only: `@keyframes` (referenced via arbitrary `[animation:...]`, names are global
 ## Host-class rule
 
 Unconditional `:host { display: X }` → `host: { class: 'X' }`. A conditional `:host` block becomes one computed `host: { '[class]': fn }` returning the whole mutually-exclusive set — never a static class plus a conditional add-on.
+
+## Gotcha: bare `text-{xs,sm,base}` also sets line-height
+
+Bare `text-{xs,sm,base}` also sets `line-height`, not just `font-size` — pair it with an explicit `leading-*` or use `text-[Npx]` instead when the original rule only specified a font size. (A follow-up sweep to audit existing usages is tracked separately — don't do that sweep here.)
