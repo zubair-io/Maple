@@ -87,9 +87,32 @@ namespace Maple.WinUI
             _shell.Nav = nav;
             _shell.Pane = new ScrollViewer { Content = _paneHost, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
+            // #3079: a slim strip at the top doubles as the title bar — it
+            // holds no interactive controls, so the whole strip is the drag
+            // region and the system caption buttons overlay its right edge.
+            var titleBar = new Grid
+            {
+                Background = (Brush)Application.Current.Resources["MapleSidebar"],
+                MinHeight = 34,
+            };
+            titleBar.Children.Add(new MuiText
+            {
+                Text = "Maple Settings",
+                Variant = MuiTextVariant.ToolLabel,
+                ColorRole = MuiTextColorRole.Muted,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+
             var root = new Grid { Background = (Brush)Application.Current.Resources["MapleBg"] };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(titleBar, 0);
+            Grid.SetRow(_shell, 1);
+            root.Children.Add(titleBar);
             root.Children.Add(_shell);
             Content = root;
+            MuiWindowChrome.Extend(this, titleBar);
 
             RefreshNav();
             RefreshPane();

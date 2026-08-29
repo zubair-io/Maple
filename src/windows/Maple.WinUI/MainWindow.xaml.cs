@@ -38,6 +38,11 @@ namespace Maple.WinUI
             ViewModel = new EditSessionViewModel();
             this.InitializeComponent();
 
+            // #3079: fold the menu row into the frame's title-bar strip —
+            // system caption buttons overlay its right edge, the region
+            // right of the menus drags the window.
+            Maple.UI.MuiWindowChrome.Extend(this, TitleBarDragRegion);
+
             if (this.Content is FrameworkElement root)
             {
                 root.DataContext = ViewModel;
