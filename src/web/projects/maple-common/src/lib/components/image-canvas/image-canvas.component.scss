@@ -1,31 +1,8 @@
-// Tailwind utilities cover layout. The component-host background and the
-// `.tool-btn.is-active` colour swap stay as CSS — `:host` is an Angular
-// host selector and `.is-active` is bound via [class.is-active] on the
-// element so a contained Tailwind variant won't fire.
-:host {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  position: relative;
-  overflow: hidden;
-  background: #080706;
-}
-
-.tool-btn.is-active {
-  background: var(--color-primary-dim);
-  color: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-// Indeterminate fallback for the download bar — only used when the server
-// sends no Content-Length and the asset has no known size (rare; both the
-// /api/fs/raw and /api/assets/:id/raw endpoints emit Content-Length today).
-.dl-indeterminate {
-  animation: dl-slide 1.1s ease-in-out infinite;
-}
-
+// image-canvas.component.scss — residue only (Tailwind port #3071 Task 9).
+// The download bar's indeterminate-fallback slide animation has no
+// Tailwind utility equivalent; kept here and referenced via the
+// template's `animate-[dl-slide_1.1s_ease-in-out_infinite]` arbitrary
+// value.
 @keyframes dl-slide {
   0% {
     transform: translateX(-120%);

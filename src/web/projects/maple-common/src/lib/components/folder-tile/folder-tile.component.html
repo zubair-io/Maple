@@ -1,6 +1,6 @@
 @let f = folder();
 <div
-  class="folder-tile relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1.5 overflow-hidden rounded-[2px] bg-surface text-text-main outline-none"
+  class="folder-tile group relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1.5 overflow-hidden rounded-[2px] border-[0.5px] border-border bg-surface text-text-main outline-none hover:bg-bg-hover"
   role="button"
   tabindex="0"
   [class.selected]="selected()"
@@ -19,7 +19,7 @@
     >{{ f.name }}</mui-text
   >
   <div
-    class="folder-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]"
+    class="folder-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms] group-[.selected]:border-primary group-focus-visible:border-primary"
     aria-hidden="true"
   ></div>
 </div>
