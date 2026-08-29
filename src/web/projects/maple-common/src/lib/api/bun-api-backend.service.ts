@@ -991,6 +991,10 @@ export class BunApiBackendService {
     describe_system_prompt?: string | null;
     describe_daily_cap_usd?: number | null;
     describe_provider_url?: string | null;
+    /** Ordered describe-server list. Entry 0 is the default server: its URL
+     * becomes `describe_provider_url`, which every other Ollama consumer
+     * (semantic search) reads. Sent whole — the list replaces the saved one. */
+    describe_servers?: Array<{ url: string; concurrency: number }> | null;
     transcribe_model_tier?: 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3' | null;
     // ── Face worker (Phase 5) ─────────────────────────────────────
     face_worker_enabled?: boolean | null;
@@ -1367,6 +1371,9 @@ export interface EnrichmentConfigResponse {
   describe_provider: DescribeProviderName;
   /** `null` for paid providers (their endpoints are hard-coded). */
   describe_provider_url: string | null;
+  /** Describe servers in operator order, always non-empty. Entry 0 is the
+   * default server and always agrees with `describe_provider_url`. */
+  describe_servers: Array<{ url: string; concurrency: number }>;
   describe_model: string;
   describe_system_prompt: string;
   describe_daily_cap_usd: number;
@@ -1426,6 +1433,7 @@ export interface EnrichmentConfigResponse {
     describe_worker_enabled: 'db' | 'env' | 'default';
     describe_provider: 'db' | 'env' | 'default';
     describe_provider_url: 'db' | 'env' | 'default' | 'unset';
+    describe_servers: 'db' | 'derived';
     describe_model: 'db' | 'env' | 'default';
     describe_system_prompt: 'db' | 'env' | 'default';
     describe_daily_cap_usd: 'db' | 'env' | 'default';
