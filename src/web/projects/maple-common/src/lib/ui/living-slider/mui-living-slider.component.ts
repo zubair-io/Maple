@@ -33,7 +33,7 @@ import {
   standalone: true,
   imports: [MuiTextComponent],
   templateUrl: './mui-living-slider.component.html',
-  styleUrl: './mui-living-slider.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiLivingSliderComponent implements OnDestroy {

@@ -1,10 +1,10 @@
 <div
-  class="mui-map-surface"
+  class="mui-map-surface relative overflow-hidden rounded-md border border-border bg-bg"
   [style.width.px]="viewportWidth()"
   [style.height.px]="viewportHeight()"
 >
   <div
-    class="backdrop"
+    class="backdrop absolute inset-0 cursor-grab touch-none opacity-60 active:cursor-grabbing"
     [style.backgroundPosition]="pan().x + 'px ' + pan().y + 'px'"
     (pointerdown)="onPointerDown($event)"
     (pointermove)="onPointerMove($event)"
@@ -13,7 +13,7 @@
   ></div>
 
   @if (heatmapVisible()) {
-    <div class="heatmap-overlay">
+    <div class="heatmap-overlay pointer-events-none absolute inset-0 opacity-70">
       <mui-heatmap-layer
         [grid]="heatmapGrid()"
         [width]="viewportWidth()"
@@ -23,7 +23,7 @@
   }
 
   @if (annotations().length === 0) {
-    <div class="empty-overlay">
+    <div class="empty-overlay absolute inset-0 flex items-center justify-center">
       <mui-empty-state
         icon="map-pin"
         title="No locations yet"
@@ -34,7 +34,7 @@
     @for (pin of clusters(); track pin.id) {
       <button
         type="button"
-        class="pin"
+        class="pin absolute -translate-x-1/2 -translate-y-full cursor-pointer border-none bg-none p-0 leading-none"
         [style.left.px]="pin.screenX"
         [style.top.px]="pin.screenY"
         [attr.aria-label]="pin.count ? pin.count + ' photos' : (pin.label ?? 'Photo')"
@@ -46,7 +46,7 @@
   }
 
   <mui-button
-    class="heatmap-toggle"
+    class="heatmap-toggle absolute top-2 right-2"
     variant="secondary"
     size="sm"
     iconLeading="droplet"
