@@ -48,7 +48,6 @@ import { GeneratedSearchCollectionsComponent } from './generated-search-collecti
     GeneratedSearchCollectionsComponent,
   ],
   templateUrl: './generated-search-settings.component.html',
-  styleUrl: './generated-search-settings.component.scss',
   host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

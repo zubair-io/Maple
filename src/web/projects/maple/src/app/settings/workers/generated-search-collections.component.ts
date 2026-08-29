@@ -17,7 +17,6 @@ import type { GeneratedSearchCard } from '@maple-common';
   standalone: true,
   imports: [RouterLink],
   templateUrl: './generated-search-collections.component.html',
-  styleUrl: './generated-search-collections.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GeneratedSearchCollectionsComponent {
