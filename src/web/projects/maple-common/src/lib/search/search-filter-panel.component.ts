@@ -34,10 +34,18 @@ export interface FacetOption {
   standalone: true,
   imports: [SearchFacetSectionComponent],
   templateUrl: './search-filter-panel.component.html',
-  styleUrl: './search-filter-panel.component.scss',
+  host: { class: 'block h-full min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchFilterPanelComponent {
+  /** Mutually-exclusive color/border pair for a date-preset pill's
+   * active state (Tailwind port #3071) — folded into one computed string
+   * rather than a base class plus a conditional add-on. */
+  protected presetClass(active: boolean): string {
+    return active
+      ? 'bg-primary border-primary text-white'
+      : 'bg-transparent border-border text-text-main';
+  }
   readonly filters = input.required<SearchFilters>();
   /** Facet rows for the People / Places sections (filter-aware counts). */
   readonly people = input<readonly FacetOption[]>([]);

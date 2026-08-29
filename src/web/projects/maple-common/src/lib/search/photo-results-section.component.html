@@ -1,26 +1,44 @@
 @if (hasQuery() && results().length === 0) {
   @if (query().length > 0) {
-    <p class="empty" data-testid="search-no-results">No matches for &ldquo;{{ query() }}&rdquo;</p>
+    <p
+      class="p-[24px_12px] text-center font-['Lato',sans-serif] text-[13px] leading-[1.4] text-text-muted"
+      data-testid="search-no-results"
+    >
+      No matches for &ldquo;{{ query() }}&rdquo;
+    </p>
   } @else {
-    <p class="empty" data-testid="search-no-results">No matches for the current filters</p>
+    <p
+      class="p-[24px_12px] text-center font-['Lato',sans-serif] text-[13px] leading-[1.4] text-text-muted"
+      data-testid="search-no-results"
+    >
+      No matches for the current filters
+    </p>
   }
 } @else if (results().length > 0) {
-  <section class="section" data-testid="photo-results-section">
-    <ul class="grid" [class.stale]="isStale()">
+  <section class="flex flex-col gap-2" data-testid="photo-results-section">
+    <ul
+      class="m-0 grid list-none gap-1 p-0 transition-opacity duration-[120ms] ease-linear [grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]"
+      [class.opacity-60]="isStale()"
+    >
       @for (r of results(); track trackResult($index, r)) {
         <li>
           <button
             type="button"
-            class="tile"
+            class="relative block aspect-square w-full cursor-pointer overflow-hidden rounded-sm border-0 bg-surface-alt p-0"
             (click)="onTileClick(r)"
             [attr.aria-label]="r.filename"
             [attr.data-testid]="'search-tile-' + r.id"
           >
             @if (thumbs().get(r.id); as url) {
-              <img class="tile-img" [src]="url" [alt]="r.filename" loading="lazy" />
+              <img
+                class="absolute inset-0 h-full w-full object-cover"
+                [src]="url"
+                [alt]="r.filename"
+                loading="lazy"
+              />
             } @else {
-              <span class="tile-fallback">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+              <span class="absolute inset-0 flex items-center justify-center text-text-muted">
+                <svg viewBox="0 0 24 24" class="h-8 w-8 opacity-50" aria-hidden="true">
                   <path d="M4 6h16v12H4z" fill="none" stroke="currentColor" stroke-width="1" />
                   <circle cx="9" cy="11" r="1.5" fill="currentColor" />
                   <path d="M5 17l5-5 4 4 3-3 2 2v2H5z" fill="currentColor" />
@@ -32,8 +50,14 @@
       }
     </ul>
     @if (isLoadingMore()) {
-      <p class="loading-more" data-testid="search-loading-more" aria-live="polite">Loading…</p>
+      <p
+        class="m-0 p-[12px_0] text-center font-['Lato',sans-serif] text-[12px] leading-[1.4] text-text-muted"
+        data-testid="search-loading-more"
+        aria-live="polite"
+      >
+        Loading…
+      </p>
     }
-    <div #loadMoreSentinel class="load-more-sentinel" aria-hidden="true"></div>
+    <div #loadMoreSentinel class="h-px" aria-hidden="true"></div>
   </section>
 }
