@@ -1,12 +1,16 @@
 @if (recent().length > 0) {
-  <section class="section" data-testid="recent-queries-section">
-    <h3 class="eyebrow">RECENT</h3>
-    <ul class="row">
+  <section class="flex flex-col gap-2" data-testid="recent-queries-section">
+    <h3
+      class="m-0 font-['Lato',sans-serif] text-[10px] leading-none font-bold tracking-[0.06em] text-text-muted"
+    >
+      RECENT
+    </h3>
+    <ul class="m-0 flex list-none flex-wrap gap-1.5 p-0">
       @for (q of recent(); track trackQuery($index, q)) {
         <li>
           <button
             type="button"
-            class="chip"
+            class="cursor-pointer rounded-[14px] border-[0.5px] border-border bg-surface-alt px-3 py-1.5 font-['Lato',sans-serif] text-[12px] leading-none text-text-main hover:bg-bg-hover"
             (click)="onChipClick(q)"
             [attr.data-testid]="'recent-chip-' + q"
           >
