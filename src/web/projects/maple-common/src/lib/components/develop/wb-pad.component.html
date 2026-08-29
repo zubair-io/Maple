@@ -1,13 +1,21 @@
 <!-- WbPadComponent — 2-D white balance pad (#1540) -->
-<div class="wb-widget">
+<div class="flex flex-col gap-1.5 px-2.5 pt-2 pb-2.5">
   <!-- Readout row: K label + eyedropper -->
-  <div class="readout-row">
-    <span class="temp-label" aria-label="Color temperature">{{ tempLabel() }}</span>
-    <span class="tint-label" aria-label="Tint">{{ tintLabel() }}</span>
-    <div class="readout-spacer"></div>
+  <div class="flex items-center gap-1.5">
+    <span
+      class="font-[var(--font-mono,monospace)] text-[13px] tracking-[-0.02em] text-[color:var(--pro-text)] select-none [font-variant-numeric:tabular-nums]"
+      aria-label="Color temperature"
+      >{{ tempLabel() }}</span
+    >
+    <span
+      class="font-[var(--font-mono,monospace)] text-[11px] text-[color:var(--pro-text-muted)] select-none [font-variant-numeric:tabular-nums]"
+      aria-label="Tint"
+      >{{ tintLabel() }}</span
+    >
+    <div class="flex-1"></div>
     <button
-      class="eyedrop-btn"
-      [class.eyedrop-btn--active]="eyedropperActive()"
+      class="flex h-[26px] w-[26px] shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-[0.5px] outline-none transition-[background,border-color,color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+      [class]="eyedropBtnClass(eyedropperActive())"
       title="Sample neutral grey point from canvas"
       aria-label="Eyedropper: set neutral white balance from canvas"
       (click)="onEyedropperClick()"
@@ -43,12 +51,15 @@
     <!-- Gradient layers (WB-specific fill; mui-pad-2d's own `gradient` input
          paints a single flat background, so the two-axis composited fill
          stays a projected overlay rather than one CSS string). -->
-    <div class="pad-grad-temp"></div>
-    <div class="pad-grad-tint"></div>
+    <div class="pad-grad-temp absolute inset-0"></div>
+    <div class="pad-grad-tint absolute inset-0"></div>
   </mui-pad-2d>
 
   <!-- Axis labels -->
-  <div class="axis-row" aria-hidden="true">
+  <div
+    class="flex justify-between text-[9px] text-[color:var(--pro-text-dim)] select-none"
+    aria-hidden="true"
+  >
     <span>2000 K</span>
     <span>12000 K</span>
   </div>

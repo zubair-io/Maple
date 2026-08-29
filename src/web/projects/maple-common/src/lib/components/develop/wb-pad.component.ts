@@ -37,6 +37,7 @@ function clamp(value: number, min: number, max: number): number {
   imports: [MuiPad2dComponent],
   templateUrl: './wb-pad.component.html',
   styleUrl: './wb-pad.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WbPadComponent {
@@ -45,6 +46,17 @@ export class WbPadComponent {
 
   /** Eyedropper active (sampling mode). */
   readonly eyedropperActive = signal(false);
+
+  /** Mutually-exclusive color/border pair for the eyedropper button's
+   * active state (Tailwind port #3071) — folded into one computed string
+   * rather than a base class plus a conditional add-on (hover is layered
+   * separately since it never coincides with a state change that also
+   * touches these same properties while active). */
+  protected eyedropBtnClass(active: boolean): string {
+    return active
+      ? 'bg-[color:var(--pro-accent-28)] border-[color:var(--pro-accent)] text-[color:var(--pro-accent)]'
+      : 'bg-transparent border-transparent text-[color:var(--pro-text-muted)] hover:border-[color:var(--pro-border)] hover:bg-white/[0.07] hover:text-[color:var(--pro-text)]';
+  }
 
   private readonly adj = computed<AdjustmentModel | null>(() => {
     const id = this.library.focusedAssetId();

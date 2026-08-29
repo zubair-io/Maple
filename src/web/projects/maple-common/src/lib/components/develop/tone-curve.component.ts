@@ -80,6 +80,7 @@ const DELETE_KEYS: ReadonlySet<string> = new Set(['Delete', 'Backspace']);
   imports: [MuiLivingSliderComponent],
   templateUrl: './tone-curve.component.html',
   styleUrl: './tone-curve.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToneCurveComponent implements OnDestroy {
@@ -119,6 +120,15 @@ export class ToneCurveComponent implements OnDestroy {
 
   isActiveChannel(id: CurveChannel): boolean {
     return this.vm.channel() === id;
+  }
+
+  /** Mutually-exclusive color/border pair for the channel tab's active
+   * state (Tailwind port #3071) — folded into one computed string rather
+   * than a base class plus a conditional add-on. */
+  protected channelTabClass(active: boolean): string {
+    return active
+      ? 'bg-[color:var(--pro-accent-28)] border-[color:var(--pro-accent)] text-[color:var(--pro-accent)]'
+      : 'bg-transparent border-transparent text-[color:var(--pro-text-dim)]';
   }
 
   // ── Point editing ───────────────────────────────────────────────────────

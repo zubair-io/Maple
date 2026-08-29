@@ -1,8 +1,8 @@
 <!-- ColorGradingPanelComponent — four wheels + luminance + balance (#275) -->
-<div class="grading-panel" data-testid="color-grading-panel">
-  <div class="wheel-row">
+<div class="flex flex-col gap-2.5 p-2.5" data-testid="color-grading-panel">
+  <div class="grid grid-cols-4 gap-2.5 @max-[420px]:grid-cols-2">
     @for (zone of zones; track zone.id) {
-      <div class="wheel-cell">
+      <div class="flex min-w-0 flex-col gap-1.5">
         <pro-color-wheel
           [label]="zone.label"
           [hue]="valueOf(zone.hue)"

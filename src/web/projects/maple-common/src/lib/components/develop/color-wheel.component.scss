@@ -1,39 +1,13 @@
-// ColorWheelComponent — styles (#275).
-
-:host {
-  display: block;
-}
-
-.wheel-widget {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.wheel {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  overflow: hidden;
-  cursor: crosshair;
-  touch-action: none;
-  outline: none;
-  border: 0.5px solid var(--pro-border, rgb(255 255 255 / 12%));
-
-  &:focus-visible {
-    box-shadow: 0 0 0 2px var(--pro-accent, #4a9fc4);
-  }
-}
+// color-wheel.component.scss — residue only (Tailwind port #3071 Task 9).
+// The hue ring and centre-out desaturation fade are long multi-stop
+// conic/radial gradients — kept as plain CSS rather than an unwieldy,
+// error-prone Tailwind arbitrary-value string.
 
 // Hue ring. 0deg in `conic-gradient` points UP and runs clockwise, while
 // the model's hue 0 points RIGHT and runs counter-clockwise — the -90deg
 // offset plus the reversed stop order reconciles the two so the painted
 // colour under the puck matches the hue the pipeline will apply.
 .wheel-hue {
-  position: absolute;
-  inset: 0;
   background: conic-gradient(
     from -90deg,
     hsl(90deg 100% 50%),
@@ -55,45 +29,9 @@
 // Centre-out desaturation: radius carries saturation, so the middle of the
 // wheel reads neutral.
 .wheel-fade {
-  position: absolute;
-  inset: 0;
   background: radial-gradient(
     circle at 50% 50%,
     var(--pro-surface, #1a1917) 0%,
     rgb(26 25 23 / 0%) 72%
   );
-}
-
-.puck {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border-radius: 50%;
-  background: transparent;
-  border: 2px solid #fff;
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 55%),
-    0 1px 3px rgb(0 0 0 / 45%);
-  pointer-events: none;
-}
-
-.wheel-caption {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  user-select: none;
-}
-
-.wheel-label {
-  font-size: 11px;
-  color: var(--pro-text, #f2efe9);
-}
-
-.wheel-value {
-  font-size: 10px;
-  font-family: var(--font-mono, monospace);
-  font-variant-numeric: tabular-nums;
-  color: var(--pro-text-muted, #a8a097);
 }

@@ -1,12 +1,12 @@
 <!-- ToneCurveComponent — point curves + parametric regions (#367) -->
-<div class="curve-widget" data-testid="tone-curve-panel">
+<div class="flex flex-col gap-1.5 px-2.5 pt-2 pb-2.5" data-testid="tone-curve-panel">
   <!-- Channel selector -->
-  <div class="channel-row" role="tablist" aria-label="Tone curve channel">
+  <div class="flex gap-1" role="tablist" aria-label="Tone curve channel">
     @for (tab of vm.tabs; track tab.id) {
       <button
         type="button"
-        class="ch-btn"
-        [class.ch-btn--active]="isActiveChannel(tab.id)"
+        class="flex-1 cursor-pointer appearance-none rounded-md border-[0.5px] py-[3px] text-[10px] outline-none transition-[background,color,border-color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--pro-accent)]"
+        [class]="channelTabClass(isActiveChannel(tab.id))"
         role="tab"
         [attr.aria-selected]="isActiveChannel(tab.id)"
         [attr.aria-label]="tab.label + ' tone curve'"
@@ -22,7 +22,7 @@
        double-click or press Delete on a knot to remove it. -->
   <svg
     #plot
-    class="curve-plot"
+    class="curve-plot block aspect-square w-full rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-[color:var(--pro-canvas-alt)]"
     [attr.viewBox]="'0 0 ' + vm.plotSize + ' ' + vm.plotSize"
     preserveAspectRatio="none"
     role="application"
@@ -81,11 +81,13 @@
     }
   </svg>
 
-  <div class="plot-footer">
-    <span class="axis-label" aria-hidden="true">Shadows</span>
+  <div class="flex items-center justify-between gap-1.5">
+    <span class="text-[9px] text-[color:var(--pro-text-dim)] select-none" aria-hidden="true"
+      >Shadows</span
+    >
     <button
       type="button"
-      class="reset-btn"
+      class="cursor-pointer appearance-none rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-transparent px-2 py-0.5 text-[9px] text-[color:var(--pro-text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--pro-accent)] disabled:cursor-default disabled:opacity-[0.32]"
       [disabled]="vm.isIdentity()"
       [attr.aria-label]="'Reset ' + vm.activeTab().label + ' curve'"
       data-testid="tone-curve-reset-channel"
@@ -93,11 +95,13 @@
     >
       Reset curve
     </button>
-    <span class="axis-label" aria-hidden="true">Highlights</span>
+    <span class="text-[9px] text-[color:var(--pro-text-dim)] select-none" aria-hidden="true"
+      >Highlights</span
+    >
   </div>
 
   <!-- Parametric region sliders -->
-  <div class="parametric" data-testid="tone-curve-parametric">
+  <div class="flex flex-col gap-2 pt-1" data-testid="tone-curve-parametric">
     @for (slider of vm.sliders; track slider.field) {
       <mui-living-slider
         [attr.data-testid]="'tone-curve-' + slider.field"
