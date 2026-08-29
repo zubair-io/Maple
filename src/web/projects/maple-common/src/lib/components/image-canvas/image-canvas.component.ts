@@ -44,6 +44,7 @@ import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
+import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -51,7 +52,7 @@ import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
   imports: [CropOverlayComponent],
   templateUrl: './image-canvas.component.html',
   styleUrl: './image-canvas.component.scss',
-  host: { class: 'relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#080706]' },
+  host: { class: HOST_CLASS },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ImageCanvasComponent
@@ -60,19 +61,7 @@ export class ImageCanvasComponent
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
 
-  /** Mutually-exclusive color/border/background triplet for the toolbar's
-   * Before/After toggle button's active state (Tailwind port #3071) —
-   * `.tool-btn.is-active` used to win over the base color/border/bg on the
-   * same element via a conditional class add-on; folded into one computed
-   * string instead. */
-  protected beforeAfterBtnClass(active: boolean): string {
-    const base =
-      'tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] transition-colors duration-100';
-    return active
-      ? `${base} is-active bg-primary-dim text-primary border-[0.5px] border-primary`
-      : `${base} text-text-muted bg-surface-alt border-[0.5px] border-border hover:bg-surface-hover hover:text-text-main`;
-  }
-
+  protected beforeAfterBtnClass = (active: boolean) => beforeAfterBtnClassFn(active); // image-canvas.classes.ts
   /** Hide the legacy zoom/before-after toolbar — the canvas-first Pro editor
    * (#1535) supplies both itself, so this would duplicate it. Defaults false
    * so the classic 3-column editor keeps its toolbar. */
@@ -210,7 +199,6 @@ export class ImageCanvasComponent
   // While Crop is armed the canvas shows the image UNCROPPED (crop stripped from
   // the render model) + rotated by the straighten angle; `CropOverlayComponent`
   // draws the interactive rect. Exiting re-renders the cropped result.
-
   /** True while the crop overlay should be shown (Crop pill armed). */
   protected readonly cropActive = computed(() => this.cropSession.active());
 
@@ -401,7 +389,6 @@ export class ImageCanvasComponent
 
   // ── Render-target math (#1101, docs/zoom.md): pure formulas live in
   // `image-canvas.draw2d.ts`; these wrappers wire the signals into them.
-
   // Fast-phase target: the viewport long edge, floored at 1 (degenerate wrap).
   // Public for `Render2dHost`.
   fastTargetPx(): number {
@@ -448,17 +435,14 @@ export class ImageCanvasComponent
   // ── GpuPresentHost ───────────────────────────────────────────────────────
   // The helper reaches the public signals/services above directly; the gate,
   // CSS layout, develop target (#1080) + native-dims record need methods here.
-
   /** Open the adjustment-effect gate once the GPU cold-open has presented. */
   markColdOpenDone(): void {
     this.coldOpenDone = true;
   }
-
   /** Whether the failed full decode still has a valid camera preview to show. */
   hasProvisionalPreview(assetId: AssetId): boolean {
     return this.rawOpen.hasProvisionalPreview(assetId);
   }
-
   /** The 2D decoder replaced the provisional camera preview with final pixels. */
   clearProvisionalPreview(assetId: AssetId): void {
     this.rawOpen.clearProvisionalPreview(assetId);
@@ -469,7 +453,6 @@ export class ImageCanvasComponent
     const { canvasW, canvasH } = this.effectivePx();
     return { canvasW, canvasH, pan: this.canvasSvc.pan() };
   }
-
   /** GPU develop target (#1080): viewport long edge in real px; `undefined` → WASM's 2048 cap. */
   viewportTargetLongEdge(): number | undefined {
     return computeViewportTargetLongEdge(this.wrapW(), this.wrapH());
@@ -560,7 +543,6 @@ export class ImageCanvasComponent
   }
 
   // ── Gestures (#1100, spec §5.0/§5.2) — routing lives in CanvasZoomGestures ─
-
   /** Cmd/Ctrl+0 → fit, Cmd/Ctrl+1 → 100% (bare 0/1 stay S5 tool/rating keys). */
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
