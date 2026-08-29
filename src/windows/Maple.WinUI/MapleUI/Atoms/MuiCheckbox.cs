@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace Maple.UI.Atoms
 {
@@ -79,8 +80,7 @@ namespace Maple.UI.Atoms
             Rebuild();
         }
 
-        private static Microsoft.UI.Xaml.Media.Brush R(string key) =>
-            (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[key];
+        private static Brush R(string key) => (Brush)Application.Current.Resources[key];
 
         private void Rebuild()
         {
