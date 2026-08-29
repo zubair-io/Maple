@@ -106,7 +106,6 @@ const ITEMS: readonly NavItem[] = [
   standalone: true,
   imports: [RouterLink, SettingsIconComponent],
   templateUrl: './settings-shell.component.html',
-  styleUrl: './settings-shell.component.scss',
   host: { class: 'set-vars set-page-host w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
