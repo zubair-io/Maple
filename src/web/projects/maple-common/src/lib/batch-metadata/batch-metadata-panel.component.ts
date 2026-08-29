@@ -80,7 +80,6 @@ const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
   standalone: true,
   imports: [FormsModule, BatchMetadataConfirmDialogComponent],
   templateUrl: './batch-metadata-panel.component.html',
-  styleUrl: './batch-metadata-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BatchMetadataPanelComponent implements OnDestroy {
@@ -171,6 +170,17 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   // MIXED sentinel exposed to the template.
   readonly MIXED = MIXED;
+
+  /** Mutually-exclusive text-color/style pair for a field's "(mixed)"
+   * placeholder state (Tailwind port #3071) — `.bm-input.is-mixed` used to
+   * override `color` via declaration order; folded into one computed
+   * string per the port's variant-class rule rather than a base class plus
+   * a conditional add-on. */
+  protected mixedFieldClass(isMixed: boolean): string {
+    // `is-mixed` kept bare — asserted directly via `classList.contains` in
+    // batch-metadata-panel.component.spec.ts.
+    return isMixed ? 'is-mixed text-text-muted italic' : 'text-text-main';
+  }
 
   // ── Subscriptions ─────────────────────────────────────────────────────────
   private readonly geocodeSub: Subscription;

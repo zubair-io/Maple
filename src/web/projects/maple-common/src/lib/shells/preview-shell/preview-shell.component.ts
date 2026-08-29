@@ -66,6 +66,7 @@ const SWIPE_THRESHOLD_PX = 40;
   ],
   templateUrl: './preview-shell.component.html',
   styleUrl: './preview-shell.component.scss',
+  host: { class: 'block w-screen h-dvh overflow-hidden bg-[color:var(--pro-canvas)]' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PreviewShellComponent implements OnDestroy {

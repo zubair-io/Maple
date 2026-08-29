@@ -42,7 +42,7 @@ import { SidebarEntry } from '../../models/folder';
   standalone: true,
   imports: [],
   templateUrl: './source-picker-drawer.component.html',
-  styleUrl: './source-picker-drawer.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourcePickerDrawerComponent {
@@ -79,6 +79,18 @@ export class SourcePickerDrawerComponent {
     if (dx === null) return 'translateX(0)';
     return `translateX(${Math.min(0, dx)}px)`;
   });
+
+  /** Mutually-exclusive transition on/off pair (Tailwind port #3071) — the
+   * drawer's slide transition is suspended during an active pointer drag so
+   * the drawer tracks the finger 1:1, then re-enabled at pointerup. Both
+   * states set `transition-property`, so this is one computed string
+   * rather than a base `transition-transform` class plus a conditional
+   * `transition-none` add-on. */
+  protected readonly drawerTransitionClass = computed(() =>
+    this.dragDx() !== null
+      ? 'transition-none'
+      : 'transition-transform duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
+  );
 
   /** Dim-overlay opacity tracks how much of the drawer is visible. */
   protected readonly scrimOpacity = computed(() => {
