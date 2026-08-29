@@ -14,7 +14,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiImageComponent, MuiIconComponent, MuiBadgeComponent, MuiTextComponent],
   templateUrl: './mui-map-annotation.component.html',
-  styleUrl: './mui-map-annotation.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiMapAnnotationComponent {

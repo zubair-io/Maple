@@ -11,7 +11,8 @@
   </div>
   <div
     #trackEl
-    class="track"
+    class="track relative h-1.5 cursor-pointer touch-none rounded-sm outline-offset-4 focus-visible:outline-2 focus-visible:outline-primary"
+    [class]="dragging() ? 'is-dragging outline-2 outline-primary' : ''"
     role="slider"
     tabindex="0"
     [attr.aria-label]="ariaLabel() ?? label()"
@@ -20,7 +21,6 @@
     [attr.aria-valuenow]="value()"
     [attr.aria-disabled]="disabled() ? 'true' : null"
     [style.background]="gradient()"
-    [class.is-dragging]="dragging()"
     (pointerdown)="onPointerDown($event)"
     (pointermove)="onPointerMove($event)"
     (pointerup)="onPointerUp($event)"
@@ -28,8 +28,13 @@
     (keydown)="onKeydown($event)"
   >
     @if (bipolar()) {
-      <div class="zero-notch"></div>
+      <div
+        class="zero-notch absolute top-[-2px] left-1/2 h-2.5 w-[1.5px] -translate-x-1/2 bg-white"
+      ></div>
     }
-    <div class="thumb" [style.left.%]="thumbPct()"></div>
+    <div
+      class="thumb pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-text-main bg-white shadow-[0_0_0_2px_var(--color-primary)]"
+      [style.left.%]="thumbPct()"
+    ></div>
   </div>
 </div>
