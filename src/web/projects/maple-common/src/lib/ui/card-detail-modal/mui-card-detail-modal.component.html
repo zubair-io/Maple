@@ -20,16 +20,16 @@
       [required]="true"
     />
 
-    <div class="field-group">
+    <div class="field-group flex flex-col gap-1">
       <mui-text variant="chip-label" color="muted">Priority</mui-text>
       <mui-chip-row [chips]="priorityOptions()" mode="select" [(selectedId)]="selectedPriority" />
     </div>
 
-    <div class="field-group">
+    <div class="field-group flex flex-col gap-1">
       <mui-text variant="chip-label" color="muted">Notes</mui-text>
       <div
         #bodyEl
-        class="body-editor"
+        class="body-editor min-h-[120px] p-2 border border-border rounded-md bg-input-bg text-text-main text-[13px] leading-[1.5] outline-none focus:border-border-hi"
         contenteditable="true"
         role="textbox"
         aria-multiline="true"

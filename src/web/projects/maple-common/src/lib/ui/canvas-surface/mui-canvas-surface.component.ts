@@ -23,6 +23,7 @@ import {
   standalone: true,
   templateUrl: './mui-canvas-surface.component.html',
   styleUrl: './mui-canvas-surface.component.scss',
+  host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiCanvasSurfaceComponent implements AfterViewInit {

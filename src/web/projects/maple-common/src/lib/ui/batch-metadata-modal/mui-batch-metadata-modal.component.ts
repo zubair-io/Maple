@@ -42,7 +42,7 @@ const MAX_RATING = 5;
     MuiTextComponent,
   ],
   templateUrl: './mui-batch-metadata-modal.component.html',
-  styleUrl: './mui-batch-metadata-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBatchMetadataModalComponent {

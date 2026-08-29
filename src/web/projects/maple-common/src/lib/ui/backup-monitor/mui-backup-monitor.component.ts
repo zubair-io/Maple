@@ -26,7 +26,7 @@ export interface MuiBackupConfig {
   standalone: true,
   imports: [MuiBannerComponent, MuiButtonComponent, MuiFormFieldComponent, MuiProgressComponent],
   templateUrl: './mui-backup-monitor.component.html',
-  styleUrl: './mui-backup-monitor.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBackupMonitorComponent {

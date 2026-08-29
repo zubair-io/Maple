@@ -51,6 +51,7 @@ export interface MuiCollectionItem {
   ],
   templateUrl: './mui-collection-grid.component.html',
   styleUrl: './mui-collection-grid.component.scss',
+  host: { class: 'block relative' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiCollectionGridComponent {

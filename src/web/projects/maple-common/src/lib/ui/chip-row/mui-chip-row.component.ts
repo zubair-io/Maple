@@ -31,7 +31,7 @@ export type MuiChipRowMode = 'select' | 'removable' | 'editable';
   standalone: true,
   imports: [MuiBadgeComponent, MuiIconComponent, MuiInputComponent],
   templateUrl: './mui-chip-row.component.html',
-  styleUrl: './mui-chip-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiChipRowComponent {

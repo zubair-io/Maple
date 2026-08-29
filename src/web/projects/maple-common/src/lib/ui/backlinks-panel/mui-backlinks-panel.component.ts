@@ -20,7 +20,7 @@ export interface MuiBacklinkItem {
   standalone: true,
   imports: [MuiEmptyStateComponent, MuiListRowComponent, MuiSpinnerComponent],
   templateUrl: './mui-backlinks-panel.component.html',
-  styleUrl: './mui-backlinks-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBacklinksPanelComponent {

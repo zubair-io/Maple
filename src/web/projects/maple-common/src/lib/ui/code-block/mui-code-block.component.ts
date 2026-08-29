@@ -13,7 +13,7 @@ const COPIED_RESET_MS = 1500;
   standalone: true,
   imports: [MuiButtonComponent],
   templateUrl: './mui-code-block.component.html',
-  styleUrl: './mui-code-block.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiCodeBlockComponent {

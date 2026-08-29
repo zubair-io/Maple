@@ -1,9 +1,9 @@
-<div class="mui-chip-row" role="list">
+<div class="mui-chip-row flex flex-wrap items-center gap-1" role="list">
   @for (chip of chips(); track chip.id) {
     @if (mode() === 'select') {
       <button
         type="button"
-        class="chip"
+        class="chip relative inline-flex items-center gap-1 border-none bg-transparent p-0 rounded-full cursor-pointer enabled:hover:[&_.mui-badge]:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-45"
         role="listitem"
         [class.is-selected]="isSelected(chip)"
         [class.is-disabled]="isDisabled(chip)"
@@ -14,15 +14,21 @@
       >
         <mui-badge [variant]="isSelected(chip) ? 'signal' : 'count'" [value]="chip.label" />
         @if (chip.modified) {
-          <span class="modified-dot"></span>
+          <span
+            class="modified-dot absolute -top-px -right-px w-[5px] h-[5px] rounded-full bg-primary"
+          ></span>
         }
       </button>
     } @else {
-      <span class="chip" role="listitem" [attr.data-testid]="chip.testId ?? null">
+      <span
+        class="chip relative inline-flex items-center gap-1 border-none bg-transparent p-0 rounded-full"
+        role="listitem"
+        [attr.data-testid]="chip.testId ?? null"
+      >
         <mui-badge variant="count" [value]="chip.label" />
         <button
           type="button"
-          class="remove"
+          class="remove inline-flex items-center justify-center border-none bg-transparent text-text-muted cursor-pointer p-0 -ml-1 hover:text-text-main"
           [attr.aria-label]="'Remove ' + chip.label"
           (click)="removeChip(chip.id, $event)"
         >
@@ -33,7 +39,7 @@
   }
   @if (mode() === 'editable') {
     <mui-input
-      class="add"
+      class="add w-[120px]"
       size="sm"
       [value]="draft()"
       (valueChange)="draft.set($event)"

@@ -59,7 +59,7 @@ const DEFAULT_SLIDER_GRADIENT =
   standalone: true,
   imports: [MuiCollapsibleComponent, MuiLivingSliderComponent, MuiTabsComponent],
   templateUrl: './mui-adjustments-panel.component.html',
-  styleUrl: './mui-adjustments-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiAdjustmentsPanelComponent {

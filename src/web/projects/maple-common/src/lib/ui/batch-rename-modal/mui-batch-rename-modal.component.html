@@ -4,11 +4,11 @@
   ariaLabel="Batch Rename"
   (dismissed)="dismissed.emit()"
 >
-  <div slot="header" class="mui-batch-rename-modal-header">
+  <div slot="header" class="mui-batch-rename-modal-header py-4 px-6 border-b border-border">
     <mui-text variant="sheet-title" [block]="true">Batch Rename</mui-text>
   </div>
 
-  <div class="mui-batch-rename-modal-body">
+  <div class="mui-batch-rename-modal-body flex flex-col gap-4">
     <mui-form-field
       label="Template"
       [value]="template()"
@@ -19,7 +19,7 @@
 
     <mui-chip-row [chips]="tokens" mode="select" (selectedIdChange)="onTokenClicked($event)" />
 
-    <div class="preview">
+    <div class="preview flex flex-col gap-1 max-h-[260px] overflow-auto">
       <mui-text variant="tool-label" color="muted" [block]="true">Preview</mui-text>
       <mui-preview-list [items]="previewItems()" />
     </div>
@@ -29,7 +29,10 @@
     }
   </div>
 
-  <div slot="footer" class="mui-batch-rename-modal-footer">
+  <div
+    slot="footer"
+    class="mui-batch-rename-modal-footer flex justify-end gap-1 py-4 px-6 border-t border-border"
+  >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
     <mui-button
       variant="primary"

@@ -43,7 +43,7 @@ function initialsOf(name: string): string {
   selector: 'mui-avatar',
   standalone: true,
   templateUrl: './mui-avatar.component.html',
-  styleUrl: './mui-avatar.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiAvatarComponent {
@@ -59,6 +59,26 @@ export class MuiAvatarComponent {
     () => FALLBACK_PALETTE[hashString(this.name()) % FALLBACK_PALETTE.length],
   );
   readonly showImage = computed(() => !!this.src() && !this.broken());
+
+  /** One mutually-exclusive size class set (width/height/font-size all move
+   * together) per the conversion recipe, rather than four same-specificity
+   * `.size-*` classes racing each other. */
+  readonly sizeClasses = computed(() => {
+    switch (this.size()) {
+      case 'xs':
+        return 'w-5 h-5 text-[9px]';
+      case 'sm':
+        return 'w-7 h-7 text-[11px]';
+      case 'lg':
+        return 'w-12 h-12 text-base';
+      default:
+        return 'w-9 h-9 text-[13px]';
+    }
+  });
+
+  readonly presenceClasses = computed(() =>
+    this.presence() === 'online' ? 'bg-success-text' : 'bg-text-muted',
+  );
 
   constructor() {
     effect(() => {

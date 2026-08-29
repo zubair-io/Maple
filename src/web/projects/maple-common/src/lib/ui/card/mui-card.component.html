@@ -1,11 +1,17 @@
-<div class="mui-card" role="button" tabindex="0" (click)="onClick()" (keydown)="onKeydown($event)">
-  <div class="media">
+<div
+  class="mui-card flex flex-col w-full border border-border rounded-lg bg-surface overflow-hidden cursor-pointer text-left hover:border-border-hi focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+  role="button"
+  tabindex="0"
+  (click)="onClick()"
+  (keydown)="onKeydown($event)"
+>
+  <div class="media relative">
     <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="none" [aspectRatio]="16 / 9" />
     @if (badgeLabel()) {
-      <mui-badge class="overlay" variant="count" [value]="badgeLabel()!" />
+      <mui-badge class="overlay absolute top-1 right-1" variant="count" [value]="badgeLabel()!" />
     }
   </div>
-  <div class="body">
+  <div class="body flex flex-col gap-[2px] p-2">
     <mui-text variant="row-label" [truncate]="true">{{ title() }}</mui-text>
     @if (subtitle()) {
       <mui-text variant="body" color="muted" [truncate]="true">{{ subtitle() }}</mui-text>

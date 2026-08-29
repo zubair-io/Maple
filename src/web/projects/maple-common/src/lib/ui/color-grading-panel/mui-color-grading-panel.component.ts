@@ -18,7 +18,7 @@ const ZERO_WHEEL: MuiColorWheelValue = { hue: 0, saturation: 0 };
   standalone: true,
   imports: [MuiColorWheelComponent, MuiLivingSliderComponent, MuiTextComponent],
   templateUrl: './mui-color-grading-panel.component.html',
-  styleUrl: './mui-color-grading-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiColorGradingPanelComponent {

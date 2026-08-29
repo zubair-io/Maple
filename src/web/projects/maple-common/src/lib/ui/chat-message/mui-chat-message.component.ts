@@ -1,7 +1,7 @@
 // MuiChatMessage — Maple UI Molecules-L2 (unified-component-catalog.md §3).
 // One message bubble, built from Avatar, Text, Timestamp.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MuiAvatarComponent } from '../avatar/mui-avatar.component';
 import { MuiTextComponent } from '../text/mui-text.component';
 import { MuiTimestampComponent } from '../timestamp/mui-timestamp.component';
@@ -11,7 +11,7 @@ import { MuiTimestampComponent } from '../timestamp/mui-timestamp.component';
   standalone: true,
   imports: [MuiAvatarComponent, MuiTextComponent, MuiTimestampComponent],
   templateUrl: './mui-chat-message.component.html',
-  styleUrl: './mui-chat-message.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiChatMessageComponent {
@@ -21,4 +21,13 @@ export class MuiChatMessageComponent {
   /** Renders right-aligned, without a leading avatar, for the local user's
    * own messages. */
   readonly own = input<boolean>(false);
+
+  /** `own` reverses the row and mirrors the bubble alignment — mutually
+   * exclusive with the default layout, so this is one computed pair rather
+   * than a static class racing a conditional add-on. */
+  readonly rowClasses = computed(() => (this.own() ? 'flex-row-reverse' : ''));
+
+  readonly bubbleClasses = computed(() =>
+    this.own() ? 'bg-primary-dim items-end text-right' : 'bg-surface-alt',
+  );
 }
