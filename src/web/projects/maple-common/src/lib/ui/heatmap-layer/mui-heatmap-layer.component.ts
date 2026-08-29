@@ -14,8 +14,8 @@ import type { PlotFrame } from '../internal/plot-canvas';
   selector: 'mui-heatmap-layer',
   standalone: true,
   templateUrl: './mui-heatmap-layer.component.html',
-  styleUrl: './mui-heatmap-layer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiHeatmapLayerComponent extends SizedCanvasPlotBase {
   /** Rows of per-cell density, each 0..1. Every row must be the same

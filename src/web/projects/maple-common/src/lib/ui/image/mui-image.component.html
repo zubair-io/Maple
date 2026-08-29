@@ -1,15 +1,18 @@
-<div class="mui-image" [class]="'radius-' + radius()" [style.aspect-ratio]="aspectRatio()">
+<div
+  class="mui-image relative h-full w-full overflow-hidden bg-surface-alt"
+  [class]="radiusClass()"
+  [style.aspect-ratio]="aspectRatio()"
+>
   @if (!src() && placeholderBackground()) {
     <div
-      class="pixels gradient-placeholder is-loaded"
+      class="pixels gradient-placeholder is-loaded block h-full w-full bg-cover bg-center bg-no-repeat opacity-100 transition-opacity duration-200 ease-in-out"
       [style.background-image]="placeholderBackground()"
       aria-hidden="true"
     ></div>
   } @else if (!broken()) {
     <img
-      class="pixels"
-      [class]="'fit-' + fit()"
-      [class.is-loaded]="loaded()"
+      class="pixels block h-full w-full transition-opacity duration-200 ease-in-out"
+      [class]="pixelsClass()"
       [src]="src()"
       [alt]="alt()"
       loading="lazy"
@@ -17,7 +20,11 @@
       (load)="onLoad()"
     />
   } @else {
-    <div class="placeholder" role="img" [attr.aria-label]="alt()">
+    <div
+      class="placeholder flex h-full w-full items-center justify-center text-text-muted"
+      role="img"
+      [attr.aria-label]="alt()"
+    >
       <mui-icon name="photos" size="lg" />
     </div>
   }

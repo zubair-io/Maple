@@ -36,8 +36,8 @@ export type MuiDialogVariant = 'confirm' | 'prompt';
   standalone: true,
   imports: [MuiButtonComponent, MuiInputComponent, MuiTextComponent],
   templateUrl: './mui-dialog.component.html',
-  styleUrl: './mui-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'contents' },
 })
 export class MuiDialogComponent extends OverlayFocusBase {
   readonly title = input.required<string>();

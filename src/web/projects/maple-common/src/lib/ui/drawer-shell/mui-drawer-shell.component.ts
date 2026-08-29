@@ -22,6 +22,7 @@ import {
   Component,
   ElementRef,
   HostListener,
+  computed,
   input,
   model,
   output,
@@ -39,8 +40,8 @@ const DISMISS_FRACTION = 0.3;
   selector: 'mui-drawer-shell',
   standalone: true,
   templateUrl: './mui-drawer-shell.component.html',
-  styleUrl: './mui-drawer-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'contents' },
 })
 export class MuiDrawerShellComponent {
   /** Two-way: caller owns whether the drawer is presented; the drawer can
@@ -56,6 +57,27 @@ export class MuiDrawerShellComponent {
   readonly dismissed = output<void>();
 
   protected readonly dragDx = signal<number | null>(null);
+
+  /** Scrim positioning: fixed to the viewport, or absolute when `contained`. */
+  protected readonly scrimClass = computed(() => (this.contained() ? 'absolute' : 'fixed'));
+
+  /** Panel class list folds three independent axes into one computed so the
+   * template never juggles more than one `[class]` binding on the element:
+   * position (fixed vs `contained`'s absolute), edge (left vs right, which
+   * also flips the drop-shadow direction), and drag state (a live drag
+   * disables the CSS transition so the transform tracks the pointer 1:1). */
+  protected readonly panelClass = computed(() => {
+    const position = this.contained() ? 'absolute' : 'fixed';
+    const edgeClasses =
+      this.edge() === 'right'
+        ? 'left-auto right-0 shadow-[-12px_0_40px_rgba(0,0,0,0.5)]'
+        : 'left-0 shadow-[12px_0_40px_rgba(0,0,0,0.5)]';
+    const transition =
+      this.dragDx() !== null
+        ? 'transition-none'
+        : 'transition-transform duration-[var(--motion-drawer-ms)] ease-[var(--motion-drawer-ease)]';
+    return `${position} ${edgeClasses} ${transition}`;
+  });
 
   private readonly panelEl = viewChild<ElementRef<HTMLElement>>('panelEl');
 

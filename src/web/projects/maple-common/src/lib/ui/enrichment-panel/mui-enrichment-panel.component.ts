@@ -102,8 +102,8 @@ interface StageFeedbackVm {
     RouterLink,
   ],
   templateUrl: './mui-enrichment-panel.component.html',
-  styleUrl: './mui-enrichment-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiEnrichmentPanelComponent {
   readonly description = model<string>('');

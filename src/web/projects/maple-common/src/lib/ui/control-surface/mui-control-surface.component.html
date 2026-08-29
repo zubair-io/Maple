@@ -1,4 +1,4 @@
-<div class="mui-control-surface">
+<div class="mui-control-surface flex flex-col gap-4">
   <mui-tabs
     [tabs]="tabs()"
     [(activeId)]="activeTab"
@@ -6,7 +6,7 @@
     ariaLabel="Tool"
   />
 
-  <div class="body">
+  <div class="body flex flex-col gap-4">
     @if (sliders().length === 0) {
       <mui-empty-state
         icon="info"
@@ -14,10 +14,10 @@
         message="This tool has no sliders for the current selection."
       />
     } @else {
-      <div class="summary">
+      <div class="summary flex justify-end">
         <mui-value-chip label="Adjustments" [value]="sliderCount()" />
       </div>
-      <div class="sliders">
+      <div class="sliders flex flex-col gap-4">
         @for (s of sliders(); track s.id) {
           <mui-living-slider
             [label]="s.label"

@@ -1,32 +1,44 @@
 <div
-  class="mui-crop-overlay"
+  class="mui-crop-overlay relative overflow-hidden"
   [style.width.px]="containerSize().width"
   [style.height.px]="containerSize().height"
 >
   <div
-    class="mask"
+    class="mask pointer-events-none absolute shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]"
     [style.left.px]="rectStyle().left"
     [style.top.px]="rectStyle().top"
     [style.width.px]="rectStyle().width"
     [style.height.px]="rectStyle().height"
   ></div>
   <div
-    class="rect"
+    class="rect pointer-events-none absolute box-border border border-primary"
     [style.left.px]="rectStyle().left"
     [style.top.px]="rectStyle().top"
     [style.width.px]="rectStyle().width"
     [style.height.px]="rectStyle().height"
   >
-    <div class="grid-line vertical" [style.left.px]="thirdLines().v1"></div>
-    <div class="grid-line vertical" [style.left.px]="thirdLines().v2"></div>
-    <div class="grid-line horizontal" [style.top.px]="thirdLines().h1"></div>
-    <div class="grid-line horizontal" [style.top.px]="thirdLines().h2"></div>
+    <div
+      class="grid-line vertical absolute top-0 bottom-0 w-px bg-border-hi opacity-65"
+      [style.left.px]="thirdLines().v1"
+    ></div>
+    <div
+      class="grid-line vertical absolute top-0 bottom-0 w-px bg-border-hi opacity-65"
+      [style.left.px]="thirdLines().v2"
+    ></div>
+    <div
+      class="grid-line horizontal absolute left-0 right-0 h-px bg-border-hi opacity-65"
+      [style.top.px]="thirdLines().h1"
+    ></div>
+    <div
+      class="grid-line horizontal absolute left-0 right-0 h-px bg-border-hi opacity-65"
+      [style.top.px]="thirdLines().h2"
+    ></div>
   </div>
   @for (handle of handleLayout(); track handle.id) {
     <button
       type="button"
-      class="handle"
-      [class]="'handle-' + handle.id"
+      class="handle pointer-events-auto absolute -mt-[7px] -ml-[7px] h-[14px] w-[14px] touch-none rounded-full border-2 border-primary bg-surface p-0"
+      [class]="'handle-' + handle.id + ' ' + handle.cursorClass"
       [attr.aria-label]="'Resize crop — ' + handle.label"
       [style.left.px]="handle.left"
       [style.top.px]="handle.top"

@@ -1,4 +1,4 @@
-<div class="field">
+<div class="field flex flex-col gap-1">
   <mui-text variant="tool-label" color="muted" [block]="true">Format</mui-text>
   <mui-segmented-toggle
     [options]="formatOptions()"
@@ -23,7 +23,7 @@
   />
 }
 
-<div class="field">
+<div class="field flex flex-col gap-1">
   <mui-text variant="tool-label" color="muted" [block]="true">Color space</mui-text>
   <mui-segmented-toggle
     [options]="colorSpaceOptions()"
@@ -38,7 +38,7 @@
 </div>
 
 @if (sizeOptions().length > 0) {
-  <div class="field">
+  <div class="field flex flex-col gap-1">
     <mui-text variant="tool-label" color="muted" [block]="true">Size</mui-text>
     <mui-segmented-toggle
       [options]="sizeToggleOptions()"

@@ -12,8 +12,8 @@ import type { MuiPopoverPlacement } from '../popover/mui-popover.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiFormFieldComponent, MuiPopoverComponent],
   templateUrl: './mui-event-popover.component.html',
-  styleUrl: './mui-event-popover.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'contents' },
 })
 export class MuiEventPopoverComponent {
   readonly open = input<boolean>(false);

@@ -1,13 +1,13 @@
-<div class="mui-empty-state">
-  <mui-icon [name]="icon()" size="xl" class="icon" [decorative]="true" />
+<div class="mui-empty-state flex flex-col items-center gap-1 p-6 text-center">
+  <mui-icon [name]="icon()" size="xl" class="icon mb-1 text-border-hi" [decorative]="true" />
   <mui-text variant="row-label" [block]="true" class="title">{{ title() }}</mui-text>
   @if (message()) {
-    <mui-text variant="body" color="muted" [block]="true" class="message">
+    <mui-text variant="body" color="muted" [block]="true" class="message max-w-[32ch]">
       {{ message() }}
     </mui-text>
   }
   @if (actionLabel()) {
-    <mui-button variant="secondary" size="sm" (pressed)="actionPressed.emit()">
+    <mui-button variant="secondary" size="sm" class="mt-1" (pressed)="actionPressed.emit()">
       {{ actionLabel() }}
     </mui-button>
   }

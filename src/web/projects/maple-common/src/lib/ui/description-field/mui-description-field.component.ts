@@ -15,8 +15,8 @@ import { InlineEditBase, commitEditDraft } from '../internal/edit-in-place';
   standalone: true,
   imports: [MuiButtonComponent, MuiInputComponent, MuiTextComponent],
   templateUrl: './mui-description-field.component.html',
-  styleUrl: './mui-description-field.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiDescriptionFieldComponent extends InlineEditBase {
   readonly value = model<string>('');

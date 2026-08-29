@@ -14,8 +14,8 @@ export type MuiFrameTimeStatus = 'good' | 'warn' | 'bad';
   standalone: true,
   imports: [MuiTextComponent],
   templateUrl: './mui-frame-time-hud.component.html',
-  styleUrl: './mui-frame-time-hud.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'inline-block' },
 })
 export class MuiFrameTimeHudComponent {
   readonly frameMs = input.required<number>();
@@ -38,5 +38,17 @@ export class MuiFrameTimeHudComponent {
     if (ms > this.hardLimitMs()) return 'bad';
     if (ms > this.budgetMs()) return 'warn';
     return 'good';
+  });
+
+  /** Readout text color, keyed off the same mutually-exclusive `status`. */
+  readonly readoutColorClass = computed(() => {
+    switch (this.status()) {
+      case 'bad':
+        return 'text-error-text';
+      case 'warn':
+        return 'text-warn';
+      default:
+        return 'text-success-text';
+    }
   });
 }

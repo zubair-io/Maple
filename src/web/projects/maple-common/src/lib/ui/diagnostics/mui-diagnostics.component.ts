@@ -38,8 +38,8 @@ const STATUS_BADGE_VARIANT: Record<MuiDiagnosticCheckStatus, MuiBadgeVariant> = 
   standalone: true,
   imports: [MuiBadgeComponent, MuiButtonComponent, MuiCodeBlockComponent, MuiTextComponent],
   templateUrl: './mui-diagnostics.component.html',
-  styleUrl: './mui-diagnostics.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiDiagnosticsComponent {
   readonly checks = input.required<readonly MuiDiagnosticCheck[]>();

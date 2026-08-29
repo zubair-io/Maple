@@ -1,5 +1,9 @@
-<div class="mui-form-field" [class.is-disabled]="disabled()">
-  <mui-text variant="tool-label" color="muted" [block]="true" class="label">
+<div
+  class="mui-form-field flex flex-col gap-1"
+  [class.is-disabled]="disabled()"
+  [class.opacity-60]="disabled()"
+>
+  <mui-text variant="tool-label" color="muted" [block]="true" class="label font-semibold">
     {{ label() }}{{ required() ? ' *' : '' }}
   </mui-text>
   <mui-input
