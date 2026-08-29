@@ -1,20 +1,31 @@
 <!-- fallow-ignore-file complexity -->
 <!-- One cohesive CRUD panel intentionally keeps loading/error/empty/one-time-secret states together. -->
 <section class="integration-keys">
-  <div class="section-heading">
+  <div class="section-heading flex justify-between gap-4">
     <div>
-      <div class="subhead">SugarMaple integration</div>
-      <p>
+      <div
+        class="subhead text-[var(--s-text-dim)] text-[10px] font-semibold tracking-[0.14em] uppercase mb-1.5"
+      >
+        SugarMaple integration
+      </div>
+      <p class="max-w-[680px] m-0 mb-3.5 text-[var(--s-text-muted)] text-[12.5px] leading-[1.55]">
         Create a dedicated key for SugarMaple to search this library. It cannot access Meilisearch
         directly, change photos, or use other Maple APIs.
       </p>
     </div>
   </div>
 
-  <div class="endpoint-row">
-    <div class="endpoint-copy">
-      <span class="field-label">Search endpoint</span>
-      <code>{{ endpoint }}</code>
+  <div
+    class="endpoint-row flex items-center justify-between gap-3 py-2.5 px-3 border-[0.5px] border-[var(--s-border)] rounded-md bg-[var(--s-surface)] max-[767px]:items-stretch max-[767px]:flex-col"
+  >
+    <div class="endpoint-copy min-w-0">
+      <span class="field-label block mb-1 text-[var(--s-text-muted)] text-[11px]"
+        >Search endpoint</span
+      >
+      <code
+        class="text-[var(--s-text)] font-[var(--s-mono)] text-[11.5px] [overflow-wrap:anywhere]"
+        >{{ endpoint }}</code
+      >
     </div>
     <mui-button
       variant="ghost"
@@ -27,9 +38,14 @@
     </mui-button>
   </div>
 
-  <form class="create-form" (ngSubmit)="create()">
-    <div class="field">
-      <label class="field-label" for="serviceKeyName">Key name</label>
+  <form
+    class="create-form grid grid-cols-[minmax(180px,1fr)_170px_auto] gap-2.5 items-end mt-3.5 max-[767px]:grid-cols-1"
+    (ngSubmit)="create()"
+  >
+    <div class="field flex flex-col gap-1.5">
+      <label class="field-label text-[var(--s-text-muted)] text-[11px]" for="serviceKeyName"
+        >Key name</label
+      >
       <mui-input
         inputId="serviceKeyName"
         [(value)]="name"
@@ -37,9 +53,16 @@
         ariaLabel="Key name"
       />
     </div>
-    <div class="field">
-      <label class="field-label" for="serviceKeyExpiry">Expires</label>
-      <select id="serviceKeyExpiry" name="serviceKeyExpiry" [(ngModel)]="expiry">
+    <div class="field flex flex-col gap-1.5">
+      <label class="field-label text-[var(--s-text-muted)] text-[11px]" for="serviceKeyExpiry"
+        >Expires</label
+      >
+      <select
+        id="serviceKeyExpiry"
+        name="serviceKeyExpiry"
+        [(ngModel)]="expiry"
+        class="box-border w-full h-[34px] border-[0.5px] border-[var(--s-border-hi)] rounded-[5px] outline-none bg-[var(--s-surface2)] text-[var(--s-text)] font-[var(--s-font)] text-[12.5px] px-2.5 focus:border-[var(--s-accent)] focus:shadow-[0_0_0_2px_var(--s-accent-bg)]"
+      >
         <option value="30">In 30 days</option>
         <option value="90">In 90 days</option>
         <option value="365">In 1 year</option>
@@ -57,22 +80,35 @@
       Generate key
     </mui-button>
   </form>
-  <p class="form-hint">You will be asked to confirm with an owner passkey.</p>
+  <p class="form-hint mt-1.5 mb-0 text-[var(--s-text-dim)] text-[11.5px]">
+    You will be asked to confirm with an owner passkey.
+  </p>
 
   @if (freshKey(); as created) {
-    <div class="fresh-key" role="status">
-      <div class="fresh-heading">
+    <div
+      class="fresh-key mt-3.5 p-3 border-[0.5px] rounded-md border-[rgba(74,222,128,0.4)] bg-[rgba(74,222,128,0.06)]"
+      role="status"
+    >
+      <div class="fresh-heading flex items-start justify-between gap-3">
         <div>
-          <strong>Copy this key now</strong>
-          <span>It will not be shown again after you dismiss it.</span>
+          <strong class="block text-[var(--s-text)] text-[12.5px]">Copy this key now</strong>
+          <span class="block mt-0.5 text-[var(--s-text-muted)] text-[11.5px]"
+            >It will not be shown again after you dismiss it.</span
+          >
         </div>
         <mui-button variant="ghost" size="sm" class="dismiss-btn" (pressed)="dismissFreshKey()">
           Dismiss
         </mui-button>
       </div>
-      <div class="secret-row">
-        <code>{{ created.key }}</code>
+      <div
+        class="secret-row flex items-center gap-2.5 mt-2.5 max-[767px]:items-stretch max-[767px]:flex-col"
+      >
+        <code
+          class="flex-1 min-w-0 py-2.5 px-2.5 rounded-[4px] bg-[var(--s-surface2)] text-[var(--s-text)] font-[var(--s-mono)] text-[11.5px] [overflow-wrap:anywhere] select-all"
+          >{{ created.key }}</code
+        >
         <mui-button
+          class="shrink-0"
           variant="primary"
           size="sm"
           ariaLabel="Copy new SugarMaple API key"
@@ -90,10 +126,12 @@
   }
 
   @if (error(); as message) {
-    <p class="error" role="alert">{{ message }}</p>
+    <p class="error mt-2.5 mb-0 text-[var(--s-err)] text-xs" role="alert">{{ message }}</p>
   }
 
-  <div class="key-list-heading">
+  <div
+    class="key-list-heading flex items-center justify-between my-4.5 mb-2 text-[var(--s-text-dim)] text-[10px] font-semibold tracking-[0.14em] uppercase"
+  >
     <span>Integration keys</span>
     @if (keys() === null && error()) {
       <mui-button variant="ghost" size="sm" class="retry-btn" (pressed)="reload()">
@@ -104,25 +142,30 @@
 
   @if (keys(); as list) {
     @if (list.length === 0) {
-      <p class="empty">No SugarMaple integration keys yet.</p>
+      <p class="empty m-0 text-[var(--s-text-muted)] text-xs italic">
+        No SugarMaple integration keys yet.
+      </p>
     } @else {
-      <div class="key-list">
+      <div
+        class="key-list border-[0.5px] border-[var(--s-border)] rounded-md bg-[var(--s-surface)]"
+      >
         @for (key of list; track key.keyId) {
           @let keyStatus = status(key);
-          <div class="key-row">
-            <div class="key-details">
-              <div class="key-name">
+          <div
+            class="key-row flex items-center gap-3 py-[11px] px-3 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0"
+          >
+            <div class="key-details flex-1 min-w-0">
+              <div
+                class="key-name flex items-center gap-[7px] text-[var(--s-text)] text-[12.5px] font-medium"
+              >
                 {{ key.name }}
-                <span
-                  class="status"
-                  [class.active]="keyStatus === 'Active'"
-                  [class.expired]="keyStatus === 'Expired'"
-                  [class.revoked]="keyStatus === 'Revoked'"
-                >
+                <span [class]="statusPillClasses(keyStatus)">
                   {{ keyStatus }}
                 </span>
               </div>
-              <div class="key-meta mono">
+              <div
+                class="key-meta mono mt-[3px] text-[var(--s-text-muted)] text-[10.5px] leading-[1.45] [overflow-wrap:anywhere]"
+              >
                 {{ key.prefix }}… · created {{ key.createdAt | date: 'mediumDate' }}
                 @if (key.lastUsedAt) {
                   · last used {{ key.lastUsedAt | date: 'medium' }}
@@ -153,6 +196,6 @@
       </div>
     }
   } @else if (!error()) {
-    <p class="empty">Loading integration keys…</p>
+    <p class="empty m-0 text-[var(--s-text-muted)] text-xs italic">Loading integration keys…</p>
   }
 </section>
