@@ -28,7 +28,7 @@ export interface MuiAddServerRequest {
     MuiOverlayShellComponent,
   ],
   templateUrl: './mui-add-server-modal.component.html',
-  styleUrl: './mui-add-server-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiAddServerModalComponent {

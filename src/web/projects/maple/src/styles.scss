@@ -17,6 +17,10 @@
 // NOT in this partial — it stays local, wrapped in `@layer base` at each
 // app's own entrypoint (Hosted matched this in #3035).
 @use '../../maple-common/src/lib/base-chrome';
+// `mui-chrome-*` component classes shared by the internal mui organism
+// mixins (modal-form, menu-item, control-shell, media-transport — #3071
+// Task 2), wrapped in `@layer components`.
+@use '../../maple-common/src/lib/styles/chrome';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 // Wrap the universal margin/padding reset in `@layer base` so Tailwind v4

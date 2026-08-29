@@ -1,20 +1,7 @@
 @use '../../generated/ui-tokens' as tok;
-@use '../internal/control-shell' as shell;
 
 :host {
   display: block;
-}
-
-.mui-living-slider {
-  @include shell.labeled-control-column;
-}
-
-.row {
-  @include shell.control-row;
-}
-
-.readout {
-  @include shell.control-readout;
 }
 
 .track {
@@ -52,8 +39,4 @@
   box-shadow: 0 0 0 2px var(--color-primary);
   transform: translate(-50%, -50%);
   pointer-events: none;
-}
-
-.is-disabled {
-  @include shell.control-disabled-state;
 }
