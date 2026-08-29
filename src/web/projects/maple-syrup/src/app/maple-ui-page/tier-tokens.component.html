@@ -1,72 +1,104 @@
-<div class="tier-head" id="tier-0">
-  <div class="tier-kicker">0 &middot; Tokens</div>
-  <div class="tier-rule"></div>
-  <div class="tier-desc">
+<div class="m-0 mb-10" id="tier-0">
+  <div class="mb-[10px] text-[14px] font-bold uppercase tracking-[0.12em] text-[#993629]">
+    0 &middot; Tokens
+  </div>
+  <div class="mb-4 h-[3px] w-16 bg-[#993629]"></div>
+  <div class="text-[14px] text-[#a8a29e]">
     The foundation wave. Values below render live from the generated single-source tables (Maple's
     Canvas Dark register).
   </div>
 </div>
 
-<section class="token-section">
-  <h2>Color tokens</h2>
-  <div class="swatch-grid">
+<section class="mb-12">
+  <h2 class="m-0 mb-4 pb-2 text-[1.25rem] font-semibold border-b border-[#e7e5e4]">Color tokens</h2>
+  <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
     @for (token of colorTokens; track token.key) {
-      <div class="swatch">
-        <div class="swatch-chip" [style.background]="token.value"></div>
-        <div class="swatch-meta">
-          <span class="token-name">{{ token.key }}</span>
-          <code class="token-value">{{ token.value }}</code>
+      <div class="flex items-center gap-3">
+        <div
+          class="h-12 w-12 shrink-0 rounded-lg border border-[#e7e5e4]"
+          [style.background]="token.value"
+        ></div>
+        <div class="flex min-w-0 flex-col gap-0.5">
+          <span class="text-[0.8125rem] font-semibold">{{ token.key }}</span>
+          <code class="text-[0.75rem] text-[#78716c] [overflow-wrap:anywhere]">{{
+            token.value
+          }}</code>
         </div>
       </div>
     }
   </div>
 </section>
 
-<section class="token-section">
-  <h2>Radius scale</h2>
-  <div class="scale-row">
+<section class="mb-12">
+  <h2 class="m-0 mb-4 pb-2 text-[1.25rem] font-semibold border-b border-[#e7e5e4]">Radius scale</h2>
+  <div class="flex flex-wrap items-end gap-6">
     @for (token of radiusTokens; track token.key) {
-      <div class="scale-item">
-        <div class="radius-demo" [style.border-radius.px]="token.px > 100 ? 999 : token.px"></div>
-        <span class="token-name">radius.{{ token.key }}</span>
-        <code class="token-value">{{ token.px }}px</code>
+      <div class="flex flex-col items-center gap-1.5">
+        <div
+          class="h-16 w-16 border border-[#d6d3d1] bg-[#f5f2eb]"
+          [style.border-radius.px]="token.px > 100 ? 999 : token.px"
+        ></div>
+        <span class="text-[0.8125rem] font-semibold">radius.{{ token.key }}</span>
+        <code class="text-[0.75rem] text-[#78716c]">{{ token.px }}px</code>
       </div>
     }
   </div>
 </section>
 
-<section class="token-section">
-  <h2>Spacing scale</h2>
-  <div class="scale-row">
+<section class="mb-12">
+  <h2 class="m-0 mb-4 pb-2 text-[1.25rem] font-semibold border-b border-[#e7e5e4]">
+    Spacing scale
+  </h2>
+  <div class="flex flex-wrap items-end gap-6">
     @for (token of spacingTokens; track token.key) {
-      <div class="scale-item">
-        <div class="spacing-demo" [style.width.px]="token.px"></div>
-        <span class="token-name">spacing.{{ token.key }}</span>
-        <code class="token-value">{{ token.px }}px</code>
+      <div class="flex flex-col items-center gap-1.5">
+        <div
+          class="rounded-[2px] bg-[#993629]"
+          [style.width.px]="token.px"
+          [style.height.px]="24"
+        ></div>
+        <span class="text-[0.8125rem] font-semibold">spacing.{{ token.key }}</span>
+        <code class="text-[0.75rem] text-[#78716c]">{{ token.px }}px</code>
       </div>
     }
   </div>
 </section>
 
-<section class="token-section">
-  <h2>Motion tokens</h2>
-  <table class="motion-table">
+<section class="mb-12">
+  <h2 class="m-0 mb-4 pb-2 text-[1.25rem] font-semibold border-b border-[#e7e5e4]">
+    Motion tokens
+  </h2>
+  <table class="w-full border-collapse">
     <thead>
       <tr>
-        <th>Token</th>
-        <th>Duration</th>
-        <th>Easing</th>
+        <th
+          class="border-b border-[#e7e5e4] py-2 pl-0 pr-4 text-left text-[0.75rem] font-semibold uppercase tracking-[0.05em] text-[#78716c]"
+        >
+          Token
+        </th>
+        <th
+          class="border-b border-[#e7e5e4] py-2 pl-0 pr-4 text-left text-[0.75rem] font-semibold uppercase tracking-[0.05em] text-[#78716c]"
+        >
+          Duration
+        </th>
+        <th
+          class="border-b border-[#e7e5e4] py-2 pl-0 pr-4 text-left text-[0.75rem] font-semibold uppercase tracking-[0.05em] text-[#78716c]"
+        >
+          Easing
+        </th>
       </tr>
     </thead>
     <tbody>
       @for (token of motionTokens; track token.key) {
         <tr>
-          <td>
-            <span class="token-name">{{ token.key }}</span>
+          <td class="border-b border-[#e7e5e4] py-2 pl-0 pr-4 text-left text-[0.875rem]">
+            <span class="text-[0.8125rem] font-semibold">{{ token.key }}</span>
           </td>
-          <td>{{ token.ms }}ms</td>
-          <td>
-            <code class="token-value">{{ token.ease }}</code>
+          <td class="border-b border-[#e7e5e4] py-2 pl-0 pr-4 text-left text-[0.875rem]">
+            {{ token.ms }}ms
+          </td>
+          <td class="border-b border-[#e7e5e4] py-2 pl-0 pr-4 text-left text-[0.875rem]">
+            <code class="text-[0.75rem] text-[#78716c]">{{ token.ease }}</code>
           </td>
         </tr>
       }

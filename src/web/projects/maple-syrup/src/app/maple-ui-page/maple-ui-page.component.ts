@@ -59,7 +59,12 @@ export const CATALOG_TABS: readonly { readonly id: CatalogTab; readonly label: s
     TierPagesComponent,
   ],
   templateUrl: './maple-ui-page.component.html',
-  styleUrl: './maple-ui-page.component.scss',
+  // Fixed height, not min-height: the global shell styles put
+  // `overflow: hidden` on html/body, so this host must be the scroll
+  // container — same pattern as landing.component.ts.
+  host: {
+    class: 'block h-screen bg-[#fdfbf7] text-[#292524] overflow-auto font-[Lato,_sans-serif]',
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MapleUiPageComponent {

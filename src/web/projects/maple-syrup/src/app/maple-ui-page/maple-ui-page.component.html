@@ -1,16 +1,18 @@
-<main class="maple-ui">
-  <header class="page-header">
-    <div class="eyebrow">Just Maple + Maple &mdash; Design System</div>
-    <h1>Unified Component Catalog</h1>
-    <p class="subtitle">
+<main class="mx-auto max-w-[1680px] pt-24 px-10 pb-[120px]">
+  <header class="mb-4">
+    <div class="mb-5 text-[13px] font-bold uppercase tracking-[0.12em] text-[#993629]">
+      Just Maple + Maple &mdash; Design System
+    </div>
+    <h1 class="m-0 mb-5 text-[56px] font-semibold leading-[1.1]">Unified Component Catalog</h1>
+    <p class="m-0 mb-6 max-w-[820px] text-[17px] leading-[1.6] text-[#78716c]">
       Every element the two products need, grouped by what it is. Atoms are live specimens;
       molecules are composed from them; organisms, templates and pages are shown as region diagrams
       with what they're built from. Tokens render live from the generated single-source tables.
     </p>
-    <nav class="cat-tabs">
+    <nav class="flex flex-wrap gap-7 border-t border-[#e7e5e4] pt-5">
       @for (tab of tabs; track tab.id) {
         <a
-          class="cat-tab"
+          class="cat-tab cursor-pointer text-[14px] font-semibold text-[#78716c] hover:text-[#993629] [&.active]:text-[#993629]"
           [class.active]="activeTab() === tab.id"
           (click)="selectTab(tab.id)"
           (keydown.enter)="selectTab(tab.id)"
@@ -23,35 +25,35 @@
     </nav>
   </header>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'tokens' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'tokens' ? 'block' : 'none'">
     <app-tier-tokens />
   </div>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'atoms' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'atoms' ? 'block' : 'none'">
     <app-tier-atoms />
     <app-atom-contracts />
   </div>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'molecules1' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'molecules1' ? 'block' : 'none'">
     <app-tier-molecules1-form />
     <app-tier-molecules1-structure />
   </div>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'molecules2' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'molecules2' ? 'block' : 'none'">
     <app-tier-molecules2 />
   </div>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'organisms' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'organisms' ? 'block' : 'none'">
     <app-tier-organisms-collections />
     <app-tier-organisms-modals />
     <app-tier-organisms-editing />
   </div>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'templates' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'templates' ? 'block' : 'none'">
     <app-tier-templates />
   </div>
 
-  <div class="tab-panel" [style.display]="activeTab() === 'pages' ? 'block' : 'none'">
+  <div class="tab-panel pt-14" [style.display]="activeTab() === 'pages' ? 'block' : 'none'">
     <app-tier-pages />
   </div>
 </main>
