@@ -28,7 +28,6 @@ import { MuiButtonComponent } from '../../ui/button/mui-button.component';
   standalone: true,
   imports: [MuiButtonComponent],
   templateUrl: './folder-rename-dialog.component.html',
-  styleUrl: './folder-rename-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderRenameDialogComponent implements AfterViewInit {

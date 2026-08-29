@@ -1,5 +1,5 @@
 @if (auth.canBrowseFiles) {
-  <div class="section-bar flex items-center pl-4 pr-3">
+  <div class="section-bar box-border h-7 flex items-center pl-4 pr-3">
     <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
       >Library</span
     >
@@ -32,7 +32,7 @@
       <app-folder-tree-library-root [section]="section" (crudRequested)="onCrudRequested($event)" />
     } @else if (section.kind === 'subheader') {
       <div
-        class="section-bar flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"
+        class="section-bar box-border h-7 flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"
       >
         {{ section.label }}
       </div>
