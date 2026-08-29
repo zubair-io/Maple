@@ -50,12 +50,16 @@ export class MuiActionButtonComponent {
 
   readonly iconSize = () => ICON_SIZE_BY_BUTTON_SIZE[this.size()];
 
-  /** `selected` colors win outright over the default+hover pair — mutually
-   * exclusive, one computed string per the conversion recipe (matches the
-   * established mui-button `active`/`toggled` pattern). */
+  /** Mutually exclusive per the conversion recipe — one computed string,
+   * not a static class racing a conditional add-on. In the original SCSS
+   * `.mui-action-button:not(:disabled):hover` (specificity 0,3,0) beats
+   * `.mui-action-button.selected` (0,2,0), so a selected button still
+   * repaints to the hover background/text on hover — only the border stays
+   * primary. The selected branch reproduces that by layering the same
+   * `enabled:hover:` bg/text utilities on top of the selected colors. */
   readonly colorClasses = computed(() =>
     this.selected()
-      ? 'bg-primary-dim text-primary border-primary'
+      ? 'bg-primary-dim text-primary border-primary enabled:hover:bg-surface-hover enabled:hover:text-text-main'
       : 'bg-transparent text-text-muted border-transparent enabled:hover:bg-surface-hover enabled:hover:text-text-main',
   );
 
