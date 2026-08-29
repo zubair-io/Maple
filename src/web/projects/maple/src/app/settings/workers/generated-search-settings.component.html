@@ -29,16 +29,16 @@
     </mui-button>
   </div>
 
-  <div class="panel">
+  <div class="flex flex-col gap-3 pt-3 pb-4">
     @if (loading()) {
-      <p class="muted">Loading…</p>
+      <p class="opacity-70 text-[0.85rem] m-0">Loading…</p>
     } @else {
       @if (error(); as message) {
-        <p class="error" role="alert">{{ message }}</p>
+        <p class="text-[#ff6b6b] text-[0.85rem] m-0" role="alert">{{ message }}</p>
       }
 
       <!-- Master switch first: everything below is inert while paused. -->
-      <div class="row">
+      <div class="flex items-center gap-3">
         <mui-checkbox
           label="Run daily"
           [checked]="enabled()"
@@ -46,7 +46,7 @@
           (checkedChange)="toggleEnabled()"
         />
         @if (saved()) {
-          <span class="saved">Saved</span>
+          <span class="text-[0.8rem] opacity-70">Saved</span>
         }
       </div>
 

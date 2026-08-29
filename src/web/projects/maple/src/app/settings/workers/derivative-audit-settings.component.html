@@ -30,19 +30,19 @@
     </mui-button>
   </div>
 
-  <div class="audit-body">
-    <p class="audit-desc">
+  <div class="flex flex-col gap-3.5 px-4 pt-1 pb-3">
+    <p class="m-0 text-[12.5px] leading-[1.5] text-[var(--s-text-muted)] max-w-[60ch]">
       Verifies each asset's thumbnail, preview, and description on disk (and its thumbnail in
       Cloudflare R2), and re-runs the stage that owns any derivative that has drifted — most often
       after a file was moved and its <span class="set-mono">.maple</span> cache did not follow.
     </p>
 
     @if (error(); as msg) {
-      <div class="audit-error" data-testid="audit-error">{{ msg }}</div>
+      <div class="text-[12.5px] text-[var(--s-err)]" data-testid="audit-error">{{ msg }}</div>
     }
 
     @if (loading()) {
-      <p class="audit-hint">Loading…</p>
+      <p class="text-[12.5px] text-[var(--s-text-muted)]">Loading…</p>
     } @else if (config(); as cfg) {
       <mui-checkbox
         label="Enabled — run automatically in the background"
@@ -51,7 +51,7 @@
         (checkedChange)="toggleEnabled($event)"
       />
 
-      <div class="audit-grid">
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 gap-x-6">
         <div class="field set-field">
           <label class="field-label" for="audit-max-resets-input">Max re-arms per pass</label>
           <div class="num-input set-num-input">
@@ -118,17 +118,20 @@
       </div>
 
       @if (stageCounts().length > 0) {
-        <div class="audit-stage-counts" data-testid="audit-stage-counts">
-          <span class="counts-label">Last pass re-armed:</span>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs" data-testid="audit-stage-counts">
+          <span class="text-[var(--s-text-dim)]">Last pass re-armed:</span>
           @for (s of stageCounts(); track s.stage) {
-            <span class="count-chip">{{ s.stage }}: {{ s.count }}</span>
+            <span
+              class="py-0.5 px-[7px] rounded-[4px] bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] [font-variant-numeric:tabular-nums]"
+              >{{ s.stage }}: {{ s.count }}</span
+            >
           }
         </div>
       }
 
-      <div class="audit-footer">
+      <div class="flex items-center justify-end gap-2.5">
         @if (saved()) {
-          <span class="save-ok" role="status">Saved.</span>
+          <span class="text-[11.5px] text-[var(--s-ok)]" role="status">Saved.</span>
         }
         <mui-button
           variant="primary"

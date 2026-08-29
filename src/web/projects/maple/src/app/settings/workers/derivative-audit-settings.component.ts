@@ -45,7 +45,6 @@ interface AuditDraft {
     SettingsIconComponent,
   ],
   templateUrl: './derivative-audit-settings.component.html',
-  styleUrl: './derivative-audit-settings.component.scss',
   host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
