@@ -34,6 +34,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { importPercent } from './import-progress.vm';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription, timer, switchMap } from 'rxjs';
 import {
@@ -130,11 +131,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
   protected readonly active = signal<ImportSummary | null>(null);
   private poll: Subscription | null = null;
 
-  protected readonly percent = computed(() => {
-    const a = this.active();
-    if (!a || a.progress.total === 0) return 0;
-    return Math.round((a.progress.current / a.progress.total) * 100);
-  });
+  protected readonly percent = computed(() => importPercent(this.active()));
   protected readonly terminal = computed(() => {
     const s = this.active()?.status;
     return s === 'done' || s === 'failed' || s === 'cancelled';
