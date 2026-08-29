@@ -37,6 +37,7 @@ const DEFAULT_POINTS: readonly MuiCurvePoint[] = [
   templateUrl: './mui-curve-plot.component.html',
   styleUrl: './mui-curve-plot.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiCurvePlotComponent {
   readonly points = model<readonly MuiCurvePoint[]>(DEFAULT_POINTS);

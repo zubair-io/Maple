@@ -1,11 +1,11 @@
-<div class="mui-hsl-panel">
+<div class="mui-hsl-panel flex flex-col gap-4">
   <mui-chip-row
     [chips]="bands()"
     mode="select"
     [selectedId]="activeBandId()"
     (selectedIdChange)="selectBand($event)"
   />
-  <div class="sliders">
+  <div class="sliders flex flex-col gap-2">
     <mui-living-slider
       label="Hue"
       [value]="activeValue().hue"
