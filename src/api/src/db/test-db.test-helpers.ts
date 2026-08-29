@@ -19,6 +19,35 @@
  */
 
 import { beforeAll, afterAll } from 'bun:test';
+import { MongoClient } from 'mongodb';
+
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+
+/**
+ * Connect to the test Mongo, or return `null` when none is reachable — the
+ * signal every Mongo-backed suite uses to skip-pass rather than fail on a
+ * machine (or a CI job) without a database. Short timeouts so that verdict
+ * arrives in a second and a half rather than at bun's test timeout.
+ *
+ * One copy, shared: each suite that rolled its own drifted on the timeouts
+ * and on whether the half-open client was closed after a failed connect.
+ */
+export async function tryConnectTestMongo(): Promise<MongoClient | null> {
+  const client = new MongoClient(MONGO_URI, {
+    serverSelectionTimeoutMS: 1500,
+    connectTimeoutMS: 1500,
+  });
+  try {
+    await client.connect();
+    await client.db('admin').command({ ping: 1 });
+    return client;
+  } catch {
+    try {
+      await client.close();
+    } catch {}
+    return null;
+  }
+}
 
 /**
  * Override `process.env[name]` for the duration of this suite, restoring

@@ -28,8 +28,8 @@ import {
   getImportFiles,
   listImports,
   requestImportCancel,
-  retryImport,
 } from '../imports/repo.ts';
+import { retryImport } from '../imports/retry.ts';
 import { loadNearbyAssetCandidates } from '../imports/nearby.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 

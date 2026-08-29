@@ -6,28 +6,9 @@
  */
 
 import { beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { ObjectId, type Db, type MongoClient } from 'mongodb';
+import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
 import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-export async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
 
 export function makeEmbedding(dim: number, seed: number): number[] {
   const out: number[] = new Array(dim);
@@ -58,7 +39,7 @@ export function setupMongoHarness(testDb: string): {
   withTestDb(testDb);
 
   beforeAll(async () => {
-    mongo = await tryConnect();
+    mongo = await tryConnectTestMongo();
     mongoReachable = mongo !== null;
     if (!mongoReachable) {
       console.log(`[${testDb}] skipping: MongoDB unreachable`);
