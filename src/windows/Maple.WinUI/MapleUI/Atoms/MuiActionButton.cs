@@ -85,6 +85,27 @@ namespace Maple.UI.Atoms
             _content.Children.Add(_label);
             Content = _content;
 
+            // Lightweight-styling override (#3069): the default ToggleButton
+            // template paints its Checked visual states with the
+            // ToggleButtonBackgroundChecked* system-accent theme brushes, and
+            // VisualStateManager setters outrank the local values
+            // ApplyColors() sets — so the armed state rendered in whatever
+            // accent color Windows is set to instead of Maple primary.
+            // Re-pointing the per-control theme brushes at the Maple tokens
+            // fixes the checked state without the ControlTemplate rewrite
+            // MuiStyles.xaml's header rules out.
+            foreach (var key in new[]
+            {
+                "ToggleButtonBackgroundChecked", "ToggleButtonBackgroundCheckedPointerOver", "ToggleButtonBackgroundCheckedPressed",
+            })
+                Resources[key] = R("MaplePrimaryDim");
+            foreach (var key in new[]
+            {
+                "ToggleButtonForegroundChecked", "ToggleButtonForegroundCheckedPointerOver", "ToggleButtonForegroundCheckedPressed",
+                "ToggleButtonBorderBrushChecked", "ToggleButtonBorderBrushCheckedPointerOver", "ToggleButtonBorderBrushCheckedPressed",
+            })
+                Resources[key] = R("MaplePrimary");
+
             Checked += (_, _) => Rebuild();
             Unchecked += (_, _) => Rebuild();
             IsEnabledChanged += (_, _) => Rebuild();

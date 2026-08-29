@@ -95,6 +95,16 @@ namespace Maple.UI.Atoms
             IsTabStop = false;
             AutomationProperties.SetAccessibilityView(this, AccessibilityView.Content);
 
+            // #3069: ContentControl's default HorizontalContentAlignment is
+            // Left, which sizes the content StackPanel to its natural width
+            // — for a bar-shaped Progress that is just the caption's ~32px,
+            // so a `Width = 140, Value = 62` host rendered a 62%-of-32px
+            // sliver (the native bar itself was fine; UIA showed the bar
+            // element at 32x9). Stretch the content so the bar fills
+            // whatever width the host is given — the same ContentControl
+            // default-alignment trap MuiIcon hit.
+            HorizontalContentAlignment = HorizontalAlignment.Stretch;
+
             Rebuild();
         }
 
