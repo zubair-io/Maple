@@ -32,7 +32,6 @@ type LoadState = { kind: 'loading' } | { kind: 'loaded' } | { kind: 'error'; mes
     MuiButtonComponent,
   ],
   templateUrl: './sources.component.html',
-  styleUrl: './sources.component.scss',
   host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -8,7 +8,7 @@
         re-mount it (or plug the drive back in) and it reappears on its own.
       </p>
     </div>
-    <div class="header-actions">
+    <div class="header-actions flex items-center gap-2.5">
       <mui-button
         variant="ghost"
         size="sm"
@@ -27,45 +27,69 @@
     </div>
   </header>
 
-  <div class="sources-body">
+  <div class="sources-body px-9 py-6 flex flex-col gap-[18px] max-w-[820px] max-[767px]:p-4">
     @if (loadState().kind === 'loading') {
-      <p class="muted">Loading sources…</p>
+      <p class="text-[var(--s-text-dim)] text-[12.5px] m-0">Loading sources…</p>
     } @else if (loadState(); as ls) {
       @if (ls.kind === 'error') {
-        <p class="error">Failed to load sources: {{ ls.message }}</p>
+        <p class="error text-[var(--s-err)] text-[12.5px] m-0">
+          Failed to load sources: {{ ls.message }}
+        </p>
       } @else if (folders().length === 0) {
         <div class="empty">
-          <p>No sources yet.</p>
-          <p class="section-hint">
+          <p class="m-0 mb-1.5">No sources yet.</p>
+          <p class="m-0 text-[11.5px] text-[var(--s-text-muted)] leading-[1.5] max-w-[620px]">
             Add a folder on the server — or the mount point of a network share — to start building
             your library.
           </p>
         </div>
       } @else {
         @if (disconnectedCount() > 0) {
-          <p class="section-hint warn" data-testid="disconnected-hint">
+          <p
+            class="m-0 text-[11.5px] leading-[1.5] max-w-[620px] text-[var(--s-warn,#d99a3d)]"
+            data-testid="disconnected-hint"
+          >
             {{ disconnectedCount() }} source{{ disconnectedCount() === 1 ? ' is' : 's are' }}
             currently unreachable and hidden from the sidebar. Nothing was removed — files and edits
             reappear when the source is reachable again.
           </p>
         }
-        <ul class="source-list" data-testid="source-list">
+        <ul
+          class="source-list list-none m-0 p-0 flex flex-col border border-[var(--s-border)] rounded-lg overflow-hidden divide-y divide-[var(--s-border)]"
+          data-testid="source-list"
+        >
           @for (folder of folders(); track folder.id) {
-            <li class="source-row" [class.offline]="!isConnected(folder)">
+            <li
+              class="source-row flex items-center gap-3 py-3 px-4"
+              [class.offline]="!isConnected(folder)"
+            >
               <span
-                class="status-dot"
+                class="status-dot shrink-0 w-2 h-2 rounded-full"
+                [class]="
+                  isConnected(folder) ? 'bg-[var(--s-ok,#4caf7d)]' : 'bg-[var(--s-warn,#d99a3d)]'
+                "
                 [class.ok]="isConnected(folder)"
                 [attr.aria-label]="isConnected(folder) ? 'Connected' : 'Not connected'"
               ></span>
-              <div class="source-main">
-                <div class="source-label">{{ folder.label }}</div>
-                <div class="source-path set-mono">{{ folder.path }}</div>
+              <div class="source-main flex-1 min-w-0">
+                <div
+                  class="source-label text-[13px] font-semibold"
+                  [class.opacity-60]="!isConnected(folder)"
+                >
+                  {{ folder.label }}
+                </div>
+                <div
+                  class="source-path set-mono text-[11px] text-[var(--s-text-muted)] overflow-hidden text-ellipsis whitespace-nowrap"
+                  [class.opacity-60]="!isConnected(folder)"
+                >
+                  {{ folder.path }}
+                </div>
               </div>
-              <div class="source-meta">
-                <span class="status-text">{{
+              <div class="source-meta flex flex-col items-end gap-0.5 shrink-0 text-[11.5px]">
+                <span class="status-text font-semibold">{{
                   isConnected(folder) ? 'Connected' : 'Not connected'
                 }}</span>
-                <span class="muted"
+                <span class="muted text-[var(--s-text-dim)] text-[12.5px] m-0"
                   >{{ fileCountLabel(folder) }} · {{ lastScanLabel(folder) }}</span
                 >
               </div>
