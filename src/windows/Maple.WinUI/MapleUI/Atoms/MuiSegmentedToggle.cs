@@ -122,6 +122,25 @@ namespace Maple.UI.Atoms
                     HorizontalContentAlignment = HorizontalAlignment.Center,
                     FontSize = 12,
                 };
+                // Same #3069 lightweight-styling override as MuiActionButton,
+                // but to TRANSPARENT: a segment's own checked state must not
+                // paint anything — the sliding neutral pill underneath
+                // (_pill, MapleSurfaceHover) IS the selection visual, and the
+                // default template's system-accent checked fill was painting
+                // the user's Windows accent color over it.
+                var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                foreach (var key in new[]
+                {
+                    "ToggleButtonBackgroundChecked", "ToggleButtonBackgroundCheckedPointerOver", "ToggleButtonBackgroundCheckedPressed",
+                    "ToggleButtonBorderBrushChecked", "ToggleButtonBorderBrushCheckedPointerOver", "ToggleButtonBorderBrushCheckedPressed",
+                })
+                    button.Resources[key] = transparent;
+                foreach (var key in new[]
+                {
+                    "ToggleButtonForegroundChecked", "ToggleButtonForegroundCheckedPointerOver", "ToggleButtonForegroundCheckedPressed",
+                })
+                    button.Resources[key] = R("MapleTextMain");
+
                 Grid.SetColumn(button, index);
                 button.Click += (_, _) => OnSegmentClicked(index);
                 if (!string.IsNullOrEmpty(options[i].AccessibleLabel))
