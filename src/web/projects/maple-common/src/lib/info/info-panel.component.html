@@ -1,6 +1,8 @@
 @if (insideSheet()) {
-  <header class="info-panel-header">
-    <h2 class="title">Info</h2>
+  <header
+    class="info-panel-header mb-4 flex items-center justify-between border-b-[0.5px] border-border pb-2"
+  >
+    <h2 class="m-0 font-['Merriweather',serif] text-[17px] font-bold text-text-main">Info</h2>
     <mui-button
       variant="ghost"
       size="sm"
@@ -12,7 +14,7 @@
   </header>
 }
 
-<div class="sections">
+<div class="flex flex-col gap-4">
   <app-info-filename-row [asset]="asset()" />
   <mui-rating-flags
     variant="pills"
