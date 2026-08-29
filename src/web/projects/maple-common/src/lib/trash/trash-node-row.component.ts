@@ -15,7 +15,7 @@ import { MuiTreeRowComponent } from '../ui/tree-row/mui-tree-row.component';
   standalone: true,
   imports: [MuiTreeRowComponent],
   templateUrl: './trash-node-row.component.html',
-  styleUrl: './trash-node-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrashNodeRowComponent {
