@@ -6,7 +6,7 @@
 <maple-settings-shell section="people">
   @if (toast(); as t) {
     <div
-      class="toast"
+      class="toast fixed top-4 right-6 z-30 py-2 px-3.5 rounded-md text-[12.5px] tracking-[0.1px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] [&.toast-success]:bg-[var(--s-ok-bg)] [&.toast-success]:text-[var(--s-ok)] [&.toast-success]:border-[0.5px] [&.toast-success]:border-[rgba(74,222,128,0.4)] [&.toast-error]:bg-[rgba(248,113,113,0.14)] [&.toast-error]:text-[var(--s-err)] [&.toast-error]:border-[0.5px] [&.toast-error]:border-[rgba(248,113,113,0.4)]"
       [class.toast-success]="t.tone === 'success'"
       [class.toast-error]="t.tone === 'error'"
     >
@@ -14,19 +14,27 @@
     </div>
   }
   @if (loadError(); as e) {
-    <div class="toast toast-error">Failed to load: {{ e }}</div>
+    <div
+      class="toast toast-error fixed top-4 right-6 z-30 py-2 px-3.5 rounded-md text-[12.5px] tracking-[0.1px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] bg-[rgba(248,113,113,0.14)] text-[var(--s-err)] border-[0.5px] border-[rgba(248,113,113,0.4)]"
+    >
+      Failed to load: {{ e }}
+    </div>
   }
 
   @if (selected(); as detail) {
     <!-- ── Detail view ───────────────────────────────────────────────── -->
-    <div class="detail-head">
-      <mui-button variant="ghost" size="sm" class="back-link" (pressed)="closeDetail()">
+    <div
+      class="detail-head py-6 px-9 pb-4.5 border-b-[0.5px] border-b-[var(--s-border)] flex flex-col gap-4 max-[767px]:py-4 max-[767px]:px-4 max-[767px]:pb-3"
+    >
+      <mui-button variant="ghost" size="sm" class="back-link self-start" (pressed)="closeDetail()">
         <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
         <span>People</span>
       </mui-button>
 
-      <div class="detail-identity">
-        <div class="detail-avatar">
+      <div class="detail-identity flex items-center gap-4 flex-wrap">
+        <div
+          class="detail-avatar w-16 h-16 rounded-full bg-[var(--s-surface2)] border-[0.5px] border-[var(--s-border)] shrink-0 relative overflow-hidden flex items-center justify-center [&>img]:absolute [&>img]:left-0 [&>img]:top-0 [&>img]:w-full [&>img]:h-full [&>img]:object-cover [&>img]:block [&_.cover-fill]:inset-0"
+        >
           @if (detailCoverUrl(detail); as url) {
             @if (detail.coverBbox; as bbox) {
               <img
@@ -41,14 +49,16 @@
               <img class="cover-fill" [src]="url" alt="" decoding="async" />
             }
           } @else {
-            <span class="detail-avatar-fallback">{{ detail.name.slice(0, 1).toUpperCase() }}</span>
+            <span class="detail-avatar-fallback text-[22px] text-[var(--s-text-dim)]">{{
+              detail.name.slice(0, 1).toUpperCase()
+            }}</span>
           }
         </div>
 
-        <div class="detail-titles">
+        <div class="detail-titles flex-1 min-w-0 flex flex-col gap-1">
           @if (editingId() === detail.id) {
             <input
-              class="name-input"
+              class="name-input font-[var(--s-font)] text-[26px] font-semibold tracking-[-0.4px] text-[var(--s-text)] bg-[var(--s-bg)] border-none outline outline-[1.5px] outline-[var(--s-accent)] outline-offset-2 rounded-[3px] py-0 px-1 text-left w-full box-border"
               type="text"
               [value]="draftName()"
               [attr.list]="'people-name-suggestions-detail-' + detail.id"
@@ -82,28 +92,36 @@
             </mui-button>
           }
           @if (isSelectedAutoNamed()) {
-            <span class="unnamed-chip">UNNAMED</span>
+            <span
+              class="unnamed-chip font-[var(--s-mono)] text-[9px] py-0.5 px-1.5 rounded-[3px] bg-[var(--s-surface2)] text-[var(--s-text-dim)] tracking-[0.5px] uppercase self-start"
+              >UNNAMED</span
+            >
           }
-          <div class="detail-meta">
+          <div
+            class="detail-meta font-[var(--s-mono)] text-[11.5px] text-[var(--s-text-muted)] flex gap-3.5 flex-wrap mt-0.5"
+          >
             <span
               >{{ detail.faces.length }} matched face{{
                 detail.faces.length === 1 ? '' : 's'
               }}</span
             >
             @if (detail.faces.length > 0) {
-              <span class="meta-sep">·</span>
+              <span class="meta-sep text-[var(--s-text-dim)]">·</span>
               <span
-                >avg <span class="meta-strong">{{ averageConfidence() }}%</span> detector
-                confidence</span
+                >avg
+                <span class="meta-strong text-[var(--s-text)]">{{ averageConfidence() }}%</span>
+                detector confidence</span
               >
             }
           </div>
         </div>
 
-        <div class="detail-actions">
+        <div
+          class="detail-actions flex gap-2 shrink-0 ml-auto flex-wrap max-[767px]:ml-0 max-[767px]:w-full"
+        >
           @if (bulk.mergePickerOpen()) {
             <select
-              class="merge-select set-ghost-pill"
+              class="merge-select set-ghost-pill disabled:opacity-50"
               [disabled]="bulk.peopleBulkBusy() > 0 || bulk.detailMergeTargets().length === 0"
               aria-label="Merge this person into"
               (change)="
@@ -145,8 +163,12 @@
     </div>
 
     @if (detail.suggestedMerge; as suggestion) {
-      <div class="merge-suggestion-banner">
-        <div class="merge-suggestion-avatar">
+      <div
+        class="merge-suggestion-banner mx-9 mb-4 py-3 px-4 rounded-lg bg-[var(--s-surface2)] border-[0.5px] border-[var(--s-border)] flex items-center gap-3"
+      >
+        <div
+          class="merge-suggestion-avatar w-10 h-10 rounded-full bg-[var(--s-surface2)] border-[0.5px] border-[var(--s-border)] shrink-0 relative overflow-hidden flex items-center justify-center [&>img]:absolute [&>img]:left-0 [&>img]:top-0 [&>img]:w-full [&>img]:h-full [&>img]:object-cover [&>img]:block [&_.cover-fill]:inset-0"
+        >
           @if (suggestionCoverUrl(suggestion); as url) {
             @if (suggestion.coverBbox; as bbox) {
               <img
@@ -161,16 +183,18 @@
               <img class="cover-fill" [src]="url" alt="" decoding="async" />
             }
           } @else {
-            <span class="merge-suggestion-avatar-fallback">{{
+            <span class="merge-suggestion-avatar-fallback text-[15px] text-[var(--s-text-dim)]">{{
               suggestion.name.slice(0, 1).toUpperCase()
             }}</span>
           }
         </div>
-        <div class="merge-suggestion-text">
+        <div
+          class="merge-suggestion-text flex-1 min-w-0 text-[13px] text-[var(--s-text-mid)] [&>strong]:text-[var(--s-text)]"
+        >
           <strong>{{ suggestion.name }}</strong> might be the same person —
           {{ suggestion.score * 100 | number: '1.0-0' }}% match
         </div>
-        <div class="merge-suggestion-actions">
+        <div class="merge-suggestion-actions flex gap-2 shrink-0">
           <mui-button
             variant="primary"
             size="sm"
@@ -202,9 +226,14 @@
         </div>
       </div>
       @if (detailCtl.suggestionFaces(); as suggestionFaces) {
-        <div class="merge-suggestion-faces">
+        <div
+          class="merge-suggestion-faces flex gap-2 -mt-2 mx-9 mb-4 py-2.5 px-3 rounded-b-lg bg-[var(--s-surface2)] border-[0.5px] border-t-0 border-[var(--s-border)] overflow-x-auto [&_.face-thumb]:w-16 [&_.face-thumb]:flex-none [&_.face-thumb]:rounded-md"
+        >
           @for (f of suggestionFaces; track faceKey(f)) {
-            <span class="face-thumb merge-suggestion-face" [title]="suggestion.name">
+            <span
+              class="face-thumb merge-suggestion-face block aspect-square bg-[var(--s-surface2)] relative overflow-hidden [&>img]:absolute [&>img]:left-0 [&>img]:top-0 [&>img]:w-full [&>img]:h-full [&>img]:object-cover [&>img]:block"
+              [title]="suggestion.name"
+            >
               @if (faceThumbUrl(f); as url) {
                 <img
                   [src]="url"
@@ -218,7 +247,7 @@
               }
             </span>
           } @empty {
-            <span class="merge-suggestion-faces-empty">
+            <span class="merge-suggestion-faces-empty text-xs text-[var(--s-text-dim)] self-center">
               No face crops for {{ suggestion.name }} yet.
             </span>
           }
@@ -227,9 +256,15 @@
     }
 
     <!-- Filter bar -->
-    <div class="filter-bar">
-      <div class="threshold">
-        <span class="threshold-label">Min detector confidence</span>
+    <div
+      class="filter-bar py-3.5 px-9 flex items-center gap-4 border-b-[0.5px] border-b-[var(--s-border)] sticky top-0 z-2 bg-[var(--s-bg)] flex-wrap max-[767px]:py-3 max-[767px]:px-4 max-[767px]:gap-3"
+    >
+      <div
+        class="threshold flex items-center gap-2.5 [&_input[type=range]]:accent-[var(--s-accent)] [&_input[type=range]]:w-[140px] [&_input[type=range]]:h-1"
+      >
+        <span class="threshold-label font-[var(--s-font)] text-xs text-[var(--s-text-muted)]"
+          >Min detector confidence</span
+        >
         <input
           type="range"
           min="50"
@@ -238,15 +273,20 @@
           [value]="threshold()"
           (input)="threshold.set(+$any($event.target).value)"
         />
-        <span class="threshold-val">{{ threshold() }}%</span>
+        <span
+          class="threshold-val font-[var(--s-mono)] text-xs text-[var(--s-text)] [font-variant-numeric:tabular-nums] w-9"
+          >{{ threshold() }}%</span
+        >
       </div>
 
-      <div class="filter-spacer"></div>
+      <div class="filter-spacer flex-1"></div>
 
-      <span class="visible-count">
+      <span class="visible-count font-[var(--s-mono)] text-[11px] text-[var(--s-text-muted)]">
         {{ visibleFaces().length }} shown
         @if (hiddenFaceCount() > 0) {
-          <span class="below-threshold"> · {{ hiddenFaceCount() }} below threshold</span>
+          <span class="below-threshold text-[var(--s-text-dim)]">
+            · {{ hiddenFaceCount() }} below threshold</span
+          >
         }
       </span>
 
@@ -263,28 +303,28 @@
     </div>
 
     <!-- Face grid -->
-    <div class="face-grid-wrap">
+    <div class="face-grid-wrap py-5 px-9 pb-[120px] relative max-[767px]:px-4 max-[767px]:py-4">
       @if (selectedLoading()) {
-        <p class="empty-msg">Loading…</p>
+        <p class="empty-msg m-0 text-[12.5px] text-[var(--s-text-muted)]">Loading…</p>
       } @else if (detail.faces.length === 0) {
-        <p class="empty-msg">No faces assigned yet.</p>
+        <p class="empty-msg m-0 text-[12.5px] text-[var(--s-text-muted)]">No faces assigned yet.</p>
       } @else if (visibleFaces().length === 0) {
-        <p class="empty-msg">
+        <p class="empty-msg m-0 text-[12.5px] text-[var(--s-text-muted)]">
           All {{ detail.faces.length }} face{{ detail.faces.length === 1 ? '' : 's' }} fall below
           the current confidence threshold.
         </p>
       } @else {
-        <div class="face-grid">
+        <div class="face-grid grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
           @for (f of visibleFaces(); track faceKey(f)) {
             <div
-              class="face-cell"
+              class="face-cell relative rounded-md overflow-hidden border-[1.5px] border-transparent bg-[var(--s-surface2)] [&.is-selected]:border-[var(--s-accent)]"
               [class.is-selected]="faceBulk.isFaceSelected(f)"
               (mouseenter)="hoveredFace.set(faceKey(f))"
               (mouseleave)="hoveredFace.set(null)"
             >
               <mui-button
                 variant="ghost"
-                class="face-select-btn"
+                class="face-select-btn block w-full"
                 [ariaPressed]="faceBulk.isFaceSelected(f)"
                 [ariaLabel]="
                   'Select face from ' +
@@ -298,7 +338,9 @@
                 (pressed)="faceBulk.toggleFaceSelection(f)"
                 [title]="f.absPath"
               >
-                <span class="face-thumb">
+                <span
+                  class="face-thumb block aspect-square bg-[var(--s-surface2)] relative overflow-hidden [&>img]:absolute [&>img]:left-0 [&>img]:top-0 [&>img]:w-full [&>img]:h-full [&>img]:object-cover [&>img]:block"
+                >
                   @if (faceThumbUrl(f); as url) {
                     <img
                       [src]="url"
@@ -310,9 +352,15 @@
                       (load)="crop.onImgLoad(url, $event)"
                     />
                   }
-                  <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
+                  <span
+                    class="confidence-badge absolute top-1.5 right-1.5 py-0.5 px-1.5 rounded-[4px] bg-[rgba(13,12,11,0.78)] font-[var(--s-mono)] text-[10px] text-[var(--s-text)] [font-variant-numeric:tabular-nums] tracking-[0.2px] backdrop-blur-[4px] pointer-events-none"
+                    >{{ f.confidence * 100 | number: '1.0-0' }}%</span
+                  >
                   @if (faceBulk.isFaceSelected(f) || hoveredFace() === faceKey(f)) {
-                    <span class="select-check" [class.is-selected]="faceBulk.isFaceSelected(f)">
+                    <span
+                      class="select-check absolute w-5 h-5 rounded-full bg-[rgba(13,12,11,0.55)] border-[1.5px] border-white flex items-center justify-center backdrop-blur-[4px] top-1.5 left-1.5 [&.is-selected]:bg-[var(--s-accent)] [&.is-selected]:border-[var(--s-accent)]"
+                      [class.is-selected]="faceBulk.isFaceSelected(f)"
+                    >
                       @if (faceBulk.isFaceSelected(f)) {
                         <maple-settings-icon
                           name="check"
@@ -324,7 +372,9 @@
                     </span>
                   }
                   @if (f.confidence < 0.7) {
-                    <span class="low-confidence-bar"></span>
+                    <span
+                      class="low-confidence-bar absolute bottom-0 left-0 right-0 h-[3px] bg-[var(--s-warn)]"
+                    ></span>
                   }
                 </span>
               </mui-button>
@@ -348,17 +398,27 @@
         <!-- Infinite-scroll sentinel: when it enters the viewport,
              load the next page of faces. -->
         @if (detailCtl.hasMoreFaces()) {
-          <div class="face-load-more" (mapleVisibleOnce)="detailCtl.loadMoreFaces()">
+          <div
+            class="face-load-more col-span-full py-4 pt-0 text-center font-[var(--s-mono)] text-[11px] text-[var(--s-text-dim)]"
+            (mapleVisibleOnce)="detailCtl.loadMoreFaces()"
+          >
             Loading more…
           </div>
         }
       }
 
       @if (faceBulk.selectedFaces().size > 0) {
-        <div class="bulk-toolbar-wrap">
-          <div class="bulk-toolbar">
-            <span class="bulk-count">{{ faceBulk.selectedFaces().size }} selected</span>
-            <div class="bulk-sep"></div>
+        <div
+          class="bulk-toolbar-wrap fixed left-[var(--s-sidebar-width)] right-0 bottom-6 flex justify-center pointer-events-none z-10 max-[767px]:bottom-[calc(12px+var(--safe-area-inset-bottom,0px))]"
+        >
+          <div
+            class="bulk-toolbar pointer-events-auto flex items-center gap-1 py-2 px-2.5 bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border-hi)] rounded-[10px] shadow-[0_12px_32px_rgba(0,0,0,0.5)] max-w-[calc(100%-24px)] flex-wrap"
+          >
+            <span
+              class="bulk-count font-[var(--s-font)] text-[12.5px] text-[var(--s-text)] font-medium pr-2.5 pl-1.5 whitespace-nowrap"
+              >{{ faceBulk.selectedFaces().size }} selected</span
+            >
+            <div class="bulk-sep w-[0.5px] h-4.5 bg-[var(--s-border)]"></div>
 
             @if (detailCtl.canSetCover()) {
               <mui-button
@@ -380,7 +440,7 @@
               <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
               <span>Move to person…</span>
               <select
-                class="bulk-select"
+                class="bulk-select absolute inset-0 w-full h-full opacity-0 cursor-pointer font-[inherit] text-[inherit]"
                 [disabled]="bulkBusy() > 0"
                 (change)="
                   faceBulk.bulkMoveTo($any($event.target).value); $any($event.target).value = ''
@@ -413,7 +473,7 @@
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
               Hide
             </mui-button>
-            <div class="bulk-sep"></div>
+            <div class="bulk-sep w-[0.5px] h-4.5 bg-[var(--s-border)]"></div>
             <mui-button variant="ghost" class="bulk-btn mute" (pressed)="faceBulk.clearSelection()">
               <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
               Cancel
@@ -427,20 +487,22 @@
     <!-- Deep-links and list→detail navigation land here for one frame    -->
     <!-- before `selected()` populates; rendering the list view briefly   -->
     <!-- would be a flash of wrong content.                                -->
-    <div class="detail-head">
-      <mui-button variant="ghost" size="sm" class="back-link" (pressed)="closeDetail()">
+    <div
+      class="detail-head py-6 px-9 pb-4.5 border-b-[0.5px] border-b-[var(--s-border)] flex flex-col gap-4 max-[767px]:py-4 max-[767px]:px-4 max-[767px]:pb-3"
+    >
+      <mui-button variant="ghost" size="sm" class="back-link self-start" (pressed)="closeDetail()">
         <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
         <span>People</span>
       </mui-button>
     </div>
-    <div class="face-grid-wrap">
-      <p class="empty-msg">Loading…</p>
+    <div class="face-grid-wrap py-5 px-9 pb-[120px] relative max-[767px]:px-4 max-[767px]:py-4">
+      <p class="empty-msg m-0 text-[12.5px] text-[var(--s-text-muted)]">Loading…</p>
     </div>
   } @else {
     <!-- ── List view ─────────────────────────────────────────────────── -->
     <!-- Flex column so the header stays fixed and the virtual-scroll
          viewport owns the remaining height (and its own scroll). -->
-    <div class="people-list-view">
+    <div class="people-list-view flex flex-col h-full min-h-0">
       <header class="set-page-header">
         <div class="titles">
           <h1>People</h1>
@@ -469,9 +531,21 @@
               Select
             </mui-button>
           }
-          <a class="nav-link set-ghost-pill" routerLink="/settings/people/hidden">Hidden</a>
-          <a class="nav-link set-ghost-pill" routerLink="/settings/people/excluded">Excluded</a>
-          <a class="nav-link set-ghost-pill" routerLink="/settings/workers">Worker settings</a>
+          <a
+            class="nav-link set-ghost-pill no-underline hover:bg-white/[0.03]"
+            routerLink="/settings/people/hidden"
+            >Hidden</a
+          >
+          <a
+            class="nav-link set-ghost-pill no-underline hover:bg-white/[0.03]"
+            routerLink="/settings/people/excluded"
+            >Excluded</a
+          >
+          <a
+            class="nav-link set-ghost-pill no-underline hover:bg-white/[0.03]"
+            routerLink="/settings/workers"
+            >Worker settings</a
+          >
           <mui-button
             variant="primary"
             size="sm"
@@ -484,28 +558,34 @@
         </div>
       </header>
 
-      <div class="people-body">
+      <div class="people-body py-6 px-9 flex-1 min-h-0 flex flex-col max-[767px]:p-4">
         @if (hasPeople()) {
-          <div class="stats-line">
+          <div
+            class="stats-line font-[var(--s-mono)] text-[11px] text-[var(--s-text-muted)] mb-4.5 tracking-[0.1px] flex items-center justify-between gap-3 flex-wrap"
+          >
             <span>
               {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
               {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
             </span>
-            <span class="small-cluster-toggle">
+            <span class="small-cluster-toggle flex items-center gap-1.5">
               <mui-checkbox
                 [checked]="hideSmallClusters()"
                 (checkedChange)="hideSmallClusters.set($event)"
                 [label]="'Hide clusters under ' + smallClusterMin + ' faces'"
               />
               @if (hideSmallClusters() && hiddenSmallCount() > 0) {
-                <span class="small-cluster-count">{{ hiddenSmallCount() | number }} hidden</span>
+                <span class="small-cluster-count text-[var(--s-text-dim)]"
+                  >{{ hiddenSmallCount() | number }} hidden</span
+                >
               }
             </span>
           </div>
         }
 
         @if (!hasPeople()) {
-          <div class="empty-card">
+          <div
+            class="empty-card border border-dashed border-[var(--s-border)] bg-[var(--s-surface)] rounded-lg p-9 text-center [&>h3]:m-0 [&>h3]:mb-2 [&>h3]:text-[15px] [&>h3]:font-semibold [&>h3]:text-[var(--s-text)] [&>p]:m-0 [&>p]:text-[13px] [&>p]:text-[var(--s-text-muted)] [&_a]:text-[var(--s-accent)] [&_a]:no-underline [&_a:hover]:underline"
+          >
             <h3>No people yet.</h3>
             <p>
               Run clustering to group detected faces. Faces come from the face worker — make sure
@@ -516,7 +596,9 @@
         } @else if (visiblePeople().length === 0) {
           <!-- Every cluster fell under the toggle's floor. Say so instead of
                rendering an empty grid with no explanation. -->
-          <div class="empty-card">
+          <div
+            class="empty-card border border-dashed border-[var(--s-border)] bg-[var(--s-surface)] rounded-lg p-9 text-center [&>h3]:m-0 [&>h3]:mb-2 [&>h3]:text-[15px] [&>h3]:font-semibold [&>h3]:text-[var(--s-text)] [&>p]:m-0 [&>p]:text-[13px] [&>p]:text-[var(--s-text-muted)] [&_a]:text-[var(--s-accent)] [&_a]:no-underline [&_a:hover]:underline"
+          >
             <h3>
               All {{ hiddenSmallCount() | number }} clusters are under {{ smallClusterMin }} faces.
             </h3>
@@ -529,20 +611,20 @@
              (mapleVisibleOnce) cover-lazy-load fires per card as rows mount. -->
           <cdk-virtual-scroll-viewport
             #peopleScrollContent
-            class="people-viewport"
+            class="people-viewport flex-1 min-h-0 w-full"
             [itemSize]="rowHeight()"
             minBufferPx="600"
             maxBufferPx="1200"
           >
             <div
               *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
-              class="people-row"
+              class="people-row flex items-stretch"
               [style.gap.px]="gridGap"
               [style.margin-bottom.px]="gridGap"
             >
               @for (p of row; track p.id) {
                 <article
-                  class="person-card"
+                  class="person-card bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] rounded-md overflow-hidden cursor-pointer transition-[border-color,transform] duration-[120ms] no-underline hover:border-[var(--s-border-hi)] hover:outline-none focus-visible:border-[var(--s-border-hi)] focus-visible:outline-none [&.is-selected]:outline-2 [&.is-selected]:outline-[var(--s-accent)] [&.is-selected]:outline-offset-2 [&.is-selected]:rounded-lg"
                   [class.is-selected]="bulk.selectMode() && bulk.isPersonSelected(p.id)"
                   [style.width.px]="cardWidth()"
                   (click)="
@@ -562,9 +644,14 @@
                     $event.preventDefault()
                   "
                 >
-                  <div class="person-thumb">
+                  <div
+                    class="person-thumb relative aspect-square bg-[var(--s-surface2)] flex items-center justify-center overflow-hidden [&>img]:absolute [&>img]:left-0 [&>img]:top-0 [&>img]:w-full [&>img]:h-full [&>img]:object-cover [&>img]:block [&_.cover-fill]:inset-0"
+                  >
                     @if (bulk.selectMode()) {
-                      <span class="select-check" [class.is-selected]="bulk.isPersonSelected(p.id)">
+                      <span
+                        class="select-check absolute w-5 h-5 rounded-full bg-[rgba(13,12,11,0.55)] border-[1.5px] border-white flex items-center justify-center backdrop-blur-[4px] top-1.5 left-1.5 [&.is-selected]:bg-[var(--s-accent)] [&.is-selected]:border-[var(--s-accent)]"
+                        [class.is-selected]="bulk.isPersonSelected(p.id)"
+                      >
                         @if (bulk.isPersonSelected(p.id)) {
                           <maple-settings-icon
                             name="check"
@@ -577,7 +664,7 @@
                     }
                     @if (p.hasMergeSuggestion) {
                       <span
-                        class="merge-suggestion-badge"
+                        class="merge-suggestion-badge absolute w-5 h-5 rounded-full bg-[rgba(13,12,11,0.55)] border-[1.5px] border-white flex items-center justify-center backdrop-blur-[4px] top-1.5 right-1.5"
                         role="img"
                         title="Possible duplicate"
                         aria-label="Possible duplicate"
@@ -606,17 +693,21 @@
                         />
                       }
                     } @else {
-                      <span class="person-thumb-fallback">{{
+                      <span class="person-thumb-fallback text-[28px] text-[var(--s-text-dim)]">{{
                         p.name.slice(0, 1).toUpperCase()
                       }}</span>
                     }
                   </div>
-                  <div class="person-meta">
-                    <div class="person-name" [class.is-auto-named]="isAutoName(p.name)">
+                  <div class="person-meta py-2.5 px-3">
+                    <div
+                      class="person-name text-[13px] font-medium text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap [&.is-auto-named]:text-[var(--s-text-mid)] [&.is-auto-named]:font-normal"
+                      [class.is-auto-named]="isAutoName(p.name)"
+                    >
                       {{ p.name }}
                     </div>
-                    <div class="person-stats">
-                      <span class="person-faces"
+                    <div class="person-stats flex justify-between items-center mt-1">
+                      <span
+                        class="person-faces font-[var(--s-mono)] text-[11px] text-[var(--s-text-muted)]"
                         >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
                       >
                       @if (!bulk.selectMode()) {
@@ -639,16 +730,23 @@
       </div>
 
       @if (bulk.selectMode() && bulk.selectedPeople().size > 0) {
-        <div class="bulk-toolbar-wrap">
-          <div class="bulk-toolbar">
-            <span class="bulk-count">{{ bulk.selectedPeople().size }} selected</span>
-            <div class="bulk-sep"></div>
+        <div
+          class="bulk-toolbar-wrap fixed left-[var(--s-sidebar-width)] right-0 bottom-6 flex justify-center pointer-events-none z-10 max-[767px]:bottom-[calc(12px+var(--safe-area-inset-bottom,0px))]"
+        >
+          <div
+            class="bulk-toolbar pointer-events-auto flex items-center gap-1 py-2 px-2.5 bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border-hi)] rounded-[10px] shadow-[0_12px_32px_rgba(0,0,0,0.5)] max-w-[calc(100%-24px)] flex-wrap"
+          >
+            <span
+              class="bulk-count font-[var(--s-font)] text-[12.5px] text-[var(--s-text)] font-medium pr-2.5 pl-1.5 whitespace-nowrap"
+              >{{ bulk.selectedPeople().size }} selected</span
+            >
+            <div class="bulk-sep w-[0.5px] h-4.5 bg-[var(--s-border)]"></div>
 
             <label class="bulk-btn">
               <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
               <span>Merge into…</span>
               <select
-                class="bulk-select"
+                class="bulk-select absolute inset-0 w-full h-full opacity-0 cursor-pointer font-[inherit] text-[inherit]"
                 [disabled]="bulk.peopleBulkBusy() > 0 || bulk.mergeTargetsList().length === 0"
                 aria-label="Merge selected people into"
                 (change)="
@@ -672,7 +770,7 @@
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
               Hide
             </mui-button>
-            <div class="bulk-sep"></div>
+            <div class="bulk-sep w-[0.5px] h-4.5 bg-[var(--s-border)]"></div>
             <mui-button variant="ghost" class="bulk-btn mute" (pressed)="bulk.exitSelectMode()">
               <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
               Cancel
