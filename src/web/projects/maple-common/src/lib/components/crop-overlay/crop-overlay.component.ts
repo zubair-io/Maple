@@ -59,6 +59,7 @@ interface DragState {
   standalone: true,
   templateUrl: './crop-overlay.component.html',
   styleUrl: './crop-overlay.component.scss',
+  host: { class: 'absolute inset-0 z-[8] [touch-action:none]' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CropOverlayComponent implements AfterViewInit, OnDestroy {
