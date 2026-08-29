@@ -2,13 +2,20 @@
      Always renders on every breakpoint (#1807 Task 5 retired phone's
      closeable-flyout state) — phone just stacks it full-width above the
      dock instead of the fixed 300px tablet/desktop column. -->
-<div class="card">
-  <div class="card-header">
+<div
+  class="card @container max-h-[min(480px,calc(100vh-120px))] overflow-y-auto rounded-[18px] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] p-4 shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur)] md:bg-[color:var(--pro-glass-bg-heavy)] md:[backdrop-filter:var(--pro-glass-blur-heavy)]"
+>
+  <div
+    class="card-header sticky top-0 z-[1] mb-3 flex items-center gap-1.5 bg-[color:var(--pro-glass-bg)] [backdrop-filter:var(--pro-glass-blur)] md:bg-[color:var(--pro-glass-bg-heavy)] md:[backdrop-filter:var(--pro-glass-blur-heavy)]"
+  >
     <maple-icon [name]="groupIcon(activeGroup())" [size]="12" color="var(--pro-accent)" />
-    <span class="group-title">{{ groupLabel(activeGroup()) }}</span>
+    <span
+      class="group-title text-[10px] font-semibold tracking-[0.6px] text-[color:var(--pro-accent)] uppercase"
+      >{{ groupLabel(activeGroup()) }}</span
+    >
 
     <button
-      class="reset-btn"
+      class="reset-btn ml-auto flex h-7 w-7 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent outline-none transition-[background,border-color] duration-[120ms] ease-out hover:border-[color:var(--pro-border)] hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
       title="Reset {{ groupLabel(activeGroup()) }}"
       aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
       (click)="resetGroup()"
@@ -37,14 +44,13 @@
          The row is a segmented control (buttons + aria-pressed), not a
          tablist — see the chips below. -->
     <div
-      class="subtool-row"
+      class="subtool-row mb-3 flex gap-1.5"
       role="group"
       [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'"
     >
       @for (sub of subtools(); track sub.label) {
         <button
-          class="subtool-chip"
-          [class.subtool-chip--active]="isSubtoolActive(sub.id)"
+          [class]="subtoolChipClass(isSubtoolActive(sub.id))"
           [attr.aria-pressed]="isSubtoolActive(sub.id)"
           (click)="onSubtoolClick(sub.id)"
         >
@@ -66,7 +72,7 @@
   } @else if (activeTool() === 'filmLook') {
     <ng-content select="[cardBodyFilm]" />
   } @else {
-    <div class="slider-grid">
+    <div class="slider-grid flex flex-col gap-2.5">
       @for (tool of slidersFor(activeGroup()); track tool) {
         <mui-living-slider
           [label]="labelFor(tool)"

@@ -1,10 +1,6 @@
 <!-- ToolDock — glass column (vertical) or bar (horizontal, phone) wrapping
      `mui-tool-dock`, which owns the circle+label+dot button chrome. -->
-<nav
-  class="dock-glass"
-  aria-label="Editor tools"
-  [class.dock-glass--horizontal]="orientation() === 'horizontal'"
->
+<nav [class]="dockGlassClass()" aria-label="Editor tools">
   <mui-tool-dock
     [entries]="dockEntries()"
     [orientation]="orientation()"

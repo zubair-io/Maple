@@ -1,9 +1,20 @@
 <!-- ValueHud — center overlay during canvas scrub -->
-<div class="hud-inner">
-  <span class="hud-eyebrow">{{ eyebrow() }}</span>
-  <span class="hud-value">{{ valueText() }}</span>
-  <div class="hud-rail">
-    <div class="hud-rail-fill" [style.width.%]="progress() * 100"></div>
-    <div class="hud-rail-center"></div>
+<div class="flex flex-col items-center gap-1.5">
+  <span
+    class="text-[11px] tracking-[0.02em] text-[color:var(--pro-text-muted)] uppercase select-none"
+    >{{ eyebrow() }}</span
+  >
+  <span
+    class="hud-value font-[var(--font-mono,monospace)] text-[30px] leading-none font-light text-[color:var(--pro-accent)] select-none [font-variant-numeric:tabular-nums]"
+    >{{ valueText() }}</span
+  >
+  <div class="hud-rail relative h-0.5 w-[200px] overflow-hidden rounded-[1px] bg-white/15">
+    <div
+      class="absolute top-0 left-0 h-full min-w-0.5 max-w-full rounded-[1px] bg-[color:var(--pro-accent)] transition-[width] duration-[16ms] ease-linear"
+      [style.width.%]="progress() * 100"
+    ></div>
+    <div
+      class="absolute top-[-2px] bottom-[-2px] left-[calc(50%-0.75px)] w-[1.5px] rounded-[1px] bg-white/50"
+    ></div>
   </div>
 </div>
