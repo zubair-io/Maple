@@ -67,7 +67,7 @@
             <div>
               <span class="meta-label text-[var(--s-text-muted)] mr-2">Code</span>
               <code
-                class="meta-code font-[var(--s-mono)] text-[var(--s-text)] tracking-[2px] text-sm"
+                class="meta-code font-[var(--s-mono)] text-[var(--s-text)] tracking-[2px] text-[14px]"
                 >{{ fi.code }}</code
               >
               <mui-button
@@ -85,7 +85,7 @@
               <span class="meta-label text-[var(--s-text-muted)] mr-2">URL</span>
               <a
                 [href]="fi.url"
-                class="meta-url set-mono text-[var(--s-accent)] no-underline hover:underline text-xs"
+                class="meta-url set-mono text-[var(--s-accent)] no-underline hover:underline text-[12px]"
                 >{{ fi.url }}</a
               >
             </div>
@@ -109,7 +109,7 @@
           >
             <div class="who flex items-center gap-2.5 min-w-0 max-[767px]:gap-2">
               <div
-                class="avatar w-7 h-7 rounded-full flex items-center justify-center text-xs text-[var(--s-text)] font-medium"
+                class="avatar w-7 h-7 rounded-full flex items-center justify-center text-[12px] text-[var(--s-text)] font-medium"
                 [style.background]="avatarColor(u.email)"
               >
                 {{ u.email[0].toUpperCase() }}
@@ -195,7 +195,7 @@
             >
               <span class="set-mono email text-[12.5px] text-[var(--s-text)]">{{ inv.email }}</span>
               <span class="invite-code inline-flex items-center gap-1.5">
-                <code class="set-mono text-xs text-[var(--s-text-mid)] tracking-[0.4px]">{{
+                <code class="set-mono text-[12px] text-[var(--s-text-mid)] tracking-[0.4px]">{{
                   inv.code
                 }}</code>
                 <mui-button
