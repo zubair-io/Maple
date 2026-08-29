@@ -3,7 +3,7 @@
        release halfway through fades the dim alongside the slide. Tap
        anywhere on the dim to close. -->
   <div
-    class="scrim"
+    class="scrim fixed inset-0 z-[90] bg-black/45 transition-opacity duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
     role="presentation"
     [style.opacity]="0.45 * scrimOpacity()"
     (click)="onClose()"
@@ -12,24 +12,28 @@
   <!-- Drawer. Pointer handlers live on the drawer itself so the pan-left
        gesture follows the user's finger. -->
   <aside
-    class="drawer"
+    class="fixed top-0 bottom-0 left-0 z-[91] flex w-[min(326px,81vw)] flex-col overflow-hidden rounded-tr-[18px] rounded-br-[18px] bg-sidebar text-text-main shadow-[12px_0_40px_rgba(0,0,0,0.5)] [touch-action:pan-y]"
+    [class]="drawerTransitionClass()"
     role="dialog"
     aria-modal="true"
     aria-label="Library"
     data-testid="source-picker-drawer"
-    [class.dragging]="dragDx() !== null"
     [style.transform]="drawerTransform()"
     (pointerdown)="onPointerDown($event)"
     (pointermove)="onPointerMove($event)"
     (pointerup)="onPointerUp($event)"
     (pointercancel)="onPointerUp($event)"
   >
-    <header class="drawer-header">
-      <div class="eyebrow-row">
-        <span class="eyebrow">LIBRARY</span>
+    <header
+      class="flex shrink-0 flex-col gap-1.5 px-4 pt-[calc(18px+var(--safe-area-inset-top,0px))] pb-3"
+    >
+      <div class="flex items-center justify-between">
+        <span class="eyebrow text-[10px] font-bold tracking-[0.14em] text-text-muted uppercase"
+          >LIBRARY</span
+        >
         <button
           type="button"
-          class="close-btn"
+          class="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-text-muted hover:bg-bg-hover"
           aria-label="Close library"
           data-testid="source-picker-drawer-close"
           (click)="onClose()"
@@ -47,12 +51,21 @@
       </div>
 
       @if (connectionIdentity()) {
-        <div class="identity-row">
-          <span class="identity">{{ connectionIdentity() }}</span>
+        <div class="identity-row flex items-center gap-1">
+          <span
+            class="identity overflow-hidden text-[16px] text-ellipsis whitespace-nowrap text-text-main"
+            >{{ connectionIdentity() }}</span
+          >
           <!-- Chevron is a stub for v0.1 — Maple-instance switcher is out
                of scope. Rendered to match the HTML mockup so the visual is
                complete; tap is a no-op. -->
-          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 11 11"
+            class="shrink-0 text-text-muted"
+            aria-hidden="true"
+          >
             <path
               d="M2 4l3.5 3.5L9 4"
               stroke="currentColor"
@@ -65,7 +78,11 @@
       }
 
       @if (tertiarySummary()) {
-        <div class="tertiary">{{ tertiarySummary() }}</div>
+        <div
+          class="tertiary overflow-hidden text-[13px] text-ellipsis whitespace-nowrap text-text-muted"
+        >
+          {{ tertiarySummary() }}
+        </div>
       }
     </header>
 
@@ -74,12 +91,12 @@
          before emitting so the host doesn't have to remember to do it. -->
     <button
       type="button"
-      class="search-pill"
+      class="mx-4 mb-1 flex cursor-pointer items-center gap-2 rounded-full border-[0.5px] border-border bg-input-bg px-3 py-[9px] text-left text-[16px] text-text-muted hover:bg-bg-hover"
       data-testid="source-picker-drawer-search-pill"
       [hidden]="!showSearch()"
       (click)="onSearchPillTap()"
     >
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 14 14" class="shrink-0" aria-hidden="true">
         <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" fill="none" />
         <path
           d="M9.5 9.5L12.5 12.5"
@@ -91,24 +108,31 @@
       <span>Search photos</span>
     </button>
 
-    <hr class="separator" [hidden]="!showSearch()" />
+    <hr class="mx-4 mt-2 w-auto border-0 border-t-[0.5px] border-border" [hidden]="!showSearch()" />
 
     <!-- Source tree — rendered from the input. Section / subheader rows
          are visual group headers; tapping them does nothing. -->
-    <nav class="source-tree" aria-label="Source tree">
+    <nav
+      class="flex flex-1 flex-col overflow-y-auto pt-2 pb-[calc(8px+var(--safe-area-inset-bottom,0px))]"
+      aria-label="Source tree"
+    >
       @for (entry of sourceTree(); track entry.id) {
         @if (entry.kind === 'section' || entry.kind === 'subheader') {
-          <h3 class="section-header">{{ entry.label }}</h3>
+          <h3
+            class="section-header mt-3 mb-1 px-4 text-[10px] font-bold tracking-[0.14em] text-text-muted uppercase"
+          >
+            {{ entry.label }}
+          </h3>
         } @else {
           <button
             type="button"
-            class="source-row"
+            class="source-row flex w-full items-center justify-between border-0 bg-transparent px-4 py-2.5 text-left text-[16px] text-text-main hover:bg-bg-hover"
             [attr.data-testid]="'source-row-' + entry.id"
             (click)="onSelectSource(entry, $event)"
           >
             <span class="source-label">{{ entry.label }}</span>
             @if (entry.count !== null && entry.count !== undefined) {
-              <span class="source-count">{{ entry.count }}</span>
+              <span class="text-[13px] text-text-muted">{{ entry.count }}</span>
             }
           </button>
         }

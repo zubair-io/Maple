@@ -7,7 +7,6 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
   selector: 'app-batch-metadata-confirm-dialog',
   standalone: true,
   templateUrl: './batch-metadata-confirm-dialog.component.html',
-  styleUrl: './batch-metadata-confirm-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BatchMetadataConfirmDialogComponent {
