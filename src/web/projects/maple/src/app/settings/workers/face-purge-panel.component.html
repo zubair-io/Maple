@@ -1,10 +1,12 @@
-<div class="face-purge" data-testid="face-purge-panel">
-  <div class="purge-head">
-    <div class="purge-title">Sub-threshold face cleanup</div>
+<div
+  class="col-span-2 mt-4 pt-4 border-t-[0.5px] border-t-[var(--s-border)]"
+  data-testid="face-purge-panel"
+>
+  <div class="flex items-center justify-between gap-3 mb-1.5">
+    <div class="text-[13px] font-semibold text-[var(--s-text)]">Sub-threshold face cleanup</div>
     <mui-button
       variant="secondary"
       size="sm"
-      class="purge-btn"
       data-testid="face-purge-audit"
       [disabled]="busy()"
       [loading]="state() === 'auditing'"
@@ -15,58 +17,76 @@
     </mui-button>
   </div>
 
-  <div class="field-hint">
+  <div class="text-[11.5px] leading-[1.5] text-[var(--s-text-muted)] mb-3">
     Remove faces already in the library whose bounding box is below the current
-    <span class="mono">Minimum face size</span>. This does <strong>not</strong> re-detect. By
-    default it removes only <strong>unassigned</strong> tiny faces; faces assigned to a person and
-    hidden faces are kept. Removing a face never changes any other face's assignment —
-    <span class="mono">person_id</span> lives on each face object.
+    <span class="font-[var(--s-mono,monospace)] text-[var(--s-text-mid)]">Minimum face size</span>.
+    This does <strong>not</strong> re-detect. By default it removes only
+    <strong>unassigned</strong> tiny faces; faces assigned to a person and hidden faces are kept.
+    Removing a face never changes any other face's assignment —
+    <span class="font-[var(--s-mono,monospace)] text-[var(--s-text-mid)]">person_id</span> lives on
+    each face object.
   </div>
 
   @if (error()) {
-    <div class="purge-error" data-testid="face-purge-error" role="alert">
+    <div
+      class="text-xs text-[var(--s-warn)] bg-amber-400/[0.08] border-[0.5px] border-amber-400/40 rounded-[5px] py-2 px-3 mb-3"
+      data-testid="face-purge-error"
+      role="alert"
+    >
       {{ error() }}
     </div>
   }
 
   @if (audit(); as a) {
-    <div class="purge-report" data-testid="face-purge-report">
-      <div class="report-row">
-        <span class="report-label">Total tiny faces</span>
-        <span class="report-value mono" data-testid="face-purge-total">{{
-          a.subThresholdFaces.total
-        }}</span>
+    <div
+      class="flex flex-col gap-1.5 mb-3.5 py-2.5 px-3 bg-[var(--s-bg-elev,rgba(255,255,255,0.02))] border-[0.5px] border-[var(--s-border)] rounded-[5px]"
+      data-testid="face-purge-report"
+    >
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-[var(--s-text-mid)]">Total tiny faces</span>
+        <span
+          class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
+          data-testid="face-purge-total"
+          >{{ a.subThresholdFaces.total }}</span
+        >
       </div>
-      <div class="report-row">
-        <span class="report-label">Unassigned (removable)</span>
-        <span class="report-value mono" data-testid="face-purge-unassigned">{{
-          a.subThresholdFaces.unassigned
-        }}</span>
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-[var(--s-text-mid)]">Unassigned (removable)</span>
+        <span
+          class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
+          data-testid="face-purge-unassigned"
+          >{{ a.subThresholdFaces.unassigned }}</span
+        >
       </div>
-      <div class="report-row">
-        <span class="report-label">Assigned to a person (preserved by default)</span>
-        <span class="report-value mono" data-testid="face-purge-assigned">{{
-          a.subThresholdFaces.assigned
-        }}</span>
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-[var(--s-text-mid)]">Assigned to a person (preserved by default)</span>
+        <span
+          class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
+          data-testid="face-purge-assigned"
+          >{{ a.subThresholdFaces.assigned }}</span
+        >
       </div>
-      <div class="report-row">
-        <span class="report-label">Hidden (always preserved)</span>
-        <span class="report-value mono" data-testid="face-purge-hidden">{{
-          a.subThresholdFaces.hidden
-        }}</span>
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-[var(--s-text-mid)]">Hidden (always preserved)</span>
+        <span
+          class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
+          data-testid="face-purge-hidden"
+          >{{ a.subThresholdFaces.hidden }}</span
+        >
       </div>
-      <div class="report-row">
-        <span class="report-label">People affected</span>
-        <span class="report-value mono" data-testid="face-purge-people">{{
-          a.affectedPeople.length
-        }}</span>
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-[var(--s-text-mid)]">People affected</span>
+        <span
+          class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
+          data-testid="face-purge-people"
+          >{{ a.affectedPeople.length }}</span
+        >
       </div>
     </div>
 
-    <div class="purge-apply">
-      <div class="purge-opt-in">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <div class="flex flex-col gap-1 flex-[1_1_280px] min-w-0">
         <mui-checkbox
-          class="purge-check"
           data-testid="face-purge-include-assigned"
           ariaLabel="Also remove tiny faces that are assigned to a person"
           label="Also remove tiny faces that are assigned to a person"
@@ -74,7 +94,10 @@
           [disabled]="busy()"
           (checkedChange)="includeAssigned.set($event)"
         />
-        <div class="purge-check-hint" data-testid="face-purge-include-assigned-hint">
+        <div
+          class="text-[11px] leading-[1.45] text-[var(--s-text-muted)] pl-6"
+          data-testid="face-purge-include-assigned-hint"
+        >
           Includes faces you labeled by hand AND faces auto-grouping assigned — these can't be told
           apart. Off by default; unassigned tiny faces are always removed, hidden faces are always
           kept.
@@ -83,7 +106,6 @@
       <mui-button
         variant="destructive"
         size="sm"
-        class="purge-btn purge-btn-danger"
         data-testid="face-purge-apply"
         [disabled]="!canApply()"
         [loading]="state() === 'applying'"
@@ -95,7 +117,11 @@
     </div>
 
     @if (lastApplied(); as applied) {
-      <div class="purge-success" data-testid="face-purge-success" role="status">
+      <div
+        class="text-xs text-[var(--s-ok)] bg-green-400/[0.08] border-[0.5px] border-green-400/40 rounded-[5px] py-2 px-3 mt-3"
+        data-testid="face-purge-success"
+        role="status"
+      >
         Removed {{ applied.facesRemoved }}
         {{ applied.facesRemoved === 1 ? 'face' : 'faces' }} across {{ applied.assetsUpdated }}
         {{ applied.assetsUpdated === 1 ? 'asset' : 'assets' }}; recomputed counts for
