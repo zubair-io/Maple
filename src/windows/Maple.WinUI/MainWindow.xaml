@@ -49,9 +49,20 @@
              is display-only: the keys are handled in OnRootKeyDown. Built from
              Buttons + MenuFlyout (the pattern the folder tree already uses)
              rather than the stock MenuBar, which fails to open its flyouts in
-             this shell. ===== -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Background="{StaticResource MapleSidebar}"
-                    Padding="6,2" Spacing="2">
+             this shell.
+
+             The row doubles as the window's title bar (#3079,
+             MuiWindowChrome.Extend in the ctor): menu buttons stay
+             interactive on the left, everything to their right is the
+             system drag region, and the OS overlays the caption buttons on
+             the far right. MinHeight 32 keeps the row at least as tall as
+             the overlaid caption buttons. ===== -->
+        <Grid Grid.Row="0" Background="{StaticResource MapleSidebar}" MinHeight="32">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Padding="6,2" Spacing="2">
             <mui:MuiButton Label="File" Variant="Ghost" ButtonSize="Sm"
                     AutomationProperties.Name="File menu">
                 <mui:MuiButton.Flyout>
@@ -157,7 +168,16 @@
                     </MenuFlyout>
                 </mui:MuiButton.Flyout>
             </mui:MuiButton>
-        </StackPanel>
+            </StackPanel>
+
+            <!-- Drag region: hit-testable (Transparent, not background-less)
+                 and interaction-free — SetTitleBar routes all input here to
+                 the system move/maximize handling. -->
+            <Grid x:Name="TitleBarDragRegion" Grid.Column="1" Background="Transparent">
+                <mui:MuiText Text="Maple Aperture" Variant="ToolLabel" ColorRole="Muted"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Grid>
+        </Grid>
 
         <!-- ===== Main ===== -->
         <Grid Grid.Row="1">
