@@ -1,5 +1,5 @@
 <section
-  class="landing-viewport"
+  class="flex flex-col items-center justify-center min-h-[100dvh] p-6"
   (dragover)="onDragOver($event)"
   (dragleave)="onDragLeave($event)"
   (drop)="onDrop($event)"
@@ -29,7 +29,11 @@
         [active]="true"
         (pressed)="openPhoto()"
       >
-        <kbd trailing class="landing-kbd">⌘O</kbd>
+        <kbd
+          trailing
+          class="inline-block px-1.5 py-0.5 border border-border rounded-md bg-surface-alt text-text-muted font-[inherit] text-[11px] leading-[1.3]"
+          >⌘O</kbd
+        >
       </mui-list-row>
 
       @if (hasFsAccess) {
@@ -39,7 +43,11 @@
           subtitle="Browse a library of RAW files"
           (pressed)="openFolder()"
         >
-          <kbd trailing class="landing-kbd">⇧⌘O</kbd>
+          <kbd
+            trailing
+            class="inline-block px-1.5 py-0.5 border border-border rounded-md bg-surface-alt text-text-muted font-[inherit] text-[11px] leading-[1.3]"
+            >⇧⌘O</kbd
+          >
         </mui-list-row>
       } @else {
         <div
@@ -65,12 +73,33 @@
     </p>
   </div>
 
-  <footer class="landing-shortcuts" aria-hidden="true">
-    <span><kbd class="landing-kbd">⌘O</kbd> Open photo</span>
+  <footer
+    class="fixed bottom-4 left-0 right-0 flex justify-center gap-5 text-[12px] text-text-muted"
+    aria-hidden="true"
+  >
+    <span class="inline-flex items-center gap-1.5"
+      ><kbd
+        class="inline-block px-1.5 py-0.5 border border-border rounded-md bg-surface-alt text-text-muted font-[inherit] text-[11px] leading-[1.3]"
+        >⌘O</kbd
+      >
+      Open photo</span
+    >
     @if (hasFsAccess) {
-      <span><kbd class="landing-kbd">⇧⌘O</kbd> Open folder</span>
+      <span class="inline-flex items-center gap-1.5"
+        ><kbd
+          class="inline-block px-1.5 py-0.5 border border-border rounded-md bg-surface-alt text-text-muted font-[inherit] text-[11px] leading-[1.3]"
+          >⇧⌘O</kbd
+        >
+        Open folder</span
+      >
     }
-    <span><kbd class="landing-kbd">⌘K</kbd> Commands</span>
+    <span class="inline-flex items-center gap-1.5"
+      ><kbd
+        class="inline-block px-1.5 py-0.5 border border-border rounded-md bg-surface-alt text-text-muted font-[inherit] text-[11px] leading-[1.3]"
+        >⌘K</kbd
+      >
+      Commands</span
+    >
   </footer>
 
   <div

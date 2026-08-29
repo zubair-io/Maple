@@ -15,7 +15,7 @@ import {
   standalone: true,
   imports: [RouterOutlet, MuiStatusTextComponent, MuiToastContainerComponent],
   templateUrl: './hosted-root-shell.component.html',
-  styleUrl: './hosted-root-shell.component.scss',
+  host: { class: 'block h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HostedRootShellComponent {
