@@ -38,6 +38,7 @@ import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
+import { describeServersForRuntime } from '../describe-capacity.ts';
 import {
   loadEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
@@ -89,7 +90,7 @@ async function getDeps(): Promise<DescribeDeps> {
   // values in the DB row are ignored — kept on the type only so older
   // config docs don't error on parse.
   _deps = {
-    pool: new DescribeServerPool(cfg.describe_servers),
+    pool: new DescribeServerPool(await describeServersForRuntime(cfg)),
     systemPrompt: DEFAULT_DESCRIBE_VISION_PROMPT,
     model: FIXED_DESCRIBE_MODEL,
   };
