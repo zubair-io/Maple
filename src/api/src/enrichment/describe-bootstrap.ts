@@ -70,7 +70,22 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
   // logged and left in the pool — the stage fails over past it per call and
   // picks it back up when it recovers, so a transient outage needs no
   // operator action.
-  const pool = new DescribeServerPool(resolved.describe_servers);
+  // Building the pool is the one step here that can throw synchronously (an
+  // empty server list; a future provider whose constructor validates its
+  // endpoint). Misconfiguration must stay a logged, recoverable condition —
+  // the operator fixes it in /settings/workers without a restart — so it is
+  // caught here rather than rejecting `applyDescribeConfig` and taking the
+  // rest of this apply with it.
+  let pool: DescribeServerPool;
+  try {
+    pool = new DescribeServerPool(resolved.describe_servers);
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : err },
+      'describe servers misconfigured (fix via /settings/workers)',
+    );
+    return;
+  }
   // Keep the stage's dispatch fan-out equal to the pool's total capacity.
   // Otherwise a claimed asset either sits holding a lease waiting for
   // admission (fan-out too high) or servers idle with backlog waiting
