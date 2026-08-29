@@ -14,6 +14,14 @@ const ctx = useImportsTestDb(`maple_test_imports_repo_${process.pid}`, 'imports.
 const lib = ctx.lib;
 
 describe('imports.repo', () => {
+  // Runs with or without Mongo, deliberately: the harness must point the
+  // code under test at the scratch database, or the repo functions write to
+  // the default one while these assertions read the scratch one and every
+  // case below fails only on a machine that HAS Mongo.
+  it('points the code under test at the scratch database', () => {
+    expect(process.env.MAPLE_MONGO_DB).toBe(ctx.dbName);
+  });
+
   it('create → claim → progress → complete', async () => {
     if (!ctx.reachable) return;
     const repo = await import('./repo.ts');
