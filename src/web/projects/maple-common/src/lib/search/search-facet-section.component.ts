@@ -17,7 +17,6 @@ export interface FacetRow {
   selector: 'app-search-facet-section',
   standalone: true,
   templateUrl: './search-facet-section.component.html',
-  styleUrl: './search-facet-section.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchFacetSectionComponent {

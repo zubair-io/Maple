@@ -264,4 +264,98 @@
     font-size: 11px;
     flex-shrink: 0;
   }
+
+  // ── option rows (was search/_option-rows.scss, ticket #3071 Task 9) ─────
+  // Avatar/name/count/check row anatomy shared by the Filters panel's
+  // People/Places sections (`search-facet-section`) and the `@` tag picker
+  // (`search-tag-picker`) — one source so the two can't drift (#2865).
+  .mui-chrome-option-eyebrow {
+    margin: 0;
+    font:
+      11px/1 'Lato',
+      sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .mui-chrome-option-none {
+    margin: 0;
+    font:
+      12px/1.4 'Lato',
+      sans-serif;
+    color: var(--color-text-muted);
+  }
+
+  .mui-chrome-option-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .mui-chrome-option-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--color-text-main);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mui-chrome-option-row:hover {
+    background: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
+  }
+
+  .mui-chrome-option-row.selected {
+    background: var(--color-surface-alt);
+  }
+
+  .mui-chrome-option-avatar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color-surface-alt);
+    color: var(--color-text-muted);
+    font:
+      12px/1 'Lato',
+      sans-serif;
+    font-weight: 700;
+  }
+
+  .mui-chrome-option-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font:
+      13px/1.2 'Lato',
+      sans-serif;
+  }
+
+  .mui-chrome-option-count {
+    flex-shrink: 0;
+    font:
+      11px/1 'Lato',
+      sans-serif;
+    color: var(--color-text-muted);
+  }
+
+  .mui-chrome-option-check {
+    flex-shrink: 0;
+    color: var(--color-primary, #e05d44);
+  }
 }
