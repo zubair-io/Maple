@@ -1,265 +1,22 @@
 // Palette/typography/page-host + the shared `.set-page-header`/
 // `.set-ghost-pill` atoms used in the template come from `set-vars`/
-// `set-page-host` host classes (settings-chrome-classes.scss, wired via
-// `host: { class: '...' }` in people.component.ts).
-
-// Shared internally by this file only (#3020 dedup) — the circular
-// avatar-with-cover-image chrome (detail header vs. the merge-suggestion
-// banner, which uses a smaller size) and the circular corner-badge chrome
-// (the face-grid selection check vs. the person-card duplicate-suggestion
-// badge, which anchors to the opposite corner and has no selected state).
-@mixin avatar-circle($size) {
-  width: $size;
-  height: $size;
-  border-radius: 50%;
-  background: var(--s-surface2);
-  border: 0.5px solid var(--s-border);
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  img {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .cover-fill {
-    inset: 0;
-  }
-}
-
-@mixin corner-badge {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(13, 12, 11, 0.55);
-  border: 1.5px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-}
-
-:host {
-  width: 100%;
-}
-
-// ── Toast ───────────────────────────────────────────────────────────
-
-.toast {
-  position: fixed;
-  top: 16px;
-  right: 24px;
-  z-index: 30;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  letter-spacing: 0.1px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-
-  &.toast-success {
-    background: var(--s-ok-bg);
-    color: var(--s-ok);
-    border: 0.5px solid rgba(74, 222, 128, 0.4);
-  }
-  &.toast-error {
-    background: rgba(248, 113, 113, 0.14);
-    color: var(--s-err);
-    border: 0.5px solid rgba(248, 113, 113, 0.4);
-  }
-}
-
-// Plain navigation links (Hidden / Excluded / Worker settings) in the header
-// actions row, styled to match the ghost buttons next to them.
-.nav-link {
-  text-decoration: none;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-}
-
-// ── List view ───────────────────────────────────────────────────────
-
-// List view fills the settings `.page` so the header stays fixed and the
-// virtual-scroll viewport owns the remaining height + its own scroll.
-.people-list-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
-.people-body {
-  padding: 24px 36px;
-  // Flex child of `.people-list-view`: take the remaining height so the
-  // viewport inside can scroll. `min-height: 0` lets it shrink below content.
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.stats-line {
-  font-family: var(--s-mono);
-  font-size: 11px;
-  color: var(--s-text-muted);
-  margin-bottom: 18px;
-  letter-spacing: 0.1px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.small-cluster-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.small-cluster-count {
-  color: var(--s-text-dim);
-}
-
-.empty-card {
-  border: 1px dashed var(--s-border);
-  background: var(--s-surface);
-  border-radius: 8px;
-  padding: 36px;
-  text-align: center;
-
-  h3 {
-    margin: 0 0 8px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--s-text);
-  }
-  p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--s-text-muted);
-
-    a {
-      color: var(--s-accent);
-      text-decoration: none;
-    }
-    a:hover {
-      text-decoration: underline;
-    }
-  }
-}
-
-// CDK virtual-scroll viewport for the card list. Fills the body's remaining
-// height and scrolls internally; only the visible rows are in the DOM.
-.people-viewport {
-  flex: 1;
-  min-height: 0;
-  // No negative-margin/padding compensation is needed here: `.person-card`'s
-  // hover/focus indicator is an in-bounds `border-color` change with
-  // `outline: none`, so it never paints outside the card box and the
-  // viewport's `overflow` can't clip it. If a card ever grows an outer outline
-  // or box-shadow focus ring, add `margin: 0 -Npx` + matching padding so the
-  // viewport's overflow doesn't shave it.
-  width: 100%;
-}
-
-// One packed row of fixed-width cards. Card widths are set inline from the
-// measured container width so they fill the row like the old `1fr` grid.
-.people-row {
-  display: flex;
-  align-items: stretch;
-}
-
-.person-card {
-  background: var(--s-surface);
-  border: 0.5px solid var(--s-border);
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  transition:
-    border-color 120ms,
-    transform 120ms;
-  text-decoration: none;
-
-  &:hover,
-  &:focus-visible {
-    border-color: var(--s-border-hi);
-    outline: none;
-  }
-}
-
-.person-thumb {
-  position: relative;
-  aspect-ratio: 1 / 1;
-  background: var(--s-surface2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-
-  img {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .cover-fill {
-    inset: 0;
-  }
-}
-
-.person-thumb-fallback {
-  font-size: 28px;
-  color: var(--s-text-dim);
-}
-
-.person-meta {
-  padding: 10px 12px;
-}
-
-.person-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--s-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  &.is-auto-named {
-    color: var(--s-text-mid);
-    font-weight: 400;
-  }
-}
-
-.person-stats {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
-}
-
-.person-faces {
-  font-family: var(--s-mono);
-  font-size: 11px;
-  color: var(--s-text-muted);
-}
+// `set-page-host`/`w-full` host classes (settings-chrome-classes.scss,
+// wired via `host: { class: '...' }` in people.component.ts). Every plain
+// layout/color/typography rule moved to inline Tailwind utilities on the
+// template (#3071 Task 10), including the two local corner-badge/
+// avatar-circle "mixins" (inlined at each of their 4 call sites — none of
+// the sizes repeat build-worthy usage counts to justify a shared class).
+//
+// What remains is `::ng-deep` residue: every one of these classes reaches
+// into a mounted child component's internal DOM (`<mui-button>`'s own
+// `button.mui-button`, or in `.card-delete`/`.card-restore`'s case, chrome
+// also relied on by restorable-people.component.html) — encapsulated
+// styles a template utility class cannot reach.
 
 // `.card-delete` / `.card-restore` are the class on the `<mui-button>` host
 // now — the real button is inside its own template, hence `::ng-deep`.
 // Restore uses a positive (accent) hover instead of the destructive red.
+// `.card-restore` is also consumed by restorable-people.component.html.
 .card-delete ::ng-deep button.mui-button,
 .card-restore ::ng-deep button.mui-button {
   background: transparent;
@@ -275,50 +32,13 @@
   color: var(--s-accent, var(--s-text));
 }
 
-// ── Detail view: header ────────────────────────────────────────────
-
-.detail-head {
-  padding: 24px 36px 18px;
-  border-bottom: 0.5px solid var(--s-border);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-// `.back-link` is the class on the `<mui-button>` host now.
-.back-link {
-  align-self: flex-start;
-
-  ::ng-deep button.mui-button {
-    background: transparent;
-    padding: 0;
-    gap: 6px;
-    color: var(--s-text-muted);
-  }
-}
-
-.detail-identity {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.detail-avatar {
-  @include avatar-circle(64px);
-}
-
-.detail-avatar-fallback {
-  font-size: 22px;
-  color: var(--s-text-dim);
-}
-
-.detail-titles {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+// `.back-link` is the class on the `<mui-button>` host now (its host-level
+// `self-start` layout is an inline utility on the template).
+.back-link ::ng-deep button.mui-button {
+  background: transparent;
+  padding: 0;
+  gap: 6px;
+  color: var(--s-text-muted);
 }
 
 // `.name-button` is the class on the `<mui-button>` host now.
@@ -337,187 +57,6 @@
   color: var(--s-accent);
 }
 
-.name-input {
-  font-family: var(--s-font);
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.4px;
-  color: var(--s-text);
-  background: var(--s-bg);
-  border: none;
-  outline: 1.5px solid var(--s-accent);
-  outline-offset: 2px;
-  border-radius: 3px;
-  padding: 0 4px;
-  text-align: left;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.unnamed-chip {
-  font-family: var(--s-mono);
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: var(--s-surface2);
-  color: var(--s-text-dim);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  align-self: flex-start;
-}
-
-.detail-meta {
-  font-family: var(--s-mono);
-  font-size: 11.5px;
-  color: var(--s-text-muted);
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-top: 2px;
-}
-.meta-sep {
-  color: var(--s-text-dim);
-}
-.meta-strong {
-  color: var(--s-text);
-}
-
-.detail-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-left: auto;
-  flex-wrap: wrap;
-}
-
-// The "Merge this person into" picker — a native <select> styled to match
-// the ghost buttons next to it (it replaces one when the picker opens).
-.merge-select {
-  &:disabled {
-    opacity: 0.5;
-  }
-}
-
-// ── Detail view: merge-suggestion banner ────────────────────────────
-
-.merge-suggestion-banner {
-  margin: 0 36px 16px;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--s-surface2);
-  border: 0.5px solid var(--s-border);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.merge-suggestion-avatar {
-  @include avatar-circle(40px);
-}
-
-.merge-suggestion-avatar-fallback {
-  font-size: 15px;
-  color: var(--s-text-dim);
-}
-
-.merge-suggestion-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--s-text-mid);
-
-  strong {
-    color: var(--s-text);
-  }
-}
-
-.merge-suggestion-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-// Expanded "Compare faces" strip — sits flush under the banner (same
-// horizontal margins), horizontally scrollable when the page is narrow.
-.merge-suggestion-faces {
-  display: flex;
-  gap: 8px;
-  margin: -8px 36px 16px;
-  padding: 10px 12px;
-  border-radius: 0 0 8px 8px;
-  background: var(--s-surface2);
-  border: 0.5px solid var(--s-border);
-  border-top: none;
-  overflow-x: auto;
-
-  .face-thumb {
-    width: 64px;
-    flex: none;
-    border-radius: 6px;
-  }
-}
-
-.merge-suggestion-faces-empty {
-  font-size: 12px;
-  color: var(--s-text-dim);
-  align-self: center;
-}
-
-// ── Detail view: filter bar (sticky) ────────────────────────────────
-
-.filter-bar {
-  padding: 14px 36px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  border-bottom: 0.5px solid var(--s-border);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--s-bg);
-  flex-wrap: wrap;
-}
-
-.threshold {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-
-  input[type='range'] {
-    accent-color: var(--s-accent);
-    width: 140px;
-    height: 4px;
-  }
-
-  .threshold-label {
-    font-family: var(--s-font);
-    font-size: 12px;
-    color: var(--s-text-muted);
-  }
-
-  .threshold-val {
-    font-family: var(--s-mono);
-    font-size: 12px;
-    color: var(--s-text);
-    font-variant-numeric: tabular-nums;
-    width: 36px;
-  }
-}
-
-.filter-spacer {
-  flex: 1;
-}
-
-.visible-count {
-  font-family: var(--s-mono);
-  font-size: 11px;
-  color: var(--s-text-muted);
-
-  .below-threshold {
-    color: var(--s-text-dim);
-  }
-}
-
 // `.link-action` is the class on the `<mui-button>` host now.
 .link-action ::ng-deep button.mui-button {
   background: transparent;
@@ -526,79 +65,44 @@
   padding: 0;
 }
 
-// ── Detail view: face grid ─────────────────────────────────────────
-
-.face-grid-wrap {
-  padding: 20px 36px 120px;
-  position: relative;
-}
-
-.empty-msg {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--s-text-muted);
-}
-
-.face-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
-}
-
-.face-cell {
-  // Container div for the face thumb + open button overlay. Relative
-  // so the `.face-open-btn` can be positioned inside it.
-  position: relative;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1.5px solid transparent;
-  background: var(--s-surface2);
-
-  &.is-selected {
-    border-color: var(--s-accent);
-  }
-}
-
-// `.face-select-btn` is the class on the `<mui-button>` host now — the real
+// `.face-select-btn` is the class on the `<mui-button>` host — the real
 // button is inside its own template, hence `::ng-deep` to reach it for the
 // full-bleed cell-covering treatment mui-button's own pill styling doesn't
-// produce on its own.
-.face-select-btn {
+// produce on its own. Host-level `display:block; width:100%` is an inline
+// utility on the template.
+.face-select-btn ::ng-deep button.mui-button {
   display: block;
   width: 100%;
+  padding: 0;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 
-  ::ng-deep button.mui-button {
-    display: block;
-    width: 100%;
-    padding: 0;
-    font-family: inherit;
-    appearance: none;
-    -webkit-appearance: none;
-    text-align: left;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-
-    // Visible keyboard focus — accent ring at 2px offset matches the rest
-    // of the Settings surfaces (see styles.scss global reset).
-    &:focus-visible {
-      outline: 1.5px solid var(--s-accent);
-      outline-offset: 1px;
-    }
+  // Visible keyboard focus — accent ring at 2px offset matches the rest
+  // of the Settings surfaces (see styles.scss global reset).
+  &:focus-visible {
+    outline: 1.5px solid var(--s-accent);
+    outline-offset: 1px;
   }
 }
 
 // "Open photo" button — appears on hover/focus in the bottom-right corner
-// of the face cell, visually distinct from the selection checkbox.
-// "Open photo" button. Always in the DOM (so it sits in normal tab order and
-// is keyboard-reachable), but hidden until the cell is hovered / something in
-// the cell has focus / the face is selected. Visibility is CSS-driven rather
-// than `@if`-gated so tabbing onto the button doesn't remove it before it can
-// receive focus.
+// of the face cell, visually distinct from the selection checkbox. Always
+// in the DOM (so it sits in normal tab order and is keyboard-reachable),
+// but hidden until the cell is hovered / something in the cell has focus /
+// the face is selected. Visibility is CSS-driven rather than `@if`-gated so
+// tabbing onto the button doesn't remove it before it can receive focus.
 // `.face-open-btn` is the class on the `<mui-button>` host — position/size/
-// reveal (host-level layout) live here directly; the visual chrome (no
-// default button look, background, blur) needs `::ng-deep` to reach the real
-// button inside mui-button's own template.
+// reveal (host-level layout) live here directly (genuine residue: the
+// reveal condition combines a parent-hover selector `.face-cell:hover &`
+// with three other selectors on one property, more variants than a
+// template-level conditional class can cleanly express); the visual chrome
+// (no default button look, background, blur) needs `::ng-deep` to reach the
+// real button inside mui-button's own template.
 .face-open-btn {
   position: absolute;
   bottom: 6px;
@@ -651,136 +155,12 @@
   }
 }
 
-// Infinite-scroll sentinel — shown at the bottom of the face grid when
-// more pages are available. mapleVisibleOnce fires loadMoreFaces() once
-// this div enters the viewport.
-.face-load-more {
-  grid-column: 1 / -1;
-  padding: 16px 0 8px;
-  text-align: center;
-  font-family: var(--s-mono);
-  font-size: 11px;
-  color: var(--s-text-dim);
-}
-
-.face-thumb {
-  display: block;
-  aspect-ratio: 1 / 1;
-  background: var(--s-surface2);
-  position: relative;
-  overflow: hidden;
-
-  img {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-}
-
-.confidence-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(13, 12, 11, 0.78);
-  font-family: var(--s-mono);
-  font-size: 10px;
-  color: var(--s-text);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.2px;
-  backdrop-filter: blur(4px);
-  pointer-events: none;
-}
-
-.select-check {
-  @include corner-badge;
-  top: 6px;
-  left: 6px;
-
-  &.is-selected {
-    background: var(--s-accent);
-    border-color: var(--s-accent);
-  }
-}
-
-.merge-suggestion-badge {
-  @include corner-badge;
-  top: 6px;
-  right: 6px;
-}
-
-.low-confidence-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--s-warn);
-}
-
-// ── Detail view: floating bulk toolbar ─────────────────────────────
-
-.bulk-toolbar-wrap {
-  position: fixed;
-  // Stay centred under the visible page area (right of the sidebar).
-  // --s-sidebar-width is exposed by settings-chrome and tracks the
-  // shell's responsive collapse — no need to duplicate the breakpoints.
-  left: var(--s-sidebar-width);
-  right: 0;
-  bottom: 24px;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
-}
-
-// Mobile: the sidebar becomes a horizontal top bar (width: 100%), so
-// --s-sidebar-width is 0 and the toolbar spans the full viewport.
-@media (max-width: 767px) {
-  .bulk-toolbar-wrap {
-    bottom: calc(12px + var(--safe-area-inset-bottom, 0px));
-  }
-}
-
-.bulk-toolbar {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 10px;
-  background: var(--s-surface);
-  border: 0.5px solid var(--s-border-hi);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  max-width: calc(100% - 24px);
-  flex-wrap: wrap;
-}
-
-.bulk-count {
-  font-family: var(--s-font);
-  font-size: 12.5px;
-  color: var(--s-text);
-  font-weight: 500;
-  padding: 0 10px 0 6px;
-  white-space: nowrap;
-}
-
-.bulk-sep {
-  width: 0.5px;
-  height: 18px;
-  background: var(--s-border);
-}
-
 // `.bulk-btn` is applied both to a `<label>` (the "Move to person…"
 // overlay-select trigger — unaffected by the mui migration) and to
-// `<mui-button class="bulk-btn">` (every other toolbar action). The direct
-// declarations style the label; the nested `::ng-deep` block reaches the
-// real button inside mui-button's own template for the matching pill chrome.
+// `<mui-button class="bulk-btn">` (every other toolbar action). Both must
+// render identically, so the shared declarations stay together here rather
+// than splitting the label's styling out to template utilities while the
+// mui-button instances keep `::ng-deep` — that would let the two drift.
 .bulk-btn {
   position: relative; // anchor for the overlay <select>
   display: inline-flex;
@@ -822,49 +202,4 @@
   &.mute ::ng-deep button.mui-button {
     color: var(--s-text-muted);
   }
-}
-
-// Overlay <select> covers the move-to-person button so it acts as the
-// click target. Transparent so the styled label below shows through;
-// the native dropdown opens on click for accessible keyboard support.
-.bulk-select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: inherit;
-}
-
-// ── List-view select mode ───────────────────────────────────────────────────
-.person-card.is-selected {
-  outline: 2px solid var(--s-accent);
-  outline-offset: 2px;
-  border-radius: 8px;
-}
-
-// ── Mobile tweaks ──────────────────────────────────────────────────
-
-@media (max-width: 767px) {
-  .people-body {
-    padding: 16px;
-  }
-  .detail-head {
-    padding: 16px 16px 12px;
-  }
-  .filter-bar {
-    padding: 12px 16px;
-    gap: 12px;
-  }
-  .face-grid-wrap {
-    padding: 16px 16px 120px;
-  }
-  .detail-actions {
-    margin-left: 0;
-    width: 100%;
-  }
-  // Card column density on phones is driven by `minCardWidth()` in the
-  // component (140px), not CSS — the grid is now JS-packed for virtual scroll.
 }
