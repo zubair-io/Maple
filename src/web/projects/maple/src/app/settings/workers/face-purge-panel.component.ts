@@ -36,7 +36,7 @@ type PanelState = 'idle' | 'auditing' | 'applying';
   standalone: true,
   imports: [MuiButtonComponent, MuiCheckboxComponent],
   templateUrl: './face-purge-panel.component.html',
-  styleUrl: './face-purge-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FacePurgePanelComponent {
