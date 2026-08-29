@@ -34,6 +34,7 @@ import { MapleIconComponent } from '../icons/maple-icon.component';
   imports: [MapleIconComponent],
   templateUrl: './library-cell.component.html',
   styleUrl: './library-cell.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LibraryCellComponent {

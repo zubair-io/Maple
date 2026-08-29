@@ -42,6 +42,7 @@ import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
   imports: [FilterChipsComponent, LibraryCellComponent],
   templateUrl: './library-grid.component.html',
   styleUrl: './library-grid.component.scss',
+  host: { class: 'block text-text-main' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LibraryGridComponent {

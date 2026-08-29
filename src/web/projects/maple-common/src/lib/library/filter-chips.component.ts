@@ -25,12 +25,26 @@ const FILTER_ORDER: CullFilter[] = ['all', 'picks', '4stars', 'edited'];
   selector: 'app-filter-chips',
   standalone: true,
   templateUrl: './filter-chips.component.html',
-  styleUrl: './filter-chips.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FilterChipsComponent {
   /** Currently-active filter. Parent owns the source of truth. */
   active = input.required<CullFilter>();
+
+  /** Mutually-exclusive color/border/background triplet for a chip's
+   * active state (Tailwind port #3071) — folded into one computed string
+   * rather than a base class plus a conditional add-on. */
+  protected chipClass(active: boolean): string {
+    // `--font-lato-bold` is never defined globally, so the effective stack
+    // is always its fallback — written directly rather than through an
+    // unresolvable `var()` inside a Tailwind arbitrary value.
+    const base =
+      "inline-flex h-7 cursor-pointer items-center justify-center rounded-full border-[0.5px] px-2.5 font-['Lato_Bold',system-ui,sans-serif] text-[11px] font-bold transition-[background-color,color,border-color] duration-[var(--motion-filter-fade-ms,120ms)] ease-linear focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+    return active
+      ? `${base} active border-primary text-primary bg-[color-mix(in_srgb,var(--color-primary)_22%,transparent)]`
+      : `${base} border-border bg-surface-alt text-text-muted`;
+  }
 
   /** Emitted when the user taps a chip. Parent persists + re-filters. */
   filterChange = output<CullFilter>();
