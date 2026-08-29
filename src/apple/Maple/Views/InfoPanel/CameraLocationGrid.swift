@@ -76,14 +76,17 @@ struct CameraLocationGrid: View {
             isLink: row.id == "folder" && canRevealFolder && row.value != "—"
           )
         },
-        linkTapped: { _ in
-          // Close the info sheet first so the user lands on the folder
-          // grid (no-op for the inline mac/iPad inspector). Only the
-          // "folder" row opts into `isLink`, so there's exactly one
-          // possible tapped id.
-          dismiss()
-          if let asset { revealFolder?(asset) }
-        }
+        // Handler is nil when nothing can be revealed, and guards on the
+        // row id so future link rows can't accidentally trigger reveal.
+        linkTapped: canRevealFolder
+          ? { rowId in
+            guard rowId == "folder" else { return }
+            // Close the info sheet first so the user lands on the folder
+            // grid (no-op for the inline mac/iPad inspector).
+            dismiss()
+            if let asset { revealFolder?(asset) }
+          }
+          : nil
       )
     }
     .accessibilityElement(children: .contain)
