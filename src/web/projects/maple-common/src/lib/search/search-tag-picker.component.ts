@@ -33,7 +33,6 @@ interface TagSection {
   selector: 'app-search-tag-picker',
   standalone: true,
   templateUrl: './search-tag-picker.component.html',
-  styleUrl: './search-tag-picker.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchTagPickerComponent {

@@ -1,23 +1,24 @@
-<section class="section">
-  <h3 class="eyebrow">{{ title() }}</h3>
+<section class="flex flex-col gap-2">
+  <h3 class="mui-chrome-option-eyebrow">{{ title() }}</h3>
   @if (rows().length === 0) {
-    <p class="none">{{ emptyLabel() }}</p>
+    <p class="mui-chrome-option-none">{{ emptyLabel() }}</p>
   }
-  <ul class="rows">
+  <ul class="mui-chrome-option-rows">
     @for (r of rows(); track r.value) {
       <li>
         <button
           type="button"
-          class="row"
+          class="mui-chrome-option-row border-l-2 border-l-transparent"
           [class.selected]="r.selected"
+          [class.border-l-primary]="r.selected"
           [attr.aria-pressed]="r.selected"
           [attr.data-testid]="'filter-' + kind() + '-' + r.value"
           (click)="rowToggle.emit(r.value)"
         >
           @if (kind() === 'person') {
-            <span class="avatar">{{ initial(r.value) }}</span>
+            <span class="mui-chrome-option-avatar">{{ initial(r.value) }}</span>
           } @else {
-            <span class="avatar">
+            <span class="mui-chrome-option-avatar">
               <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true">
                 <path
                   d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
@@ -28,10 +29,16 @@
               </svg>
             </span>
           }
-          <span class="name">{{ r.value }}</span>
-          <span class="count">{{ r.count }}</span>
+          <span class="mui-chrome-option-name">{{ r.value }}</span>
+          <span class="mui-chrome-option-count">{{ r.count }}</span>
           @if (r.selected) {
-            <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+            <svg
+              class="mui-chrome-option-check"
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              aria-hidden="true"
+            >
               <path
                 d="M2.5 7.5l3 3 6-7"
                 fill="none"
