@@ -7,7 +7,7 @@ import { LibraryStateService, MapleIconComponent } from '@maple-common';
   standalone: true,
   imports: [MapleIconComponent, RouterLink],
   templateUrl: './self-hosted-browse-controls.component.html',
-  styleUrl: './self-hosted-browse-controls.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SelfHostedBrowseControlsComponent {

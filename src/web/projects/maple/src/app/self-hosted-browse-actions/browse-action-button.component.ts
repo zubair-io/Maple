@@ -22,7 +22,10 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
   selector: 'app-browse-action-button',
   standalone: true,
   templateUrl: './browse-action-button.component.html',
-  styleUrl: './browse-action-button.component.scss',
+  // Same `display: contents` as the parent's own host rule — this
+  // component's single `<button>` needs to participate directly in the
+  // parent's flex row, not be laid out as a block wrapping it.
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrowseActionButtonComponent {

@@ -5,7 +5,7 @@ import { LibraryStateService } from '@maple-common';
   selector: 'app-self-hosted-sidebar-header',
   standalone: true,
   templateUrl: './self-hosted-sidebar-header.component.html',
-  styleUrl: './self-hosted-sidebar-header.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SelfHostedSidebarHeaderComponent {

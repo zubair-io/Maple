@@ -44,7 +44,7 @@
 />
 
 @if (trash.resultSummary(); as summary) {
-  <div class="dlg-toast trash-selected-summary" role="status">
+  <div class="dlg-toast bg-surface-hover text-text-main border-[0.5px] border-border" role="status">
     <span>
       @if (summary.failed.length > 0) {
         Sent {{ summary.trashed }} of {{ summary.total }} to Trash — {{ summary.failed.length }}
