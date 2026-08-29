@@ -74,7 +74,7 @@ const BALANCE_RANGE = ADJUSTMENT_RANGES.splitToneBalance;
   standalone: true,
   imports: [ColorWheelComponent, MuiLivingSliderComponent],
   templateUrl: './color-grading-panel.component.html',
-  styleUrl: './color-grading-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ColorGradingPanelComponent {

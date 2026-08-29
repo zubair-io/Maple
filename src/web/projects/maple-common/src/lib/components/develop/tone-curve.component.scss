@@ -1,59 +1,13 @@
-// ToneCurveComponent — styles (#1540 → #367).
+// tone-curve.component.scss — residue only (Tailwind port #3071 Task 9).
+// SVG plot child styling (`preserveAspectRatio="none"` non-uniform scale
+// compensation via `vector-effect`, and the histogram/grid/identity/curve/
+// knot stroke geometry) has no clean Tailwind utility equivalent — an
+// explicitly allowed residue category (constraints.md). `.curve-plot`'s
+// own box/border/background moved to template utilities; only its
+// `cursor: crosshair; touch-action: none` SVG-specific bits plus its
+// children stay here.
 
-:host {
-  display: block;
-}
-
-.curve-widget {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px 10px;
-}
-
-// ── Channel selector ────────────────────────────────────────────────────
-.channel-row {
-  display: flex;
-  gap: 4px;
-}
-
-.ch-btn {
-  flex: 1;
-  padding: 3px 0;
-  border: 0.5px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  font-size: 10px;
-  color: var(--pro-text-dim);
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-  transition:
-    background 100ms ease-out,
-    color 100ms ease-out,
-    border-color 100ms ease-out;
-  outline: none;
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 1px;
-  }
-
-  &.ch-btn--active {
-    background: var(--pro-accent-28);
-    border-color: var(--pro-accent);
-    color: var(--pro-accent);
-  }
-}
-
-// ── Plot ────────────────────────────────────────────────────────────────
 .curve-plot {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  border: 0.5px solid var(--pro-border);
-  border-radius: 6px;
-  background: var(--pro-canvas-alt);
   cursor: crosshair;
   touch-action: none;
   overflow: visible;
@@ -113,48 +67,4 @@
     stroke: var(--pro-accent);
     stroke-width: 2.5;
   }
-}
-
-// ── Footer (axis captions + per-channel reset) ──────────────────────────
-.plot-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-
-.axis-label {
-  font-size: 9px;
-  color: var(--pro-text-dim);
-  user-select: none;
-}
-
-.reset-btn {
-  padding: 2px 8px;
-  border: 0.5px solid var(--pro-border);
-  border-radius: 6px;
-  background: transparent;
-  font-size: 9px;
-  color: var(--pro-text-muted);
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 1px;
-  }
-
-  &:disabled {
-    opacity: 0.32;
-    cursor: default;
-  }
-}
-
-// ── Parametric sliders ──────────────────────────────────────────────────
-.parametric {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 4px;
 }

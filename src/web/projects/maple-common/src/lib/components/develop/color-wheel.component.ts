@@ -24,6 +24,7 @@ import { nudgeWheel, posToWheel, wheelToPos, type WheelValue } from './color-whe
   imports: [],
   templateUrl: './color-wheel.component.html',
   styleUrl: './color-wheel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ColorWheelComponent implements OnDestroy {
