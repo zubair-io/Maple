@@ -1,9 +1,5 @@
 @use '../../generated/ui-tokens' as tok;
 
-:host {
-  display: block;
-}
-
 // `size="fill"` — the grid-cell case: the host fills whatever box its
 // parent already sized (a justified-grid row's fixed-aspect cell), rather
 // than the sm/md fixed pixel widths below.
@@ -20,17 +16,13 @@
   position: relative;
 }
 
+// Residue: `.thumb`'s outline-color is driven by three competing sources —
+// default hover (`&:hover .thumb`, a descendant combinator that can't be
+// expressed as a `peer-hover:` on a non-sibling ancestor/descendant pair),
+// `.is-selected .thumb`, and the `size-sm`/`size-md` nested width rules —
+// all resolved by declaration order in the original cascade. Kept as plain
+// CSS so that order (and the transition) survives unchanged.
 .mui-media-cell {
-  display: flex;
-  flex-direction: column;
-  gap: tok.$maple-spacing-xs;
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: tok.$maple-spacing-xs;
-  border-radius: tok.$maple-radius-md;
-  cursor: pointer;
-
   &:hover .thumb {
     outline-color: var(--color-border-hi);
   }
@@ -58,26 +50,7 @@
 }
 
 .thumb {
-  position: relative;
-  border-radius: tok.$maple-radius-sm;
-  outline: 2px solid transparent;
-  outline-offset: 2px;
   transition: outline-color 120ms ease;
-}
-
-.badges {
-  position: absolute;
-  top: tok.$maple-spacing-xs;
-  left: tok.$maple-spacing-xs;
-  display: flex;
-  gap: 2px;
-}
-
-.meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: tok.$maple-spacing-xs;
 }
 
 // Overlay layout — Lightroom-style grid-cell chrome. `border-radius: 2px`
@@ -86,68 +59,12 @@
 // `tok.$maple-radius-*`: the closest token (`$maple-radius-sm`, 6px) reads
 // as a visibly different, softer corner at this size.
 .mui-media-cell.overlay {
-  display: block;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: none;
-  border-radius: 2px;
-  overflow: hidden;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  outline: none;
-
-  mui-image {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
   &.is-dimmed mui-image {
     opacity: 0.45;
   }
 }
 
-.overlay .thumb-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 2px;
-  border: 2px solid transparent;
-  transition: border-color 80ms ease;
-  pointer-events: none;
-}
-
 .overlay.is-selected .thumb-ring,
 .overlay:focus-visible .thumb-ring {
   border-color: var(--color-primary);
-}
-
-.overlay-slot {
-  position: absolute;
-  top: 5px;
-  display: flex;
-  gap: 3px;
-  pointer-events: none;
-}
-
-.overlay-slot.top-left {
-  left: 5px;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.overlay-slot.top-right {
-  right: 5px;
-  flex-direction: row-reverse;
-  align-items: flex-start;
-}
-
-.overlay-rating {
-  position: absolute;
-  bottom: 5px;
-  left: 5px;
-  right: 5px;
-  pointer-events: none;
 }

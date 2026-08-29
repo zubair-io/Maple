@@ -35,7 +35,7 @@ export interface MuiInfoPanelHistogram {
     MuiSpinnerComponent,
   ],
   templateUrl: './mui-info-panel.component.html',
-  styleUrl: './mui-info-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiInfoPanelComponent {

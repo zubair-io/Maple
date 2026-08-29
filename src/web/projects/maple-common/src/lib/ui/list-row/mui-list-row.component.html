@@ -1,29 +1,31 @@
 <div
-  class="mui-list-row"
+  class="mui-list-row flex min-h-11 cursor-pointer items-center gap-2 border-l-2 border-l-transparent bg-transparent px-4 py-2 text-text-main"
   role="button"
   [attr.tabindex]="disabled() ? -1 : 0"
   [attr.data-testid]="testId()"
   [class.is-active]="active()"
   [class.is-disabled]="disabled()"
+  [class.opacity-45]="disabled()"
+  [class.pointer-events-none]="disabled()"
   [attr.aria-current]="active() ? 'true' : null"
   [attr.aria-disabled]="disabled() ? 'true' : null"
   (click)="onRowClick()"
   (keydown)="onKeydown($event)"
 >
   @if (icon()) {
-    <mui-icon [name]="icon()!" size="sm" class="leading" />
+    <mui-icon [name]="icon()!" size="sm" class="leading flex-none text-primary" />
   }
-  <div class="content">
+  <div class="content flex min-w-0 flex-1 flex-col gap-0.5">
     <mui-text variant="row-label" [truncate]="true">{{ label() }}</mui-text>
     @if (timestampValue() !== null) {
-      <mui-timestamp [value]="timestampValue()!" format="relative" class="subtitle" />
+      <mui-timestamp [value]="timestampValue()!" format="relative" class="subtitle text-[11px]" />
     } @else if (subtitle()) {
-      <mui-text variant="body" color="muted" [truncate]="true" class="subtitle">
+      <mui-text variant="body" color="muted" [truncate]="true" class="subtitle text-[11px]">
         {{ subtitle() }}
       </mui-text>
     }
   </div>
-  <div class="trailing">
+  <div class="trailing flex flex-none items-center gap-1">
     <ng-content select="[trailing]" />
   </div>
 </div>

@@ -20,7 +20,7 @@ const GAP_PX = 4;
   selector: 'mui-parade',
   standalone: true,
   templateUrl: './mui-parade.component.html',
-  styleUrl: './mui-parade.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiParadeComponent extends RgbChannelPlotBase {

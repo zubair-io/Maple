@@ -5,7 +5,10 @@
 
 <ng-template #listTpl let-nodes let-level="level">
   @if (ordered()) {
-    <ol class="mui-list" [class]="'marker-' + marker() + ' density-' + density()">
+    <ol
+      class="mui-list m-0 pl-4 text-[13px] text-text-main"
+      [class]="'marker-' + marker() + ' density-' + density()"
+    >
       @for (item of nodes; track item.text) {
         <li>
           {{ item.text }}
@@ -19,7 +22,10 @@
       }
     </ol>
   } @else {
-    <ul class="mui-list" [class]="'marker-' + marker() + ' density-' + density()">
+    <ul
+      class="mui-list m-0 pl-4 text-[13px] text-text-main"
+      [class]="'marker-' + marker() + ' density-' + density()"
+    >
       @for (item of nodes; track item.text) {
         <li>
           {{ item.text }}

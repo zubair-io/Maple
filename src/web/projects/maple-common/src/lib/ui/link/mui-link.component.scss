@@ -1,19 +1,8 @@
-@use '../../generated/ui-tokens' as tok;
-
-:host {
-  display: inline;
-}
-
+// Residue: :hover / :visited compete on `color` at equal pseudo-class
+// specificity — the original declaration order (visited after hover) makes
+// a visited link win over hover, a quirk Tailwind's generated utility order
+// doesn't guarantee to preserve. Kept as plain CSS per TAILWIND-CONVERSION.md.
 .mui-link {
-  display: inline-flex;
-  align-items: center;
-  gap: tok.$maple-spacing-xs;
-  color: var(--color-primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-  border-radius: tok.$maple-radius-xs;
-
   &:hover {
     color: color-mix(in srgb, var(--color-primary) 85%, white);
   }
@@ -25,11 +14,5 @@
   &:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
     outline-offset: 2px;
-  }
-
-  &.disabled {
-    pointer-events: none;
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 }

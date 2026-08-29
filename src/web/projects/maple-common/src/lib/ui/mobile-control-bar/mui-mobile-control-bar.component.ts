@@ -29,7 +29,7 @@ export interface MuiMobileControlBarTool {
   standalone: true,
   imports: [MuiActionButtonComponent, MuiControlSurfaceComponent],
   templateUrl: './mui-mobile-control-bar.component.html',
-  styleUrl: './mui-mobile-control-bar.component.scss',
+  host: { class: 'block w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiMobileControlBarComponent {

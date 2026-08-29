@@ -1,6 +1,9 @@
 <a
-  class="mui-link"
+  class="mui-link inline-flex cursor-pointer items-center gap-1 rounded-sm text-primary underline underline-offset-2"
   [class.disabled]="disabled()"
+  [class.pointer-events-none]="disabled()"
+  [class.cursor-not-allowed]="disabled()"
+  [class.opacity-50]="disabled()"
   [attr.href]="disabled() ? null : href()"
   [attr.target]="external() ? '_blank' : null"
   [attr.rel]="external() ? 'noopener noreferrer' : null"

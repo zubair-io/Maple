@@ -17,7 +17,7 @@ import type { MuiKanbanCard } from './mui-kanban-board.component';
   standalone: true,
   imports: [MuiCardComponent, MuiTextComponent],
   templateUrl: './mui-kanban-card-tile.component.html',
-  styleUrl: './mui-kanban-card-tile.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiKanbanCardTileComponent {

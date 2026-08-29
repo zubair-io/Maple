@@ -21,7 +21,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiIconComponent, MuiInputComponent, MuiTextComponent],
   templateUrl: './mui-inline-rename-field.component.html',
-  styleUrl: './mui-inline-rename-field.component.scss',
+  host: { class: 'inline-block max-w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiInlineRenameFieldComponent {

@@ -1,4 +1,4 @@
-<div class="mui-label-value-grid">
+<div class="mui-label-value-grid grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1">
   @for (row of rows(); track row.label) {
     <mui-text variant="chip-label" color="muted">{{ row.label }}</mui-text>
     <mui-text variant="body">{{ row.value }}</mui-text>

@@ -1,16 +1,18 @@
 <mui-overlay-shell [open]="open()" size="md" ariaLabel="Move To" (dismissed)="dismissed.emit()">
-  <div slot="header" class="mui-move-to-modal-header">
+  <div slot="header" class="mui-move-to-modal-header border-b border-border px-6 py-4">
     <mui-text variant="sheet-title" [block]="true">Move To</mui-text>
   </div>
 
-  <div class="mui-move-to-modal-body">
+  <div class="mui-move-to-modal-body flex flex-col gap-2">
     <mui-search-bar
       [value]="searchQuery()"
       (valueChange)="searchQuery.set($event)"
       placeholder="Search folders"
     />
 
-    <div class="tree">
+    <div
+      class="tree flex max-h-[320px] flex-col overflow-auto rounded-md border border-border py-1"
+    >
       @for (node of visibleNodes(); track node.id) {
         <mui-tree-row
           [label]="node.name"
@@ -27,7 +29,10 @@
     </div>
   </div>
 
-  <div slot="footer" class="mui-move-to-modal-footer">
+  <div
+    slot="footer"
+    class="mui-move-to-modal-footer flex justify-end gap-1 border-t border-border px-6 py-4"
+  >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
     <mui-button variant="primary" [disabled]="selectedId() === null" (pressed)="confirmMove()">
       Move

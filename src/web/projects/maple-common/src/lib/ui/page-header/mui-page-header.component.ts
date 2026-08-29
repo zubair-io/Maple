@@ -13,7 +13,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiTextComponent],
   templateUrl: './mui-page-header.component.html',
-  styleUrl: './mui-page-header.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPageHeaderComponent {

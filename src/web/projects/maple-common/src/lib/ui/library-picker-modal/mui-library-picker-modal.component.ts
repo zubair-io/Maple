@@ -40,7 +40,7 @@ const CRUMB_PREFIX = 'crumb:';
     MuiTreeRowComponent,
   ],
   templateUrl: './mui-library-picker-modal.component.html',
-  styleUrl: './mui-library-picker-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiLibraryPickerModalComponent {

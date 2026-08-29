@@ -1,4 +1,4 @@
-<div class="mui-notification-feed">
+<div class="mui-notification-feed flex flex-col gap-4">
   <mui-chip-row
     [chips]="filters()"
     mode="select"
@@ -13,7 +13,7 @@
       [message]="'Nothing under ' + activeFilterLabel() + '.'"
     />
   } @else {
-    <div class="list">
+    <div class="list flex flex-col gap-0.5">
       @for (notification of filteredNotifications(); track notification.id) {
         <mui-list-row
           [icon]="notification.read ? null : 'dot'"
@@ -25,7 +25,7 @@
             <button
               trailing
               type="button"
-              class="mark-read"
+              class="mark-read cursor-pointer border-none bg-none px-2 py-1 text-[11px] font-semibold text-primary hover:underline"
               aria-label="Mark as read"
               (click)="markRead(notification, $event)"
             >

@@ -52,7 +52,7 @@ export interface MuiKanbanMoveEvent {
     MuiTextComponent,
   ],
   templateUrl: './mui-kanban-board.component.html',
-  styleUrl: './mui-kanban-board.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiKanbanBoardComponent {

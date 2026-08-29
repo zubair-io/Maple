@@ -4,12 +4,15 @@
   ariaLabel="Library Picker"
   (dismissed)="dismissed.emit()"
 >
-  <div slot="header" class="mui-library-picker-modal-header">
+  <div
+    slot="header"
+    class="mui-library-picker-modal-header flex flex-col gap-2 border-b border-border px-6 py-4"
+  >
     <mui-text variant="sheet-title" [block]="true">Library Picker</mui-text>
     <mui-toolbar [entries]="toolbarEntries()" (itemSelected)="onToolbarSelected($event)" />
   </div>
 
-  <div class="mui-library-picker-modal-body">
+  <div class="mui-library-picker-modal-body min-h-[200px]">
     @if (error(); as message) {
       <mui-banner
         variant="error"
@@ -18,7 +21,7 @@
         (actionPressed)="refreshRequested.emit()"
       />
     } @else if (loading()) {
-      <div class="loading">
+      <div class="loading flex min-h-[200px] items-center justify-center">
         <mui-spinner placement="centered" label="Loading folder…" />
       </div>
     } @else if (entries().length === 0) {
@@ -30,7 +33,7 @@
         (actionPressed)="refreshRequested.emit()"
       />
     } @else {
-      <div class="entries">
+      <div class="entries flex flex-col">
         @for (entry of entries(); track entry.id) {
           <mui-tree-row
             [label]="entry.name"
@@ -44,7 +47,10 @@
     }
   </div>
 
-  <div slot="footer" class="mui-library-picker-modal-footer">
+  <div
+    slot="footer"
+    class="mui-library-picker-modal-footer flex justify-end gap-1 border-t border-border px-6 py-4"
+  >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
     <mui-button variant="primary" [disabled]="selectedId() === null" (pressed)="chosen.emit()">
       Choose

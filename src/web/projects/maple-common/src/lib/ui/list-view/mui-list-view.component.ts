@@ -34,7 +34,7 @@ export interface MuiListViewItem {
   standalone: true,
   imports: [MuiEmptyStateComponent, MuiListRowComponent, MuiSpinnerComponent],
   templateUrl: './mui-list-view.component.html',
-  styleUrl: './mui-list-view.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiListViewComponent {

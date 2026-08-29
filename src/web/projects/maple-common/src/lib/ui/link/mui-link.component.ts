@@ -13,6 +13,7 @@ import { MuiIconComponent } from '../icon/mui-icon.component';
   imports: [MuiIconComponent],
   templateUrl: './mui-link.component.html',
   styleUrl: './mui-link.component.scss',
+  host: { class: 'inline' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiLinkComponent {

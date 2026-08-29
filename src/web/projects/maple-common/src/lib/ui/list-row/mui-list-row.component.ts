@@ -24,6 +24,7 @@ import { handleActivationKeydown } from '../internal/activation-keydown';
   imports: [MuiIconComponent, MuiTextComponent, MuiTimestampComponent],
   templateUrl: './mui-list-row.component.html',
   styleUrl: './mui-list-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiListRowComponent {
