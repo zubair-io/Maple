@@ -17,7 +17,10 @@
 
 import { child as childLogger } from '../log.ts';
 import { DescribeServerPool } from './describe-server-pool.ts';
-import { syncDescribeStageCapacity } from '../workers/describe-capacity.ts';
+import {
+  describeServersForRuntime,
+  syncDescribeStageCapacity,
+} from '../workers/describe-capacity.ts';
 import { loadEnrichmentConfig, DESCRIBE_VISION_OLLAMA_TAG } from './enrichment-config.repo.ts';
 import {
   resolveEnrichmentConfig,
@@ -76,9 +79,10 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
   // the operator fixes it in /settings/workers without a restart — so it is
   // caught here rather than rejecting `applyDescribeConfig` and taking the
   // rest of this apply with it.
+  const servers = await describeServersForRuntime(resolved);
   let pool: DescribeServerPool;
   try {
-    pool = new DescribeServerPool(resolved.describe_servers);
+    pool = new DescribeServerPool(servers);
   } catch (err) {
     log.error(
       { err: err instanceof Error ? err.message : err },
