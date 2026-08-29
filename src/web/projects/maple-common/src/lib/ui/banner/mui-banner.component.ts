@@ -45,7 +45,7 @@ const VARIANT_ICON: Partial<Record<MuiBannerVariant, MapleIconName>> = {
     MuiTextComponent,
   ],
   templateUrl: './mui-banner.component.html',
-  styleUrl: './mui-banner.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBannerComponent {
@@ -61,4 +61,37 @@ export class MuiBannerComponent {
 
   readonly icon = computed(() => VARIANT_ICON[this.variant()] ?? null);
   readonly role = computed(() => (this.variant() === 'error' ? 'alert' : 'status'));
+
+  /** One mutually-exclusive background per variant (conversion recipe:
+   * one computed string per shared CSS property, not per-variant utility
+   * classes racing each other). */
+  readonly bannerBgClasses = computed(() => {
+    switch (this.variant()) {
+      case 'success':
+        return 'bg-success-bg';
+      case 'warning':
+        return 'bg-[color-mix(in_srgb,var(--color-warn)_20%,transparent)]';
+      case 'error':
+        return 'bg-error-bg';
+      case 'info':
+      case 'loading':
+      default:
+        return 'bg-[color-mix(in_srgb,var(--color-text-muted)_15%,transparent)]';
+    }
+  });
+
+  /** Matching icon color per variant — `loading` has no icon slot (spinner
+   * instead), so no color is needed there. */
+  readonly iconClasses = computed(() => {
+    switch (this.variant()) {
+      case 'success':
+        return 'text-success-text';
+      case 'warning':
+        return 'text-warn';
+      case 'error':
+        return 'text-error-text';
+      default:
+        return 'text-text-muted';
+    }
+  });
 }

@@ -43,6 +43,7 @@ function clamp01(v: number): number {
   standalone: true,
   templateUrl: './mui-color-wheel.component.html',
   styleUrl: './mui-color-wheel.component.scss',
+  host: { class: 'inline-block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiColorWheelComponent extends PointerCaptureDragBase<MuiColorWheelValue> {

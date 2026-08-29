@@ -27,7 +27,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiAvatarComponent, MuiProgressComponent, MuiTextComponent],
   templateUrl: './mui-bot-output.component.html',
-  styleUrl: './mui-bot-output.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBotOutputComponent implements OnChanges, OnDestroy {
