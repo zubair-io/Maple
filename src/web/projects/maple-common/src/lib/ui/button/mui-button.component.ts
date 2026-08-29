@@ -122,9 +122,9 @@ export class MuiButtonComponent {
   readonly fontSizeClasses = computed(() => {
     switch (this.size()) {
       case 'sm':
-        return 'text-xs';
+        return 'text-[12px]';
       case 'lg':
-        return 'text-sm';
+        return 'text-[14px]';
       default:
         return 'text-[13px]';
     }

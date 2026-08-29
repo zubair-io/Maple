@@ -113,7 +113,7 @@ export class MuiInputComponent {
 
   readonly controlClasses = computed(() =>
     this.size() === 'sm'
-      ? 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-xs placeholder:text-text-muted'
+      ? 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-[12px] placeholder:text-text-muted'
       : 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-[13px] placeholder:text-text-muted',
   );
 

@@ -70,7 +70,7 @@ export class MuiAvatarComponent {
       case 'sm':
         return 'w-7 h-7 text-[11px]';
       case 'lg':
-        return 'w-12 h-12 text-base';
+        return 'w-12 h-12 text-[16px]';
       default:
         return 'w-9 h-9 text-[13px]';
     }

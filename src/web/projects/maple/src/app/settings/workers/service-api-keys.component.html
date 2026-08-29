@@ -126,7 +126,7 @@
   }
 
   @if (error(); as message) {
-    <p class="error mt-2.5 mb-0 text-[var(--s-err)] text-xs" role="alert">{{ message }}</p>
+    <p class="error mt-2.5 mb-0 text-[var(--s-err)] text-[12px]" role="alert">{{ message }}</p>
   }
 
   <div
@@ -142,7 +142,7 @@
 
   @if (keys(); as list) {
     @if (list.length === 0) {
-      <p class="empty m-0 text-[var(--s-text-muted)] text-xs italic">
+      <p class="empty m-0 text-[var(--s-text-muted)] text-[12px] italic">
         No SugarMaple integration keys yet.
       </p>
     } @else {
@@ -196,6 +196,6 @@
       </div>
     }
   } @else if (!error()) {
-    <p class="empty m-0 text-[var(--s-text-muted)] text-xs italic">Loading integration keys…</p>
+    <p class="empty m-0 text-[var(--s-text-muted)] text-[12px] italic">Loading integration keys…</p>
   }
 </section>

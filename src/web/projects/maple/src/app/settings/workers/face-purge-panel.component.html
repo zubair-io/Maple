@@ -29,7 +29,7 @@
 
   @if (error()) {
     <div
-      class="text-xs text-[var(--s-warn)] bg-amber-400/[0.08] border-[0.5px] border-amber-400/40 rounded-[5px] py-2 px-3 mb-3"
+      class="text-[12px] text-[var(--s-warn)] bg-amber-400/[0.08] border-[0.5px] border-amber-400/40 rounded-[5px] py-2 px-3 mb-3"
       data-testid="face-purge-error"
       role="alert"
     >
@@ -42,7 +42,7 @@
       class="flex flex-col gap-1.5 mb-3.5 py-2.5 px-3 bg-[var(--s-bg-elev,rgba(255,255,255,0.02))] border-[0.5px] border-[var(--s-border)] rounded-[5px]"
       data-testid="face-purge-report"
     >
-      <div class="flex items-center justify-between text-xs">
+      <div class="flex items-center justify-between text-[12px]">
         <span class="text-[var(--s-text-mid)]">Total tiny faces</span>
         <span
           class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
@@ -50,7 +50,7 @@
           >{{ a.subThresholdFaces.total }}</span
         >
       </div>
-      <div class="flex items-center justify-between text-xs">
+      <div class="flex items-center justify-between text-[12px]">
         <span class="text-[var(--s-text-mid)]">Unassigned (removable)</span>
         <span
           class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
@@ -58,7 +58,7 @@
           >{{ a.subThresholdFaces.unassigned }}</span
         >
       </div>
-      <div class="flex items-center justify-between text-xs">
+      <div class="flex items-center justify-between text-[12px]">
         <span class="text-[var(--s-text-mid)]">Assigned to a person (preserved by default)</span>
         <span
           class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
@@ -66,7 +66,7 @@
           >{{ a.subThresholdFaces.assigned }}</span
         >
       </div>
-      <div class="flex items-center justify-between text-xs">
+      <div class="flex items-center justify-between text-[12px]">
         <span class="text-[var(--s-text-mid)]">Hidden (always preserved)</span>
         <span
           class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
@@ -74,7 +74,7 @@
           >{{ a.subThresholdFaces.hidden }}</span
         >
       </div>
-      <div class="flex items-center justify-between text-xs">
+      <div class="flex items-center justify-between text-[12px]">
         <span class="text-[var(--s-text-mid)]">People affected</span>
         <span
           class="text-[12.5px] text-[var(--s-text)] font-[var(--s-mono,monospace)]"
@@ -118,7 +118,7 @@
 
     @if (lastApplied(); as applied) {
       <div
-        class="text-xs text-[var(--s-ok)] bg-green-400/[0.08] border-[0.5px] border-green-400/40 rounded-[5px] py-2 px-3 mt-3"
+        class="text-[12px] text-[var(--s-ok)] bg-green-400/[0.08] border-[0.5px] border-green-400/40 rounded-[5px] py-2 px-3 mt-3"
         data-testid="face-purge-success"
         role="status"
       >
