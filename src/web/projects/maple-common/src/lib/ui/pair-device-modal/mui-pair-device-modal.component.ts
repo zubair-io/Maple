@@ -40,6 +40,7 @@ interface MuiPairDeviceStepRow {
   ],
   templateUrl: './mui-pair-device-modal.component.html',
   styleUrl: './mui-pair-device-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPairDeviceModalComponent {
