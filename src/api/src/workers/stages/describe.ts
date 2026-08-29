@@ -37,10 +37,7 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
-import {
-  type DescribeProvider,
-  getDescribeProvider,
-} from '../../enrichment/describe-providers/index.ts';
+import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import {
   loadEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
@@ -65,7 +62,9 @@ import sharp from 'sharp';
 export const DESCRIBE_PROMPT_VERSION = DESCRIBE_VISION_PROMPT_VERSION;
 
 interface DescribeDeps {
-  provider: DescribeProvider;
+  /** Slot pool over every configured describe server. Owns admission
+   * (per-server concurrency) and failover between servers. */
+  pool: DescribeServerPool;
   systemPrompt: string;
   model: string;
 }
@@ -84,16 +83,13 @@ async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
-  // Provider is locked to Ollama; only the URL is configurable so the
-  // operator can run the model on a remote box. Stale `describe_provider`
-  // / `describe_model` / `describe_system_prompt` values in the DB row are
-  // ignored — kept on the type only so older config docs don't error on
-  // parse.
-  const provider = getDescribeProvider('ollama', {
-    url: cfg.describe_provider_url,
-  });
+  // Provider is locked to Ollama; only the server list is configurable so
+  // the operator can run the model on one or more remote boxes. Stale
+  // `describe_provider` / `describe_model` / `describe_system_prompt`
+  // values in the DB row are ignored — kept on the type only so older
+  // config docs don't error on parse.
   _deps = {
-    provider,
+    pool: new DescribeServerPool(cfg.describe_servers),
     systemPrompt: DEFAULT_DESCRIBE_VISION_PROMPT,
     model: FIXED_DESCRIBE_MODEL,
   };
@@ -101,7 +97,7 @@ async function getDeps(): Promise<DescribeDeps> {
 }
 
 /** Invalidate the module-level deps cache so the next `getDeps()` call
- * re-reads `describe_provider_url` from the persisted config. Wired into
+ * re-reads the describe server list from the persisted config. Wired into
  * `applyDescribeConfig` so an operator changing the URL in
  * `/settings/enrichment` takes effect without restarting the process. */
 export function resetDescribeDeps(): void {
@@ -142,7 +138,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // any of its three consumers below.
   const isVideo = !!primary && isVideoFilename(primary.filename);
 
-  const { provider, systemPrompt, model } = await getDeps();
+  const { pool, systemPrompt, model } = await getDeps();
 
   // 1280-px preview — VLMs need more pixels than the 512-px thumb to read
   // signs and small subjects. The preview stage produces this artefact;
@@ -199,16 +195,23 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // artifact; the buffer is discarded once `provider.describe` returns.
   const jpegBytes = await sharp(avifBytes).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
 
-  const result = await provider.describe([jpegBytes], {
-    systemPrompt,
-    model,
-    // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
-    // enforces this at decode time, so the model cannot emit out-of-enum
-    // values, drop required fields, or produce malformed JSON. The
-    // parse-vision-json synonym maps stay as defense in depth for older
-    // Ollama versions and edge cases.
-    format: VISION_DOC_JSON_SCHEMA,
-  });
+  // One call, but possibly several servers: the pool waits for a free slot
+  // on the least-loaded healthy endpoint and re-runs this on the next
+  // server if the one it picked fails in a way that is the server's fault
+  // (network / timeout / 5xx). A terminal 4xx propagates on the first try.
+  const { result, server } = await pool.run(async (provider, pickedServer) => ({
+    result: await provider.describe([jpegBytes], {
+      systemPrompt,
+      model,
+      // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
+      // enforces this at decode time, so the model cannot emit out-of-enum
+      // values, drop required fields, or produce malformed JSON. The
+      // parse-vision-json synonym maps stay as defense in depth for older
+      // Ollama versions and edge cases.
+      format: VISION_DOC_JSON_SCHEMA,
+    }),
+    server: pickedServer,
+  }));
 
   // Strict parse — throws VisionParseError on malformed output. The runtime
   // dead-letters the row after maxAttempts; operators triage via
@@ -225,7 +228,10 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // Free-text caption mirror — legacy clients still read `description`.
     description: vision.caption,
     description_meta: {
-      provider: provider.name,
+      provider: 'ollama',
+      // Which box answered. Without it a slow or subtly-broken server in a
+      // multi-server pool is invisible in triage.
+      server_url: server.url,
       model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,
@@ -239,7 +245,8 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // reappear on the next sidecar re-index.
     vision: { ...vision, is_screenshot: isScreenshot },
     vision_meta: {
-      provider: provider.name,
+      provider: 'ollama',
+      server_url: server.url,
       model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,

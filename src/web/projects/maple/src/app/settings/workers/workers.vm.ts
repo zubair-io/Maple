@@ -172,12 +172,24 @@ export interface RuntimeForm {
   maxAttempts: string;
 }
 
+/** One editable describe-server row. Numbers are strings because they are
+ * bound straight to an input; parsing happens on save. */
+export interface DescribeServerForm {
+  url: string;
+  concurrency: string;
+}
+
 /** Per-stage form state for the enrichment domain config. */
 export interface EnrichmentForm {
   // Describe — `describe_model` is intentionally absent: the runtime
   // hardcodes qwen3-VL (see FIXED_DESCRIBE_MODEL below), so the UI
   // displays it read-only and never sends it.
   describe_provider_url: string;
+  /** Ordered describe servers. Row 0 is the default: its URL is what every
+   * other Ollama consumer (semantic search) uses, which is why "make
+   * default" is a move-to-front rather than a separate flag. Never empty —
+   * the UI keeps one blank row so there is always something to type into. */
+  describe_servers: DescribeServerForm[];
   transcribe_model_tier: string;
   // Geocode
   nominatim_url: string;
@@ -252,6 +264,7 @@ function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
 export function blankEnrichment(ec: EnrichmentConfigResponse | null): EnrichmentForm {
   return {
     describe_provider_url: ec?.describe_provider_url ?? '',
+    describe_servers: blankDescribeServers(ec),
     transcribe_model_tier: ec?.transcribe_model_tier ?? 'medium.en',
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
@@ -267,6 +280,65 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     meilisearch_task_timeout_seconds: String(ec?.meilisearch_task_timeout_seconds ?? 600),
     ...blankMeilisearchSemantic(ec),
     service_search_rate_limit_per_minute: String(ec?.service_search_rate_limit_per_minute ?? 60),
+  };
+}
+
+/** Default per-server concurrency for a freshly added row. Mirrors
+ * `DEFAULT_DESCRIBE_SERVER_CONCURRENCY` in
+ * `src/api/src/enrichment/describe-servers.ts`. */
+export const DEFAULT_DESCRIBE_SERVER_CONCURRENCY = 2;
+export const MAX_DESCRIBE_SERVERS = 8;
+export const MAX_DESCRIBE_SERVER_CONCURRENCY = 32;
+
+/** Seed the server rows from the resolved config. The server always sends a
+ * non-empty list (it derives one from the single URL when nothing is
+ * saved), but an older API build might not, so fall back to the single URL
+ * and finally to one blank row. */
+export function blankDescribeServers(ec: EnrichmentConfigResponse | null): DescribeServerForm[] {
+  const saved = ec?.describe_servers ?? [];
+  if (saved.length > 0) {
+    return saved.map((server) => ({
+      url: server.url,
+      concurrency: String(server.concurrency),
+    }));
+  }
+  return [
+    {
+      url: ec?.describe_provider_url ?? '',
+      concurrency: String(DEFAULT_DESCRIBE_SERVER_CONCURRENCY),
+    },
+  ];
+}
+
+/** Total in-flight describe requests the configured servers allow. This is
+ * the describe stage's concurrency — the server derives it on save, and the
+ * Stage runtime block shows it read-only. */
+export function describeCapacity(servers: readonly DescribeServerForm[]): number {
+  return servers.reduce((sum, server) => {
+    const parsed = Number(server.concurrency.trim());
+    const valid = Number.isInteger(parsed) && parsed >= 1;
+    return sum + (server.url.trim().length > 0 && valid ? parsed : 0);
+  }, 0);
+}
+
+/** Build the describe slice of the PUT body. Blank rows are dropped (the UI
+ * always keeps one for typing into); `null` for an empty list clears back to
+ * the single-server fallback rather than persisting nothing. */
+export function describeFormToPatch(form: EnrichmentForm) {
+  const servers = form.describe_servers
+    .filter((server) => server.url.trim().length > 0)
+    .map((server) => {
+      const parsed = Number(server.concurrency.trim());
+      return {
+        url: server.url.trim(),
+        concurrency: Number.isInteger(parsed) && parsed >= 1 ? parsed : 1,
+      };
+    });
+  return {
+    describe_servers: servers.length > 0 ? servers : null,
+    // Entry 0 is the default endpoint; sending it keeps older API builds
+    // (which ignore `describe_servers`) pointed at the same server.
+    describe_provider_url: servers[0]?.url ?? null,
   };
 }
 
