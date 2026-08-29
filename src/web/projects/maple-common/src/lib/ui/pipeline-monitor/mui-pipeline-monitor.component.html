@@ -1,4 +1,4 @@
-<div class="mui-pipeline-monitor">
+<div class="mui-pipeline-monitor flex flex-col gap-4">
   @if (stages().length === 0) {
     <mui-empty-state
       icon="history"
@@ -6,7 +6,7 @@
       message="No stages are configured, or there are no assets queued to process."
     />
   } @else {
-    <div class="overall">
+    <div class="overall flex flex-col gap-1 rounded-lg border border-border bg-surface px-4 py-2">
       <mui-text variant="tool-label" color="muted">Overall progress</mui-text>
       <mui-progress
         shape="bar"
@@ -16,13 +16,13 @@
       />
     </div>
 
-    <div class="stages">
+    <div class="stages flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       @for (stage of stages(); track stage.id) {
         <mui-list-row
           [label]="stage.name"
           [subtitle]="stage.processed + ' / ' + stage.total + ' processed'"
         >
-          <div trailing class="trailing-group">
+          <div trailing class="trailing-group flex items-center gap-2">
             <mui-icon
               [name]="statusIcon[stage.status]"
               [color]="statusIconColor[stage.status]"
@@ -33,7 +33,12 @@
               [variant]="statusBadgeVariant[stage.status]"
               [value]="statusLabel[stage.status]"
             />
-            <mui-progress shape="bar" size="sm" [value]="stageProgress(stage)" class="stage-bar" />
+            <mui-progress
+              shape="bar"
+              size="sm"
+              [value]="stageProgress(stage)"
+              class="stage-bar w-24"
+            />
             @if (canToggle(stage)) {
               <mui-button variant="ghost" size="sm" (pressed)="stagePauseToggled.emit(stage.id)">
                 {{ toggleLabel(stage) }}

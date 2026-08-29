@@ -1,5 +1,5 @@
 @if (loading()) {
-  <div class="state-wrap">
+  <div class="state-wrap flex min-h-[160px] items-center justify-center">
     <mui-spinner placement="centered" />
   </div>
 } @else if (error()) {
@@ -7,8 +7,12 @@
 } @else if (items().length === 0) {
   <mui-empty-state icon="search" [title]="emptyMessage()" />
 } @else {
-  <div class="viewport" [style.max-height.px]="viewportHeight()" (scroll)="onScroll($event)">
-    <div class="spacer" [style.height.px]="topSpacerPx()"></div>
+  <div
+    class="viewport flex flex-col overflow-x-hidden overflow-y-auto"
+    [style.max-height.px]="viewportHeight()"
+    (scroll)="onScroll($event)"
+  >
+    <div class="spacer flex-none" [style.height.px]="topSpacerPx()"></div>
     @for (item of visibleItems(); track item.id) {
       <mui-list-row
         [icon]="item.icon ?? null"
@@ -19,6 +23,6 @@
         (pressed)="select(item.id)"
       />
     }
-    <div class="spacer" [style.height.px]="bottomSpacerPx()"></div>
+    <div class="spacer flex-none" [style.height.px]="bottomSpacerPx()"></div>
   </div>
 }

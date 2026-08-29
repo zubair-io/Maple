@@ -39,7 +39,7 @@ export interface MuiMoveToTreeNode {
     MuiTreeRowComponent,
   ],
   templateUrl: './mui-move-to-modal.component.html',
-  styleUrl: './mui-move-to-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiMoveToModalComponent {

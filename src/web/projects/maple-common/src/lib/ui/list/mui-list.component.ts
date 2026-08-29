@@ -21,6 +21,7 @@ export type MuiListDensity = 'compact' | 'comfortable';
   imports: [NgTemplateOutlet],
   templateUrl: './mui-list.component.html',
   styleUrl: './mui-list.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiListComponent {

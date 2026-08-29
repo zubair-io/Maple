@@ -1,4 +1,4 @@
-<div class="mui-inspector-panel">
+<div class="mui-inspector-panel flex h-full flex-col gap-2">
   <mui-page-header
     [title]="title()"
     [showBack]="showBack()"
@@ -7,7 +7,7 @@
     (more)="more.emit()"
   />
   <mui-tabs [tabs]="tabs()" [(activeId)]="activeTabId" />
-  <div class="body">
+  <div class="body min-h-0 flex-1 overflow-auto p-4">
     <ng-content />
   </div>
 </div>
