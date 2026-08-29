@@ -24,7 +24,7 @@ import type { MuiChip } from '../ui/chip-row/mui-chip-row.component';
   standalone: true,
   imports: [MuiChipRowComponent],
   templateUrl: './sub-param-row.component.html',
-  styleUrl: './sub-param-row.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SubParamRowComponent {

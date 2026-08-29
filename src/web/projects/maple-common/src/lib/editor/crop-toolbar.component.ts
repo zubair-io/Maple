@@ -38,7 +38,7 @@ const STRAIGHTEN_MAX = 45;
   standalone: true,
   imports: [MuiCropToolbarComponent, MuiButtonComponent],
   templateUrl: './crop-toolbar.component.html',
-  styleUrl: './crop-toolbar.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CropToolbarComponent {
