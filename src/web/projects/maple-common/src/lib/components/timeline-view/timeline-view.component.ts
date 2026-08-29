@@ -96,7 +96,7 @@ function flagToAssetFlag(flag: PhotoVm['flag']): Asset['flag'] {
   standalone: true,
   imports: [TimelineFilterRowComponent, TimelineMonthComponent, TimelineRegisterSectionDirective],
   templateUrl: './timeline-view.component.html',
-  styleUrl: './timeline-view.component.scss',
+  host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TimelineViewComponent implements AfterViewInit, OnDestroy {
