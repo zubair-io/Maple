@@ -129,6 +129,52 @@ describe('TimelineViewComponent', () => {
     expect(html).toContain('April');
   });
 
+  it('renders a selection ring on the focused photo and dims a hidden photo (#3073)', async () => {
+    searchStub.pages = [
+      {
+        total: 2,
+        page: 0,
+        limit: 200,
+        results: [
+          makeResult('a', '/Lib/2026/a.dng', '2026-05-20T00:00:00.000Z'),
+          { ...makeResult('b', '/Lib/2026/b.dng', '2026-05-10T00:00:00.000Z'), hidden: true },
+        ],
+      },
+    ];
+    library.selectedSourceId.set('lib:');
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+
+    library.focusedAssetId.set('a');
+    fixture.detectChanges();
+
+    const photos = fixture.nativeElement.querySelectorAll(
+      '.timeline-photo',
+    ) as NodeListOf<HTMLElement>;
+    expect(photos.length).toBe(2);
+    const focused = Array.from(photos).find((el) => el.getAttribute('aria-label') === 'a.dng')!;
+    const hidden = Array.from(photos).find((el) => el.getAttribute('aria-label') === 'b.dng')!;
+
+    expect(focused.classList.contains('is-selected')).toBe(true);
+    expect(hidden.classList.contains('dimmed')).toBe(true);
+
+    // The classes above only prove the template toggles `.is-selected` /
+    // `.dimmed` — the bug report was that no CSS ever *renders* them (dead
+    // selectors post-Tailwind-port). Assert each tile also carries the
+    // Tailwind utility that actually paints the effect, gated behind a
+    // `group-[...]` variant keyed off that toggled class (matching
+    // asset-thumb's `.thumb-ring` pattern) — jsdom doesn't run Tailwind's
+    // JIT, so this is what actually catches "the selector targets a class
+    // the DOM never has."
+    const ring = focused.querySelector('.thumb-ring') as HTMLElement;
+    expect(ring).not.toBeNull();
+    expect(ring.className).toContain('group-[.is-selected]:border-primary');
+    const hiddenImg = hidden.querySelector('img') as HTMLImageElement;
+    expect(hiddenImg.className).toContain('group-[.dimmed]:opacity-45');
+  });
+
   it('loads correctly when the newest photo in scope is years old (the original bug)', async () => {
     searchStub.pages = [
       {
