@@ -74,7 +74,7 @@
     <button
       #renameTrigger
       type="button"
-      class="filename-bar absolute left-0 right-0 bottom-0 z-10 block w-full truncate rounded-b-[2px] px-1.5 py-0.5 text-left text-[10px] text-white opacity-0"
+      class="filename-bar pointer-events-none absolute right-0 bottom-0 left-0 z-10 block w-full truncate rounded-b-[2px] bg-[linear-gradient(to_top,rgba(0,0,0,0.72),rgba(0,0,0,0))] px-1.5 py-0.5 text-left text-[10px] text-white opacity-0 transition-opacity duration-[120ms] ease-out"
       [class.hidden]="isEditingFilename()"
       [attr.aria-label]="'Rename ' + a.filename"
       [attr.title]="renameDisabledReason()"
@@ -85,7 +85,7 @@
     @defer (on interaction(renameTrigger)) {
       @if (isEditingFilename()) {
         <div
-          class="filename-bar editing absolute left-[3px] right-[3px] bottom-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5"
+          class="filename-bar editing pointer-events-auto absolute right-[3px] bottom-[3px] left-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5 opacity-100"
           (click)="$event.stopPropagation()"
         >
           <app-inline-rename-field
