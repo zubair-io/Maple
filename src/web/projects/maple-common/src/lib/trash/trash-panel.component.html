@@ -5,8 +5,8 @@
   [attr.aria-label]="'Trash — ' + libraryLabel()"
   (keydown.escape)="onClose()"
 >
-  <div class="dlg-card tp-card">
-    <div class="dlg-header tp-header">
+  <div class="dlg-card max-w-[560px] max-h-[70vh]">
+    <div class="dlg-header flex items-center justify-between">
       <span class="dlg-title">Trash — {{ libraryLabel() }}</span>
       <button type="button" class="dlg-close-button" aria-label="Close Trash" (click)="onClose()">
         ✕

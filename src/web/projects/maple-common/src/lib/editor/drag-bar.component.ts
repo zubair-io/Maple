@@ -26,7 +26,7 @@ const VALUE_MAX = 100;
   standalone: true,
   imports: [MuiDragBarComponent],
   templateUrl: './drag-bar.component.html',
-  styleUrl: './drag-bar.component.scss',
+  host: { class: 'block h-[30px] px-6 [touch-action:none]' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DragBarComponent {

@@ -34,7 +34,7 @@ import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
   // attempted (and lost) a GPU live session, so it's likewise a safe no-op
   // everywhere else.
   templateUrl: './root-shell.component.html',
-  styleUrl: './root-shell.component.scss',
+  host: { class: 'block h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RootShellComponent {

@@ -23,7 +23,7 @@ import { formatSubParamValue } from './tool-sub-param';
   standalone: true,
   imports: [MuiValueChipComponent],
   templateUrl: './value-chip.component.html',
-  styleUrl: './value-chip.component.scss',
+  host: { class: 'inline-block pointer-events-none' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ValueChipComponent {

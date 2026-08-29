@@ -6,8 +6,8 @@
   (click)="onBackdropClick()"
   (keydown.escape)="phase() === 'done' ? onClose() : onCancel()"
 >
-  <div class="dlg-card brn-card" (click)="$event.stopPropagation()">
-    <div class="dlg-header brn-header">
+  <div class="dlg-card max-w-[560px] max-h-[80vh]" (click)="$event.stopPropagation()">
+    <div class="dlg-header shrink-0">
       <span class="dlg-title">Batch Rename ({{ selections().length }})</span>
     </div>
 

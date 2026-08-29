@@ -48,7 +48,6 @@ type ConfirmTarget = { kind: 'item'; item: TrashItem } | { kind: 'all' };
   standalone: true,
   imports: [TrashListComponent, TrashToolbarComponent, TrashDeleteConfirmDialogComponent],
   templateUrl: './trash-panel.component.html',
-  styleUrl: './trash-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrashPanelComponent implements OnInit {
