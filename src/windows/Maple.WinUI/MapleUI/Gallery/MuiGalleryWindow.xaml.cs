@@ -26,6 +26,9 @@ namespace Maple.UI.Gallery
         {
             InitializeComponent();
 
+            // #3079: the tab strip row doubles as the title bar.
+            MuiWindowChrome.Extend(this, TitleBarDragRegion);
+
             try
             {
                 AppWindow.Resize(new Windows.Graphics.SizeInt32(1100, 780));
