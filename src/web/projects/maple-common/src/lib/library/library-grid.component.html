@@ -1,10 +1,19 @@
-<div class="library-page">
-  <header class="library-header">
-    <h1 class="source-title">{{ sourceLabel() }}</h1>
+<div class="flex min-h-full flex-col">
+  <header
+    class="flex flex-col gap-1 px-0.5 pt-2 pb-1 md:px-2 md:pt-3 md:pb-1.5 min-[1025px]:px-3 min-[1025px]:pt-4 min-[1025px]:pb-2"
+  >
+    <h1
+      class="m-0 mx-2 font-['Merriweather_Bold',serif] text-[28px] font-bold tracking-[-0.5px] text-text-main"
+    >
+      {{ sourceLabel() }}
+    </h1>
     <app-filter-chips [active]="filter()" (filterChange)="onFilterChange($event)" />
   </header>
 
-  <div #grid class="grid">
+  <div
+    #grid
+    class="grid grid-cols-3 gap-0.5 px-0.5 md:grid-cols-5 md:gap-1 md:px-2 min-[1025px]:gap-1 min-[1025px]:px-3 min-[1025px]:[grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]"
+  >
     @for (asset of assets(); track trackAsset($index, asset)) {
       <app-library-cell [asset]="asset" (cellTap)="onCellTap($event)" />
     }
