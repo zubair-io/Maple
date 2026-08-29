@@ -46,7 +46,6 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
     MuiInputComponent,
   ],
   templateUrl: './mirror-settings.component.html',
-  styleUrl: './mirror-settings.component.scss',
   host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

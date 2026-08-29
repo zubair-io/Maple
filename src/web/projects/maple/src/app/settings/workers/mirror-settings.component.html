@@ -16,22 +16,38 @@
       <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
       <span class="set-mono">backup</span>
     </span>
-    <span class="status-pill">
-      <span class="status-dot" [style.background]="statusColor()"></span>
-      <span class="status-label" data-testid="mirror-status">{{ statusLabel() }}</span>
+    <span class="status-pill inline-flex items-center gap-[7px]">
+      <span
+        class="status-dot w-[9px] h-[9px] rounded-full shrink-0"
+        [style.background]="statusColor()"
+      ></span>
+      <span
+        class="status-label text-[13px] font-semibold text-[var(--s-text)]"
+        data-testid="mirror-status"
+        >{{ statusLabel() }}</span
+      >
     </span>
-    <span class="wrow-readout set-wrow-readout set-mono" data-testid="mirror-readout">{{
-      reconcileSummary()
-    }}</span>
-    <span class="wrow-spacer set-wrow-spacer"></span>
+    <span
+      class="wrow-readout set-wrow-readout set-mono text-[var(--s-text-mid)]"
+      data-testid="mirror-readout"
+      >{{ reconcileSummary() }}</span
+    >
+    <span class="wrow-spacer set-wrow-spacer max-[767px]:hidden"></span>
     @if (status(); as q) {
       @if (q.dead > 0) {
-        <mui-button variant="destructive" size="sm" [loading]="retrying()" (pressed)="retryDead()">
+        <mui-button
+          class="max-[767px]:flex-1 max-[767px]:flex"
+          variant="destructive"
+          size="sm"
+          [loading]="retrying()"
+          (pressed)="retryDead()"
+        >
           {{ retrying() ? 'Retrying…' : 'Retry ' + q.dead + ' failed' }}
         </mui-button>
       }
     }
     <mui-button
+      class="max-[767px]:flex-1 max-[767px]:flex"
       variant="primary"
       size="sm"
       data-testid="mirror-reconcile-now"
@@ -43,60 +59,99 @@
     </mui-button>
   </div>
 
-  <div class="mirror-body" data-testid="mirror-settings">
+  <div
+    class="mirror-body px-4 pt-1 pb-4 max-[767px]:px-3 max-[767px]:pt-1 max-[767px]:pb-5"
+    data-testid="mirror-settings"
+  >
     <!-- Two-stage progress (scanning → copying) with per-stage counts. -->
-    <div class="stages" data-testid="mirror-stages">
+    <div class="stages flex flex-col gap-1.5 mt-1.5" data-testid="mirror-stages">
       <!-- Stage 1 — scanning -->
-      <div class="stage-line" [class.active]="reconcile()?.phase === 'scanning'">
-        <span class="stage-dot"></span>
-        <span class="stage-name">Scanning</span>
+      <div
+        class="stage-line group flex items-baseline gap-2 text-[12.5px] text-[var(--s-text-mid)]"
+        [class.active]="reconcile()?.phase === 'scanning'"
+      >
+        <span
+          class="stage-dot w-[7px] h-[7px] rounded-full bg-[var(--s-text-dim)] self-center shrink-0 group-[.active]:bg-[var(--s-accent)]"
+        ></span>
+        <span
+          class="stage-name w-[72px] shrink-0 text-[var(--s-text)] group-[.active]:text-[var(--s-accent)] group-[.active]:font-semibold"
+          >Scanning</span
+        >
         @if (reconcile(); as r) {
-          <span class="stage-nums set-mono">
+          <span class="stage-nums set-mono [font-variant-numeric:tabular-nums]">
             {{ r.scan.scanned }} scanned · {{ r.scan.upToDate }} up to date · {{ r.scan.toCopy }} to
             copy
             @if (r.scan.errors > 0) {
-              · <span class="is-error">{{ r.scan.errors }} errors</span>
+              · <span class="is-error text-[var(--s-err)]">{{ r.scan.errors }} errors</span>
             }
           </span>
         } @else {
-          <span class="stage-nums dim">not run yet</span>
+          <span class="stage-nums dim text-[var(--s-text-dim)] [font-variant-numeric:tabular-nums]"
+            >not run yet</span
+          >
         }
       </div>
 
       <!-- Stage 2 — copying -->
-      <div class="stage-line" [class.active]="reconcile()?.phase === 'copying'">
-        <span class="stage-dot"></span>
-        <span class="stage-name">Copying</span>
+      <div
+        class="stage-line group flex items-baseline gap-2 text-[12.5px] text-[var(--s-text-mid)]"
+        [class.active]="reconcile()?.phase === 'copying'"
+      >
+        <span
+          class="stage-dot w-[7px] h-[7px] rounded-full bg-[var(--s-text-dim)] self-center shrink-0 group-[.active]:bg-[var(--s-accent)]"
+        ></span>
+        <span
+          class="stage-name w-[72px] shrink-0 text-[var(--s-text)] group-[.active]:text-[var(--s-accent)] group-[.active]:font-semibold"
+          >Copying</span
+        >
         @if (reconcile(); as r) {
-          <span class="stage-nums set-mono">
+          <span class="stage-nums set-mono [font-variant-numeric:tabular-nums]">
             {{ r.copy.copied }} / {{ r.copy.total }} copied · {{ r.copy.remaining }} remaining
             @if (r.copy.errors > 0) {
-              · <span class="is-error">{{ r.copy.errors }} failed</span>
+              · <span class="is-error text-[var(--s-err)]">{{ r.copy.errors }} failed</span>
             }
           </span>
         } @else {
-          <span class="stage-nums dim">not run yet</span>
+          <span class="stage-nums dim text-[var(--s-text-dim)] [font-variant-numeric:tabular-nums]"
+            >not run yet</span
+          >
         }
       </div>
     </div>
 
     @if (reconcile()?.currentPath; as cp) {
-      <div class="current-file set-mono" data-testid="mirror-current-file" [title]="cp">
-        <span class="current-label">Copying:</span> {{ cp }}
+      <div
+        class="current-file set-mono mt-3 text-[11.5px] text-[var(--s-text-muted)] whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+        data-testid="mirror-current-file"
+        [title]="cp"
+      >
+        <span class="current-label text-[var(--s-text-dim)]">Copying:</span> {{ cp }}
       </div>
     }
 
     <!-- Copied-files log: files already mirrored this run (most recent first). -->
     @if (reconcile()?.copiedLog?.length) {
-      <div class="copied-log" data-testid="mirror-copied-log">
-        <div class="copied-log-head">Copied ({{ reconcile()!.copiedLog.length }})</div>
+      <div
+        class="copied-log mt-3.5 border-t-[0.5px] border-t-[var(--s-border)] pt-3"
+        data-testid="mirror-copied-log"
+      >
+        <div
+          class="copied-log-head text-[11px] font-semibold text-[var(--s-ok)] uppercase tracking-[0.08em] mb-2"
+        >
+          Copied ({{ reconcile()!.copiedLog.length }})
+        </div>
         <!-- Track by index: a path can repeat (same primary copied to >1 mirror),
              so the string isn't a unique key — this is a flat positional log. -->
-        <div class="copied-list">
+        <div class="copied-list flex flex-col gap-0.5 max-h-[280px] overflow-y-auto">
           @for (p of reconcile()!.copiedLog; track $index) {
-            <div class="copied-line set-mono" [title]="p">
+            <div
+              class="copied-line set-mono flex items-center gap-[7px] text-[11.5px] text-[var(--s-text-mid)] py-0.5"
+              [title]="p"
+            >
               <maple-settings-icon name="check" [size]="11" [color]="'#4ade80'" />
-              <span class="copied-path">{{ p }}</span>
+              <span class="copied-path min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">{{
+                p
+              }}</span>
             </div>
           }
         </div>
@@ -105,12 +160,26 @@
 
     <!-- Error log: per-file copy failures (capped). -->
     @if (reconcile()?.errorLog?.length) {
-      <div class="error-log" data-testid="mirror-error-log">
-        <div class="error-log-head">Errors ({{ reconcile()!.errorLog.length }})</div>
+      <div
+        class="error-log mt-3.5 border-t-[0.5px] border-t-[var(--s-border)] pt-3"
+        data-testid="mirror-error-log"
+      >
+        <div
+          class="error-log-head text-[11px] font-semibold text-[var(--s-err)] uppercase tracking-[0.08em] mb-1.5"
+        >
+          Errors ({{ reconcile()!.errorLog.length }})
+        </div>
         @for (e of reconcile()!.errorLog; track e.at + e.path) {
-          <div class="error-line set-mono">
-            <span class="error-path" [title]="e.path">{{ e.path }}</span>
-            <span class="error-msg">{{ e.error }}</span>
+          <div class="error-line set-mono flex gap-2.5 text-[11px] py-0.5">
+            <span
+              class="error-path text-[var(--s-text-mid)] whitespace-nowrap overflow-hidden text-ellipsis max-w-[45%] shrink-0"
+              [title]="e.path"
+              >{{ e.path }}</span
+            >
+            <span
+              class="error-msg text-[var(--s-err)] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+              >{{ e.error }}</span
+            >
           </div>
         }
       </div>
@@ -121,12 +190,25 @@
          cooldown expires. Backups are still WRITTEN to (the queue retries) —
          only read serving pauses. -->
     @if (benchedReads().length > 0) {
-      <div class="error-log" data-testid="mirror-reads-benched">
-        <div class="error-log-head">Not serving reads</div>
+      <div
+        class="error-log mt-3.5 border-t-[0.5px] border-t-[var(--s-border)] pt-3"
+        data-testid="mirror-reads-benched"
+      >
+        <div
+          class="error-log-head text-[11px] font-semibold text-[var(--s-err)] uppercase tracking-[0.08em] mb-1.5"
+        >
+          Not serving reads
+        </div>
         @for (b of benchedReads(); track b.root) {
-          <div class="error-line set-mono">
-            <span class="error-path" [title]="b.root">{{ b.root }}</span>
-            <span class="error-msg">
+          <div class="error-line set-mono flex gap-2.5 text-[11px] py-0.5">
+            <span
+              class="error-path text-[var(--s-text-mid)] whitespace-nowrap overflow-hidden text-ellipsis max-w-[45%] shrink-0"
+              [title]="b.root"
+              >{{ b.root }}</span
+            >
+            <span
+              class="error-msg text-[var(--s-err)] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            >
               I/O failure or timeout — retrying in {{ retrySeconds(b.retryInMs) }}s. Backups still
               queue and retry.
             </span>
@@ -141,12 +223,20 @@
 
     <!-- Per-library backup-location config. -->
     @if (loading()) {
-      <p class="loading">Loading libraries…</p>
+      <p
+        class="loading mt-4.5 pt-4.5 border-t-[0.5px] border-t-[var(--s-border)] text-[13px] text-[var(--s-text-muted)]"
+      >
+        Loading libraries…
+      </p>
     } @else if (libraries().length === 0) {
-      <p class="loading">No libraries registered yet.</p>
+      <p
+        class="loading mt-4.5 pt-4.5 border-t-[0.5px] border-t-[var(--s-border)] text-[13px] text-[var(--s-text-muted)]"
+      >
+        No libraries registered yet.
+      </p>
     } @else {
       @for (lib of libraries(); track lib.id) {
-        <div class="block">
+        <div class="block mt-4.5 pt-4.5 border-t-[0.5px] border-t-[var(--s-border)]">
           <div class="set-subhead">{{ lib.label }}</div>
           <div class="field field-wide set-field">
             <label class="field-label" [attr.for]="'mirror-backup-location-' + lib.id"
@@ -181,19 +271,23 @@
           </div>
 
           <mui-checkbox
+            class="block mt-3"
             label="Enabled (replicate writes to this mirror)"
             [checked]="enabledOf(lib.id)"
             (checkedChange)="setEnabled(lib.id, $event)"
           />
 
-          <div class="row-footer set-row-footer-tail">
-            <span class="footer-spacer"></span>
+          <div
+            class="row-footer set-row-footer-tail mt-3.5 max-[767px]:flex-col-reverse max-[767px]:items-stretch max-[767px]:gap-2"
+          >
+            <span class="footer-spacer max-[767px]:hidden"></span>
             @if (saveErrorOf(lib.id)) {
               <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
             } @else if (saveStateOf(lib.id) === 'success') {
               <span class="save-ok">Saved.</span>
             }
             <mui-button
+              class="max-[767px]:block max-[767px]:w-full"
               variant="primary"
               size="sm"
               [loading]="saveStateOf(lib.id) === 'saving'"
