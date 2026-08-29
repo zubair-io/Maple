@@ -17,7 +17,7 @@ export interface MuiAvatarGroupMember {
   standalone: true,
   imports: [MuiAvatarComponent, MuiBadgeComponent],
   templateUrl: './mui-avatar-group.component.html',
-  styleUrl: './mui-avatar-group.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiAvatarGroupComponent {

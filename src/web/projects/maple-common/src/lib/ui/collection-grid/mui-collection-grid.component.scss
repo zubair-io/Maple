@@ -1,45 +1,6 @@
-@use '../../generated/ui-tokens' as tok;
-
-:host {
-  display: block;
-  position: relative;
-}
-
-.state-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 160px;
-}
-
-.viewport {
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.grid {
-  display: grid;
-  gap: tok.$maple-spacing-sm;
-  align-content: start;
-}
-
-.spacer {
-  grid-column: 1 / -1;
-}
-
-.cell-wrap {
-  min-width: 0;
-
-  &:hover mui-media-cell {
-    cursor: pointer;
-  }
-}
-
-.drag-ghost {
-  position: fixed;
-  left: 0;
-  top: 0;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  z-index: 100;
+// Residue only — layout moved to template utilities (see
+// mui-collection-grid.component.html) per the Tailwind conversion recipe.
+// The descendant-hover rule below can't be expressed as a template class.
+.cell-wrap:hover mui-media-cell {
+  cursor: pointer;
 }

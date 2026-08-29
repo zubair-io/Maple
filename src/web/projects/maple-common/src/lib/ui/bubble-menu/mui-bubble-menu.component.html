@@ -1,11 +1,12 @@
 <mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
-  <div class="mui-bubble-menu" role="toolbar">
+  <div class="mui-bubble-menu flex items-center gap-1 py-1 px-2" role="toolbar">
     @for (entry of entries(); track $index) {
       @if (asItem(entry); as item) {
         <button
           type="button"
-          class="item"
+          class="item inline-flex items-center justify-center w-7 h-7 border-none text-text-main rounded-md cursor-pointer"
           [class.active]="item.active"
+          [class]="item.active ? 'bg-primary' : 'bg-transparent hover:bg-bg-hover'"
           [attr.aria-pressed]="item.active ?? false"
           [attr.aria-label]="item.label"
           (click)="itemSelected.emit(item.id)"
