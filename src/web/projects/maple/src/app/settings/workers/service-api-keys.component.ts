@@ -18,8 +18,9 @@ type CopiedValue = 'endpoint' | 'key' | null;
   standalone: true,
   imports: [DatePipe, FormsModule, SettingsIconComponent, MuiButtonComponent, MuiInputComponent],
   templateUrl: './service-api-keys.component.html',
-  styleUrl: './service-api-keys.component.scss',
-  host: { class: 'set-vars' },
+  host: {
+    class: 'set-vars block mt-5.5 pt-5 border-t-[0.5px] border-t-[var(--s-border)] bg-transparent',
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ServiceApiKeysComponent {
@@ -109,6 +110,17 @@ export class ServiceApiKeysComponent {
     if (key.revokedAt) return 'Revoked';
     if (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now()) return 'Expired';
     return 'Active';
+  }
+
+  /** Classes for the key-status pill — one mutually-exclusive computed string
+   * per #3071's variant-class rule (Active/Expired/Revoked share the same
+   * "color" property) rather than three conditional add-on classes. */
+  protected statusPillClasses(status: 'Active' | 'Expired' | 'Revoked'): string {
+    const base =
+      'py-0.5 px-1.5 rounded-full bg-[var(--s-surface3)] text-[9.5px] font-semibold tracking-[0.06em] uppercase';
+    if (status === 'Active') return `${base} bg-[rgba(74,222,128,0.1)] text-[var(--s-ok)]`;
+    if (status === 'Expired' || status === 'Revoked') return `${base} text-[var(--s-text-dim)]`;
+    return `${base} text-[var(--s-text-muted)]`;
   }
 
   private expirationDate(): string | null {
