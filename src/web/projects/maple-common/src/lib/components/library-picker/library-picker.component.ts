@@ -2,14 +2,7 @@
 // Walks the server filesystem via /api/fs/list starting at '/', lets the
 // user navigate into mounted volumes, and emits the chosen absolute path.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  inject,
-  OnInit,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, OnInit, output, signal } from '@angular/core';
 import { BunApiBackendService, type ApiDirListing } from '../../api/bun-api-backend.service';
 
 @Component({
@@ -17,7 +10,9 @@ import { BunApiBackendService, type ApiDirListing } from '../../api/bun-api-back
   standalone: true,
   imports: [],
   templateUrl: './library-picker.component.html',
-  styleUrl: './library-picker.component.scss',
+  host: {
+    class: 'flex w-full h-full items-center justify-center box-border p-8 bg-bg text-text-main',
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LibraryPickerComponent implements OnInit {

@@ -43,6 +43,7 @@ import { MapLibreService } from '../../map/maplibre-map.service';
   providers: [MapClusterPinsService, MapHeatmapLayerService],
   templateUrl: './map-view.component.html',
   styleUrl: './map-view.component.scss',
+  host: { class: 'block relative w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MapViewComponent implements AfterViewInit, OnDestroy {

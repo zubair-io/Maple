@@ -36,7 +36,6 @@ const HIDDEN_OPTIONS: ReadonlyArray<{ value: 'none' | 'all' | 'only'; label: str
   standalone: true,
   imports: [MapleIconComponent],
   templateUrl: './timeline-filter-row.component.html',
-  styleUrl: './timeline-filter-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TimelineFilterRowComponent {
@@ -46,6 +45,36 @@ export class TimelineFilterRowComponent {
   readonly COLOR_OPTIONS = COLOR_OPTIONS;
   readonly FLAG_OPTIONS = FLAG_OPTIONS;
   readonly HIDDEN_OPTIONS = HIDDEN_OPTIONS;
+
+  /** Mutually-exclusive color/border/background triplet for a filter
+   * pill's active state (Tailwind port #3071) — folded into one computed
+   * string rather than a base class plus a conditional add-on. */
+  protected filterPillClass(active: boolean): string {
+    const base =
+      'filter-pill h-6 cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-colors duration-[120ms]';
+    return active
+      ? `${base} is-active bg-white/4 border-border text-text-main`
+      : `${base} border-transparent bg-transparent text-text-muted hover:border-border hover:bg-surface-hover hover:text-text-main`;
+  }
+
+  /** Same as {@link filterPillClass} for the star-rating pill (no text). */
+  protected ratingPillClass(active: boolean): string {
+    const base =
+      'filter-pill flex h-6 w-6 items-center justify-center rounded border-[0.5px] transition-colors duration-[120ms]';
+    return active
+      ? `${base} is-active bg-white/4 border-border text-text-main`
+      : `${base} border-transparent bg-transparent hover:border-border hover:bg-surface-hover`;
+  }
+
+  /** Mutually-exclusive border/shadow pair for a color swatch's active
+   * state. */
+  protected colorSwatchClass(active: boolean): string {
+    const base =
+      'color-swatch flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[0.5px] transition-[transform,border-color] duration-[120ms] hover:scale-110';
+    return active
+      ? `${base} is-active border-primary shadow-[0_0_0_1.5px_var(--color-primary)]`
+      : `${base} border-border`;
+  }
 
   onRatingClick(n: number): void {
     const cur = this.state.minRating();
