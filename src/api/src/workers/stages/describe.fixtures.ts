@@ -26,6 +26,7 @@ import type {
   DescribeResult,
 } from '../../enrichment/describe-providers/index.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
+import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 
 /** A fully-populated VisionDoc as the model would return it for a real
  * photo. Spread-and-override this rather than hand-rolling partial docs, so
@@ -140,4 +141,15 @@ export async function stageDocIn(
     .toBuffer();
   writeFileSync(previewPath, avifBytes);
   return doc;
+}
+
+/** Wrap a mock provider in a one-server pool so a suite can keep asserting
+ * against the provider it built while the handler goes through the real
+ * admission/failover path. Concurrency 1 keeps calls serialized, which is
+ * what the single-asset cases assume. */
+export function singleServerPool(provider: DescribeProvider): DescribeServerPool {
+  return new DescribeServerPool(
+    [{ url: 'http://localhost:11434', concurrency: 1 }],
+    () => provider,
+  );
 }

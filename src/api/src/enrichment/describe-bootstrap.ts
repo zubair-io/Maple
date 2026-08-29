@@ -16,7 +16,9 @@
  */
 
 import { child as childLogger } from '../log.ts';
-import { getDescribeProvider, RemoteError } from './describe-providers/index.ts';
+import { DescribeServerPool } from './describe-server-pool.ts';
+import { totalDescribeCapacity } from './describe-servers.ts';
+import { syncDescribeStageCapacity } from '../workers/describe-capacity.ts';
 import { loadEnrichmentConfig, DESCRIBE_VISION_OLLAMA_TAG } from './enrichment-config.repo.ts';
 import {
   resolveEnrichmentConfig,
@@ -63,31 +65,34 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
     return;
   }
 
-  let provider;
-  try {
-    provider = getDescribeProvider('ollama', {
-      url: resolved.describe_provider_url,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err: msg }, 'describe provider misconfigured (fix via /settings/enrichment)');
-    return;
-  }
+  // Every configured server is probed, not just the default one: in a
+  // multi-server pool "describe is unhealthy" is useless when one of three
+  // boxes is down and the other two are serving fine. A dead server is
+  // logged and left in the pool — the stage fails over past it per call and
+  // picks it back up when it recovers, so a transient outage needs no
+  // operator action.
+  const pool = new DescribeServerPool(resolved.describe_servers);
+  // Keep the stage's dispatch fan-out equal to the pool's total capacity.
+  // Otherwise a claimed asset either sits holding a lease waiting for
+  // admission (fan-out too high) or servers idle with backlog waiting
+  // (too low). The operator tunes per-server concurrency; this is derived.
+  await syncDescribeStageCapacity(totalDescribeCapacity(resolved.describe_servers));
 
-  try {
-    log.info({ provider: provider.name, model: LOCKED_MODEL }, 'checking describe-provider health');
-    await provider.health();
-    log.info({ provider: provider.name }, 'describe provider healthy');
-  } catch (err) {
-    const status = err instanceof RemoteError && err.status !== undefined ? err.status : null;
-    log.error(
-      {
-        err: err instanceof Error ? err.message : err,
-        provider: provider.name,
-        status,
-      },
-      'describe provider health check failed (fix via /settings/enrichment)',
-    );
+  log.info(
+    { servers: pool.servers.map((s) => s.url), model: LOCKED_MODEL },
+    'checking describe-server health',
+  );
+  const results = await pool.health();
+  for (const result of results) {
+    if (result.ok) log.info({ server: result.url }, 'describe server healthy');
+    else
+      log.error(
+        { server: result.url, err: result.error },
+        'describe server health check failed (fix via /settings/workers)',
+      );
+  }
+  if (!results.some((result) => result.ok)) {
+    log.error('no describe server is reachable — the stage will retry every claim');
   }
 }
 
