@@ -123,7 +123,14 @@ struct FolderTreeRow: View {
                 active: isSelected,
                 pressed: { onPick(url) }
             )
-            .background(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
+            // Overlay, not background: MuiTreeRow paints its own opaque active
+      // background, which would hide a background-layer drop highlight when
+      // the drop target is also the selected row.
+      .overlay(
+        RoundedRectangle(cornerRadius: 6)
+          .fill(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
+          .allowsHitTesting(false)
+      )
             // Drag-onto-source-tree (#2646). Default = move; the platform
             // copy-modifier (Option on macOS — see `MapleDragModifier`) =
             // copy. `payloads.first` is safe: a `.draggable` drag session
