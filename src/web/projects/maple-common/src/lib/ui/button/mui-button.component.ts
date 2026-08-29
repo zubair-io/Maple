@@ -36,9 +36,13 @@ function boolAttr(value: boolean | null): string | null {
   styleUrl: './mui-button.component.scss',
   // `fullWidth` needs the HOST element itself (not just the inner real
   // <button>) to stretch inside a flex/grid container — e.g. a dropdown
-  // menu column — hence a host binding rather than a template class.
+  // menu column — hence a host binding rather than a template class. Bound
+  // as one computed class string (rather than static `inline-flex` plus
+  // conditional `flex`/`w-full`) so the two `display` utilities are never
+  // both present at once — Tailwind's cascade order between two classes of
+  // equal specificity isn't something the template should depend on.
   host: {
-    '[class.is-full-width]': 'fullWidth()',
+    '[class]': 'hostClasses()',
   },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -93,6 +97,69 @@ export class MuiButtonComponent {
   readonly isDisabled = computed(() => this.disabled() || this.loading());
   readonly ariaExpandedAttr = computed(() => boolAttr(this.ariaExpanded()));
   readonly ariaPressedAttr = computed(() => boolAttr(this.ariaPressed()));
+
+  readonly hostClasses = computed(() =>
+    this.fullWidth() ? 'flex w-full is-full-width' : 'inline-flex',
+  );
+
+  /** Icon-only mode pads evenly and forces a square box (button.md §hit
+   * target); otherwise padding follows `size`. Kept as one computed string
+   * (rather than separate static + conditional classes) so only one
+   * `px-*`/`py-*` pair is ever present — two same-specificity padding
+   * utilities racing for the cascade would be undefined behavior. */
+  readonly paddingClasses = computed(() => {
+    if (this.iconOnly()) return 'p-2 aspect-square';
+    switch (this.size()) {
+      case 'sm':
+        return 'px-2 py-1';
+      case 'lg':
+        return 'px-6 py-2';
+      default:
+        return 'px-4 py-2';
+    }
+  });
+
+  readonly fontSizeClasses = computed(() => {
+    switch (this.size()) {
+      case 'sm':
+        return 'text-xs';
+      case 'lg':
+        return 'text-sm';
+      default:
+        return 'text-[13px]';
+    }
+  });
+
+  /** `fullWidth` left-aligns the label instead of centering it — mutually
+   * exclusive with the default centered layout, so this is one computed
+   * pair rather than a static `justify-center` racing a conditional
+   * `justify-start`. */
+  readonly layoutClasses = computed(() =>
+    this.fullWidth() ? 'w-full justify-start' : 'justify-center',
+  );
+
+  /** `active`/`toggled` win over the variant's own color regardless of which
+   * variant they're layered on (button.md — colored "on" state, subtler
+   * chrome-toggle overlay). Folded into one computed string, mutually
+   * exclusive with the plain per-variant colors, for the same
+   * one-utility-set-at-a-time reason as `paddingClasses`/`layoutClasses`. */
+  readonly colorClasses = computed(() => {
+    if (this.active()) return 'bg-primary-dim text-primary border-primary';
+    if (this.toggled()) return 'bg-[rgba(255,255,255,0.04)] border-border text-text-main';
+    switch (this.variant()) {
+      case 'primary':
+        return 'bg-primary text-text-main border-primary enabled:hover:brightness-110 enabled:hover:-translate-y-0.5';
+      case 'ghost':
+        return 'bg-transparent text-text-muted border-transparent enabled:hover:bg-surface-hover enabled:hover:text-text-main';
+      case 'destructive':
+        // No dedicated "destructive fill" token exists yet in ui_tokens.rs
+        // (per button.md's own noted gap) — approximated with the error
+        // banner tones until a follow-up foundation task adds one.
+        return 'bg-error-bg text-error-text border-error-text enabled:hover:brightness-110 enabled:hover:-translate-y-0.5';
+      default:
+        return 'bg-surface text-text-main border-border enabled:hover:bg-surface-hover enabled:hover:-translate-y-0.5';
+    }
+  });
 
   private readonly nativeButton = viewChild<ElementRef<HTMLButtonElement>>('nativeButton');
 

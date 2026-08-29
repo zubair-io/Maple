@@ -1,7 +1,7 @@
 @if (variant() === 'rating') {
   <span
-    class="mui-badge rating"
-    [class]="'size-' + size()"
+    class="mui-badge rating inline-flex items-center gap-1 font-semibold leading-none whitespace-nowrap text-star"
+    [class]="'size-' + size() + ' ' + sizeClasses()"
     [attr.aria-label]="label() ?? value() + ' rating'"
   >
     <mui-icon name="star-filled" size="xs" color="var(--color-star)" />
@@ -9,8 +9,10 @@
   </span>
 } @else {
   <span
-    class="mui-badge pill"
-    [class]="'variant-' + variant() + ' size-' + size()"
+    class="mui-badge pill inline-flex items-center gap-1 rounded-full px-2 py-1 font-semibold leading-none whitespace-nowrap"
+    [class]="
+      'variant-' + variant() + ' size-' + size() + ' ' + sizeClasses() + ' ' + variantClasses()
+    "
     [attr.aria-label]="label()"
     >{{ value() }}</span
   >

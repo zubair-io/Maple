@@ -1,5 +1,14 @@
 <div
-  class="mui-divider"
-  [class]="'orientation-' + orientation() + ' emphasis-' + emphasis()"
+  class="mui-divider flex-shrink-0"
+  [class]="
+    'orientation-' +
+    orientation() +
+    ' emphasis-' +
+    emphasis() +
+    ' ' +
+    orientationClasses() +
+    ' ' +
+    emphasisClasses()
+  "
   aria-hidden="true"
 ></div>

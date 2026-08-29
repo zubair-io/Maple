@@ -1,8 +1,21 @@
 <button
   #nativeButton
   type="button"
-  class="mui-button"
-  [class]="'variant-' + variant() + ' size-' + size()"
+  class="mui-button relative inline-flex items-center gap-1 rounded-lg font-semibold leading-none whitespace-nowrap cursor-pointer border border-transparent transition-[background-color,color,border-color,transform] duration-200 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:border-primary focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)] enabled:active:translate-y-0"
+  [class]="
+    'variant-' +
+    variant() +
+    ' size-' +
+    size() +
+    ' ' +
+    layoutClasses() +
+    ' ' +
+    paddingClasses() +
+    ' ' +
+    fontSizeClasses() +
+    ' ' +
+    colorClasses()
+  "
   [class.icon-only]="iconOnly()"
   [class.is-loading]="loading()"
   [class.is-active]="active()"
@@ -18,12 +31,15 @@
   (click)="onClick($event)"
 >
   @if (loading()) {
-    <span class="spinner" aria-hidden="true"></span>
+    <span
+      class="spinner w-3 h-3 rounded-full border-2 border-current border-t-transparent"
+      aria-hidden="true"
+    ></span>
   } @else if (iconLeading()) {
     <mui-icon [name]="iconLeading()!" size="sm" />
   }
   @if (!iconOnly()) {
-    <span class="label"><ng-content /></span>
+    <span class="label min-w-0 flex-1"><ng-content /></span>
   }
   @if (iconTrailing() && !loading()) {
     <mui-icon [name]="iconTrailing()!" size="sm" />
