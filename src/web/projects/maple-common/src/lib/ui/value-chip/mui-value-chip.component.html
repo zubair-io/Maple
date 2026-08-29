@@ -1,5 +1,5 @@
 <div
-  class="mui-value-chip inline-flex items-center gap-2 bg-bg text-text-main px-2 py-1 rounded-sm shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+  class="mui-value-chip inline-flex items-center gap-2 bg-bg text-text-main px-2 py-1 rounded-md shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
 >
   @for (seg of resolvedSegments(); track $index; let last = $last) {
     <mui-text variant="chip-label" color="on-accent" [attr.data-testid]="seg.testId ?? null">{{
