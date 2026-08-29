@@ -49,7 +49,7 @@
               @let isChecked = state.selectedAssetIds().has(p.id);
               <button
                 type="button"
-                class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
+                class="timeline-photo group relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
                 [class.is-selected]="state.focusedAssetId() === p.id"
                 [class.dimmed]="p.hidden"
                 [attr.aria-label]="p.filename"
@@ -57,13 +57,22 @@
               >
                 @if (p.thumbUrl) {
                   <img
-                    class="block h-full w-full object-cover"
+                    class="block h-full w-full object-cover group-[.dimmed]:opacity-45"
                     [src]="p.thumbUrl"
                     alt=""
                     loading="lazy"
                     decoding="async"
                   />
                 }
+                <!-- Selection ring — separate overlay element so it stacks
+                     above the <img>, matching mui-asset-thumb's
+                     thumb-ring pattern (#3073: the previous plain
+                     `.is-selected`/`.dimmed` selectors targeted no CSS
+                     after the Tailwind port and never rendered). -->
+                <div
+                  class="thumb-ring pointer-events-none absolute inset-0 rounded-sm border-2 border-transparent transition-[border-color] duration-[80ms] group-[.is-selected]:border-primary"
+                  aria-hidden="true"
+                ></div>
                 @if (p.hidden) {
                   <div
                     class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
