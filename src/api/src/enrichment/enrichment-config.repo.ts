@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 import type { DescribeProviderName } from './describe-providers/index.ts';
+import type { DescribeServerConfig } from './describe-servers.ts';
 import type { WhisperTier } from '../audio/whisper-model.ts';
 // Prompt text + version live in a sibling module (keeps this file under the
 // file-size budget). Imported here so the resolver can use the system prompt,
@@ -204,6 +205,12 @@ export interface EnrichmentConfig {
   describe_system_prompt?: string | null;
   /** Daily USD cap (UTC day). `null`/missing → default 5. */
   describe_daily_cap_usd?: number | null;
+  /** Describe servers, in operator order. Entry 0 is the default server —
+   * the resolver mirrors its URL onto `describe_provider_url`, which is
+   * what every other service (semantic-search embedder, generated-search)
+   * reads. `null`/missing → the single `describe_provider_url` server.
+   * Written whole (the UI owns the list); a partial patch is not a thing. */
+  describe_servers?: DescribeServerConfig[] | null;
   /** Provider URL — only meaningful for Ollama. Ignored for paid
    * providers (their endpoints are hard-coded). `null`/missing → falls
    * back to env / built-in default. */
@@ -373,6 +380,9 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   }
   if (remapped.describe_provider_url !== undefined) {
     set['config.describe_provider_url'] = remapped.describe_provider_url;
+  }
+  if (remapped.describe_servers !== undefined) {
+    set['config.describe_servers'] = remapped.describe_servers;
   }
   if (remapped.transcribe_model_tier !== undefined) {
     set['config.transcribe_model_tier'] = remapped.transcribe_model_tier;

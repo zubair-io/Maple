@@ -13,7 +13,13 @@ import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 
 import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from './describe.ts';
 import { VISION_DOC_JSON_SCHEMA } from '../../enrichment/describe-providers/parse-vision-json.ts';
-import { VALID_VISION, fakeDoc, mockProvider, stageDocIn } from './describe.fixtures.ts';
+import {
+  VALID_VISION,
+  fakeDoc,
+  mockProvider,
+  singleServerPool,
+  stageDocIn,
+} from './describe.fixtures.ts';
 
 let tmpRoot: string;
 let libraryId: ObjectId;
@@ -46,7 +52,7 @@ describe('describeHandler — happy path', () => {
       provider_info: { eval_count: '30' },
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'structured vision prompt',
       model: 'qwen3-vl:8b',
     });
@@ -104,7 +110,7 @@ describe('describeHandler — happy path', () => {
       async health(): Promise<void> {},
     };
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -126,7 +132,7 @@ describe('describeHandler — happy path', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -146,7 +152,7 @@ describe('describeHandler — happy path', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -166,7 +172,7 @@ describe('describeHandler — parse failure', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -188,7 +194,7 @@ describe('describeHandler — parse failure', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -211,7 +217,7 @@ describe('describeHandler — preview missing (#2177)', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -231,7 +237,7 @@ describe('describeHandler — preview missing (#2177)', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -268,7 +274,7 @@ describe('describeHandler — video files are described from their poster frame 
       async health(): Promise<void> {},
     };
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -287,7 +293,7 @@ describe('describeHandler — video files are described from their poster frame 
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -323,7 +329,7 @@ describe('describeHandler — video files are described from their poster frame 
       async health(): Promise<void> {},
     };
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -349,7 +355,7 @@ describe('describeHandler — metadata-only stub images and audio are not descri
     const doc = await stageDoc(absPath);
     const provider = mockProvider(new Error('provider should not be called'));
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -364,7 +370,7 @@ describe('describeHandler — provider errors', () => {
     const doc = await stageDoc(absPath);
     const provider = mockProvider(new RemoteError('Provider 5xx: 503', true, 503));
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -376,7 +382,7 @@ describe('describeHandler — provider errors', () => {
     const doc = await stageDoc(absPath);
     const provider = mockProvider(new RemoteError('Provider 4xx: 401', false, 401));
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -396,7 +402,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -421,7 +427,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -447,7 +453,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
       provider_info: {},
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -470,7 +476,7 @@ describe('describeHandler — provider_info extras', () => {
       provider_info: { input_tokens: '120', output_tokens: '20' },
     });
     setDescribeDepsForTests({
-      provider,
+      pool: singleServerPool(provider),
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });

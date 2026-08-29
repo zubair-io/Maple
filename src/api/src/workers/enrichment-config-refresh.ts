@@ -30,6 +30,7 @@ export function workerEnrichmentFingerprint(config: ResolvedEnrichmentConfig): s
   return JSON.stringify({
     describeWorkerEnabled: config.describe_worker_enabled,
     describeUrl: config.describe_provider_url,
+    describeServers: config.describe_servers,
     meiliUrl: config.meilisearch_url,
     meiliApiKey: config.meilisearch_api_key,
     meiliTaskTimeoutSeconds: config.meilisearch_task_timeout_seconds,

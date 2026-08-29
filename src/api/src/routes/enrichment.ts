@@ -48,6 +48,7 @@ import { getFaceModelsStatus, probeFaceModelFiles } from '../enrichment/face-mod
 import { readWorkerStatus } from '../workers/worker-status.repo.ts';
 import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
+import { validateDescribePatch } from './enrichment-describe-patch.ts';
 import {
   createMeilisearchClient,
   reconfigureMeilisearch,
@@ -73,6 +74,21 @@ const ConfigBody = t.Object({
   describe_system_prompt: t.Optional(t.Union([t.String(), t.Null()])),
   describe_daily_cap_usd: t.Optional(t.Union([t.Number(), t.Null()])),
   describe_provider_url: t.Optional(t.Union([t.String(), t.Null()])),
+  /** Ordered describe-server list. Entry 0 is the default server, whose URL
+   * is mirrored onto `describe_provider_url` for every other service.
+   * Written whole: the list the UI sends replaces the saved one. `null`
+   * clears back to the single `describe_provider_url` server. */
+  describe_servers: t.Optional(
+    t.Union([
+      t.Array(
+        t.Object({
+          url: t.String(),
+          concurrency: t.Optional(t.Union([t.Number(), t.Null()])),
+        }),
+      ),
+      t.Null(),
+    ]),
+  ),
   transcribe_model_tier: t.Optional(
     t.Union([
       t.Literal('tiny.en'),
@@ -248,45 +264,17 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       }
 
       // ── Describe-worker validation ────────────────────────────────
-      // All fields are optional. `null` clears back to env/default;
-      // `undefined` leaves the existing value alone. Provider must be
-      // one of the known names; cap must be in (MIN, MAX].
-
-      let describeProvider: string | null | undefined = body.describe_provider;
-      if (typeof describeProvider === 'string' && asDescribeProvider(describeProvider) === null) {
+      const describePatch = validateDescribePatch(body);
+      if ('error' in describePatch) {
         set.status = 400;
-        return {
-          error: `Invalid describe_provider: must be one of "ollama", "anthropic", "openai", "gemini" (got "${describeProvider}")`,
-        };
+        return { error: describePatch.error };
       }
-
-      let describeUrl: string | null | undefined;
-      if (body.describe_provider_url !== undefined) {
-        const validatedDescribe = validateHttpUrl(body.describe_provider_url);
-        if (
-          validatedDescribe &&
-          typeof validatedDescribe === 'object' &&
-          'error' in validatedDescribe
-        ) {
-          set.status = 400;
-          return { error: `Invalid describe_provider_url: ${validatedDescribe.error}` };
-        }
-        describeUrl = validatedDescribe as string | null;
-      }
-
-      const describeCap = body.describe_daily_cap_usd;
-      if (typeof describeCap === 'number') {
-        if (
-          !Number.isFinite(describeCap) ||
-          describeCap <= MIN_DESCRIBE_DAILY_CAP_USD ||
-          describeCap > MAX_DESCRIBE_DAILY_CAP_USD
-        ) {
-          set.status = 400;
-          return {
-            error: `Invalid describe_daily_cap_usd: must be a number in (${MIN_DESCRIBE_DAILY_CAP_USD}, ${MAX_DESCRIBE_DAILY_CAP_USD}] (got ${describeCap})`,
-          };
-        }
-      }
+      const {
+        provider: describeProvider,
+        url: describeUrl,
+        servers: describeServers,
+        cap: describeCap,
+      } = describePatch;
 
       // ── Face min-size validation ──────────────────────────────────
       // `undefined` = field omitted (keep existing); `null` = clear back to
@@ -395,6 +383,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           : {}),
         ...(describeCap !== undefined ? { describe_daily_cap_usd: describeCap } : {}),
         ...(describeUrl !== undefined ? { describe_provider_url: describeUrl } : {}),
+        ...(describeServers !== undefined ? { describe_servers: describeServers } : {}),
         ...(body.transcribe_model_tier !== undefined
           ? { transcribe_model_tier: body.transcribe_model_tier }
           : {}),

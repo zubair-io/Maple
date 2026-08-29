@@ -335,6 +335,83 @@ describe('PUT /api/enrichment/config', () => {
   });
 });
 
+describe('PUT /api/enrichment/config — describe servers', () => {
+  it('saves the list and mirrors the first entry onto describe_provider_url', async () => {
+    if (!mongoReachable) return;
+    const r = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      describe_servers: [
+        { url: 'http://gpu-a:11434/', concurrency: 4 },
+        { url: 'http://gpu-b:11434', concurrency: 1 },
+      ],
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      describe_servers: Array<{ url: string; concurrency: number }>;
+      describe_provider_url: string;
+    };
+    expect(body.describe_servers).toEqual([
+      { url: 'http://gpu-a:11434', concurrency: 4 },
+      { url: 'http://gpu-b:11434', concurrency: 1 },
+    ]);
+    // Every other Ollama consumer reads the single URL field, so the default
+    // server has to land there too.
+    expect(body.describe_provider_url).toBe('http://gpu-a:11434');
+  });
+
+  it('defaults a missing per-server concurrency', async () => {
+    if (!mongoReachable) return;
+    const r = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      describe_servers: [{ url: 'http://gpu-a:11434' }],
+    });
+    expect(r.status).toBe(200);
+    expect((r.body as { describe_servers: unknown }).describe_servers).toEqual([
+      { url: 'http://gpu-a:11434', concurrency: 2 },
+    ]);
+  });
+
+  it('rejects a bad url, a bad concurrency and a duplicate endpoint', async () => {
+    if (!mongoReachable) return;
+    for (const servers of [
+      [{ url: 'not-a-url' }],
+      [{ url: 'http://gpu-a:11434', concurrency: 0 }],
+      [{ url: 'http://gpu-a:11434' }, { url: 'http://gpu-a:11434/' }],
+    ]) {
+      const r = await put('/api/enrichment/config', {
+        nominatim_url: null,
+        geocode_worker_enabled: false,
+        describe_servers: servers,
+      });
+      expect(r.status).toBe(400);
+      expect((r.body as { error: string }).error).toMatch(/Invalid describe_servers/);
+    }
+    // Nothing was persisted by the rejected writes.
+    expect(await db!.collection('app_settings').findOne({ _id: 'enrichment' })).toBeNull();
+  });
+
+  it('clears back to the single-server fallback on null', async () => {
+    if (!mongoReachable) return;
+    await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      describe_servers: [{ url: 'http://gpu-a:11434', concurrency: 4 }],
+    });
+    const r = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      describe_servers: null,
+      describe_provider_url: 'http://only:11434',
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as { describe_servers: unknown; source: { describe_servers: string } };
+    expect(body.describe_servers).toEqual([{ url: 'http://only:11434', concurrency: 2 }]);
+    expect(body.source.describe_servers).toBe('derived');
+  });
+});
+
 describe('GET /api/enrichment/config — rate limit projection', () => {
   it('includes the resolved value + source on a fresh DB', async () => {
     if (!mongoReachable) return;
