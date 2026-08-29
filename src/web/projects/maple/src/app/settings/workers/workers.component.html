@@ -408,41 +408,11 @@
                   }
                   @case ('describe') {
                     <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
-                      <div class="field field-wide set-field">
-                        <div class="field-label">Ollama URL</div>
-                        <div class="text-input set-text-input mono">
-                          <mui-input
-                            [value]="enrichmentValue(s, 'describe_provider_url')"
-                            (valueChange)="setEnrichment(s, 'describe_provider_url', $event)"
-                            placeholder="http://localhost:11434"
-                            ariaLabel="Ollama URL"
-                          />
-                          <mui-button
-                            variant="ghost"
-                            size="sm"
-                            [loading]="testState(s).kind === 'testing'"
-                            (pressed)="testConnection(s)"
-                          >
-                            <maple-settings-icon name="test" [size]="12" />
-                            Test connection
-                          </mui-button>
-                        </div>
-                        <div class="field-hint">
-                          Empty uses the default
-                          <span class="mono set-mono">http://localhost:11434</span>. Point at a
-                          remote Ollama if the model lives on a different machine.
-                        </div>
-                        @if (testState(s).kind === 'ok') {
-                          <div class="test-result set-test-result ok">
-                            <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
-                            Ollama responded.
-                          </div>
-                        } @else if (testState(s).kind === 'error') {
-                          <div class="test-result set-test-result err">
-                            {{ $any(testState(s)).message }}
-                          </div>
-                        }
-                      </div>
+                      <maple-describe-servers
+                        class="field-wide"
+                        [servers]="enrichmentValue(s, 'describe_servers')"
+                        (serversChange)="setEnrichment(s, 'describe_servers', $event)"
+                      />
                       <div class="field set-field">
                         <div class="field-label">Model</div>
                         <div class="text-input set-text-input mono readonly">
@@ -872,17 +842,32 @@
               <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
                 <div class="field set-field">
                   <div class="field-label">Concurrency</div>
-                  <div class="num-input set-num-input">
+                  <div
+                    class="num-input set-num-input"
+                    [class.readonly]="meta(s).enrichment === 'describe'"
+                  >
                     <mui-input
                       variant="numeric"
                       [min]="1"
                       [max]="100"
-                      [value]="runtimeValue(s, 'concurrency')"
+                      [readOnly]="meta(s).enrichment === 'describe'"
+                      [value]="
+                        meta(s).enrichment === 'describe'
+                          ? describeCapacityLabel(s)
+                          : runtimeValue(s, 'concurrency')
+                      "
                       (valueChange)="setRuntime(s, 'concurrency', $event)"
                       ariaLabel="Concurrency"
                     />
                   </div>
-                  <div class="field-hint">1 – 100</div>
+                  @if (meta(s).enrichment === 'describe') {
+                    <div class="field-hint">
+                      Derived: the sum of every describe server's concurrency above. Tune it per
+                      server so a fast box takes more work than a slow one.
+                    </div>
+                  } @else {
+                    <div class="field-hint">1 – 100</div>
+                  }
                 </div>
                 <div class="field set-field">
                   <div class="field-label">Max attempts</div>

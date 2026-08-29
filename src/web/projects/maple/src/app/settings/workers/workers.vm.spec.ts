@@ -9,6 +9,8 @@ import { describe, it, expect } from 'vitest';
 import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
 import {
   CONCURRENCY_MAX,
+  describeCapacity,
+  describeFormToPatch,
   DEFAULT_RUNTIME,
   ERROR_POLL_MS,
   POLL_MS,
@@ -370,5 +372,67 @@ describe('formatDate', () => {
     const out = formatDate(iso);
     expect(out).not.toBe('');
     expect(new Date(out).getTime()).toBe(new Date(iso).getTime());
+  });
+});
+
+describe('describe servers', () => {
+  const form = (servers: Array<{ url: string; concurrency: string }>) =>
+    ({ ...blankEnrichment(null), describe_servers: servers }) as never;
+
+  it('seeds rows from the resolved server list', () => {
+    const seeded = blankEnrichment({
+      describe_servers: [
+        { url: 'http://gpu-a:11434', concurrency: 4 },
+        { url: 'http://gpu-b:11434', concurrency: 1 },
+      ],
+    } as EnrichmentConfigResponse);
+    expect(seeded.describe_servers).toEqual([
+      { url: 'http://gpu-a:11434', concurrency: '4' },
+      { url: 'http://gpu-b:11434', concurrency: '1' },
+    ]);
+  });
+
+  it('falls back to one row built from the single URL', () => {
+    const seeded = blankEnrichment({
+      describe_provider_url: 'http://only:11434',
+    } as EnrichmentConfigResponse);
+    expect(seeded.describe_servers).toEqual([{ url: 'http://only:11434', concurrency: '2' }]);
+    expect(blankEnrichment(null).describe_servers).toEqual([{ url: '', concurrency: '2' }]);
+  });
+
+  it('sums per-server concurrency, ignoring blank and invalid rows', () => {
+    expect(
+      describeCapacity([
+        { url: 'http://a:11434', concurrency: '4' },
+        { url: 'http://b:11434', concurrency: '3' },
+        { url: '', concurrency: '9' },
+        { url: 'http://c:11434', concurrency: 'abc' },
+      ]),
+    ).toBe(7);
+  });
+
+  it('drops blank rows and mirrors the first server onto the single URL', () => {
+    expect(
+      describeFormToPatch(
+        form([
+          { url: ' http://gpu-a:11434 ', concurrency: '4' },
+          { url: '', concurrency: '2' },
+          { url: 'http://gpu-b:11434', concurrency: '1' },
+        ]),
+      ),
+    ).toEqual({
+      describe_servers: [
+        { url: 'http://gpu-a:11434', concurrency: 4 },
+        { url: 'http://gpu-b:11434', concurrency: 1 },
+      ],
+      describe_provider_url: 'http://gpu-a:11434',
+    });
+  });
+
+  it('clears back to the single-server fallback when every row is blank', () => {
+    expect(describeFormToPatch(form([{ url: '  ', concurrency: '2' }]))).toEqual({
+      describe_servers: null,
+      describe_provider_url: null,
+    });
   });
 });

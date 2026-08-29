@@ -268,6 +268,59 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.source.meilisearch_embedder_model).toBe('default');
   });
 
+  it('derives a single describe server from describe_provider_url when no list is saved', () => {
+    const r = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        describe_provider_url: 'http://ollama.lan:11434',
+      },
+      {},
+    );
+    expect(r.describe_servers).toEqual([{ url: 'http://ollama.lan:11434', concurrency: 2 }]);
+    expect(r.source.describe_servers).toBe('derived');
+  });
+
+  it('lets the saved server list drive the default endpoint every service reads', () => {
+    const r = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        // Deliberately stale: the list is authoritative, so this value must
+        // not win — otherwise captioning and semantic search would talk to
+        // different boxes.
+        describe_provider_url: 'http://stale:11434',
+        describe_servers: [
+          { url: 'http://gpu-a:11434', concurrency: 4 },
+          { url: 'http://gpu-b:11434', concurrency: 1 },
+        ],
+      },
+      {},
+    );
+    expect(r.describe_servers).toEqual([
+      { url: 'http://gpu-a:11434', concurrency: 4 },
+      { url: 'http://gpu-b:11434', concurrency: 1 },
+    ]);
+    expect(r.describe_provider_url).toBe('http://gpu-a:11434');
+    expect(r.meilisearch_embedder_url).toBe('http://gpu-a:11434');
+    expect(r.source.describe_servers).toBe('db');
+    expect(r.source.describe_provider_url).toBe('db');
+  });
+
+  it('falls back to the single server when the saved list is unusable', () => {
+    const r = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        describe_provider_url: 'http://ollama.lan:11434',
+        describe_servers: [{ url: 'not a url' }] as never,
+      },
+      {},
+    );
+    expect(r.describe_servers).toEqual([{ url: 'http://ollama.lan:11434', concurrency: 2 }]);
+    expect(r.describe_provider_url).toBe('http://ollama.lan:11434');
+  });
+
   it('reuses the Describe Ollama URL for semantic settings and rejects an invalid ratio', () => {
     const configured = resolveEnrichmentConfig(
       {

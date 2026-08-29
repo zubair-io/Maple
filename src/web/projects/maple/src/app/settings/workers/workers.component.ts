@@ -56,6 +56,7 @@ import { GeneratedSearchSettingsComponent } from './generated-search-settings.co
 import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
+import { DescribeServersComponent } from './describe-servers.component';
 import {
   FIXED_DESCRIBE_MODEL,
   groupStagesByPipeline,
@@ -68,6 +69,8 @@ import {
   formatBytes,
   formatDate,
   runtimeFormToPatch,
+  describeCapacity,
+  describeFormToPatch,
   meilisearchFormToPatch,
   blankRuntime,
   blankEnrichment,
@@ -99,6 +102,7 @@ import {
     GpuLiveRenderSettingsComponent,
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
+    DescribeServersComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
@@ -305,15 +309,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
         return;
       }
       this.enrichmentApi.testNominatim(url).subscribe(observer);
-    } else if (meta.enrichment === 'describe') {
-      this.enrichmentApi
-        .testDescribeProvider({
-          provider: 'ollama',
-          url: form.describe_provider_url.trim() || null,
-          model: FIXED_DESCRIBE_MODEL,
-          api_key: null,
-        })
-        .subscribe(observer);
     } else if (meta.enrichment === 'meili') {
       const url = form.meilisearch_url.trim();
       if (url.length === 0) {
@@ -416,7 +411,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
       geocode_worker_enabled: current.geocode_worker_enabled,
     };
     if (kind === 'describe') {
-      body.describe_provider_url = form.describe_provider_url.trim() || null;
+      Object.assign(body, describeFormToPatch(form));
     } else if (kind === 'transcribe') {
       if (!isWhisperModelTier(form.transcribe_model_tier)) {
         onErr(new Error(`Invalid Whisper model tier: ${form.transcribe_model_tier}`));
@@ -460,6 +455,15 @@ export class WorkersComponent implements OnInit, OnDestroy {
       },
       error: onErr,
     });
+  }
+
+  /** Describe's stage concurrency is not an operator knob: the server list
+   * owns it (each server has its own limit, and the stage dispatches their
+   * sum). Shown read-only so the number is visible where every other stage
+   * shows its concurrency. The server derives the same value on save. */
+  describeCapacityLabel(stage: StageStatus): string {
+    const form = this.enrichmentForms()[stage.name] ?? blankEnrichment(this.enrichmentConfig());
+    return String(describeCapacity(form.describe_servers));
   }
 
   runtimeValue(stage: StageStatus, field: keyof RuntimeForm): string {

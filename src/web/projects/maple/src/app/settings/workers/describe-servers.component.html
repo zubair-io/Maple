@@ -1,0 +1,90 @@
+<div class="field field-wide set-field">
+  <div class="field-label">Ollama servers</div>
+
+  @for (server of servers(); track $index) {
+    <div class="describe-server-row flex items-start gap-2 mb-2 max-[767px]:flex-col">
+      <div class="text-input set-text-input mono flex-1 min-w-0">
+        <mui-input
+          [value]="server.url"
+          (valueChange)="setUrl($index, $event)"
+          placeholder="http://localhost:11434"
+          [ariaLabel]="'Ollama URL ' + ($index + 1)"
+        />
+      </div>
+      <div class="num-input set-num-input w-[120px] max-[767px]:w-full">
+        <mui-input
+          variant="numeric"
+          [min]="1"
+          [max]="maxConcurrency"
+          [value]="server.concurrency"
+          (valueChange)="setConcurrency($index, $event)"
+          [ariaLabel]="'Concurrency for server ' + ($index + 1)"
+        />
+      </div>
+      <div class="flex items-center gap-1">
+        @if ($index === 0) {
+          <span class="badge set-badge" data-testid="describe-server-default">Default</span>
+        } @else {
+          <mui-button
+            variant="ghost"
+            size="sm"
+            (pressed)="makeDefault($index)"
+            [ariaLabel]="'Make server ' + ($index + 1) + ' the default'"
+          >
+            Make default
+          </mui-button>
+        }
+        <mui-button
+          variant="ghost"
+          size="sm"
+          [loading]="testState(server).kind === 'testing'"
+          (pressed)="test($index)"
+          [ariaLabel]="'Test server ' + ($index + 1)"
+        >
+          <maple-settings-icon name="test" [size]="12" />
+          Test
+        </mui-button>
+        <mui-button
+          variant="ghost"
+          size="sm"
+          (pressed)="remove($index)"
+          [ariaLabel]="'Remove server ' + ($index + 1)"
+        >
+          <maple-settings-icon name="x" [size]="12" />
+        </mui-button>
+      </div>
+    </div>
+
+    @if (testState(server).kind === 'ok') {
+      <div class="test-result set-test-result ok">
+        <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
+        Ollama responded at {{ server.url }}.
+      </div>
+    } @else if (testState(server).kind === 'error') {
+      <div class="test-result set-test-result err">
+        {{ $any(testState(server)).message }}
+      </div>
+    }
+  }
+
+  <mui-button
+    variant="ghost"
+    size="sm"
+    [disabled]="servers().length >= maxServers"
+    (pressed)="add()"
+    ariaLabel="Add describe server"
+  >
+    <maple-settings-icon name="plus" [size]="12" />
+    Add server
+  </mui-button>
+
+  <div class="field-hint">
+    Each server is called with at most its own concurrency in flight; the stage's total concurrency
+    is the sum ({{ capacity() }}). A server that is unreachable or erroring is skipped and the image
+    goes to the next one, so a box can go down without dead-lettering work. The first server is the
+    default: its URL is also what semantic search uses. Leave a single blank row to fall back to
+    <span class="mono set-mono">http://localhost:11434</span>. Every server must serve
+    <span class="mono set-mono">{{ fixedDescribeModel }}</span
+    >.
+  </div>
+</div>

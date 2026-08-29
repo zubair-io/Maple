@@ -27,7 +27,7 @@ import { ObjectId } from 'mongodb';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import * as refileBackups from '../migration/refile-backups.ts';
 import { describeHandler, setDescribeDepsForTests } from './describe.ts';
-import { VALID_VISION, mockProvider, stageDocIn } from './describe.fixtures.ts';
+import { VALID_VISION, mockProvider, singleServerPool, stageDocIn } from './describe.fixtures.ts';
 
 let tmpRoot: string;
 let libraryId: ObjectId;
@@ -49,11 +49,13 @@ const SCREENSHOT_VISION = { ...VALID_VISION, is_screenshot: true };
 
 function withScreenshotVerdict() {
   setDescribeDepsForTests({
-    provider: mockProvider({
-      text: JSON.stringify(SCREENSHOT_VISION),
-      cost_usd: 0,
-      provider_info: {},
-    }),
+    pool: singleServerPool(
+      mockProvider({
+        text: JSON.stringify(SCREENSHOT_VISION),
+        cost_usd: 0,
+        provider_info: {},
+      }),
+    ),
     systemPrompt: 'structured vision prompt',
     model: 'qwen3-vl:8b',
   });

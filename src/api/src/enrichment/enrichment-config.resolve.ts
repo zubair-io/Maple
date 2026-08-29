@@ -17,6 +17,11 @@ import type { DescribeProviderName } from './describe-providers/index.ts';
 import { parseWhisperTier, type WhisperTier } from '../audio/whisper-model.ts';
 import { validMeilisearchSemanticRatio } from './meilisearch-config.ts';
 import {
+  DEFAULT_DESCRIBE_SERVER_CONCURRENCY,
+  normalizeDescribeServers,
+  type DescribeServerConfig,
+} from './describe-servers.ts';
+import {
   DEFAULT_DESCRIBE_DAILY_CAP_USD,
   DEFAULT_DESCRIBE_MODELS,
   DEFAULT_DESCRIBE_OLLAMA_URL,
@@ -55,6 +60,11 @@ export interface ResolvedEnrichmentConfig {
   /** Shared Ollama URL used by Describe and semantic search. The selected
    * Describe provider does not discard it. */
   describe_provider_url: string;
+  /** Describe servers in operator order, always non-empty. When the
+   * operator hasn't saved a list, this is the single server implied by
+   * `describe_provider_url` at the default per-server concurrency. Entry 0
+   * is the default server and always agrees with `describe_provider_url`. */
+  describe_servers: DescribeServerConfig[];
   /** Resolved model id. Always populated — falls back to the provider's
    * built-in default. */
   describe_model: string;
@@ -99,6 +109,7 @@ export interface ResolvedEnrichmentConfig {
     describe_worker_enabled: 'db' | 'env' | 'default';
     describe_provider: 'db' | 'env' | 'default';
     describe_provider_url: 'db' | 'env' | 'default' | 'unset';
+    describe_servers: 'db' | 'derived';
     describe_model: 'db' | 'env' | 'default';
     describe_system_prompt: 'db' | 'env' | 'default';
     describe_daily_cap_usd: 'db' | 'env' | 'default';
@@ -238,6 +249,23 @@ export function resolveEnrichmentConfig(
   } else if (envDescribeUrl) {
     describeUrl = envDescribeUrl;
     describeUrlSource = 'env';
+  }
+
+  // The saved server list is authoritative when present: its first entry
+  // IS the default server, so `describe_provider_url` is mirrored from it
+  // rather than resolved independently. That keeps the one endpoint every
+  // other service reads (semantic-search embedder, generated-search) in
+  // lockstep with what the operator marked default in Settings → Workers.
+  const savedServers = normalizeDescribeServers(db?.describe_servers);
+  const describeServers: DescribeServerConfig[] = savedServers ?? [
+    { url: describeUrl, concurrency: DEFAULT_DESCRIBE_SERVER_CONCURRENCY },
+  ];
+  const describeServersSource: ResolvedEnrichmentConfig['source']['describe_servers'] = savedServers
+    ? 'db'
+    : 'derived';
+  if (savedServers) {
+    describeUrl = savedServers[0]!.url;
+    describeUrlSource = 'db';
   }
 
   let describeModel = DEFAULT_DESCRIBE_MODELS[describeProvider];
@@ -393,6 +421,7 @@ export function resolveEnrichmentConfig(
     describe_worker_enabled: describeEnabled,
     describe_provider: describeProvider,
     describe_provider_url: describeUrl,
+    describe_servers: describeServers,
     describe_model: describeModel,
     describe_system_prompt: describePrompt,
     describe_daily_cap_usd: describeCap,
@@ -419,6 +448,7 @@ export function resolveEnrichmentConfig(
       describe_worker_enabled: describeEnabledSource,
       describe_provider: describeProviderSource,
       describe_provider_url: describeUrlSource,
+      describe_servers: describeServersSource,
       describe_model: describeModelSource,
       describe_system_prompt: describePromptSource,
       describe_daily_cap_usd: describeCapSource,
