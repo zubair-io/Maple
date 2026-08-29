@@ -10,7 +10,6 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
   selector: 'app-trash-toolbar',
   standalone: true,
   templateUrl: './trash-toolbar.component.html',
-  styleUrl: './trash-toolbar.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrashToolbarComponent {

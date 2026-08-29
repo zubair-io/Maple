@@ -39,8 +39,10 @@ export class FilterChipsComponent {
     // `--font-lato-bold` is never defined globally, so the effective stack
     // is always its fallback — written directly rather than through an
     // unresolvable `var()` inside a Tailwind arbitrary value.
+    // `chip` kept bare — asserted via `querySelectorAll('button.chip')` in
+    // filter-chips.component.spec.ts.
     const base =
-      "inline-flex h-7 cursor-pointer items-center justify-center rounded-full border-[0.5px] px-2.5 font-['Lato_Bold',system-ui,sans-serif] text-[11px] font-bold transition-[background-color,color,border-color] duration-[var(--motion-filter-fade-ms,120ms)] ease-linear focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+      "chip inline-flex h-7 cursor-pointer items-center justify-center rounded-full border-[0.5px] px-2.5 font-['Lato_Bold',system-ui,sans-serif] text-[11px] font-bold transition-[background-color,color,border-color] duration-[var(--motion-filter-fade-ms,120ms)] ease-linear focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
     return active
       ? `${base} active border-primary text-primary bg-[color-mix(in_srgb,var(--color-primary)_22%,transparent)]`
       : `${base} border-border bg-surface-alt text-text-muted`;
