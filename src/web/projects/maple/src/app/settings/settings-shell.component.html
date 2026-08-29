@@ -1,37 +1,65 @@
-<div class="settings-shell">
-  <aside class="sidebar">
-    <a routerLink="/" class="back-link">
+<div
+  class="settings-shell flex w-full h-full min-h-0 bg-[var(--s-bg)] text-[var(--s-text)] font-[var(--s-font)] max-[767px]:flex-col"
+>
+  <aside
+    class="sidebar w-[var(--s-sidebar-width)] shrink-0 border-r-[0.5px] border-r-[var(--s-border)] py-6 px-3.5 flex flex-col gap-0.5 box-border max-[1023px]:py-5 max-[1023px]:px-2.5 max-[767px]:w-full max-[767px]:flex-row max-[767px]:items-center max-[767px]:overflow-x-auto max-[767px]:overflow-y-hidden max-[767px]:shrink-0 max-[767px]:py-2.5 max-[767px]:px-3 max-[767px]:border-r-0 max-[767px]:border-b-[0.5px] max-[767px]:border-b-[var(--s-border)] max-[767px]:gap-1 max-[767px]:bg-[var(--s-bg)]"
+  >
+    <a
+      routerLink="/"
+      class="back-link flex items-center gap-1.5 pt-1.5 px-2 pb-4.5 text-[var(--s-text-muted)] text-xs no-underline cursor-pointer hover:text-[var(--s-text)] max-[767px]:py-1.5 max-[767px]:px-2 max-[767px]:pb-1.5 max-[767px]:shrink-0"
+    >
       <maple-settings-icon name="back" [size]="14" />
       <span>Back to Browse</span>
     </a>
 
-    <div class="section-label">Settings</div>
+    <div
+      class="section-label text-[10px] font-semibold text-[var(--s-text-dim)] tracking-[0.12em] uppercase pt-1.5 px-2.5 pb-1 max-[767px]:hidden"
+    >
+      Settings
+    </div>
 
     @for (it of items(); track it.id) {
-      <a [routerLink]="it.link" class="nav-item" [class.is-active]="section() === it.id">
+      <a
+        [routerLink]="it.link"
+        class="nav-item group flex items-center gap-2.5 py-2 px-2.5 rounded-md text-[var(--s-text)] no-underline cursor-pointer transition-[background] duration-[120ms] bg-transparent hover:bg-white/[0.03] [&.is-active]:bg-[var(--s-accent-bg)] [&.is-active]:text-[var(--s-accent)] max-[767px]:py-1.5 max-[767px]:px-2.5 max-[767px]:shrink-0"
+        [class.is-active]="section() === it.id"
+      >
         <maple-settings-icon [name]="it.icon" [size]="15" />
-        <div class="nav-text">
-          <div class="nav-label">{{ it.label }}</div>
+        <div class="nav-text flex-1 min-w-0">
+          <div
+            class="nav-label text-[13px] tracking-[0.1px] group-[.is-active]:font-medium max-[767px]:text-[12.5px]"
+          >
+            {{ it.label }}
+          </div>
           @if (it.sub) {
-            <div class="nav-sub">{{ it.sub }}</div>
+            <div class="nav-sub text-[10.5px] text-[var(--s-text-dim)] mt-0.5">{{ it.sub }}</div>
           }
         </div>
         @if (it.ownerOnly) {
-          <span class="owner-chip">OWNER</span>
+          <span
+            class="owner-chip font-[var(--s-mono)] text-[9px] tracking-[0.5px] py-0.5 px-[5px] rounded-[3px] bg-[var(--s-surface2)] text-[var(--s-text-dim)] group-[.is-active]:bg-[rgba(196,73,58,0.18)] group-[.is-active]:text-[var(--s-accent)] max-[767px]:hidden"
+            >OWNER</span
+          >
         }
       </a>
     }
 
-    <div class="sidebar-spacer"></div>
+    <div class="sidebar-spacer flex-1 max-[767px]:hidden"></div>
 
-    <div class="footer">
+    <div
+      class="footer py-2.5 px-2.5 pb-1 font-[var(--s-mono)] text-[10.5px] text-[var(--s-text-dim)] tracking-[0.3px] max-[767px]:hidden"
+    >
       @if (userEmail()) {
-        <div class="footer-email">{{ userEmail() }}</div>
+        <div class="footer-email mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap">
+          {{ userEmail() }}
+        </div>
       }
     </div>
   </aside>
 
-  <div class="page">
+  <div
+    class="page flex-1 min-w-0 min-h-0 overflow-y-auto max-[767px]:min-w-0 max-[767px]:pb-[var(--safe-area-inset-bottom,0px)]"
+  >
     <ng-content />
   </div>
 </div>
