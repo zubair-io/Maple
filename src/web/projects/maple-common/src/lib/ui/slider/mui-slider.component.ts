@@ -13,6 +13,7 @@ import { formatSignedValue, percentInRange } from '../internal/pointer-drag';
   imports: [MuiTextComponent],
   templateUrl: './mui-slider.component.html',
   styleUrl: './mui-slider.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSliderComponent {

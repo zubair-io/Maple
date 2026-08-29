@@ -35,7 +35,7 @@ export type MuiRatingFlagsVariant = 'cycle' | 'pills';
     MuiRatingFlagsSelectorComponent,
   ],
   templateUrl: './mui-rating-flags.component.html',
-  styleUrl: './mui-rating-flags.component.scss',
+  host: { class: 'inline-block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiRatingFlagsComponent {
@@ -44,6 +44,12 @@ export class MuiRatingFlagsComponent {
   readonly flag = model<MuiRatingFlagState>('none');
   readonly disabled = input<boolean>(false);
   readonly variant = input<MuiRatingFlagsVariant>('cycle');
+
+  readonly rootClasses = computed(() =>
+    this.disabled()
+      ? 'mui-rating-flags is-disabled flex items-center gap-2 opacity-45 pointer-events-none'
+      : 'mui-rating-flags flex items-center gap-2',
+  );
   /** Display-only presentation (Lightroom-style grid-cell overlay): plain
    * PICK/REJECT text pills (only when a flag is set) plus a static star
    * row (only when rated) — no buttons, no slider, nothing focusable.

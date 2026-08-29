@@ -16,7 +16,7 @@ export interface MuiPreviewItem {
   standalone: true,
   imports: [MuiListRowComponent, MuiTextComponent],
   templateUrl: './mui-preview-list.component.html',
-  styleUrl: './mui-preview-list.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPreviewListComponent {

@@ -1,10 +1,9 @@
 @if (variant() === 'pills') {
-  <div class="pills" role="group" aria-label="Flag">
+  <div class="pills flex items-center gap-[2px]" role="group" aria-label="Flag">
     <button
       type="button"
-      class="pill"
+      [class]="pillClasses('pick')"
       aria-label="Pick"
-      [class.is-active]="flag() === 'pick'"
       [attr.aria-pressed]="flag() === 'pick'"
       [disabled]="disabled()"
       (click)="setFlagState('pick')"
@@ -17,9 +16,8 @@
     </button>
     <button
       type="button"
-      class="pill"
+      [class]="pillClasses('none')"
       aria-label="Unflagged"
-      [class.is-active]="flag() === 'none'"
       [attr.aria-pressed]="flag() === 'none'"
       [disabled]="disabled()"
       (click)="setFlagState('none')"
@@ -28,9 +26,8 @@
     </button>
     <button
       type="button"
-      class="pill"
+      [class]="pillClasses('reject')"
       aria-label="Reject"
-      [class.is-active]="flag() === 'reject'"
       [attr.aria-pressed]="flag() === 'reject'"
       [disabled]="disabled()"
       (click)="setFlagState('reject')"
@@ -45,7 +42,7 @@
 } @else {
   <button
     type="button"
-    class="flag"
+    class="flag inline-flex cursor-pointer items-center justify-center border-none bg-transparent p-[2px] leading-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     [attr.aria-label]="'Flag: ' + flag()"
     [attr.aria-pressed]="flag() !== 'none'"
     (click)="cycleFlag()"

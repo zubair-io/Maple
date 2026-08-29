@@ -19,8 +19,8 @@
         message="Nothing has run in this batch."
       />
     } @else {
-      <span class="summary">{{ summary() }}</span>
-      <div class="result-list">
+      <span class="text-[12px] text-text-muted">{{ summary() }}</span>
+      <div class="flex flex-col gap-[2px]">
         @for (result of results(); track result.id) {
           <mui-list-row
             [icon]="statusIcon[result.status]"
