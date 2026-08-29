@@ -31,6 +31,7 @@ import { SettingsIconComponent } from '../settings-icon.component';
   imports: [MuiSettingsRowComponent, MuiCheckboxComponent, SettingsIconComponent],
   templateUrl: './gpu-live-render-settings.component.html',
   styleUrl: './gpu-live-render-settings.component.scss',
+  host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GpuLiveRenderSettingsComponent {

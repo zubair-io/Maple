@@ -1,6 +1,6 @@
 <maple-settings-shell section="map">
-  <div class="page">
-    <header class="page-header">
+  <div class="page set-record-page">
+    <header class="page-header set-record-page-header">
       <div class="titles">
         <h1>Map</h1>
         <p>
@@ -11,29 +11,33 @@
     </header>
 
     @if (loading()) {
-      <div class="banner-loading">Loading…</div>
+      <div class="banner-loading set-banner-loading">Loading…</div>
     } @else if (loadError()) {
-      <div class="banner-error">{{ loadError() }}</div>
+      <div class="banner-error set-banner-error-record">{{ loadError() }}</div>
     } @else {
-      <form class="settings-form" (submit)="$event.preventDefault()">
+      <form class="settings-form set-record-form" (submit)="$event.preventDefault()">
         <!-- The field already saves via mui-input's (committed) output on
              Enter — this handler only stops the browser's *native* form
              submit (full page reload) that Enter would otherwise also
              trigger, since mui-input doesn't call preventDefault itself. -->
         <!-- Tile source URL -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="map-tile-url">Tile source URL</label>
-            <span class="field-hint">
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="map-tile-url"
+              >Tile source URL</label
+            >
+            <span class="field-hint set-record-field-hint">
               A MapLibre raster tile template (with <code>{{ '{z}/{x}/{y}' }}</code> placeholders)
               or a MapLibre style JSON URL. Leave blank to reset to the built-in OpenStreetMap
               default.
             </span>
             @if (config()?.source?.tile_url) {
-              <span class="field-source">{{ sourceLabel(config()?.source?.tile_url) }}</span>
+              <span class="field-source set-field-source">{{
+                sourceLabel(config()?.source?.tile_url)
+              }}</span>
             }
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="map-tile-url"
               [(value)]="fTileUrl"
@@ -54,12 +58,12 @@
         </div>
 
         <!-- Save / status -->
-        <div class="form-actions">
+        <div class="form-actions set-record-form-actions">
           @if (saveState().kind === 'error') {
-            <span class="save-error">{{ $any(saveState()).message }}</span>
+            <span class="save-error set-record-save-error">{{ $any(saveState()).message }}</span>
           }
           @if (saveState().kind === 'saved') {
-            <span class="save-ok">Saved.</span>
+            <span class="save-ok set-record-save-ok">Saved.</span>
           }
           <mui-button
             variant="primary"
