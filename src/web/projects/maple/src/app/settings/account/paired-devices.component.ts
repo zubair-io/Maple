@@ -12,8 +12,7 @@ import { AuthService, MuiButtonComponent, type DeviceSession } from '@maple-comm
   standalone: true,
   imports: [DatePipe, MuiButtonComponent],
   templateUrl: './paired-devices.component.html',
-  styleUrl: './paired-devices.component.scss',
-  host: { class: 'set-vars' },
+  host: { class: 'set-vars block bg-transparent' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PairedDevicesComponent {
