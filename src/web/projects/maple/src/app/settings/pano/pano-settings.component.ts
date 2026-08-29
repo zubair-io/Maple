@@ -46,6 +46,7 @@ type SaveState =
   imports: [SettingsShellComponent, MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
   templateUrl: './pano-settings.component.html',
   styleUrl: './pano-settings.component.scss',
+  host: { class: 'set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PanoSettingsComponent implements OnInit {

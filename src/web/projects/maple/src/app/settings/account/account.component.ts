@@ -39,6 +39,7 @@ interface Credential {
   ],
   templateUrl: './account.component.html',
   styleUrl: './account.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AccountComponent implements OnInit {

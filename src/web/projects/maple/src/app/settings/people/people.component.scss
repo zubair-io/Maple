@@ -1,4 +1,7 @@
-@use '../settings-chrome' as chrome;
+// Palette/typography/page-host + the shared `.set-page-header`/
+// `.set-ghost-pill` atoms used in the template come from `set-vars`/
+// `set-page-host` host classes (settings-chrome-classes.scss, wired via
+// `host: { class: '...' }` in people.component.ts).
 
 // Shared internally by this file only (#3020 dedup) — the circular
 // avatar-with-cover-image chrome (detail header vs. the merge-suggestion
@@ -46,12 +49,7 @@
 }
 
 :host {
-  @include chrome.settings-vars;
-  @include chrome.settings-page-host;
   width: 100%;
-}
-:host {
-  @include chrome.settings-atoms;
 }
 
 // ── Toast ───────────────────────────────────────────────────────────
@@ -82,7 +80,6 @@
 // Plain navigation links (Hidden / Excluded / Worker settings) in the header
 // actions row, styled to match the ghost buttons next to them.
 .nav-link {
-  @include chrome.settings-ghost-pill-chrome;
   text-decoration: none;
 
   &:hover {
@@ -396,8 +393,6 @@
 // The "Merge this person into" picker — a native <select> styled to match
 // the ghost buttons next to it (it replaces one when the picker opens).
 .merge-select {
-  @include chrome.settings-ghost-pill-chrome;
-
   &:disabled {
     opacity: 0.5;
   }

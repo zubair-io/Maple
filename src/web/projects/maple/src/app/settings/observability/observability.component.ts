@@ -65,6 +65,7 @@ type ConnState =
   ],
   templateUrl: './observability.component.html',
   styleUrl: './observability.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ObservabilityComponent implements OnInit {

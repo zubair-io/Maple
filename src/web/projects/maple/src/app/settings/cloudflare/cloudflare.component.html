@@ -1,6 +1,6 @@
 <maple-settings-shell section="cloudflare">
-  <div class="page">
-    <header class="page-header">
+  <div class="page set-record-page">
+    <header class="page-header set-record-page-header">
       <div class="titles">
         <h1>Cloudflare</h1>
         <p>
@@ -11,28 +11,28 @@
     </header>
 
     @if (loading()) {
-      <div class="banner-loading">Loading…</div>
+      <div class="banner-loading set-banner-loading">Loading…</div>
     } @else if (loadError()) {
-      <div class="banner-error">{{ loadError() }}</div>
+      <div class="banner-error set-banner-error-record">{{ loadError() }}</div>
     } @else {
-      <form class="settings-form" (submit)="$event.preventDefault()">
+      <form class="settings-form set-record-form" (submit)="$event.preventDefault()">
         <!-- Enter-to-save: each mui-input binds (committed)="save()" (the
              pre-migration ngSubmit behavior), while this handler stops the
              browser's *native* form submit (full page reload) that Enter
              would otherwise also trigger, since mui-input doesn't call
              preventDefault itself. -->
         <!-- Enable toggle -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="cloudflare-enabled"
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="cloudflare-enabled"
               >Upload thumbnails to Cloudflare</label
             >
-            <span class="field-hint">
+            <span class="field-hint set-record-field-hint">
               When off, thumbnails are only ever served from this server; no data leaves your
               library.
             </span>
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-checkbox
               inputId="cloudflare-enabled"
               ariaLabel="Upload thumbnails to Cloudflare"
@@ -43,12 +43,16 @@
         </div>
 
         <!-- Account ID -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="cloudflare-account-id">Account ID</label>
-            <span class="field-hint">Your Cloudflare account ID (Dashboard → R2 → Overview).</span>
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="cloudflare-account-id"
+              >Account ID</label
+            >
+            <span class="field-hint set-record-field-hint"
+              >Your Cloudflare account ID (Dashboard → R2 → Overview).</span
+            >
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="cloudflare-account-id"
               [(value)]="fAccountId"
@@ -61,12 +65,16 @@
         </div>
 
         <!-- Bucket -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="cloudflare-bucket">Bucket name</label>
-            <span class="field-hint">The R2 bucket thumbnails are uploaded into.</span>
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="cloudflare-bucket"
+              >Bucket name</label
+            >
+            <span class="field-hint set-record-field-hint"
+              >The R2 bucket thumbnails are uploaded into.</span
+            >
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="cloudflare-bucket"
               [(value)]="fBucket"
@@ -79,14 +87,16 @@
         </div>
 
         <!-- Access key ID -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="cloudflare-access-key-id">Access key ID</label>
-            <span class="field-hint">
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="cloudflare-access-key-id"
+              >Access key ID</label
+            >
+            <span class="field-hint set-record-field-hint">
               An R2 API token's access key ID (Dashboard → R2 → Manage API tokens).
             </span>
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="cloudflare-access-key-id"
               [(value)]="fAccessKeyId"
@@ -99,15 +109,17 @@
         </div>
 
         <!-- Secret access key -->
-        <div class="field-row">
-          <div class="field-label-group">
-            <label class="field-label" for="cloudflare-secret-access-key">Secret access key</label>
-            <span class="field-hint">
+        <div class="field-row set-record-field-row">
+          <div class="field-label-group set-record-field-label-group">
+            <label class="field-label set-record-field-label" for="cloudflare-secret-access-key"
+              >Secret access key</label
+            >
+            <span class="field-hint set-record-field-hint">
               Write-only — never sent back to the browser. Leave blank to keep the currently saved
               key.
             </span>
           </div>
-          <div class="field-control">
+          <div class="field-control set-record-field-control">
             <mui-input
               inputId="cloudflare-secret-access-key"
               [masked]="true"
@@ -121,12 +133,12 @@
         </div>
 
         <!-- Test credentials -->
-        <div class="form-actions test-actions">
+        <div class="form-actions set-record-form-actions test-actions">
           @if (testState().kind === 'error') {
-            <span class="save-error">{{ $any(testState()).message }}</span>
+            <span class="save-error set-record-save-error">{{ $any(testState()).message }}</span>
           }
           @if (testState().kind === 'ok') {
-            <span class="save-ok">Connected.</span>
+            <span class="save-ok set-record-save-ok">Connected.</span>
           }
           <mui-button
             variant="secondary"
@@ -140,12 +152,12 @@
         </div>
 
         <!-- Save / status -->
-        <div class="form-actions">
+        <div class="form-actions set-record-form-actions">
           @if (saveState().kind === 'error') {
-            <span class="save-error">{{ $any(saveState()).message }}</span>
+            <span class="save-error set-record-save-error">{{ $any(saveState()).message }}</span>
           }
           @if (saveState().kind === 'saved') {
-            <span class="save-ok">Saved.</span>
+            <span class="save-ok set-record-save-ok">Saved.</span>
           }
           <mui-button
             variant="primary"

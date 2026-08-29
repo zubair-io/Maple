@@ -47,6 +47,7 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
   ],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
+  host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MirrorSettingsComponent implements OnInit, OnDestroy {

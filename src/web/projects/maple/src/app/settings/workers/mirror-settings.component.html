@@ -11,17 +11,19 @@
   [showDivider]="false"
   data-testid="mirror-row"
 >
-  <div class="wrow-summary" summary>
-    <span class="wrow-id">
+  <div class="wrow-summary set-wrow-summary" summary>
+    <span class="wrow-id set-wrow-id">
       <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
-      <span class="mono">backup</span>
+      <span class="set-mono">backup</span>
     </span>
     <span class="status-pill">
       <span class="status-dot" [style.background]="statusColor()"></span>
       <span class="status-label" data-testid="mirror-status">{{ statusLabel() }}</span>
     </span>
-    <span class="wrow-readout mono" data-testid="mirror-readout">{{ reconcileSummary() }}</span>
-    <span class="wrow-spacer"></span>
+    <span class="wrow-readout set-wrow-readout set-mono" data-testid="mirror-readout">{{
+      reconcileSummary()
+    }}</span>
+    <span class="wrow-spacer set-wrow-spacer"></span>
     @if (status(); as q) {
       @if (q.dead > 0) {
         <mui-button variant="destructive" size="sm" [loading]="retrying()" (pressed)="retryDead()">
@@ -49,7 +51,7 @@
         <span class="stage-dot"></span>
         <span class="stage-name">Scanning</span>
         @if (reconcile(); as r) {
-          <span class="stage-nums mono">
+          <span class="stage-nums set-mono">
             {{ r.scan.scanned }} scanned · {{ r.scan.upToDate }} up to date · {{ r.scan.toCopy }} to
             copy
             @if (r.scan.errors > 0) {
@@ -66,7 +68,7 @@
         <span class="stage-dot"></span>
         <span class="stage-name">Copying</span>
         @if (reconcile(); as r) {
-          <span class="stage-nums mono">
+          <span class="stage-nums set-mono">
             {{ r.copy.copied }} / {{ r.copy.total }} copied · {{ r.copy.remaining }} remaining
             @if (r.copy.errors > 0) {
               · <span class="is-error">{{ r.copy.errors }} failed</span>
@@ -79,7 +81,7 @@
     </div>
 
     @if (reconcile()?.currentPath; as cp) {
-      <div class="current-file mono" data-testid="mirror-current-file" [title]="cp">
+      <div class="current-file set-mono" data-testid="mirror-current-file" [title]="cp">
         <span class="current-label">Copying:</span> {{ cp }}
       </div>
     }
@@ -92,7 +94,7 @@
              so the string isn't a unique key — this is a flat positional log. -->
         <div class="copied-list">
           @for (p of reconcile()!.copiedLog; track $index) {
-            <div class="copied-line mono" [title]="p">
+            <div class="copied-line set-mono" [title]="p">
               <maple-settings-icon name="check" [size]="11" [color]="'#4ade80'" />
               <span class="copied-path">{{ p }}</span>
             </div>
@@ -106,7 +108,7 @@
       <div class="error-log" data-testid="mirror-error-log">
         <div class="error-log-head">Errors ({{ reconcile()!.errorLog.length }})</div>
         @for (e of reconcile()!.errorLog; track e.at + e.path) {
-          <div class="error-line mono">
+          <div class="error-line set-mono">
             <span class="error-path" [title]="e.path">{{ e.path }}</span>
             <span class="error-msg">{{ e.error }}</span>
           </div>
@@ -122,7 +124,7 @@
       <div class="error-log" data-testid="mirror-reads-benched">
         <div class="error-log-head">Not serving reads</div>
         @for (b of benchedReads(); track b.root) {
-          <div class="error-line mono">
+          <div class="error-line set-mono">
             <span class="error-path" [title]="b.root">{{ b.root }}</span>
             <span class="error-msg">
               I/O failure or timeout — retrying in {{ retrySeconds(b.retryInMs) }}s. Backups still
@@ -134,7 +136,7 @@
     }
 
     @if (error()) {
-      <p class="banner-error">{{ error() }}</p>
+      <p class="banner-error set-banner-error">{{ error() }}</p>
     }
 
     <!-- Per-library backup-location config. -->
@@ -145,12 +147,12 @@
     } @else {
       @for (lib of libraries(); track lib.id) {
         <div class="block">
-          <div class="subhead">{{ lib.label }}</div>
-          <div class="field field-wide">
+          <div class="set-subhead">{{ lib.label }}</div>
+          <div class="field field-wide set-field">
             <label class="field-label" [attr.for]="'mirror-backup-location-' + lib.id"
               >Backup location</label
             >
-            <div class="text-input mono">
+            <div class="text-input set-text-input set-mono">
               <mui-input
                 [inputId]="'mirror-backup-location-' + lib.id"
                 [value]="pathOf(lib.id)"
@@ -169,12 +171,12 @@
               </mui-button>
             </div>
             <div class="field-hint">
-              Library root: <span class="mono">{{ lib.path }}</span>
+              Library root: <span class="set-mono">{{ lib.path }}</span>
             </div>
             @if (testStateOf(lib.id) === 'ok') {
-              <div class="test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
+              <div class="test-result set-test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
             } @else if (testStateOf(lib.id) === 'fail') {
-              <div class="test-result err">{{ testMsgOf(lib.id) }}</div>
+              <div class="test-result set-test-result err">{{ testMsgOf(lib.id) }}</div>
             }
           </div>
 
@@ -184,7 +186,7 @@
             (checkedChange)="setEnabled(lib.id, $event)"
           />
 
-          <div class="row-footer">
+          <div class="row-footer set-row-footer-tail">
             <span class="footer-spacer"></span>
             @if (saveErrorOf(lib.id)) {
               <span class="save-error">{{ saveErrorOf(lib.id) }}</span>

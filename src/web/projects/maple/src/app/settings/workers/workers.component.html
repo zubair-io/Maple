@@ -1,5 +1,5 @@
 <maple-settings-shell section="workers">
-  <header class="page-header">
+  <header class="set-page-header">
     <div class="titles">
       <h1>Workers</h1>
       <p>
@@ -44,14 +44,14 @@
   </header>
 
   @if (error()) {
-    <div class="banner-error">
+    <div class="banner-error set-banner-error-workers">
       {{ error() }}
     </div>
   }
 
   <div class="workers-body">
     <!-- Column header -->
-    <div class="row-grid col-header">
+    <div class="row-grid col-header set-worker-row-grid">
       <span>Stage</span>
       <span>Status</span>
       <span class="r">Concur</span>
@@ -75,7 +75,7 @@
             [showDivider]="false"
             data-testid="worker-row"
           >
-            <div class="row-grid" summary>
+            <div class="row-grid set-worker-row-grid set-worker-row-cells" summary>
               <span class="stage-id">
                 <maple-settings-icon
                   [name]="meta(s).icon"
@@ -165,7 +165,7 @@
 
             @if (s.name === 'missing-reaper') {
               <div class="block">
-                <div class="subhead">Missing-file cleanup</div>
+                <div class="set-subhead">Missing-file cleanup</div>
                 <div class="field">
                   <div class="field-label">Prune window</div>
                   <div class="num-input">
@@ -186,7 +186,7 @@
                     suspends only deletion — never recovery.
                   </div>
                 </div>
-                <div class="row-footer">
+                <div class="row-footer set-row-footer-tail">
                   <span class="footer-spacer"></span>
                   @if (reaperPrune.error(); as msg) {
                     <span class="save-error">{{ msg }}</span>
@@ -209,7 +209,7 @@
 
             @if (s.name === 'migration') {
               <div class="block">
-                <div class="subhead">Migrations</div>
+                <div class="set-subhead">Migrations</div>
                 @if (migration.error(); as msg) {
                   <p class="save-error">{{ msg }}</p>
                 }
@@ -269,7 +269,7 @@
             @if (s.name === 'preview') {
               @if (decodeWorkers.config(); as perf) {
                 <div class="block">
-                  <div class="subhead">RAW decode workers</div>
+                  <div class="set-subhead">RAW decode workers</div>
                   <div class="field">
                     <div class="field-label">Parallel RAW decodes</div>
                     <div class="num-input">
@@ -295,7 +295,7 @@
                       (typically 4) is a good starting point for faster ingest.
                     </div>
                   </div>
-                  <div class="row-footer">
+                  <div class="row-footer set-row-footer-tail">
                     <span class="footer-spacer"></span>
                     @if (decodeWorkers.saveState() === 'error' && decodeWorkers.saveError()) {
                       <span class="save-error">{{ decodeWorkers.saveError() }}</span>
@@ -318,7 +318,7 @@
 
             @if (meta(s).enrichment) {
               <div class="block">
-                <div class="subhead">
+                <div class="set-subhead">
                   @switch (meta(s).enrichment) {
                     @case ('describe') {
                       Describe worker
@@ -390,12 +390,12 @@
                           if the model lives on a different machine.
                         </div>
                         @if (testState(s).kind === 'ok') {
-                          <div class="test-result ok">
+                          <div class="test-result set-test-result ok">
                             <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
                             Ollama responded.
                           </div>
                         } @else if (testState(s).kind === 'error') {
-                          <div class="test-result err">
+                          <div class="test-result set-test-result err">
                             {{ $any(testState(s)).message }}
                           </div>
                         }
@@ -446,12 +446,12 @@
                           health-checks the URL on save and rejects unreachable values.
                         </div>
                         @if (testState(s).kind === 'ok') {
-                          <div class="test-result ok">
+                          <div class="test-result set-test-result ok">
                             <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
                             Nominatim responded.
                           </div>
                         } @else if (testState(s).kind === 'error') {
-                          <div class="test-result err">
+                          <div class="test-result set-test-result err">
                             {{ $any(testState(s)).message }}
                           </div>
                         }
@@ -669,12 +669,12 @@
                           disables the sidecar — search then uses the Mongo text index).
                         </div>
                         @if (testState(s).kind === 'ok') {
-                          <div class="test-result ok">
+                          <div class="test-result set-test-result ok">
                             <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
                             Meilisearch responded.
                           </div>
                         } @else if (testState(s).kind === 'error') {
-                          <div class="test-result err">
+                          <div class="test-result set-test-result err">
                             {{ $any(testState(s)).message }}
                           </div>
                         }
@@ -813,7 +813,7 @@
             }
 
             <div class="block">
-              <div class="subhead">Stage runtime</div>
+              <div class="set-subhead">Stage runtime</div>
               <div class="grid-2col">
                 <div class="field">
                   <div class="field-label">Concurrency</div>
@@ -846,7 +846,7 @@
               </div>
             </div>
 
-            <div class="row-footer">
+            <div class="row-footer set-row-footer-tail">
               @if (s.dead > 0) {
                 <mui-button
                   variant="destructive"
@@ -935,7 +935,7 @@
         [showDivider]="false"
         data-testid="import-row"
       >
-        <div class="row-grid import-summary" summary>
+        <div class="row-grid import-summary set-worker-row-grid set-worker-row-cells" summary>
           <span class="stage-id">
             <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
             <span class="mono" [title]="j.source_root">{{ imports.basename(j.source_root) }}</span>

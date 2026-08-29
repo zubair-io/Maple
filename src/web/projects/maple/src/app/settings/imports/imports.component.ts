@@ -79,6 +79,7 @@ function isInsideLibrary(source: string, lib: string): boolean {
   ],
   templateUrl: './imports.component.html',
   styleUrl: './imports.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ImportsComponent implements OnInit, OnDestroy {

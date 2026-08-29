@@ -1,16 +1,7 @@
-@use '../settings-chrome' as chrome;
-
-:host {
-  @include chrome.settings-vars;
-  @include chrome.settings-page-host;
-}
-:host {
-  @include chrome.settings-atoms;
-}
-
-.net-body {
-  @include chrome.settings-body-wrap-chrome;
-}
+// Palette/typography/page-host + every shared `.set-*` atom/chrome class
+// used in the template come from `set-vars`/`set-page-host` host classes
+// (settings-chrome-classes.scss, wired via `host: { class: '...' }` in
+// network-settings.component.ts). Only page-specific residue stays here.
 
 .section-hint {
   margin: 0 0 14px;
@@ -25,13 +16,6 @@
   }
 }
 
-@include chrome.settings-form-grid-chrome(220px);
-@include chrome.settings-fhint-chrome;
-@include chrome.settings-check-row-chrome;
-@include chrome.settings-form-actions-row-chrome;
-@include chrome.settings-config-grid-chrome(200px);
-@include chrome.settings-test-status-chrome;
-
 .muted {
   color: var(--s-text-dim);
   font-style: italic;
@@ -45,6 +29,14 @@
     gap: 22px;
   }
   .config-grid {
-    @include chrome.settings-config-grid-mobile-chrome;
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+
+    dt {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 8px;
+    }
   }
 }

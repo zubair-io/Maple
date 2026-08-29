@@ -21,6 +21,11 @@
 // mixins (modal-form, menu-item, control-shell, media-transport — #3071
 // Task 2), wrapped in `@layer components`.
 @use '../../maple-common/src/lib/styles/chrome';
+// `set-*` classes shared by the redesigned Settings pages (#3071 Task 10),
+// replacing the internal `settings-chrome.scss` mixin file. App-local
+// (maple-syrup doesn't use Settings) rather than in maple-common, wrapped in
+// `@layer components`.
+@use './app/settings/settings-chrome-classes';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 // Wrap the universal margin/padding reset in `@layer base` so Tailwind v4

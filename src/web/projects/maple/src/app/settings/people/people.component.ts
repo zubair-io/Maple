@@ -98,6 +98,7 @@ import { PeopleFaceBulkController } from './people-face-bulk.controller';
   ],
   templateUrl: './people.component.html',
   styleUrl: './people.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PeopleComponent extends PeopleGridHost {

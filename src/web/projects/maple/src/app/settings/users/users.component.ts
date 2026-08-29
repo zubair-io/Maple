@@ -52,6 +52,7 @@ interface FreshInvite {
   ],
   templateUrl: './users.component.html',
   styleUrl: './users.component.scss',
+  host: { class: 'set-vars set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsersComponent implements OnInit {

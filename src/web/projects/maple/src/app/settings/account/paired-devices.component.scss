@@ -1,20 +1,15 @@
-@use '../settings-chrome' as chrome;
-
-// Reuse the exact settings design system (tokens + section/card atoms) so
-// this panel matches the rest of the Account page. Embedded inline after the
-// Passkeys section (not a standalone page), so it takes `settings-vars` (the
-// tokens) but not `settings-page-host` (the full-height sizing) — it sizes to
-// its content. The background is cleared so it doesn't paint a second layer
-// over the page's.
+// Reuse the exact settings design system (`.set-vars` tokens + the
+// `.set-subhead`/`.set-card-list`/`.set-card-list-empty`/`.set-mono` atoms
+// used in the template) so this panel matches the rest of the Account page.
+// Embedded inline after the Passkeys section (not a standalone page), so its
+// host takes `set-vars` (the tokens, wired in paired-devices.component.ts)
+// but not `set-page-host` (the full-height sizing) — it sizes to its
+// content. The background is cleared so it doesn't paint a second layer over
+// the page's.
 :host {
-  @include chrome.settings-vars;
-  @include chrome.settings-atoms;
-
   display: block;
   background: transparent;
 }
-
-@include chrome.settings-card-list-chrome;
 
 .error {
   color: var(--s-err);

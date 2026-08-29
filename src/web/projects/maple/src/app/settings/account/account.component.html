@@ -1,5 +1,5 @@
 <maple-settings-shell section="account">
-  <header class="page-header">
+  <header class="set-page-header">
     <div class="titles">
       <h1>Account</h1>
       <p>Your sign-in identity and the passkeys registered to it.</p>
@@ -9,10 +9,10 @@
   <div class="account-body">
     @if (user(); as u) {
       <section>
-        <div class="subhead">Identity</div>
+        <div class="set-subhead">Identity</div>
         <dl class="identity">
           <dt>Email</dt>
-          <dd class="mono">{{ u.email }}</dd>
+          <dd class="set-mono">{{ u.email }}</dd>
           <dt>Role</dt>
           <dd>
             <span class="role">{{ u.role[0].toUpperCase() + u.role.slice(1) }}</span>
@@ -26,7 +26,7 @@
 
     <section>
       <div class="section-row">
-        <div class="subhead">Passkeys</div>
+        <div class="set-subhead">Passkeys</div>
         <mui-button
           variant="ghost"
           size="sm"
@@ -39,15 +39,15 @@
         </mui-button>
       </div>
       @if (credentials().length === 0) {
-        <p class="empty">No passkeys registered.</p>
+        <p class="set-card-list-empty">No passkeys registered.</p>
       } @else {
-        <div class="card-list">
+        <div class="card-list set-card-list">
           @for (c of credentials(); track c.id) {
             <div class="card-row">
               <maple-settings-icon name="key" [size]="16" [color]="'#a8a29e'" />
               <div class="card-text">
                 <div class="card-name">{{ c.device_label }}</div>
-                <div class="card-meta mono">
+                <div class="card-meta set-mono">
                   added {{ c.created_at }}
                   @if (c.last_used_at) {
                     · last used {{ c.last_used_at }}
@@ -72,7 +72,7 @@
     <maple-paired-devices />
 
     <section>
-      <div class="subhead">Preferences</div>
+      <div class="set-subhead">Preferences</div>
       <div
         class="flex items-center justify-between gap-4 p-3 bg-surface border border-border rounded"
       >
@@ -96,7 +96,7 @@
     </section>
 
     <section>
-      <div class="subhead">Session</div>
+      <div class="set-subhead">Session</div>
       <div class="session-actions">
         <mui-button
           variant="destructive"

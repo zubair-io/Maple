@@ -6,17 +6,19 @@
   [showDivider]="false"
   data-testid="derivative-audit-row"
 >
-  <div class="wrow-summary" summary>
-    <span class="wrow-id">
+  <div class="wrow-summary set-wrow-summary" summary>
+    <span class="wrow-id set-wrow-id">
       <maple-settings-icon name="retry" [size]="14" [color]="'#a8a29e'" />
-      <span class="mono">derivative-audit</span>
+      <span class="set-mono">derivative-audit</span>
     </span>
-    <span class="status-pill">
+    <span class="status-pill set-wrow-status-pill">
       <span class="status-dot" [style.background]="statusColor()"></span>
       <span class="status-label" data-testid="audit-status">{{ statusLabel() }}</span>
     </span>
-    <span class="wrow-readout" data-testid="audit-summary">{{ summaryLine() }}</span>
-    <span class="wrow-spacer"></span>
+    <span class="wrow-readout set-wrow-readout" data-testid="audit-summary">{{
+      summaryLine()
+    }}</span>
+    <span class="wrow-spacer set-wrow-spacer"></span>
     <mui-button
       variant="ghost"
       size="sm"
@@ -32,7 +34,7 @@
     <p class="audit-desc">
       Verifies each asset's thumbnail, preview, and description on disk (and its thumbnail in
       Cloudflare R2), and re-runs the stage that owns any derivative that has drifted — most often
-      after a file was moved and its <span class="mono">.maple</span> cache did not follow.
+      after a file was moved and its <span class="set-mono">.maple</span> cache did not follow.
     </p>
 
     @if (error(); as msg) {
@@ -50,9 +52,9 @@
       />
 
       <div class="audit-grid">
-        <div class="field">
+        <div class="field set-field">
           <label class="field-label" for="audit-max-resets-input">Max re-arms per pass</label>
-          <div class="num-input">
+          <div class="num-input set-num-input">
             <mui-input
               inputId="audit-max-resets-input"
               variant="numeric"
@@ -67,9 +69,9 @@
           <div class="field-hint">Runaway guard — caps how many stages one pass re-queues.</div>
         </div>
 
-        <div class="field">
+        <div class="field set-field">
           <label class="field-label" for="audit-interval-hours-input">Scan interval</label>
-          <div class="num-input">
+          <div class="num-input set-num-input">
             <mui-input
               inputId="audit-interval-hours-input"
               variant="numeric"
@@ -86,9 +88,9 @@
           <div class="field-hint">Takes effect on the next scan cycle.</div>
         </div>
 
-        <div class="field">
+        <div class="field set-field">
           <label class="field-label" for="audit-concurrency-input">Concurrency</label>
-          <div class="num-input">
+          <div class="num-input set-num-input">
             <mui-input
               inputId="audit-concurrency-input"
               variant="numeric"
@@ -103,7 +105,7 @@
           <div class="field-hint">Assets evaluated in parallel (bounds parallel R2 HEADs).</div>
         </div>
 
-        <div class="field">
+        <div class="field set-field">
           <div class="field-label">Cloudflare check</div>
           <mui-checkbox
             label="Verify each thumbnail exists in R2"

@@ -19,6 +19,7 @@ type CopiedValue = 'endpoint' | 'key' | null;
   imports: [DatePipe, FormsModule, SettingsIconComponent, MuiButtonComponent, MuiInputComponent],
   templateUrl: './service-api-keys.component.html',
   styleUrl: './service-api-keys.component.scss',
+  host: { class: 'set-vars' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ServiceApiKeysComponent {

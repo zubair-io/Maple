@@ -59,6 +59,7 @@ type TestState =
   ],
   templateUrl: './cloudflare.component.html',
   styleUrl: './cloudflare.component.scss',
+  host: { class: 'set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CloudflareComponent implements OnInit {
