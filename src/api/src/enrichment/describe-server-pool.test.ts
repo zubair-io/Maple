@@ -77,6 +77,25 @@ describe('DescribeServerPool', () => {
     expect(started.length).toBe(4);
   });
 
+  it('fills the default server before spilling to the next one', async () => {
+    const pool = poolOf();
+    const gate = deferred();
+    const picked: string[] = [];
+    const calls = [0, 1, 2].map(() =>
+      pool.run(async (_provider, server) => {
+        picked.push(server.url);
+        await gate.promise;
+        return server.url;
+      }),
+    );
+    await Bun.sleep(5);
+    // Server a has concurrency 2 and is the operator's default, so it takes
+    // the first two calls before b sees anything.
+    expect(picked).toEqual(['http://a:11434', 'http://a:11434', 'http://b:11434']);
+    gate.release();
+    await Promise.all(calls);
+  });
+
   it('fails over to the next server on a retryable failure', async () => {
     const pool = poolOf();
     const tried: string[] = [];

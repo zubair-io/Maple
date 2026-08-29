@@ -182,7 +182,7 @@ describe('blankEnrichment', () => {
       describe_provider: 'ollama',
       describe_provider_url: 'http://ollama.local',
       describe_servers: [{ url: 'http://ollama.local', concurrency: 2 }],
-      describe_model: 'qwen3-vl:8b',
+      describe_model: 'gemma4:12b',
       describe_system_prompt: '',
       describe_daily_cap_usd: 0,
       transcribe_model_tier: 'small.en',
@@ -206,8 +206,8 @@ describe('blankEnrichment', () => {
     expect(form.nominatim_url).toBe('http://nom.local');
     expect(form.transcribe_model_tier).toBe('small.en');
     expect(form.nominatim_rate_limit_per_sec).toBe('4');
-    // describe_model is intentionally absent — the runtime hardcodes
-    // qwen3-VL via FIXED_DESCRIBE_MODEL.
+    // describe_model is intentionally absent — the runtime pins the model
+    // via FIXED_DESCRIBE_MODEL.
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
     expect(form.face_min_detection_size).toBe('0.08');
@@ -401,15 +401,18 @@ describe('describe servers', () => {
     expect(blankEnrichment(null).describe_servers).toEqual([{ url: '', concurrency: '2' }]);
   });
 
-  it('sums per-server concurrency, ignoring blank and invalid rows', () => {
-    expect(
-      describeCapacity([
-        { url: 'http://a:11434', concurrency: '4' },
-        { url: 'http://b:11434', concurrency: '3' },
-        { url: '', concurrency: '9' },
-        { url: 'http://c:11434', concurrency: 'abc' },
-      ]),
-    ).toBe(7);
+  it('sums per-server concurrency, skipping blank rows and counting invalid text as 1', () => {
+    const servers = [
+      { url: 'http://a:11434', concurrency: '4' },
+      { url: 'http://b:11434', concurrency: '3' },
+      { url: '', concurrency: '9' },
+      // Unparseable text saves as concurrency 1, so the label counts it as
+      // 1 — the number on screen has to match what gets persisted.
+      { url: 'http://c:11434', concurrency: 'abc' },
+    ];
+    expect(describeCapacity(servers)).toBe(8);
+    const patch = describeFormToPatch({ ...blankEnrichment(null), describe_servers: servers });
+    expect(patch.describe_servers?.reduce((sum, s) => sum + s.concurrency, 0)).toBe(8);
   });
 
   it('drops blank rows and mirrors the first server onto the single URL', () => {

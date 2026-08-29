@@ -19,8 +19,8 @@
  *      would just burn every endpoint on a doomed asset.
  *
  * Order is the operator's order: entry 0 (the default server, the one every
- * other service reads via `describe_provider_url`) is preferred, then the
- * rest by most free capacity. A pool is immutable; a config change builds a
+ * other service reads via `describe_provider_url`) takes work while it has
+ * a free slot, and the later servers absorb the overflow. A pool is immutable; a config change builds a
  * new one (see `describe.ts:resetDescribeDeps`).
  */
 
@@ -100,18 +100,17 @@ export class DescribeServerPool {
     throw lastError ?? new Error('describe: no server available');
   }
 
-  /** Wait for a free slot on a server not in `exclude`, preferring the
-   * default server and then whichever has the most headroom. */
+  /** Wait for a free slot on the first server, in operator order, that is
+   * not in `exclude` and is below its own concurrency. */
   private async acquire(exclude: ReadonlySet<string>): Promise<PoolSlot> {
     for (;;) {
-      const free = this.slots
-        .filter((slot) => !exclude.has(slot.server.url) && slot.inFlight < slot.server.concurrency)
-        .sort(
-          (a, b) =>
-            b.server.concurrency - b.inFlight - (a.server.concurrency - a.inFlight) ||
-            this.slots.indexOf(a) - this.slots.indexOf(b),
-        );
-      const pick = free[0];
+      // Operator order decides, so the default server (entry 0) takes work
+      // while it has a free slot and the later servers absorb the overflow.
+      // Sorting by headroom instead would silently prefer a big secondary
+      // box over the default one, which is not what the list means.
+      const pick = this.slots.find(
+        (slot) => !exclude.has(slot.server.url) && slot.inFlight < slot.server.concurrency,
+      );
       if (pick) {
         pick.inFlight += 1;
         return pick;
