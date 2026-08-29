@@ -42,7 +42,7 @@ import { MuiButtonComponent } from '../../ui/button/mui-button.component';
   standalone: true,
   imports: [MuiPresetsPanelComponent, MuiButtonComponent],
   templateUrl: './presets-panel.component.html',
-  styleUrl: './presets-panel.component.scss',
+  host: { class: 'block h-full min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PresetsPanelComponent implements OnInit {

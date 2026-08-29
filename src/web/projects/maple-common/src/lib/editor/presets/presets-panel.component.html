@@ -1,11 +1,14 @@
-<div class="panel" data-testid="presets-panel">
-  <h2 class="title">Presets</h2>
+<div
+  class="flex h-full min-h-0 flex-col gap-2.5 px-4 pt-1 pb-4 text-[color:var(--mpl-text-main,#e8e6e3)]"
+  data-testid="presets-panel"
+>
+  <h2 class="m-0 text-[17px] font-bold">Presets</h2>
 
   <!-- Save current edits as a new preset -->
-  <div class="save-row">
+  <div class="flex gap-2">
     <input
       type="text"
-      class="name-input"
+      class="min-w-0 flex-1 rounded-lg border border-border bg-[color:var(--color-input-bg,#1c1917)] px-2.5 py-2 text-[14px] text-[color:var(--mpl-text-main,#e8e6e3)] focus-visible:outline-[1.5px] focus-visible:outline-offset-0 focus-visible:outline-[color:var(--mpl-primary,#ea580c)]"
       placeholder="Preset name"
       [value]="draftName()"
       (input)="onDraftNameInput($event)"
@@ -16,7 +19,6 @@
     <mui-button
       variant="primary"
       size="sm"
-      class="save-button"
       [disabled]="!canSave()"
       testId="preset-save"
       (pressed)="save()"
@@ -24,7 +26,7 @@
       Save
     </mui-button>
   </div>
-  <p class="save-hint" data-testid="preset-save-hint">
+  <p class="m-0 text-[12px] text-text-muted" data-testid="preset-save-hint">
     @if (capturedCount() === 0) {
       No edited settings to save — adjust something first.
     } @else {
@@ -33,11 +35,21 @@
   </p>
 
   @if (presets.error(); as err) {
-    <p class="error" role="alert" data-testid="presets-error">{{ err }}</p>
+    <p
+      class="m-0 text-[12px] text-[color:var(--mpl-primary,#ea580c)]"
+      role="alert"
+      data-testid="presets-error"
+    >
+      {{ err }}
+    </p>
   }
 
-  <div class="lists">
-    <h3 class="section">Built-in</h3>
+  <div class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+    <h3
+      class="mx-0 mt-2 mb-0.5 text-[11px] font-semibold tracking-[0.08em] text-text-muted uppercase"
+    >
+      Built-in
+    </h3>
     <mui-presets-panel
       [presets]="builtinItems()"
       [showSaveTrigger]="false"
@@ -45,7 +57,11 @@
       (applied)="onApplied($event)"
     />
 
-    <h3 class="section">Saved</h3>
+    <h3
+      class="mx-0 mt-2 mb-0.5 text-[11px] font-semibold tracking-[0.08em] text-text-muted uppercase"
+    >
+      Saved
+    </h3>
     <mui-presets-panel
       [presets]="userItems()"
       [loading]="!presets.loaded()"
