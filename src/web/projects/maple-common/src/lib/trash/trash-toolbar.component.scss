@@ -1,5 +1,3 @@
-@use '../styles/dialog-chrome' as chrome;
-
 .tt-toolbar {
   display: flex;
   gap: 8px;
@@ -8,7 +6,6 @@
 }
 
 .tt-btn {
-  @include chrome.dialog-button;
   background: transparent;
   border-color: var(--color-border);
   color: var(--color-text-main);

@@ -1,7 +1,6 @@
 // batch-metadata-confirm-dialog.component.scss
-// Footer buttons come from the shared dialog-chrome mixins.
-
-@use '../styles/dialog-chrome' as chrome;
+// Footer buttons use the shared `dlg-button` / `dlg-button-ghost` /
+// `dlg-button-primary` classes from `styles/chrome.scss`.
 
 .bm-confirm-body {
   display: flex;
@@ -70,8 +69,4 @@
   justify-content: flex-end;
   gap: 8px;
   padding-top: 4px;
-}
-
-.bm-btn {
-  @include chrome.dialog-button;
 }

@@ -1,24 +1,12 @@
-@use '../styles/dialog-chrome' as chrome;
-
-.mtd-backdrop {
-  @include chrome.dialog-backdrop;
-}
-
 .mtd-card {
-  @include chrome.dialog-card-base;
   max-width: 420px;
   max-height: 70vh;
 }
 
 .mtd-header {
-  @include chrome.dialog-header;
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.mtd-title {
-  @include chrome.dialog-title;
 }
 
 .mtd-body {

@@ -1,7 +1,6 @@
 // batch-metadata-panel.component.scss
-// Close button and footer buttons come from the shared dialog-chrome mixins.
-
-@use '../styles/dialog-chrome' as chrome;
+// Close button uses `dlg-close-button`; footer buttons use `dlg-button` /
+// `dlg-button-ghost` / `dlg-button-primary` from `styles/chrome.scss`.
 
 .bm-backdrop {
   position: fixed;
@@ -48,10 +47,6 @@
   font-weight: 400;
   color: var(--color-text-muted);
   margin-left: 4px;
-}
-
-.bm-close {
-  @include chrome.dialog-close-button;
 }
 
 // ── Body ─────────────────────────────────────────────────────────────────────
@@ -214,10 +209,4 @@
   padding: 12px 16px;
   border-top: 0.5px solid var(--color-border);
   flex-shrink: 0;
-}
-
-// ── Buttons ───────────────────────────────────────────────────────────────────
-
-.bm-btn {
-  @include chrome.dialog-button;
 }

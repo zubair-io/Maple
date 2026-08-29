@@ -1,20 +1,5 @@
-@use '../styles/dialog-chrome' as chrome;
-
-.dmc-backdrop {
-  @include chrome.dialog-backdrop;
-}
-
 .dmc-card {
-  @include chrome.dialog-card-base;
   max-width: 380px;
-}
-
-.dmc-header {
-  @include chrome.dialog-header;
-}
-
-.dmc-title {
-  @include chrome.dialog-title;
 }
 
 .dmc-body {

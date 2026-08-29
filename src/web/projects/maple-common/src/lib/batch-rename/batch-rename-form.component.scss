@@ -1,4 +1,3 @@
-@use '../styles/dialog-chrome' as chrome;
 @use './batch-rename-chrome' as brn;
 
 @include brn.body;
@@ -24,8 +23,6 @@
 }
 
 .brn-input {
-  @include chrome.dialog-input;
-
   &:disabled {
     opacity: 0.6;
   }

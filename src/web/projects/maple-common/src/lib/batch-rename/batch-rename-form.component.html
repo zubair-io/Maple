@@ -3,7 +3,7 @@
     <span class="brn-label">Template</span>
     <input
       type="text"
-      class="brn-input"
+      class="dlg-input brn-input"
       [value]="template()"
       [attr.maxlength]="maxTemplateLength()"
       [disabled]="busy()"
@@ -32,7 +32,7 @@
       <span class="brn-label">Start at</span>
       <input
         type="number"
-        class="brn-input"
+        class="dlg-input brn-input"
         min="0"
         [value]="sequenceStart()"
         [disabled]="busy()"
@@ -44,7 +44,7 @@
       <span class="brn-label">Pad width</span>
       <input
         type="number"
-        class="brn-input"
+        class="dlg-input brn-input"
         min="0"
         [value]="sequencePadWidth()"
         [disabled]="busy()"
@@ -55,7 +55,7 @@
     <label class="brn-field brn-field-small">
       <span class="brn-label">On collision</span>
       <select
-        class="brn-input"
+        class="dlg-input brn-input"
         [disabled]="busy()"
         aria-label="Collision resolution"
         (change)="collisionChange.emit($any($event.target).value)"
@@ -94,12 +94,17 @@
 </div>
 
 <div class="brn-footer">
-  <button type="button" class="brn-btn brn-btn-ghost" [disabled]="busy()" (click)="cancel.emit()">
+  <button
+    type="button"
+    class="dlg-button dlg-button-ghost brn-btn brn-btn-ghost"
+    [disabled]="busy()"
+    (click)="cancel.emit()"
+  >
     Cancel
   </button>
   <button
     type="button"
-    class="brn-btn brn-btn-primary"
+    class="dlg-button dlg-button-primary brn-btn brn-btn-primary"
     [disabled]="!canApply()"
     (click)="apply.emit()"
   >
