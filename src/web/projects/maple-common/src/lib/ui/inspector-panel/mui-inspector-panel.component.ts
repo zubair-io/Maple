@@ -16,7 +16,7 @@ import type { MuiTab } from '../tabs/mui-tabs.component';
   standalone: true,
   imports: [MuiPageHeaderComponent, MuiTabsComponent],
   templateUrl: './mui-inspector-panel.component.html',
-  styleUrl: './mui-inspector-panel.component.scss',
+  host: { class: 'block h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiInspectorPanelComponent {

@@ -47,7 +47,7 @@ const BLEND_MODE_OPTIONS: readonly MuiSegmentedToggleOption[] = [
     MuiTextComponent,
   ],
   templateUrl: './mui-panorama-merge-modal.component.html',
-  styleUrl: './mui-panorama-merge-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPanoramaMergeModalComponent {

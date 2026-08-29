@@ -1,18 +1,22 @@
 @if (open()) {
-  <div class="mui-overlay-shell-scrim" [class.contained]="contained()" (click)="onScrimClick()">
+  <div
+    class="mui-overlay-shell-scrim flex items-center justify-center bg-black/50"
+    [class]="contained() ? 'contained absolute inset-0 z-[200]' : 'fixed inset-0 z-[200]'"
+    (click)="onScrimClick()"
+  >
     <div
       #panel
-      class="mui-overlay-shell"
-      [class]="'size-' + size()"
+      class="mui-overlay-shell flex max-h-[calc(100%-64px)] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-[0_12px_28px_rgba(0,0,0,0.35)] outline-none"
+      [class]="'size-' + size() + ' ' + sizeClasses()"
       role="dialog"
       aria-modal="true"
       [attr.aria-label]="ariaLabel()"
       tabindex="-1"
       (click)="$event.stopPropagation()"
     >
-      <div class="header"><ng-content select="[slot=header]" /></div>
-      <div class="body"><ng-content /></div>
-      <div class="footer"><ng-content select="[slot=footer]" /></div>
+      <div class="header flex-none empty:hidden"><ng-content select="[slot=header]" /></div>
+      <div class="body min-h-0 flex-1 overflow-auto p-6"><ng-content /></div>
+      <div class="footer flex-none empty:hidden"><ng-content select="[slot=footer]" /></div>
     </div>
   </div>
 }
