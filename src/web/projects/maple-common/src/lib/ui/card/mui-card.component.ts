@@ -12,7 +12,7 @@ import { handleActivationKeydown } from '../internal/activation-keydown';
   standalone: true,
   imports: [MuiBadgeComponent, MuiImageComponent, MuiTextComponent],
   templateUrl: './mui-card.component.html',
-  styleUrl: './mui-card.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiCardComponent {

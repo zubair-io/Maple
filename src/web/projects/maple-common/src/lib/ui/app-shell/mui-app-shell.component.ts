@@ -12,7 +12,7 @@
 // (which keeps an empty overlay from blocking clicks to Nav/Content below
 // it) doesn't swallow their input.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 export type MuiAppShellNavPlacement = 'top' | 'side';
 
@@ -20,11 +20,22 @@ export type MuiAppShellNavPlacement = 'top' | 'side';
   selector: 'mui-app-shell',
   standalone: true,
   templateUrl: './mui-app-shell.component.html',
-  styleUrl: './mui-app-shell.component.scss',
+  host: { class: 'block relative h-full min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiAppShellComponent {
   /** 'top' (default) renders Navigation as a full-width bar above Content;
    * 'side' renders it as a rail beside Content. */
   readonly navPlacement = input<MuiAppShellNavPlacement>('top');
+
+  /** `flex-row` for 'side' vs `flex-col` for 'top' — mutually exclusive
+   * `flex-direction`, folded into one computed string per the conversion
+   * recipe rather than a static class racing a conditional one. */
+  readonly directionClasses = computed(() =>
+    this.navPlacement() === 'side' ? 'flex-row' : 'flex-col',
+  );
+
+  /** `.side-nav > .nav { align-self: stretch }` only applied in side mode —
+   * mutually exclusive with the default (no align-self override). */
+  readonly navAlignClasses = computed(() => (this.navPlacement() === 'side' ? 'self-stretch' : ''));
 }

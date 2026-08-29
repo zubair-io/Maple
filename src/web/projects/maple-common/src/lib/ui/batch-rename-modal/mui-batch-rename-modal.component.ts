@@ -52,7 +52,7 @@ const SEQ_PAD_WIDTH = 3;
     MuiTextComponent,
   ],
   templateUrl: './mui-batch-rename-modal.component.html',
-  styleUrl: './mui-batch-rename-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBatchRenameModalComponent {
