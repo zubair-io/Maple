@@ -66,7 +66,6 @@ const PREVIEW_DEBOUNCE_MS = 250;
   standalone: true,
   imports: [BatchRenameFormComponent, BatchRenameResultsComponent],
   templateUrl: './batch-rename-dialog.component.html',
-  styleUrl: './batch-rename-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BatchRenameDialogComponent implements OnInit {

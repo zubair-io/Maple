@@ -61,7 +61,6 @@ function nonEmptyGroups(groups: readonly VisionChipGroup[]): VisionChipGroup[] {
   standalone: true,
   imports: [MuiCollapsibleComponent, MuiBadgeComponent, MuiTextComponent, MuiVisionRowComponent],
   templateUrl: './info-vision.component.html',
-  styleUrl: './info-vision.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'block',

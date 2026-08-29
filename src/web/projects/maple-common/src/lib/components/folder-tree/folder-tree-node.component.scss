@@ -1,8 +1,0 @@
-// The row's hover/selected/focus/drop-receiving look now lives entirely on
-// `mui-tree-row` itself (MW4, ticket #3031 — this row composes
-// `<mui-tree-row>` rather than rendering its own `.tree-row` markup). Only
-// the recursive host's own block-level display remains this component's
-// concern.
-:host {
-  display: block;
-}

@@ -22,7 +22,6 @@ import { MuiButtonComponent } from '../../ui/button/mui-button.component';
   standalone: true,
   imports: [FolderTreeCrudComponent, MuiButtonComponent],
   templateUrl: './folder-tree-footer.component.html',
-  styleUrl: './folder-tree-footer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTreeFooterComponent {
