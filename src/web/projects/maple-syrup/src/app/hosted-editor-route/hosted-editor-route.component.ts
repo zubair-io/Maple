@@ -24,7 +24,7 @@ import {
   standalone: true,
   imports: [EditorShellComponent, MuiToastComponent],
   templateUrl: './hosted-editor-route.component.html',
-  styleUrl: './hosted-editor-route.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HostedEditorRouteComponent {
