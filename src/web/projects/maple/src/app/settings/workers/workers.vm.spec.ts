@@ -181,6 +181,7 @@ describe('blankEnrichment', () => {
       describe_worker_enabled: true,
       describe_provider: 'ollama',
       describe_provider_url: 'http://ollama.local',
+      describe_servers: [{ url: 'http://ollama.local', concurrency: 2 }],
       describe_model: 'qwen3-vl:8b',
       describe_system_prompt: '',
       describe_daily_cap_usd: 0,
