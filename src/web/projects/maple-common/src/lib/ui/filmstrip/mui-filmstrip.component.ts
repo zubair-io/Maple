@@ -29,8 +29,8 @@ export type MuiFilmstripOrientation = 'horizontal' | 'vertical';
   standalone: true,
   imports: [MuiFilmstripRailComponent, MuiFilmstripRowComponent],
   templateUrl: './mui-filmstrip.component.html',
-  styleUrl: './mui-filmstrip.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiFilmstripComponent {
   readonly items = input.required<readonly MuiFilmstripItem[]>();

@@ -13,7 +13,8 @@
   }
   <div
     #barEl
-    class="bar"
+    class="bar relative h-5 touch-none cursor-ew-resize outline-offset-4"
+    [class]="outlineClass()"
     role="slider"
     tabindex="0"
     [attr.aria-label]="ariaLabel() ?? label() ?? 'Scrub'"
@@ -31,8 +32,16 @@
     (keydown)="onKeydown($event)"
   >
     @for (tick of ticks; track tick.pct) {
-      <div class="tick" [class.emphasized]="tick.emphasized" [style.left.%]="tick.pct"></div>
+      <div
+        class="tick absolute bottom-[3px] w-px -translate-x-1/2"
+        [class]="tick.emphasized ? 'h-[14px] bg-primary' : 'h-[6px] bg-border'"
+        [class.emphasized]="tick.emphasized"
+        [style.left.%]="tick.pct"
+      ></div>
     }
-    <div class="marker" [style.left.%]="markerPct()"></div>
+    <div
+      class="marker absolute top-0 h-full w-[2px] -translate-x-1/2 bg-text-main"
+      [style.left.%]="markerPct()"
+    ></div>
   </div>
 </div>

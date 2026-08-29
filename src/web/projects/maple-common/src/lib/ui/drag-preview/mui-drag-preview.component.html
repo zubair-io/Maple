@@ -1,9 +1,9 @@
-<div class="mui-drag-preview">
-  <div class="card">
+<div class="mui-drag-preview relative h-12 w-16 rotate-[-4deg] opacity-85">
+  <div class="card h-full w-full overflow-hidden rounded-lg shadow-[0_8px_16px_rgba(0,0,0,0.4)]">
     <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="md" />
   </div>
   @if (count() > 1) {
-    <div class="count-badge">
+    <div class="count-badge absolute -top-2 -right-2">
       <mui-badge variant="count" [value]="count()" [label]="count() + ' items'" size="sm" />
     </div>
   }

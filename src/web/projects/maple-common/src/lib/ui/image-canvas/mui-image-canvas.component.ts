@@ -64,8 +64,8 @@ function zoomToPoint(
   standalone: true,
   imports: [MuiCanvasSurfaceComponent, MuiPreviewImageComponent, MuiCropOverlayComponent],
   templateUrl: './mui-image-canvas.component.html',
-  styleUrl: './mui-image-canvas.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block h-full w-full overflow-hidden rounded-lg bg-image-canvas' },
 })
 export class MuiImageCanvasComponent implements OnDestroy {
   readonly src = input.required<string>();

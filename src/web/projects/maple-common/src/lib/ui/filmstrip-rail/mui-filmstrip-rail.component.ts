@@ -12,8 +12,8 @@ import type { MuiFilmstripItem } from '../filmstrip-row/mui-filmstrip-row.compon
   standalone: true,
   imports: [MuiIconComponent, MuiMediaCellComponent],
   templateUrl: './mui-filmstrip-rail.component.html',
-  styleUrl: './mui-filmstrip-rail.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiFilmstripRailComponent {
   readonly items = input.required<readonly MuiFilmstripItem[]>();

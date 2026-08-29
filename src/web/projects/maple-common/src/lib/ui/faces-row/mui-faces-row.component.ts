@@ -12,8 +12,8 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiChipRowComponent, MuiTextComponent],
   templateUrl: './mui-faces-row.component.html',
-  styleUrl: './mui-faces-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiFacesRowComponent {
   readonly people = input.required<readonly MuiChip[]>();

@@ -77,8 +77,8 @@ function buildTicks(): readonly MuiDragBarTick[] {
   standalone: true,
   imports: [MuiTextComponent],
   templateUrl: './mui-drag-bar.component.html',
-  styleUrl: './mui-drag-bar.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiDragBarComponent {
   readonly label = input<string | null>(null);
@@ -132,6 +132,17 @@ export class MuiDragBarComponent {
   readonly markerPct = computed(() => percentInRange(this.value(), this.min(), this.max(), 50));
 
   readonly valueLabel = computed(() => formatSignedValue(this.value(), this.step(), ''));
+
+  /** The bar's outline is one of three mutually-exclusive states sharing
+   * `outline`: fine-mode always wins over plain dragging (matching the
+   * original SCSS's declaration order — `.is-fine-mode` came after
+   * `.is-dragging`), and native keyboard focus (`:focus-visible`) is only
+   * eligible when neither JS-driven state is active. */
+  readonly outlineClass = computed(() => {
+    if (this.fineMode()) return 'outline outline-1 outline-primary';
+    if (this.dragging()) return 'outline outline-2 outline-primary';
+    return 'focus-visible:outline-2 focus-visible:outline-primary';
+  });
 
   private clamp(v: number): number {
     return Math.min(this.max(), Math.max(this.min(), v));

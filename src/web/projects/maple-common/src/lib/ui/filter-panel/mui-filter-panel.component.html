@@ -1,4 +1,4 @@
-<div class="mui-filter-panel">
+<div class="mui-filter-panel flex flex-col gap-2">
   @if (activeChips().length > 0) {
     <mui-chip-row [chips]="activeChips()" mode="removable" (removed)="chipRemoved.emit($event)" />
   }

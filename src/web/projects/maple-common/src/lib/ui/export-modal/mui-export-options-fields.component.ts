@@ -20,8 +20,8 @@ import type { MuiExportSizeOption } from './mui-export-modal.component';
   standalone: true,
   imports: [MuiFormFieldComponent, MuiSegmentedToggleComponent, MuiTextComponent],
   templateUrl: './mui-export-options-fields.component.html',
-  styleUrl: './mui-export-options-fields.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'flex flex-col gap-4' },
 })
 export class MuiExportOptionsFieldsComponent {
   readonly formatOptions = input.required<readonly MuiSegmentedToggleOption[]>();

@@ -12,8 +12,8 @@ import { MuiProgressComponent } from '../progress/mui-progress.component';
   standalone: true,
   imports: [MuiIconComponent, MuiPageHeaderComponent, MuiProgressComponent],
   templateUrl: './mui-embed-shell.component.html',
-  styleUrl: './mui-embed-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiEmbedShellComponent {
   readonly title = input.required<string>();

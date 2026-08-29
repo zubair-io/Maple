@@ -25,11 +25,11 @@ const ICON_SIZE_PX: Record<MuiIconSize, number> = {
   standalone: true,
   imports: [MapleIconComponent],
   templateUrl: './mui-icon.component.html',
-  styleUrl: './mui-icon.component.scss',
   // aria-hidden lives on this component's own host element (not on the
   // wrapped <maple-icon>) so a caller inspecting the <mui-icon> tag — or
   // assistive tech walking the DOM — sees it at the boundary of the atom.
   host: {
+    class: 'inline-flex leading-[0]',
     '[attr.aria-hidden]': "decorative() ? 'true' : null",
   },
   changeDetection: ChangeDetectionStrategy.OnPush,

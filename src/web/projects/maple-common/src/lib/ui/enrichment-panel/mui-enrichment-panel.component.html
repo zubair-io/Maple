@@ -1,6 +1,8 @@
 <ng-template #stageBadge let-badge="badge">
   @if (badge.kind === 'paused') {
-    <a [routerLink]="workersSettingsHref()" class="stage-badge stage-badge--paused"
+    <a
+      [routerLink]="workersSettingsHref()"
+      class="stage-badge stage-badge--paused rounded-sm bg-surface-alt py-[2px] px-[6px] text-[9px] tracking-[0.3px] text-text-muted uppercase no-underline hover:text-text-main"
       >{{ badge.label }} →</a
     >
   } @else if (badge.kind === 'badge') {
@@ -23,8 +25,8 @@
   }
 </ng-template>
 
-<div class="mui-enrichment-panel">
-  <div class="description-group">
+<div class="mui-enrichment-panel flex flex-col gap-4">
+  <div class="description-group flex flex-col items-start gap-1">
     <mui-description-field
       [(value)]="description"
       [regenerating]="descriptionStatus() === 'generating'"
@@ -41,7 +43,7 @@
     />
   </div>
 
-  <div class="faces-group">
+  <div class="faces-group flex flex-col items-start gap-1">
     <mui-faces-row
       [people]="people()"
       [(selectedId)]="selectedPersonId"
@@ -62,7 +64,7 @@
   </div>
 
   @if (showPlace()) {
-    <div class="place-group">
+    <div class="place-group flex flex-col items-start gap-1">
       <mui-place-row
         [(place)]="place"
         [overridden]="placeOverridden()"

@@ -12,8 +12,8 @@ export type MuiFormFieldVariant = 'default' | 'search' | 'numeric';
   standalone: true,
   imports: [MuiInputComponent, MuiTextComponent],
   templateUrl: './mui-form-field.component.html',
-  styleUrl: './mui-form-field.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiFormFieldComponent {
   readonly label = input.required<string>();

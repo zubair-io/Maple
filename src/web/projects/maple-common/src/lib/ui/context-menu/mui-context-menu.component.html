@@ -1,13 +1,19 @@
 <mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
-  <div class="mui-context-menu" role="menu" (keydown)="onKeydown($event)">
+  <div
+    class="mui-context-menu flex min-w-[160px] flex-col gap-[2px] p-1"
+    role="menu"
+    (keydown)="onKeydown($event)"
+  >
     @for (entry of entries(); track $index) {
       @if (asItem(entry); as item) {
         <button
           type="button"
           role="menuitem"
-          class="item mui-chrome-menu-item-base"
+          class="item mui-chrome-menu-item-base hover:enabled:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45"
           [class.active]="activeIndex() === $index"
+          [class.bg-bg-hover]="activeIndex() === $index"
           [class.destructive]="item.destructive"
+          [class.text-error-text]="item.destructive"
           [disabled]="item.disabled"
           (click)="selectItem(item)"
           (mouseenter)="activeIndex.set($index)"

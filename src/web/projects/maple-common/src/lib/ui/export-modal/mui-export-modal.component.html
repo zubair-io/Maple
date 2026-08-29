@@ -24,7 +24,7 @@
   ariaLabel="Export image"
   (dismissed)="onOverlayDismissed()"
 >
-  <div slot="header" class="mui-export-modal-header">
+  <div slot="header" class="mui-export-modal-header border-b border-border py-4 px-6">
     <mui-text variant="sheet-title" [block]="true">Export image</mui-text>
     @if (phase() !== 'exporting') {
       <mui-button
@@ -45,7 +45,7 @@
        node at its root"). -->
   @switch (phase()) {
     @case ('exporting') {
-      <div class="mui-export-modal-body mui-export-modal-center">
+      <div class="mui-export-modal-body mui-export-modal-center flex flex-col gap-4">
         <mui-text variant="body" color="muted" [block]="true">{{ exportingMessage() }}</mui-text>
         @if (exportingDetail(); as detail) {
           <mui-text variant="body" color="muted" [block]="true">{{ detail }}</mui-text>
@@ -54,7 +54,7 @@
       </div>
     }
     @case ('done') {
-      <div class="mui-export-modal-body mui-export-modal-center">
+      <div class="mui-export-modal-body mui-export-modal-center flex flex-col gap-4">
         <mui-banner variant="success" [message]="doneMessage() ?? 'Export complete'" />
         @if (doneDetail(); as detail) {
           <mui-text variant="body" color="muted" [block]="true">{{ detail }}</mui-text>
@@ -62,7 +62,7 @@
       </div>
     }
     @case ('error') {
-      <div class="mui-export-modal-body mui-export-modal-center">
+      <div class="mui-export-modal-body mui-export-modal-center flex flex-col gap-4">
         <mui-banner variant="error" message="Export failed" />
         @if (errorDetail(); as detail) {
           <mui-text variant="body" color="muted" [block]="true">{{ detail }}</mui-text>
@@ -70,7 +70,7 @@
       </div>
     }
     @default {
-      <div class="mui-export-modal-body">
+      <div class="mui-export-modal-body flex flex-col gap-4">
         <mui-export-options-fields
           [formatOptions]="formatOptions()"
           [colorSpaceOptions]="colorSpaceOptions()"
@@ -107,18 +107,27 @@
            no Cancel, no Close, the gesture cannot be interrupted. -->
     }
     @case ('done') {
-      <div slot="footer" class="mui-export-modal-footer">
+      <div
+        slot="footer"
+        class="mui-export-modal-footer flex justify-end gap-1 border-t border-border py-4 px-6"
+      >
         <mui-button variant="primary" (pressed)="dismissed.emit()">Done</mui-button>
       </div>
     }
     @case ('error') {
-      <div slot="footer" class="mui-export-modal-footer">
+      <div
+        slot="footer"
+        class="mui-export-modal-footer flex justify-end gap-1 border-t border-border py-4 px-6"
+      >
         <mui-button variant="ghost" (pressed)="dismissed.emit()">Close</mui-button>
         <mui-button variant="primary" (pressed)="retryRequested.emit()">Try again</mui-button>
       </div>
     }
     @default {
-      <div slot="footer" class="mui-export-modal-footer">
+      <div
+        slot="footer"
+        class="mui-export-modal-footer flex justify-end gap-1 border-t border-border py-4 px-6"
+      >
         <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
         <mui-button
           variant="primary"

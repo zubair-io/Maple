@@ -1,5 +1,5 @@
-<div class="mui-frame-time-hud" [class]="'status-' + status()">
-  <mui-text variant="value-chip" [block]="true" class="readout">
+<div class="mui-frame-time-hud rounded-md bg-bg py-1 px-2" [class]="'status-' + status()">
+  <mui-text variant="value-chip" [block]="true" class="readout" [class]="readoutColorClass()">
     {{ frameMs().toFixed(1) }}ms avg &middot; {{ displayFps() }}fps
   </mui-text>
 </div>

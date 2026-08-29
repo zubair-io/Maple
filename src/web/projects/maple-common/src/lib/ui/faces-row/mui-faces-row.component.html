@@ -1,12 +1,16 @@
-<div class="mui-faces-row">
+<div class="mui-faces-row flex flex-wrap items-center gap-2">
   <mui-text variant="tool-label" color="muted">{{ countLabel() }}</mui-text>
   @if (people().length > 0 || untaggedCount() > 0) {
-    <div class="chips">
+    <div class="chips flex flex-wrap items-center gap-1">
       @if (people().length > 0) {
         <mui-chip-row [chips]="people()" mode="select" [(selectedId)]="selectedId" />
       }
       @if (untaggedCount() > 0) {
-        <button type="button" class="untagged" (click)="untaggedClicked.emit()">
+        <button
+          type="button"
+          class="untagged inline-flex cursor-pointer items-center rounded-md border-[0.5px] border-dashed border-border bg-transparent py-[2px] px-[6px] text-[10px] text-text-muted hover:border-primary hover:text-primary"
+          (click)="untaggedClicked.emit()"
+        >
           + {{ untaggedCount() }} unnamed
         </button>
       }

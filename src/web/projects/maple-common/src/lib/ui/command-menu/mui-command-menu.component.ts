@@ -31,8 +31,8 @@ export interface MuiCommandItem {
   standalone: true,
   imports: [MuiPopoverComponent, MuiInputComponent, MuiIconComponent, MuiTextComponent],
   templateUrl: './mui-command-menu.component.html',
-  styleUrl: './mui-command-menu.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'contents' },
 })
 export class MuiCommandMenuComponent {
   readonly open = input<boolean>(false);

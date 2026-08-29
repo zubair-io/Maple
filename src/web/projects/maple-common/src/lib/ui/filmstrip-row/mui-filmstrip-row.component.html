@@ -1,7 +1,7 @@
-<div class="mui-filmstrip-row" role="list">
+<div class="mui-filmstrip-row flex items-center gap-1 overflow-x-auto p-1" role="list">
   @for (item of items(); track item.id) {
     <mui-media-cell
-      class="cell"
+      class="cell flex-none"
       role="listitem"
       size="sm"
       [src]="item.src"

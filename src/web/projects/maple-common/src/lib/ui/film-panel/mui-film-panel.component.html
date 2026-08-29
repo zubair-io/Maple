@@ -1,14 +1,14 @@
-<div class="mui-film-panel">
+<div class="mui-film-panel flex flex-col gap-2">
   @if (categories().length > 0) {
     <mui-chip-row [chips]="categories()" mode="select" [(selectedId)]="activeCategoryId" />
   }
   @if (looks().length === 0) {
     <mui-empty-state icon="photos" title="No looks available" />
   } @else {
-    <div class="grid">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
       @for (look of visibleLooks(); track look.id) {
         <div
-          class="look-cell"
+          class="look-cell rounded-lg"
           [class.is-selected]="selectedLookId() === look.id"
           (dblclick)="applyLook(look.id)"
         >
@@ -16,6 +16,11 @@
             [src]="look.src"
             [alt]="look.name"
             [title]="look.name"
+            [class]="
+              selectedLookId() === look.id
+                ? 'rounded-lg outline outline-2 outline-offset-2 outline-primary'
+                : ''
+            "
             (pressed)="selectLook(look.id)"
           />
         </div>

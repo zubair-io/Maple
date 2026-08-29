@@ -1,12 +1,14 @@
 @if (open()) {
   <div
-    class="mui-drawer-shell-scrim"
+    class="mui-drawer-shell-scrim inset-0 z-[200] pointer-events-auto bg-[rgba(0,0,0,0.45)]"
+    [class]="scrimClass()"
     [class.contained]="contained()"
     (click)="onScrimClick()"
   ></div>
   <div
     #panelEl
-    class="mui-drawer-shell"
+    class="mui-drawer-shell top-0 bottom-0 z-[201] touch-pan-y overflow-auto bg-sidebar text-text-main outline-none"
+    [class]="panelClass()"
     [class.right]="edge() === 'right'"
     [class.contained]="contained()"
     [class.dragging]="dragDx() !== null"

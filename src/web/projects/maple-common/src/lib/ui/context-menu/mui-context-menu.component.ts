@@ -31,8 +31,8 @@ export type MuiContextMenuEntry = MuiContextMenuItem | MuiContextMenuDivider;
   standalone: true,
   imports: [MuiPopoverComponent, MuiIconComponent, MuiTextComponent, MuiDividerComponent],
   templateUrl: './mui-context-menu.component.html',
-  styleUrl: './mui-context-menu.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'contents' },
 })
 export class MuiContextMenuComponent {
   readonly open = input<boolean>(false);

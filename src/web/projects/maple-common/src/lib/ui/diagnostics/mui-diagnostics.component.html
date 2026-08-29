@@ -1,14 +1,16 @@
-<div class="mui-diagnostics">
-  <div class="header">
+<div class="mui-diagnostics flex flex-col gap-4">
+  <div class="header flex items-center justify-between">
     <mui-text variant="row-label">Validation checks</mui-text>
     <mui-button variant="primary" size="sm" [loading]="running()" (pressed)="runRequested.emit()">
       Run checks
     </mui-button>
   </div>
 
-  <div class="checks">
+  <div class="checks flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
     @for (check of checks(); track check.id) {
-      <div class="check-row">
+      <div
+        class="check-row flex items-center justify-between gap-2 py-2 px-4 [&+&]:border-t [&+&]:border-border"
+      >
         <mui-text variant="body">{{ check.label }}</mui-text>
         <mui-badge
           [variant]="statusBadgeVariant[check.status]"

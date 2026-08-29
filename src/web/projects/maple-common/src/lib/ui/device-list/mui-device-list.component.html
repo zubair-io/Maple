@@ -1,4 +1,4 @@
-<div class="mui-device-list">
+<div class="mui-device-list flex flex-col gap-4">
   @if (devices().length === 0) {
     <mui-empty-state
       icon="person-circle"
@@ -6,7 +6,7 @@
       message="Devices that sign in to this account will appear here."
     />
   } @else {
-    <div class="devices">
+    <div class="devices flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       @for (device of devices(); track device.id) {
         <mui-list-row
           [label]="device.name + ' · ' + device.platform"

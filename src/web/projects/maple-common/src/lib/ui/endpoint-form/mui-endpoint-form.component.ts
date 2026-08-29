@@ -16,8 +16,8 @@ export interface MuiEndpointRequest {
   standalone: true,
   imports: [MuiBadgeComponent, MuiButtonComponent, MuiFormFieldComponent],
   templateUrl: './mui-endpoint-form.component.html',
-  styleUrl: './mui-endpoint-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiEndpointFormComponent {
   readonly methods = input<readonly string[]>(['GET', 'POST', 'PUT', 'DELETE']);

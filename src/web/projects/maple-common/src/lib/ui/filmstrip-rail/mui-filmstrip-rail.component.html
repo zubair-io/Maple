@@ -1,7 +1,11 @@
-<div class="mui-filmstrip-rail" [class.is-collapsed]="collapsed()">
+<div
+  class="mui-filmstrip-rail flex flex-col gap-1"
+  [class]="collapsed() ? 'w-auto' : 'w-[96px]'"
+  [class.is-collapsed]="collapsed()"
+>
   <button
     type="button"
-    class="toggle"
+    class="toggle inline-flex items-center justify-center self-start border-none bg-transparent p-1 text-text-muted cursor-pointer hover:text-text-main"
     [attr.aria-label]="collapsed() ? 'Expand filmstrip' : 'Collapse filmstrip'"
     [attr.aria-expanded]="!collapsed()"
     (click)="toggleCollapsed()"
@@ -9,7 +13,7 @@
     <mui-icon [name]="collapsed() ? 'chevron-right' : 'chevron-down'" size="sm" />
   </button>
   @if (!collapsed()) {
-    <div class="cells" role="list">
+    <div class="cells flex flex-col gap-1 overflow-y-auto" role="list">
       @for (item of items(); track item.id) {
         <mui-media-cell
           class="cell"

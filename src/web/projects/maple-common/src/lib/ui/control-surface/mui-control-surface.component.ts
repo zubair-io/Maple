@@ -48,7 +48,6 @@ export interface MuiControlSurfaceSlider {
     MuiValueChipComponent,
   ],
   templateUrl: './mui-control-surface.component.html',
-  styleUrl: './mui-control-surface.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiControlSurfaceComponent {

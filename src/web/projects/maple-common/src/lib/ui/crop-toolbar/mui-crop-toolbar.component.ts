@@ -28,8 +28,8 @@ const DEFAULT_ANGLE = 0;
   standalone: true,
   imports: [MuiChipRowComponent, MuiDragBarComponent, MuiButtonComponent],
   templateUrl: './mui-crop-toolbar.component.html',
-  styleUrl: './mui-crop-toolbar.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiCropToolbarComponent {
   /** Aspect preset id — the chip ids ARE the aspect values (`'free'`,

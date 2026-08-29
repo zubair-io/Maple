@@ -43,8 +43,8 @@ export type MuiHslField = 'hue' | 'saturation' | 'luminance';
   standalone: true,
   imports: [MuiChipRowComponent, MuiLivingSliderComponent],
   templateUrl: './mui-hsl-panel.component.html',
-  styleUrl: './mui-hsl-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiHslPanelComponent {
   readonly bands = input<readonly MuiChip[]>(DEFAULT_BANDS);

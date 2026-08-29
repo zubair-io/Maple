@@ -25,8 +25,8 @@ export interface MuiPairedDevice {
   standalone: true,
   imports: [MuiButtonComponent, MuiDialogComponent, MuiEmptyStateComponent, MuiListRowComponent],
   templateUrl: './mui-device-list.component.html',
-  styleUrl: './mui-device-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiDeviceListComponent {
   readonly devices = input.required<readonly MuiPairedDevice[]>();
