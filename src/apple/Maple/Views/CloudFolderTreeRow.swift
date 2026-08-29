@@ -157,7 +157,14 @@ struct CloudFolderTreeRow: View {
         active: isSelected,
         pressed: { onPickPath(serverURL, libraryFolderID, absPath) }
       )
-      .background(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
+      // Overlay, not background: MuiTreeRow paints its own opaque active
+      // background, which would hide a background-layer drop highlight when
+      // the drop target is also the selected row.
+      .overlay(
+        RoundedRectangle(cornerRadius: 6)
+          .fill(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
+          .allowsHitTesting(false)
+      )
       // Drag-onto-source-tree (#2646). See `FolderTreeRow`'s identical
       // modifier (`LibrarySidebar.swift`) for the payload/modifier-key
       // contract — this is its Cloud-row twin.
