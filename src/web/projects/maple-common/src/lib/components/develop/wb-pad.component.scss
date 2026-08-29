@@ -1,90 +1,10 @@
-// WbPadComponent — styles (#1540).
-
-:host {
-  display: block;
-}
-
-.wb-widget {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px 10px;
-}
-
-// Readout + eyedropper row
-.readout-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.temp-label {
-  font-size: 13px;
-  font-family: var(--font-mono, monospace);
-  font-variant-numeric: tabular-nums;
-  color: var(--pro-text);
-  letter-spacing: -0.02em;
-  user-select: none;
-}
-
-.tint-label {
-  font-size: 11px;
-  font-family: var(--font-mono, monospace);
-  font-variant-numeric: tabular-nums;
-  color: var(--pro-text-muted);
-  user-select: none;
-}
-
-.readout-spacer {
-  flex: 1;
-}
-
-.eyedrop-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 0.5px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  color: var(--pro-text-muted);
-  flex-shrink: 0;
-  transition:
-    background 100ms ease-out,
-    border-color 100ms ease-out,
-    color 100ms ease-out;
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: var(--pro-border);
-    color: var(--pro-text);
-  }
-
-  &.eyedrop-btn--active {
-    background: var(--pro-accent-28);
-    border-color: var(--pro-accent);
-    color: var(--pro-accent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 2px;
-  }
-}
-
-// 2-D pad — sizing (`fill`/`aspectRatio` inputs), puck, crosshair, border,
-// and drag/keyboard interaction all now live in `mui-pad-2d` itself; only
-// the WB-specific projected gradient fill stays owned here (below).
+// wb-pad.component.scss — residue only (Tailwind port #3071 Task 9).
+// The two composited gradient fill layers are long multi-stop gradients —
+// kept as plain CSS rather than an unwieldy, error-prone Tailwind
+// arbitrary-value string.
 
 // Temperature gradient layer (X axis): blue left → amber right
 .pad-grad-temp {
-  position: absolute;
-  inset: 0;
   background: linear-gradient(
     to right,
     #3a6cbf 0%,
@@ -97,8 +17,6 @@
 
 // Tint gradient layer (Y axis, multiply blend): magenta top → green bottom
 .pad-grad-tint {
-  position: absolute;
-  inset: 0;
   background: linear-gradient(
     to bottom,
     rgba(168, 40, 120, 0.4) 0%,
@@ -106,13 +24,4 @@
     rgba(40, 130, 60, 0.35) 100%
   );
   mix-blend-mode: multiply;
-}
-
-// Axis labels
-.axis-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 9px;
-  color: var(--pro-text-dim);
-  user-select: none;
 }
