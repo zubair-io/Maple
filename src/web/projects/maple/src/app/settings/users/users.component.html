@@ -21,9 +21,14 @@
     </div>
   </header>
 
-  <div class="users-body">
+  <div
+    class="users-body px-9 py-6 flex flex-col gap-7 max-w-[960px] max-[767px]:p-4 max-[767px]:gap-[22px]"
+  >
     @if (showInviteForm()) {
-      <form class="invite-form" (submit)="createInvite(); $event.preventDefault()">
+      <form
+        class="invite-form flex gap-2 max-[767px]:flex-col"
+        (submit)="createInvite(); $event.preventDefault()"
+      >
         <mui-input
           [(value)]="email"
           placeholder="invitee@example.com"
@@ -31,6 +36,7 @@
           ariaLabel="Invitee email"
         />
         <mui-button
+          class="max-[767px]:w-full"
           variant="primary"
           size="sm"
           [disabled]="!email"
@@ -43,14 +49,27 @@
     }
 
     @if (freshInvite(); as fi) {
-      <section class="fresh-invite">
+      <section
+        class="fresh-invite border-[0.5px] border-[rgba(74,222,128,0.4)] bg-[rgba(74,222,128,0.05)] rounded-md p-4"
+      >
         <div class="set-subhead">New invite for {{ fi.email }}</div>
-        <div class="fresh-row">
-          <img class="qr" [src]="qrSrc(fi)" alt="Invite QR" width="120" height="120" />
-          <div class="fresh-meta">
+        <div
+          class="fresh-row flex gap-4 items-start max-[767px]:flex-col max-[767px]:items-center max-[767px]:text-center"
+        >
+          <img
+            class="qr bg-white p-1 rounded-[4px]"
+            [src]="qrSrc(fi)"
+            alt="Invite QR"
+            width="120"
+            height="120"
+          />
+          <div class="fresh-meta flex-1 flex flex-col gap-2 text-[12.5px]">
             <div>
-              <span class="meta-label">Code</span>
-              <code class="meta-code">{{ fi.code }}</code>
+              <span class="meta-label text-[var(--s-text-muted)] mr-2">Code</span>
+              <code
+                class="meta-code font-[var(--s-mono)] text-[var(--s-text)] tracking-[2px] text-sm"
+                >{{ fi.code }}</code
+              >
               <mui-button
                 variant="ghost"
                 size="sm"
@@ -63,10 +82,16 @@
               </mui-button>
             </div>
             <div>
-              <span class="meta-label">URL</span>
-              <a [href]="fi.url" class="meta-url set-mono">{{ fi.url }}</a>
+              <span class="meta-label text-[var(--s-text-muted)] mr-2">URL</span>
+              <a
+                [href]="fi.url"
+                class="meta-url set-mono text-[var(--s-accent)] no-underline hover:underline text-xs"
+                >{{ fi.url }}</a
+              >
             </div>
-            <div class="meta-expires">Expires {{ fi.expires_at }}</div>
+            <div class="meta-expires text-[var(--s-text-dim)] text-[11px] font-[var(--s-mono)]">
+              Expires {{ fi.expires_at }}
+            </div>
           </div>
         </div>
       </section>
@@ -74,27 +99,41 @@
 
     <section>
       <div class="set-subhead">Members</div>
-      <div class="card-list" data-testid="member-list">
+      <div
+        class="card-list border-[0.5px] border-[var(--s-border)] rounded-md bg-[var(--s-surface)]"
+        data-testid="member-list"
+      >
         @for (u of users(); track u.id) {
-          <div class="member-row">
-            <div class="who">
-              <div class="avatar" [style.background]="avatarColor(u.email)">
+          <div
+            class="member-row grid items-center py-3 px-4 gap-3 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0 grid-cols-[minmax(0,1fr)_100px_140px_140px_60px] max-[1023px]:grid-cols-[minmax(0,1fr)_80px_100px_100px_50px] max-[767px]:grid-cols-1 max-[767px]:auto-rows-auto max-[767px]:gap-1 max-[767px]:py-3 max-[767px]:px-3.5"
+          >
+            <div class="who flex items-center gap-2.5 min-w-0 max-[767px]:gap-2">
+              <div
+                class="avatar w-7 h-7 rounded-full flex items-center justify-center text-xs text-[var(--s-text)] font-medium"
+                [style.background]="avatarColor(u.email)"
+              >
                 {{ u.email[0].toUpperCase() }}
               </div>
-              <span class="set-mono email">{{ u.email }}</span>
+              <span class="set-mono email text-[12.5px] text-[var(--s-text)]">{{ u.email }}</span>
               @if (u.id === currentUser()?.id) {
-                <span class="you-chip">YOU</span>
+                <span
+                  class="you-chip font-[var(--s-mono)] text-[9px] py-px px-[5px] rounded-[3px] bg-[rgba(74,222,128,0.15)] text-[var(--s-ok)] tracking-[0.4px]"
+                  >YOU</span
+                >
               }
             </div>
             @if (u.id === currentUser()?.id) {
               <!-- Your own role isn't self-service — a misclick here would
                    drop your admin UI mid-session; another owner demotes you. -->
-              <span class="role-chip" [class.owner]="u.role === 'owner'">
+              <span
+                class="role-chip font-[var(--s-mono)] text-[10px] py-0.5 px-1.5 rounded-[3px] bg-[var(--s-surface2)] text-[var(--s-text-mid)] tracking-[0.4px] uppercase justify-self-start [&.owner]:bg-[var(--s-accent-bg)] [&.owner]:text-[var(--s-accent)]"
+                [class.owner]="u.role === 'owner'"
+              >
                 {{ u.role.toUpperCase() }}
               </span>
             } @else {
               <select
-                class="role-select"
+                class="role-select font-[var(--s-mono)] text-[10px] py-0.5 px-1.5 rounded-[3px] border-[0.5px] border-[var(--s-border)] bg-[var(--s-surface2)] text-[var(--s-text-mid)] tracking-[0.4px] uppercase justify-self-start cursor-pointer disabled:opacity-50 disabled:cursor-default [&.owner]:text-[var(--s-warn,#d99a3d)] [&.owner]:border-[var(--s-warn,#d99a3d)]"
                 [class.owner]="u.role === 'owner'"
                 [disabled]="togglingId() === u.id"
                 [value]="u.role"
@@ -105,9 +144,9 @@
                 <option value="member">MEMBER</option>
               </select>
             }
-            <span class="file-access-cell">
+            <span class="file-access-cell text-[11.5px]">
               @if (u.role === 'owner') {
-                <span class="dim">always</span>
+                <span class="dim text-[var(--s-text-muted)] text-[11.5px]">always</span>
               } @else {
                 <mui-checkbox
                   class="check"
@@ -118,32 +157,47 @@
                 />
               }
             </span>
-            <span class="dim set-mono">{{ lastSeenLabel(u) }}</span>
+            <span class="dim set-mono text-[var(--s-text-muted)] text-[11.5px]">{{
+              lastSeenLabel(u)
+            }}</span>
             <span></span>
           </div>
         } @empty {
-          <p class="empty">No users loaded.</p>
+          <p class="empty py-3.5 px-4 text-[12.5px] text-[var(--s-text-muted)] italic m-0">
+            No users loaded.
+          </p>
         }
       </div>
-      <p class="section-hint">
+      <p
+        class="section-hint mt-2.5 mb-0 text-[11.5px] text-[var(--s-text-muted)] leading-[1.5] max-w-[540px]"
+      >
         Revoking file access takes effect as the member's session refreshes — within about 15
         minutes.
       </p>
     </section>
 
     <section>
-      <div class="section-row">
+      <div class="section-row flex items-center justify-between mb-2.5">
         <div class="set-subhead">Invite codes</div>
       </div>
-      <div class="card-list">
+      <div
+        class="card-list border-[0.5px] border-[var(--s-border)] rounded-md bg-[var(--s-surface)]"
+      >
         @if (invites().length === 0) {
-          <p class="empty">No pending invites.</p>
+          <p class="empty py-3.5 px-4 text-[12.5px] text-[var(--s-text-muted)] italic m-0">
+            No pending invites.
+          </p>
         } @else {
           @for (inv of invites(); track inv.code) {
-            <div class="invite-row" [class.is-consumed]="inv.consumed_at !== null">
-              <span class="set-mono email">{{ inv.email }}</span>
-              <span class="invite-code">
-                <code class="set-mono">{{ inv.code }}</code>
+            <div
+              class="invite-row grid items-center py-3 px-4 gap-3 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0 grid-cols-[minmax(0,1fr)_200px_100px_200px_80px] max-[1023px]:grid-cols-[minmax(0,1fr)_160px_80px_140px_70px] max-[767px]:grid-cols-1 max-[767px]:auto-rows-auto max-[767px]:gap-1 max-[767px]:py-3 max-[767px]:px-3.5 [&.is-consumed]:opacity-50 max-[767px]:[&_.invite-code]:text-left max-[767px]:[&_.invite-code]:justify-self-start max-[767px]:[&_.dim]:text-left max-[767px]:[&_.dim]:justify-self-start max-[767px]:[&_.actions-cell]:text-left max-[767px]:[&_.actions-cell]:justify-self-start"
+              [class.is-consumed]="inv.consumed_at !== null"
+            >
+              <span class="set-mono email text-[12.5px] text-[var(--s-text)]">{{ inv.email }}</span>
+              <span class="invite-code inline-flex items-center gap-1.5">
+                <code class="set-mono text-xs text-[var(--s-text-mid)] tracking-[0.4px]">{{
+                  inv.code
+                }}</code>
                 <mui-button
                   variant="ghost"
                   size="sm"
@@ -155,15 +209,18 @@
                   <maple-settings-icon name="copy" [size]="12" />
                 </mui-button>
               </span>
-              <span class="role-chip">INVITE</span>
-              <span class="dim set-mono">
+              <span
+                class="role-chip font-[var(--s-mono)] text-[10px] py-0.5 px-1.5 rounded-[3px] bg-[var(--s-surface2)] text-[var(--s-text-mid)] tracking-[0.4px] uppercase justify-self-start"
+                >INVITE</span
+              >
+              <span class="dim set-mono text-[var(--s-text-muted)] text-[11.5px]">
                 @if (inv.consumed_at) {
                   consumed {{ inv.consumed_at }}
                 } @else {
                   expires {{ inv.expires_at }}
                 }
               </span>
-              <span class="actions-cell">
+              <span class="actions-cell text-right">
                 @if (!inv.consumed_at) {
                   <mui-button
                     variant="ghost"
@@ -183,7 +240,7 @@
     </section>
 
     @if (error(); as e) {
-      <p class="error">{{ e }}</p>
+      <p class="error text-[var(--s-err)] text-[12.5px] m-0">{{ e }}</p>
     }
   </div>
 </maple-settings-shell>
