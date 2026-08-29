@@ -1,69 +1,11 @@
-// library-grid.component.scss — S2 (#623). Responsive grid breakpoints
-// are CSS-only per spec §4 "leaf components must not branch on layout".
-
-:host {
-  display: block;
-  color: var(--color-text-main);
-}
-
-.library-page {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-
-.library-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  // Phone defaults — match the grid edge-bleed: 2px horizontal padding.
-  padding: 8px 2px 4px;
-
-  @media (min-width: 768px) {
-    padding: 12px 8px 6px;
-  }
-  @media (min-width: 1025px) {
-    padding: 16px 12px 8px;
-  }
-}
-
-.source-title {
-  font-family: var(--font-merriweather-bold, 'Merriweather Bold', serif);
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  margin: 0 8px;
-  color: var(--color-text-main);
-}
-
-.grid {
-  display: grid;
-  // Phone default — 3 columns, 2px gap, 2px horizontal padding.
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  padding: 0 2px;
-
-  @media (min-width: 768px) {
-    grid-template-columns: repeat(5, 1fr);
-    gap: 4px;
-    padding: 0 8px;
-  }
-  @media (min-width: 1025px) {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 4px;
-    padding: 0 12px;
-  }
-
-  // Cross-fade on filter change. The 120ms linear timing comes from
-  // the S0a motion token (`--motion-filter-fade-ms`). CSS `animation`
-  // only runs on element insert — the component toggles `.is-fading`
-  // off → forces a reflow → toggles it back on whenever `filter()`
-  // changes, which is how the keyframe restarts without remounting
-  // the grid. Soft visual affordance — a small opacity blip, not a
-  // layout move.
-  &.is-fading {
-    animation: library-grid-fade var(--motion-filter-fade-ms, 120ms) linear;
-  }
+// library-grid.component.scss — residue only (Tailwind port #3071 Task 9).
+// `.is-fading` is toggled directly via `classList.add`/`.remove` in the
+// component (library-grid.component.ts) to restart the cross-fade
+// `@keyframes` animation on every filter change — the literal class name
+// (not a generated Tailwind utility) is load-bearing for that JS, so both
+// stay plain CSS.
+.grid.is-fading {
+  animation: library-grid-fade var(--motion-filter-fade-ms, 120ms) linear;
 }
 
 @keyframes library-grid-fade {

@@ -2,21 +2,33 @@
 @let url = thumbUrl();
 <button
   type="button"
-  class="library-cell"
+  class="library-cell relative block aspect-square w-full cursor-pointer overflow-hidden rounded-[2px] border-0 bg-surface-alt bg-cover bg-center p-0 m-0 outline-none"
   [attr.aria-label]="'Open ' + a.filename"
   [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
   (click)="onClick()"
 >
   @if (url) {
-    <img class="thumb" [src]="url" [alt]="a.filename" loading="lazy" decoding="async" />
+    <img
+      class="absolute inset-0 block h-full w-full object-cover"
+      [src]="url"
+      [alt]="a.filename"
+      loading="lazy"
+      decoding="async"
+    />
   }
 
   @if (isPick()) {
-    <span class="pick-dot" aria-hidden="true"></span>
+    <span
+      class="pointer-events-none absolute top-1 left-1 h-1.5 w-1.5 rounded-full bg-success-text"
+      aria-hidden="true"
+    ></span>
   }
 
   @if (showStars()) {
-    <span class="stars" aria-hidden="true">
+    <span
+      class="pointer-events-none absolute bottom-1 left-1 inline-flex gap-px"
+      aria-hidden="true"
+    >
       @for (i of starIndices(); track i) {
         <maple-icon name="star-filled" [size]="6" color="var(--color-star)" />
       }

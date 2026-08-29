@@ -1,10 +1,9 @@
-<div class="chip-row" role="tablist" aria-label="Library filter">
+<div class="flex flex-wrap gap-2 px-3 py-1.5" role="tablist" aria-label="Library filter">
   @for (chip of chips(); track chip.value) {
     <button
       type="button"
-      class="chip"
+      [class]="chipClass(active() === chip.value)"
       role="tab"
-      [class.active]="active() === chip.value"
       [attr.aria-selected]="active() === chip.value"
       (click)="onChipClick(chip.value)"
     >
