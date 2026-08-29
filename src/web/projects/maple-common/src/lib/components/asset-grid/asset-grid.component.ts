@@ -53,6 +53,7 @@ interface GridRow {
   ],
   templateUrl: './asset-grid.component.html',
   styleUrl: './asset-grid.component.scss',
+  host: { class: 'flex flex-col min-h-0 flex-1' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AssetGridComponent implements AfterViewInit, OnDestroy {

@@ -21,7 +21,7 @@ import { createAssetThumbnailUrlSignal } from '../../state/asset-thumbnail-url-s
   standalone: true,
   imports: [],
   templateUrl: './asset-thumb.component.html',
-  styleUrl: './asset-thumb.component.scss',
+  host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AssetThumbComponent {

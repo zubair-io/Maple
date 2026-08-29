@@ -8,7 +8,7 @@
 @let url = thumbUrl();
 <button
   type="button"
-  class="thumb block text-left relative h-full w-full flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center outline-none variant-filmstrip"
+  class="thumb group variant-filmstrip relative block h-full w-full shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center text-left outline-none"
   [class.focused]="focused()"
   [class.dimmed]="a.hidden"
   [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
@@ -19,7 +19,7 @@
 >
   @if (url) {
     <img
-      class="absolute inset-0 block h-full w-full object-cover"
+      class="absolute inset-0 block h-full w-full object-cover group-[.dimmed]:opacity-45"
       [src]="url"
       alt=""
       aria-hidden="true"
@@ -33,7 +33,7 @@
        above the absolutely-positioned <img>; box-shadow/outline render
        on the .thumb itself which the img completely obscures. -->
   <div
-    class="thumb-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]"
+    class="thumb-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms] group-[.focused]:border-primary group-focus-visible:border-primary group-[&:not(.focused):hover]:border-white/20"
     aria-hidden="true"
   ></div>
 

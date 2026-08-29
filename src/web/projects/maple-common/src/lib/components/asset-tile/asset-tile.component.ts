@@ -36,6 +36,7 @@ import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.
   imports: [MapleIconComponent, InlineRenameFieldComponent, MuiMediaCellComponent],
   templateUrl: './asset-tile.component.html',
   styleUrl: './asset-tile.component.scss',
+  host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AssetTileComponent {
