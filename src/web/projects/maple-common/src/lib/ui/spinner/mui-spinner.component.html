@@ -1,9 +1,13 @@
 <div
-  class="mui-spinner"
-  [class]="'size-' + size() + ' placement-' + placement()"
+  class="mui-spinner inline-flex opacity-0 [animation:mui-spinner-appear_1ms_linear_forwards]"
+  [class]="'size-' + size() + ' placement-' + placement() + ' ' + placementClasses()"
   [style.animation-delay.ms]="delayMs()"
   role="status"
   [attr.aria-label]="label()"
 >
-  <span class="ring" aria-hidden="true"></span>
+  <span
+    class="ring rounded-full border-border border-t-primary [animation:mui-spinner-spin_700ms_linear_infinite]"
+    [class]="ringSizeClasses()"
+    aria-hidden="true"
+  ></span>
 </div>

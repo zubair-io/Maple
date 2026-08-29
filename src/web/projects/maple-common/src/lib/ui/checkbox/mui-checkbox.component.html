@@ -1,7 +1,11 @@
-<label class="mui-checkbox" [class.is-disabled]="disabled()">
+<label
+  class="mui-checkbox relative inline-flex items-center gap-1 cursor-pointer before:content-[''] before:absolute before:left-0 before:top-1/2 before:w-11 before:h-11 before:-translate-y-1/2"
+  [class.is-disabled]="disabled()"
+  [class]="disabled() ? 'cursor-not-allowed opacity-45' : ''"
+>
   <input
     type="checkbox"
-    class="box"
+    class="box peer absolute w-[18px] h-[18px] m-0 opacity-0 cursor-inherit"
     [attr.id]="inputId()"
     [checked]="isChecked()"
     [indeterminate]="isIndeterminate()"
@@ -10,18 +14,21 @@
     (change)="onChange($any($event.target).checked)"
   />
   <span
-    class="mark"
+    class="mark inline-flex items-center justify-center w-[18px] h-[18px] flex-none border border-border rounded-xs bg-transparent transition-[background-color,border-color] duration-150 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:border-primary peer-focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)]"
     [class.is-checked]="isChecked()"
     [class.is-indeterminate]="isIndeterminate()"
+    [class]="isChecked() || isIndeterminate() ? 'bg-primary border-primary' : ''"
     aria-hidden="true"
   >
     @if (isIndeterminate()) {
-      <span class="dash"></span>
+      <span class="dash w-[9px] h-[2px] bg-text-main"></span>
     } @else if (isChecked()) {
-      <span class="check"></span>
+      <span
+        class="check w-[9px] h-[6px] border-l-2 border-b-2 border-text-main [transform:rotate(-45deg)_translate(1px,-1px)]"
+      ></span>
     }
   </span>
   @if (label()) {
-    <span class="label">{{ label() }}</span>
+    <span class="label text-[13px] text-text-main">{{ label() }}</span>
   }
 </label>

@@ -1,9 +1,24 @@
 <span
   class="mui-text"
-  [class]="'variant-' + variant() + ' color-' + color()"
-  [class.truncate]="truncate()"
-  [class.line-clamp]="!truncate() && lineClamp() !== null"
+  [class]="
+    'variant-' +
+    variant() +
+    ' color-' +
+    color() +
+    ' ' +
+    variantClasses() +
+    ' ' +
+    colorClasses() +
+    ' ' +
+    displayClasses() +
+    ' ' +
+    truncateClasses() +
+    ' ' +
+    lineClampClasses()
+  "
+  [class.truncate]="isTruncating()"
+  [class.line-clamp]="isLineClamping()"
   [class.block]="block()"
-  [style.-webkit-line-clamp]="!truncate() && lineClamp() !== null ? lineClamp() : null"
+  [style.-webkit-line-clamp]="isLineClamping() ? lineClamp() : null"
   ><ng-content
 /></span>
