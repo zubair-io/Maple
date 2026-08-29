@@ -9,7 +9,7 @@
 // contract's Props section is silent on it, and the catalog explicitly
 // calls for sm/md.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MuiIconComponent } from '../icon/mui-icon.component';
 
 export type MuiBadgeVariant = 'count' | 'signal' | 'rating';
@@ -20,7 +20,7 @@ export type MuiBadgeSize = 'sm' | 'md';
   standalone: true,
   imports: [MuiIconComponent],
   templateUrl: './mui-badge.component.html',
-  styleUrl: './mui-badge.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiBadgeComponent {
@@ -31,4 +31,14 @@ export class MuiBadgeComponent {
    * (e.g. "3 unread" rather than just "3"), per the contract's
    * Accessibility section. */
   readonly label = input<string | null>(null);
+
+  readonly sizeClasses = computed(() => (this.size() === 'sm' ? 'text-[10px]' : 'text-[11px]'));
+
+  readonly variantClasses = computed(() =>
+    // "warn background at reduced opacity" per the contract — derived from
+    // the warn token via color-mix, not a second hardcoded tone.
+    this.variant() === 'signal'
+      ? 'bg-[color-mix(in_srgb,var(--color-warn)_30%,transparent)] text-warn'
+      : 'bg-primary-dim text-text-main',
+  );
 }

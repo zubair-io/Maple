@@ -1,168 +1,21 @@
-@use '../../generated/ui-tokens' as tok;
+// Residue only — everything else moved to template utility classes
+// (see mui-button.component.ts/.html) per the Tailwind conversion recipe
+// (styles/TAILWIND-CONVERSION.md). What's left needs raw CSS: a
+// content/geometry pseudo-element and a custom-timed @keyframes animation,
+// both explicitly allowed as residue by the conversion constraints.
 
-:host {
-  display: inline-flex;
-
-  &.is-full-width {
-    display: flex;
-    width: 100%;
-  }
-}
-
-.mui-button {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: tok.$maple-spacing-xs;
-  border-radius: tok.$maple-radius-md;
-  padding: tok.$maple-spacing-sm tok.$maple-spacing-md;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition:
-    background-color 200ms,
-    color 200ms,
-    border-color 200ms,
-    transform 200ms;
-
-  // Minimum 44×44 hit target (button.md Accessibility) even when the
-  // visible box is smaller — an invisible centered pad, not a bigger box.
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 50%;
-    width: 44px;
-    height: 44px;
-    transform: translate(-50%, -50%);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-    outline-offset: 2px;
-    border-color: var(--color-primary);
-  }
-
-  &:active:not(:disabled) {
-    transform: translateY(0);
-  }
-}
-
-.size-sm {
-  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
-  font-size: 12px;
-}
-
-.size-lg {
-  padding: tok.$maple-spacing-sm tok.$maple-spacing-lg;
-  font-size: 14px;
-}
-
-.icon-only {
-  padding: tok.$maple-spacing-sm;
-  aspect-ratio: 1;
-}
-
-// `flex: 1` only matters once the button itself has explicit free space to
-// distribute (i.e. `fullWidth`) — a shrink-to-fit button's row never has
-// leftover space, so this is a no-op there. `min-width: 0` overrides the
-// flex-item default of `auto`, which otherwise refuses to shrink below the
-// label's un-truncated content width — the combination lets a caller drop a
-// `truncate` span in as content and have it actually ellipsize inside a
-// `fullWidth` button (info-filename-row's rename trigger, toast sweep,
-// ticket #3043).
-.label {
-  min-width: 0;
-  flex: 1;
-}
-
-.is-full-width {
-  width: 100%;
-  justify-content: flex-start;
-}
-
-.variant-primary {
-  background: var(--color-primary);
-  color: var(--color-text-main);
-  border-color: var(--color-primary);
-
-  &:not(:disabled):hover {
-    filter: brightness(1.1);
-    transform: translateY(-2px);
-  }
-}
-
-.variant-secondary {
-  background: var(--color-surface);
-  color: var(--color-text-main);
-  border-color: var(--color-border);
-
-  &:not(:disabled):hover {
-    background: var(--color-surface-hover);
-    transform: translateY(-2px);
-  }
-}
-
-.variant-ghost {
-  background: transparent;
-  color: var(--color-text-muted);
-  border-color: transparent;
-
-  &:not(:disabled):hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text-main);
-  }
-}
-
-// No dedicated "destructive fill" token exists yet in ui_tokens.rs (per
-// button.md's own noted gap) — approximated with the error banner tones
-// until a follow-up foundation task adds one.
-.variant-destructive {
-  background: var(--color-error-bg);
-  color: var(--color-error-text);
-  border-color: var(--color-error-text);
-
-  &:not(:disabled):hover {
-    filter: brightness(1.1);
-    transform: translateY(-2px);
-  }
-}
-
-// Colored "on" state for a meaningful toggle/selection pill — wins over the
-// variant's own background regardless of which variant it's layered on.
-// See `active` input doc comment (MW4, ticket #3031).
-.mui-button.is-active {
-  background: var(--color-primary-dim);
-  color: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-// Subtler "pressed" overlay for an icon-only chrome toggle. See `toggled`
-// input doc comment (MW4, ticket #3031). `color` shifts from ghost's muted
-// default to the full-emphasis text token, matching the pre-migration
-// sidebar-toggle icon (muted when hidden, full-color when shown) — `color`
-// is inherited by the icon's own default `currentColor`.
-.mui-button.is-toggled {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--color-border);
-  color: var(--color-text-main);
+// Minimum 44×44 hit target (button.md Accessibility) even when the visible
+// box is smaller — an invisible centered pad, not a bigger box.
+.mui-button::before {
+  content: '';
+  position: absolute;
+  inset: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
 }
 
 .spinner {
-  width: 12px;
-  height: 12px;
-  border-radius: tok.$maple-radius-full;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
   animation: mui-button-spin 700ms linear infinite;
 }
 

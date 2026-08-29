@@ -1,18 +1,18 @@
 <div
-  class="mui-input"
+  class="mui-input flex flex-col gap-1"
   [class]="'variant-' + variant() + ' size-' + size()"
   [class.is-focused]="focused()"
   [class.is-filled]="isFilled()"
   [class.is-error]="!!error()"
   [class.is-disabled]="disabled()"
 >
-  <div class="field">
+  <div [class]="fieldClasses()">
     @if (variant() === 'search') {
-      <mui-icon name="search" size="sm" class="prefix" />
+      <mui-icon name="search" size="sm" class="prefix text-text-muted flex-none" />
     }
     <input
       [type]="controlType()"
-      class="control"
+      [class]="controlClasses()"
       [attr.id]="inputId()"
       [value]="value()"
       [placeholder]="placeholder()"
@@ -28,15 +28,20 @@
       (keydown)="onKeydown($event)"
     />
     @if (showClear()) {
-      <button type="button" class="clear" aria-label="Clear" (click)="clear()">
+      <button
+        type="button"
+        class="clear inline-flex items-center justify-center flex-none p-0 border-0 bg-transparent text-text-muted cursor-pointer hover:text-text-main"
+        aria-label="Clear"
+        (click)="clear()"
+      >
         <mui-icon name="x" size="xs" />
       </button>
     }
     @if (variant() === 'numeric') {
-      <div class="steppers">
+      <div class="steppers flex flex-col flex-none -my-2 -mr-4 ml-0 border-l border-border">
         <button
           type="button"
-          class="stepper"
+          class="stepper flex-1 min-w-[24px] border-0 bg-transparent text-text-muted cursor-pointer leading-none text-[11px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-border enabled:hover:bg-surface-hover enabled:hover:text-text-main disabled:cursor-not-allowed disabled:opacity-45"
           aria-label="Decrease"
           [disabled]="disabled() || readOnly()"
           (click)="stepBy(-1)"
@@ -45,7 +50,7 @@
         </button>
         <button
           type="button"
-          class="stepper"
+          class="stepper flex-1 min-w-[24px] border-0 bg-transparent text-text-muted cursor-pointer leading-none text-[11px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-border enabled:hover:bg-surface-hover enabled:hover:text-text-main disabled:cursor-not-allowed disabled:opacity-45"
           aria-label="Increase"
           [disabled]="disabled() || readOnly()"
           (click)="stepBy(1)"
@@ -56,6 +61,6 @@
     }
   </div>
   @if (error()) {
-    <div id="mui-input-error" class="helper" role="alert">{{ error() }}</div>
+    <div id="mui-input-error" [class]="helperClasses" role="alert">{{ error() }}</div>
   }
 </div>

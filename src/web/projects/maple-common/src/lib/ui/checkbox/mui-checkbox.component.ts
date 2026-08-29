@@ -12,7 +12,7 @@ export type MuiCheckboxChecked = boolean | 'indeterminate';
   selector: 'mui-checkbox',
   standalone: true,
   templateUrl: './mui-checkbox.component.html',
-  styleUrl: './mui-checkbox.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiCheckboxComponent {
