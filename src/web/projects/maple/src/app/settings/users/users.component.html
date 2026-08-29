@@ -1,5 +1,5 @@
 <maple-settings-shell section="users">
-  <header class="page-header">
+  <header class="set-page-header">
     <div class="titles">
       <h1>Users</h1>
       <p>
@@ -44,7 +44,7 @@
 
     @if (freshInvite(); as fi) {
       <section class="fresh-invite">
-        <div class="subhead">New invite for {{ fi.email }}</div>
+        <div class="set-subhead">New invite for {{ fi.email }}</div>
         <div class="fresh-row">
           <img class="qr" [src]="qrSrc(fi)" alt="Invite QR" width="120" height="120" />
           <div class="fresh-meta">
@@ -64,7 +64,7 @@
             </div>
             <div>
               <span class="meta-label">URL</span>
-              <a [href]="fi.url" class="meta-url mono">{{ fi.url }}</a>
+              <a [href]="fi.url" class="meta-url set-mono">{{ fi.url }}</a>
             </div>
             <div class="meta-expires">Expires {{ fi.expires_at }}</div>
           </div>
@@ -73,7 +73,7 @@
     }
 
     <section>
-      <div class="subhead">Members</div>
+      <div class="set-subhead">Members</div>
       <div class="card-list" data-testid="member-list">
         @for (u of users(); track u.id) {
           <div class="member-row">
@@ -81,7 +81,7 @@
               <div class="avatar" [style.background]="avatarColor(u.email)">
                 {{ u.email[0].toUpperCase() }}
               </div>
-              <span class="mono email">{{ u.email }}</span>
+              <span class="set-mono email">{{ u.email }}</span>
               @if (u.id === currentUser()?.id) {
                 <span class="you-chip">YOU</span>
               }
@@ -118,7 +118,7 @@
                 />
               }
             </span>
-            <span class="dim mono">{{ lastSeenLabel(u) }}</span>
+            <span class="dim set-mono">{{ lastSeenLabel(u) }}</span>
             <span></span>
           </div>
         } @empty {
@@ -133,7 +133,7 @@
 
     <section>
       <div class="section-row">
-        <div class="subhead">Invite codes</div>
+        <div class="set-subhead">Invite codes</div>
       </div>
       <div class="card-list">
         @if (invites().length === 0) {
@@ -141,9 +141,9 @@
         } @else {
           @for (inv of invites(); track inv.code) {
             <div class="invite-row" [class.is-consumed]="inv.consumed_at !== null">
-              <span class="mono email">{{ inv.email }}</span>
+              <span class="set-mono email">{{ inv.email }}</span>
               <span class="invite-code">
-                <code class="mono">{{ inv.code }}</code>
+                <code class="set-mono">{{ inv.code }}</code>
                 <mui-button
                   variant="ghost"
                   size="sm"
@@ -156,7 +156,7 @@
                 </mui-button>
               </span>
               <span class="role-chip">INVITE</span>
-              <span class="dim mono">
+              <span class="dim set-mono">
                 @if (inv.consumed_at) {
                   consumed {{ inv.consumed_at }}
                 } @else {

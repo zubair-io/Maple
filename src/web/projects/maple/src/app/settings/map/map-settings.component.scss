@@ -1,19 +1,9 @@
 // map-settings.component.scss — Settings > Map page (Map T2, #2826).
 // Reuses the same field-row / text-input chrome as the Pano / Observability
-// settings pages.
-
-@use '../settings-chrome' as chrome;
-
-// Definite host height so the shell's `.page` can be the scroll container.
-:host {
-  @include chrome.settings-page-host;
-}
-
-// The page's own content wrapper, header, banner/field/form-actions chrome —
-// shared byte-for-byte with Pano and (minus field-source) Cloudflare (#3020
-// dedup). See settings-chrome.scss's `settings-record-form-chrome`.
-@include chrome.settings-record-form-chrome;
-@include chrome.settings-field-source-chrome;
+// settings pages via the shared `.set-record-*`/`.set-field-source` classes
+// (settings-chrome-classes.scss) used in the template — see `set-page-host`
+// on the host (map-settings.component.ts) for the definite-height
+// rationale.
 
 // Privacy note row
 .info-row {

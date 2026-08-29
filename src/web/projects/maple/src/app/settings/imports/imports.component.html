@@ -1,5 +1,5 @@
 <maple-settings-shell section="imports">
-  <header class="page-header">
+  <header class="set-page-header">
     <div class="titles">
       <h1>Imports</h1>
       <p>
@@ -9,7 +9,7 @@
     </div>
   </header>
 
-  <div class="imports-body">
+  <div class="imports-body set-body-wrap">
     @if (error(); as e) {
       <p class="error">{{ e }}</p>
     }
@@ -27,7 +27,7 @@
     <!-- ──────────────────────────── STEP 1: pick ─────────────────────── -->
     @if (step() === 'pick') {
       <section>
-        <div class="subhead">1 · Target library</div>
+        <div class="set-subhead">1 · Target library</div>
         <select
           class="lib-select"
           [ngModel]="targetLibraryId()"
@@ -42,7 +42,7 @@
 
       @if (targetLibraryId()) {
         <section>
-          <div class="subhead">2 · Source folder</div>
+          <div class="set-subhead">2 · Source folder</div>
 
           @if (selectedSource(); as src) {
             <div class="picked-row">
@@ -117,7 +117,7 @@
     <!-- ────────────────────────── STEP 2: review ──────────────────────── -->
     @if (step() === 'review' && scan(); as s) {
       <section>
-        <div class="subhead">3 · Review groups</div>
+        <div class="set-subhead">3 · Review groups</div>
         <p class="summary">
           {{ s.totals.images }} photos · {{ s.totals.movies }} movies ·
           {{ s.totals.sidecars }} sidecars → <strong>{{ libraryLabel(targetLibraryId()) }}</strong>
@@ -177,7 +177,7 @@
     <!-- ───────────────────────── STEP 3: progress ─────────────────────── -->
     @if (step() === 'progress') {
       <section>
-        <div class="subhead">Importing</div>
+        <div class="set-subhead">Importing</div>
         @if (active(); as a) {
           <div class="progress-wrap">
             <div

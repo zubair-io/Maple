@@ -1,8 +1,7 @@
-@use '../settings-chrome' as chrome;
-
+// Palette/typography (`--s-*` tokens) come from the `set-vars` host class
+// (settings-chrome-classes.scss, wired via `host: { class: '...' }` in
+// service-api-keys.component.ts).
 :host {
-  @include chrome.settings-vars;
-
   display: block;
   margin-top: 22px;
   padding-top: 20px;
