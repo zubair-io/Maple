@@ -72,7 +72,7 @@ import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summar
     CdkDropListGroup,
   ],
   templateUrl: './browse-shell.component.html',
-  styleUrl: './browse-shell.component.scss',
+  host: { class: 'flex w-screen h-screen box-border bg-bg' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrowseShellComponent {

@@ -1,44 +1,10 @@
-// Moved from browse-shell.component.scss with the action-pills/overflow-menu
-// markup (#2280 fallow-audit-web fix, PR #2293). The pills' active/idle/
-// has-selection/no-selection state treatments now live on `mui-button`'s own
-// `active`/`toggled` inputs (MW4, ticket #3031) rather than as local classes
-// here.
-
-// The pills are laid out by BrowseShell's `.toolbar` flex row, which they were
-// direct children of until #2293 extracted them into this component. With no
-// `:host` display the host is blockified as a flex item, and the pills — each
-// carrying Tailwind's `flex` utility, so each a block-level flex box — stack
-// vertically inside it and overflow the fixed-height bar. `display: contents`
-// drops the host box so they are direct flex items of `.toolbar` again, which
-// also restores `.toolbar`'s `gap-2` falling between each individual pill
-// rather than once around a grouped host box (#2427).
-//
-// Safe for the collapsed kebab: `.toolbar-overflow` below puts
-// `position: relative` on an inner <div>, so the absolutely-positioned
-// `.toolbar-overflow-menu` never anchored to the host to begin with.
+// toolbar-actions.component.scss — residue only (Tailwind port #3071 Task 9).
+// `display: contents` on the host is asserted via `getComputedStyle` in
+// toolbar-actions.component.spec.ts — that unit spec does not load the
+// global Tailwind stylesheet, so the `contents` utility class computes to
+// nothing there (same reasoning as tool-dock.component.scss). Kept as
+// plain CSS so the computed-style assertion holds regardless of whether
+// Tailwind is wired into the render.
 :host {
   display: contents;
-}
-
-// ── Toolbar overflow menu (#2280) ────────────────────────────────────────
-// Kebab-triggered dropdown holding the action pills below the desktop
-// breakpoint. Anchored to `.toolbar-overflow` (the kebab button's
-// `position: relative` wrapper).
-.toolbar-overflow {
-  position: relative;
-}
-.toolbar-overflow-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  min-width: 200px;
-  background: var(--color-surface);
-  border: 0.5px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }

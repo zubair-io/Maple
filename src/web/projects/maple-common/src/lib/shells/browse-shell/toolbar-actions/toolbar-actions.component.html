@@ -23,7 +23,7 @@
     />
     @if (overflowMenuOpen()) {
       <div
-        class="toolbar-overflow-menu"
+        class="toolbar-overflow-menu absolute top-[calc(100%+4px)] right-0 z-20 flex min-w-[200px] flex-col gap-1 rounded-lg border-[0.5px] border-border bg-surface p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
         role="menu"
         data-testid="toolbar-overflow-menu"
         (click)="closeOverflowMenu()"

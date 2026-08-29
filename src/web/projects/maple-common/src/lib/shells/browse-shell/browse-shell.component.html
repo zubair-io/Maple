@@ -15,7 +15,7 @@
 <div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
   <!-- Toolbar -->
   <div
-    class="toolbar flex items-center h-11 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2"
+    class="toolbar flex h-auto min-h-[2.75rem] min-w-0 flex-shrink-0 flex-wrap items-center gap-2 gap-y-1.5 border-b-[0.5px] border-border bg-surface px-3 md:h-11 md:min-h-0 md:flex-nowrap md:gap-y-2"
   >
     @if (layout() === 'phone') {
       <!-- Phone: the inline sidebar is replaced by the source-picker
@@ -88,7 +88,7 @@
          #692. -->
     @if (layout() !== 'phone') {
       <div
-        class="source-sidebar flex-shrink-0 overflow-hidden relative transition-[width] duration-[220ms] ease-default flex flex-col"
+        class="source-sidebar relative flex w-[196px] flex-shrink-0 flex-col overflow-hidden transition-[width] duration-[220ms] ease-default lg:w-[240px]"
         data-testid="source-sidebar"
         [style.width]="state.sidebarVisible() ? null : '0px'"
       >
