@@ -1,9 +1,15 @@
-<div class="mui-typing-indicator">
+<div class="mui-typing-indicator flex items-center gap-1">
   <mui-avatar [name]="name()" size="xs" />
   <mui-text variant="chip-label" color="muted">{{ name() }} is typing</mui-text>
-  <span class="dots" aria-hidden="true">
-    <span class="dot"></span>
-    <span class="dot"></span>
-    <span class="dot"></span>
+  <span class="dots inline-flex gap-[3px]" aria-hidden="true">
+    <span
+      class="dot w-1 h-1 rounded-full bg-text-muted [animation:typing-bounce_1.2s_infinite_ease-in-out]"
+    ></span>
+    <span
+      class="dot w-1 h-1 rounded-full bg-text-muted [animation:typing-bounce_1.2s_infinite_ease-in-out] [animation-delay:0.15s]"
+    ></span>
+    <span
+      class="dot w-1 h-1 rounded-full bg-text-muted [animation:typing-bounce_1.2s_infinite_ease-in-out] [animation-delay:0.3s]"
+    ></span>
   </span>
 </div>

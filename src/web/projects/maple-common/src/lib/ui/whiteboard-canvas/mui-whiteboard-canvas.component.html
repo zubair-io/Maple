@@ -1,15 +1,17 @@
-<div class="mui-whiteboard-canvas">
+<div
+  class="mui-whiteboard-canvas flex flex-col gap-2 w-full h-full p-2 bg-surface rounded-xl box-border"
+>
   <mui-toolbar
-    class="toolbar"
+    class="toolbar flex-none"
     [entries]="toolbarEntries"
     (itemSelected)="onToolbarAction($event)"
   />
-  <div class="canvas-area">
+  <div class="canvas-area flex-1 min-h-0 rounded-lg overflow-hidden bg-image-canvas">
     <mui-canvas-surface [contentAspect]="null" (canvasReady)="onCanvasReady($event)" />
   </div>
-  <div class="prompt-bar">
+  <div class="prompt-bar flex-none flex items-center gap-1">
     <mui-input
-      class="prompt-input"
+      class="prompt-input flex-1 min-w-0"
       [(value)]="prompt"
       placeholder="Describe what to generate…"
       (committed)="onPromptSubmit($event)"

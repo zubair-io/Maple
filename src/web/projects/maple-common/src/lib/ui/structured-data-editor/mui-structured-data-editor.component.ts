@@ -51,7 +51,7 @@ function isFlatObject(candidate: unknown): candidate is StructuredDataValue {
   standalone: true,
   imports: [MuiTabsComponent, MuiFormFieldComponent],
   templateUrl: './mui-structured-data-editor.component.html',
-  styleUrl: './mui-structured-data-editor.component.scss',
+  host: { class: 'flex flex-col gap-4' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiStructuredDataEditorComponent {

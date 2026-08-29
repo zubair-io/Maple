@@ -28,7 +28,7 @@ export interface MuiThreadMessage {
     MuiSpinnerComponent,
   ],
   templateUrl: './mui-thread-panel.component.html',
-  styleUrl: './mui-thread-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiThreadPanelComponent {

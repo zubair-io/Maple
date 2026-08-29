@@ -12,7 +12,7 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiProgressComponent, MuiTextComponent],
   templateUrl: './mui-value-hud.component.html',
-  styleUrl: './mui-value-hud.component.scss',
+  host: { class: 'inline-block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiValueHudComponent {

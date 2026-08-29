@@ -46,9 +46,13 @@ const VARIANT_ICON_COLOR: Record<MuiToastVariant, string> = {
   standalone: true,
   imports: [MuiIconComponent],
   templateUrl: './mui-toast.component.html',
-  styleUrl: './mui-toast.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { role: 'status', 'aria-live': 'polite', '[attr.aria-label]': 'ariaLabel()' },
+  host: {
+    class: 'block',
+    role: 'status',
+    'aria-live': 'polite',
+    '[attr.aria-label]': 'ariaLabel()',
+  },
 })
 export class MuiToastComponent implements OnChanges, OnDestroy {
   readonly variant = input<MuiToastVariant>('info');
@@ -121,4 +125,20 @@ export class MuiToastComponent implements OnChanges, OnDestroy {
     this.autoDismissTimer = null;
     this.exitTimer = null;
   }
+
+  readonly rootClass = computed(() => {
+    const base =
+      'mui-toast flex items-center gap-2 bg-surface-alt text-text-main border border-border rounded-lg px-4 py-2 text-[13px] shadow-[0_4px_16px_rgba(0,0,0,0.32)]';
+    const variantSurface = `variant-${this.variant()} surface-${this.surface()}`;
+    const surfaceGlass =
+      this.surface() === 'glass'
+        ? 'bg-[var(--pro-glass-bg-heavy)] text-[var(--pro-text)] border-[var(--pro-glass-border)] shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]'
+        : '';
+    const motion = this.leaving()
+      ? 'is-leaving opacity-0 translate-y-2 transition-[opacity,transform] duration-[280ms] ease-[cubic-bezier(0.32,0.72,0,1)]'
+      : this.entered()
+        ? 'is-entered opacity-100 translate-y-0 transition-[opacity,transform] duration-[320ms] ease-[cubic-bezier(0.32,0.72,0,1)]'
+        : 'opacity-0 translate-y-2 transition-[opacity,transform] duration-[320ms] ease-[cubic-bezier(0.32,0.72,0,1)]';
+    return `${base} ${variantSurface} ${surfaceGlass} ${motion}`.replace(/\s+/g, ' ').trim();
+  });
 }

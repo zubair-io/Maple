@@ -28,7 +28,6 @@ export interface MuiGalleryTemplate {
     MuiSearchBarComponent,
   ],
   templateUrl: './mui-template-gallery-modal.component.html',
-  styleUrl: './mui-template-gallery-modal.component.scss',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
