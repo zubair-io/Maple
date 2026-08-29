@@ -15,13 +15,19 @@
  * value converges no matter which process notices the change first.
  */
 
+import { MAX_TOTAL_DESCRIBE_CAPACITY } from '../enrichment/describe-servers.ts';
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 
 const log = childLogger('describe:capacity');
 
-export async function syncDescribeStageCapacity(capacity: number): Promise<void> {
+export async function syncDescribeStageCapacity(rawCapacity: number): Promise<void> {
+  // The write path already rejects a list over the ceiling, but the read
+  // path only drops unusable ENTRIES — a hand-edited config doc can still
+  // reach here with a bigger total. Clamp rather than persist a stage
+  // concurrency the workers route would refuse.
+  const capacity = Math.min(rawCapacity, MAX_TOTAL_DESCRIBE_CAPACITY);
   try {
     const db = await getDb();
     const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
