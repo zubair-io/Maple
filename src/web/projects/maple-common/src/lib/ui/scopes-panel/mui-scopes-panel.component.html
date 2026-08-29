@@ -1,5 +1,5 @@
-<div class="mui-scopes-panel">
-  <div class="scope">
+<div class="flex flex-col gap-2">
+  <div class="scope flex flex-col gap-1">
     <mui-text variant="chip-label" color="muted" [block]="true">Histogram</mui-text>
     <mui-histogram
       [r]="sample().histogram.r"
@@ -9,11 +9,11 @@
       [height]="height()"
     />
   </div>
-  <div class="scope">
+  <div class="scope flex flex-col gap-1">
     <mui-text variant="chip-label" color="muted" [block]="true">Waveform</mui-text>
     <mui-waveform [luma]="sample().waveformLuma" [width]="width()" [height]="height()" />
   </div>
-  <div class="scope">
+  <div class="scope flex flex-col gap-1">
     <mui-text variant="chip-label" color="muted" [block]="true">Parade</mui-text>
     <mui-parade
       [r]="sample().parade.r"
@@ -23,7 +23,7 @@
       [height]="height()"
     />
   </div>
-  <div class="scope">
+  <div class="scope flex flex-col gap-1">
     <mui-text variant="chip-label" color="muted" [block]="true">Vectorscope</mui-text>
     <mui-vectorscope [samples]="sample().vectorscope" [size]="height()" />
   </div>

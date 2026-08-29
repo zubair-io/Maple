@@ -25,7 +25,7 @@ export type { MuiCollectionItem } from '../collection-grid/mui-collection-grid.c
     MuiTextComponent,
   ],
   templateUrl: './mui-search-results.component.html',
-  styleUrl: './mui-search-results.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSearchResultsComponent {

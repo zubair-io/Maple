@@ -1,14 +1,17 @@
 <mui-overlay-shell [open]="open()" size="sm" [ariaLabel]="title()" (dismissed)="dismissed.emit()">
-  <div slot="header" class="mui-selective-paste-modal-header">
+  <div
+    slot="header"
+    class="mui-selective-paste-modal-header flex flex-col gap-1 border-b border-border px-6 py-4"
+  >
     <mui-text variant="sheet-title" [block]="true">{{ title() }}</mui-text>
     @if (summary()) {
       <mui-text variant="body" color="muted" [block]="true">{{ summary() }}</mui-text>
     }
   </div>
 
-  <div class="mui-selective-paste-modal-body">
+  <div class="mui-selective-paste-modal-body flex flex-col gap-2">
     @if (allowBulkSelect()) {
-      <div class="bulk-row">
+      <div class="bulk-row mb-1 flex gap-1">
         <mui-button variant="ghost" size="sm" [disabled]="allSelected()" (pressed)="selectAll()">
           Select all
         </mui-button>
@@ -18,14 +21,14 @@
       </div>
     }
     @for (group of groups(); track group.id) {
-      <div class="group">
+      <div class="group flex flex-col gap-1">
         <mui-checkbox
           [checked]="group.enabled"
           [label]="group.label"
           (checkedChange)="toggleGroup(group.id, $event)"
         />
         @if (group.description) {
-          <mui-text variant="body" color="muted" class="description">
+          <mui-text variant="body" color="muted" class="description ml-[calc(20px+8px)]">
             {{ group.description }}
           </mui-text>
         }
@@ -33,7 +36,10 @@
     }
   </div>
 
-  <div slot="footer" class="mui-selective-paste-modal-footer">
+  <div
+    slot="footer"
+    class="mui-selective-paste-modal-footer flex justify-end gap-1 border-t border-border px-6 py-4"
+  >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
     <mui-button variant="primary" [disabled]="enabledCount() === 0" (pressed)="confirmPaste()">
       Paste

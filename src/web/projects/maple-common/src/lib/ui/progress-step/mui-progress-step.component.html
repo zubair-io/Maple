@@ -1,6 +1,6 @@
-<div class="mui-progress-step" [class]="'status-' + status()">
-  <div class="row">
-    <span class="index">{{ status() === 'done' ? '✓' : index() }}</span>
+<div class="flex flex-col gap-1">
+  <div class="flex items-center gap-2">
+    <span [class]="indexClasses()">{{ status() === 'done' ? '✓' : index() }}</span>
     <mui-text variant="row-label">{{ label() }}</mui-text>
   </div>
   <mui-progress shape="bar" size="sm" [value]="progressValue()" />

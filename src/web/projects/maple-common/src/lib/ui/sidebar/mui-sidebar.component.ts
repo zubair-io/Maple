@@ -62,7 +62,7 @@ interface FlatSidebarSection {
     MuiTreeRowComponent,
   ],
   templateUrl: './mui-sidebar.component.html',
-  styleUrl: './mui-sidebar.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSidebarComponent {

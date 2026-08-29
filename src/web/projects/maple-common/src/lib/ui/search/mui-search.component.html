@@ -1,5 +1,5 @@
-<div class="mui-search">
-  <div class="query-row">
+<div class="flex flex-col gap-2">
+  <div class="relative">
     <mui-search-bar
       [(value)]="query"
       placeholder="Search everything"
@@ -17,7 +17,7 @@
   @if (activeChips().length > 0) {
     <mui-chip-row [chips]="activeChips()" mode="removable" (removed)="chipRemoved.emit($event)" />
   }
-  <div class="results-row">
+  <div class="flex items-start gap-4">
     @if (showFilters()) {
       <mui-filter-panel
         [groups]="filterGroups()"
@@ -25,7 +25,7 @@
       />
     }
     <mui-search-results
-      class="results"
+      class="min-w-0 flex-1"
       [items]="results()"
       [loading]="resultsLoading()"
       [query]="query()"

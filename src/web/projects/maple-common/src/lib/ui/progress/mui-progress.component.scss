@@ -1,38 +1,6 @@
-@use '../../generated/ui-tokens' as tok;
-
-:host {
-  display: block;
-}
-
-.mui-progress {
-  display: flex;
-  align-items: center;
-  gap: tok.$maple-spacing-sm;
-}
-
-.bar-track {
-  flex: 1;
-  height: 8px;
-  background: var(--color-surface);
-  border-radius: tok.$maple-radius-full;
-  overflow: hidden;
-}
-
-.size-sm .bar-track {
-  height: 4px;
-}
-
-.bar-fill {
-  height: 100%;
-  background: var(--color-primary);
-  border-radius: tok.$maple-radius-full;
-  transition: width 200ms ease;
-}
-
-.bar-fill.indeterminate {
-  width: 40%;
-  animation: mui-progress-slide 1.2s ease-in-out infinite;
-}
+// Residue: named `@keyframes` referenced via arbitrary `[animation:...]`
+// utilities in the template (animation names are global, not scoped to
+// Tailwind's utility layer) — see TAILWIND-CONVERSION.md "Residue rules".
 
 @keyframes mui-progress-slide {
   0% {
@@ -43,43 +11,8 @@
   }
 }
 
-.ring {
-  width: 36px;
-  height: 36px;
-  transform: rotate(-90deg);
-}
-
-.size-sm .ring {
-  width: 24px;
-  height: 24px;
-}
-
-.ring-track {
-  fill: none;
-  stroke: var(--color-surface);
-  stroke-width: 3;
-}
-
-.ring-fill {
-  fill: none;
-  stroke: var(--color-primary);
-  stroke-width: 3;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 200ms ease;
-}
-
-.ring.indeterminate {
-  animation: mui-progress-spin 1s linear infinite;
-}
-
 @keyframes mui-progress-spin {
   to {
     transform: rotate(270deg);
   }
-}
-
-.label {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
 }

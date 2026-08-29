@@ -40,7 +40,7 @@ export interface MuiScopeSample {
     MuiWaveformComponent,
   ],
   templateUrl: './mui-scopes-panel.component.html',
-  styleUrl: './mui-scopes-panel.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiScopesPanelComponent {

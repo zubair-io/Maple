@@ -30,6 +30,9 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+
+const SHEET_TRANSITION =
+  'transition-[transform_320ms_cubic-bezier(0.32,0.72,0,1),height_320ms_cubic-bezier(0.32,0.72,0,1)]';
 import {
   beginSheetDrag,
   isDistanceDismissed,
@@ -52,7 +55,7 @@ const VELOCITY_WINDOW_MS = 100;
   selector: 'mui-sheet-shell',
   standalone: true,
   templateUrl: './mui-sheet-shell.component.html',
-  styleUrl: './mui-sheet-shell.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSheetShellComponent {
@@ -69,6 +72,22 @@ export class MuiSheetShellComponent {
 
   protected readonly dragOffsetPx = signal(0);
   protected readonly isDragging = signal(false);
+
+  protected readonly scrimClasses = computed(() =>
+    this.contained()
+      ? 'mui-sheet-shell-scrim contained absolute inset-0 z-[200] pointer-events-auto bg-[rgba(0,0,0,0.35)]'
+      : 'mui-sheet-shell-scrim fixed inset-0 z-[200] pointer-events-auto bg-[rgba(0,0,0,0.35)]',
+  );
+
+  /** `contained` and `dragging` each change independent properties
+   * (`position` vs `transition`), but both are folded into one computed so
+   * every combination stays a single mutually-exclusive lookup rather than
+   * base-class-plus-conditional-adds. */
+  protected readonly sheetClasses = computed(() => {
+    const position = this.contained() ? 'contained absolute' : 'fixed';
+    const transition = this.isDragging() ? 'dragging transition-none' : SHEET_TRANSITION;
+    return `mui-sheet-shell ${position} left-0 right-0 bottom-0 z-[201] flex flex-col overflow-hidden rounded-t-2xl bg-surface shadow-[0_-8px_30px_rgba(0,0,0,0.6)] outline-none ${transition}`;
+  });
 
   protected readonly heightFraction = computed(() => {
     const detents = this.detents();

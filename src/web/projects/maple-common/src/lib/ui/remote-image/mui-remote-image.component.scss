@@ -1,85 +1,9 @@
-@use '../../generated/ui-tokens' as tok;
-
-:host {
-  display: block;
-}
-
-.mui-remote-image {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  background: var(--color-surface-alt);
-  overflow: hidden;
-}
-
-.pixels {
-  display: block;
-  width: 100%;
-  height: 100%;
-  transition:
-    filter 300ms ease,
-    opacity 200ms ease;
-}
-
-.fit-fill {
-  object-fit: cover;
-}
-
-.fit-fit {
-  object-fit: contain;
-}
-
-// Blur-up: coarser tiers render visibly soft, sharpening as better tiers
-// arrive.
-.tier-thumb {
-  filter: blur(14px);
-}
-
-.tier-preview {
-  filter: blur(4px);
-}
-
-.tier-full {
-  filter: blur(0);
-}
-
-.overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: tok.$maple-spacing-sm;
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.spinner {
-  width: 20px;
-  height: 20px;
-  border-radius: tok.$maple-radius-full;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-primary);
-  animation: mui-remote-image-spin 800ms linear infinite;
-}
+// Residue: named `@keyframes` referenced via an arbitrary `[animation:...]`
+// utility in the template (animation names are global) — see
+// TAILWIND-CONVERSION.md "Residue rules".
 
 @keyframes mui-remote-image-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-.retry {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-main);
-  border-radius: tok.$maple-radius-sm;
-  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
-  font-size: 12px;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--color-surface-hover);
   }
 }

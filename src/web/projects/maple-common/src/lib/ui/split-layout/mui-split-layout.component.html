@@ -1,10 +1,10 @@
-<div class="mui-split-layout">
+<div class="mui-split-layout flex h-full min-h-0">
   @if (!sidebarCollapsed()) {
-    <div class="sidebar" [style.width.px]="sidebarWidth()">
+    <div class="sidebar min-w-0 flex-none overflow-auto" [style.width.px]="sidebarWidth()">
       <ng-content select="[slot=sidebar]" />
     </div>
     <div
-      class="handle"
+      class="handle w-1 flex-none cursor-col-resize [touch-action:none] bg-transparent hover:bg-primary active:bg-primary"
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize sidebar"
@@ -14,10 +14,10 @@
       (pointercancel)="onSidebarHandlePointerUp($event)"
     ></div>
   }
-  <div class="center"><ng-content /></div>
+  <div class="center min-h-0 min-w-0 flex-1 overflow-auto"><ng-content /></div>
   @if (!detailCollapsed()) {
     <div
-      class="handle"
+      class="handle w-1 flex-none cursor-col-resize [touch-action:none] bg-transparent hover:bg-primary active:bg-primary"
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize detail"
@@ -26,7 +26,7 @@
       (pointerup)="onDetailHandlePointerUp($event)"
       (pointercancel)="onDetailHandlePointerUp($event)"
     ></div>
-    <div class="detail" [style.width.px]="detailWidth()">
+    <div class="detail min-w-0 flex-none overflow-auto" [style.width.px]="detailWidth()">
       <ng-content select="[slot=detail]" />
     </div>
   }

@@ -45,7 +45,7 @@ const QUIET_ZONE_MODULES = 4;
   selector: 'mui-qr-code',
   standalone: true,
   templateUrl: './mui-qr-code.component.html',
-  styleUrl: './mui-qr-code.component.scss',
+  host: { class: 'inline-flex' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiQrCodeComponent {

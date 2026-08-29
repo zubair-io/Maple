@@ -31,7 +31,6 @@ function clamp(v: number): number {
   selector: 'mui-pad-2d',
   standalone: true,
   templateUrl: './mui-pad-2d.component.html',
-  styleUrl: './mui-pad-2d.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   // `fill` needs the HOST element itself to stretch to its container's
   // width (the inner `.mui-pad-2d` div's own `width: 100%` has nothing to
@@ -39,7 +38,7 @@ function clamp(v: number): number {
   // shrink-to-fit) — a host-bound class rather than touching `:host`
   // unconditionally, so the fixed-`size` default stays exactly as it was
   // for every existing consumer.
-  host: { '[class.is-fill]': 'fill()' },
+  host: { '[class]': 'hostClass()' },
 })
 export class MuiPad2dComponent extends PointerCaptureDragBase<MuiPad2dValue> {
   readonly value = model<MuiPad2dValue>({ x: 0, y: 0 });
@@ -73,6 +72,12 @@ export class MuiPad2dComponent extends PointerCaptureDragBase<MuiPad2dValue> {
   readonly arrowKey = output<KeyboardEvent>();
 
   @ViewChild('padEl') private padRef!: ElementRef<HTMLElement>;
+
+  /** Host display: `inline-block` (default, fixed `size` square) vs `block
+   *  w-full` (`fill` mode, stretches to the container's width). */
+  protected hostClass(): string {
+    return this.fill() ? 'is-fill block w-full' : 'inline-block';
+  }
 
   /** Puck position as `{left%, top%}` box coordinates (y grows down). */
   // fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`puckPos().left/top`); fallow's member-usage scan doesn't follow external Angular templates.

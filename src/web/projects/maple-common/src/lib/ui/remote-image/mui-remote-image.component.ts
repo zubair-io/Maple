@@ -12,7 +12,7 @@
 // real network `Image` load — the constructor still wires up real
 // `new Image()` preloads for actual usage.
 
-import { ChangeDetectionStrategy, Component, effect, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, signal } from '@angular/core';
 
 export type MuiRemoteImageTier = 'thumb' | 'preview' | 'full';
 
@@ -24,11 +24,26 @@ export interface MuiRemoteImageTiers {
 
 const TIER_ORDER: readonly MuiRemoteImageTier[] = ['thumb', 'preview', 'full'];
 
+// Blur-up: coarser tiers render visibly soft, sharpening as better tiers
+// arrive. Independent from `fit` (object-fit vs filter — non-conflicting
+// properties), so each axis gets its own mutually-exclusive lookup.
+const TIER_BLUR: Record<MuiRemoteImageTier, string> = {
+  thumb: 'blur-[14px]',
+  preview: 'blur-[4px]',
+  full: 'blur-none',
+};
+
+const FIT_CLASS: Record<'fill' | 'fit', string> = {
+  fill: 'object-cover',
+  fit: 'object-contain',
+};
+
 @Component({
   selector: 'mui-remote-image',
   standalone: true,
   templateUrl: './mui-remote-image.component.html',
   styleUrl: './mui-remote-image.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiRemoteImageComponent {
@@ -39,6 +54,14 @@ export class MuiRemoteImageComponent {
   readonly displaySrc = signal<string | null>(null);
   readonly displayTier = signal<MuiRemoteImageTier | null>(null);
   readonly status = signal<'loading' | 'loaded' | 'error'>('loading');
+
+  readonly pixelsClasses = computed(() => {
+    const tier = this.displayTier();
+    const tierBits = tier
+      ? `fit-${this.fit()} tier-${tier} ${FIT_CLASS[this.fit()]} ${TIER_BLUR[tier]}`
+      : `fit-${this.fit()} ${FIT_CLASS[this.fit()]}`;
+    return `pixels block h-full w-full transition-[filter_300ms_ease,opacity_200ms_ease] ${tierBits}`;
+  });
 
   /** Tiers this pass hasn't attempted yet, in `thumb → preview → full` order. */
   private queue: MuiRemoteImageTier[] = [];

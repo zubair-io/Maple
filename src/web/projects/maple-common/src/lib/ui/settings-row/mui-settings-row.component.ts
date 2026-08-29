@@ -14,7 +14,7 @@
 // migration is a separate wave (MW2).
 
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 import { MuiCollapsibleComponent } from '../collapsible/mui-collapsible.component';
 import { MuiDividerComponent } from '../divider/mui-divider.component';
 import { MuiIconComponent } from '../icon/mui-icon.component';
@@ -32,7 +32,6 @@ import { MuiTextComponent } from '../text/mui-text.component';
     MuiTextComponent,
   ],
   templateUrl: './mui-settings-row.component.html',
-  styleUrl: './mui-settings-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSettingsRowComponent {
@@ -59,6 +58,22 @@ export class MuiSettingsRowComponent {
    * enough — this only needs to be unique within one rendered page. */
   private static nextContentId = 0;
   protected readonly contentId = `mui-settings-row-body-${MuiSettingsRowComponent.nextContentId++}`;
+
+  /** Disclosure chevron — rotates 90° open. Mirrors the retired
+   *  `internal/_disclosure-header.scss` `chevron` mixin. */
+  protected readonly chevronClass = computed(() =>
+    this.open()
+      ? 'chevron open inline-flex rotate-90 transition-transform duration-[120ms] ease-in-out'
+      : 'chevron inline-flex transition-transform duration-[120ms] ease-in-out',
+  );
+
+  /** Animated content region — `grid-template-rows: 0fr → 1fr`. Mirrors the
+   *  retired `internal/_disclosure-header.scss` `content-wrapper` mixin. */
+  protected readonly wrapperClass = computed(() =>
+    this.open()
+      ? 'content-wrapper open grid grid-rows-[1fr] transition-[grid-template-rows] duration-[120ms] ease-in-out'
+      : 'content-wrapper grid grid-rows-[0fr] transition-[grid-template-rows] duration-[120ms] ease-in-out',
+  );
 
   toggle(): void {
     this.open.update((value) => !value);

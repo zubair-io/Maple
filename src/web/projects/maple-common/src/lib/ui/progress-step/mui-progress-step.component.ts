@@ -13,7 +13,7 @@ export type MuiProgressStepStatus = 'pending' | 'active' | 'done';
   standalone: true,
   imports: [MuiButtonComponent, MuiProgressComponent, MuiTextComponent],
   templateUrl: './mui-progress-step.component.html',
-  styleUrl: './mui-progress-step.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiProgressStepComponent {
@@ -23,6 +23,12 @@ export class MuiProgressStepComponent {
   readonly continueLabel = input<string>('Continue');
 
   readonly continued = output<void>();
+
+  readonly indexClasses = computed(() => {
+    const active = this.status() === 'active' || this.status() === 'done';
+    const state = active ? 'bg-primary text-text-main' : 'bg-border text-text-muted';
+    return `index inline-flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full text-[11px] font-bold ${state}`;
+  });
 
   readonly progressValue = computed<number | null>(() => {
     switch (this.status()) {

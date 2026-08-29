@@ -1,16 +1,16 @@
-<div class="mui-sidebar">
+<div class="flex flex-col gap-[2px]">
   @if (toolbarEntries().length > 0) {
     <mui-toolbar [entries]="toolbarEntries()" (itemSelected)="toolbarAction.emit($event)" />
   }
   @if (loading()) {
-    <div class="state-slot">
+    <div class="state-slot flex items-center justify-center py-6">
       <mui-spinner size="md" placement="centered" />
     </div>
   } @else if (isEmpty()) {
     <mui-empty-state icon="folder" title="No sources yet" />
   } @else {
     @for (entry of flatSections(); track entry.section.id) {
-      <mui-text variant="eyebrow" color="muted" [block]="true" class="section-label">
+      <mui-text variant="eyebrow" color="muted" [block]="true" class="section-label px-4 pt-2 pb-1">
         {{ entry.section.label }}
       </mui-text>
       @for (row of entry.rows; track row.node.id) {
@@ -30,7 +30,7 @@
     }
   }
   <mui-context-menu
-    class="context-menu-anchor"
+    class="context-menu-anchor fixed h-0 w-0"
     [style.left.px]="contextMenuX()"
     [style.top.px]="contextMenuY()"
     [open]="contextMenuOpen()"

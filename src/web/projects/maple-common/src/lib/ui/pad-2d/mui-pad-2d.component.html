@@ -1,9 +1,14 @@
 <div
   #padEl
-  class="mui-pad-2d"
+  class="mui-pad-2d relative rounded-lg border border-border touch-none cursor-crosshair outline-offset-4 focus-visible:outline-2 focus-visible:outline-text-main"
   [class.is-disabled]="disabled()"
+  [class.opacity-45]="disabled()"
+  [class.pointer-events-none]="disabled()"
   [class.is-dragging]="dragging()"
+  [class.outline-2]="dragging()"
+  [class.outline-text-main]="dragging()"
   [class.is-fill]="fill()"
+  [class.w-full]="fill()"
   [style.width.px]="fill() ? null : size()"
   [style.height.px]="fill() ? null : size()"
   [style.aspect-ratio]="fill() ? aspectRatio() : null"
@@ -24,10 +29,22 @@
        this control's single `gradient` background string). Absolute-fill,
        behind the crosshair/puck, so it paints the pad without intercepting
        its own pointer/keyboard events. -->
-  <div class="fill-slot"><ng-content /></div>
+  <div class="fill-slot absolute inset-0 overflow-hidden rounded-[inherit] pointer-events-none">
+    <ng-content />
+  </div>
   @if (crosshair()) {
-    <div class="crosshair-h" [style.top.%]="puckPos().top"></div>
-    <div class="crosshair-v" [style.left.%]="puckPos().left"></div>
+    <div
+      class="crosshair-h absolute inset-x-0 h-px pointer-events-none bg-[color-mix(in_srgb,var(--color-surface)_70%,transparent)]"
+      [style.top.%]="puckPos().top"
+    ></div>
+    <div
+      class="crosshair-v absolute inset-y-0 w-px pointer-events-none bg-[color-mix(in_srgb,var(--color-surface)_70%,transparent)]"
+      [style.left.%]="puckPos().left"
+    ></div>
   }
-  <div class="puck" [style.left.%]="puckPos().left" [style.top.%]="puckPos().top"></div>
+  <div
+    class="puck absolute w-[10px] h-[10px] rounded-full bg-white border-2 border-text-main -translate-x-1/2 -translate-y-1/2 pointer-events-none shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
+    [style.left.%]="puckPos().left"
+    [style.top.%]="puckPos().top"
+  ></div>
 </div>

@@ -21,7 +21,7 @@ export interface MuiSelectivePasteGroup {
   standalone: true,
   imports: [MuiButtonComponent, MuiCheckboxComponent, MuiOverlayShellComponent, MuiTextComponent],
   templateUrl: './mui-selective-paste-modal.component.html',
-  styleUrl: './mui-selective-paste-modal.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSelectivePasteModalComponent {

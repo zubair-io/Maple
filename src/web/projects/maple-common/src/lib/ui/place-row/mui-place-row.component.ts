@@ -14,7 +14,7 @@ import { InlineEditBase, commitEditDraft } from '../internal/edit-in-place';
   standalone: true,
   imports: [MuiButtonComponent, MuiInputComponent, MuiTextComponent],
   templateUrl: './mui-place-row.component.html',
-  styleUrl: './mui-place-row.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiPlaceRowComponent extends InlineEditBase {

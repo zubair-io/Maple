@@ -4,9 +4,9 @@
        comment. -->
   <mui-rating-flags-display [rating]="rating()" [flag]="flag()" [max]="max()" />
 } @else {
-  <div class="mui-rating-flags" [class.is-disabled]="disabled()">
+  <div [class]="rootClasses()">
     <div
-      class="stars"
+      class="stars flex items-center gap-[2px] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
       role="slider"
       tabindex="0"
       [attr.aria-label]="'Rating'"
@@ -18,7 +18,7 @@
       @for (star of stars(); track star) {
         <button
           type="button"
-          class="star"
+          class="star inline-flex cursor-pointer items-center justify-center border-none bg-transparent p-[2px] leading-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           [attr.aria-label]="star + ' star' + (star > 1 ? 's' : '')"
           (click)="setRating(star)"
         >

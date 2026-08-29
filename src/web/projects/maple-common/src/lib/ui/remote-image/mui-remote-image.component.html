@@ -1,21 +1,29 @@
-<div class="mui-remote-image">
+<div class="relative h-full w-full overflow-hidden bg-surface-alt">
   @if (displaySrc(); as src) {
-    <img
-      class="pixels"
-      [class]="'fit-' + fit() + ' tier-' + displayTier()"
-      [src]="src"
-      [alt]="alt()"
-    />
+    <img [class]="pixelsClasses()" [src]="src" [alt]="alt()" />
   }
   @if (status() === 'loading' && !displaySrc()) {
-    <div class="overlay loading" aria-hidden="true">
-      <span class="spinner"></span>
+    <div
+      class="overlay loading absolute inset-0 flex flex-col items-center justify-center gap-2 text-[12px] text-text-muted"
+      aria-hidden="true"
+    >
+      <span
+        class="spinner h-5 w-5 rounded-full border-2 border-border border-t-primary [animation:mui-remote-image-spin_800ms_linear_infinite]"
+      ></span>
     </div>
   }
   @if (status() === 'error') {
-    <div class="overlay error">
+    <div
+      class="overlay error absolute inset-0 flex flex-col items-center justify-center gap-2 text-[12px] text-text-muted"
+    >
       <span class="message">Couldn't load image</span>
-      <button type="button" class="retry" (click)="retry()">Retry</button>
+      <button
+        type="button"
+        class="retry cursor-pointer rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-text-main hover:bg-surface-hover"
+        (click)="retry()"
+      >
+        Retry
+      </button>
     </div>
   }
 </div>

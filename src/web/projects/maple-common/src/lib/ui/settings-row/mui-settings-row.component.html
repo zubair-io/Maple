@@ -11,10 +11,10 @@
   <ng-content />
 </ng-template>
 
-<div class="mui-settings-row">
-  <div class="row-header">
+<div class="mui-settings-row flex flex-col py-2">
+  <div class="row-header flex items-start gap-2">
     @if (customSummary()) {
-      <div class="custom-summary">
+      <div class="custom-summary flex-1 min-w-0">
         <!-- Not a `role="button"` wrapper — the projected [summary] slot
              routinely contains real interactive controls (e.g. a "Run now"
              button), and nesting interactive elements inside an ARIA
@@ -23,28 +23,25 @@
              here is pointer-only convenience (guarded so a click that lands
              on a nested control activates that control, not the row); the
              keyboard/AT path is exclusively the real `<button>` below. -->
-        <div class="header" (click)="onSummaryClick($event)">
+        <div
+          class="header flex w-full items-center gap-2 cursor-pointer"
+          (click)="onSummaryClick($event)"
+        >
           <button
             type="button"
-            class="chevron-toggle"
+            class="chevron-toggle inline-flex items-center flex-none border-0 bg-transparent p-0 font-[inherit] text-inherit cursor-pointer"
             [attr.aria-expanded]="open() ? 'true' : 'false'"
             [attr.aria-label]="label()"
             [attr.aria-controls]="contentId"
             (click)="toggle()"
           >
-            <mui-icon
-              name="chevron-right"
-              size="sm"
-              class="chevron"
-              [class.open]="open()"
-              [decorative]="true"
-            />
+            <mui-icon name="chevron-right" size="sm" [class]="chevronClass()" [decorative]="true" />
           </button>
-          <div class="summary-content"><ng-content select="[summary]" /></div>
+          <div class="summary-content flex-1 min-w-0"><ng-content select="[summary]" /></div>
         </div>
-        <div class="content-wrapper" [class.open]="open()" [id]="contentId">
-          <div class="content-inner">
-            <div class="body">
+        <div [class]="wrapperClass()" [id]="contentId">
+          <div class="content-inner overflow-hidden min-h-0">
+            <div class="body flex flex-col gap-1 pt-1">
               <ng-container [ngTemplateOutlet]="bodyContent" />
             </div>
           </div>
@@ -52,10 +49,14 @@
       </div>
     } @else {
       @if (icon()) {
-        <mui-icon [name]="icon()!" size="sm" class="leading-icon" />
+        <mui-icon
+          [name]="icon()!"
+          size="sm"
+          class="leading-icon flex-none text-text-muted mt-[2px]"
+        />
       }
-      <mui-collapsible [label]="label()" [(open)]="open" class="collapsible">
-        <div class="body">
+      <mui-collapsible [label]="label()" [(open)]="open" class="collapsible flex-1 min-w-0">
+        <div class="body flex flex-col gap-1 pt-1">
           <ng-container [ngTemplateOutlet]="bodyContent" />
         </div>
       </mui-collapsible>

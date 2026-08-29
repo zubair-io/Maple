@@ -3,14 +3,22 @@
      specifically so a caller can nest it inside its own `role="button"`
      root (e.g. a grid-cell thumbnail) without creating an invalid
      nested-interactive element. -->
-<div class="mui-rating-flags-display">
+<div class="mui-rating-flags-display flex items-end justify-between gap-[4px]">
   @if (flag() === 'pick') {
-    <span class="flag-chip pick">PICK</span>
+    <span
+      class="flag-chip pick rounded-[3px] bg-success-bg px-[4px] py-[2px] text-[9px] font-semibold tracking-[0.3px] text-success-text [backdrop-filter:blur(4px)]"
+      >PICK</span
+    >
   } @else if (flag() === 'reject') {
-    <span class="flag-chip reject">REJECT</span>
+    <span
+      class="flag-chip reject rounded-[3px] bg-error-bg px-[4px] py-[2px] text-[9px] font-semibold tracking-[0.3px] text-error-text [backdrop-filter:blur(4px)]"
+      >REJECT</span
+    >
   }
   @if (rating() > 0) {
-    <div class="star-row">
+    <div
+      class="star-row flex gap-[1px] rounded-[3px] bg-[rgba(0,0,0,0.45)] px-[4px] py-[2px] [backdrop-filter:blur(4px)]"
+    >
       @for (star of stars(); track star) {
         <maple-icon
           [name]="star <= rating() ? 'star-filled' : 'star'"

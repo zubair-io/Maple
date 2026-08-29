@@ -1,15 +1,13 @@
-<div class="mui-settings-section">
-  <mui-text variant="sheet-title" [block]="true" class="title">{{ title() }}</mui-text>
+<div class="flex flex-col gap-2">
+  <mui-text variant="sheet-title" [block]="true" class="title text-text-main">{{
+    title()
+  }}</mui-text>
 
   @if (banner(); as sectionBanner) {
-    <mui-banner
-      [variant]="sectionBanner.variant"
-      [message]="sectionBanner.message"
-      class="banner"
-    />
+    <mui-banner [variant]="sectionBanner.variant" [message]="sectionBanner.message" class="mb-1" />
   }
 
-  <div class="rows">
+  <div class="flex flex-col overflow-hidden rounded-lg border border-border bg-surface px-4">
     @for (row of displayRows(); track row.raw.id; let last = $last) {
       @if (row.kind === 'navigate') {
         <mui-list-row

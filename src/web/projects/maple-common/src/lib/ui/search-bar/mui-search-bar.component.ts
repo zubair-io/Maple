@@ -13,7 +13,7 @@ import type { MapleIconName } from '../icon/mui-icon.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiInputComponent],
   templateUrl: './mui-search-bar.component.html',
-  styleUrl: './mui-search-bar.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSearchBarComponent {

@@ -1,7 +1,7 @@
-<div class="header">
+<div class="header mb-2 flex items-center gap-2">
   <mui-text variant="tool-label" color="muted">{{ totalCount() }} results</mui-text>
   @if (loading()) {
-    <mui-progress shape="bar" size="sm" [value]="null" />
+    <mui-progress class="max-w-[160px] flex-1" shape="bar" size="sm" [value]="null" />
   }
 </div>
 
@@ -21,7 +21,7 @@
 }
 
 @if (pageCount() > 1) {
-  <div class="pager">
+  <div class="pager mt-4 flex items-center justify-center gap-4">
     <mui-button
       variant="ghost"
       size="sm"

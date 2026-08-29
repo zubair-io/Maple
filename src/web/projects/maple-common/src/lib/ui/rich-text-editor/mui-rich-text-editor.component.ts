@@ -98,6 +98,7 @@ export function parseBlocks(html: string): readonly RteBlock[] {
   imports: [MuiBubbleMenuComponent, MuiCommandMenuComponent, MuiCodeBlockComponent],
   templateUrl: './mui-rich-text-editor.component.html',
   styleUrl: './mui-rich-text-editor.component.scss',
+  host: { class: 'relative flex flex-col gap-4' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiRichTextEditorComponent {

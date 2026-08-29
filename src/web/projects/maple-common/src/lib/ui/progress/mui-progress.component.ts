@@ -16,6 +16,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
   standalone: true,
   templateUrl: './mui-progress.component.html',
   styleUrl: './mui-progress.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiProgressComponent {
@@ -39,5 +40,28 @@ export class MuiProgressComponent {
     const value = this.clampedValue();
     if (value === null) return 0;
     return RING_CIRCUMFERENCE * (1 - value / 100);
+  });
+
+  readonly rootClasses = computed(
+    () => `mui-progress flex items-center gap-2 shape-${this.shape()} size-${this.size()}`,
+  );
+
+  readonly trackClasses = computed(
+    () =>
+      `bar-track flex-1 overflow-hidden rounded-full bg-surface ${this.size() === 'sm' ? 'h-1' : 'h-2'}`,
+  );
+
+  readonly fillClasses = computed(() =>
+    this.isIndeterminate()
+      ? 'bar-fill indeterminate h-full w-[40%] rounded-full bg-primary [animation:mui-progress-slide_1.2s_ease-in-out_infinite]'
+      : 'bar-fill h-full rounded-full bg-primary transition-[width_200ms_ease]',
+  );
+
+  readonly ringClasses = computed(() => {
+    const size = this.size() === 'sm' ? 'h-6 w-6' : 'h-9 w-9';
+    const spin = this.isIndeterminate()
+      ? ' indeterminate [animation:mui-progress-spin_1s_linear_infinite]'
+      : '';
+    return `ring -rotate-90 ${size}${spin}`;
   });
 }
