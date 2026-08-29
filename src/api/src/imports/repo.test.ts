@@ -164,6 +164,39 @@ describe('imports.repo', () => {
     expect(back.map((f) => f.idx)).toEqual(Array.from({ length: 2_000 }, (_, i) => i));
   });
 
+  it('setImportFiles resets the per-file counter along with the file rows', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+
+    // A first attempt that got part-way through a big folder.
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [file('a.dng'), file('b.dng'), file('c.dng')],
+    });
+    await repo.updateImportProgress(
+      created._id,
+      {
+        index: 0,
+        state: 'copied',
+        error: null,
+        destRel: '2026/01/a.dng',
+        current: 2,
+        counts: { copied: 2, skipped: 0, failed: 0 },
+      },
+      60_000,
+    );
+
+    // The retry re-scans and finds fewer files. `current` must come back to 0
+    // with the new file rows: left at 2 against a total of 1, the UI would
+    // render a 200% completion rate for work this run has not done.
+    await repo.setImportFiles(created._id, [file('only.dng')], 60_000);
+
+    const doc = await db!.collection('imports').findOne({ _id: created._id });
+    expect(doc!.progress).toEqual({ current: 0, total: 1 });
+  });
+
   it('getImportFiles hydrates a legacy inline-files import into import_files on first read', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');

@@ -15,6 +15,7 @@ import {
   type ImportView,
   errorMessage,
 } from '@maple-common';
+import { importPercent } from '../imports/import-progress.vm';
 
 const POLL_MS = 4000;
 /** Cap the inline file list so a huge import can't render tens of thousands
@@ -120,9 +121,11 @@ export class ImportsPanelService {
     return i >= 0 ? t.slice(i + 1) || '/' : t;
   }
 
+  /** Completion rate for the row's progress text. Shares its definition with
+   * the `/settings/imports` progress bar so the two surfaces can't disagree
+   * about how far along the same job is. */
   percent(j: ImportSummary): number {
-    if (j.progress.total === 0) return 0;
-    return Math.round((j.progress.current / j.progress.total) * 100);
+    return importPercent(j);
   }
 
   active(j: ImportSummary): boolean {
