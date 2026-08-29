@@ -1,4 +1,4 @@
-<div class="mui-description-field">
+<div class="mui-description-field flex flex-col gap-1">
   @if (editing()) {
     <mui-input
       [value]="draft()"
@@ -8,14 +8,18 @@
       (focusout)="commit()"
     />
   } @else {
-    <button type="button" class="display" (click)="startEditing()">
+    <button
+      type="button"
+      class="display -mx-2 -my-1 block w-full cursor-text rounded-md border border-transparent bg-transparent px-2 py-1 text-left hover:border-border hover:bg-surface-hover"
+      (click)="startEditing()"
+    >
       <mui-text variant="body" color="muted" [block]="true">
         {{ value() || placeholder() }}
       </mui-text>
     </button>
   }
   <mui-button
-    class="regenerate"
+    class="regenerate self-start"
     variant="ghost"
     size="sm"
     iconLeading="smart-source-wand"

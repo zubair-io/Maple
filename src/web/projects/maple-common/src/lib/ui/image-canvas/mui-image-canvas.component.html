@@ -1,11 +1,11 @@
 @if (!showCanvas()) {
   <mui-preview-image [src]="activeSrc() || ''" alt="Image preview" fit="fit" />
 } @else {
-  <div class="canvas-host" #canvasHost>
+  <div class="canvas-host relative h-full w-full" #canvasHost>
     <mui-canvas-surface [contentAspect]="contentAspect()" (canvasReady)="onCanvasReady($event)" />
     @if (cropMode()) {
       <mui-crop-overlay
-        class="crop-overlay"
+        class="crop-overlay absolute"
         [style.left.px]="canvasOffset().left"
         [style.top.px]="canvasOffset().top"
         [containerSize]="containerSize()"

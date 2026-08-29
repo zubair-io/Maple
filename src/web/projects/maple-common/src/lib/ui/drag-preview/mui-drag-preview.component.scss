@@ -1,31 +1,10 @@
-@use '../../generated/ui-tokens' as tok;
-
+// Residue: :host's pointer-events: none must be real, verifiable CSS —
+// mui-drag-preview.component.spec.ts asserts getComputedStyle(host)
+// .pointerEvents via a real stylesheet. Component-scoped styleUrl CSS is
+// bundled into the Angular component test; global Tailwind utility CSS
+// (bg-*, pointer-events-none as a *class*) is not loaded by the unit-test
+// builder, so this one rule stays real CSS rather than a utility class.
 :host {
   display: inline-block;
-  // Dragged ghosts are click-through, matching real drag-image behavior —
-  // they trail the cursor and must never intercept the drop target's own
-  // pointer events.
   pointer-events: none;
-}
-
-.mui-drag-preview {
-  position: relative;
-  width: 64px;
-  height: 48px;
-  transform: rotate(-4deg);
-  opacity: 0.85;
-}
-
-.card {
-  width: 100%;
-  height: 100%;
-  border-radius: tok.$maple-radius-md;
-  overflow: hidden;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
-}
-
-.count-badge {
-  position: absolute;
-  top: -8px;
-  right: -8px;
 }

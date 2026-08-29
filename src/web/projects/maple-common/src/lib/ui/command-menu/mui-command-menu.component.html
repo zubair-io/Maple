@@ -1,6 +1,9 @@
 <mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
-  <div class="mui-command-menu" (keydown)="onKeydown($event)">
-    <div class="search-row">
+  <div
+    class="mui-command-menu flex min-w-[260px] max-h-[280px] flex-col"
+    (keydown)="onKeydown($event)"
+  >
+    <div class="search-row border-b border-border p-2">
       <mui-input
         variant="search"
         [value]="query()"
@@ -9,9 +12,9 @@
         ariaLabel="Command search"
       />
     </div>
-    <div class="results" role="listbox">
+    <div class="results flex flex-col gap-[2px] overflow-y-auto p-1" role="listbox">
       @if (filtered().length === 0) {
-        <mui-text variant="body" color="muted" [block]="true" class="empty">
+        <mui-text variant="body" color="muted" [block]="true" class="empty p-2">
           No matching commands
         </mui-text>
       }
@@ -19,8 +22,9 @@
         <button
           type="button"
           role="option"
-          class="item mui-chrome-menu-item-base"
+          class="item mui-chrome-menu-item-base hover:bg-bg-hover"
           [class.active]="clampedActiveIndex() === i"
+          [class.bg-bg-hover]="clampedActiveIndex() === i"
           [attr.aria-selected]="clampedActiveIndex() === i"
           (click)="selectItem(command)"
           (mouseenter)="activeIndex.set(i)"
@@ -30,7 +34,7 @@
           }
           <mui-text variant="body">{{ command.label }}</mui-text>
           @if (command.shortcut) {
-            <span class="shortcut">{{ command.shortcut }}</span>
+            <span class="shortcut ml-auto text-[11px] text-text-muted">{{ command.shortcut }}</span>
           }
         </button>
       }

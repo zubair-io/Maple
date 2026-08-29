@@ -1,8 +1,11 @@
 @if (open()) {
-  <div class="mui-dialog-scrim" (click)="onScrimClick()">
+  <div
+    class="mui-dialog-scrim pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center bg-[rgba(0,0,0,0.5)]"
+    (click)="onScrimClick()"
+  >
     <div
       #panel
-      class="mui-dialog"
+      class="mui-dialog flex w-[min(360px,calc(100vw-48px))] flex-col gap-2 rounded-lg border border-border bg-surface p-6 shadow-[0_12px_28px_rgba(0,0,0,0.35)] outline-none"
       [attr.role]="role()"
       aria-modal="true"
       [attr.aria-label]="resolvedAriaLabel()"
@@ -11,7 +14,7 @@
     >
       <mui-text variant="row-label" [block]="true">{{ title() }}</mui-text>
       @if (message()) {
-        <mui-text variant="body" color="muted" [block]="true" class="message">
+        <mui-text variant="body" color="muted" [block]="true" class="message -mt-1">
           {{ message() }}
         </mui-text>
       }
@@ -29,7 +32,7 @@
           (committed)="promptValue.set($event)"
         />
       }
-      <div class="actions">
+      <div class="actions mt-1 flex justify-end gap-1">
         <mui-button #cancelBtn variant="ghost" [disabled]="busy()" (pressed)="cancel()">
           {{ cancelLabel() }}
         </mui-button>

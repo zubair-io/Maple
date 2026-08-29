@@ -1,13 +1,13 @@
-<div class="mui-crop-toolbar">
+<div class="mui-crop-toolbar flex flex-wrap items-center gap-4 rounded-lg bg-surface py-2 px-4">
   <mui-chip-row
-    class="presets"
+    class="presets flex-none"
     [chips]="aspectChips()"
     mode="select"
     [selectedId]="aspect()"
     (selectedIdChange)="onAspectChange($event)"
   />
   <mui-drag-bar
-    class="straighten"
+    class="straighten min-w-[120px] flex-[1_1_160px]"
     label="Straighten"
     [value]="angle()"
     (valueChange)="onAngleChange($event)"

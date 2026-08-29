@@ -13,8 +13,8 @@ import { MuiTextComponent } from '../text/mui-text.component';
   standalone: true,
   imports: [MuiButtonComponent, MuiIconComponent, MuiTextComponent],
   templateUrl: './mui-empty-state.component.html',
-  styleUrl: './mui-empty-state.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiEmptyStateComponent {
   readonly icon = input.required<MapleIconName>();

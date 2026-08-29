@@ -26,8 +26,8 @@ export interface MuiFilmLook {
     MuiLivingSliderComponent,
   ],
   templateUrl: './mui-film-panel.component.html',
-  styleUrl: './mui-film-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiFilmPanelComponent {
   /** Empty means "show all looks, no category filter row". */

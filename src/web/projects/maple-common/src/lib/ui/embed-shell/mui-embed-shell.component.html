@@ -1,7 +1,9 @@
-<div class="mui-embed-shell">
+<div
+  class="mui-embed-shell flex flex-col overflow-hidden rounded-lg border border-border bg-surface"
+>
   <mui-page-header [title]="title()" [showBack]="showBack()" (back)="back.emit()" />
   @if (statusIcon()) {
-    <div class="status">
+    <div class="status flex items-center gap-1 px-4 pb-1 text-[11px] font-bold text-text-muted">
       <mui-icon [name]="statusIcon()!" size="sm" color="var(--color-primary)" />
       @if (statusLabel()) {
         <span class="status-label">{{ statusLabel() }}</span>
@@ -11,7 +13,7 @@
   @if (loading()) {
     <mui-progress shape="bar" size="sm" [value]="null" />
   }
-  <div class="body">
+  <div class="body p-4">
     <ng-content />
   </div>
 </div>

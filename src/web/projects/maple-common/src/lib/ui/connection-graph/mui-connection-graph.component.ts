@@ -34,8 +34,8 @@ interface NodePoint {
   selector: 'mui-connection-graph',
   standalone: true,
   templateUrl: './mui-connection-graph.component.html',
-  styleUrl: './mui-connection-graph.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
 })
 export class MuiConnectionGraphComponent extends SizedCanvasPlotBase {
   readonly nodes = input.required<readonly MuiConnectionGraphNode[]>();
