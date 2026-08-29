@@ -42,7 +42,7 @@ interface DropStatus {
   standalone: true,
   imports: [MuiButtonComponent],
   templateUrl: './drop-zone.component.html',
-  styleUrl: './drop-zone.component.scss',
+  host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DropZoneComponent {

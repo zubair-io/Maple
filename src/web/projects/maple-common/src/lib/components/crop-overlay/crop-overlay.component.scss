@@ -1,16 +1,6 @@
-:host {
-  position: absolute;
-  inset: 0;
-  z-index: 8; // above the canvas + before/after divider, below decode overlays
-  touch-action: none;
-}
-
-.crop-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
+// crop-overlay.component.scss — residue only (Tailwind port #3071 Task 9).
+// SVG child styling (fill/stroke geometry) has no clean Tailwind utility
+// equivalent — an explicitly allowed residue category (constraints.md).
 .crop-mask {
   fill: rgb(0 0 0 / 55%);
 }
