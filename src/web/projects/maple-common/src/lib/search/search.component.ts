@@ -95,10 +95,20 @@ export type SearchSortOrder = 'captured_desc' | 'captured_asc';
     RecentQueriesComponent,
   ],
   templateUrl: './search.component.html',
-  styleUrl: './search.component.scss',
+  host: { class: 'block h-full bg-bg text-text-main' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchComponent implements OnInit, AfterViewInit {
+  /** Mutually-exclusive display pair for the filter host's mobile bottom-
+   * sheet vs desktop docked-column presentation (Tailwind port #3071) —
+   * `display` used to be `none` by default and flipped by `.open` below
+   * 1024px (always visible at ≥1024px); folded into one computed string
+   * rather than a base class plus a conditional add-on. */
+  protected filterHostClass(open: boolean): string {
+    const base =
+      'fixed inset-x-0 bottom-0 z-[41] h-[78%] w-auto overflow-hidden rounded-t-2xl shadow-[0_-8px_32px_rgba(0,0,0,0.4)] lg:static lg:z-auto lg:h-auto lg:w-[320px] lg:shrink-0 lg:min-h-0 lg:overflow-visible lg:rounded-none lg:border-l lg:border-border lg:shadow-none';
+    return open ? `${base} flex` : `${base} hidden lg:flex`;
+  }
   /** When true, focus the search bar on init (phone tab activation, the
    * drawer search pill's `autoFocus=1` deep link). */
   readonly autoFocus = input<boolean>(false);
