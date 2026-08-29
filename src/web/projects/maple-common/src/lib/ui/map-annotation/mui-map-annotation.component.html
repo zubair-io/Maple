@@ -1,6 +1,10 @@
-<div class="mui-map-annotation">
-  <div class="pin-outer">
-    <div class="pin-inner">
+<div class="mui-map-annotation flex flex-col items-center gap-1">
+  <div
+    class="pin-outer relative flex h-8 w-8 -rotate-45 items-center justify-center rounded-[50%_50%_50%_0] bg-primary"
+  >
+    <div
+      class="pin-inner flex h-6 w-6 rotate-45 items-center justify-center overflow-hidden rounded-full bg-surface-alt text-text-main"
+    >
       @if (src()) {
         <mui-image [src]="src()!" [alt]="label() ?? 'Location photo'" fit="fill" radius="none" />
       } @else {
@@ -8,7 +12,7 @@
       }
     </div>
     @if (count() !== null && count()! > 0) {
-      <div class="count-badge">
+      <div class="count-badge absolute top-[-8px] right-[-8px] rotate-45">
         <mui-badge
           variant="count"
           [value]="count()!"
@@ -19,6 +23,8 @@
     }
   </div>
   @if (label()) {
-    <mui-text variant="chip-label" color="muted" class="caption">{{ label() }}</mui-text>
+    <mui-text variant="chip-label" color="muted" class="caption max-w-24 text-center">{{
+      label()
+    }}</mui-text>
   }
 </div>
