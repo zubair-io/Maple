@@ -1,15 +1,22 @@
 @if (visible()) {
   <div
-    class="pano-backdrop"
+    class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55"
     role="dialog"
     aria-modal="true"
     aria-label="Merge to panorama"
     (click)="onBackdropClick()"
   >
-    <div class="pano-card" (click)="$event.stopPropagation()">
+    <div
+      class="flex w-full max-w-[480px] flex-col overflow-hidden rounded-lg border-[0.5px] border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
+      (click)="$event.stopPropagation()"
+    >
       <!-- Header -->
-      <div class="pano-header">
-        <span class="pano-title">Merge to panorama</span>
+      <div
+        class="flex shrink-0 items-center justify-between border-b-[0.5px] border-border px-4 py-[14px]"
+      >
+        <span class="text-[13px] font-semibold tracking-[-0.01em] text-text-main"
+          >Merge to panorama</span
+        >
         @if (phase() !== 'submitting' && phase() !== 'polling') {
           <mui-button
             variant="ghost"
@@ -24,20 +31,28 @@
 
       <!-- Loading config -->
       @if (phase() === 'loading-config') {
-        <div class="pano-body pano-center">
-          <span class="pano-muted">Loading configuration…</span>
+        <div
+          class="flex max-h-[60vh] min-h-[80px] flex-col items-center justify-center gap-3.5 overflow-y-auto p-4"
+        >
+          <span class="text-text-muted">Loading configuration…</span>
         </div>
       }
 
       <!-- Options form -->
       @if (phase() === 'options') {
-        <div class="pano-body">
-          <p class="pano-summary">Stitch {{ assetCount() }} frames into one panorama.</p>
+        <div class="flex max-h-[60vh] flex-col gap-3.5 overflow-y-auto p-4">
+          <p class="m-0 text-[12px] text-text-main">
+            Stitch {{ assetCount() }} frames into one panorama.
+          </p>
 
           <!-- Retention -->
-          <div class="pano-field">
-            <label class="pano-label" for="pano-retention">Frame retention</label>
-            <p class="pano-hint">
+          <div class="flex flex-col gap-1">
+            <label
+              class="text-[11px] font-semibold tracking-[0.02em] text-text-main uppercase"
+              for="pano-retention"
+              >Frame retention</label
+            >
+            <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
               <strong>Keep</strong> — frames with a solid geometric core stay in the stitch even if
               parts are in motion. Best for most shots. <strong>Strict</strong> — any frame failing
               the residual budget is dropped outright. Use when motion-smear matters more than
@@ -45,7 +60,7 @@
             </p>
             <select
               id="pano-retention"
-              class="pano-select"
+              class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none focus:border-[color:var(--color-accent,#0066cc)]"
               [value]="retention()"
               (change)="retention.set($any($event.target).value)"
             >
@@ -55,9 +70,13 @@
           </div>
 
           <!-- Local alignment -->
-          <div class="pano-field">
-            <label class="pano-label" for="pano-local-align">Local alignment</label>
-            <p class="pano-hint">
+          <div class="flex flex-col gap-1">
+            <label
+              class="text-[11px] font-semibold tracking-[0.02em] text-text-main uppercase"
+              for="pano-local-align"
+              >Local alignment</label
+            >
+            <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
               <strong>Mesh</strong> — a bilinear warp grid absorbs parallax and lens-distortion
               residuals at seams. Recommended for hand-held and wide-angle shots.
               <strong>Off</strong> — pure rotational geometry only; faster but more visible seams
@@ -65,7 +84,7 @@
             </p>
             <select
               id="pano-local-align"
-              class="pano-select"
+              class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none focus:border-[color:var(--color-accent,#0066cc)]"
               [value]="localAlign()"
               (change)="localAlign.set($any($event.target).value)"
             >
@@ -76,16 +95,20 @@
 
           <!-- Strategy — only when strategySupported -->
           @if (strategySupported()) {
-            <div class="pano-field">
-              <label class="pano-label" for="pano-strategy">Projection strategy</label>
-              <p class="pano-hint">
+            <div class="flex flex-col gap-1">
+              <label
+                class="text-[11px] font-semibold tracking-[0.02em] text-text-main uppercase"
+                for="pano-strategy"
+                >Projection strategy</label
+              >
+              <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
                 <strong>Auto</strong> — the pipeline picks the best projection for the field of
                 view. <strong>Rotation</strong> — spherical / equirectangular, ideal for tripod 360°
                 pans. <strong>Tile</strong> — flat-plane mosaic for aerial grids and macro stacks.
               </p>
               <select
                 id="pano-strategy"
-                class="pano-select"
+                class="h-[30px] cursor-pointer appearance-auto rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-none focus:border-[color:var(--color-accent,#0066cc)]"
                 [value]="strategy()"
                 (change)="strategy.set($any($event.target).value)"
               >
@@ -97,7 +120,9 @@
           }
         </div>
 
-        <div class="pano-footer">
+        <div
+          class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+        >
           <mui-button variant="ghost" (pressed)="onCancel()">Cancel</mui-button>
           <mui-button variant="primary" (pressed)="onSubmit()">Stitch</mui-button>
         </div>
@@ -105,41 +130,55 @@
 
       <!-- Submitting -->
       @if (phase() === 'submitting') {
-        <div class="pano-body pano-center">
-          <span class="pano-muted">Queuing job…</span>
+        <div
+          class="flex max-h-[60vh] min-h-[80px] flex-col items-center justify-center gap-3.5 overflow-y-auto p-4"
+        >
+          <span class="text-text-muted">Queuing job…</span>
         </div>
       }
 
       <!-- Polling / in progress -->
       @if (phase() === 'polling') {
-        <div class="pano-body">
-          <p class="pano-summary">{{ progressLabel() }}</p>
-          <div class="pano-progress-track" role="progressbar" [attr.aria-label]="progressLabel()">
+        <div class="flex max-h-[60vh] flex-col gap-3.5 overflow-y-auto p-4">
+          <p class="m-0 text-[12px] text-text-main">{{ progressLabel() }}</p>
+          <div
+            class="relative h-1 overflow-hidden rounded-sm bg-border"
+            role="progressbar"
+            [attr.aria-label]="progressLabel()"
+          >
             @let j = job();
             @if (j && j.progress.total > 0) {
               <div
-                class="pano-progress-fill"
+                class="h-full rounded-sm bg-[color:var(--color-accent,#0066cc)] transition-[width] duration-[400ms] ease-in-out"
                 [style.width.%]="(j.progress.current / j.progress.total) * 100"
               ></div>
             } @else {
-              <div class="pano-progress-fill pano-progress-indeterminate"></div>
+              <div
+                class="h-full w-[40%] animate-[pano-slide_1.4s_ease-in-out_infinite] rounded-sm bg-[color:var(--color-accent,#0066cc)]"
+              ></div>
             }
           </div>
-          <p class="pano-hint pano-muted">
+          <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
             Panorama stitching takes several minutes for full-resolution frames.
           </p>
         </div>
-        <div class="pano-footer">
+        <div
+          class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+        >
           <mui-button variant="ghost" (pressed)="onCancel()">Cancel job</mui-button>
         </div>
       }
 
       <!-- Done -->
       @if (phase() === 'done') {
-        <div class="pano-body pano-center">
-          <p class="pano-summary">Panorama ready.</p>
+        <div
+          class="flex max-h-[60vh] min-h-[80px] flex-col items-center justify-center gap-3.5 overflow-y-auto p-4"
+        >
+          <p class="m-0 text-[12px] text-text-main">Panorama ready.</p>
         </div>
-        <div class="pano-footer">
+        <div
+          class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+        >
           <mui-button variant="ghost" (pressed)="onClose()">Close</mui-button>
           @if (job()?.result?.outputAssetId) {
             <mui-button variant="primary" (pressed)="onViewResult()">Open in editor</mui-button>
@@ -149,18 +188,24 @@
 
       <!-- Error -->
       @if (phase() === 'error') {
-        <div class="pano-body">
-          <p class="pano-error-msg">{{ errorMessage() }}</p>
+        <div class="flex max-h-[60vh] flex-col gap-3.5 overflow-y-auto p-4">
+          <p class="m-0 text-[12px] leading-[1.5] text-[color:var(--color-error,#cc3333)]">
+            {{ errorMessage() }}
+          </p>
           @if (errorCode() === 'pano_not_provisioned') {
-            <p class="pano-hint pano-muted">
+            <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
               Go to <strong>Settings › Pano</strong> to configure the maple-cli path, models
               directory, and enable panorama stitching.
             </p>
           } @else {
-            <p class="pano-hint pano-muted">Check the server logs for details.</p>
+            <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
+              Check the server logs for details.
+            </p>
           }
         </div>
-        <div class="pano-footer">
+        <div
+          class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
+        >
           <mui-button variant="primary" (pressed)="onClose()">Close</mui-button>
         </div>
       }
