@@ -214,20 +214,27 @@ namespace Maple.WinUI.ViewModels
             _cloud?.Dispose();
             _cloud = new CloudClient(settings.CloudServerUrl!);
             HookTokenRotation(_cloud);
-            if (await _cloud.RestoreSessionAsync(refreshToken, CancellationToken.None))
+            switch (await _cloud.RestoreSessionAsync(refreshToken, CancellationToken.None))
             {
-                CloudStatus = $"Connected to {settings.CloudServerUrl}.";
-                await FinishConnectAsync();
-            }
-            else
-            {
-                // The stored token is dead (expired, or its rotation family was
-                // revoked). Drop it: keeping it means every later reconnect
-                // attempt replays a token the server already refuses, and a
-                // replay of a revoked token is itself what trips the server's
-                // reuse detection. Browser sign-in is the only way back.
-                AppSettings.Update(s => s.CloudRefreshTokenProtected = null);
-                CloudStatus = "Session expired — sign in again.";
+                case RefreshOutcome.Ok:
+                    CloudStatus = $"Connected to {settings.CloudServerUrl}.";
+                    await FinishConnectAsync();
+                    break;
+                case RefreshOutcome.Rejected:
+                    // The server refused the credential itself: expired, or its
+                    // rotation family was revoked. Drop it — keeping it means
+                    // every later reconnect replays a token the server already
+                    // refuses, and replaying a revoked token is itself what
+                    // trips reuse detection. Browser sign-in is the way back.
+                    AppSettings.Update(s => s.CloudRefreshTokenProtected = null);
+                    CloudStatus = "Session expired — sign in again.";
+                    break;
+                default:
+                    // Unreachable, rate-limited, or a server-side fault. The
+                    // token is untested, so it stays: a laptop opened offline,
+                    // or a server mid-deploy, must not cost the user a session.
+                    CloudStatus = "Couldn't reach the server — still signed in; retry from Connect.";
+                    break;
             }
         }
 
