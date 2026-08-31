@@ -319,12 +319,18 @@ namespace Maple.WinUI
             {
                 // Shared grid thumbnails live BESIDE the photos
                 // (`.maple\thumbs`, #3083) — one cache per folder, summed
-                // across every configured library root. Null = no roots
-                // configured, distinct from a measured 0 B.
+                // across every configured library root. A root whose probe
+                // returns null (missing/unreachable) is COUNTED separately
+                // rather than folded into the sum as 0, so an offline NAS
+                // reads as "not reachable", never as a misleading "0 B".
                 var libraryFolders = AppSettings.Load().LibraryFolders;
-                var libraryThumbs = libraryFolders.Count == 0
+                var measured = libraryFolders
+                    .Select(root => StorageReport.TryMapleThumbsSizeBytes(root))
+                    .ToList();
+                var libraryThumbs = measured.Count == 0
                     ? (long?)null
-                    : libraryFolders.Sum(root => StorageReport.TryMapleThumbsSizeBytes(root) ?? 0);
+                    : measured.Sum(bytes => bytes ?? 0);
+                var unreachableRoots = measured.Count(bytes => bytes == null);
                 var sizes = new[]
                 {
                     StorageReport.TryDirectorySizeBytes(Path.Combine(MapleAppData, "local-cache")),
@@ -335,14 +341,14 @@ namespace Maple.WinUI
                 try { if (File.Exists(logPath)) logSize = new FileInfo(logPath).Length; }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
 
-                queue.TryEnqueue(() =>
-                    section.Rows = BuildStorageRows(null, libraryThumbs, sizes[0], sizes[1], logSize));
+                queue.TryEnqueue(() => section.Rows = BuildStorageRows(
+                    null, libraryThumbs, unreachableRoots, sizes[0], sizes[1], logSize));
             });
         }
 
         private static IReadOnlyList<MuiSettingsSectionRow> BuildStorageRows(
-            string? pendingText, long? libraryThumbs = null, long? localCache = null,
-            long? cloud = null, long? log = null)
+            string? pendingText, long? libraryThumbs = null, int unreachableRoots = 0,
+            long? localCache = null, long? cloud = null, long? log = null)
         {
             // Null size = the probe couldn't measure (missing directory, or
             // unreadable/offline) — say so rather than claiming "empty";
@@ -351,10 +357,17 @@ namespace Maple.WinUI
                 ? $"{path} — {pendingText}"
                 : bytes is { } b ? $"{path} — {StorageReport.FormatBytes(b)}" : $"{path} — not present (or unreadable)";
 
+            // Same null/unknown discipline for the summed library row:
+            // `libraryThumbs` null = no roots configured; roots that
+            // couldn't be measured are named in the text, never silently
+            // included in the total as 0.
+            var unreachableSuffix = unreachableRoots > 0
+                ? $"; {unreachableRoots} library folder{(unreachableRoots == 1 ? "" : "s")} not reachable"
+                : " (shared with other Maple apps)";
             var libraryThumbsText = pendingText is not null
                 ? $@".maple\thumbs beside your photos — {pendingText}"
                 : libraryThumbs is { } bytes
-                    ? $@".maple\thumbs beside your photos — {StorageReport.FormatBytes(bytes)} (shared with other Maple apps)"
+                    ? $@".maple\thumbs beside your photos — {StorageReport.FormatBytes(bytes)}{unreachableSuffix}"
                     : "No library folders configured";
 
             return new[]
