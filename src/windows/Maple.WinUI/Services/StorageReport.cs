@@ -25,6 +25,37 @@ namespace Maple.WinUI.Services
             return $"{value / (1024.0 * 1024 * 1024):0.#} GB";
         }
 
+        /// <summary>Total size of every shared thumbnail cache
+        /// (`.maple\thumbs`, #3083) under <paramref name="libraryRoot"/> —
+        /// the caches live beside the photos, one per folder, so this walks
+        /// the tree for `.maple` directories and sums their `thumbs`
+        /// subdirectories. Null when the root itself is missing or cannot be
+        /// enumerated at all; inaccessible subtrees are skipped
+        /// (IgnoreInaccessible), matching
+        /// <see cref="TryDirectorySizeBytes"/>'s contract.</summary>
+        public static long? TryMapleThumbsSizeBytes(string libraryRoot)
+        {
+            try
+            {
+                if (!Directory.Exists(libraryRoot))
+                    return null;
+                var options = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                    AttributesToSkip = 0,
+                };
+                return new DirectoryInfo(libraryRoot)
+                    .EnumerateDirectories(".maple", options)
+                    .Sum(mapleDir =>
+                        TryDirectorySizeBytes(Path.Combine(mapleDir.FullName, "thumbs")) ?? 0);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
         /// <summary>Recursive size of a directory, or null when it does not
         /// exist or cannot be enumerated at all (network share offline, root
         /// access denied). Inaccessible subdirectories/files are skipped by

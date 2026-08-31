@@ -161,14 +161,14 @@
     `MuiDialogLogic.cs` already establishes above — so they link here
     without pulling in WinUI.
 
-    NOT linked: `Services\ThumbnailService.cs` (#2659's
-    `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
-    file itself is fine — the class it references transitively,
-    `Native\MapleGpuLiveParams.cs` -> `Maple.WinUI.Services.DecodedImage`,
-    is NOT WinUI-free like `RecycleBinService`'s shell32 call, and pulling
-    that whole graph in just for one hash helper isn't worth it). That test
-    reimplements `ThumbnailService.CachePathFor`'s hash formula inline
-    instead, with a comment pointing at the source of truth to catch drift.
+    NOT linked: `Services\ThumbnailService.cs` (the class it references
+    transitively, `Native\MapleGpuLiveParams.cs` ->
+    `Maple.WinUI.Services.DecodedImage`, is NOT WinUI-free like
+    `RecycleBinService`'s shell32 call, and pulling that whole graph in
+    isn't worth it). The shared `.maple\thumbs` path derivation the tests
+    DO need lives in `Services\ThumbCachePaths.cs` (#3083) — WinUI-free by
+    design, linked above, and referenced by the linked
+    `LocalFileOperations.cs` for its relocate-time cache cleanup.
 
     `MapleUI\Organisms\MuiCollectionGridSelection.cs`,
     `MuiKanbanBoardLogic.cs`, and `MuiSidebarFlatten.cs` (Maple.UI
@@ -225,6 +225,7 @@
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AppSettings.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\StorageReport.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ThumbCachePaths.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiTimestampFormatter.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiRemoteImageLoader.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiAvatarPalette.cs" LinkBase="MapleUI" />

@@ -5,8 +5,8 @@
 // to recognize it on the next scan is to remember what the folder looked
 // like the last time Maple scanned it and diff against that. This is that
 // memory: one small JSON snapshot per folder, keyed by a hash of the
-// folder's path (mirrors ThumbnailService.CachePathFor's
-// LocalApplicationData + SHA256-prefix scheme), holding just the cheap
+// folder's path (a LocalApplicationData + SHA256-prefix scheme like the
+// machine-local tier of ThumbnailService), holding just the cheap
 // fingerprint fields (size, EXIF capture time, camera serial) — never
 // pixels, never the sidecar contents.
 //

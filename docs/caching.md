@@ -63,6 +63,8 @@ ThumbnailLoader (actor)
 
 **SMB/PhotoKit:** Disk thumbnail cache is only used for local filesystem sources. SMB and PhotoKit sources generate thumbnails on demand.
 
+**Windows (WinUI):** since #3083 the Windows app reads/writes the same shared location — `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs` mirrors `MapleThumbCacheKey.swift` / `sha256Prefix16`, pinned by the #2254 cross-platform hash vectors, and the grid tier renders via `maple_render_thumbnail_avif_to_file` at the #2690 write contract (512px, AVIF q55). An unwritable photo folder (read-only media/share) falls back to a machine-local cache at `%LOCALAPPDATA%\Maple\local-cache`, which also holds the Windows-only 2560px embedded-preview tier (no cross-app contract; 30-day age sweep). Relocates reclaim the old location's entry in `LocalFileOperations.FinalizeRelocate` — the Apple `invalidateDerivedCaches` semantics.
+
 ---
 
 ## 3. Rendered Preview Disk Cache
