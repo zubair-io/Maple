@@ -180,10 +180,16 @@ namespace Maple.WinUI.Services.Cloud
             {
                 refresh = await _http.PostAsync("api/auth/refresh", payload, ct);
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex) when (
+                ex is HttpRequestException
+                || (ex is TaskCanceledException && !ct.IsCancellationRequested))
             {
                 // Offline, DNS failure, server down — the stored credential
-                // says nothing about any of these.
+                // says nothing about any of these. A TaskCanceledException
+                // with the caller's token unsignalled is HttpClient's own
+                // 30s timeout (a hung or very slow server), which is just as
+                // transient; a signalled token is real cancellation and is
+                // left to propagate.
                 DiagLog.Write($"[cloud] refresh unreachable: {ex.Message}");
                 return RefreshOutcome.Transient;
             }
@@ -229,13 +235,28 @@ namespace Maple.WinUI.Services.Cloud
         /// tree Finder does. Pass the previous page's NextCursor to continue a
         /// large directory; omitting both cursor and limit asks for the whole
         /// listing in one shot (the server's historical default).</summary>
-        public Task<CloudDirListing?> ListDirAsync(
+        public async Task<CloudDirListing?> ListDirAsync(
             string absPath, string? cursor, int limit, CancellationToken ct)
         {
             var query = $"api/fs/dir?path={Uri.EscapeDataString(absPath)}&limit={limit}";
             if (!string.IsNullOrEmpty(cursor))
                 query += $"&cursor={Uri.EscapeDataString(cursor)}";
-            return GetJsonAsync<CloudDirListing>(query, ct);
+            try
+            {
+                return await GetJsonAsync<CloudDirListing>(query, ct);
+            }
+            catch (Exception ex) when (
+                ex is HttpRequestException
+                || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+            {
+                // Browsing runs from `async void` UI handlers, where an escaped
+                // transport exception takes the process down. A dropped link
+                // or a hung server is an ordinary thing for a network browser
+                // to meet, so it joins the failure the callers already handle:
+                // null, logged, surfaced in the status line.
+                DiagLog.Write($"[cloud] dir unreachable for {absPath}: {ex.Message}");
+                return null;
+            }
         }
 
         // --- Images (AVIF, disk-cached) ---

@@ -70,13 +70,24 @@ namespace Maple.WinUI.ViewModels
             node.ChildrenLoaded = true;
             _ = Task.Run(async () =>
             {
-                var children = await ListCloudChildFolderNodesAsync(node, CancellationToken.None);
-                App.MainDispatcherQueue?.TryEnqueue(() =>
+                // Nothing awaits this task, so an exception escaping it would
+                // be an unobserved one — invisible until it surfaces somewhere
+                // unrelated. Expansion is best-effort by design: the row
+                // collapses to a leaf and the reason goes to the log.
+                try
                 {
-                    node.Children.Clear();
-                    foreach (var child in children)
-                        node.Children.Add(child);
-                });
+                    var children = await ListCloudChildFolderNodesAsync(node, CancellationToken.None);
+                    App.MainDispatcherQueue?.TryEnqueue(() =>
+                    {
+                        node.Children.Clear();
+                        foreach (var child in children)
+                            node.Children.Add(child);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    DiagLog.Write($"[cloud] expanding {node.Path} failed: {ex.Message}");
+                }
             });
         }
 
@@ -249,7 +260,12 @@ namespace Maple.WinUI.ViewModels
         /// picture (an address-keyed thumb needs an indexed asset).</summary>
         private async Task HydrateCloudThumbnailsAsync(List<PhotoItem> items, CancellationToken ct)
         {
-            var gate = new SemaphoreSlim(4);
+            // Disposed only after WhenAll: every task that took the gate has
+            // released it by then, and a task cancelled while waiting never
+            // took it. Cancellation is the normal end of this work — the user
+            // picked another folder — so it is swallowed rather than left to
+            // fault an unawaited task.
+            using var gate = new SemaphoreSlim(4);
             var tasks = items.Select(async item =>
             {
                 await gate.WaitAsync(ct);
@@ -269,7 +285,14 @@ namespace Maple.WinUI.ViewModels
                     gate.Release();
                 }
             });
-            await Task.WhenAll(tasks);
+            try
+            {
+                await Task.WhenAll(tasks);
+            }
+            catch (OperationCanceledException)
+            {
+                // Folder switched mid-hydration. Expected, not a failure.
+            }
         }
     }
 }
