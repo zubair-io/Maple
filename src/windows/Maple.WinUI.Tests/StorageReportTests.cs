@@ -70,5 +70,59 @@ namespace Maple.WinUI.Tests
                 Directory.Delete(root, recursive: true);
             }
         }
+
+        [Fact]
+        public void TryMapleThumbsSizeBytes_MissingRoot_ReturnsNull()
+        {
+            var missing = Path.Combine(Path.GetTempPath(), "maple-storage-report-" + Guid.NewGuid().ToString("N"));
+            Assert.Null(StorageReport.TryMapleThumbsSizeBytes(missing));
+        }
+
+        [Fact]
+        public void TryMapleThumbsSizeBytes_SumsEveryNestedThumbsDir_AndOnlyThose()
+        {
+            // The shared cache is per-folder (`<folder>\.maple\thumbs`,
+            // #3083), so a library root holds many of them at any depth.
+            // Photos themselves, and non-thumbs `.maple` content (trash),
+            // must NOT count.
+            var root = Path.Combine(Path.GetTempPath(), "maple-storage-report-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                void Write(string relPath, int bytes)
+                {
+                    var full = Path.Combine(root, relPath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                    File.WriteAllBytes(full, new byte[bytes]);
+                }
+
+                Write(@".maple\thumbs\aaaa.avif", 100);
+                Write(@"2026\tokyo\.maple\thumbs\bbbb.avif", 250);
+                Write(@"2026\tokyo\IMG_1.dng", 5000);              // a photo — not cache
+                Write(@".maple\trash\old\IMG_2.dng", 7000);        // .maple, but not thumbs
+
+                Assert.Equal(350, StorageReport.TryMapleThumbsSizeBytes(root));
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void TryMapleThumbsSizeBytes_RootWithoutAnyMapleDirs_ReturnsZero()
+        {
+            // An existing root that simply has no caches yet measures as 0 —
+            // distinct from null (root missing/unreadable).
+            var root = Path.Combine(Path.GetTempPath(), "maple-storage-report-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(root, "empty-album"));
+                Assert.Equal(0, StorageReport.TryMapleThumbsSizeBytes(root));
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 }

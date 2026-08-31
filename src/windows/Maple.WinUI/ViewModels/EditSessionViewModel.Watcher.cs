@@ -12,6 +12,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Services;
+using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.ViewModels
@@ -115,12 +116,11 @@ namespace Maple.WinUI.ViewModels
         /// the rename — this is the orphaning bug the ticket exists to
         /// close. Sidecar move + in-place identity update run here instead.
         ///
-        /// No old-path cache-entry cleanup: nothing in the existing
-        /// in-app rename flow (EditSessionViewModel.Rename.cs's
-        /// ApplyRenameOutcome) deletes the old ThumbnailService cache entry
-        /// either — that gap is #2710, tracked separately, and this live
-        /// path stays consistent with it rather than growing new GC logic
-        /// no other rename path has.
+        /// Old-path cache cleanup (#2710/#3083): the shared thumbnail cache
+        /// is keyed by basename (`.maple\thumbs\&lt;sha256_prefix16(name)&gt;.avif`),
+        /// so the OS-observed rename provably orphaned the old name's entry
+        /// — reclaim it here, the same best-effort delete the in-app rename
+        /// flow gets from `LocalFileOperations.FinalizeRelocate`.
         /// </summary>
         private void ApplyLiveRenames(IReadOnlyList<(string OldPath, string NewPath)> pairs)
         {
@@ -129,6 +129,7 @@ namespace Maple.WinUI.ViewModels
                 .Where(p => string.Equals(Path.GetDirectoryName(p.OldPath), folder, StringComparison.OrdinalIgnoreCase))
                 .Select(p =>
                 {
+                    LocalFileOperations.TryDelete(ThumbCachePaths.SharedThumbPathFor(p.OldPath));
                     try
                     {
                         RenameSidecarIfPresent(p.OldPath, p.NewPath);

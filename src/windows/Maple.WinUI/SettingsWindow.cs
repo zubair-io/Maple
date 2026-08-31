@@ -317,9 +317,17 @@ namespace Maple.WinUI
             var queue = DispatcherQueue;
             Task.Run(() =>
             {
+                // Shared grid thumbnails live BESIDE the photos
+                // (`.maple\thumbs`, #3083) — one cache per folder, summed
+                // across every configured library root. Null = no roots
+                // configured, distinct from a measured 0 B.
+                var libraryFolders = AppSettings.Load().LibraryFolders;
+                var libraryThumbs = libraryFolders.Count == 0
+                    ? (long?)null
+                    : libraryFolders.Sum(root => StorageReport.TryMapleThumbsSizeBytes(root) ?? 0);
                 var sizes = new[]
                 {
-                    StorageReport.TryDirectorySizeBytes(Path.Combine(MapleAppData, "thumbs")),
+                    StorageReport.TryDirectorySizeBytes(Path.Combine(MapleAppData, "local-cache")),
                     StorageReport.TryDirectorySizeBytes(Path.Combine(MapleAppData, "cloud")),
                 };
                 var logPath = Path.Combine(MapleAppData, "maple.log");
@@ -327,12 +335,14 @@ namespace Maple.WinUI
                 try { if (File.Exists(logPath)) logSize = new FileInfo(logPath).Length; }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
 
-                queue.TryEnqueue(() => section.Rows = BuildStorageRows(null, sizes[0], sizes[1], logSize));
+                queue.TryEnqueue(() =>
+                    section.Rows = BuildStorageRows(null, libraryThumbs, sizes[0], sizes[1], logSize));
             });
         }
 
         private static IReadOnlyList<MuiSettingsSectionRow> BuildStorageRows(
-            string? pendingText, long? thumbs = null, long? cloud = null, long? log = null)
+            string? pendingText, long? libraryThumbs = null, long? localCache = null,
+            long? cloud = null, long? log = null)
         {
             // Null size = the probe couldn't measure (missing directory, or
             // unreadable/offline) — say so rather than claiming "empty";
@@ -341,10 +351,18 @@ namespace Maple.WinUI
                 ? $"{path} — {pendingText}"
                 : bytes is { } b ? $"{path} — {StorageReport.FormatBytes(b)}" : $"{path} — not present (or unreadable)";
 
+            var libraryThumbsText = pendingText is not null
+                ? $@".maple\thumbs beside your photos — {pendingText}"
+                : libraryThumbs is { } bytes
+                    ? $@".maple\thumbs beside your photos — {StorageReport.FormatBytes(bytes)} (shared with other Maple apps)"
+                    : "No library folders configured";
+
             return new[]
             {
-                new MuiSettingsSectionRow("thumbs", "Thumbnail cache", "photos",
-                    Describe(Path.Combine(MapleAppData, "thumbs"), thumbs)),
+                new MuiSettingsSectionRow("library-thumbs", "Library thumbnails", "photos",
+                    libraryThumbsText),
+                new MuiSettingsSectionRow("local-cache", "Local preview cache", "album-stack",
+                    Describe(Path.Combine(MapleAppData, "local-cache"), localCache)),
                 new MuiSettingsSectionRow("cloud-cache", "Cloud originals & thumbnails", "cloud",
                     Describe(Path.Combine(MapleAppData, "cloud"), cloud)),
                 new MuiSettingsSectionRow("log", "Diagnostics log", "info",

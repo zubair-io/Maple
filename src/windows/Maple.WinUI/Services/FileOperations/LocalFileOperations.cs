@@ -149,12 +149,21 @@ namespace Maple.WinUI.Services.FileOperations
         /// step here is best-effort: per the design doc, "a copy-succeeded-
         /// but-delete-failed leaves a duplicate, never data loss" — a
         /// failure is logged, never thrown, since the plan already committed
-        /// a verified, correct copy at the destination. A no-op for a
-        /// case-only rename (<see cref="RelocatePlan.SourceAlreadyRelocated"/>):
-        /// that already did everything inside `PlanRelocateAsync`, and
-        /// re-touching `SourcePrimaryPath` here would delete the file that
-        /// was just renamed (on a case-insensitive filesystem the old-cased
-        /// path still resolves to it).
+        /// a verified, correct copy at the destination. The source-file
+        /// deletes are a no-op for a case-only rename
+        /// (<see cref="RelocatePlan.SourceAlreadyRelocated"/>): that already
+        /// did everything inside `PlanRelocateAsync`, and re-touching
+        /// `SourcePrimaryPath` here would delete the file that was just
+        /// renamed (on a case-insensitive filesystem the old-cased path
+        /// still resolves to it).
+        ///
+        /// Every Move — the case-only rename included, since the basename
+        /// hash is case-sensitive — also reclaims the old identity's shared
+        /// thumbnail cache entry (`&lt;old parent&gt;\.maple\thumbs\…`,
+        /// #2710/#3083): the entry is keyed by basename inside the old
+        /// folder, so nothing will ever resolve it again once the source
+        /// leaves. Apple's `invalidateDerivedCaches` semantics — a
+        /// synchronous, best-effort delete on the relocate path itself.
         /// </summary>
         public static RelocateOutcome FinalizeRelocate(RelocatePlan plan)
         {
@@ -162,7 +171,14 @@ namespace Maple.WinUI.Services.FileOperations
                 plan.FinalPrimaryPath, plan.FinalSidecarPath,
                 plan.RenamedDueToCollision, plan.FinalSidecarPath != null);
 
-            if (plan.IsNoop || plan.Mode != RelocateMode.Move) return outcome;
+            if (plan.Mode != RelocateMode.Move) return outcome;
+
+            var oldThumbPath = ThumbCachePaths.SharedThumbPathFor(plan.SourcePrimaryPath);
+            if (!string.Equals(oldThumbPath, ThumbCachePaths.SharedThumbPathFor(plan.FinalPrimaryPath),
+                    StringComparison.OrdinalIgnoreCase))
+                TryDelete(oldThumbPath);
+
+            if (plan.IsNoop) return outcome;
 
             TryDeleteLogged(plan.SourcePrimaryPath, "primary");
             if (plan.SourceSidecarPath != null)

@@ -126,10 +126,13 @@ namespace Maple.WinUI.ViewModels
         /// renamed file: FilePath/FileName (drives every {Binding FileName}
         /// / {Binding FilePath} in the grid, Preview/Edit top bars, and the
         /// Info flyout), plus the thumbnail and embedded-preview caches —
-        /// both keyed on path+mtime (ThumbnailService.CachePathFor), so
-        /// leaving the old ThumbnailPath/PreviewPath in place would keep
-        /// pointing at a cache entry keyed to a path that no longer names
-        /// this file. The decoded scene-linear buffer (if this photo is
+        /// the shared grid thumb is keyed on basename
+        /// (ThumbCachePaths.SharedThumbPathFor) and the local preview tier
+        /// on path+mtime, so leaving the old ThumbnailPath/PreviewPath in
+        /// place would keep pointing at cache entries keyed to a name that
+        /// no longer names this file. (The OLD name's shared entry was
+        /// already reclaimed by LocalFileOperations.FinalizeRelocate —
+        /// #2710/#3083.) The decoded scene-linear buffer (if this photo is
         /// open in Edit) does NOT need to change: the rename didn't touch
         /// the pixels, only the name. Takes the bare new path (not a
         /// RelocateOutcome) so the batch-rename apply path

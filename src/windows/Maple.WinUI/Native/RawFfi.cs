@@ -86,6 +86,14 @@ namespace Maple.WinUI.Native
             [MarshalAs(UnmanagedType.LPUTF8Str)] string outPath,
             uint maxPx, byte quality);
 
+        // The shared `.maple/thumbs/` grid tier (#3083): AVIF, quality 0 =
+        // the FFI default 55 — the #2690 on-share write contract.
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_render_thumbnail_avif_to_file(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string outPath,
+            uint maxPx, byte quality);
+
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int maple_render_develop_jpeg_to_file(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
