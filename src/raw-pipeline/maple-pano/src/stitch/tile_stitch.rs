@@ -240,7 +240,7 @@ pub(super) fn run_tile_branch(
 /// Also called by [`stitch_tile`] after it builds its own early state.
 pub(super) fn tile_tail(
     state: TileEarlyState<'_>,
-    _opts: &StitchOptions,
+    opts: &StitchOptions,
     applied_opcodes: Vec<Vec<String>>,
     priors: Vec<FramePriors>,
     mut progress: impl FnMut(u32, f32),
@@ -322,9 +322,14 @@ pub(super) fn tile_tail(
             weight: e.inlier_matches.len() as f64,
         })
         .collect();
-    let (poses, canvas_spec, tile_orphans) =
+    let (solved_poses, solved_canvas, tile_orphans) =
         solve_tile_poses(frames.len(), &constraints, 0, &frame_dims)
             .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
+    // Honor the total-canvas pixel cap (uniform downscale to fit) — the
+    // same `--max-canvas-px` contract the rotation path applies via
+    // `auto_canvas` (#3086).
+    let (poses, canvas_spec) =
+        crate::tile::apply_canvas_cap(solved_poses, solved_canvas, opts.max_canvas_px);
     let solve_s = t4.elapsed().as_secs_f64();
     progress(4, 1.0);
 
