@@ -152,15 +152,12 @@ namespace Maple.WinUI.ViewModels
                 }
                 foreach (var image in listing.Images)
                 {
-                    // The listing carries every file the File Provider syncs,
-                    // including containers this app has no decoder for. The
-                    // local FOLDERS browse only ever shows stills for the same
-                    // reason (SupportedExtensions in .Library.cs), and a
-                    // thumbnail that can't be opened is worse than an absent
-                    // one. Trust the server's own classification rather than
-                    // re-deriving it from the extension.
-                    if (image.IsVideo || image.IsAudio || image.IsStub)
-                        continue;
+                    // Everything the listing returns is shown, video and audio
+                    // included: this is a file browser, and a browser that
+                    // hides files is lying about the directory. Editing a
+                    // container the RAW pipeline can't decode fails at open
+                    // time with its own message — which is the honest place
+                    // for that limit to surface, not a silently shorter grid.
                     if (AllPhotos.Count >= CloudDirMaxImages)
                     {
                         truncated = true;
