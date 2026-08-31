@@ -360,6 +360,45 @@ pub fn solve_tile_poses(
     Ok((poses, canvas, orphans))
 }
 
+/// Apply the total-canvas pixel cap (`--max-canvas-px`) to a tile
+/// placement: when `canvas.width × canvas.height` exceeds `max_px`, scale
+/// every pose and the canvas spec uniformly so the canvas fits (#3086).
+///
+/// The full source→canvas map is `pose.sim.apply(src) + offset`, so a
+/// uniform downscale by `s` multiplies `sim.scale`, `sim.tx/ty`, and the
+/// canvas offsets by `s` (θ unchanged). Within budget the inputs pass
+/// through untouched.
+pub fn apply_canvas_cap(
+    poses: Vec<TilePose>,
+    canvas: TileCanvasSpec,
+    max_px: usize,
+) -> (Vec<TilePose>, TileCanvasSpec) {
+    let px = canvas.width as usize * canvas.height as usize;
+    if px <= max_px || px == 0 {
+        return (poses, canvas);
+    }
+    let s = (max_px as f64 / px as f64).sqrt();
+    let scaled_poses = poses
+        .into_iter()
+        .map(|p| TilePose {
+            sim: Similarity2d {
+                scale: p.sim.scale * s,
+                theta: p.sim.theta,
+                tx: p.sim.tx * s,
+                ty: p.sim.ty * s,
+            },
+            frame_idx: p.frame_idx,
+        })
+        .collect();
+    let scaled_canvas = TileCanvasSpec {
+        width: ((canvas.width as f64 * s).floor() as u32).max(1),
+        height: ((canvas.height as f64 * s).floor() as u32).max(1),
+        offset_x: canvas.offset_x * s,
+        offset_y: canvas.offset_y * s,
+    };
+    (scaled_poses, scaled_canvas)
+}
+
 // Solver functions (ls_scalar, ls_translation, gauss_eliminate, size_canvas)
 // are in placement_solve.rs, imported via `use` above.
 
