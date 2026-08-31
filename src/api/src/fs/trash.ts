@@ -20,19 +20,17 @@
  */
 
 // Mirror-aware drop-in: trash moves replicate to the library's backup root(s).
-import * as fs from "./mirrored.ts";
-import * as path from "node:path";
-import { listPairedSidecars } from "./xmp-conflict.ts";
-import { child as childLogger } from "../log.ts";
-import { relocateFile, pickFreePath, sidecarRenameTarget } from "./relocate.ts";
+import * as fs from './mirrored.ts';
+import * as path from 'node:path';
+import { listPairedSidecars } from './xmp-conflict.ts';
+import { child as childLogger } from '../log.ts';
+import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
 
-const log = childLogger("fs/trash");
+const log = childLogger('fs/trash');
 
 export { pickFreePath };
 
-export type MoveResult =
-  | { kind: "ok"; newAbsPath: string }
-  | { kind: "error"; error: string };
+export type MoveResult = { kind: 'ok'; newAbsPath: string } | { kind: 'error'; error: string };
 
 /**
  * Move every XMP sidecar paired to `oldAbsPath` next to `newAbsPath`, rewriting
@@ -44,10 +42,7 @@ export type MoveResult =
  * already moved and a lost sidecar copy is recoverable. Shared by `moveToTrash`,
  * `moveOutOfTrash`, and the DeDuplicate worker's `moveToDuplicates`.
  */
-export async function moveSidecarsAlongside(
-  oldAbsPath: string,
-  newAbsPath: string,
-): Promise<void> {
+export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: string): Promise<void> {
   const sidecars = await listPairedSidecars(oldAbsPath);
   for (const sidecar of sidecars) {
     // sidecarRenameTarget (fs/relocate.ts) is the same base-swap computation
@@ -60,7 +55,7 @@ export async function moveSidecarsAlongside(
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },
-        "sidecar move failed — RAW moved, sidecar left in place",
+        'sidecar move failed — RAW moved, sidecar left in place',
       );
     }
   }
@@ -76,15 +71,14 @@ export async function moveSidecarsAlongside(
  * separator is `\` — on POSIX a backslash is a legal filename character,
  * not a separator, and rewriting it would corrupt such names. */
 export function computeTrashPath(absPath: string, folderRoot: string): string {
-  const toComparable = (p: string) =>
-    path.sep === "\\" ? p.replaceAll("\\", "/") : p;
-  const root = toComparable(folderRoot).replace(/\/$/, "");
+  const toComparable = (p: string) => (path.sep === '\\' ? p.replaceAll('\\', '/') : p);
+  const root = toComparable(folderRoot).replace(/\/$/, '');
   const abs = toComparable(absPath);
-  if (abs !== root && !abs.startsWith(root + "/")) {
+  if (abs !== root && !abs.startsWith(root + '/')) {
     throw new Error(`Path "${absPath}" is not under root "${folderRoot}"`);
   }
-  const rel = abs === root ? "" : abs.slice(root.length + 1);
-  return path.join(root, ".maple", "trash", rel);
+  const rel = abs === root ? '' : abs.slice(root.length + 1);
+  return path.join(root, '.maple', 'trash', rel);
 }
 
 /** Append `.restored[.N]<ext>` until the path is free. Bounded to 1000 attempts.
@@ -121,18 +115,16 @@ export async function pickFreeRestoredPath(basePath: string): Promise<string> {
  * uses `'auto-suffix'` (never occupied-and-declines) and the other
  * pre-resolves a guaranteed-free path before calling in — so it maps to an
  * error rather than being silently swallowed. */
-function toMoveResult(
-  outcome: Awaited<ReturnType<typeof relocateFile>>,
-): MoveResult {
+function toMoveResult(outcome: Awaited<ReturnType<typeof relocateFile>>): MoveResult {
   switch (outcome.kind) {
-    case "relocated":
-      return { kind: "ok", newAbsPath: outcome.newAbsPath };
-    case "error":
-      return { kind: "error", error: outcome.error };
-    case "skipped":
+    case 'relocated':
+      return { kind: 'ok', newAbsPath: outcome.newAbsPath };
+    case 'error':
+      return { kind: 'error', error: outcome.error };
+    case 'skipped':
       return {
-        kind: "error",
-        error: "relocate: unexpected collision-skip during a trash move",
+        kind: 'error',
+        error: 'relocate: unexpected collision-skip during a trash move',
       };
   }
 }
@@ -155,17 +147,14 @@ function toMoveResult(
  * the RAW (so `IMG_1 (conflict from Mac).xmp` follows `IMG_1.ARW` →
  * `IMG_1.1.ARW` to `IMG_1.1 (conflict from Mac).xmp`).
  */
-export async function moveToTrash(
-  absPath: string,
-  folderRoot: string,
-): Promise<MoveResult> {
+export async function moveToTrash(absPath: string, folderRoot: string): Promise<MoveResult> {
   const trashTarget = computeTrashPath(absPath, folderRoot);
   const outcome = await relocateFile({
     sourceAbsPath: absPath,
     destAbsPath: trashTarget,
-    mode: "move",
-    collision: "auto-suffix",
-    callerTag: "moveToTrash",
+    mode: 'move',
+    collision: 'auto-suffix',
+    callerTag: 'moveToTrash',
   });
   return toMoveResult(outcome);
 }
@@ -198,9 +187,9 @@ export async function moveOutOfTrash(
   const outcome = await relocateFile({
     sourceAbsPath: trashAbsPath,
     destAbsPath: freeTarget,
-    mode: "move",
-    collision: "replace",
-    callerTag: "moveOutOfTrash",
+    mode: 'move',
+    collision: 'replace',
+    callerTag: 'moveOutOfTrash',
   });
   return toMoveResult(outcome);
 }

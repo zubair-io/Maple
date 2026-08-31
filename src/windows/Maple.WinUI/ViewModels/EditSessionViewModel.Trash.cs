@@ -191,7 +191,9 @@ namespace Maple.WinUI.ViewModels
                 return new CloudTrashOutcome(photo, false, "Not signed in to Maple Cloud.");
             var asset = await cloud.ResolveAssetAsync(photo.FilePath, CancellationToken.None)
                 .ConfigureAwait(false);
-            if (asset == null || asset.Id.Length == 0)
+            // IsNullOrEmpty, not .Length: a server payload of {"id": null}
+            // deserializes over the property initializer to a real null.
+            if (asset == null || string.IsNullOrEmpty(asset.Id))
                 return new CloudTrashOutcome(photo, false,
                     "The server hasn't indexed this file yet — try again in a moment.");
             var ok = await cloud.TrashAssetAsync(asset.Id, CancellationToken.None).ConfigureAwait(false);
