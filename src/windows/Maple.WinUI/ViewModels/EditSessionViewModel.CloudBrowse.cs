@@ -51,7 +51,6 @@ namespace Maple.WinUI.ViewModels
                     Name = folder.DisplayName,
                     Path = folder.Path,
                     LibrarySlug = folder.Slug,
-                    LibraryPath = folder.Path,
                 };
                 // Every server node gets an expander stub: unlike the local
                 // tree, which stats for subdirectories while building the
@@ -116,7 +115,9 @@ namespace Maple.WinUI.ViewModels
                 Name = dir.Name,
                 Path = dir.Path,
                 LibrarySlug = parent.LibrarySlug,
-                LibraryPath = parent.LibraryPath,
+                RelativePath = parent.RelativePath.Length == 0
+                    ? dir.Name
+                    : $"{parent.RelativePath}/{dir.Name}",
             };
             node.Children.Add(new CloudFolderNode { Name = "…", IsPlaceholder = true });
             return node;
@@ -185,12 +186,17 @@ namespace Maple.WinUI.ViewModels
             var item = new PhotoItem
             {
                 IsCloud = true,
-                CloudAddress = CloudAddressFor(node, image.Path),
+                CloudAddress = CloudAddressFor(node, image.Name),
                 FilePath = image.Path,
                 FileName = image.Name,
                 Format = image.Ext.Length > 0 ? image.Ext.ToUpperInvariant() : "RAW",
                 FileSizeBytes = image.Size,
-                FileModifiedUtc = captured?.ToUniversalTime() ?? DateTime.UtcNow,
+                // The listing's own mtime, exactly as the local browse uses
+                // File.LastWriteTimeUtc. Capture date stays capture date: for
+                // a file the indexer hasn't reached there is no EXIF, and
+                // dating it "now" would reshuffle the day groups on every
+                // reload (grouping falls back to this field — .Library.cs).
+                FileModifiedUtc = ParseMtimeUtc(image.Mtime),
                 CaptureDate = captured,
             };
             // The filesystem listing carries no culling state — rating, flag
@@ -211,19 +217,25 @@ namespace Maple.WinUI.ViewModels
         }
 
         /// <summary>`slug:relPath` — the addressing scheme the culling route
-        /// (POST /api/xmp/batch) understands. Derived here rather than read
-        /// off the listing because /api/fs/dir answers in absolute paths; the
-        /// relative half is what remains after the owning library's root, with
-        /// separators normalised the way the server writes them.</summary>
-        private static string? CloudAddressFor(CloudFolderNode node, string absPath)
-        {
-            if (string.IsNullOrEmpty(node.LibrarySlug))
-                return null;
-            var root = node.LibraryPath.TrimEnd('/');
-            if (!absPath.StartsWith(root + "/", StringComparison.Ordinal))
-                return null;
-            return $"{node.LibrarySlug}:{absPath[(root.Length + 1)..]}";
-        }
+        /// (POST /api/xmp/batch) understands. Built from the browsing node's
+        /// accumulated relative path plus the filename, which is how the
+        /// server composes the same address from `fileinfo.path` (see
+        /// CloudFolderNode.RelativePath for why the absolute path is not
+        /// subtracted instead). Null only for a library with no registered
+        /// slug, which has no address at all.</summary>
+        private static string? CloudAddressFor(CloudFolderNode node, string fileName) =>
+            string.IsNullOrEmpty(node.LibrarySlug)
+                ? null
+                : $"{node.LibrarySlug}:{(node.RelativePath.Length == 0 ? fileName : $"{node.RelativePath}/{fileName}")}";
+
+        /// <summary>The listing's ISO-8601 mtime. Falls back to epoch, not to
+        /// "now": a missing mtime must sort deterministically rather than jump
+        /// to the top of the grid on each reload.</summary>
+        private static DateTime ParseMtimeUtc(string? mtime) =>
+            DateTime.TryParse(mtime, null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
+                ? dt.ToUniversalTime()
+                : DateTime.UnixEpoch;
 
         /// <summary>Fill the grid's thumbnails from GET /api/fs/thumb, keyed
         /// by server path so files the indexer hasn't reached yet still get a

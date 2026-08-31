@@ -345,7 +345,7 @@ namespace Maple.WinUI.ViewModels
             {
                 var lastPercent = -1;
                 var path = await _cloud.DownloadOriginalAsync(
-                    photo.CloudAddress!, photo.FilePath, photo.FileSizeBytes,
+                    photo.FilePath, photo.FileSizeBytes,
                     (received, total) =>
                     {
                         if (total <= 0)
