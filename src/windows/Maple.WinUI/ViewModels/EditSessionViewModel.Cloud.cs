@@ -22,6 +22,11 @@ namespace Maple.WinUI.ViewModels
         private CloudPkcePending? _pendingSignIn;
         private CancellationTokenSource? _signInPollCts;
 
+        /// <summary>The live cloud client, if any (#2589) — handed to the
+        /// Cloud Files sync root as an accessor rather than a captured
+        /// reference, because reconnects replace the instance.</summary>
+        public CloudClient? ActiveCloudClient => _cloud;
+
         /// <summary>Step 1: probe the server, then hand the passkey ceremony to
         /// the default browser. The signed-in web app redirects the one-time
         /// code to maple-app://auth-success, which lands in
