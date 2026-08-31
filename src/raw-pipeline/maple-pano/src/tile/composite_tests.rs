@@ -2,9 +2,11 @@
 //! invariant, seam placement, and the canvas pixel cap (#3086).
 //! Kept in a separate file for the file-size budget.
 
+use super::masks::voronoi_masks_region;
 use super::*;
 use crate::blend::blend_multiband;
-use crate::ingest::ValidityMask;
+use crate::gain::GainOptions;
+use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
 
 /// Frame whose content is a linear function of CANVAS position (under a
