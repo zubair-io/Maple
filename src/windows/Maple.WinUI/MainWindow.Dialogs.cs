@@ -256,6 +256,24 @@ namespace Maple.WinUI
                 ViewModel.LoadCloudFolderChildren(node);
         }
 
+        /// <summary>Drill into a subfolder from its grid tile — the inline
+        /// counterpart of the sidebar trees. Dispatches on node type: the
+        /// tiles collection carries local FolderNode and cloud
+        /// CloudFolderNode alike (docs/spec/13-windows-shell.md).</summary>
+        private async void OnBrowseFolderTileClick(object sender, ItemClickEventArgs e)
+        {
+            switch (e.ClickedItem)
+            {
+                case ViewModels.CloudFolderNode cloud:
+                    await ViewModel.LoadCloudDirectoryAsync(cloud);
+                    break;
+                case ViewModels.FolderNode { IsPlaceholder: false, IsUnavailable: false } local:
+                    ViewModel.SetDateFilter(null, null);
+                    ViewModel.LoadDirectory(local.Path);
+                    break;
+            }
+        }
+
         // One-dialog-at-a-time protection (#2754) for this generic
         // informational/error dialog specifically — the shared entry point
         // Export, Connect to Maple Cloud, Remove Folder, and now

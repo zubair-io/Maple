@@ -32,6 +32,15 @@ namespace Maple.WinUI.ViewModels
         /// <summary>Roots (registered libraries) of the MAPLE CLOUD tree.</summary>
         public ObservableCollection<CloudFolderNode> CloudTree { get; } = new();
 
+        /// <summary>The browsed directory's immediate subfolders, rendered as
+        /// folder tiles above the photo grid — the Finder contract
+        /// (docs/spec/13-windows-shell.md): a directory view shows its
+        /// folders AND its images. Holds <see cref="FolderNode"/> for local
+        /// browse and <see cref="CloudFolderNode"/> for cloud; the tile
+        /// template binds the Name/ToolTipText both carry, and the click
+        /// handler dispatches on the node type.</summary>
+        public ObservableCollection<object> BrowseFolders { get; } = new();
+
         /// <summary>Directory page size for /api/fs/dir. The server clamps to
         /// 2000; a directory bigger than one page keeps paging below.</summary>
         private const int CloudDirPageLimit = 500;
@@ -72,13 +81,19 @@ namespace Maple.WinUI.ViewModels
             {
                 // Nothing awaits this task, so an exception escaping it would
                 // be an unobserved one — invisible until it surfaces somewhere
-                // unrelated. Expansion is best-effort by design: the row
-                // collapses to a leaf and the reason goes to the log.
+                // unrelated. A failed listing resets ChildrenLoaded so the
+                // NEXT expand retries: a blip of flaky Wi-Fi must not freeze
+                // the node as a leaf for the rest of the session.
                 try
                 {
                     var children = await ListCloudChildFolderNodesAsync(node, CancellationToken.None);
                     App.MainDispatcherQueue?.TryEnqueue(() =>
                     {
+                        if (children == null)
+                        {
+                            node.ChildrenLoaded = false;
+                            return;
+                        }
                         node.Children.Clear();
                         foreach (var child in children)
                             node.Children.Add(child);
@@ -87,15 +102,17 @@ namespace Maple.WinUI.ViewModels
                 catch (Exception ex)
                 {
                     DiagLog.Write($"[cloud] expanding {node.Path} failed: {ex.Message}");
+                    App.MainDispatcherQueue?.TryEnqueue(() => node.ChildrenLoaded = false);
                 }
             });
         }
 
         /// <summary>One directory's immediate subdirectories as fresh nodes,
-        /// inheriting the library identity of their parent. A failed listing
-        /// yields no children (the row collapses to a leaf) — the reason is in
-        /// maple.log, and the folder is still selectable.</summary>
-        private async Task<List<CloudFolderNode>> ListCloudChildFolderNodesAsync(
+        /// inheriting the library identity of their parent. Null when any page
+        /// of the listing failed — the caller resets ChildrenLoaded so the
+        /// next expand retries, rather than mistaking a failed listing for a
+        /// genuinely childless directory.</summary>
+        private async Task<List<CloudFolderNode>?> ListCloudChildFolderNodesAsync(
             CloudFolderNode node, CancellationToken ct)
         {
             var dirs = new List<CloudDirChild>();
@@ -106,7 +123,7 @@ namespace Maple.WinUI.ViewModels
                 if (listing == null)
                 {
                     DiagLog.Write($"[cloud] dir listing failed for {node.Path}");
-                    break;
+                    return null;
                 }
                 dirs.AddRange(listing.Dirs);
                 cursor = listing.NextCursor;
@@ -151,6 +168,7 @@ namespace Maple.WinUI.ViewModels
             ActiveSectionName = node.Name;
             _libraryWatcher?.Stop();    // no local directory to watch
             AllPhotos.Clear();
+            BrowseFolders.Clear();
 
             var truncated = false;
             var failed = false;
@@ -160,11 +178,25 @@ namespace Maple.WinUI.ViewModels
                 do
                 {
                     var listing = await _cloud.ListDirAsync(node.Path, cursor, CloudDirPageLimit, cts.Token);
+                    // Ownership check, not just a cancellation check: if a
+                    // newer load superseded this one while the page was in
+                    // flight, the request may still have COMPLETED normally —
+                    // cancellation only faults an await that hasn't finished.
+                    // Resuming here on the UI thread after the newer load has
+                    // cleared and begun filling AllPhotos would append this
+                    // load's page into the other folder's grid and then
+                    // overwrite its status line. The CTS field is the grid's
+                    // ownership token; the moment it isn't ours, every write
+                    // below belongs to someone else.
+                    if (_libraryCts != cts)
+                        return;
                     if (listing == null)
                     {
                         failed = true;
                         break;
                     }
+                    foreach (var dir in listing.Dirs)
+                        BrowseFolders.Add(ChildNode(node, dir));
                     foreach (var image in listing.Images)
                     {
                         // Everything the listing returns is shown, video and

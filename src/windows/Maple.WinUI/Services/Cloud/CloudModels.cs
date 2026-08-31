@@ -11,8 +11,10 @@ namespace Maple.WinUI.Services.Cloud
     public enum RefreshOutcome
     {
         Ok,
-        /// <summary>The server refused the credential itself (400/401/403 —
-        /// expired, revoked, or a reuse-detected family).</summary>
+        /// <summary>The origin refused the credential itself (401 — expired,
+        /// revoked, or a reuse-detected family — or a 400 that can never
+        /// succeed). Deliberately not 403: on the refresh route that can only
+        /// come from a proxy/WAF in front of the origin.</summary>
         Rejected,
         /// <summary>Unreachable, rate-limited, or a server-side fault. The
         /// credential is untested; keep it and try again later.</summary>

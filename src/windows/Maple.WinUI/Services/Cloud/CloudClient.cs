@@ -199,12 +199,16 @@ namespace Maple.WinUI.Services.Cloud
                 var status = (int)refresh.StatusCode;
                 DiagLog.Write($"[cloud] refresh -> {status} "
                     + await refresh.Content.ReadAsStringAsync(ct));
-                // Only the server saying "this credential is no good" is
-                // grounds for discarding it. A 429 (this route is rate-limited
-                // to 10/min per IP) or a 5xx during a deploy says nothing
-                // about the token, and treating those as rejection would log
-                // the user out over a passing blip.
-                return status is 400 or 401 or 403
+                // Only the origin saying "this credential is no good" is
+                // grounds for discarding it, and on /api/auth/refresh that is
+                // exactly 401 (plus 400 for a malformed request that can never
+                // succeed). NOT 403: the origin never uses it on this route —
+                // its 403s are role/permission/step-up gates elsewhere — so a
+                // 403 here is a reverse proxy or WAF speaking for itself, and
+                // treating a middlebox rule as credential rejection would
+                // delete a valid session. 429 (rate-limited to 10/min/IP),
+                // 409 (rotation conflict) and 5xx say nothing about the token.
+                return status is 400 or 401
                     ? RefreshOutcome.Rejected
                     : RefreshOutcome.Transient;
             }
