@@ -155,32 +155,46 @@ namespace Maple.WinUI.ViewModels
             var truncated = false;
             var failed = false;
             string? cursor = null;
-            do
+            try
             {
-                var listing = await _cloud.ListDirAsync(node.Path, cursor, CloudDirPageLimit, cts.Token);
-                if (listing == null)
+                do
                 {
-                    failed = true;
-                    break;
-                }
-                foreach (var image in listing.Images)
-                {
-                    // Everything the listing returns is shown, video and audio
-                    // included: this is a file browser, and a browser that
-                    // hides files is lying about the directory. Editing a
-                    // container the RAW pipeline can't decode fails at open
-                    // time with its own message — which is the honest place
-                    // for that limit to surface, not a silently shorter grid.
-                    if (AllPhotos.Count >= CloudDirMaxImages)
+                    var listing = await _cloud.ListDirAsync(node.Path, cursor, CloudDirPageLimit, cts.Token);
+                    if (listing == null)
                     {
-                        truncated = true;
+                        failed = true;
                         break;
                     }
-                    AllPhotos.Add(CloudDirPhotoItem(image, node));
+                    foreach (var image in listing.Images)
+                    {
+                        // Everything the listing returns is shown, video and
+                        // audio included: this is a file browser, and a
+                        // browser that hides files is lying about the
+                        // directory. Editing a container the RAW pipeline
+                        // can't decode fails at open time with its own
+                        // message — the honest place for that limit to
+                        // surface, not a silently shorter grid.
+                        if (AllPhotos.Count >= CloudDirMaxImages)
+                        {
+                            truncated = true;
+                            break;
+                        }
+                        AllPhotos.Add(CloudDirPhotoItem(image, node));
+                    }
+                    cursor = listing.NextCursor;
                 }
-                cursor = listing.NextCursor;
+                while (!truncated && !string.IsNullOrEmpty(cursor) && !cts.Token.IsCancellationRequested);
             }
-            while (!truncated && !string.IsNullOrEmpty(cursor) && !cts.Token.IsCancellationRequested);
+            catch (OperationCanceledException)
+            {
+                // Another folder was picked while a page was in flight. This
+                // load no longer owns the grid — the newer one has already
+                // cleared it and is filling it — so return without touching
+                // any of the view state below. Absorbed here because the
+                // caller is an `async void` event handler, where an escaping
+                // exception takes the whole process down.
+                return;
+            }
 
             // A failed page must win over the count: a partial (or empty) grid
             // described as "0 photos" reads as an empty folder, which is a
