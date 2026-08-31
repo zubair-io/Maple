@@ -3,6 +3,22 @@ using System.Text.Json.Serialization;
 
 namespace Maple.WinUI.Services.Cloud
 {
+    /// <summary>Why a token refresh did not produce a session. The two failure
+    /// modes are not interchangeable: only <see cref="Rejected"/> is the server
+    /// saying the stored credential is no good, and only that justifies
+    /// discarding it. Collapsing them would sign the user out for good over a
+    /// deploy-time 503 or a rate-limited retry.</summary>
+    public enum RefreshOutcome
+    {
+        Ok,
+        /// <summary>The server refused the credential itself (400/401/403 —
+        /// expired, revoked, or a reuse-detected family).</summary>
+        Rejected,
+        /// <summary>Unreachable, rate-limited, or a server-side fault. The
+        /// credential is untested; keep it and try again later.</summary>
+        Transient,
+    }
+
     /// <summary>A registered library on the Self-Hosted server
     /// (GET /api/folders).</summary>
     public sealed class CloudFolder
@@ -51,9 +67,9 @@ namespace Maple.WinUI.Services.Cloud
         /// <summary>Indexed EXIF. null when indexed but unusable, absent when
         /// the indexer hasn't reached this file.</summary>
         [JsonPropertyName("exif")] public CloudDirExif? Exif { get; set; }
-        [JsonPropertyName("isVideo")] public bool IsVideo { get; set; }
-        [JsonPropertyName("isStub")] public bool IsStub { get; set; }
-        [JsonPropertyName("isAudio")] public bool IsAudio { get; set; }
+        // The listing's isVideo/isAudio/isStub flags are deliberately not
+        // modelled: the grid shows every file the directory holds, so nothing
+        // reads them. The format badge comes from the extension.
     }
 
     /// <summary>The `exif` subdocument on a /api/fs/dir image row. Field names
