@@ -142,13 +142,14 @@ namespace Maple.WinUI.ViewModels
             AllPhotos.Clear();
 
             var truncated = false;
+            var failed = false;
             string? cursor = null;
             do
             {
                 var listing = await _cloud.ListDirAsync(node.Path, cursor, CloudDirPageLimit, cts.Token);
                 if (listing == null)
                 {
-                    CloudStatus = "Listing failed — see maple.log";
+                    failed = true;
                     break;
                 }
                 foreach (var image in listing.Images)
@@ -170,9 +171,15 @@ namespace Maple.WinUI.ViewModels
             }
             while (!truncated && !string.IsNullOrEmpty(cursor) && !cts.Token.IsCancellationRequested);
 
-            CloudStatus = truncated
-                ? $"Showing the first {CloudDirMaxImages} photos in {node.Name}."
-                : $"{node.Name} — {AllPhotos.Count} photo{(AllPhotos.Count == 1 ? "" : "s")}.";
+            // A failed page must win over the count: a partial (or empty) grid
+            // described as "0 photos" reads as an empty folder, which is a
+            // different and much more alarming fact than a request that
+            // didn't answer.
+            CloudStatus = failed
+                ? $"Couldn't list {node.Name} — see maple.log"
+                : truncated
+                    ? $"Showing the first {CloudDirMaxImages} photos in {node.Name}."
+                    : $"{node.Name} — {AllPhotos.Count} photo{(AllPhotos.Count == 1 ? "" : "s")}.";
 
             ApplyFilters();
             Timeline.GroupPhotosByDate(AllPhotos);
