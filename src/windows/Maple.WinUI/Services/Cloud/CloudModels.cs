@@ -16,45 +16,64 @@ namespace Maple.WinUI.Services.Cloud
         public string DisplayName => string.IsNullOrEmpty(Label) ? Slug : Label!;
     }
 
-    /// <summary>One result row from GET /api/search (the grid feed).</summary>
-    public sealed class CloudSearchResult
+    /// <summary>One directory level from GET /api/fs/dir — the endpoint the
+    /// Apple cloud source and the File Provider browse with, and the web's
+    /// /api/fs/dir-fast sibling. Immediate children only: subdirectories and
+    /// this level's images are separate lists, so the client renders a tree
+    /// plus a grid rather than a flattened feed.</summary>
+    public sealed class CloudDirListing
     {
-        [JsonPropertyName("_id")] public string? MongoId { get; set; }
-        [JsonPropertyName("address")] public string? Address { get; set; }
-        [JsonPropertyName("abs_path")] public string AbsPath { get; set; } = string.Empty;
-        [JsonPropertyName("filename")] public string Filename { get; set; } = string.Empty;
+        [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+        [JsonPropertyName("parent")] public string? Parent { get; set; }
+        [JsonPropertyName("dirs")] public CloudDirChild[] Dirs { get; set; } = Array.Empty<CloudDirChild>();
+        [JsonPropertyName("images")] public CloudDirImage[] Images { get; set; } = Array.Empty<CloudDirImage>();
+        /// <summary>Opaque continuation token — present only while more of
+        /// this directory remains. Round-trip it verbatim.</summary>
+        [JsonPropertyName("next_cursor")] public string? NextCursor { get; set; }
+    }
+
+    public class CloudDirChild
+    {
+        [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+        /// <summary>Absolute, symlink-resolved path on the server.</summary>
+        [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+        [JsonPropertyName("mtime")] public string? Mtime { get; set; }
+    }
+
+    public sealed class CloudDirImage : CloudDirChild
+    {
         [JsonPropertyName("size")] public long Size { get; set; }
-        [JsonPropertyName("captured_at")] public string? CapturedAt { get; set; }
-        [JsonPropertyName("camera")] public CloudCamera? Camera { get; set; }
+        /// <summary>Lowercase extension, no dot.</summary>
+        [JsonPropertyName("ext")] public string Ext { get; set; } = string.Empty;
+        /// <summary>Mongo asset id — absent until the indexer has seen the
+        /// file. Nothing in the browse path requires it.</summary>
+        [JsonPropertyName("id")] public string? Id { get; set; }
+        /// <summary>Indexed EXIF. null when indexed but unusable, absent when
+        /// the indexer hasn't reached this file.</summary>
+        [JsonPropertyName("exif")] public CloudDirExif? Exif { get; set; }
+        [JsonPropertyName("isVideo")] public bool IsVideo { get; set; }
+        [JsonPropertyName("isStub")] public bool IsStub { get; set; }
+        [JsonPropertyName("isAudio")] public bool IsAudio { get; set; }
+    }
+
+    /// <summary>The `exif` subdocument on a /api/fs/dir image row. Field names
+    /// are the indexer's snake_case asset schema, not the /api/search wire
+    /// shape — the two differ (`camera_make` here vs a nested `camera` there).</summary>
+    public sealed class CloudDirExif
+    {
+        [JsonPropertyName("camera_make")] public string? CameraMake { get; set; }
+        [JsonPropertyName("camera_model")] public string? CameraModel { get; set; }
         [JsonPropertyName("lens")] public string? Lens { get; set; }
         [JsonPropertyName("iso")] public int? Iso { get; set; }
         [JsonPropertyName("aperture")] public double? Aperture { get; set; }
         [JsonPropertyName("shutter")] public string? Shutter { get; set; }
-        [JsonPropertyName("rating")] public int Rating { get; set; }
-        /// <summary>-1 reject, 0 unflagged, 1 pick.</summary>
-        [JsonPropertyName("flag")] public int Flag { get; set; }
-        [JsonPropertyName("color_label")] public string? ColorLabel { get; set; }
-        [JsonPropertyName("has_xmp")] public bool? HasXmp { get; set; }
+        [JsonPropertyName("captured_at")] public string? CapturedAt { get; set; }
 
         public DateTime? CapturedAtLocal =>
             DateTime.TryParse(CapturedAt, null,
                 System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
                 ? dt.ToLocalTime()
                 : null;
-    }
-
-    public sealed class CloudCamera
-    {
-        [JsonPropertyName("make")] public string? Make { get; set; }
-        [JsonPropertyName("model")] public string? Model { get; set; }
-    }
-
-    public sealed class CloudSearchPage
-    {
-        [JsonPropertyName("total")] public int Total { get; set; }
-        [JsonPropertyName("results")] public CloudSearchResult[] Results { get; set; } = Array.Empty<CloudSearchResult>();
-        [JsonPropertyName("cursorPaging")] public bool CursorPaging { get; set; }
-        [JsonPropertyName("nextCursor")] public string? NextCursor { get; set; }
     }
 
     public sealed class CloudHealth

@@ -15,16 +15,12 @@ namespace Maple.WinUI.ViewModels
     /// the app only ever holds the one-time code + device-scoped tokens.</summary>
     public partial class EditSessionViewModel
     {
-        public ObservableCollection<CloudFolder> CloudFolders { get; } = new();
-
         [ObservableProperty] private string _cloudStatus = "Not connected";
         [ObservableProperty] private bool _cloudConnected;
 
         private CloudClient? _cloud;
         private CloudPkcePending? _pendingSignIn;
         private CancellationTokenSource? _signInPollCts;
-        private const int CloudPageLimit = 200;
-        private const int CloudMaxAssets = 2000;
 
         /// <summary>Step 1: probe the server, then hand the passkey ceremony to
         /// the default browser. The signed-in web app redirects the one-time
@@ -207,6 +203,7 @@ namespace Maple.WinUI.ViewModels
             var settings = AppSettings.Load();
             if (string.IsNullOrEmpty(settings.CloudServerUrl))
                 return;
+            DiagLog.Write($"[cloud] restore session for {settings.CloudServerUrl}");
             var refreshToken = settings.UnprotectCloudRefreshToken();
             if (refreshToken == null)
             {
@@ -224,141 +221,66 @@ namespace Maple.WinUI.ViewModels
             }
             else
             {
+                // The stored token is dead (expired, or its rotation family was
+                // revoked). Drop it: keeping it means every later reconnect
+                // attempt replays a token the server already refuses, and a
+                // replay of a revoked token is itself what trips the server's
+                // reuse detection. Browser sign-in is the only way back.
+                AppSettings.Update(s => s.CloudRefreshTokenProtected = null);
                 CloudStatus = "Session expired — sign in again.";
             }
         }
 
+        /// <summary>Persist every rotated refresh token the moment the server
+        /// mints it. Deliberately NOT marshalled to the UI thread: the server
+        /// revokes the old token as it hands out the successor, so any window
+        /// between rotation and the successor reaching disk is a window in
+        /// which quitting the app strands the session — the next launch would
+        /// replay the revoked token and trip reuse detection, which revokes
+        /// the whole family and bricks silent reconnect for good. The write is
+        /// a self-contained read-modify-write on a JSON file, so it is safe
+        /// off the UI thread.</summary>
         private void HookTokenRotation(CloudClient client)
         {
             client.RefreshTokenRotated += rotated =>
-                OnUi(() => PersistCloudSession(client.ServerUrl, rotated));
+                PersistCloudSession(client.ServerUrl, rotated);
         }
 
         private static void PersistCloudSession(string serverUrl, string? refreshToken)
         {
-            var settings = AppSettings.Load();
-            settings.CloudServerUrl = serverUrl;
-            if (refreshToken != null)
-                settings.ProtectCloudRefreshToken(refreshToken);
-            settings.Save();
+            AppSettings.Update(settings =>
+            {
+                settings.CloudServerUrl = serverUrl;
+                if (refreshToken != null)
+                    settings.ProtectCloudRefreshToken(refreshToken);
+            });
         }
 
         private async Task FinishConnectAsync()
         {
             CloudConnected = true;
             var folders = await _cloud!.GetFoldersAsync(CancellationToken.None);
-            CloudFolders.Clear();
-            foreach (var folder in folders ?? Array.Empty<CloudFolder>())
-                CloudFolders.Add(folder);
+            DiagLog.Write($"[cloud] folders -> {(folders == null ? "null" : folders.Length.ToString())}");
+            RebuildCloudTree(folders);
+            // An empty list here is indistinguishable in the sidebar from a
+            // failed request — both render as nothing under MAPLE CLOUD. Say
+            // which one it was.
+            if (folders == null)
+                CloudStatus = "Signed in, but the library list failed — see maple.log";
+            else if (folders.Length == 0)
+                CloudStatus = "Signed in — this server has no libraries.";
         }
 
-        /// <summary>Load a server library into the browse grid via the search
-        /// feed (culling state, capture dates and camera come straight from the
-        /// server), then hydrate AVIF thumbnails into the local cache.</summary>
-        public async Task LoadCloudFolderAsync(CloudFolder folder)
-        {
-            if (_cloud == null)
-                return;
-
-            _libraryCts?.Cancel();
-            var cts = new CancellationTokenSource();
-            _libraryCts = cts;
-
-            CurrentFolderPath = $"{_cloud.ServerUrl} · {folder.DisplayName}";
-            ActiveSectionName = folder.DisplayName;
-            _libraryWatcher?.Stop();    // no local directory to watch
-            AllPhotos.Clear();
-
-            string? cursor = null;
-            while (AllPhotos.Count < CloudMaxAssets && !cts.Token.IsCancellationRequested)
-            {
-                var page = await _cloud.SearchAsync(folder.Id, cursor, CloudPageLimit, cts.Token);
-                if (page == null)
-                {
-                    CloudStatus = "Listing failed — see maple.log";
-                    break;
-                }
-                foreach (var result in page.Results)
-                {
-                    if (result.Address == null)
-                        continue;
-                    AllPhotos.Add(CloudPhotoItem(result));
-                }
-                cursor = page.NextCursor;
-                if (string.IsNullOrEmpty(cursor) || page.Results.Length == 0)
-                    break;
-            }
-            if (AllPhotos.Count >= CloudMaxAssets)
-                CloudStatus = $"Showing the newest {CloudMaxAssets} photos of {folder.FileCount}.";
-
-            ApplyFilters();
-            Timeline.GroupPhotosByDate(AllPhotos);
-            _ = Task.Run(() => HydrateCloudThumbnailsAsync(AllPhotos.ToList(), cts.Token), cts.Token);
-        }
-
-        private static PhotoItem CloudPhotoItem(CloudSearchResult result)
-        {
-            var ext = System.IO.Path.GetExtension(result.Filename).TrimStart('.').ToUpperInvariant();
-            var item = new PhotoItem
-            {
-                IsCloud = true,
-                CloudAddress = result.Address,
-                FilePath = result.AbsPath,
-                FileName = result.Filename,
-                Format = ext.Length > 0 ? ext : "RAW",
-                FileSizeBytes = result.Size,
-                FileModifiedUtc = result.CapturedAtLocal?.ToUniversalTime() ?? DateTime.UtcNow,
-                Rating = result.Rating,
-                FlagStatus = result.Flag switch { 1 => "pick", -1 => "reject", _ => "none" },
-                ColorLabel = string.IsNullOrEmpty(result.ColorLabel) ? null : result.ColorLabel,
-                CaptureDate = result.CapturedAtLocal,
-            };
-            item.CameraModel = result.Camera is { } camera
-                ? $"{camera.Make} {camera.Model}".Trim()
-                : "—";
-            item.LensInfo = result.Lens ?? "—";
-            item.IsoDisplay = result.Iso is { } iso ? $"ISO {iso}" : "—";
-            item.Aperture = result.Aperture is { } f ? $"f/{f:0.#}" : "—";
-            item.ShutterSpeed = result.Shutter ?? "—";
-            item.DateTaken = result.CapturedAtLocal?.ToString("yyyy-MM-dd HH:mm") ?? "—";
-            item.Dimensions = $"{result.Size / (1024.0 * 1024.0):0.0} MB";
-            return item;
-        }
-
-        private async Task HydrateCloudThumbnailsAsync(
-            System.Collections.Generic.List<PhotoItem> items, CancellationToken ct)
-        {
-            var gate = new SemaphoreSlim(4);
-            var tasks = items.Select(async item =>
-            {
-                await gate.WaitAsync(ct);
-                try
-                {
-                    var path = await _cloud!.FetchImageAsync("thumb", item.CloudAddress!, ct);
-                    if (path != null)
-                        App.MainDispatcherQueue?.TryEnqueue(() =>
-                            item.ThumbnailPath = new Uri(path).AbsoluteUri);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    DiagLog.Write($"[cloud] thumb failed for {item.FileName}: {ex.Message}");
-                }
-                finally
-                {
-                    gate.Release();
-                }
-            });
-            await Task.WhenAll(tasks);
-        }
-
-        /// <summary>Preview-screen image for a cloud asset: the server's 1280px
-        /// AVIF preview, cached locally.</summary>
+        /// <summary>Preview-screen image for a cloud asset: the server's
+        /// 1280px AVIF preview, cached locally. Addressed by server path
+        /// (GET /api/fs/preview), the same way the browse listing named the
+        /// file and the same way the Apple cloud source asks for it.</summary>
         private void RequestCloudPreview(PhotoItem photo)
         {
             _ = Task.Run(async () =>
             {
-                var path = await _cloud!.FetchImageAsync(
-                    "preview", photo.CloudAddress!, CancellationToken.None);
+                var path = await _cloud!.FetchFsImageAsync(
+                    "preview", photo.FilePath, CancellationToken.None);
                 if (path != null)
                     OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
             });
