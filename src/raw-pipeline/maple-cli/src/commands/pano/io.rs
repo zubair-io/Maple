@@ -252,6 +252,13 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "gains": tr.gains,
         "blend_levels": tr.blend_levels,
         "min_overlap_width_px": tr.min_overlap_width_px,
+        // #350 photometric correction: shared per-frame ramp + residual
+        // exposure-field magnitudes (EV). Slopes ~0 and 0 EV mean the
+        // scalar gains told the whole story.
+        "photometric_slope_x": tr.photometric_slope_x,
+        "photometric_slope_y": tr.photometric_slope_y,
+        "exposure_field_mean_abs_ev": tr.exposure_field_mean_abs_ev,
+        "exposure_field_max_abs_ev": tr.exposure_field_max_abs_ev,
         "timings_s": timings,
     })
 }
