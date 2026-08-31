@@ -126,4 +126,39 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("email")] public string Email { get; set; } = string.Empty;
         [JsonPropertyName("role")] public string Role { get; set; } = string.Empty;
     }
+
+    /// <summary>Minimal projection of GET /api/assets/by-fspath's
+    /// AssetDetailDto (#2741) — the id resolution step before a trash or
+    /// restore call. The full DTO carries far more (EXIF, enrichment,
+    /// fileinfo records); only what the trash flow needs is modeled.</summary>
+    public sealed class CloudAssetRef
+    {
+        [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+        [JsonPropertyName("folder_id")] public string FolderId { get; set; } = string.Empty;
+        [JsonPropertyName("filename")] public string Filename { get; set; } = string.Empty;
+    }
+
+    /// <summary>One trashed asset from GET /api/folders/:id/trash
+    /// (#2741).</summary>
+    public sealed class CloudTrashItem
+    {
+        [JsonPropertyName("asset_id")] public string AssetId { get; set; } = string.Empty;
+        [JsonPropertyName("filename")] public string Filename { get; set; } = string.Empty;
+        [JsonPropertyName("original_relative_path")] public string OriginalRelativePath { get; set; } = string.Empty;
+        [JsonPropertyName("trash_relative_path")] public string TrashRelativePath { get; set; } = string.Empty;
+        [JsonPropertyName("size")] public long Size { get; set; }
+        [JsonPropertyName("deleted_at")] public string DeletedAt { get; set; } = string.Empty;
+        /// <summary>'user' (restorable copy in the server's .maple/trash) or
+        /// 'reaped' (soft-deleted by the missing-file reaper — no copy
+        /// exists, restore will fail server-side).</summary>
+        [JsonPropertyName("reason")] public string Reason { get; set; } = "user";
+    }
+
+    /// <summary>One page of GET /api/folders/:id/trash (#2741) —
+    /// newest-first, cursor-paged.</summary>
+    public sealed class CloudTrashPage
+    {
+        [JsonPropertyName("items")] public CloudTrashItem[] Items { get; set; } = Array.Empty<CloudTrashItem>();
+        [JsonPropertyName("next_cursor")] public string? NextCursor { get; set; }
+    }
 }
