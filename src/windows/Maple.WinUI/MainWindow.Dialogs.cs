@@ -237,14 +237,23 @@ namespace Maple.WinUI
             await ViewModel.CompleteAuthCallbackAsync(uri);
         }
 
-        private async void OnSelectCloudFolder(object sender, SelectionChangedEventArgs e)
+        /// <summary>Open a server directory in the browse grid. Mirrors
+        /// OnFolderNodeInvoked (MainWindow.xaml.cs) for the local tree — the
+        /// two sides of the sidebar behave identically.</summary>
+        private async void OnCloudNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
         {
-            if (CloudFoldersList.SelectedItem is Services.Cloud.CloudFolder folder)
+            if (args.InvokedItem is ViewModels.CloudFolderNode { IsPlaceholder: false } node)
             {
                 ViewModel.SetDateFilter(null, null);
                 SetMode(ShellMode.Browse);
-                await ViewModel.LoadCloudFolderAsync(folder);
+                await ViewModel.LoadCloudDirectoryAsync(node);
             }
+        }
+
+        private void OnCloudFolderExpanding(TreeView sender, TreeViewExpandingEventArgs args)
+        {
+            if (args.Item is ViewModels.CloudFolderNode node)
+                ViewModel.LoadCloudFolderChildren(node);
         }
 
         // One-dialog-at-a-time protection (#2754) for this generic

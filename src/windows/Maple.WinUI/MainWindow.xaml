@@ -343,23 +343,32 @@
                                     Click="OnConnectCloud"
                                     Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
                                     AutomationProperties.Name="Connect to Maple Cloud server" />
-                            <ListView x:Name="CloudFoldersList" ItemsSource="{Binding CloudFolders}"
-                                      SelectionMode="Single" SelectionChanged="OnSelectCloudFolder">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid>
-                                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                                <mui:MuiIcon IconName="cloud" Size="Xs14" IconColor="{StaticResource MaplePrimary}" />
-                                                <TextBlock Text="{Binding DisplayName}" FontSize="12" VerticalAlignment="Center"
+                            <!-- A file browser over the server, same shape as
+                                 FOLDERS above and the same /api/fs/dir walk the
+                                 Apple and web clients do (#3082). Own capped
+                                 scroll area for the same reason FOLDERS has
+                                 one: a deep server archive must not swallow
+                                 the sidebar. -->
+                            <TreeView ItemsSource="{Binding CloudTree}" SelectionMode="None"
+                                      ItemInvoked="OnCloudNodeInvoked"
+                                      Expanding="OnCloudFolderExpanding"
+                                      MaxHeight="360"
+                                      AutomationProperties.Name="Maple Cloud folders">
+                                <TreeView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CloudFolderNode">
+                                        <TreeViewItem ItemsSource="{Binding Children}"
+                                                      ToolTipService.ToolTip="{Binding ToolTipText}"
+                                                      AutomationProperties.Name="{Binding Name}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <mui:MuiIcon IconName="cloud" Size="Xs14"
+                                                             IconColor="{StaticResource MaplePrimary}" />
+                                                <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
-                                            <TextBlock Text="{Binding FileCount}" FontSize="11"
-                                                       Foreground="{StaticResource MapleTextMuted}"
-                                                       HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                        </Grid>
+                                        </TreeViewItem>
                                     </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
                         </StackPanel>
 
                         <StackPanel Spacing="2">
@@ -548,7 +557,7 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                FontSize="13" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"
                                Foreground="{StaticResource MapleTextMuted}"
-                               Text="No photos directly in this folder — its photos live in subfolders. Pick a subfolder from the FOLDERS tree." />
+                               Text="No photos directly in this folder — its photos live in subfolders. Pick a subfolder from the sidebar." />
                 </Grid>
 
                 <!-- PREVIEW + EDIT share the canvas -->
