@@ -23,6 +23,7 @@ using Maple.UI.Atoms;
 using Microsoft.UI.Xaml.Media;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
+using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
@@ -49,28 +50,43 @@ namespace Maple.WinUI
         private async Task RunRestoreFromMapleTrashAsync()
         {
             var items = await ViewModel.ListMapleTrashAsync();
-            if (items.Count == 0)
+            // Server-side cloud trash rows share this surface (#2741) —
+            // empty when no cloud session is signed in.
+            var cloudItems = await ViewModel.ListCloudTrashAsync();
+            if (items.Count == 0 && cloudItems.Count == 0)
             {
                 await ShowMessageAsync("Restore from Maple Trash",
-                    "Maple's trash is empty. (Photos deleted from a local drive go to the Windows "
-                    + "Recycle Bin instead — restore those from File Explorer.)");
+                    "Maple's trash is empty — locally and on your Maple Cloud server. (Photos "
+                    + "deleted from a local drive go to the Windows Recycle Bin instead — restore "
+                    + "those from File Explorer.)");
                 return;
             }
 
+            // One mixed list: both row types expose DisplayLabel, which is
+            // all DisplayMemberPath reflects on.
+            var rows = new List<object>(items.Count + cloudItems.Count);
+            rows.AddRange(items);
+            rows.AddRange(cloudItems);
+
             var list = new ListView
             {
-                ItemsSource = items,
+                ItemsSource = rows,
                 DisplayMemberPath = nameof(TrashListItem.DisplayLabel),
                 SelectionMode = ListViewSelectionMode.Multiple,
                 MaxHeight = 320,
             };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(list, "Trashed photos");
 
+            var counts = new List<string>();
+            if (items.Count > 0)
+                counts.Add($"{items.Count} local item{(items.Count == 1 ? "" : "s")}");
+            if (cloudItems.Count > 0)
+                counts.Add($"{cloudItems.Count} Cloud item{(cloudItems.Count == 1 ? "" : "s")}");
             var summaryText = new MuiText
             {
                 Variant = MuiTextVariant.Body,
                 ColorRole = MuiTextColorRole.Muted,
-                Text = $"{items.Count} item{(items.Count == 1 ? "" : "s")} in Maple's trash. Restoring a "
+                Text = $"{string.Join(" and ", counts)} in Maple's trash. Restoring a "
                     + "photo that already has a file at its original location adds \".restored\" to the "
                     + "name instead of overwriting it.",
             };
@@ -97,17 +113,22 @@ namespace Maple.WinUI
                 return;
 
             var selected = list.SelectedItems.OfType<TrashListItem>().ToList();
-            if (selected.Count == 0)
+            var selectedCloud = list.SelectedItems
+                .OfType<EditSessionViewModel.CloudTrashEntry>().ToList();
+            if (selected.Count == 0 && selectedCloud.Count == 0)
                 return;
 
-            await RunRestoreAsync(selected);
+            await RunRestoreAsync(selected, selectedCloud);
         }
 
-        private async Task RunRestoreAsync(IReadOnlyList<TrashListItem> selected)
+        private async Task RunRestoreAsync(
+            IReadOnlyList<TrashListItem> selected,
+            IReadOnlyList<EditSessionViewModel.CloudTrashEntry> selectedCloud)
         {
+            var total = selected.Count + selectedCloud.Count;
             var statusText = new MuiText
             {
-                Text = $"Restoring 0 of {selected.Count}…",
+                Text = $"Restoring 0 of {total}…",
                 Variant = MuiTextVariant.Body,
                 Width = 380,
             };
@@ -123,12 +144,17 @@ namespace Maple.WinUI
             };
             var progressShown = progressDialog.ShowAsync();
 
-            IReadOnlyList<RestoreItemOutcome> outcomes = Array.Empty<RestoreItemOutcome>();
+            var outcomes = new List<RestoreItemOutcome>(total);
             Exception? unexpected = null;
             try
             {
-                outcomes = await ViewModel.ApplyRestoreAsync(selected,
-                    (done, total) => OnUiThread(() => statusText.Text = $"Restoring {done} of {total}…"));
+                if (selected.Count > 0)
+                    outcomes.AddRange(await ViewModel.ApplyRestoreAsync(selected,
+                        (done, _) => OnUiThread(() => statusText.Text = $"Restoring {done} of {total}…")));
+                if (selectedCloud.Count > 0)
+                    outcomes.AddRange(await ViewModel.ApplyCloudRestoreAsync(selectedCloud,
+                        (done, _) => OnUiThread(() =>
+                            statusText.Text = $"Restoring {selected.Count + done} of {total}…")));
             }
             catch (Exception ex)
             {
