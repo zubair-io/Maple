@@ -499,6 +499,60 @@ namespace Maple.WinUI.Services.Cloud
             return response.IsSuccessStatusCode;
         }
 
+        // --- Trash / restore (#2741) ---
+
+        /// <summary>Resolves a server absolute path (the /api/fs/dir
+        /// listing's `path`, which cloud PhotoItems carry as FilePath) to
+        /// its indexed asset id via GET /api/assets/by-fspath. Null when
+        /// the path isn't in any registered library or the indexer hasn't
+        /// reached the file yet — the caller surfaces that as a per-item
+        /// failure rather than guessing.</summary>
+        public Task<CloudAssetRef?> ResolveAssetAsync(string serverAbsPath, CancellationToken ct) =>
+            GetJsonAsync<CloudAssetRef>(
+                $"api/assets/by-fspath?path={Uri.EscapeDataString(serverAbsPath)}", ct);
+
+        /// <summary>Sends one asset to the server's Trash.
+        /// `intent=trash` pins the dual-mode DELETE route to its
+        /// soft-delete branch (the same guard the web client passes), so a
+        /// double-fired delete can never escalate into the permanent-purge
+        /// branch.</summary>
+        public async Task<bool> TrashAssetAsync(string assetId, CancellationToken ct)
+        {
+            using var response = await SendAsync(
+                () => new HttpRequestMessage(
+                    HttpMethod.Delete, $"api/assets/{Uri.EscapeDataString(assetId)}?intent=trash"), ct);
+            if (!response.IsSuccessStatusCode)
+                DiagLog.Write($"[cloud] DELETE assets/{assetId} → {(int)response.StatusCode}");
+            return response.IsSuccessStatusCode;
+        }
+
+        /// <summary>Restores one trashed asset to its original server
+        /// location (POST /api/assets/:id/restore). Empty JSON body, same
+        /// as the web client.</summary>
+        public async Task<bool> RestoreAssetAsync(string assetId, CancellationToken ct)
+        {
+            using var response = await SendAsync(
+                () => new HttpRequestMessage(
+                    HttpMethod.Post, $"api/assets/{Uri.EscapeDataString(assetId)}/restore")
+                {
+                    Content = JsonContent(new { }),
+                }, ct);
+            if (!response.IsSuccessStatusCode)
+                DiagLog.Write($"[cloud] restore assets/{assetId} → {(int)response.StatusCode}");
+            return response.IsSuccessStatusCode;
+        }
+
+        /// <summary>One newest-first page of a library's server-side Trash
+        /// (GET /api/folders/:id/trash).</summary>
+        public Task<CloudTrashPage?> ListTrashAsync(
+            string folderId, int limit, string? cursor, CancellationToken ct)
+        {
+            var route = $"api/folders/{Uri.EscapeDataString(folderId)}/trash?limit={limit}";
+            if (!string.IsNullOrEmpty(cursor))
+                route += $"&cursor={Uri.EscapeDataString(cursor)}";
+            return GetJsonAsync<CloudTrashPage>(route, ct);
+        }
+
         // --- Plumbing: bearer + 401 → refresh → retry once ---
 
         private async Task<HttpResponseMessage> SendAsync(

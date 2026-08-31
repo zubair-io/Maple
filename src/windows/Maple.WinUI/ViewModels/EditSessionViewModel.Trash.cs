@@ -15,17 +15,21 @@
 // restored file lands back under a watched folder and the Created side of
 // the same watcher picks it up.
 //
-// Cloud assets are explicitly out of scope here — same restriction as
-// rename/batch-rename/drag-move (EditSessionViewModel.Rename.cs,
-// .BatchRename.cs, .DragMove.cs). Unlike those, Cloud has no delete path
-// reachable from the Windows grid AT ALL today — CloudClient.cs has no
-// delete/trash/restore call — tracked as its own gap by #2741 rather than
-// silently ignored.
+// Cloud assets take a different route (#2741): the server owns their trash
+// semantics — DELETE /api/assets/:id?intent=trash soft-deletes into the
+// SERVER's .maple/trash and POST /api/assets/:id/restore brings the file
+// back — so the cloud methods below are thin per-item API loops, not
+// filesystem operations. Two deliberate asymmetries vs the local flow:
+// (1) grid removal is explicit (RemoveCloudPhotos) because no
+// LibraryWatcher watches the server's filesystem, and (2) restore listing
+// comes from GET /api/folders/:id/trash instead of enumerating
+// .maple/trash directories.
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.FileOperations;
 
@@ -33,11 +37,17 @@ namespace Maple.WinUI.ViewModels
 {
     public partial class EditSessionViewModel
     {
-        /// <summary>Local (non-cloud) photos eligible for Delete — same
-        /// restriction every other local file-operations entry point in
-        /// this class uses. See #2741 for the tracked Cloud gap.</summary>
+        /// <summary>Local (non-cloud) photos in the selection — these route
+        /// through the Recycle Bin / .maple-trash filesystem flow. Cloud
+        /// photos route through <see cref="CloudTrashEligible"/> +
+        /// <see cref="ApplyCloudTrashAsync"/> instead (#2741).</summary>
         public static IReadOnlyList<PhotoItem> TrashEligible(IReadOnlyList<PhotoItem> selection) =>
             selection.Where(p => !p.IsCloud).ToList();
+
+        /// <summary>Cloud photos in the selection, deletable when a cloud
+        /// session is connected (#2741).</summary>
+        public static IReadOnlyList<PhotoItem> CloudTrashEligible(IReadOnlyList<PhotoItem> selection) =>
+            selection.Where(p => p.IsCloud).ToList();
 
         /// <summary>Builds TrashSelectionLogic's pure source-item list from
         /// <paramref name="photos"/>, keyed by each photo's current
@@ -134,6 +144,123 @@ namespace Maple.WinUI.ViewModels
             {
                 return new RestoreItemOutcome(item.TrashPrimaryPath, item.FileName, false, null, ex.Message);
             }
+        }
+
+        // --- Cloud trash / restore (#2741) — server-owned semantics ---
+
+        /// <summary>Per-item outcome of a cloud trash batch — mirrors
+        /// TrashItemOutcome's shape for the shared summary dialog.</summary>
+        public sealed record CloudTrashOutcome(PhotoItem Photo, bool Ok, string? Error);
+
+        /// <summary>One row of the cloud restore surface: a server trash
+        /// item plus the library it belongs to.</summary>
+        public sealed record CloudTrashEntry(string FolderId, string FolderName, Services.Cloud.CloudTrashItem Item)
+        {
+            /// <summary>ListView display line — same filename-first shape
+            /// TrashListItem.DisplayLabel uses for local items, with the
+            /// library and original folder for context.</summary>
+            public string DisplayLabel =>
+                $"{Item.Filename} — {FolderName}/{System.IO.Path.GetDirectoryName(Item.OriginalRelativePath)?.Replace('\\', '/')}".TrimEnd('/');
+        }
+
+        /// <summary>True when cloud items in the grid can be deleted — a
+        /// signed-in cloud session exists.</summary>
+        public bool CloudTrashAvailable => _cloud is { IsAuthenticated: true };
+
+        /// <summary>Trashes <paramref name="items"/> on the server,
+        /// sequentially: resolve each PhotoItem's server path to its asset
+        /// id (GET /api/assets/by-fspath), then DELETE ?intent=trash. Same
+        /// don't-roll-back-the-rest contract as ApplyTrashAsync. A file the
+        /// indexer hasn't reached yet resolves to null and fails that item
+        /// with an honest message instead of guessing.</summary>
+        public async Task<IReadOnlyList<CloudTrashOutcome>> ApplyCloudTrashAsync(
+            IReadOnlyList<PhotoItem> items, Action<int, int>? onItemDone = null)
+        {
+            var outcomes = new List<CloudTrashOutcome>(items.Count);
+            for (var i = 0; i < items.Count; i++)
+            {
+                outcomes.Add(await CloudTrashOneAsync(items[i]).ConfigureAwait(false));
+                onItemDone?.Invoke(i + 1, items.Count);
+            }
+            return outcomes;
+        }
+
+        private async Task<CloudTrashOutcome> CloudTrashOneAsync(PhotoItem photo)
+        {
+            if (_cloud is not { IsAuthenticated: true } cloud)
+                return new CloudTrashOutcome(photo, false, "Not signed in to Maple Cloud.");
+            var asset = await cloud.ResolveAssetAsync(photo.FilePath, CancellationToken.None)
+                .ConfigureAwait(false);
+            if (asset == null || asset.Id.Length == 0)
+                return new CloudTrashOutcome(photo, false,
+                    "The server hasn't indexed this file yet — try again in a moment.");
+            var ok = await cloud.TrashAssetAsync(asset.Id, CancellationToken.None).ConfigureAwait(false);
+            return new CloudTrashOutcome(photo, ok, ok ? null : "The server refused the delete — see maple.log.");
+        }
+
+        /// <summary>Removes successfully-trashed cloud photos from the grid.
+        /// Explicit (unlike the local flow) because no LibraryWatcher
+        /// observes the server's filesystem — without this the trashed item
+        /// would linger until the next cloud folder reload. UI thread only
+        /// (mutates AllPhotos and re-runs ApplyFilters).</summary>
+        public void RemoveCloudPhotos(IReadOnlyList<PhotoItem> photos)
+        {
+            if (photos.Count == 0)
+                return;
+            var doomed = new HashSet<PhotoItem>(photos);
+            AllPhotos.RemoveAll(doomed.Contains);
+            ApplyFilters();
+            Timeline.GroupPhotosByDate(AllPhotos);
+        }
+
+        /// <summary>Every restorable item in the server-side Trash across
+        /// all cloud libraries, newest-first per library. Reaped rows
+        /// (soft-deleted by the server's missing-file reaper — no trash
+        /// copy exists) are filtered out: offering a restore that must fail
+        /// is worse than not listing it. First page (500) per library —
+        /// consistent with the dialog being a recovery surface, not a trash
+        /// browser.</summary>
+        public async Task<IReadOnlyList<CloudTrashEntry>> ListCloudTrashAsync()
+        {
+            if (_cloud is not { IsAuthenticated: true } cloud)
+                return Array.Empty<CloudTrashEntry>();
+            var folders = await cloud.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
+            if (folders == null)
+                return Array.Empty<CloudTrashEntry>();
+            var entries = new List<CloudTrashEntry>();
+            foreach (var folder in folders)
+            {
+                var page = await cloud.ListTrashAsync(folder.Id, 500, null, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (page == null)
+                    continue;
+                entries.AddRange(page.Items
+                    .Where(i => i.Reason != "reaped")
+                    .Select(i => new CloudTrashEntry(folder.Id, folder.DisplayName, i)));
+            }
+            return entries;
+        }
+
+        /// <summary>Restores <paramref name="entries"/> on the server,
+        /// sequentially, with the batch's shared per-item outcome
+        /// contract.</summary>
+        public async Task<IReadOnlyList<RestoreItemOutcome>> ApplyCloudRestoreAsync(
+            IReadOnlyList<CloudTrashEntry> entries, Action<int, int>? onItemDone = null)
+        {
+            var outcomes = new List<RestoreItemOutcome>(entries.Count);
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                var ok = _cloud is { IsAuthenticated: true } cloud
+                    && await cloud.RestoreAssetAsync(entry.Item.AssetId, CancellationToken.None)
+                        .ConfigureAwait(false);
+                outcomes.Add(new RestoreItemOutcome(
+                    entry.Item.TrashRelativePath, entry.Item.Filename, ok,
+                    ok ? entry.Item.OriginalRelativePath : null,
+                    ok ? null : "The server refused the restore — see maple.log."));
+                onItemDone?.Invoke(i + 1, entries.Count);
+            }
+            return outcomes;
         }
     }
 }

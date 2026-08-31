@@ -88,27 +88,34 @@ namespace Maple.WinUI
         {
             var selection = ViewModel.SelectedPhotos;
             var eligible = EditSessionViewModel.TrashEligible(selection);
-            if (eligible.Count == 0)
+            // Cloud photos delete through the server's Trash (#2741) —
+            // possible only while a cloud session is signed in.
+            var cloudSelected = EditSessionViewModel.CloudTrashEligible(selection);
+            var cloudEligible = ViewModel.CloudTrashAvailable
+                ? cloudSelected
+                : Array.Empty<PhotoItem>();
+            if (eligible.Count == 0 && cloudEligible.Count == 0)
             {
                 var message = selection.Count == 0
                     ? "Select one or more photos in the grid first."
-                    : "Cloud photos can't be deleted here yet — delete them from the source "
-                      + "library (tracked separately, #2741).";
+                    : "These are Cloud photos and no Maple Cloud session is signed in — sign in "
+                      + "(File → Connect to Maple Cloud…) to delete them.";
                 await ShowMessageAsync("Delete", message);
                 return;
             }
-            var skippedCloud = selection.Count - eligible.Count;
+            var skippedCloud = cloudSelected.Count - cloudEligible.Count;
+            var total = eligible.Count + cloudEligible.Count;
 
             var (recycleBinCount, mapleTrashCount) = await ComputeTrashDestinationCountsAsync(eligible);
 
-            if (!await ConfirmDeleteAsync(eligible.Count, recycleBinCount, mapleTrashCount, skippedCloud))
+            if (!await ConfirmDeleteAsync(total, recycleBinCount, mapleTrashCount, cloudEligible.Count, skippedCloud))
                 return;
 
             var sources = EditSessionViewModel.BuildTrashSources(eligible);
 
             var statusText = new MuiText
             {
-                Text = $"Deleting 0 of {sources.Count}…",
+                Text = $"Deleting 0 of {total}…",
                 Variant = MuiTextVariant.Body,
                 Width = 380,
             };
@@ -131,11 +138,18 @@ namespace Maple.WinUI
             // re-surfaces the failure instead of letting `finally`
             // silently swallow it.
             IReadOnlyList<TrashItemOutcome> outcomes = Array.Empty<TrashItemOutcome>();
+            IReadOnlyList<EditSessionViewModel.CloudTrashOutcome> cloudOutcomes =
+                Array.Empty<EditSessionViewModel.CloudTrashOutcome>();
             Exception? unexpected = null;
             try
             {
-                outcomes = await ViewModel.ApplyTrashAsync(sources,
-                    (done, total) => OnUiThread(() => statusText.Text = $"Deleting {done} of {total}…"));
+                if (sources.Count > 0)
+                    outcomes = await ViewModel.ApplyTrashAsync(sources,
+                        (done, _) => OnUiThread(() => statusText.Text = $"Deleting {done} of {total}…"));
+                if (cloudEligible.Count > 0)
+                    cloudOutcomes = await ViewModel.ApplyCloudTrashAsync(cloudEligible,
+                        (done, _) => OnUiThread(() =>
+                            statusText.Text = $"Deleting {sources.Count + done} of {total}…"));
             }
             catch (Exception ex)
             {
@@ -147,6 +161,11 @@ namespace Maple.WinUI
                 await progressShown;
             }
 
+            // Cloud grid removal is explicit — no LibraryWatcher observes
+            // the server's filesystem (see EditSessionViewModel.Trash.cs).
+            var trashedCloud = cloudOutcomes.Where(o => o.Ok).Select(o => o.Photo).ToList();
+            ViewModel.RemoveCloudPhotos(trashedCloud);
+
             if (unexpected != null)
             {
                 AnnounceRename("Delete failed.");
@@ -157,7 +176,7 @@ namespace Maple.WinUI
                 return;
             }
 
-            await ReportDeleteOutcomeAsync(outcomes);
+            await ReportDeleteOutcomeAsync(outcomes, cloudOutcomes);
         }
 
         /// <summary>Shows the count-aware "N photos will move to the
@@ -167,7 +186,7 @@ namespace Maple.WinUI
         /// "Move to Maple Trash" for a same-destination batch, and a plain
         /// "Delete N Photos" for a mixed one.</summary>
         private async Task<bool> ConfirmDeleteAsync(
-            int total, int recycleBinCount, int mapleTrashCount, int skippedCloud)
+            int total, int recycleBinCount, int mapleTrashCount, int cloudCount, int skippedCloud)
         {
             var lines = new List<string>();
             if (recycleBinCount > 0)
@@ -186,15 +205,25 @@ namespace Maple.WinUI
                       + "don't have a reliable Recycle Bin) — restorable from File → Restore from Maple "
                       + "Trash….");
             }
+            if (cloudCount > 0)
+            {
+                lines.Add(cloudCount == total
+                    ? "Moves to your Maple Cloud server's Trash — restorable from File → Restore from "
+                      + "Maple Trash…."
+                    : $"{cloudCount} of {total} move to your Maple Cloud server's Trash — restorable from "
+                      + "File → Restore from Maple Trash….");
+            }
             if (skippedCloud > 0)
-                lines.Add($"{skippedCloud} Cloud photo{(skippedCloud == 1 ? "" : "s")} skipped (can't delete "
-                    + "here yet).");
+                lines.Add($"{skippedCloud} Cloud photo{(skippedCloud == 1 ? "" : "s")} skipped — no Maple "
+                    + "Cloud session is signed in.");
 
-            var primaryText = mapleTrashCount == 0
-                ? "Move to Recycle Bin"
-                : recycleBinCount == 0
-                    ? "Move to Maple Trash"
-                    : $"Delete {total} Photo{(total == 1 ? "" : "s")}";
+            var primaryText = (recycleBinCount > 0, mapleTrashCount > 0, cloudCount > 0) switch
+            {
+                (true, false, false) => "Move to Recycle Bin",
+                (false, true, false) => "Move to Maple Trash",
+                (false, false, true) => "Move to Cloud Trash",
+                _ => $"Delete {total} Photo{(total == 1 ? "" : "s")}",
+            };
 
             var dialog = new ContentDialog
             {
@@ -211,14 +240,18 @@ namespace Maple.WinUI
             return await dialog.ShowAsync() == ContentDialogResult.Primary;
         }
 
-        private async Task ReportDeleteOutcomeAsync(IReadOnlyList<TrashItemOutcome> outcomes)
+        private async Task ReportDeleteOutcomeAsync(
+            IReadOnlyList<TrashItemOutcome> outcomes,
+            IReadOnlyList<EditSessionViewModel.CloudTrashOutcome> cloudOutcomes)
         {
-            var trashed = outcomes.Count(o => o.Kind == TrashOutcomeKind.Trashed);
-            var failed = outcomes.Count - trashed;
+            var trashed = outcomes.Count(o => o.Kind == TrashOutcomeKind.Trashed)
+                + cloudOutcomes.Count(o => o.Ok);
+            var totalCount = outcomes.Count + cloudOutcomes.Count;
+            var failed = totalCount - trashed;
 
             var summary = failed == 0
                 ? $"Deleted {trashed} photo{(trashed == 1 ? "" : "s")}."
-                : $"Deleted {trashed} of {outcomes.Count} photos. {failed} failed.";
+                : $"Deleted {trashed} of {totalCount} photos. {failed} failed.";
             AnnounceRename(summary);
 
             if (failed == 0)
@@ -230,6 +263,14 @@ namespace Maple.WinUI
                 detail.Children.Add(new MuiText
                 {
                     Text = $"{outcome.FileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}",
+                    Variant = MuiTextVariant.Body,
+                });
+            }
+            foreach (var outcome in cloudOutcomes.Where(o => !o.Ok))
+            {
+                detail.Children.Add(new MuiText
+                {
+                    Text = $"{outcome.Photo.FileName}: {outcome.Error ?? "unknown error"}",
                     Variant = MuiTextVariant.Body,
                 });
             }
