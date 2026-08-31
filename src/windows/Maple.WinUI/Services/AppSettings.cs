@@ -70,6 +70,9 @@ namespace Maple.WinUI.Services
 
         public bool LeftPanelHidden { get; set; }
         public bool DetailPanelHidden { get; set; }
+        /// <summary>Maple Cloud as a File Explorer sync root (#2589) —
+        /// %USERPROFILE%\Maple Cloud with on-demand hydration.</summary>
+        public bool CloudFilesEnabled { get; set; }
         public double LeftPanelWidth { get; set; } = 260;
         public double DetailPanelWidth { get; set; } = 320;
 
