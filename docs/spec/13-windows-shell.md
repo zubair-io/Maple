@@ -18,14 +18,14 @@ Mac app doesn't have.
 
 Mac renders, top to bottom (`LibrarySidebar.body`):
 
-| Row / section    | Mac source                | Windows |
-| ---------------- | ------------------------- | ------- |
-| TIMELINE row     | `timelineRow`             | ✅ same position, first |
-| MAP row          | `mapRow`                  | ❌ omitted — no map view on Windows yet |
-| MAPLE CLOUD      | `cloudServersSection`     | ✅ folder tree over `/api/fs/dir` |
-| FOLDERS          | `foldersSection`          | ✅ local library tree |
-| Photos Library   | `photosSection` (PhotoKit)| ❌ omitted — PhotoKit is Apple-only |
-| CONNECTIONS      | `connectionsSection` (SMB)| ❌ omitted — no SMB client on Windows yet |
+| Row / section  | Mac source                 | Windows                                   |
+| -------------- | -------------------------- | ----------------------------------------- |
+| TIMELINE row   | `timelineRow`              | ✅ same position, first                   |
+| MAP row        | `mapRow`                   | ❌ omitted — no map view on Windows yet   |
+| MAPLE CLOUD    | `cloudServersSection`      | ✅ folder tree over `/api/fs/dir`         |
+| FOLDERS        | `foldersSection`           | ✅ local library tree                     |
+| Photos Library | `photosSection` (PhotoKit) | ❌ omitted — PhotoKit is Apple-only       |
+| CONNECTIONS    | `connectionsSection` (SMB) | ❌ omitted — no SMB client on Windows yet |
 
 Rules carried over:
 
