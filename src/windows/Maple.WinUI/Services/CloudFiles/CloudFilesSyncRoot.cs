@@ -143,7 +143,13 @@ namespace Maple.WinUI.Services.CloudFiles
                         SyncRootPath, table, IntPtr.Zero,
                         CfApi.CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH, out _connectionKey);
                     if (hrConnect != 0)
+                    {
+                        // Roll the registration back (best-effort) so a
+                        // failed enable strands nothing — the same
+                        // no-lying-state invariant the settings toggle keeps.
+                        try { CfApi.CfUnregisterSyncRoot(SyncRootPath); } catch { /* best effort */ }
                         return $"Sync root connection failed (0x{hrConnect:X8}).";
+                    }
 
                     _connected = true;
                     DiagLog.Write($"[cloudfiles] connected sync root at {SyncRootPath}");
@@ -359,6 +365,21 @@ namespace Maple.WinUI.Services.CloudFiles
             var identity = ReadIdentity(info);
             if (client is not { IsAuthenticated: true } || identity.Length == 0)
             {
+                CompleteTransfer(info, fetch.RequiredFileOffset, fetch.RequiredLength,
+                    CfApi.STATUS_UNSUCCESSFUL);
+                return;
+            }
+
+            // The FULL hydration policy makes every request start at 0, and
+            // the sequential streaming below depends on that. Guard the
+            // assumption: a non-zero required offset (e.g. a future policy
+            // change, or a restarted partial hydration) must fail cleanly
+            // rather than deliver bytes at wrong offsets and corrupt the
+            // read.
+            if (fetch.RequiredFileOffset != 0)
+            {
+                DiagLog.Write(
+                    $"[cloudfiles] unsupported partial hydration request at offset {fetch.RequiredFileOffset}");
                 CompleteTransfer(info, fetch.RequiredFileOffset, fetch.RequiredLength,
                     CfApi.STATUS_UNSUCCESSFUL);
                 return;
