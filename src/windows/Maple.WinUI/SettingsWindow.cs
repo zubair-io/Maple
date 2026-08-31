@@ -46,6 +46,7 @@ namespace Maple.WinUI
 
         private readonly EditSessionViewModel _viewModel;
         private readonly Action _openCloudConnect;
+        private readonly Func<bool, string?> _setCloudFiles;
         private readonly Action _toggleSidebar;
 
         private readonly MuiSettingsShell _shell = new() { NavWidth = 220, PaneMaxWidth = 640 };
@@ -58,11 +59,14 @@ namespace Maple.WinUI
         };
         private string _activeSectionId = "library";
 
-        public SettingsWindow(EditSessionViewModel viewModel, Action openCloudConnect, Action toggleSidebar)
+        public SettingsWindow(
+            EditSessionViewModel viewModel, Action openCloudConnect, Action toggleSidebar,
+            Func<bool, string?> setCloudFiles)
         {
             _viewModel = viewModel;
             _openCloudConnect = openCloudConnect;
             _toggleSidebar = toggleSidebar;
+            _setCloudFiles = setCloudFiles;
 
             Title = "Maple Settings";
             AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 720));
@@ -197,6 +201,37 @@ namespace Maple.WinUI
             var connect = new MuiButton { Label = "Connect to Maple Cloud…", Variant = MuiButtonVariant.Secondary };
             connect.Click += (_, _) => _openCloudConnect();
 
+            // #2589: File Explorer sync root. Route through MainWindow's
+            // handler (the single owner of the sync-root lifecycle + the
+            // persisted flag), then re-sync the visual from what actually
+            // persisted — a failed registration leaves the box unchecked
+            // with the failure shown, instead of a checked box that lies.
+            var explorerToggle = new MuiCheckbox
+            {
+                Label = "Show Maple Cloud in File Explorer",
+                IsThreeState = false,               // binary setting
+                CheckedState = settings.CloudFilesEnabled,
+            };
+            var explorerStatus = new MuiStatusText { State = MuiStatusTextState.Idle };
+            explorerToggle.Click += (_, _) =>
+            {
+                var error = _setCloudFiles(explorerToggle.CheckedState == true);
+                explorerToggle.CheckedState = AppSettings.Load().CloudFilesEnabled;
+                if (error != null)
+                {
+                    explorerStatus.State = MuiStatusTextState.Error;
+                    explorerStatus.Text = error;
+                }
+                else
+                {
+                    explorerStatus.State = MuiStatusTextState.Idle;
+                    explorerStatus.Text = string.Empty;
+                }
+            };
+            var explorerContent = new StackPanel { Spacing = 6 };
+            explorerContent.Children.Add(explorerToggle);
+            explorerContent.Children.Add(explorerStatus);
+
             _paneHost.Children.Add(new MuiSettingsSection
             {
                 Title = "MAPLE CLOUD",
@@ -209,6 +244,9 @@ namespace Maple.WinUI
                     new MuiSettingsSectionRow("connect", "Connection", null,
                         "Sign-in happens in your browser via the server's passkey flow; the app stores only a device refresh token, protected with Windows DPAPI.",
                         connect, StartExpanded: true),
+                    new MuiSettingsSectionRow("explorer", "File Explorer", "folder",
+                        "Adds a \"Maple Cloud\" folder to your user profile with placeholder files that download on demand. Right-click a file for \"Always keep on this device\".",
+                        explorerContent, StartExpanded: true),
                 },
             });
         }
