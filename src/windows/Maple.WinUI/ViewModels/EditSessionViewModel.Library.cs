@@ -38,6 +38,11 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private int _minRatingFilter;
         [ObservableProperty] private string _flagFilter = "all";    // all | pick | reject
         [ObservableProperty] private string _searchText = string.Empty;
+        /// <summary>True while a Timeline period is selected — the grid shows
+        /// day-group headers. False in folder browse, where the Finder
+        /// contract applies: one flat, name-sorted grid
+        /// (docs/spec/13-windows-shell.md).</summary>
+        [ObservableProperty] private bool _isDateGrouped;
         public DateTime? DateFilterStart { get; private set; }
         public DateTime? DateFilterEndExclusive { get; private set; }
 
@@ -269,6 +274,7 @@ namespace Maple.WinUI.ViewModels
 
             CurrentFolderPath = folderPath;
             ActiveSectionName = Path.GetFileName(folderPath) is { Length: > 0 } name ? name : folderPath;
+            BrowseFolders.Clear();  // repopulated with this folder's children below
             WatchBrowsedFolder(folderPath);
 
             // The scan (recursive enumeration + sidecar reads) runs off the UI
@@ -286,6 +292,10 @@ namespace Maple.WinUI.ViewModels
                     }
                     // #2657 closed-app rename fallback lives in EnumerateAndReconcile.
                     var filePaths = EnumerateAndReconcile(folderPath);
+                    // Finder contract (docs/spec/13-windows-shell.md): the
+                    // grid shows this folder's subfolders as tiles above its
+                    // images — same enumeration the sidebar tree uses.
+                    var subfolderNodes = EnumerateChildFolderNodes(folderPath);
 
                     // Per-item try/catch (#2754), mirroring EditSessionViewModel.
                     // Watcher.cs's ChangesReady handler: one unreadable file
@@ -355,6 +365,9 @@ namespace Maple.WinUI.ViewModels
                             AllPhotos.Clear();
                             foreach (var item in items)
                                 AllPhotos.Add(item);
+                            BrowseFolders.Clear();
+                            foreach (var sub in subfolderNodes)
+                                BrowseFolders.Add(sub);
                             ApplyFilters();
                             Timeline.GroupPhotosByDate(AllPhotos);
                             onReady?.Invoke();
@@ -524,25 +537,42 @@ namespace Maple.WinUI.ViewModels
                     || p.LensInfo.Contains(needle, StringComparison.OrdinalIgnoreCase));
             }
 
-            // Timeline order: newest day first, capture order within the day.
-            // The flat list is the concatenation of the day groups so the grid,
-            // filmstrip, and arrow-key navigation all agree on ordering.
-            var groups = query
-                .GroupBy(TimelineViewModel.CaptureDay)
-                .OrderByDescending(g => g.Key)
-                .Select(g =>
-                {
-                    var dayGroup = new PhotoDayGroup
+            // Two presentations (docs/spec/13-windows-shell.md, matching the
+            // Mac BrowseGrid/AllSourcesTimeline split):
+            //
+            //  - Timeline selected → date-grouped, newest day first, capture
+            //    order within the day. Day headers are the Timeline's
+            //    presentation.
+            //  - Browsing a folder → the Finder contract: ONE flat grid,
+            //    name-ascending, no headers (Mac BrowseViewModel's
+            //    `.nameAscending` default). Folder tiles render above via
+            //    BrowseFolders.
+            //
+            // Photos (the flat list) is always the grid's traversal order, so
+            // the filmstrip and arrow keys agree with what's on screen in
+            // both presentations.
+            IsDateGrouped = DateFilterStart != null;
+            var groups = IsDateGrouped
+                ? query
+                    .GroupBy(TimelineViewModel.CaptureDay)
+                    .OrderByDescending(g => g.Key)
+                    .Select(g =>
                     {
-                        Label = g.Key.ToString("dddd, MMMM d, yyyy"),
-                        Day = g.Key,
-                    };
-                    foreach (var item in g.OrderBy(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime())
-                                          .ThenBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
-                        dayGroup.Add(item);
-                    return dayGroup;
-                })
-                .ToList();
+                        var dayGroup = new PhotoDayGroup
+                        {
+                            Label = g.Key.ToString("dddd, MMMM d, yyyy"),
+                            Day = g.Key,
+                        };
+                        foreach (var item in g.OrderBy(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime())
+                                              .ThenBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
+                            dayGroup.Add(item);
+                        return dayGroup;
+                    })
+                    .ToList()
+                : new List<PhotoDayGroup>
+                {
+                    BuildFlatGroup(query),
+                };
 
             PhotoGroups.Clear();
             Photos.Clear();
@@ -553,6 +583,14 @@ namespace Maple.WinUI.ViewModels
                     Photos.Add(item);
             }
             HasPhotos = Photos.Count > 0;
+        }
+
+        private static PhotoDayGroup BuildFlatGroup(IEnumerable<PhotoItem> query)
+        {
+            var flat = new PhotoDayGroup();
+            foreach (var item in query.OrderBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
+                flat.Add(item);
+            return flat;
         }
 
         public void SelectNeighbor(int delta)
