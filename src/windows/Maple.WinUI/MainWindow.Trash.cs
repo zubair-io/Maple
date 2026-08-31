@@ -112,10 +112,14 @@ namespace Maple.WinUI
                 return;
 
             var sources = EditSessionViewModel.BuildTrashSources(eligible);
+            // Progress denominator derives from what the two loops actually
+            // iterate (BuildTrashSources maps 1:1 today, but the counter
+            // must not silently drift if that ever compresses).
+            var progressTotal = sources.Count + cloudEligible.Count;
 
             var statusText = new MuiText
             {
-                Text = $"Deleting 0 of {total}…",
+                Text = $"Deleting 0 of {progressTotal}…",
                 Variant = MuiTextVariant.Body,
                 Width = 380,
             };
@@ -145,11 +149,11 @@ namespace Maple.WinUI
             {
                 if (sources.Count > 0)
                     outcomes = await ViewModel.ApplyTrashAsync(sources,
-                        (done, _) => OnUiThread(() => statusText.Text = $"Deleting {done} of {total}…"));
+                        (done, _) => OnUiThread(() => statusText.Text = $"Deleting {done} of {progressTotal}…"));
                 if (cloudEligible.Count > 0)
                     cloudOutcomes = await ViewModel.ApplyCloudTrashAsync(cloudEligible,
                         (done, _) => OnUiThread(() =>
-                            statusText.Text = $"Deleting {sources.Count + done} of {total}…"));
+                            statusText.Text = $"Deleting {sources.Count + done} of {progressTotal}…"));
             }
             catch (Exception ex)
             {
