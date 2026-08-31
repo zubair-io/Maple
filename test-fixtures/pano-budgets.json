@@ -20,6 +20,18 @@
         "dropped_frames": 0
       }
     },
+    "pano_03": {
+      "stitch": {
+        "_comment": "23-frame 100MP nadir grid pass (DJI L3D-100c, single strip over Paris, ~90% forward overlap). Tile strategy (auto: 40 tile votes / 0 rotation). No reference (no coverage/rmse keys), no horizon gate (nadir), no rotation reproj keys. 2026-08-31 (#3086): first entry at the measured post-fix result — 0 orphans, mean planar 6.70px, max 12.89px, canvas capped 977MP→256MP; dropped_frames=0 is the product bar for well-shot strips.",
+        "dropped_frames": 0
+      }
+    },
+    "pano_04": {
+      "stitch": {
+        "_comment": "9-frame 100MP nadir grid pass (DJI L3D-100c, single strip over Dune du Pilat; frame 0306 missing from capture — the 0305→0307 gap still verifies). Tile strategy (auto: 25 tile votes / 1 rotation). No reference, no horizon gate, no rotation reproj keys. 2026-08-31 (#3086): first entry at the measured post-fix result — 0 orphans, mean planar 10.94px, max 23.42px.",
+        "dropped_frames": 0
+      }
+    },
     "pano_02": {
       "stitch": {
         "_comment": "Synthetic 6-frame 180° partial ring (pano-gen-fixture, seed 42, 1280×960 px, 60° FOV, 50% overlap). Rotation-BA strategy (mean 0.070px, max 0.216px). No reference (gitignored) — gates on StitchReport metrics only. Ceilings at observed + ~10-15% slack. Peak RSS measured on main post-#1252 (/usr/bin/time -l, this 6-frame set): full canvas 9.66 GB (9.00 GiB); --canvas-tile-rows 512: 7.65 GB (7.13 GiB) — 20.8% reduction. Both paths produce identical BA geometry (tiling bounds composite residency only, not the match/refine peak — see #1254).",
