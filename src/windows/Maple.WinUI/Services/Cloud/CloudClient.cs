@@ -286,11 +286,15 @@ namespace Maple.WinUI.Services.Cloud
         /// copy matching the server-reported size is reused without a request.
         /// Progress is (bytesReceived, totalBytes; total -1 when unknown).</summary>
         public async Task<string?> DownloadOriginalAsync(
-            string address, string serverAbsPath, long expectedSize,
+            string serverAbsPath, long expectedSize,
             Action<long, long>? progress, CancellationToken ct)
         {
+            // Keyed by the path this actually fetches, not by the asset's
+            // `slug:relPath` address: the address is optional (a library with
+            // no registered slug has none), and two files sharing a cache key
+            // is a correctness bug, not a cosmetic one.
             var hash = Convert.ToHexString(
-                SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|original|{address}")))[..32];
+                SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|original|{serverAbsPath}")))[..32];
             var originalsDir = Path.Combine(_cacheDir, "originals");
             Directory.CreateDirectory(originalsDir);
             var fileName = Path.GetFileName(serverAbsPath.Replace('\\', '/'));
