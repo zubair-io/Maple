@@ -63,8 +63,13 @@ pub mod warp;
 
 mod gain_solve;
 
+#[cfg(test)]
+#[path = "composite_tests.rs"]
+mod composite_tests;
+
 pub use placement::{
-    solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError, TilePose,
+    apply_canvas_cap, solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError,
+    TilePose,
 };
 pub use warp::warp_to_tile_canvas;
 
@@ -301,6 +306,28 @@ pub fn composite_tile(
     let mut out_b = vec![0.0_f32; n];
     let mut out_valid = vec![false; n];
 
+    // Per-frame canvas-space bounding boxes for spatial culling (#3086).
+    // A similarity maps the frame rectangle to a convex quad, so the
+    // corner bbox is exact; frames whose bbox misses a haloed region can
+    // only produce an all-invalid layer there — zero-weight in both the
+    // Voronoi masks and the multiband blend — and are skipped outright.
+    let frame_bboxes: Vec<(f64, f64, f64, f64)> = frames
+        .iter()
+        .zip(poses)
+        .map(|(f, pose)| {
+            let (fw, fh) = (f.width() as f64, f.height() as f64);
+            let corners = [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)];
+            let mapped = corners
+                .iter()
+                .map(|&(x, y)| pose.sim.apply(x, y))
+                .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y));
+            mapped.fold(
+                (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY),
+                |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+            )
+        })
+        .collect();
+
     // ── spatial tile loop ────────────────────────────────────────────────────
     let mut ty0 = 0usize;
     while ty0 < ch {
@@ -315,12 +342,29 @@ pub fn composite_tile(
             let hx1 = (tx1 + halo).min(cw);
             let hy1 = (ty1 + halo).min(ch);
 
-            // Warp each frame into the haloed region only.
-            let haloed_layers: Vec<PlanarImage> = frames
+            // Cull frames whose canvas bbox misses the haloed region, then
+            // warp only the survivors (#3086). The 1 px pad absorbs the
+            // +0.5 pixel-center sampling and float slop at the boundary.
+            let active: Vec<usize> = (0..frames.len())
+                .filter(|&i| {
+                    let (bx0, by0, bx1, by1) = frame_bboxes[i];
+                    bx1 >= hx0 as f64 - 1.0
+                        && bx0 <= hx1 as f64 + 1.0
+                        && by1 >= hy0 as f64 - 1.0
+                        && by0 <= hy1 as f64 + 1.0
+                })
+                .collect();
+            if active.is_empty() {
+                tx0 = tx1;
+                continue;
+            }
+            let haloed_layers: Vec<PlanarImage> = active
                 .iter()
-                .zip(poses)
-                .zip(&gains)
-                .map(|((f, pose), &g)| warp_to_tile_region(f, pose, canvas, g, hx0, hy0, hx1, hy1))
+                .map(|&i| {
+                    warp_to_tile_region(
+                        &frames[i], &poses[i], canvas, gains[i], hx0, hy0, hx1, hy1,
+                    )
+                })
                 .collect();
 
             // Skip tile if no frame covers any pixel in the haloed region.
@@ -330,8 +374,21 @@ pub fn composite_tile(
                 continue;
             }
 
-            // Voronoi masks over the haloed region.
-            let (masks, _) = voronoi_masks_region(&haloed_layers);
+            // Voronoi masks over the haloed region (source-space depth
+            // needs the active frames' poses + dims).
+            let active_poses: Vec<TilePose> = active.iter().map(|&i| poses[i].clone()).collect();
+            let active_dims: Vec<(u32, u32)> = active
+                .iter()
+                .map(|&i| (frames[i].width(), frames[i].height()))
+                .collect();
+            let (masks, _) = voronoi_masks_region(
+                &haloed_layers,
+                &active_poses,
+                &active_dims,
+                canvas,
+                hx0,
+                hy0,
+            );
 
             // Multiband blend of haloed region.
             let blended = blend_multiband(&haloed_layers, &masks, levels);
@@ -470,12 +527,31 @@ fn estimate_min_overlap_width(
 }
 
 /// Voronoi masks for a (possibly haloed) region.
-/// Identical logic to the former `voronoi_masks_tile` but operates on an
-/// arbitrary region-sized `PlanarImage`.
-fn voronoi_masks_region(layers: &[PlanarImage]) -> (Vec<Vec<f32>>, usize) {
+///
+/// Ownership score for a covered pixel = how deep its inverse projection
+/// sits inside the owning **source frame** (min distance to that frame's
+/// nearest edge, in source pixels) — the same semantics as the rotation
+/// path's `voronoi_masks`, so seams land mid-overlap. Ties break to the
+/// lower frame index (determinism). The pre-#3086 region variant scored
+/// distance to the region rectangle instead, which is identical for every
+/// layer at a pixel — every tie broke to the lowest index and seams sat
+/// on frame validity borders, where parallax misalignment peaks.
+///
+/// `(rx0, ry0)` is the region's origin in canvas pixels; `poses` and
+/// `frame_dims` are parallel to `layers`.
+fn voronoi_masks_region(
+    layers: &[PlanarImage],
+    poses: &[TilePose],
+    frame_dims: &[(u32, u32)],
+    canvas: &TileCanvasSpec,
+    rx0: usize,
+    ry0: usize,
+) -> (Vec<Vec<f32>>, usize) {
     let Some(first) = layers.first() else {
         return (vec![], 0);
     };
+    debug_assert_eq!(layers.len(), poses.len());
+    debug_assert_eq!(layers.len(), frame_dims.len());
     let cw = first.width() as usize;
     let ch = first.height() as usize;
     let n = cw * ch;
@@ -483,17 +559,25 @@ fn voronoi_masks_region(layers: &[PlanarImage]) -> (Vec<Vec<f32>>, usize) {
 
     let depths: Vec<Vec<f32>> = layers
         .iter()
-        .map(|layer| {
+        .zip(poses)
+        .zip(frame_dims)
+        .map(|((layer, pose), &(fw, fh))| {
+            let inv = warp::inverse_similarity_with_offset(
+                &pose.sim,
+                canvas.offset_x,
+                canvas.offset_y,
+            );
+            let (fw, fh) = (fw as f64, fh as f64);
             let mut d = vec![-1.0_f32; n];
             for py in 0..ch {
                 for px in 0..cw {
                     if !layer.validity.get(px as u32, py as u32) {
                         continue;
                     }
-                    let border = (px as f64)
-                        .min(cw as f64 - 1.0 - px as f64)
-                        .min(py as f64)
-                        .min(ch as f64 - 1.0 - py as f64);
+                    let cx = (rx0 + px) as f64 + 0.5;
+                    let cy = (ry0 + py) as f64 + 0.5;
+                    let (sx, sy) = inv.apply(cx, cy);
+                    let border = sx.min(fw - sx).min(sy).min(fh - sy);
                     d[py * cw + px] = border.max(0.0) as f32;
                 }
             }
