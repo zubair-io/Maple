@@ -72,12 +72,17 @@ pub mod placement;
 pub mod warp;
 
 mod composite;
-mod gain_solve;
+mod exposure_field;
 mod masks;
+mod photometry;
 
 #[cfg(test)]
 #[path = "composite_tests.rs"]
 mod composite_tests;
+
+#[cfg(test)]
+#[path = "photometry_tests.rs"]
+mod photometry_tests;
 
 pub use composite::{composite_tile, TileCompositeReport};
 pub use placement::{
