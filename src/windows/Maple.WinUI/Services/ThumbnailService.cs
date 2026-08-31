@@ -86,12 +86,23 @@ namespace Maple.WinUI.Services
             var sharedPath = ThumbCachePaths.SharedThumbPathFor(rawPath);
             if (File.Exists(sharedPath))
                 return sharedPath;
+            // A prior fallback render (read-only folder/share) is a cache
+            // hit too. Without this check, every grid pass over a read-only
+            // library would miss the fast path, queue on the gate, and
+            // re-fail the shared mkdir/write on its way to the fallback —
+            // the shared location is only re-attempted once the 30-day
+            // sweep retires the local entry.
+            var fallbackPath = LocalCachePathFor(rawPath, ThumbnailMaxPx, "avif");
+            if (File.Exists(fallbackPath))
+                return fallbackPath;
 
             await Gate.WaitAsync(ct);
             try
             {
                 if (File.Exists(sharedPath))
                     return sharedPath;
+                if (File.Exists(fallbackPath))
+                    return fallbackPath;
                 return await Task.Run(() => RenderSharedThumb(rawPath, sharedPath), ct);
             }
             finally
