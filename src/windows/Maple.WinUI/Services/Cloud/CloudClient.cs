@@ -143,8 +143,11 @@ namespace Maple.WinUI.Services.Cloud
         }
 
         /// <summary>Silent reconnect from a persisted refresh token
-        /// (POST /api/auth/refresh with the body token; server rotates it).</summary>
-        public async Task<bool> RestoreSessionAsync(string refreshToken, CancellationToken ct)
+        /// (POST /api/auth/refresh with the body token; server rotates it).
+        /// The caller must distinguish the two failure modes — see
+        /// <see cref="RefreshOutcome"/>.</summary>
+        public async Task<RefreshOutcome> RestoreSessionAsync(
+            string refreshToken, CancellationToken ct)
         {
             RefreshToken = refreshToken;
             return await RefreshAccessTokenAsync(ct);
@@ -165,25 +168,47 @@ namespace Maple.WinUI.Services.Cloud
             return (true, "Signed in (dev).");
         }
 
-        private async Task<bool> RefreshAccessTokenAsync(CancellationToken ct)
+        private async Task<RefreshOutcome> RefreshAccessTokenAsync(CancellationToken ct)
         {
             // Native clients refresh with the body token (the cookie variant is
             // the browser's); the server rotates and returns a fresh raw token.
             var payload = RefreshToken != null
                 ? JsonContent(new { refresh_token = RefreshToken })
                 : JsonContent(new Dictionary<string, string?>());
-            using var refresh = await _http.PostAsync("api/auth/refresh", payload, ct);
+            HttpResponseMessage refresh;
+            try
+            {
+                refresh = await _http.PostAsync("api/auth/refresh", payload, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                // Offline, DNS failure, server down — the stored credential
+                // says nothing about any of these.
+                DiagLog.Write($"[cloud] refresh unreachable: {ex.Message}");
+                return RefreshOutcome.Transient;
+            }
+            using var _ = refresh;
             if (!refresh.IsSuccessStatusCode)
             {
-                DiagLog.Write($"[cloud] refresh -> {(int)refresh.StatusCode} "
+                var status = (int)refresh.StatusCode;
+                DiagLog.Write($"[cloud] refresh -> {status} "
                     + await refresh.Content.ReadAsStringAsync(ct));
-                return false;
+                // Only the server saying "this credential is no good" is
+                // grounds for discarding it. A 429 (this route is rate-limited
+                // to 10/min per IP) or a 5xx during a deploy says nothing
+                // about the token, and treating those as rejection would log
+                // the user out over a passing blip.
+                return status is 400 or 401 or 403
+                    ? RefreshOutcome.Rejected
+                    : RefreshOutcome.Transient;
             }
             var tokens = await ReadJsonAsync<CloudRedeemResponse>(refresh, ct);
             if (string.IsNullOrEmpty(tokens?.AccessToken))
             {
+                // A 2xx that carries no token is a server-side malfunction,
+                // not a verdict on the credential.
                 DiagLog.Write("[cloud] refresh returned no access token");
-                return false;
+                return RefreshOutcome.Transient;
             }
             _accessToken = tokens!.AccessToken;
             if (!string.IsNullOrEmpty(tokens.RefreshToken))
@@ -191,7 +216,7 @@ namespace Maple.WinUI.Services.Cloud
                 RefreshToken = tokens.RefreshToken;
                 RefreshTokenRotated?.Invoke(tokens.RefreshToken!);
             }
-            return true;
+            return RefreshOutcome.Ok;
         }
 
         // --- Library browsing ---
