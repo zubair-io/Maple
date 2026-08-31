@@ -43,6 +43,18 @@ namespace Maple.WinUI
             // right of the menus drags the window.
             Maple.UI.MuiWindowChrome.Extend(this, TitleBarDragRegion);
 
+            // #2589: Maple Cloud in File Explorer. Constructed with an
+            // accessor (reconnects replace the client instance); started
+            // eagerly when enabled — the sync root itself needs no session,
+            // and its callbacks answer empty until one is restored.
+            _cloudFiles = new Services.CloudFiles.CloudFilesSyncRoot(() => ViewModel.ActiveCloudClient);
+            if (Services.AppSettings.Load().CloudFilesEnabled)
+            {
+                var startError = _cloudFiles.Start();
+                if (startError != null)
+                    Services.DiagLog.Write($"[cloudfiles] startup: {startError}");
+            }
+
             if (this.Content is FrameworkElement root)
             {
                 root.DataContext = ViewModel;

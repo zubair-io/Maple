@@ -24,12 +24,35 @@ namespace Maple.WinUI
                 var window = new SettingsWindow(
                     ViewModel,
                     openCloudConnect: () => OnConnectCloud(this, new RoutedEventArgs()),
-                    toggleSidebar: () => OnToggleSidebar(this, new RoutedEventArgs()));
+                    toggleSidebar: () => OnToggleSidebar(this, new RoutedEventArgs()),
+                    setCloudFiles: SetCloudFilesEnabled);
                 window.Closed += (_, _) => _settingsWindow = null;
                 _settingsWindow = window;
             }
             _settingsWindow.Activate();
         }
+
+        /// <summary>Settings-page toggle for the File Explorer sync root
+        /// (#2589). Persists only what actually took effect: an enable that
+        /// fails to register leaves the setting off and returns the failure
+        /// for the settings page to surface.</summary>
+        private string? SetCloudFilesEnabled(bool enabled)
+        {
+            if (enabled)
+            {
+                var error = _cloudFiles.Start();
+                if (error != null)
+                    return error;
+            }
+            else
+            {
+                _cloudFiles.Stop(unregister: true);
+            }
+            Services.AppSettings.Update(s => s.CloudFilesEnabled = enabled);
+            return null;
+        }
+
+        private readonly Services.CloudFiles.CloudFilesSyncRoot _cloudFiles;
 
         private async void OnOpenDirectory(object sender, RoutedEventArgs e)
         {

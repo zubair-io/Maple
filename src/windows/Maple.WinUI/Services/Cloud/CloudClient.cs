@@ -553,6 +553,26 @@ namespace Maple.WinUI.Services.Cloud
             return GetJsonAsync<CloudTrashPage>(route, ct);
         }
 
+        // --- Original bytes as a stream (#2589) ---
+
+        /// <summary>Opens GET /api/fs/raw as a headers-read response for
+        /// streaming consumers (the Cloud Files hydration callback) that
+        /// must not spool the whole RAW to disk first. The caller owns the
+        /// response and must dispose it — the content stream dies with it.
+        /// Null on any non-success status.</summary>
+        public async Task<HttpResponseMessage?> OpenOriginalAsync(
+            string serverAbsPath, CancellationToken ct)
+        {
+            var route = $"api/fs/raw?path={Uri.EscapeDataString(serverAbsPath)}";
+            var response = await SendStreamAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, route), ct);
+            if (response.IsSuccessStatusCode)
+                return response;
+            DiagLog.Write($"[cloud] raw open {(int)response.StatusCode} for {serverAbsPath}");
+            response.Dispose();
+            return null;
+        }
+
         // --- Plumbing: bearer + 401 → refresh → retry once ---
 
         private async Task<HttpResponseMessage> SendAsync(
