@@ -52,7 +52,13 @@ namespace Maple.WinUI
             {
                 var startError = _cloudFiles.Start();
                 if (startError != null)
-                    Services.DiagLog.Write($"[cloudfiles] startup: {startError}");
+                {
+                    // Keep the persisted flag aligned with reality — a
+                    // failed startup must not leave the Settings checkbox
+                    // claiming the sync root is running.
+                    Services.AppSettings.Update(s => s.CloudFilesEnabled = false);
+                    Services.DiagLog.Write($"[cloudfiles] startup: {startError} — setting disabled");
+                }
             }
 
             if (this.Content is FrameworkElement root)
