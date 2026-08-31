@@ -192,41 +192,80 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14" Padding="10,12">
                         <StackPanel Spacing="2">
-                            <mui:MuiText Text="LIBRARY" Variant="Eyebrow" Margin="8,0,0,6" />
-                            <ListView x:Name="LibraryList" SelectionMode="Single" SelectedIndex="0"
-                                      SelectionChanged="OnSelectLibraryScope">
-                                <ListViewItem Tag="all">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <controls:MapleIconControl IconName="photos" Size="14"
-                                                                   IconBrush="{StaticResource MaplePrimary}" />
-                                        <TextBlock Text="All Photos" FontSize="13" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
-                                <ListViewItem Tag="pick">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <controls:MapleIconControl IconName="check" Size="14">
-                                            <controls:MapleIconControl.IconBrush>
-                                                <SolidColorBrush Color="#4CAF50" />
-                                            </controls:MapleIconControl.IconBrush>
-                                        </controls:MapleIconControl>
-                                        <TextBlock Text="Picks" FontSize="13" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
-                                <ListViewItem Tag="reject">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <controls:MapleIconControl IconName="x" Size="14"
-                                                                   IconBrush="{StaticResource MapleErrorText}" />
-                                        <TextBlock Text="Rejected" FontSize="13" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
-                                <ListViewItem Tag="rated4">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <controls:MapleIconControl IconName="star-filled" Size="14"
-                                                                   IconBrush="{StaticResource MapleStar}" />
-                                        <TextBlock Text="4+ Stars" FontSize="13" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
-                            </ListView>
+                            <Grid Margin="8,0,4,6">
+                                <mui:MuiText Text="TIMELINE" Variant="Eyebrow" VerticalAlignment="Center" />
+                                <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MapleTextMuted}"
+                                        HorizontalAlignment="Right" Click="OnClearTimelineFilter"
+                                        ToolTipService.ToolTip="Show all dates"
+                                        AutomationProperties.Name="Clear timeline filter" />
+                            </Grid>
+                            <TreeView ItemsSource="{Binding Timeline.Nodes}" SelectionMode="None"
+                                      ItemInvoked="OnTimelineNodeInvoked"
+                                      MaxHeight="360"
+                                      AutomationProperties.Name="Timeline">
+                                <TreeView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:TimelineNode">
+                                        <TreeViewItem ItemsSource="{Binding Children}" IsExpanded="True"
+                                                      AutomationProperties.Name="{Binding Label}">
+                                            <Grid>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <mui:MuiIcon IconName="calendar" Size="Xs14" IconColor="{StaticResource MapleTextMuted}" />
+                                                    <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding PhotoCount}" FontSize="11" Margin="12,0,0,0"
+                                                           Foreground="{StaticResource MapleTextMuted}"
+                                                           HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </TreeViewItem>
+                                    </DataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <Grid Margin="8,0,4,6">
+                                <mui:MuiText Text="MAPLE CLOUD" Variant="Eyebrow" VerticalAlignment="Center" />
+                                <mui:MuiButton IconName="cloud" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MapleTextMuted}"
+                                        HorizontalAlignment="Right" Click="OnConnectCloud"
+                                        ToolTipService.ToolTip="Connect to a Self-Hosted server"
+                                        AutomationProperties.Name="Connect Maple Cloud" />
+                            </Grid>
+                            <mui:MuiText Text="{Binding CloudStatus}" Variant="ToolLabel" ColorRole="Muted"
+                                         Margin="8,0,4,4" />
+                            <mui:MuiButton Label="Connect to server…" IconName="cloud" Variant="Secondary"
+                                    ButtonSize="Sm" IconColor="{StaticResource MaplePrimary}"
+                                    HorizontalAlignment="Stretch" Margin="4,2,4,4"
+                                    Click="OnConnectCloud"
+                                    Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
+                                    AutomationProperties.Name="Connect to Maple Cloud server" />
+                            <!-- A file browser over the server, same shape as
+                                 FOLDERS above and the same /api/fs/dir walk the
+                                 Apple and web clients do (#3082). Own capped
+                                 scroll area for the same reason FOLDERS has
+                                 one: a deep server archive must not swallow
+                                 the sidebar. -->
+                            <TreeView ItemsSource="{Binding CloudTree}" SelectionMode="None"
+                                      ItemInvoked="OnCloudNodeInvoked"
+                                      Expanding="OnCloudFolderExpanding"
+                                      MaxHeight="360"
+                                      AutomationProperties.Name="Maple Cloud folders">
+                                <TreeView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CloudFolderNode">
+                                        <TreeViewItem ItemsSource="{Binding Children}"
+                                                      ToolTipService.ToolTip="{Binding ToolTipText}"
+                                                      AutomationProperties.Name="{Binding Name}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <mui:MuiIcon IconName="cloud" Size="Xs14"
+                                                             IconColor="{StaticResource MaplePrimary}" />
+                                                <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </TreeViewItem>
+                                    </DataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
                         </StackPanel>
 
                         <StackPanel Spacing="2">
@@ -325,83 +364,6 @@
                                 </TreeView.ItemTemplate>
                             </TreeView>
                         </StackPanel>
-
-                        <StackPanel Spacing="2">
-                            <Grid Margin="8,0,4,6">
-                                <mui:MuiText Text="MAPLE CLOUD" Variant="Eyebrow" VerticalAlignment="Center" />
-                                <mui:MuiButton IconName="cloud" Variant="Ghost" ButtonSize="Sm"
-                                        IconColor="{StaticResource MapleTextMuted}"
-                                        HorizontalAlignment="Right" Click="OnConnectCloud"
-                                        ToolTipService.ToolTip="Connect to a Self-Hosted server"
-                                        AutomationProperties.Name="Connect Maple Cloud" />
-                            </Grid>
-                            <mui:MuiText Text="{Binding CloudStatus}" Variant="ToolLabel" ColorRole="Muted"
-                                         Margin="8,0,4,4" />
-                            <mui:MuiButton Label="Connect to server…" IconName="cloud" Variant="Secondary"
-                                    ButtonSize="Sm" IconColor="{StaticResource MaplePrimary}"
-                                    HorizontalAlignment="Stretch" Margin="4,2,4,4"
-                                    Click="OnConnectCloud"
-                                    Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
-                                    AutomationProperties.Name="Connect to Maple Cloud server" />
-                            <!-- A file browser over the server, same shape as
-                                 FOLDERS above and the same /api/fs/dir walk the
-                                 Apple and web clients do (#3082). Own capped
-                                 scroll area for the same reason FOLDERS has
-                                 one: a deep server archive must not swallow
-                                 the sidebar. -->
-                            <TreeView ItemsSource="{Binding CloudTree}" SelectionMode="None"
-                                      ItemInvoked="OnCloudNodeInvoked"
-                                      Expanding="OnCloudFolderExpanding"
-                                      MaxHeight="360"
-                                      AutomationProperties.Name="Maple Cloud folders">
-                                <TreeView.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:CloudFolderNode">
-                                        <TreeViewItem ItemsSource="{Binding Children}"
-                                                      ToolTipService.ToolTip="{Binding ToolTipText}"
-                                                      AutomationProperties.Name="{Binding Name}">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <mui:MuiIcon IconName="cloud" Size="Xs14"
-                                                             IconColor="{StaticResource MaplePrimary}" />
-                                                <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
-                                                           TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
-                                        </TreeViewItem>
-                                    </DataTemplate>
-                                </TreeView.ItemTemplate>
-                            </TreeView>
-                        </StackPanel>
-
-                        <StackPanel Spacing="2">
-                            <Grid Margin="8,0,4,6">
-                                <mui:MuiText Text="TIMELINE" Variant="Eyebrow" VerticalAlignment="Center" />
-                                <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm"
-                                        IconColor="{StaticResource MapleTextMuted}"
-                                        HorizontalAlignment="Right" Click="OnClearTimelineFilter"
-                                        ToolTipService.ToolTip="Show all dates"
-                                        AutomationProperties.Name="Clear timeline filter" />
-                            </Grid>
-                            <TreeView ItemsSource="{Binding Timeline.Nodes}" SelectionMode="None"
-                                      ItemInvoked="OnTimelineNodeInvoked"
-                                      MaxHeight="360"
-                                      AutomationProperties.Name="Timeline">
-                                <TreeView.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:TimelineNode">
-                                        <TreeViewItem ItemsSource="{Binding Children}" IsExpanded="True"
-                                                      AutomationProperties.Name="{Binding Label}">
-                                            <Grid>
-                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <mui:MuiIcon IconName="calendar" Size="Xs14" IconColor="{StaticResource MapleTextMuted}" />
-                                                    <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center" />
-                                                </StackPanel>
-                                                <TextBlock Text="{Binding PhotoCount}" FontSize="11" Margin="12,0,0,0"
-                                                           Foreground="{StaticResource MapleTextMuted}"
-                                                           HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                            </Grid>
-                                        </TreeViewItem>
-                                    </DataTemplate>
-                                </TreeView.ItemTemplate>
-                            </TreeView>
-                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -440,6 +402,17 @@
                                     <ComboBoxItem Content="★ 4+" Tag="4" />
                                     <ComboBoxItem Content="★ 5" Tag="5" />
                                 </ComboBox>
+                                <!-- Flag narrowing is a toolbar filter, not sidebar
+                                     navigation (docs/spec/13-windows-shell.md) — this
+                                     replaces the removed LIBRARY section's
+                                     Picks/Rejected rows. -->
+                                <ComboBox x:Name="FlagFilterBox" SelectedIndex="0" Width="110" FontSize="12"
+                                          SelectionChanged="OnFlagFilterChanged"
+                                          AutomationProperties.Name="Flag filter">
+                                    <ComboBoxItem Content="All Flags" Tag="all" />
+                                    <ComboBoxItem Content="Picks" Tag="pick" />
+                                    <ComboBoxItem Content="Rejected" Tag="reject" />
+                                </ComboBox>
                                 <TextBlock x:Name="LibraryCountText" VerticalAlignment="Center" FontSize="12"
                                            Foreground="{StaticResource MapleTextMuted}" Margin="8,0,0,0"
                                            AutomationProperties.LiveSetting="Polite" />
@@ -461,7 +434,46 @@
                             </StackPanel>
                         </Grid>
                     </Border>
-                    <GridView x:Name="PhotoGrid" Grid.Row="1"
+                    <Grid Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <!-- Folder tiles (docs/spec/13-windows-shell.md): the
+                             browsed directory's immediate subfolders — local
+                             FolderNode or cloud CloudFolderNode — inline above
+                             its images, Finder-style, matching the Mac
+                             BrowseGrid's "sub-folders first" leading slot.
+                             Collapses to nothing when the directory has no
+                             subfolders (empty collection → zero height).
+                             Click drills in, exactly like the sidebar tree.
+                             No x:DataType: the template serves both node
+                             types, which share Name/ToolTipText. -->
+                        <GridView x:Name="BrowseFolderTiles" Grid.Row="0"
+                                  ItemsSource="{Binding BrowseFolders}"
+                                  SelectionMode="None" IsItemClickEnabled="True"
+                                  ItemClick="OnBrowseFolderTileClick"
+                                  Padding="12,12,12,0"
+                                  AutomationProperties.Name="Subfolders">
+                            <GridView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Width="180" Height="64" Margin="2" CornerRadius="4"
+                                          Background="{StaticResource MapleSurface}"
+                                          ToolTipService.ToolTip="{Binding ToolTipText}"
+                                          AutomationProperties.Name="{Binding Name}">
+                                        <StackPanel Orientation="Horizontal" Spacing="10"
+                                                    VerticalAlignment="Center" Margin="14,0">
+                                            <controls:MapleIconControl IconName="folder" Size="20"
+                                                                       IconBrush="{StaticResource MaplePrimary}" />
+                                            <TextBlock Text="{Binding Name}" FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="120" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </GridView.ItemTemplate>
+                        </GridView>
+                        <GridView x:Name="PhotoGrid" Grid.Row="1"
                               ItemsSource="{Binding Source={StaticResource GroupedPhotosSource}}"
                               SelectionMode="Extended" Padding="12"
                               SelectionChanged="OnPhotoGridSelectionChanged"
@@ -553,11 +565,12 @@
                             </DataTemplate>
                         </GridView.ItemTemplate>
                     </GridView>
+                    </Grid>
                     <TextBlock x:Name="EmptyStateText" Grid.Row="1" Visibility="Collapsed"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                FontSize="13" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"
                                Foreground="{StaticResource MapleTextMuted}"
-                               Text="No photos directly in this folder — its photos live in subfolders. Pick a subfolder from the sidebar." />
+                               Text="This folder has no photos or subfolders." />
                 </Grid>
 
                 <!-- PREVIEW + EDIT share the canvas -->

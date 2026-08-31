@@ -90,12 +90,19 @@ namespace Maple.WinUI
                 else if (e.PropertyName == nameof(ViewModel.SelectionSummary))
                     UpdateLibraryCountText();
             };
+            // A cloud directory holding only subfolders is not "empty" — its
+            // folder tiles ARE the content — so the empty-state text keys off
+            // both collections (#3082).
+            void UpdateEmptyState() => EmptyStateText.Visibility =
+                ViewModel.Photos.Count == 0 && ViewModel.BrowseFolders.Count == 0
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
             ViewModel.Photos.CollectionChanged += (_, _) =>
             {
                 UpdateLibraryCountText();
-                EmptyStateText.Visibility =
-                    ViewModel.Photos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                UpdateEmptyState();
             };
+            ViewModel.BrowseFolders.CollectionChanged += (_, _) => UpdateEmptyState();
 
             // Title-bar / taskbar icon (the exe icon covers Explorer; unpackaged
             // windows need the runtime SetIcon too).
@@ -136,8 +143,26 @@ namespace Maple.WinUI
             HookViewerPan();
             // Wire the grouped grid source only after the chrome exists —
             // setting Source synchronously raises the grid's first selection.
-            ((Microsoft.UI.Xaml.Data.CollectionViewSource)
-                ((FrameworkElement)Content).Resources["GroupedPhotosSource"]).Source = ViewModel.PhotoGroups;
+            // The grid has two presentations (docs/spec/13-windows-shell.md):
+            // date-grouped (Timeline selected → PhotoGroups, day headers) and
+            // flat Finder-style (folder browse → Photos, no headers). The
+            // CollectionViewSource is retargeted whenever the VM flips.
+            var gridSource = (Microsoft.UI.Xaml.Data.CollectionViewSource)
+                ((FrameworkElement)Content).Resources["GroupedPhotosSource"];
+            void RetargetGridSource()
+            {
+                gridSource.Source = null;   // detach before flipping grouping
+                gridSource.IsSourceGrouped = ViewModel.IsDateGrouped;
+                gridSource.Source = ViewModel.IsDateGrouped
+                    ? ViewModel.PhotoGroups
+                    : (object)ViewModel.Photos;
+            }
+            RetargetGridSource();
+            ViewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(ViewModel.IsDateGrouped))
+                    RetargetGridSource();
+            };
             SetMode(ShellMode.Browse);
             this.Closed += (_, _) => ViewModel.Dispose();
         }
@@ -457,16 +482,6 @@ namespace Maple.WinUI
 
         // --- Library scopes / filters ---
 
-        private void OnSelectLibraryScope(object sender, SelectionChangedEventArgs e)
-        {
-            if (LibraryList.SelectedItem is not ListViewItem item)
-                return;
-            var scope = item.Tag as string;
-            ViewModel.SetDateFilter(null, null);
-            ViewModel.FlagFilter = scope is "pick" or "reject" ? scope : "all";
-            ViewModel.MinRatingFilter = scope == "rated4" ? 4 : 0;
-        }
-
         private void OnFolderNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
         {
             if (args.InvokedItem is FolderNode { IsPlaceholder: false, IsUnavailable: false } node)
@@ -520,6 +535,12 @@ namespace Maple.WinUI
         {
             if (RatingFilterBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)
                 ViewModel.MinRatingFilter = int.Parse(tag);
+        }
+
+        private void OnFlagFilterChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (FlagFilterBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+                ViewModel.FlagFilter = tag;
         }
 
         private void OnSearchChanged(object sender, TextChangedEventArgs e) =>
