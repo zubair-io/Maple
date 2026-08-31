@@ -6,8 +6,8 @@ use crate::error::PanoError;
 use crate::gain::GainOptions;
 use crate::ingest::PlanarImage;
 
-use super::gain_solve::solve_gains_canvas_space;
 use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
+use super::photometry::{solve_photometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp::warp_to_tile_region;
 use super::TileEdge;
@@ -59,6 +59,14 @@ pub struct TileCompositeReport {
     pub max_planar_residual_px: f64,
     /// Halo width used in the tiled multiband blend (px).
     pub halo_px: usize,
+    /// Shared per-frame log-slope along frame-local x (#350 layer A).
+    pub photometric_slope_x: f32,
+    /// Shared per-frame log-slope along frame-local y (#350 layer A).
+    pub photometric_slope_y: f32,
+    /// Mean |residual exposure field| in EV (#350 layer B; 0 = no field).
+    pub exposure_field_mean_abs_ev: f64,
+    /// Max |residual exposure field| in EV (#350 layer B).
+    pub exposure_field_max_abs_ev: f64,
 }
 
 /// End-to-end tile composite with spatial tiling + multiband blend.
@@ -159,8 +167,10 @@ pub fn composite_tile(
         0.0
     };
 
-    // ── gain solve (no full-canvas warps) ────────────────────────────────────
-    let gains = solve_gains_canvas_space(frames, poses, canvas, gain_opts)?;
+    // ── photometric solve: gains + shared ramp + residual fields (#350) ──────
+    let (photometry, phot_summary) =
+        solve_photometry(frames, poses, canvas, &PhotometryOptions::from_gain(gain_opts))?;
+    let gains: Vec<[f32; 3]> = photometry.iter().map(|p| p.gain).collect();
 
     // ── determine pyramid level count ────────────────────────────────────────
     // We need the min overlap width for level selection. Compute cheaply via
@@ -241,7 +251,16 @@ pub fn composite_tile(
             let haloed_layers: Vec<PlanarImage> = active
                 .iter()
                 .map(|&i| {
-                    warp_to_tile_region(&frames[i], &poses[i], canvas, gains[i], hx0, hy0, hx1, hy1)
+                    warp_to_tile_region(
+                        &frames[i],
+                        &poses[i],
+                        canvas,
+                        &photometry[i],
+                        hx0,
+                        hy0,
+                        hx1,
+                        hy1,
+                    )
                 })
                 .collect();
 
@@ -321,6 +340,10 @@ pub fn composite_tile(
             mean_planar_residual_px: mean_planar,
             max_planar_residual_px: residual_max,
             halo_px: halo,
+            photometric_slope_x: phot_summary.slope_x,
+            photometric_slope_y: phot_summary.slope_y,
+            exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
+            exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
         },
     ))
 }

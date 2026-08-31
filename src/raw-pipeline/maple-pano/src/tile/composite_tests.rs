@@ -3,6 +3,7 @@
 //! Kept in a separate file for the file-size budget.
 
 use super::masks::voronoi_masks_region;
+use super::photometry;
 use super::*;
 use crate::blend::blend_multiband;
 use crate::gain::GainOptions;
@@ -70,7 +71,7 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
                 f,
                 p,
                 &canvas,
-                [1.0; 3],
+                &photometry::FramePhotometry::neutral(),
                 0,
                 0,
                 canvas.width as usize,
@@ -134,7 +135,7 @@ fn voronoi_seam_sits_mid_overlap() {
                 f,
                 p,
                 &canvas,
-                [1.0; 3],
+                &photometry::FramePhotometry::neutral(),
                 0,
                 0,
                 canvas.width as usize,
