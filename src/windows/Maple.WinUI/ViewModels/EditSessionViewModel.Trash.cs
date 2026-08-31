@@ -29,6 +29,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.FileOperations;
@@ -189,15 +190,25 @@ namespace Maple.WinUI.ViewModels
         {
             if (_cloud is not { IsAuthenticated: true } cloud)
                 return new CloudTrashOutcome(photo, false, "Not signed in to Maple Cloud.");
-            var asset = await cloud.ResolveAssetAsync(photo.FilePath, CancellationToken.None)
-                .ConfigureAwait(false);
-            // IsNullOrEmpty, not .Length: a server payload of {"id": null}
-            // deserializes over the property initializer to a real null.
-            if (asset == null || string.IsNullOrEmpty(asset.Id))
-                return new CloudTrashOutcome(photo, false,
-                    "The server hasn't indexed this file yet — try again in a moment.");
-            var ok = await cloud.TrashAssetAsync(asset.Id, CancellationToken.None).ConfigureAwait(false);
-            return new CloudTrashOutcome(photo, ok, ok ? null : "The server refused the delete — see maple.log.");
+            try
+            {
+                var asset = await cloud.ResolveAssetAsync(photo.FilePath, CancellationToken.None)
+                    .ConfigureAwait(false);
+                // IsNullOrEmpty, not .Length: a server payload of {"id": null}
+                // deserializes over the property initializer to a real null.
+                if (asset == null || string.IsNullOrEmpty(asset.Id))
+                    return new CloudTrashOutcome(photo, false,
+                        "The server hasn't indexed this file yet — try again in a moment.");
+                var ok = await cloud.TrashAssetAsync(asset.Id, CancellationToken.None).ConfigureAwait(false);
+                return new CloudTrashOutcome(photo, ok, ok ? null : "The server refused the delete — see maple.log.");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // A dropped link or timeout fails THIS item and lets the rest
+                // of the batch run — the same per-item resilience the local
+                // TrashOneAsync/RestoreOneAsync equivalents have.
+                return new CloudTrashOutcome(photo, false, $"Server unreachable: {ex.Message}");
+            }
         }
 
         /// <summary>Removes successfully-trashed cloud photos from the grid.
@@ -253,13 +264,25 @@ namespace Maple.WinUI.ViewModels
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
-                var ok = _cloud is { IsAuthenticated: true } cloud
-                    && await cloud.RestoreAssetAsync(entry.Item.AssetId, CancellationToken.None)
-                        .ConfigureAwait(false);
+                bool ok;
+                string? error = null;
+                try
+                {
+                    ok = _cloud is { IsAuthenticated: true } cloud
+                        && await cloud.RestoreAssetAsync(entry.Item.AssetId, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    if (!ok)
+                        error = "The server refused the restore — see maple.log.";
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    // Per-item network resilience — see CloudTrashOneAsync.
+                    ok = false;
+                    error = $"Server unreachable: {ex.Message}";
+                }
                 outcomes.Add(new RestoreItemOutcome(
                     entry.Item.TrashRelativePath, entry.Item.Filename, ok,
-                    ok ? entry.Item.OriginalRelativePath : null,
-                    ok ? null : "The server refused the restore — see maple.log."));
+                    ok ? entry.Item.OriginalRelativePath : null, error));
                 onItemDone?.Invoke(i + 1, entries.Count);
             }
             return outcomes;
