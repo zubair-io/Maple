@@ -23,6 +23,7 @@
 
 use rayon::prelude::*;
 
+use super::photometry::FramePhotometry;
 use super::placement::{TileCanvasSpec, TilePose};
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
@@ -93,7 +94,7 @@ pub(super) fn warp_to_tile_region(
     src: &PlanarImage,
     pose: &TilePose,
     canvas: &TileCanvasSpec,
-    gain: [f32; 3],
+    phot: &FramePhotometry,
     rx0: usize,
     ry0: usize,
     rx1: usize,
@@ -109,6 +110,10 @@ pub(super) fn warp_to_tile_region(
     let src_h = src.height() as f64;
 
     let inv = inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
+    let gain = phot.gain;
+    // The ramp + field corrections are log-domain and channel-shared:
+    // out = v · gain · exp(−(slope_x·(ξ−½) + slope_y·(η−½) + field)).
+    let has_ramp = phot.slope_x != 0.0 || phot.slope_y != 0.0 || phot.field.is_some();
 
     let mut r = vec![0.0_f32; n];
     let mut g = vec![0.0_f32; n];
@@ -129,9 +134,17 @@ pub(super) fn warp_to_tile_region(
                     continue;
                 }
                 if let Some([sr, sg, sb]) = sample_bicubic(src, fx - 0.5, fy - 0.5) {
-                    row_r[col] = (sr * gain[0]).max(0.0);
-                    row_g[col] = (sg * gain[1]).max(0.0);
-                    row_b[col] = (sb * gain[2]).max(0.0);
+                    let corr = if has_ramp {
+                        let log_corr = phot.slope_x * (fx / src_w - 0.5) as f32
+                            + phot.slope_y * (fy / src_h - 0.5) as f32
+                            + phot.field.as_ref().map_or(0.0, |f| f.eval(cx, cy));
+                        (-log_corr).exp()
+                    } else {
+                        1.0
+                    };
+                    row_r[col] = (sr * gain[0] * corr).max(0.0);
+                    row_g[col] = (sg * gain[1] * corr).max(0.0);
+                    row_b[col] = (sb * gain[2] * corr).max(0.0);
                     row_v[col] = true;
                 }
             }
