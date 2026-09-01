@@ -58,6 +58,12 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// author in the current scale.
     public var wbScaleVersion: Int      // 1 | 5, default 5
 
+    /// User white-balance method (#431; wired into Swift by #2216). Mirrors
+    /// `raw_core::types::adjustment::WbMethod`. `.cat16` (default) omits
+    /// `papp:WbMethod` on write. See `WbMethod`'s doc comment for the two
+    /// variants' math.
+    public var wbMethod: WbMethod       // default .cat16
+
     // Basic tone
     public var exposure: Double         // -4..+4 EV, default 0
     /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
@@ -233,6 +239,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // field when `papp:Profile` is absent.
     public var profile: Profile
 
+    /// Per-channel point tone-curve application mode (#436; wired into
+    /// Swift by #2216). Mirrors `raw_core::types::adjustment::ToneCurveMode`.
+    /// `.perChannel` (default) omits `papp:ToneCurveMode` on write.
+    public var toneCurveMode: ToneCurveMode  // default .perChannel
+
     // Per-channel point curves (#273 slice 1; schema/codegen in #366).
     // Each is a `ToneCurve` of `(x, y)` control points in `[0, 1]`
     // authoring space, identity when empty — so a default model renders
@@ -315,6 +326,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         temperature: Double = 6500,
         tint: Double = 0,
         wbScaleVersion: Int = 5,
+        wbMethod: WbMethod = .cat16,
         exposure: Double = 0,
         brightness: Double = 0,
         contrast: Double = 0,
@@ -394,6 +406,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         autoExposure: AutoExposureMode = .on,
         look: Look = .default,
         profile: Profile = .auto,
+        toneCurveMode: ToneCurveMode = .perChannel,
         toneCurveLuma: ToneCurve = .identity,
         toneCurveRed: ToneCurve = .identity,
         toneCurveGreen: ToneCurve = .identity,
@@ -412,6 +425,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.temperature = temperature
         self.tint = tint
         self.wbScaleVersion = wbScaleVersion
+        self.wbMethod = wbMethod
         self.exposure = exposure
         self.brightness = brightness
         self.contrast = contrast
@@ -491,6 +505,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.autoExposure = autoExposure
         self.look = look
         self.profile = profile
+        self.toneCurveMode = toneCurveMode
         self.toneCurveLuma = toneCurveLuma
         self.toneCurveRed = toneCurveRed
         self.toneCurveGreen = toneCurveGreen
@@ -512,19 +527,23 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// True when this model carries user adjustments that change the
     /// rendered pixels, judged with the white-balance fields excluded.
     ///
-    /// WB must be excluded because the Apple model carries no WB-method
-    /// field (see `GpuLiveParams`): on first open the editor seeds
-    /// `temperature`/`tint` with the image's as-shot values, so a
+    /// `temperature`/`tint`/`wbScaleVersion` must be excluded: on first
+    /// open the editor seeds them with the image's as-shot values, so a
     /// rating-only or flag-only sidecar save records non-default WB numbers
     /// that do NOT represent an edit. Comparing against a baseline that
-    /// copies the WB fields treats those sidecars as visually unedited —
-    /// the common culling case — at the cost of also treating a WB-only
+    /// copies those three fields treats those sidecars as visually unedited
+    /// — the common culling case — at the cost of also treating a WB-only
     /// edit as unedited. Callers that gate derived-image generation on this
     /// (the `.maple/previews` display tier in `ThumbnailLoader`) accept
     /// that trade-off: a WB-only edit made in the local editor still gets a
     /// correct display preview from the editor-exit render refresh; only a
     /// WB-only edit arriving externally (synced sidecar, never rendered on
     /// this device) slips through.
+    ///
+    /// `wbMethod` is NOT copied into the baseline (#2216): unlike
+    /// temperature/tint, nothing seeds it from the image itself, so a
+    /// non-default value only ever comes from an explicit user or
+    /// externally-authored choice — a real edit, correctly caught here.
     public var isVisuallyEditedBeyondWhiteBalance: Bool {
         let baseline = AdjustmentModel(
             temperature: temperature,
