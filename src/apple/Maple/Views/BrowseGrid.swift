@@ -5,8 +5,12 @@
 //
 // M1b (#1490): migrated onto the shared PhotoGrid / PhotoThumbnailCell /
 // ThumbnailProvider. The inline LazyVGrid / ForEach body + MergedCellView
-// are replaced; FolderCell / FolderCellButtonStyle / ErrorBanner /
-// keyboard shortcuts are kept unchanged.
+// are replaced; ErrorBanner / keyboard shortcuts are kept unchanged.
+//
+// #3099: sub-folders render as a `FolderTileSection` of shared `FolderTile`s
+// ABOVE the photo grid (the Windows `BrowseFolderTiles` design), replacing
+// the 3:2 `FolderCell` that used to flow inline through `PhotoGrid`'s
+// `leading:` slot.
 //
 // #2924: `BrowseEmptyState` moved to its own file so the iPhone's
 // `LibraryGrid` can render the same overlay — it was `private` here, and
@@ -281,105 +285,17 @@ struct BrowseGrid: View {
     /// `leading:` slot, desktop badge overlays, multi-select, and session priming.
     @ViewBuilder
     private var normalGrid: some View {
-        PhotoGrid(
-            data: vm.assets,
-            columns: .responsiveBySizeClass,
-            provider: localProvider,
-            displayMode: resolvedDisplayMode,
-            selection: vm.isSelecting
-                ? vm.selectedIDs
-                : (vm.selectedID.map { Set([$0]) } ?? []),
-            onAppearItem: { asset in onPrimeSession?(asset) },
-            multiSelectChecked: vm.isSelecting ? { asset in
-                vm.selectedIDs.contains(asset.id)
-            } : nil,
-            // Drag-onto-source-tree (#2646). PhotoKit is neither a drag
-            // source nor a drop target (design doc) — no user-writable
-            // path to relocate. Every other current-grid asset (local,
-            // SMB, Cloud) is draggable; if the dragged tile is part of a
-            // larger active selection, the WHOLE selection rides along
-            // ("multi-select drag carries the whole selection if the
-            // dragged item is part of it").
-            //
-            // Performance (review finding, jules): this closure runs once
-            // per VISIBLE cell on every render — a `vm.assets.filter` here
-            // was an O(library size) scan per cell, so scrolling a 50k-
-            // asset library re-ran millions of comparisons a frame. Build
-            // the payload straight from the (already O(1)-membership) `Set`
-            // of selected ids instead — O(selection size), not O(library
-            // size). Payload order is therefore selection-insertion order,
-            // not grid order; `AppShell+AssetDrop.swift`'s
-            // `performAssetDrop` restores grid order once, at drop time,
-            // from the already-materialized `browseVM.assets` array — not
-            // per cell here.
-            dragPayload: { asset in
-                guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
-                    return nil
-                }
-                let active = vm.isSelecting ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? [])
-                guard active.contains(asset.id), active.count > 1 else {
-                    return DraggedAssetPayload(ids: [asset.id])
-                }
-                return DraggedAssetPayload(ids: Array(active))
-            },
-            contextMenuItems: { (asset: AssetRef) in
-                // Reveal in Finder (#2658) rides in the same per-cell menu
-                // as Move to Trash rather than a second closure threaded
-                // through every Mac/iPad/iPhone shell — it needs no
-                // external wiring (NSWorkspace is a direct OS call), it's
-                // macOS-only (no Finder on iOS/iPadOS), and it self-gates
-                // on `revealEligible` so the item is HIDDEN — not shown
-                // disabled — for PhotoKit/Cloud/SMB assets that have no
-                // on-disk `primaryURL`.
-                #if os(macOS)
-                let showReveal = revealEligible(asset)
-                #else
-                let showReveal = false
-                #endif
-                guard onTrashAssets != nil || showReveal || assetRename != nil else { return nil }
-                return AnyView(
-                    Group {
-                        if let assetRename {
-                            renameMenuItem(for: asset, renameCtx: assetRename)
-                        }
-                        if let onTrashAssets {
-                            trashMenuItem(for: asset, onTrashAssets: onTrashAssets)
-                        }
-                        #if os(macOS)
-                        if showReveal {
-                            revealMenuItem(for: asset)
-                        }
-                        #endif
-                    }
-                )
-            },
-            renameOverlay: { asset in AnyView(GridCellRenameCaption(asset: asset)) },
-            onTap: { asset in
-                if vm.isSelecting {
-                    // Multi-select mode: tap toggles check.
-                    vm.toggleSelected(asset.id)
-                } else {
-                    // Normal mode: tap opens the editor.
-                    vm.selectedID = asset.id
-                    onOpenEditor?(asset)
-                }
-            },
-            makeItem: { asset in
-                PhotoGridItem(local: asset, source: vm.currentSource,
-                              overlays: desktopOverlays(for: asset))
-            },
-            leading: {
-                // Sub-folders first — Finder-style — then images.
-                // Folder cells are hidden during multi-select so
-                // only image tiles can be checked.
-                if !vm.isSelecting {
+        VStack(alignment: .leading, spacing: 0) {
+            // Sub-folders first — Finder-style — in their own tile section
+            // above the images (#3099). Hidden during multi-select so only
+            // image tiles can be checked.
+            if !vm.isSelecting && !vm.subfolders.isEmpty {
+                FolderTileSection {
                     ForEach(vm.subfolders, id: \.self) { url in
-                        // Single tap navigates into the folder. The
-                        // FolderCell button style provides press
-                        // feedback (scale + tinted background) so the
-                        // user gets immediate confirmation the tap
-                        // registered before the grid reloads.
-                        FolderCell(
+                        // Single tap navigates into the folder; the tile's
+                        // button style gives press feedback before the grid
+                        // reloads.
+                        FolderTile(
                             url: url,
                             rootBookmark: currentRootBookmark,
                             onDropAssets: onDropAssetsOnFolder,
@@ -388,7 +304,95 @@ struct BrowseGrid: View {
                     }
                 }
             }
-        )
+            PhotoGrid(
+                data: vm.assets,
+                columns: .responsiveBySizeClass,
+                provider: localProvider,
+                displayMode: resolvedDisplayMode,
+                selection: vm.isSelecting
+                    ? vm.selectedIDs
+                    : (vm.selectedID.map { Set([$0]) } ?? []),
+                onAppearItem: { asset in onPrimeSession?(asset) },
+                multiSelectChecked: vm.isSelecting ? { asset in
+                    vm.selectedIDs.contains(asset.id)
+                } : nil,
+                // Drag-onto-source-tree (#2646). PhotoKit is neither a drag
+                // source nor a drop target (design doc) — no user-writable
+                // path to relocate. Every other current-grid asset (local,
+                // SMB, Cloud) is draggable; if the dragged tile is part of a
+                // larger active selection, the WHOLE selection rides along
+                // ("multi-select drag carries the whole selection if the
+                // dragged item is part of it").
+                //
+                // Performance (review finding, jules): this closure runs once
+                // per VISIBLE cell on every render — a `vm.assets.filter` here
+                // was an O(library size) scan per cell, so scrolling a 50k-
+                // asset library re-ran millions of comparisons a frame. Build
+                // the payload straight from the (already O(1)-membership) `Set`
+                // of selected ids instead — O(selection size), not O(library
+                // size). Payload order is therefore selection-insertion order,
+                // not grid order; `AppShell+AssetDrop.swift`'s
+                // `performAssetDrop` restores grid order once, at drop time,
+                // from the already-materialized `browseVM.assets` array — not
+                // per cell here.
+                dragPayload: { asset in
+                    guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
+                        return nil
+                    }
+                    let active = vm.isSelecting ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? [])
+                    guard active.contains(asset.id), active.count > 1 else {
+                        return DraggedAssetPayload(ids: [asset.id])
+                    }
+                    return DraggedAssetPayload(ids: Array(active))
+                },
+                contextMenuItems: { (asset: AssetRef) in
+                    // Reveal in Finder (#2658) rides in the same per-cell menu
+                    // as Move to Trash rather than a second closure threaded
+                    // through every Mac/iPad/iPhone shell — it needs no
+                    // external wiring (NSWorkspace is a direct OS call), it's
+                    // macOS-only (no Finder on iOS/iPadOS), and it self-gates
+                    // on `revealEligible` so the item is HIDDEN — not shown
+                    // disabled — for PhotoKit/Cloud/SMB assets that have no
+                    // on-disk `primaryURL`.
+                    #if os(macOS)
+                    let showReveal = revealEligible(asset)
+                    #else
+                    let showReveal = false
+                    #endif
+                    guard onTrashAssets != nil || showReveal || assetRename != nil else { return nil }
+                    return AnyView(
+                        Group {
+                            if let assetRename {
+                                renameMenuItem(for: asset, renameCtx: assetRename)
+                            }
+                            if let onTrashAssets {
+                                trashMenuItem(for: asset, onTrashAssets: onTrashAssets)
+                            }
+                            #if os(macOS)
+                            if showReveal {
+                                revealMenuItem(for: asset)
+                            }
+                            #endif
+                        }
+                    )
+                },
+                renameOverlay: { asset in AnyView(GridCellRenameCaption(asset: asset)) },
+                onTap: { asset in
+                    if vm.isSelecting {
+                        // Multi-select mode: tap toggles check.
+                        vm.toggleSelected(asset.id)
+                    } else {
+                        // Normal mode: tap opens the editor.
+                        vm.selectedID = asset.id
+                        onOpenEditor?(asset)
+                    }
+                },
+                makeItem: { asset in
+                    PhotoGridItem(local: asset, source: vm.currentSource,
+                                  overlays: desktopOverlays(for: asset))
+                }
+            )
+        }
         // ScrollViewReader uses the element's `.id` as the scrollTo anchor.
         // ForEach inside PhotoGrid tags each element by `element.id` (AssetRef.ID),
         // which is the same value `vm.selectedID` holds — so scrollTo works.
@@ -568,82 +572,6 @@ struct BrowseGrid: View {
         }
     }
 
-}
-
-// MARK: - FolderCell
-
-/// Grid cell rendering a sub-folder. Single tap navigates into it; the
-/// cell is wrapped in a Button with a custom ButtonStyle so the user
-/// gets press feedback (scale + tinted overlay) before the grid reloads.
-///
-/// Drop target (#2779): mirrors `LibrarySidebar`'s `FolderTreeRow` — same
-/// payload type, same `isTargeted`-driven highlight, same
-/// `onDropAssets`/`rootBookmark` contract, routed by the caller into the
-/// identical `AppShell.handleAssetDrop` entry point. Active only when both
-/// `rootBookmark` and `onDropAssets` are non-nil (always true together in
-/// production; previews leave both `nil` and get no drop target).
-private struct FolderCell: View {
-    let url: URL
-    let rootBookmark: Data?
-    let onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)?
-    let onNavigate: () -> Void
-
-    @State private var isDropTargeted = false
-
-    var body: some View {
-        Button(action: onNavigate) {
-            VStack(spacing: 4) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(MapleTokens.surfaceAlt)
-                    .aspectRatio(3/2, contentMode: .fit)
-                    .overlay {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(MapleTokens.primary.opacity(0.85))
-                    }
-                    .overlay {
-                        if isDropTargeted {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(MapleTokens.primary.opacity(0.15))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .strokeBorder(MapleTokens.primary, lineWidth: 2)
-                                )
-                        }
-                    }
-                Text(url.lastPathComponent)
-                    .font(MapleTokens.Typography.body)
-                    .foregroundStyle(MapleTokens.textMain)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(FolderCellButtonStyle())
-        .accessibilityLabel("Folder \(url.lastPathComponent)")
-        .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
-            guard let rootBookmark, let onDropAssets,
-                  let payload = payloads.first, !payload.ids.isEmpty else { return false }
-            onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
-            return true
-        }, isTargeted: { targeted in isDropTargeted = targeted })
-    }
-}
-
-/// Press feedback for FolderCell. Scales down slightly and overlays a
-/// subtle white tint while the user's finger is down, easing back when
-/// released — same idea as iOS list-row highlights, scoped to the cell.
-private struct FolderCellButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
-                    .padding(-4)
-            )
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
 }
 
 // MARK: - ErrorBanner

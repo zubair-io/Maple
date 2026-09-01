@@ -59,33 +59,41 @@ struct LibraryGrid: View {
 
     private var grid: some View {
         ScrollView {
-            PhotoGrid(
-                data: vm.assets,
-                columns: .responsiveBySizeClass,
-                provider: provider,
-                displayMode: displayMode,
-                selection: vm.selectedID.map { Set([$0]) } ?? [],
-                transitionNamespace: transitionNamespace,
-                onAppearItem: { asset in
-                    onPrimeSession(asset)
-                    Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
-                },
-                onTap: { asset in
-                    vm.selectedID = asset.id
-                    #if canImport(UIKit)
-                    UISelectionFeedbackGenerator().selectionChanged()
-                    #endif
-                    onOpenEditor(asset)
-                },
-                makeItem: { asset in
-                    PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
-                },
-                leading: {
-                    ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
-                        LibraryFolderCell(url: url) { onNavigateFolder(url) }
+            VStack(alignment: .leading, spacing: 0) {
+                // Sub-folders first (Finder-style) in their own tile section
+                // above the images (#3099) — the same `FolderTile` the desktop
+                // BrowseGrid renders. Order stays reversed per #782 so the
+                // first-level folders read newest/last-first on the phone.
+                if !vm.subfolders.isEmpty {
+                    FolderTileSection {
+                        ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
+                            FolderTile(url: url) { onNavigateFolder(url) }
+                        }
                     }
                 }
-            )
+                PhotoGrid(
+                    data: vm.assets,
+                    columns: .responsiveBySizeClass,
+                    provider: provider,
+                    displayMode: displayMode,
+                    selection: vm.selectedID.map { Set([$0]) } ?? [],
+                    transitionNamespace: transitionNamespace,
+                    onAppearItem: { asset in
+                        onPrimeSession(asset)
+                        Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
+                    },
+                    onTap: { asset in
+                        vm.selectedID = asset.id
+                        #if canImport(UIKit)
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        #endif
+                        onOpenEditor(asset)
+                    },
+                    makeItem: { asset in
+                        PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
+                    }
+                )
+            }
             .padding(2)
         }
     }
@@ -103,38 +111,6 @@ struct LibraryGrid: View {
             style: .phone,
             hidden: session?.culling.hidden ?? false
         )
-    }
-}
-
-// MARK: - LibraryFolderCell
-
-/// Square sub-folder tile for the phone Library grid.
-private struct LibraryFolderCell: View {
-    let url: URL
-    let onNavigate: () -> Void
-
-    var body: some View {
-        Button(action: onNavigate) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(MapleTokens.surfaceAlt)
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(MapleTokens.primary.opacity(0.85))
-                }
-                .overlay(alignment: .bottomLeading) {
-                    Text(url.lastPathComponent)
-                        .font(MapleTokens.Typography.body)
-                        .foregroundStyle(MapleTokens.textMain)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .padding(6)
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Folder \(url.lastPathComponent)")
     }
 }
 
