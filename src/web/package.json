@@ -44,7 +44,6 @@
   "dependencies": {
     "@angular/cdk": "^21.2.0",
     "@angular/common": "^21.2.0",
-    "@angular/compiler": "^21.2.0",
     "@angular/core": "^21.2.0",
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
@@ -60,7 +59,6 @@
     "@opentelemetry/instrumentation-fetch": "^0.218.0",
     "@opentelemetry/resources": "^2.7.1",
     "@opentelemetry/sdk-logs": "^0.218.0",
-    "@opentelemetry/sdk-trace-base": "^2.7.1",
     "@opentelemetry/sdk-trace-web": "^2.7.1",
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@simplewebauthn/browser": "^13",
@@ -73,11 +71,10 @@
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "^21.2.11",
-    "@angular/animations": "^21.2.0",
     "@angular/build": "^21.2.8",
     "@angular/cli": "^21.2.3",
+    "@angular/compiler": "^21.2.0",
     "@angular/compiler-cli": "^21.2.0",
-    "@compodoc/compodoc": "^1.2.1",
     "@playwright/test": "^1.59.1",
     "@socketsecurity/bun-security-scanner": "1.1.2",
     "@storybook/addon-a11y": "^10.4.0",
