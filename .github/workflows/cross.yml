@@ -252,16 +252,19 @@ jobs:
 
           # Non-comment, non-blank lines with the inline `# comment` and
           # trailing whitespace stripped, so what's left is the bare path.
+          # `[[:space:]]`, not `\s`: the latter is a GNU regex extension,
+          # not a POSIX ERE class, so it's not something to rely on in a
+          # script whose whole point is a portable text-processing pattern.
           # `|| true`: under `set -o pipefail`, a `grep` that matches
           # nothing (an empty or all-comments file — the allowlist itself
           # right after #113, or a $base_tmp that's empty because the file
           # didn't exist yet at the merge base) exits 1, which becomes the
           # whole pipeline's exit status and would abort the script under
-          # `set -e` the moment it's used in `$(...)` (Copilot review
-          # #2747) — the same trap `check-budget-headroom.sh` already warns
-          # about for `is_allowlisted ... && continue`.
+          # `set -e` the moment it's used in `$(...)` — the same trap
+          # `check-budget-headroom.sh` already warns about for
+          # `is_allowlisted ... && continue`.
           extract_paths() {
-            grep -Ev '^\s*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' || true
+            grep -Ev '^[[:space:]]*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' || true
           }
 
           # Bare paths -> "ext count" pairs, one extension per line.
@@ -274,13 +277,17 @@ jobs:
           # check-file-budget.sh AT THE MERGE BASE — the actual signal for
           # "is this the PR onboarding the extension," and more robust than
           # asking whether the allowlist currently has zero entries for it
-          # (Jules review #2747: an already-gated language that has fully
-          # paid off its allowlist debt also reads zero entries at the
-          # merge base: a flat zero-count check would treat that as a fresh
-          # onboarding and silently let one new violator back in with only
-          # a notice, no error).
+          # (an already-gated language that has fully paid off its
+          # allowlist debt also reads zero entries at the merge base: a
+          # flat zero-count check would treat that as a fresh onboarding
+          # and silently let one new violator back in with only a notice,
+          # no error). The trailing `([^A-Za-z0-9_]|$)` is an explicit
+          # non-word-character (or end-of-line) boundary rather than `\b`
+          # — `\b` is a GNU regex extension, not a POSIX ERE token — so
+          # matching `.ts` doesn't also match inside `.tsx`.
           extension_already_gated() {
-            git show "${MERGE_BASE}:tools/check-file-budget.sh" 2>/dev/null | grep -q -- "\*\.$1\b"
+            git show "${MERGE_BASE}:tools/check-file-budget.sh" 2>/dev/null | \
+              grep -Eq -- "\*\.$1([^A-Za-z0-9_]|\$)"
           }
 
           head_total="$(extract_paths tools/budget-allowlist.txt | wc -l | tr -d ' ')"
