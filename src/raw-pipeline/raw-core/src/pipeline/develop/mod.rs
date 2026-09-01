@@ -553,3 +553,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests_vignette_opcode.rs"]
+mod tests_vignette_opcode;
