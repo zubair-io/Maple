@@ -31,7 +31,7 @@ function makeAsset(name: string): Asset {
 }
 
 function makeFolder(name: string): GridFolderItem {
-  return { id: `lib:2026/${name}`, name, parentSourceId: SOURCE, aspectRatio: 1 };
+  return { id: `lib:2026/${name}`, name, parentSourceId: SOURCE };
 }
 
 const ASSETS = [makeAsset('a.dng'), makeAsset('b.dng'), makeAsset('c.dng'), makeAsset('d.dng')];
