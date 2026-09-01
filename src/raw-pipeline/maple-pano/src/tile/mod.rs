@@ -64,9 +64,11 @@
 //! | --------------- | ------------------------------------------------- |
 //! | `placement.rs`  | Anchored LS pose solve, canvas spec, canvas cap   |
 //! | `warp.rs`       | Inverse-similarity bicubic warps                  |
-//! | `gain_solve.rs` | Canvas-space per-frame gain solve                 |
 //! | `composite.rs`  | Tiled multiband composite (#1291/#3086)           |
 //! | `masks.rs`      | Voronoi ownership masks + overlap estimation      |
+//! | `photometry.rs`  | Gain + shared-ramp solve, correction model (#350) |
+//! | `sampling.rs`    | The strided canvas scan both layers consume       |
+//! | `exposure_field.rs` | Screened-Poisson residual exposure fields      |
 
 pub mod placement;
 pub mod warp;
@@ -75,6 +77,7 @@ mod composite;
 mod exposure_field;
 mod masks;
 mod photometry;
+mod sampling;
 
 #[cfg(test)]
 #[path = "composite_tests.rs"]
