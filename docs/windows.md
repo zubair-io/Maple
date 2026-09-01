@@ -221,7 +221,7 @@ Rust toolchain via `dtolnay/rust-toolchain@stable` with the MSVC target, .NET vi
 
 Note what CI does **not** do: `cargo test` for `maple-windows` itself (only `cargo build`), and the `qualify-winui.ps1` harness is not wired into any workflow.
 
-## Gates that do not apply to C#
+## File-budget gates cover C#; formatting gates still don't
 
 `tools/check-file-budget.sh` and `tools/check-budget-headroom.sh` — the 400-line soft / 600-line hard file-size budget, and the 570-line growth ratchet — cover `.cs` (#2747), same as every other source extension. Three pre-existing files were over the hard limit at the moment `.cs` was brought under the gate and are seeded in `tools/budget-allowlist.txt`'s day-0-for-C# entries: `MainWindow.xaml.cs` (839 lines), `CloudClient.cs` (631), `EditSessionViewModel.Library.cs` (605) — each needs its own split ticket on the KTLO board, same as any other allowlisted file. The splitting discipline visible throughout the codebase — the `MainWindow.*.cs` partials, the `EditSessionViewModel` partials, the `*Math`/`*Logic` extractions — now has enforcement behind it, not just convention.
 
