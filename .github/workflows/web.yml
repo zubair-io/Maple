@@ -159,6 +159,26 @@ jobs:
         working-directory: src/web
         run: bun run e2e:production-artifacts
 
+      # #2746: a failure here (e.g. welcome-intake.spec.ts's browser-audit
+      # assertion) previously left CI showing only the audit's pass/fail
+      # verdict — the underlying console/page errors, failed requests, and
+      # error responses it attached via `testInfo.attach('production-
+      # browser-audit.json', …)` (e2e/support/production-test.ts) were
+      # captured by Playwright but never left the runner. Upload the whole
+      # Playwright output (per-test attachments under `test-results/`, plus
+      # the browsable HTML report) so a red run has the actual browser
+      # errors to diagnose instead of "re-run and hope it passes".
+      - name: Upload production e2e artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-e2e-artifacts
+          path: |
+            src/web/test-results/production-chrome/
+            src/web/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
   web-test:
     name: web-test (ng test maple)
     runs-on: ubuntu-latest
