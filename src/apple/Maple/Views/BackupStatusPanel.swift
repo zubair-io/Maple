@@ -70,6 +70,27 @@ struct BackupStatusPanel: View {
       }
       .progressViewStyle(.linear)
 
+      // Completion caption (#3097): when the last walk confirmed everything
+      // is backed up, say when it checked and surface any terminal failures
+      // (photos that ran out of retries — e.g. deleted from Photos before
+      // their upload finished). Session-scoped failures stay on the
+      // "Failed:" row below; this is the persisted, cross-session figure.
+      if progress.isAllBackedUp, let summary = progress.lastWalkSummary {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Library checked \(summary.finishedAt.formatted(.relative(presentation: .named))).")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("backup.status.allBackedUp")
+          if summary.failedPermanently > 0 {
+            Label("\(summary.failedPermanently.formatted()) photos failed permanently and won't be retried.",
+                  systemImage: "exclamationmark.triangle")
+              .font(.caption)
+              .foregroundStyle(.orange)
+              .accessibilityIdentifier("backup.status.failedPermanently")
+          }
+        }
+      }
+
       // Live throughput (#702) — rolling-window bytes/sec + photos/min from the
       // same .progress/.completed events the counters use. Hidden when idle.
       if let throughput = progress.throughputLabel {
