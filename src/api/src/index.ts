@@ -11,7 +11,6 @@
  *                        registered-folder access. Defaults to '/' (Docker
  *                        mount is the jail). Set explicitly when running
  *                        natively to limit reach.
- *   MAPLE_INDEXER_WORKERS — concurrent indexer workers (default: 2)
  *   MAPLE_DEV          — set to "1" to proxy UI to Angular dev server
  *   MAPLE_DEV_ORIGIN   — Angular dev server origin (default: http://localhost:4200)
  *   MAPLE_DEV_AUTH     — set to "1" to expose /api/auth/dev-login (passkey
