@@ -115,6 +115,15 @@ pub struct PanoSourceMetadata {
     /// derivations from it carry a ~2–3 % error — fine for a bundle-
     /// adjustment seed, which is its only consumer.
     pub focal_35mm_equiv: Option<f32>,
+    /// EXIF `FocalPlaneXResolution` (tag 0x920E): pixels per
+    /// `focal_plane_resolution_unit` across the sensor, when present and
+    /// positive. Sensor-geometry fallback input for bodies whose firmware
+    /// omits `FocalLengthIn35mmFormat` (#2700) — see
+    /// `maple_pano::ingest::priors::derive_focal_35mm_equiv`.
+    pub focal_plane_x_resolution: Option<f32>,
+    /// EXIF `FocalPlaneResolutionUnit` (tag 0x9210): `2` = inches, `3` =
+    /// centimetres (the only values EXIF/rawler actually write).
+    pub focal_plane_resolution_unit: Option<u16>,
     /// EXIF orientation of the source. [`decode_for_pano`] has already
     /// applied it to the pixel buffer; carried for diagnostics.
     pub orientation: ExifOrientation,
@@ -403,6 +412,31 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
         .map(|e| e.value.force_f32(0))
         .filter(|v| *v > 0.0);
 
+    // EXIF FocalPlaneXResolution (0x920E) + FocalPlaneResolutionUnit
+    // (0x9210) — same IFD lookup pattern as FocalLengthIn35mmFormat
+    // above. Sensor-geometry fallback for bodies that omit the 35mm-
+    // equivalent tag (#2700); the derivation itself lives in
+    // `maple_pano::ingest::priors`, this is just the raw EXIF read.
+    let focal_plane_x_resolution = exif_ifd
+        .as_ref()
+        .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneXResolution))
+        .or_else(|| {
+            root_ifd
+                .as_ref()
+                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneXResolution))
+        })
+        .map(|e| e.value.force_f32(0))
+        .filter(|v| *v > 0.0);
+    let focal_plane_resolution_unit = exif_ifd
+        .as_ref()
+        .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneResolutionUnit))
+        .or_else(|| {
+            root_ifd
+                .as_ref()
+                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneResolutionUnit))
+        })
+        .map(|e| e.value.force_u16(0));
+
     // XMP packet (TIFF tag 700). DJI bodies write it in IFD0; the
     // recursive lookup is belt-and-braces for SubIFD placements. Stored
     // verbatim — namespace-aware parsing happens in maple-pano.
@@ -425,6 +459,8 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
         unique_camera_model: raw.unique_camera_model.clone(),
         focal_mm,
         focal_35mm_equiv,
+        focal_plane_x_resolution,
+        focal_plane_resolution_unit,
         orientation: raw.orientation,
         output_dims: native_render_dims(raw),
         xmp_packet,
