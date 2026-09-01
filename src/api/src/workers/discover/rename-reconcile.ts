@@ -35,18 +35,15 @@ import { readExif } from '../../indexer/exif.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
+import {
+  relocateCacheStageResetSet,
+  liveFileinfoMatchFilter,
+} from '../../db/relocate-cache-reset.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { child } from '../../log.ts';
 import type { AssetExif, FileInfo } from '../../db/schema.ts';
 
 const log = child('discover:rename-reconcile');
-
-/** Cache-writing stages reset to v0 after a reconciled rename, mirroring
- * `library/relocate-asset.ts`'s `CACHE_STAGES` — the thumb/preview cache
- * keys are path-derived, so the workers must regenerate them at the new
- * location rather than the (now stale) old one. Never physically relocate
- * the cache files themselves (`docs/caching.md`). */
-const CACHE_STAGES = ['thumb', 'preview'] as const;
 
 /** An on-disk file, not yet recorded in Mongo, discovered in the same sweep
  * visit as at least one missing candidate — the "new side" of a candidate
@@ -240,25 +237,10 @@ async function repointFileinfoEntry(
     'fileinfo.$[e].missing_reason': null,
     indexed_at: new Date().toISOString(),
     ...MEILI_REARM_SET,
+    ...relocateCacheStageResetSet(),
   };
-  for (const stage of CACHE_STAGES) {
-    set[`stages.${stage}.version`] = 0;
-    set[`stages.${stage}.attempts`] = 0;
-    set[`stages.${stage}.last_error`] = null;
-    set[`stages.${stage}.dead`] = false;
-  }
   const res = await coll.updateOne(
-    {
-      _id: candidate.docId,
-      fileinfo: {
-        $elemMatch: {
-          library_id: candidate.fileinfo.library_id,
-          path: candidate.fileinfo.path,
-          filename: candidate.fileinfo.filename,
-          deleted_at: null,
-        },
-      },
-    },
+    liveFileinfoMatchFilter(candidate.docId, candidate.fileinfo),
     { $set: set } as never,
     {
       arrayFilters: [

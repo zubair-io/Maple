@@ -36,11 +36,12 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { extensionChanged } from '../../library/filename-template.ts';
-import { parseAssetIdOr400, relocateResultResponse } from './_shared.ts';
+import { resolveAssetIdOrRespond, relocateResultResponse } from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const RenameBodySchema = t.Object({
@@ -75,11 +76,8 @@ function validateNewFilename(name: string): { status: number; error: string } | 
 export const renameRoutes = new Elysia().post(
   '/:id/rename',
   async ({ params, body, set }) => {
-    const idResult = parseAssetIdOr400(params.id);
-    if (!idResult.ok) {
-      set.status = idResult.status;
-      return idResult.body;
-    }
+    const id = resolveAssetIdOrRespond(params.id, set);
+    if (!(id instanceof ObjectId)) return id;
 
     const validation = validateNewFilename(body.new_filename);
     if (validation) {
@@ -88,7 +86,7 @@ export const renameRoutes = new Elysia().post(
     }
 
     const result = await relocateAsset({
-      id: idResult.id,
+      id,
       mode: 'move',
       collision: body.collision,
       destinationFilename: body.new_filename,

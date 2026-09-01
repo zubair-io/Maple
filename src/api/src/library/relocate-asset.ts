@@ -38,16 +38,10 @@ import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/rel
 import { resolveRelPathUnderRoot } from './address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { child as childLogger } from '../log.ts';
+import { relocateCacheStageResetSet, liveFileinfoMatchFilter } from '../db/relocate-cache-reset.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 
 const log = childLogger('library/relocate-asset');
-
-/** Cache-writing stages keyed on the asset's path — reset to v0 after a
- * relocate so the workers regenerate the dropped `.maple` cache at the new
- * location (ticket step 7 — never physically relocate cache files, the
- * cache key is path-derived, see docs/caching.md). Matches the sibling
- * constant of the same name/purpose in `workers/migration/move-backup-asset.ts`. */
-const CACHE_STAGES = ['thumb', 'preview'] as const;
 
 export interface RelocateAssetInput {
   id: ObjectId;
@@ -203,36 +197,60 @@ function splitRelPath(libRoot: string, absPath: string): { relPath: string; file
     : { relPath: rel.slice(0, lastSlash), filename: rel.slice(lastSlash + 1) };
 }
 
-export async function relocateAsset(input: RelocateAssetInput): Promise<RelocateAssetResult> {
-  const c = await assetsCollection();
-  const doc = await c.findOne({ _id: input.id });
-  if (!doc) return { kind: 'not-found' };
+/** Where a relocate's source and destination live on disk, resolved and
+ * validated up front — a `library_id`/`destinationPath`/`destinationFilename`
+ * triple can fail in several independent ways (unknown source/destination
+ * library, a hostile `destinationPath`, an unsafe `destinationFilename`).
+ * Split into `resolveLibraryRoots` (which library owns which root) and
+ * `resolveDestinationAbsPath` (validating the relPath/filename within that
+ * root) so neither half re-accumulates the other's branching — together
+ * they keep every individual function under the complexity threshold
+ * (#2725 fallow-audit). */
+type DestinationPlan = {
+  destLibraryId: ObjectId;
+  destLibRoot: string;
+  sourceAbsPath: string;
+  destAbsPath: string;
+};
 
-  const primary = activeFileInfo(doc);
-  if (!primary) return { kind: 'error', error: 'asset has no live location' };
+type LibraryRoots = { libRoot: string; destLibraryId: ObjectId; destLibRoot: string };
 
+/** Which on-disk root the asset's OWN library resolves to, and which root
+ * `destinationPath` resolves against — the NAMED destination library's root
+ * when the caller gives one, not always the asset's own (source) library
+ * root. That "always source" behavior was the cross-library misplacement
+ * bug (#2725): a caller with a destination relPath meant for a different
+ * library had no way to say so, and it got applied under the wrong root
+ * with no error. Omitting `destinationLibraryId` keeps the historical
+ * same-library behavior for every existing caller. */
+async function resolveLibraryRoots(
+  input: RelocateAssetInput,
+  primary: FileInfo,
+): Promise<LibraryRoots | Extract<RelocateAssetResult, { kind: 'error' | 'invalid' }>> {
   const libs = await loadLibraryRoots();
   const libRoot = libs.get(primary.library_id.toHexString());
   if (!libRoot) return { kind: 'error', error: 'library root not found for asset' };
 
-  // #2725: `destinationPath` resolves against the NAMED destination
-  // library's root when the caller gives one, not always the asset's own
-  // (source) library root — that "always source" behavior was the
-  // cross-library misplacement bug: a caller with a destination relPath
-  // meant for a different library had no way to say so, and it got applied
-  // under the wrong root with no error. Omitting the field keeps the
-  // historical same-library behavior for every existing caller.
   const destLibraryId = input.destinationLibraryId ?? primary.library_id;
   const destLibRoot = libs.get(destLibraryId.toHexString());
   if (!destLibRoot) return { kind: 'invalid', error: 'destination library not found' };
 
-  // Validate BOTH destination parts before touching disk. `destinationPath`
-  // is a multi-segment relPath (jailed via the same symlink-safe check the
-  // M1 addressing routes share — `resolveRelPathUnderRoot`, tolerant of the
-  // destination not existing yet); `destinationFilename` is a single
-  // segment, so it gets the stricter no-separators `isSafeFilename` check
-  // instead (a relPath jail would happily accept `sub/dir.dng` as a
-  // "filename", which is exactly the traversal this guards against).
+  return { libRoot, destLibraryId, destLibRoot };
+}
+
+/** Validate BOTH destination parts before touching disk, and join them into
+ * the destination's absolute path. `destinationPath` is a multi-segment
+ * relPath (jailed via the same symlink-safe check the M1 addressing routes
+ * share — `resolveRelPathUnderRoot`, tolerant of the destination not
+ * existing yet); `destinationFilename` is a single segment, so it gets the
+ * stricter no-separators `isSafeFilename` check instead (a relPath jail
+ * would happily accept `sub/dir.dng` as a "filename", which is exactly the
+ * traversal this guards against). */
+async function resolveDestinationAbsPath(
+  input: RelocateAssetInput,
+  primary: FileInfo,
+  destLibRoot: string,
+): Promise<string | Extract<RelocateAssetResult, { kind: 'invalid' }>> {
   const destinationPath = input.destinationPath ?? primary.path;
   let destDir: string;
   try {
@@ -243,10 +261,70 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   if (input.destinationFilename !== undefined && !isSafeFilename(input.destinationFilename)) {
     return { kind: 'invalid', error: 'destinationFilename is not a valid single-segment filename' };
   }
+  const destFilename = input.destinationFilename ?? primary.filename;
+  return path.join(destDir, destFilename);
+}
+
+async function resolveDestinationPlan(
+  input: RelocateAssetInput,
+  primary: FileInfo,
+): Promise<DestinationPlan | Extract<RelocateAssetResult, { kind: 'error' | 'invalid' }>> {
+  const roots = await resolveLibraryRoots(input, primary);
+  if ('kind' in roots) return roots;
+  const { libRoot, destLibraryId, destLibRoot } = roots;
+
+  const destAbsPath = await resolveDestinationAbsPath(input, primary, destLibRoot);
+  if (typeof destAbsPath !== 'string') return destAbsPath;
 
   const sourceAbsPath = path.join(libRoot, primary.path, primary.filename);
-  const destFilename = input.destinationFilename ?? primary.filename;
-  const destAbsPath = path.join(destDir, destFilename);
+  return { destLibraryId, destLibRoot, sourceAbsPath, destAbsPath };
+}
+
+/** The `onVerified` hook `relocateFile` runs between the verified copy and
+ * the delete, for `mode: 'move'` only — repoints the DB `fileinfo` entry
+ * (including, per #2725, `library_id` for a cross-library move) and resets
+ * the cache-writing stages. Split out of `relocateAsset` alongside
+ * `resolveDestinationPlan` to keep that function's own size/complexity down. */
+function buildRepointHook(
+  c: Awaited<ReturnType<typeof assetsCollection>>,
+  input: RelocateAssetInput,
+  primary: FileInfo,
+  destLibraryId: ObjectId,
+  destLibRoot: string,
+): (info: { newAbsPath: string }) => Promise<void> {
+  return async ({ newAbsPath }) => {
+    const split = splitRelPath(destLibRoot, newAbsPath);
+    const set: Record<string, unknown> = {
+      // #2725: repoint library_id too — a plain path/filename repoint left
+      // a cross-library move's fileinfo entry claiming the OLD library
+      // while the bytes now live under the new one.
+      'fileinfo.$.library_id': destLibraryId,
+      'fileinfo.$.path': split.relPath,
+      'fileinfo.$.filename': split.filename,
+      'fileinfo.$.missing_since': null,
+      ...MEILI_REARM_SET,
+      ...relocateCacheStageResetSet(),
+    };
+    const res = await c.updateOne(liveFileinfoMatchFilter(input.id, primary), {
+      $set: set,
+    } as never);
+    if (res.matchedCount === 0) {
+      throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
+    }
+  };
+}
+
+export async function relocateAsset(input: RelocateAssetInput): Promise<RelocateAssetResult> {
+  const c = await assetsCollection();
+  const doc = await c.findOne({ _id: input.id });
+  if (!doc) return { kind: 'not-found' };
+
+  const primary = activeFileInfo(doc);
+  if (!primary) return { kind: 'error', error: 'asset has no live location' };
+
+  const plan = await resolveDestinationPlan(input, primary);
+  if ('kind' in plan) return plan;
+  const { destLibraryId, destLibRoot, sourceAbsPath, destAbsPath } = plan;
 
   if (sourceAbsPath === destAbsPath) {
     return { kind: 'skipped', reason: 'already at destination' };
@@ -275,42 +353,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // is a cache of it. Wiring the repoint unconditionally would re-address
   // the ORIGINAL asset doc at the copy's location and catalog-orphan the
   // untouched source file.
-  const repointToNewLocation = async ({ newAbsPath }: { newAbsPath: string }) => {
-    const split = splitRelPath(destLibRoot, newAbsPath);
-    const set: Record<string, unknown> = {
-      // #2725: repoint library_id too — a plain path/filename repoint left
-      // a cross-library move's fileinfo entry claiming the OLD library
-      // while the bytes now live under the new one.
-      'fileinfo.$.library_id': destLibraryId,
-      'fileinfo.$.path': split.relPath,
-      'fileinfo.$.filename': split.filename,
-      'fileinfo.$.missing_since': null,
-      ...MEILI_REARM_SET,
-    };
-    for (const stage of CACHE_STAGES) {
-      set[`stages.${stage}.version`] = 0;
-      set[`stages.${stage}.attempts`] = 0;
-      set[`stages.${stage}.last_error`] = null;
-      set[`stages.${stage}.dead`] = false;
-    }
-    const res = await c.updateOne(
-      {
-        _id: input.id,
-        fileinfo: {
-          $elemMatch: {
-            library_id: primary.library_id,
-            path: primary.path,
-            filename: primary.filename,
-            deleted_at: null,
-          },
-        },
-      },
-      { $set: set } as never,
-    );
-    if (res.matchedCount === 0) {
-      throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
-    }
-  };
+  const repointToNewLocation = buildRepointHook(c, input, primary, destLibraryId, destLibRoot);
 
   const outcome = await relocateFile({
     sourceAbsPath,
