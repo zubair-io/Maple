@@ -50,9 +50,13 @@ struct SearchScreen: View {
     _viewModel = State(initialValue: vm)
   }
 
-  /// Fixed-width columns matching `TimelineCell.size` — same uniform,
-  /// non-adaptive grid shape as the Timeline (Global Constraint).
-  private static let columns = [GridItem(.adaptive(minimum: TimelineCell.size, maximum: TimelineCell.size), spacing: 32)]
+  /// Same wall shape as the Timeline (Global Constraint): `TVGridLayout`
+  /// picks the column count from `TimelineCell.targetSize` and derives the
+  /// cell size that makes a row span the content width exactly, so the grid
+  /// is centred with equal margins and uniform gaps.
+  private static let cellSpacing: CGFloat = 32
+  private static let rowSpacing: CGFloat = 32
+  private static let horizontalInset: CGFloat = 72
 
   /// How many trailing cells from the end of the loaded set trigger the
   /// next page. Wider than a single row so paging kicks in before the
@@ -307,28 +311,39 @@ struct SearchScreen: View {
   /// (uniform ~178pt crop-fill cells, focus scale + red ring, same
   /// caption on focus) rather than a parallel cell type.
   private var grid: some View {
-    ScrollView {
-      LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 32) {
-        let results = viewModel.results
-        ForEach(Array(results.enumerated()), id: \.element.id) { index, asset in
-          TimelineCell(
-            asset: asset,
-            server: session.server,
-            thumbClient: session.thumbClient,
-            thumbCache: session.thumbCache,
-            identifier: "search-cell-\(asset.id)",
-            onSelect: { selectedAsset = asset }
-          )
-          .focused($focusedCellID, equals: asset.id)
-          .onAppear {
-            guard viewModel.canLoadMore, index >= results.count - Self.pageAheadThreshold else { return }
-            Task { await viewModel.loadMore() }
+    GeometryReader { proxy in
+      let layout = TVGridLayout(
+        containerWidth: proxy.size.width,
+        targetCellWidth: TimelineCell.targetSize,
+        spacing: Self.cellSpacing,
+        horizontalInset: Self.horizontalInset
+      )
+      ScrollView {
+        LazyVGrid(columns: layout.gridItems, alignment: .center, spacing: Self.rowSpacing) {
+          let results = viewModel.results
+          ForEach(Array(results.enumerated()), id: \.element.id) { index, asset in
+            TimelineCell(
+              asset: asset,
+              server: session.server,
+              thumbClient: session.thumbClient,
+              thumbCache: session.thumbCache,
+              identifier: "search-cell-\(asset.id)",
+              size: layout.cellWidth,
+              onSelect: { selectedAsset = asset }
+            )
+            .focused($focusedCellID, equals: asset.id)
+            .onAppear {
+              guard viewModel.canLoadMore, index >= results.count - Self.pageAheadThreshold else { return }
+              Task { await viewModel.loadMore() }
+            }
           }
         }
+        .padding(.horizontal, Self.horizontalInset)
+        // Room for the focused cell's 1.09 scale to grow into at the top row
+        // rather than clipping against the scroll view's edge.
+        .padding(.top, 24)
+        .padding(.bottom, 72)
       }
-      .padding(.horizontal, 72)
-      .padding(.top, 8)
-      .padding(.bottom, 72)
     }
   }
 }
