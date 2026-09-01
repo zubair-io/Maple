@@ -215,22 +215,34 @@ struct TVRemoteImage: View {
   /// same path). tvOS 16+ decodes AVIF natively through ImageIO, so no
   /// format-specific branch or fallback is needed here.
   ///
-  /// `nonisolated async` (Copilot review on #2110, #2116): with no actor
-  /// annotation, awaiting this call moves its body off the caller's actor
-  /// onto the cooperative pool (SE-0338) — the same mechanism MapleCore's
-  /// `ThumbnailDecoder.image(for:key:)` uses to keep `CGImageSource` decode
-  /// work off the main actor. `load()`'s `.task(id:)` begins on the main
-  /// actor, so before this change every `CGImageSourceCreateImageAtIndex`
-  /// call for a wall of grid thumbnails ran on it, back to back — jank on
-  /// fast scrolling. Structured, not detached: because this is a plain
-  /// `await` (not `Task.detached`), it's still part of the caller's Task,
-  /// so `Task.isCancelled` at the call site above correctly reflects a
-  /// cell that scrolled off-screen and cancelled `.task(id:)`.
-  private static func decode(_ data: Data) async -> CGImage? {
-    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-          let img = CGImageSourceCreateImageAtIndex(src, 0, nil)
-    else { return nil }
-    return img
+  /// `nonisolated async` (jules review on #2116): the "Maple TV" target
+  /// sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (Approachable
+  /// Concurrency), so unlike MapleCore's SPM package — plain Swift 5 mode,
+  /// nonisolated by default, which is what lets `ThumbnailDecoder
+  /// .image(for:key:)` move `CGImageSource` decode work off the main actor
+  /// just by being `async` with no annotation — every declaration in THIS
+  /// target defaults to `@MainActor` unless explicitly opted out. Without
+  /// the explicit `nonisolated` here, `async` alone would NOT move this
+  /// off the caller's actor: `load()`'s `.task(id:)` begins on the main
+  /// actor, so every `CGImageSourceCreateImageAtIndex` call for a wall of
+  /// grid thumbnails would still run on it, back to back — jank on fast
+  /// scrolling, the exact bug this function exists to fix. Structured, not
+  /// detached: because the call site is a plain `await` (not
+  /// `Task.detached`), it's still part of the caller's Task, so
+  /// `Task.isCancelled` there correctly reflects a cell that scrolled
+  /// off-screen and cancelled `.task(id:)`.
+  ///
+  /// `kCGImageSourceShouldCacheImmediately: true` (Copilot review on
+  /// #2116): `CGImageSourceCreateImageAtIndex` without it can return a
+  /// *lazily* decoded image, deferring the actual pixel decode to first
+  /// draw — which would land back on the main thread and undercut the
+  /// whole point of moving this call off it. `ThumbnailDecoder
+  /// .decodeSync` in MapleCore passes the same option for the same
+  /// reason.
+  private nonisolated static func decode(_ data: Data) async -> CGImage? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    let options: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
+    return CGImageSourceCreateImageAtIndex(src, 0, options as CFDictionary)
   }
 }
 
