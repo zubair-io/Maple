@@ -84,6 +84,31 @@ public final class BackupProgressViewModel {
         }
     }
 
+    /// Outcome of the most recent PhotoKit walk (#3097). Published by
+    /// `ChangeObserverWiring.enqueueAllNew` when a walk finishes, so the
+    /// panel can distinguish "fully backed up, nothing to do" from the
+    /// cold "never started" empty state — both have `totalEnqueued == 0`.
+    public struct WalkSummary: Sendable, Hashable {
+        /// Eligible assets the walk enumerated in the Photos library.
+        public let enumerated: Int
+        /// Tasks this walk actually queued (new + user-requested retries).
+        public let enqueued: Int
+        /// Tasks in the terminal `.failedRetry` state (out of retries).
+        public let failedPermanently: Int
+        public let finishedAt: Date
+
+        public init(enumerated: Int, enqueued: Int,
+                    failedPermanently: Int, finishedAt: Date) {
+            self.enumerated = enumerated
+            self.enqueued = enqueued
+            self.failedPermanently = failedPermanently
+            self.finishedAt = finishedAt
+        }
+    }
+
+    /// Most recent walk outcome, or nil before the first walk completes.
+    public private(set) var lastWalkSummary: WalkSummary?
+
     /// How many distinct assets we've observed enqueued in this session.
     /// Resets if `.start(queue:)` is called against a different queue.
     public private(set) var totalEnqueued: Int = 0
@@ -206,14 +231,35 @@ public final class BackupProgressViewModel {
         photosPerMinute = 0
     }
 
+    /// True when the most recent walk checked a non-empty library and found
+    /// nothing to queue, and no live queue events have arrived since — i.e.
+    /// the backup is complete, not merely never-started (#3097). Any
+    /// `.enqueued` event (a new capture) flips this back to the counting path.
+    public var isAllBackedUp: Bool {
+        guard totalEnqueued == 0, let summary = lastWalkSummary else { return false }
+        return summary.enqueued == 0 && summary.enumerated > 0
+    }
+
+    /// Record the outcome of a finished PhotoKit walk (#3097).
+    public func recordWalkSummary(_ summary: WalkSummary) {
+        lastWalkSummary = summary
+    }
+
     /// Computed convenience: 0.0 → 1.0 progress when totalEnqueued > 0.
+    /// A completed backup ("all backed up") renders a full bar.
     public var fractionDone: Double {
+        if isAllBackedUp { return 1.0 }
         guard totalEnqueued > 0 else { return 0 }
         return min(1.0, Double(totalCompleted) / Double(totalEnqueued))
     }
 
-    /// Computed convenience: short "5,234 of 12,890 photos" string.
+    /// Computed convenience: short "5,234 of 12,890 photos" string. When the
+    /// last walk confirmed the library is fully backed up, say so instead of
+    /// the cold-start "No photos queued" (#3097).
     public var progressLabel: String {
+        if isAllBackedUp, let summary = lastWalkSummary {
+            return "All photos backed up · \(summary.enumerated.formatted()) photos"
+        }
         if totalEnqueued == 0 { return "No photos queued" }
         return "\(totalCompleted.formatted()) of \(totalEnqueued.formatted()) photos"
     }

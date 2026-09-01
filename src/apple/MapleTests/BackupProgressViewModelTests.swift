@@ -56,6 +56,73 @@ final class BackupProgressViewModelTests: XCTestCase {
     XCTAssertEqual(vm.lastError, "out of retries")
   }
 
+  // MARK: - Walk summary → "All photos backed up" (#3097)
+
+  /// A walk that enumerated a fully-backed-up library (enqueued nothing) must
+  /// flip the empty-state text to a completion summary — the old behaviour
+  /// ("No photos queued") read as a broken backup.
+  func testWalkSummaryWithNothingEnqueuedShowsAllBackedUp() {
+    let vm = BackupProgressViewModel()
+    XCTAssertEqual(vm.progressLabel, "No photos queued")
+
+    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
+      enumerated: 97_312, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
+
+    XCTAssertTrue(vm.isAllBackedUp)
+    XCTAssertEqual(vm.progressLabel, "All photos backed up · \(97_312.formatted()) photos")
+    XCTAssertEqual(vm.fractionDone, 1.0, "completed backup renders a full bar")
+  }
+
+  /// A walk that enqueued work is not a completion — the label must stay on
+  /// the counting path once `.enqueued` events arrive.
+  func testWalkSummaryWithEnqueuedWorkKeepsCountingLabel() {
+    let vm = BackupProgressViewModel()
+    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
+      enumerated: 100, enqueued: 2, failedPermanently: 0, finishedAt: Date()))
+    XCTAssertFalse(vm.isAllBackedUp)
+    XCTAssertEqual(vm.progressLabel, "No photos queued",
+                   "no .enqueued events observed yet — still the cold empty state")
+
+    vm.apply(.enqueued(BackupTask(id: taskID("new-1"), state: .pending, priority: .background)))
+    vm.apply(.enqueued(BackupTask(id: taskID("new-2"), state: .pending, priority: .background)))
+    XCTAssertEqual(vm.progressLabel, "0 of 2 photos")
+    XCTAssertEqual(vm.fractionDone, 0.0)
+  }
+
+  /// Live queue events outrank a stale completion summary: a new capture
+  /// enqueued after an "all backed up" walk switches back to counting.
+  func testEnqueuedEventOverridesAllBackedUpSummary() {
+    let vm = BackupProgressViewModel()
+    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
+      enumerated: 97_312, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
+    XCTAssertTrue(vm.isAllBackedUp)
+
+    vm.apply(.enqueued(BackupTask(id: taskID("fresh-capture"), state: .pending, priority: .background)))
+
+    XCTAssertFalse(vm.isAllBackedUp)
+    XCTAssertEqual(vm.progressLabel, "0 of 1 photos")
+  }
+
+  /// An enumerated-zero walk (e.g. limited Photos access with nothing
+  /// selected) is NOT "all backed up" — there was nothing to check.
+  func testWalkSummaryWithZeroEnumeratedIsNotAllBackedUp() {
+    let vm = BackupProgressViewModel()
+    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
+      enumerated: 0, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
+    XCTAssertFalse(vm.isAllBackedUp)
+    XCTAssertEqual(vm.progressLabel, "No photos queued")
+  }
+
+  /// The permanently-failed count rides along on the summary so the panel can
+  /// caption it ("13 failed permanently").
+  func testWalkSummaryExposesPermanentFailures() {
+    let vm = BackupProgressViewModel()
+    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
+      enumerated: 97_312, enqueued: 0, failedPermanently: 13, finishedAt: Date()))
+    XCTAssertTrue(vm.isAllBackedUp)
+    XCTAssertEqual(vm.lastWalkSummary?.failedPermanently, 13)
+  }
+
   /// The retry's subsequent `.started` re-adds a fresh tile at 0% — the tile
   /// reappears actively uploading instead of staying frozen.
   func testRetryReAddsFreshInFlightTileAtZero() {
