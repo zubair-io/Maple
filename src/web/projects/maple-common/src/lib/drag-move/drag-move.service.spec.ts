@@ -45,7 +45,6 @@ const FOLDER_TRIPS: GridFolderItem = {
   id: 'library:2026/Trips',
   name: 'Trips',
   parentSourceId: SOURCE_FOLDER_ID,
-  aspectRatio: 1,
 };
 
 const REGISTERED_LIBRARY = {

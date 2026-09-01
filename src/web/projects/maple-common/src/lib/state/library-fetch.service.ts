@@ -841,7 +841,6 @@ export class LibraryFetch {
       id: d.address,
       name: d.name,
       parentSourceId: sourceId,
-      aspectRatio: 3 / 2,
     }));
 
     this.store.gridFolders.update((list) => {

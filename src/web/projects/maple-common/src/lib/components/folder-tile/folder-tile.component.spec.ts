@@ -6,7 +6,7 @@ import { FolderTileComponent } from './folder-tile.component';
 import type { GridFolderItem } from '../../models/folder';
 
 function makeFolder(name = 'Vacation 2026'): GridFolderItem {
-  return { id: 'lib:vacation', name, parentSourceId: 'lib', aspectRatio: 1 };
+  return { id: 'lib:vacation', name, parentSourceId: 'lib' };
 }
 
 function render(): ComponentFixture<FolderTileComponent> {
