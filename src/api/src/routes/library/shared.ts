@@ -3,7 +3,7 @@
  */
 
 import { stat } from 'node:fs/promises';
-import type { Context } from 'elysia';
+import { t, type Context } from 'elysia';
 import {
   RAW_EXTENSIONS,
   SHARP_EXTENSIONS,
@@ -348,6 +348,35 @@ export function parseWildcardSegments(wildcard: string): string[] {
       return seg;
     }
   });
+}
+
+/**
+ * `params` schema for the five `/:slug/*` wildcard library routes (video,
+ * folder, image, thumb, preview) — #2508.
+ *
+ * Every one of those routes used to declare the wildcard explicitly —
+ * `t.Object({ slug: ..., '*': t.Optional(t.String()) })` — which triggered
+ * Elysia's "Failed to create exactMirror" warning on every route
+ * registration and matching request. `exact-mirror`'s codegen emits a
+ * literal, UNQUOTED property key for any name it doesn't recognise as
+ * needing quoting (`exact-mirror/dist/index.mjs`'s `isSpecialProperty`
+ * regex has no `*` in it) — so it generated `{slug:v.slug,*:v["*"]}`, which
+ * is not valid JavaScript (`*` isn't a legal bare object-literal key), the
+ * `Function(...)` compile throws, and Elysia catches that and falls back to
+ * a slower cleaner while logging the warning.
+ *
+ * The fix is to not declare `'*'` as a schema property at all — Elysia's
+ * router populates `params['*']` from the URL's wildcard segment
+ * independent of what the schema says, the schema is only consulted for
+ * validation. `additionalProperties: true` (a standard TypeBox/JSON-Schema
+ * option) tells Elysia's validator to accept the extra key, and tells the
+ * mirror codegen to pass it through via a plain object SPREAD rather than a
+ * named property — sidestepping the unquoted-`*`-key problem entirely.
+ * `slug` keeps its own validation unchanged. Callers keep reading the
+ * wildcard exactly as before: `(params as Record<string, string>)['*'] ?? ''`.
+ */
+export function wildcardSlugParams() {
+  return t.Object({ slug: t.String({ minLength: 1 }) }, { additionalProperties: true });
 }
 
 /**

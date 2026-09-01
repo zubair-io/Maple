@@ -13,7 +13,7 @@
  * existing thumb stage renderer (generateThumb).
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
@@ -28,6 +28,7 @@ import {
   findAssetByAddress,
   parseWildcardSegments,
   serveCachedBytesOr404,
+  wildcardSlugParams,
 } from './shared.ts';
 
 const log = childLogger('routes/library/thumb');
@@ -193,9 +194,6 @@ export const thumbRoutes = new Elysia().get(
     return serveCachedBytesOr404(set, thumbPath, 'image/avif', etag, 'Thumbnail file unreadable');
   },
   {
-    params: t.Object({
-      slug: t.String({ minLength: 1 }),
-      '*': t.Optional(t.String()),
-    }),
+    params: wildcardSlugParams(),
   },
 );

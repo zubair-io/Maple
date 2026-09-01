@@ -5,7 +5,7 @@
  * file extension. The response is jailed via resolveAddress.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import * as path from 'node:path';
 import { resolveAddress } from '../../library/address.ts';
 import {
@@ -16,6 +16,7 @@ import {
   IMAGE_EXTENSIONS_SET,
   STUB_AND_AUDIO_EXTENSIONS_SET,
   parseWildcardSegments,
+  wildcardSlugParams,
 } from './shared.ts';
 
 export const imageRoutes = new Elysia().get(
@@ -65,9 +66,6 @@ export const imageRoutes = new Elysia().get(
     return resp;
   },
   {
-    params: t.Object({
-      slug: t.String({ minLength: 1 }),
-      '*': t.Optional(t.String()),
-    }),
+    params: wildcardSlugParams(),
   },
 );
