@@ -74,7 +74,7 @@ extension AppShell {
     /// reach here). Routes by source kind, then reconciles grid/selection/
     /// session state on success.
     func commitRename(asset: AssetRef, to newFilename: String) {
-        guard FilenameValidation.isValidFolderName(newFilename) else {
+        guard FilenameValidation.isValidPathComponent(newFilename) else {
             renameError = FilenameValidation.invalidNameMessage
             return
         }

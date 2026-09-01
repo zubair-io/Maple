@@ -27,7 +27,7 @@ import RawPipeline
 public enum FilenameValidation {
     /// `true` when `name` is safe to use as a single filesystem path
     /// component (a folder or file's own name — not a multi-segment path).
-    public static func isValidFolderName(_ name: String) -> Bool {
+    public static func isValidPathComponent(_ name: String) -> Bool {
         name.withCString { maple_validate_filename($0) == 0 }
     }
 
