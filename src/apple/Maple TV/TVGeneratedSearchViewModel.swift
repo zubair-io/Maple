@@ -30,9 +30,10 @@ import Observation
 final class TVGeneratedSearchViewModel {
   private(set) var collections: [GeneratedSearchCard] = []
   private(set) var isLoading: Bool = false
-  /// Non-nil when the last `load()` failed. Only meaningful alongside an
-  /// empty `collections` — a failure after something already rendered leaves
-  /// the loaded set up rather than replacing it with an error.
+  /// Non-nil only when a load failed *with nothing to fall back on*. A
+  /// refresh that fails after a set has already rendered leaves that set up
+  /// and clears this — there is nothing useful to say over a working wall of
+  /// memories, and a stale non-nil error would invite a caller to show one.
   private(set) var loadError: Error?
   /// First asset of each collection, keyed by collection id — a card needs a
   /// real `abs_path` to render a cover (the collection carries only an id),
@@ -62,12 +63,20 @@ final class TVGeneratedSearchViewModel {
       loaded = try await client.collections(libraryID: libraryID)
     } catch {
       guard g == generation else { return }
-      loadError = error
+      // Only an empty screen becomes an error state — see `loadError`.
+      loadError = collections.isEmpty ? error : nil
       return
     }
     guard g == generation else { return }
     loadError = nil
     collections = loaded
+    // Drop covers for collections that just fell out of the set. A reload
+    // replaces `collections` wholesale, so without this the map only ever
+    // grows — every day's retired collections stay resident for the life of
+    // the screen. Pruning rather than clearing keeps the covers that survived
+    // the reload on screen instead of blanking every card for a beat.
+    let loadedIDs = Set(loaded.map(\.id))
+    covers = covers.filter { loadedIDs.contains($0.key) }
 
     // One small fetch per collection (there are a handful per day), run
     // concurrently. A failure just leaves that card on its gradient.
