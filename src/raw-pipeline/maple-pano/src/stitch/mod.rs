@@ -74,11 +74,12 @@
 
 mod frame_cache;
 mod io;
+mod tile_standalone;
 mod tile_stitch;
 mod types;
 
 pub use io::{develop_for_display, interleave_planar, quantize_to_u16, write_display_sidecars};
-pub use tile_stitch::stitch_tile;
+pub use tile_standalone::stitch_tile;
 pub use types::{StitchError, StitchOptions, StitchOutcome, StitchSuccess, TileStitchOutcome};
 
 use std::path::PathBuf;
