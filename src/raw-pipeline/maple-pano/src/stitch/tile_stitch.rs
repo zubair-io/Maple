@@ -329,7 +329,8 @@ pub(super) fn tile_tail(
     // same `--max-canvas-px` contract the rotation path applies via
     // `auto_canvas` (#3086).
     let (poses, canvas_spec) =
-        crate::tile::apply_canvas_cap(solved_poses, solved_canvas, opts.max_canvas_px);
+        crate::tile::apply_canvas_cap(solved_poses, solved_canvas, opts.max_canvas_px)
+            .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
     let solve_s = t4.elapsed().as_secs_f64();
     progress(4, 1.0);
 
