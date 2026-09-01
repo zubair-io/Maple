@@ -303,6 +303,17 @@ enum ChangeObserverWiring {
             }
         }
         log.info("walk done: enqueued=\(enqueuedCount) retried=\(retriedCount) reconciled-uploaded=\(reconciledUploaded) skipped=\(ids.count - enqueuedCount - retriedCount) failures=\(enqueueFailures)")
+
+        // Publish the outcome so the status panel can tell "fully backed up"
+        // apart from "never started" — both leave the queue empty (#3097).
+        // The `.failedRetry` count is the terminal-failure figure the panel
+        // captions; best-effort, a read failure just reports 0.
+        let failedPermanently = (try? await state.tasks(in: .failedRetry).count) ?? 0
+        EngineHost.shared.progress.recordWalkSummary(BackupProgressViewModel.WalkSummary(
+            enumerated: ids.count,
+            enqueued: enqueuedCount + retriedCount,
+            failedPermanently: failedPermanently,
+            finishedAt: Date()))
     }
 
     /// Step (b) of reconciliation: content-level dedup by maple_id.
