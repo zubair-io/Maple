@@ -73,12 +73,18 @@ final class EditSessionNonRawFilmExportTests: XCTestCase {
         let extent = image.extent.integral
         let w = max(1, Int(extent.width)), h = max(1, Int(extent.height))
         var buffer = [UInt8](repeating: 0, count: w * h * 4)
-        let context = CIContext()
+        // Copilot review (PR #3145): pin both the context's intermediate
+        // working space and the output space to sRGB explicitly, rather
+        // than a default `CIContext()` (whose working space can vary by
+        // platform/GPU availability) -- keeps the byte comparison
+        // deterministic instead of accidentally depending on a default.
+        let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+        let context = CIContext(options: [.workingColorSpace: sRGB])
         buffer.withUnsafeMutableBytes { raw in
             context.render(
                 image, toBitmap: raw.baseAddress!, rowBytes: w * 4,
                 bounds: extent, format: .RGBA8,
-                colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+                colorSpace: sRGB)
         }
         return buffer
     }
