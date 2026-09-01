@@ -23,18 +23,13 @@
   "health": {
     "ignore": ["**/*.html"]
   },
-  // The four entries after `fallow` are pre-existing package.json hygiene
-  // findings (never-imported deps / test-only placement) tracked in #3002 —
-  // suppressed so unrelated PRs that touch package.json don't gate on them.
-  // Remove each suppression in the PR that fixes it.
+  // @opentelemetry/core is a pre-existing package.json hygiene finding
+  // (never imported) reported alongside the four #3002 findings but NOT
+  // currently gating — left suppressed here until it's picked up.
   "ignoreDependencies": [
     "@socketsecurity/bun-security-scanner",
     "fallow",
-    "@opentelemetry/sdk-trace-base",
     "@opentelemetry/core",
-    "@angular/animations",
-    "@compodoc/compodoc",
-    "@angular/compiler",
     // Pre-existing on main (verified against the toast-sweep branch's
     // merge-base, fdf1b267c — `app-update.service.ts` imports it at the
     // same line there too) despite being listed in package.json's
