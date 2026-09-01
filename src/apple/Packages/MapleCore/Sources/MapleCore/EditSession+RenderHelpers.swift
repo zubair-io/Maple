@@ -83,8 +83,24 @@ extension EditSession {
         }
         // #1781: decode-bake anchor with a present frame; the export
         // decode's own frame export rides processSceneLinear(wbFrame:).
-        return try await renderActor.renderForExport(
+        let image = try await renderActor.renderForExport(
             asset: asset, model: model, asShot: wbDeltaAnchor
         )
+        // Non-RAW film-look export (#2713): the CIImage-graph path above has
+        // no FFI film-look stage (`maple_render_file_with_film` is RAW-only
+        // — see `EditSession+FilmExport.swift`'s file header), so a JPEG/
+        // HEIF export with a look previously came out unlooked even though
+        // the live canvas shows it. `renderActor.renderForExport`'s output
+        // is already display-encoded sRGB — the same domain the interactive
+        // canvas's CPU fallback composites `FilmLookCube` onto
+        // (`EditSession+Render.swift`) — so apply it here the same way.
+        // Gated on `!asset.isRaw`: the RAW path above is either bit-exact
+        // (a resolved look) or intentionally look-less (no look), and this
+        // must not change either of those outcomes. `FilmLookCube.apply` is
+        // itself a no-op when `model.filmLook` has no resolvable lattice, so
+        // this is safe to call unconditionally for every non-RAW export.
+        guard !asset.isRaw else { return image }
+        let filmLattice = filmLutStore.lattice(for: model.filmLook)
+        return FilmLookCube.apply(to: image, lattice: filmLattice, strengthPct: model.filmStrength)
     }
 }

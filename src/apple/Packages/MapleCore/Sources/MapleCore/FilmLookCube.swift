@@ -29,9 +29,13 @@
 // on `test_0005.RAF` / `color_negative_kodak_portra_400`, mean ΔE2000 =
 // 0.39 (strength 100) / 0.52 (strength 50), max = 2.87 / 2.88 — see that
 // test file for the full numbers and methodology. Acceptable for this
-// interactive display path; the export path
+// interactive display path; a RAW export
 // (`EditSession+FilmExport.swift`) stays bit-exact via
-// `maple_render_file_with_film`.
+// `maple_render_file_with_film` instead of this cube. A non-RAW export
+// (#2713) has no RAW-only FFI entry to fall back to, so it composites this
+// same cube on the CIImage-graph export result
+// (`EditSession+RenderHelpers.swift`'s `renderForExport()`) — the same
+// approximation as the interactive path, at export resolution.
 //
 // Cost: baking a 33-node cube is a ~36k-iteration scalar loop (well under
 // 1ms) — cheap enough to rebuild on every render tick with no caching.
