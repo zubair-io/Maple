@@ -46,7 +46,7 @@ export type { PreviewSourceIdentity } from './preview-cache-protocol';
  * hand-maintained per-cache integer this used to be: a raw-core author now
  * bumps one constant and both this thumb cache and Apple's rendered-preview
  * cache (`RenderedPreviewCache`) invalidate together. See
- * `docs/pipeline-output-version.md`.
+ * `docs/pipeline.md § "Pipeline output version"`.
  */
 export const THUMB_PIPELINE_VERSION = PIPELINE_OUTPUT_VERSION;
 

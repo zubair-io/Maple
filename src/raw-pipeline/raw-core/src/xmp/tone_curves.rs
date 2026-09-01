@@ -20,7 +20,7 @@
 //! `#273`'s pipeline foundation applies these curves *pre-AgX*, in scene-linear
 //! light, while a `crs:ToneCurvePV2012` curve was authored against Lightroom's
 //! own display transform and only means anything *after* a view transform
-//! (`docs/maple-paper.md` § 3, "tone curve families"). Reading a Lightroom
+//! (`docs/xmp-canonical-format.md` § "Tone curves"). Reading a Lightroom
 //! curve into these fields would apply a display-referred shape to
 //! scene-linear data and render the image visibly wrong, so the `crs:` keys
 //! are deliberately NOT parsed here — they survive a read-modify-write through

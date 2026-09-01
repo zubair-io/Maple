@@ -31,7 +31,7 @@
 // pristine. Ratchet downward as the pipeline tightens.
 //
 // Cross-links:
-//   docs/tickets/10-tier-3-resume-queue.md item C
+//   docs/testing.md § Apple
 //   src/apple/MapleUITests/Helpers/MapleAppDriver.swift
 //   src/apple/MapleUITests/Helpers/GoldenStore.swift
 //   src/apple/MapleUITests/Helpers/CIEDE2000.swift

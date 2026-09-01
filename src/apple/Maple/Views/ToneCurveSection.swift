@@ -18,7 +18,7 @@
 //   │  Shadows      ──────●──────────────       -8   │
 //   └────────────────────────────────────────────────┘
 //
-// Two families, matching `docs/maple-paper.md` § 3 and the two shapes
+// Two families, matching `docs/xmp-canonical-format.md` § "Tone curves" and the two shapes
 // `AdjustmentModel` carries. The four PARAMETRIC region scalars are declared
 // as `Tool.toneCurve`'s sub-params and route through `EditorState`'s value
 // pipe (`arm(subParamId:)` + `setArmedDisplayValue`), exactly as HSL's band

@@ -1,8 +1,6 @@
 # Contributing to Maple
 
-A short engineering contract. The longer story lives in `CLAUDE.md`, `docs/feature-spec.md`, `docs/ui-spec.md`, and `docs/best-practices.md`.
-
-> **Doc paths assume PR #204 (the `docs/` rename sweep) has merged.** Before that lands, the live filenames on `main` are `docs/photo-app-feature-spec.md`, `docs/photo-app-ui-spec.md`, and `docs/photo-app-mockup.html`. This file uses the post-rename names so we don't need a follow-up doc edit.
+A short engineering contract. The longer story lives in `CLAUDE.md`, `docs/README.md` (the doc index), and `docs/best-practices.md`.
 
 ## The load-bearing rules
 
@@ -10,7 +8,7 @@ These are invariants. If you're about to violate one, stop and ask.
 
 1. **Non-destructive only.** Original files are never modified. All edits go to `.xmp` sidecars. The sidecar is the contract; the pixels are derived. No migration tools, cleanup utilities, or "tidy up" passes that touch user assets. Originals are sacred.
 2. **Scene-referred pipeline.** The working space is linear Rec.2020 D65 at f32. Exposure is a linear multiply. A single view transform at the end of the chain compresses scene range into display range. Nothing before the view transform clips.
-3. **One Rust core, three native pipelines.** Color math (decode, demosaic, calibration, LUT generation, dehaze, deconvolution) lives in `src/raw-pipeline/raw-core`. That crate compiles once as a static library for Apple (via C-FFI) and once as WebAssembly for browsers. Platform GPU paths (Metal, WebGL2) are idiomatic on each platform but gated against the Rust reference. No hand-mirrored matrices — constants flow through `src/scripts/codegen/`.
+3. **One Rust core, three native pipelines.** Color math (decode, demosaic, calibration, LUT generation, dehaze, deconvolution) lives in `src/raw-pipeline/raw-core`. That crate compiles once as a static library for Apple (via C-FFI) and once as WebAssembly for browsers. The GPU develop chain is one wgpu/WGSL implementation in `src/raw-pipeline/raw-gpu` (Metal on Apple, WebGPU in browsers) and is gated against the CPU reference. No hand-mirrored matrices — constants flow through `src/raw-pipeline/codegen` via `tools/codegen.sh`.
 4. **Parity before features.** Pixel parity between Apple and Web is a merge gate, not an aspiration. See `docs/testing.md`.
 5. **Performance is a product feature.** Slider tick must produce a new preview inside 16ms (50ms hard limit) on the reference scene set. No allocation inside the render loop, no per-tick round-trip across the WASM boundary.
 
@@ -46,20 +44,20 @@ bash tools/check-budget-headroom.sh --self-test  # exercise the checker itself
 ## Commits and pull requests
 
 - **Conventional Commits** for the first line: `type(scope)?: description`. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Enforced by the `commit-msg` hook in `lefthook.yml`.
-- **Squash-merge only.** No merge commits on `main`.
+- **Rebase and merge only.** No merge commits on `main`; keep feature branches linear (`git rebase origin/main`, never `git merge origin/main`). See `CLAUDE.md` § Conventions for the full rule.
 - **No `--amend` after pushing.** Make a new commit; the diff in review is the diff that lands.
 - **No `--no-verify`.** If the hook fails, fix it. The hook is the contract.
 - PR body: one-line summary, a short "why" paragraph, and a `Closes #N` line. Include a test plan when the change isn't covered by an existing harness.
 
 ## Tooling
 
-| When        | What runs                                                                                                                                                                   |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| editor-save | Format-on-save via your editor's prettier / rustfmt / swift-format / ruff integration                                                                                       |
-| pre-commit  | `lefthook.yml` — file-budget + prettier + rustfmt + swift-format + ruff + shfmt on staged files (graceful skip)                                                             |
-| commit-msg  | `lefthook.yml` — Conventional Commits regex check on the first line                                                                                                         |
-| CI          | `.github/workflows/api.yml` runs API tests. Cross-cutting `cross.yml`: prettier format-check on changed files, file budget, codegen drift, gitleaks, allowlist-shrinks-only |
-| weekly      | (planned) parity-budget ratchet sweep                                                                                                                                       |
+| When        | What runs                                                                                                                                                                                                                                                                                                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| editor-save | Format-on-save via your editor's prettier / rustfmt / swift-format / ruff integration                                                                                                                                                                                                                                                                      |
+| pre-commit  | `lefthook.yml` — file-budget + prettier + rustfmt + swift-format + ruff + shfmt on staged files (graceful skip)                                                                                                                                                                                                                                            |
+| commit-msg  | `lefthook.yml` — Conventional Commits regex check on the first line                                                                                                                                                                                                                                                                                        |
+| CI          | Per-area workflows (`api.yml`, `apple.yml`, `web.yml`, `raw-pipeline.yml`, `windows.yml`, `cloudflare.yml`). Cross-cutting `cross.yml`: prettier format-check, oxlint-api, file-budget, budget-headroom, allowlist-shrinks-only, budgets-ratchet-shrinks-only, codegen-drift, maple-ui-contracts, fallow audits, gitleaks. Full table in `docs/testing.md` |
+| weekly      | (planned) parity-budget ratchet sweep                                                                                                                                                                                                                                                                                                                      |
 
 Install lefthook once per clone:
 
@@ -74,11 +72,11 @@ If a formatter binary isn't installed locally, the corresponding pre-commit step
 
 | Language          | Format                                             | Lint                | Config                                                             |
 | ----------------- | -------------------------------------------------- | ------------------- | ------------------------------------------------------------------ |
-| TypeScript / HTML | `prettier --check` (printWidth 100, single quotes) | — (none configured) | `src/web/.prettierrc`                                              |
+| TypeScript / HTML | `prettier --check` (printWidth 100, single quotes) | `oxlint` (API only) | `src/web/.prettierrc`, `src/api/.oxlintrc.json`                    |
 | Rust              | `rustfmt --edition 2021`                           | `cargo clippy`      | repo defaults (no `rustfmt.toml` yet)                              |
 | Swift             | `xcrun swift-format lint --strict`                 | (same)              | repo defaults (no `.swift-format` yet — Xcode bundled config used) |
 | Python            | `ruff format --check`                              | `ruff check`        | repo defaults (no `pyproject.toml` yet)                            |
-| Shell             | `shfmt -d`                                         | `shellcheck` (CI)   | repo defaults                                                      |
+| Shell             | `shfmt -d`                                         | — (none in CI)      | repo defaults                                                      |
 
 `rustfmt.toml`, `.swift-format`, and `pyproject.toml` will land alongside the first formatter run that needs non-default settings — kept lean until a real reason appears.
 
@@ -195,12 +193,12 @@ shared state; the seed stories in this PR avoid that surface deliberately
 
 | If you need to…                           | Read this                                        |
 | ----------------------------------------- | ------------------------------------------------ |
-| Decide what a feature should do           | `docs/feature-spec.md`                           |
-| Decide how a screen should look or behave | `docs/ui-spec.md`                                |
+| Decide what a feature should do           | `docs/features.md`                               |
+| Decide how a screen should look or behave | `docs/unified-component-catalog.md`              |
 | Pick a pattern for an Angular component   | `docs/best-practices.md` § "Angular"             |
 | Pick a pattern for a Swift view           | `docs/best-practices.md` § "Swift"               |
 | Change the XMP schema                     | `docs/xmp-canonical-format.md`                   |
-| Touch a color-pipeline stage              | `docs/architecture.md` + `docs/testing.md`       |
+| Touch a color-pipeline stage              | `docs/pipeline.md` + `docs/testing.md`           |
 | Add a cache                               | `docs/caching.md`                                |
 | Understand the build matrix               | `CLAUDE.md` § "Build & test — Apple / Web / API" |
 

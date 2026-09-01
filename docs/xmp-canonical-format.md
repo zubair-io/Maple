@@ -1,625 +1,381 @@
-# XMP Sidecar Canonical Format
+# XMP Canonical Format
 
-Maple sidecars must round-trip byte-for-byte between the Swift
-`XMPSerializer` and the TypeScript `XmpSerializerService`. This doc pins down
-the formatting choices that make that possible.
+Every edit a user makes in Maple is stored in a plain-text `.xmp` sidecar next to the original file — the original bytes are never touched. This document is the contract for those sidecars: exactly which bytes a Maple writer produces, which attribute names carry which slider, and what a reader must do with content it does not recognise. Four independent implementations must agree on it — Rust (`raw-core`, the render-side reader), Swift (Apple apps), TypeScript (Web and the Bun API), and C# (the Windows shell) — because a photo edited on a Mac, re-opened in a browser and then re-saved from Windows has to come back unchanged. Two of those writers (Swift and TypeScript) are held to a **byte-for-byte** golden document; all four are held to a semantic round trip.
 
-Any deviation on either side is a bug.
+The single rule everything else follows from: a sidecar Maple writes must be a fixed point. Parse it, serialize it again with nothing changed, and you get the identical bytes back — including the parts of the document Maple does not understand.
 
-The two implementations of this document are
-`src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Canonical.swift`
-and `src/web/projects/maple-common/src/lib/xmp/xmp-canonical.ts` (#1577). The
-zero-byte-diff gate is the shared golden literal duplicated between
-`XMPCanonicalFormatTests.swift` and `xmp-canonical.spec.ts`.
+## Where sidecars live
 
-## What the parity claim covers
+A sidecar sits beside the file it describes, with two naming rules:
 
-Byte identity holds for **the canonical document produced from a model both
-writers emit the same field set for**. It is deliberately not a claim about
-arbitrary round-tripped documents, because the two writers do not model the
-same things:
+- **Images** swap the extension: `IMG_1234.ARW` → `IMG_1234.xmp`.
+- **Videos** keep theirs and append: `clip.mov` → `clip.mov.xmp`.
 
-- Both writers preserve unknown attributes and unknown nested nodes (#2233
-  brought Apple in line), but they capture the nodes differently — the
-  TypeScript parser takes the DOM's re-serialization, the Swift one slices the
-  source text — so a sidecar carrying foreign nested fields is preserved by
-  both without the preserved bytes being identical across the two.
-- `papp:Hidden` has no TypeScript writer, and `papp:WbMethod` /
-  `papp:ToneCurveMode` have no Apple model field (**#2216**).
-- The ~20 sliders Apple authors unconditionally are omitted at their defaults
-  by the web writer, so the two attribute sets converge only once those fields
-  are authored. The shared golden fixture sets every one of them to a
-  non-default value for exactly this reason.
+The split exists for Apple Live Photos, which store the still and the motion clip as two same-stem files (`IMG_1234.HEIC` + `IMG_1234.MOV`); under a stem swap both would target `IMG_1234.xmp` and clobber each other. The rule is implemented twice and must stay in sync: `src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift` and `xmpSidecarPath()` in `src/api/src/fs/xmp.ts` (whose video-extension list mirrors `VIDEO_EXTS` in `src/api/src/indexer/media-types.ts`).
 
-Everything else — envelope, namespace URIs and declaration order, indentation,
-attribute ordering, number formatting, nested-child shape and order — is
-identical, and a change to any of it must land on both sides and in this
-document in the same commit.
+Writes are atomic — temp file then rename — so a partial write is never visible. On Apple, `XMPSidecarStore` (`src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift`) debounces saves by 750 ms and offers a `flush()` for close; on the server, `writeSidecarAtomic` in `src/api/src/fs/sidecar-io.ts` does the rename.
 
----
+## The four implementations
 
-## File envelope
+| Language   | Reads | Writes        | Entry points                                                                                                                                                                              |
+| ---------- | ----- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust       | yes   | fragment only | `src/raw-pipeline/raw-core/src/xmp/mod.rs` (`parse`), `fields.rs` (the attribute→field match), `tone_curves.rs`, `black_white.rs`                                                         |
+| Swift      | yes   | yes           | `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift` plus its `+Attrs`, `+Canonical`, `+Helpers`, `+ParseAttrs`, `+ToneCurves`, `+Metadata`, `+Passthrough` extensions |
+| TypeScript | yes   | yes           | `src/web/projects/maple-common/src/lib/xmp/xmp-parser.service.ts`, `xmp-serializer.service.ts`, `xmp-canonical.ts`, `xmp-fields.ts`                                                       |
+| C#         | yes   | yes           | `src/windows/Maple.WinUI/Services/Xmp/XmpParser.cs`, `XmpWriter.cs`, `XmpSidecarDocument.cs`                                                                                              |
 
-Every sidecar starts with:
+Rust is the render-side reader: `raw_core::xmp::parse` is what `maple-cli`, `raw-wasm` and `raw-ffi` call to turn a sidecar into an `AdjustmentModel` before developing pixels. Its `xmp::serialize` emits only an attribute _fragment_ (the Maple-proprietary `papp:` keys plus the parametric, black-and-white, lens and crop groups) and is exercised only by its own tests — full document writing belongs to the three shells.
 
-```
-<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>
+The Bun API is a fifth, narrower participant: `src/api/src/xmp/metadata-serializer.ts` merges IPTC/EXIF metadata and culling fields into an existing sidecar by targeted attribute substitution rather than rebuilding the document, so it never has to model the develop schema. It is deliberately not byte-canonical.
+
+## Document shape
+
+The envelope is fixed. Line endings are LF; the `<?xpacket begin=…?>` value is a literal U+FEFF byte-order mark.
+
+```xml
+<?xpacket begin="<U+FEFF>" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description rdf:about=""
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
       xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
       xmlns:papp="http://ns.justmaple.app/photo/1.0/"
-      <!-- conditional namespaces here, in the order: -->
-      <!--   dc, exif, photoshop, Iptc4xmpCore, xmpRights -->
-      <!-- then sorted attributes -->
-      <!-- then: /> for self-close -->
-      <!-- or:   > ... </rdf:Description> if there are nested children -->
-```
-
-Ends with:
-
-```
+      xmp:Rating="4"
+      crs:Exposure2012="0.5"
+      papp:Brightness="6">
+      <dc:subject>…</dc:subject>
+      <papp:SceneLinearToneCurve>…</papp:SceneLinearToneCurve>
+    </rdf:Description>
   </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end="w"?>
 ```
 
-The three core namespace declarations are **always emitted in this exact
-order** regardless of whether the namespace is used. They're structural; the
-canonical ordering is for fingerprinting stability. The metadata namespaces
-below them are conditional — declared only when the payload uses them — and
-keep their fixed relative order.
+No `x:xmptk` toolkit string is emitted — it identifies the writing platform and would make Apple and Web output differ by construction.
 
-`rdf:about=""` rides on the `rdf:Description` open tag and is not part of the
-sorted attribute list. It is structural (RDF requires it, and every Adobe
-writer emits it), not payload.
+When there are no children, `rdf:Description` self-closes with `/>` on the last attribute line; otherwise the attribute block ends with `>` and the element closes at four spaces.
 
-No `x:xmptk` toolkit attribute is written. A toolkit string names the
-producing platform, which is precisely what the canonical form must not depend
-on; the TypeScript writer emitted `Maple Hosted 0.1.0` before #1577 and Apple
-emitted none.
+### Indentation
 
-### The `papp:` namespace URI
+One ladder, two spaces per level. `rdf:RDF` sits at two spaces, `rdf:Description` at four, and **everything inside `rdf:Description` — namespace declarations, attributes, and child elements alike — sits at six**, stepping two further per nested level (`<rdf:Bag>` at eight, `<rdf:li>` at ten). The constant is `DESCRIPTION_CHILD_INDENT` in `xmp-canonical.ts` and `XMPCanonical.childIndent` in `XMPSerialization+Canonical.swift`; C# spells it `ChildIndent` in `XmpWriter.cs`.
 
-`http://ns.justmaple.app/photo/1.0/`. Before #1577 the TypeScript writer and
-the API used that value while Apple used `http://ns.justmaple.app/1.0/`, and
-this document claimed a third (`http://ns.justmaple.com/maple-maple/1.0/`)
-that no writer has ever produced.
+### Namespaces
 
-The Web parser resolves namespace URI + local name and accepts both the
-canonical URI and Apple's historical `http://ns.justmaple.app/1.0/` URI.
-This prevents an unrelated document that reuses the text `papp:` from being
-interpreted as Maple metadata while keeping existing Maple sidecars readable.
-The Rust and Apple readers retain their historical qualified-name behavior;
-all three writers emit the canonical URI. Nothing rewrites a sidecar in place.
+Three declarations are emitted on every `rdf:Description`, in this exact order, whether or not the payload uses them — a fixed prelude keeps the head of every sidecar byte-stable:
 
-The BOM (`\uFEFF`) inside `xpacket begin` is literal — do not strip it.
+| Prefix | URI                                            |
+| ------ | ---------------------------------------------- |
+| `xmp`  | `http://ns.adobe.com/xap/1.0/`                 |
+| `crs`  | `http://ns.adobe.com/camera-raw-settings/1.0/` |
+| `papp` | `http://ns.justmaple.app/photo/1.0/`           |
 
-## Line endings
+Conditional declarations follow in a fixed order when the payload needs them: `dc` (`http://purl.org/dc/elements/1.1/`), `exif` (`http://ns.adobe.com/exif/1.0/`), `photoshop` (`http://ns.adobe.com/photoshop/1.0/`), `Iptc4xmpCore` (`http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/`), `xmpRights` (`http://ns.adobe.com/xap/1.0/rights/`). Namespaces required by preserved foreign content come last, sorted by prefix. Re-declaring a prefix the envelope already owns with a _different_ URI is a hard error in the TypeScript writer rather than a silently broken document.
 
-- `\n` (LF). Never `\r\n`.
-- No trailing newline after `<?xpacket end="w"?>` — file ends with `>`.
+`crs:` is Adobe's Camera Raw schema — Maple uses Adobe's own key wherever Adobe has an equivalent control, so a Maple sidecar opens sensibly in Lightroom and vice versa. `papp:` is Maple's own namespace, used for controls Adobe has no equivalent for (capture sharpening, deep denoise, film looks) or where reusing Adobe's key would corrupt interop (`papp:Brightness` rather than `crs:Brightness`, which is Adobe's process-version-2010 control with different semantics and a default of +50).
 
-## Indentation
+**The `papp:` prefix, not the URI, is what parsers key on.** All four readers match qualified attribute names byte-wise (`papp:Profile`) rather than resolving namespace URIs, which is why the Apple writer could be moved onto the canonical URI without stranding a single sidecar already on disk. The older Apple URI `http://ns.justmaple.app/1.0/` is still accepted by the readers that resolve URIs at all (`PAPP_NAMESPACES` in `xmp-dom-utils.ts`, `PappNsLegacy` in `XmpSidecarDocument.cs`), along with an even older `maple:` binding at `https://maple.app/ns/1.0/`. Writers always emit the canonical URI.
 
-- 2 spaces per level.
-- `rdf:RDF` indented 2, `rdf:Description` indented 4, namespace declarations
-  and attributes on `rdf:Description` indented 6, children of
-  `rdf:Description` indented 6.
-- Nested element children indent 2 further per level. This is one ladder for
-  every child: the `dc:subject` keyword bag, the `papp:SceneLinearToneCurve*`
-  blocks, and the metadata `dc:title` / `dc:creator` / `dc:description` /
-  `dc:rights` / `xmpRights:UsageTerms` blocks (which used 2/3/4 before #1577).
+### Attribute ordering on `rdf:Description`
 
-## Attribute ordering on `rdf:Description`
+Attributes sort by namespace priority first, then alphabetically by fully-qualified name inside each namespace:
 
-Attributes are sorted by:
+`xmp` (0) → `crs` (1) → `papp` (2) → `dc` (3) → `exif` (4) → `photoshop` (5) → `Iptc4xmpCore` (6) → `xmpRights` (7) → everything else (500).
 
-1. **Namespace priority** (hardcoded):
-   - `xmp:` → 0
-   - `crs:` → 1
-   - `papp:` → 2
-   - `dc:` → 3
-   - `exif:` → 4
-   - `photoshop:` → 5
-   - `Iptc4xmpCore:` → 6
-   - `xmpRights:` → 7
-   - Anything else → 500 (unknown namespaces)
-2. **Then alphabetical** within each namespace, by fully-qualified name.
+Unknown namespaces sort last, so an imported sidecar's foreign attributes stay out of the middle of Maple's own block. Names are ASCII XML NCNames, where JavaScript code-unit ordering, Swift's `<`, and C#'s `StringComparer.Ordinal` all agree. The three writers implement this identically in `sortCanonicalAttributes` (TS), `XMPCanonical.sorted` (Swift) and `SortedAttributeParts` (C#).
 
-Unknown-namespace attributes (passthrough) sort after all known ones,
-alphabetically by fully-qualified name. Attribute names are ASCII XML NCNames,
-so Swift's string ordering and JavaScript's UTF-16 code-unit ordering agree.
+### Number formatting
 
-Attribute order carries no meaning on read: all three parsers resolve
-legacy-alias precedence (capture-sharpening sigma, `papp:Profile` over
-`papp:Look`, `papp:Flag` over `xmp:Label`) and the `crs:HasCrop` gate with
-explicit pre-passes rather than by relying on document order, so sorting is
-free.
+One codec for every numeric attribute value and every tone-curve coordinate:
 
-## Attribute values
+- integers emit bare — `0`, `6`, `-6`, `5200`, `255`;
+- non-integers round to two decimals with trailing zeros trimmed — `0.5`, `0.12` (from `0.123`), `-14.5`, `1.4`;
+- non-finite values are not representable and are never written.
 
-- Always double-quoted.
-- XML-escaped: `&` → `&amp;`, `"` → `&quot;`, `<` → `&lt;`, `>` → `&gt;`.
-- No single-quote form.
+The one documented exception is the crop group, which uses six decimals (`%.6f` / `toFixed(6)`) because crop edges are normalized fractions and two decimals would quantize the rect to whole percents of the frame.
 
-## Element forms
+Implementations: `numericSerializer` in `xmp-fields.ts`, `XMPSerializer.fmtNum` in `XMPSerialization+Helpers.swift`, `XmpSchema.FormatNumber` in `XmpSidecarDocument.cs`, `fmt_coord` in `raw-core/src/xmp/tone_curves.rs`.
 
-A leaf element (no text, no children) is **self-closing**:
+Escaping is minimal and differs by position: attribute values escape `&`, `<`, `>`, `"`; element text escapes only `&`, `<`, `>`.
+
+### Always-emitted attributes
+
+Three bookkeeping attributes are written unconditionally by all three shells. They tell Lightroom the sidecar carries develop settings at all:
 
 ```
-<crs:Snapshots/>
+crs:Version="11.0"  crs:ProcessVersion="11.0"  crs:HasSettings="True"
 ```
 
-A leaf element with text content uses the **inline** form (no extra whitespace):
+An imported sidecar's own `crs:Version` / `crs:ProcessVersion` strings are retained rather than overwritten on the Windows side (`XmpSidecarDocument`).
 
-```
-<rdf:li>128, 140</rdf:li>
-```
+### Omit-on-default
 
-An element with element children uses the **multi-line** form:
+Every other field is written **only when it differs from its canonical default**, so a sidecar for an untouched panel stays byte-identical to what a build without that slider produced. Two details matter:
 
-```
-<rdf:Seq>
-  <rdf:li>0, 0</rdf:li>
-  <rdf:li>128, 140</rdf:li>
-  <rdf:li>255, 255</rdf:li>
-</rdf:Seq>
-```
+- The comparison is between _serialized wire forms_, not raw floats. Gating on the raw value would emit `="0"` for a slider sitting at 0.004, churning otherwise-identical sidecars on every save.
+- The write-omit sentinel is sourced from the generated model defaults, not hand-typed. Hand-typed sentinels had previously drifted from the real defaults for `crs:Sharpness` and `crs:SharpenRadius`, which silently dropped a user's "Sharpen Amount = 0" on save and restored 40 on the next load.
 
-Indentation is relative to the enclosing element. Each child is on its own line.
+**Known divergence:** the Apple writer emits the core numeric block (`crs:Exposure2012` through `crs:ColorNoiseReduction`, plus `crs:WhiteBalance="Custom"` and the WB pair) unconditionally, where the Web and Windows writers omit them at default. The byte-parity golden therefore sets every unconditionally-emitted field to a non-default value, so both writers produce the same attribute set for it.
 
-## Number formatting
+## The field table
 
-Identical on Swift and TypeScript:
+The schema's single source of truth is `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/raw-core/src/types/adjustment/schema/` (with the HSL and colour-grading blocks in sibling `hsl.rs` / `color_grade.rs`). `tools/codegen.sh` emits the Swift and TypeScript mirrors from it — `AdjustmentModel+Generated.swift`, `adjustment-model.generated.ts`, `adjustment-tables.generated.ts` — and the `codegen-drift` CI job re-generates them to prove the committed copies match. Ranges and defaults below are read from that table; see [pipeline](pipeline.md) for what each control actually does to pixels.
 
-- Integer values (where `value === round(value)`) serialize as `String(Int(v))`
-  — no trailing `.0`.
-- Non-integer values: format to 2 decimal places, then strip trailing zeros and
-  any trailing `.`:
-  - `0.5` → `"0.5"`
-  - `0.50` → `"0.5"`
-  - `0.123` → `"0.12"` (truncation at 2 decimals)
-  - `-0.1` → `"-0.1"`
-- NaN / Infinity: not allowed in sidecar values. Defaults substituted.
+| XMP key                                   | Model field                          | Range                             | Default               |
+| ----------------------------------------- | ------------------------------------ | --------------------------------- | --------------------- |
+| `crs:WhiteBalance`                        | `whiteBalancePreset`                 | preset name                       | `As Shot`             |
+| `crs:Temperature`                         | `temperature`                        | 2000 – 12000 K                    | 6500                  |
+| `crs:Tint`                                | `tint`                               | −150 – 150                        | 0                     |
+| `papp:WbScaleVersion`                     | `wbScaleVersion`                     | `1`–`5`                           | 5                     |
+| `papp:WbMethod`                           | `wbMethod`                           | `Cat16` \| `DiagonalRec2020`      | `Cat16`               |
+| `crs:Exposure2012`                        | `exposure`                           | −4 – 4 EV                         | 0                     |
+| `papp:Brightness`                         | `brightness`                         | −100 – 100                        | 0                     |
+| `crs:Contrast2012`                        | `contrast`                           | −100 – 100                        | 0                     |
+| `crs:Highlights2012`                      | `highlights`                         | −100 – 100                        | 0                     |
+| `crs:Shadows2012`                         | `shadows`                            | −100 – 100                        | 0                     |
+| `crs:Whites2012`                          | `whites`                             | −100 – 100                        | 0                     |
+| `crs:Blacks2012`                          | `blacks`                             | −100 – 100                        | 0                     |
+| `crs:ParametricHighlights`                | `parametricHighlights`               | −100 – 100                        | 0                     |
+| `crs:ParametricLights`                    | `parametricLights`                   | −100 – 100                        | 0                     |
+| `crs:ParametricDarks`                     | `parametricDarks`                    | −100 – 100                        | 0                     |
+| `crs:ParametricShadows`                   | `parametricShadows`                  | −100 – 100                        | 0                     |
+| `papp:AutoExposure`                       | `autoExposure`                       | `On` \| `Off`                     | `On`                  |
+| `papp:ToneCurveMode`                      | `toneCurveMode`                      | `PerChannel` \| `RatioPreserving` | `PerChannel`          |
+| `crs:Vibrance`                            | `vibrance`                           | −100 – 100                        | 0                     |
+| `crs:Saturation`                          | `saturation`                         | −100 – 100                        | 0                     |
+| `crs:Clarity2012`                         | `clarity`                            | −100 – 100                        | 0                     |
+| `crs:Texture`                             | `texture`                            | −100 – 100                        | 0                     |
+| `crs:Dehaze`                              | `dehaze`                             | −100 – 100                        | 0                     |
+| `crs:Sharpness`                           | `sharpenAmount`                      | 0 – 150                           | 40                    |
+| `crs:SharpenRadius`                       | `sharpenRadius`                      | 0.5 – 3                           | 1                     |
+| `crs:SharpenDetail`                       | `sharpenDetail`                      | 0 – 100                           | 25                    |
+| `crs:SharpenEdgeMasking`                  | `sharpenMasking`                     | 0 – 100                           | 0                     |
+| `papp:CaptureSharpeningAmount`            | `captureSharpeningAmount`            | 0 – 100                           | 0                     |
+| `papp:CaptureSharpeningSigma`             | `captureSharpeningSigma`             | 0.5 – 2                           | 1                     |
+| `papp:CaptureSharpeningRadius`            | _(legacy read-only alias for sigma)_ | 0.5 – 2                           | 1                     |
+| `crs:LuminanceSmoothing`                  | `nrLuminance`                        | 0 – 100                           | 0                     |
+| `crs:ColorNoiseReduction`                 | `nrColor`                            | 0 – 100                           | 25                    |
+| `papp:ChromaPrefilter`                    | `chromaPrefilter`                    | 0 – 100                           | 0                     |
+| `papp:DeepDenoise`                        | `deepDenoise`                        | 0 – 100                           | 0                     |
+| `papp:HotPixelSuppression`                | `hotPixelSuppression`                | `On` \| `Off`                     | `Off`                 |
+| `papp:HighlightRecoveryMode`              | `highlightRecovery`                  | see enums below                   | `ChromaticAdaptation` |
+| `crs:HueAdjustment{Band}` ×8              | `hueAdjustment*`                     | −100 – 100                        | 0                     |
+| `crs:SaturationAdjustment{Band}` ×8       | `saturationAdjustment*`              | −100 – 100                        | 0                     |
+| `crs:LuminanceAdjustment{Band}` ×8        | `luminanceAdjustment*`               | −100 – 100                        | 0                     |
+| `crs:ConvertToGrayscale`                  | `blackWhite`                         | `True` \| `False`                 | `Off`                 |
+| `crs:GrayMixer{Band}` ×8                  | `grayMixer*`                         | −100 – 100                        | 0                     |
+| `crs:SplitToningShadowHue`                | `splitToneShadowHue`                 | 0 – 360°                          | 0                     |
+| `crs:SplitToningShadowSaturation`         | `splitToneShadowSaturation`          | 0 – 100                           | 0                     |
+| `crs:SplitToningHighlightHue`             | `splitToneHighlightHue`              | 0 – 360°                          | 0                     |
+| `crs:SplitToningHighlightSaturation`      | `splitToneHighlightSaturation`       | 0 – 100                           | 0                     |
+| `crs:SplitToningBalance`                  | `splitToneBalance`                   | −100 – 100                        | 0                     |
+| `crs:ColorGradeShadowLum`                 | `colorGradeShadowLuminance`          | −100 – 100                        | 0                     |
+| `crs:ColorGradeMidtoneHue`                | `colorGradeMidtoneHue`               | 0 – 360°                          | 0                     |
+| `crs:ColorGradeMidtoneSat`                | `colorGradeMidtoneSaturation`        | 0 – 100                           | 0                     |
+| `crs:ColorGradeMidtoneLum`                | `colorGradeMidtoneLuminance`         | −100 – 100                        | 0                     |
+| `crs:ColorGradeHighlightLum`              | `colorGradeHighlightLuminance`       | −100 – 100                        | 0                     |
+| `crs:ColorGradeGlobalHue`                 | `colorGradeGlobalHue`                | 0 – 360°                          | 0                     |
+| `crs:ColorGradeGlobalSat`                 | `colorGradeGlobalSaturation`         | 0 – 100                           | 0                     |
+| `crs:ColorGradeGlobalLum`                 | `colorGradeGlobalLuminance`          | −100 – 100                        | 0                     |
+| `crs:PostCropVignetteAmount`              | `vignetteAmount`                     | −100 – 100                        | 0                     |
+| `crs:PostCropVignetteFeather`             | `vignetteFeather`                    | 0 – 100                           | 50                    |
+| `crs:GrainAmount`                         | `grainAmount`                        | 0 – 100                           | 0                     |
+| `crs:GrainSize`                           | `grainSize`                          | 0 – 100                           | 25                    |
+| `crs:GrainFrequency`                      | `grainRoughness`                     | 0 – 100                           | 50                    |
+| `papp:FilmLook`                           | `filmLook`                           | catalog id (free-form)            | `""`                  |
+| `papp:FilmStrength`                       | `filmStrength`                       | 0 – 100                           | 100                   |
+| `papp:Profile`                            | `profile`                            | `Auto` \| `Neutral`               | `Auto`                |
+| `papp:Look`                               | `look`                               | `Default` \| `Neutral`            | `Default` (legacy)    |
+| `crs:LensProfileEnable`                   | `lensProfileEnable`                  | `1` \| `0`                        | `On`                  |
+| `crs:LensProfileDistortionScale`          | `lensCorrectionDistortion`           | 0 – 100                           | 100                   |
+| `crs:LensProfileChromaticAberrationScale` | `lensCorrectionCa`                   | 0 – 100                           | 100                   |
+| `crs:LensProfileVignettingScale`          | `lensCorrectionVignetting`           | 0 – 100                           | 100                   |
 
-Every numeric attribute goes through this codec — `numericSerializer` in
-TypeScript, `XMPSerializer.fmtNum` in Swift. Before #1577 the Swift writer used
-a per-field `%.0f` / `%.1f` / `%.2f`, which both diverged from the web writer
-(`"1.50"` vs `"1.5"`, `"2.0"` vs `"2"`) and quantized fractional slider values
-on every re-save.
+Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, `Magenta` for all four eight-band groups. Crop, culling, metadata and the point tone curves have their own sections below.
 
-The one exception is the crop group, which formats at six decimals on both
-sides (`fmtCrop` / `_fmtCrop`): crop edges are normalized fractions of the
-frame, where two decimals would quantize the rect to whole percents.
+Two `papp:` keys are read by `raw-core` alone and are unmodelled everywhere else, so they survive a Swift/TypeScript/C# read-modify-write through passthrough rather than through the model: `papp:LocalAdjustments` (an array of `{mask, adjustments}` objects as compact JSON — linear and radial mask shapes, normalized `[0,1]` coordinates; `raw-core/src/types/local_adjustment/wire.rs`) and `papp:InpaintRemovals` (an array of baked-removal records — region, patch content hash, model id, bake grade; the patch pixels live out of band in `.maple/inpaint/`; `raw-core/src/types/inpaint.rs`). Both use _tolerant_ readers: an element this build does not recognise is skipped so a sidecar from a newer build still opens, while a recognised shape with a corrupt field fails loudly.
 
-## Number fields and defaults
+## Enum fields and parse strictness
 
-Fields emit **only when non-default** — reduces sidecar size and matches what
-Lightroom does for `crs:` fields.
+The wire spelling of every enum is the canonical variant name (`ChromaticAdaptation`, `RatioPreserving`, `DiagonalRec2020`), except `crs:ConvertToGrayscale` (Adobe's `True`/`False`) and `crs:LensProfileEnable` (Adobe's `1`/`0`).
 
-| Field                          | XMP key                              | Default |
-| ------------------------------ | ------------------------------------ | ------- |
-| `exposure`                     | `crs:Exposure2012`                   | 0       |
-| `brightness`                   | `papp:Brightness`                    | 0       |
-| `contrast`                     | `crs:Contrast2012`                   | 0       |
-| `highlights`                   | `crs:Highlights2012`                 | 0       |
-| `shadows`                      | `crs:Shadows2012`                    | 0       |
-| `whites`                       | `crs:Whites2012`                     | 0       |
-| `blacks`                       | `crs:Blacks2012`                     | 0       |
-| `parametricHighlights`         | `crs:ParametricHighlights`           | 0       |
-| `parametricLights`             | `crs:ParametricLights`               | 0       |
-| `parametricDarks`              | `crs:ParametricDarks`                | 0       |
-| `parametricShadows`            | `crs:ParametricShadows`              | 0       |
-| `temperature`                  | `crs:Temperature`                    | 6500    |
-| `tint`                         | `crs:Tint`                           | 0       |
-| `vibrance`                     | `crs:Vibrance`                       | 0       |
-| `saturation`                   | `crs:Saturation`                     | 0       |
-| `clarity`                      | `crs:Clarity2012`                    | 0       |
-| `texture`                      | `crs:Texture`                        | 0       |
-| `dehaze`                       | `crs:Dehaze`                         | 0       |
-| `sharpenAmount`                | `crs:Sharpness`                      | 40      |
-| `sharpenRadius`                | `crs:SharpenRadius`                  | 1.0     |
-| `sharpenDetail`                | `crs:SharpenDetail`                  | 25      |
-| `sharpenMasking`               | `crs:SharpenEdgeMasking`             | 0       |
-| `captureSharpeningAmount`      | `papp:CaptureSharpeningAmount`       | 0       |
-| `captureSharpeningSigma`       | `papp:CaptureSharpeningSigma`        | 1.0     |
-| `nrLuminance`                  | `crs:LuminanceSmoothing`             | 0       |
-| `nrColor`                      | `crs:ColorNoiseReduction`            | 25      |
-| `chromaPrefilter`              | `papp:ChromaPrefilter`               | 0       |
-| `deepDenoise`                  | `papp:DeepDenoise`                   | 0       |
-| `vignetteAmount`               | `crs:PostCropVignetteAmount`         | 0       |
-| `vignetteFeather`              | `crs:PostCropVignetteFeather`        | 50      |
-| `grainAmount`                  | `crs:GrainAmount`                    | 0       |
-| `grainSize`                    | `crs:GrainSize`                      | 25      |
-| `grainRoughness`               | `crs:GrainFrequency`                 | 50      |
-| `filmStrength`                 | `papp:FilmStrength`                  | 100     |
-| `splitToneShadowHue`           | `crs:SplitToningShadowHue`           | 0       |
-| `splitToneShadowSaturation`    | `crs:SplitToningShadowSaturation`    | 0       |
-| `splitToneHighlightHue`        | `crs:SplitToningHighlightHue`        | 0       |
-| `splitToneHighlightSaturation` | `crs:SplitToningHighlightSaturation` | 0       |
-| `splitToneBalance`             | `crs:SplitToningBalance`             | 0       |
-| `colorGradeShadowLuminance`    | `crs:ColorGradeShadowLum`            | 0       |
-| `colorGradeMidtoneHue`         | `crs:ColorGradeMidtoneHue`           | 0       |
-| `colorGradeMidtoneSaturation`  | `crs:ColorGradeMidtoneSat`           | 0       |
-| `colorGradeMidtoneLuminance`   | `crs:ColorGradeMidtoneLum`           | 0       |
-| `colorGradeHighlightLuminance` | `crs:ColorGradeHighlightLum`         | 0       |
-| `colorGradeGlobalHue`          | `crs:ColorGradeGlobalHue`            | 0       |
-| `colorGradeGlobalSaturation`   | `crs:ColorGradeGlobalSat`            | 0       |
-| `colorGradeGlobalLuminance`    | `crs:ColorGradeGlobalLum`            | 0       |
-| `hueAdjustmentRed`             | `crs:HueAdjustmentRed`               | 0       |
-| `hueAdjustmentOrange`          | `crs:HueAdjustmentOrange`            | 0       |
-| `hueAdjustmentYellow`          | `crs:HueAdjustmentYellow`            | 0       |
-| `hueAdjustmentGreen`           | `crs:HueAdjustmentGreen`             | 0       |
-| `hueAdjustmentAqua`            | `crs:HueAdjustmentAqua`              | 0       |
-| `hueAdjustmentBlue`            | `crs:HueAdjustmentBlue`              | 0       |
-| `hueAdjustmentPurple`          | `crs:HueAdjustmentPurple`            | 0       |
-| `hueAdjustmentMagenta`         | `crs:HueAdjustmentMagenta`           | 0       |
-| `saturationAdjustmentRed`      | `crs:SaturationAdjustmentRed`        | 0       |
-| `saturationAdjustmentOrange`   | `crs:SaturationAdjustmentOrange`     | 0       |
-| `saturationAdjustmentYellow`   | `crs:SaturationAdjustmentYellow`     | 0       |
-| `saturationAdjustmentGreen`    | `crs:SaturationAdjustmentGreen`      | 0       |
-| `saturationAdjustmentAqua`     | `crs:SaturationAdjustmentAqua`       | 0       |
-| `saturationAdjustmentBlue`     | `crs:SaturationAdjustmentBlue`       | 0       |
-| `saturationAdjustmentPurple`   | `crs:SaturationAdjustmentPurple`     | 0       |
-| `saturationAdjustmentMagenta`  | `crs:SaturationAdjustmentMagenta`    | 0       |
-| `luminanceAdjustmentRed`       | `crs:LuminanceAdjustmentRed`         | 0       |
-| `luminanceAdjustmentOrange`    | `crs:LuminanceAdjustmentOrange`      | 0       |
-| `luminanceAdjustmentYellow`    | `crs:LuminanceAdjustmentYellow`      | 0       |
-| `luminanceAdjustmentGreen`     | `crs:LuminanceAdjustmentGreen`       | 0       |
-| `luminanceAdjustmentAqua`      | `crs:LuminanceAdjustmentAqua`        | 0       |
-| `luminanceAdjustmentBlue`      | `crs:LuminanceAdjustmentBlue`        | 0       |
-| `luminanceAdjustmentPurple`    | `crs:LuminanceAdjustmentPurple`      | 0       |
-| `luminanceAdjustmentMagenta`   | `crs:LuminanceAdjustmentMagenta`     | 0       |
-| `grayMixerRed`                 | `crs:GrayMixerRed`                   | 0       |
-| `grayMixerOrange`              | `crs:GrayMixerOrange`                | 0       |
-| `grayMixerYellow`              | `crs:GrayMixerYellow`                | 0       |
-| `grayMixerGreen`               | `crs:GrayMixerGreen`                 | 0       |
-| `grayMixerAqua`                | `crs:GrayMixerAqua`                  | 0       |
-| `grayMixerBlue`                | `crs:GrayMixerBlue`                  | 0       |
-| `grayMixerPurple`              | `crs:GrayMixerPurple`                | 0       |
-| `grayMixerMagenta`             | `crs:GrayMixerMagenta`               | 0       |
+| Field                        | Variants                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `papp:HighlightRecoveryMode` | `Off`, `Blend`, `Luminance`, `ChromaticAdaptation`, `OklabChromaReduction` |
+| `papp:Profile`               | `Auto`, `Neutral` (plus legacy `AcrMatch` → `Auto`)                        |
+| `papp:Look`                  | `Neutral`, `Default` (retired; read-only migration into `Profile`)         |
+| `papp:WbMethod`              | `Cat16`, `DiagonalRec2020`                                                 |
+| `papp:AutoExposure`          | `On`, `Off`                                                                |
+| `papp:HotPixelSuppression`   | `On`, `Off`                                                                |
+| `papp:ToneCurveMode`         | `PerChannel`, `RatioPreserving`                                            |
+| `crs:ConvertToGrayscale`     | `True`/`true`/`TRUE`/`1`, `False`/`false`/`FALSE`/`0`                      |
+| `crs:LensProfileEnable`      | `1`/`true`/`True`/`on`/`On`, `0`/`false`/`False`/`off`/`Off`               |
 
-**HSL band mapping** (#1112): All 24 `crs:Hue/Saturation/LuminanceAdjustment*` keys are
-ACR-compatible. All default to 0; any field equal to 0 is omitted on write.
-Range −100…+100. The stage runs in scene-linear Oklab after the saturation pass.
+**The four readers deliberately disagree on unknown values.** `raw-core` **rejects** an unrecognised enum value — the whole parse returns an error (`unknown HighlightRecoveryMode: …`, `unknown Profile: …`, `unknown WbScaleVersion: …`, `unknown ConvertToGrayscale: …`). It also rejects a non-numeric or non-finite value on any numeric key, rather than letting `NaN` propagate through a whole render before being zeroed pixel-by-pixel. The Swift, TypeScript and C# readers **drop** an unrecognised enum value and leave the field at its default, so a sidecar written by a newer build still loads in the UI. The practical consequence: an uplevel sidecar opens in the editor with the unknown control neutralized, but fails the render-side parse if the value ever reaches `raw-core`. Two exceptions are shared by all four: `papp:FilmLook` is free-form text and passes through verbatim (an id the catalog does not recognise resolves as identity at render time), and `papp:Profile="AcrMatch"` migrates to `Auto` rather than erroring.
 
-**Black & white mix** (#276): The eight `crs:GrayMixer*` keys are the per-band
-luminance weights of the monochrome conversion, over the same eight hue bands
-and the same raised-cosine partition as the HSL block above. Range −100…+100,
-default 0, omitted on write when 0. They only affect the render while the
-`crs:ConvertToGrayscale` toggle below is `True`; a sidecar may carry a mix
-alongside a colour render without changing it.
+Unknown _attribute names_, as opposed to unknown values, are never an error anywhere — they go to passthrough.
 
-**Film look** (epic #2683, film design 2026-08-06): `papp:FilmLook` is a
-free-form string attribute — the selected look's id in the film catalog —
-emitted only when non-empty; the empty default omits the attribute (stage
-no-op). Unlike the enum fields below, an unrecognised id is not a parse
-error: the catalog lookup happens at render time, and an id the current
-catalog doesn't know resolves as identity (unstyled) rather than failing the
-sidecar. The attribute value is XML-escaped, since a catalog id is free text
-rather than a closed vocabulary. `papp:FilmStrength` is the paired numeric
-field in the table above (range 0–100, default 100) — blend strength against
-the pre-look value, meaningless while `papp:FilmLook` is absent.
+### Legacy aliases and precedence
 
-**Enum fields** (emit only when non-default, string-valued):
+Two keys have a canonical spelling that must win over a legacy one **regardless of document order**, because Swift's `XMLParser` and C#'s attribute dictionaries iterate unordered:
 
-- `papp:HotPixelSuppression` — `Off` (default) / `On`. Pre-demosaic
-  hot/dead-pixel suppression inside the decode product (#1106).
-- `papp:HighlightRecoveryMode` — `ChromaticAdaptation` (default) / `Off` /
-  `Blend` / `Luminance` / `OklabChromaReduction`. Highlight reconstruction
-  mode (spec § 3.3a). Case-insensitive on read. TS wiring added in #2214.
-- `papp:AutoExposure` — `On` (default) / `Off`. Decode-time scalar mid-gray
-  anchor gain (#429; Swift model mirror #1387). Case-insensitive on read.
-  TS wiring added in #2214.
-- `papp:WbMethod` — `Cat16` (default) / `DiagonalRec2020`. User white-balance
-  method (#431). Case-insensitive on read (raw-core also accepts `CAT16`).
-  TS wiring added in #2214.
-- `papp:ToneCurveMode` — `PerChannel` (default) / `RatioPreserving`.
-  Tone-curve application mode (#436). Case-insensitive on read. TS wiring
-  added in #2214.
-- `crs:ConvertToGrayscale` — `False` (default) / `True`. Black & white
-  conversion (#276); ACR-compatible, so the toggle interchanges with
-  Lightroom along with the `crs:GrayMixer*` weights. Written as `True` only,
-  since `False` is the default and is omitted. Read accepts `true`/`false`
-  in any case plus `1`/`0`; an unrecognised spelling is a parse ERROR rather
-  than a silent `Off`, so a sidecar we do not understand is never rendered
-  in colour by mistake. While `True`, the 24 HSL keys above are inert.
+- `papp:CaptureSharpeningSigma` beats `papp:CaptureSharpeningRadius` (the PSF changed from a tripled box blur to a true Gaussian; the value is not rescaled).
+- `papp:Profile` beats the `papp:Look` → `Profile` migration (`Default`/`Auto` → `Auto`, `Neutral` → `Neutral`).
+- `papp:Flag` beats the legacy `xmp:Label` cull-flag spelling.
 
-**Always-emitted attributes** (process-version signaling):
+Each reader implements this with a per-element "seen" flag or a two-pass walk (`sigma_seen` / `profile_seen` in `fields.rs`, `captureSharpeningSigmaSeen` / `profileSeen` / `cullFlagSeen` in `XMPSerialization.swift`, the `legacyDeferred` second pass in `xmp-parser.service.ts`). The flags are scoped to a single element so a second `rdf:Description` is judged on its own attribute set. The legacy keys are read-only: no writer emits them.
 
-- `crs:Version`
-- `crs:ProcessVersion`
-- `crs:HasSettings` (value `"True"`)
+## White balance
 
-Apple additionally authors white balance unconditionally on every save —
-`crs:WhiteBalance="Custom"`, `crs:Temperature`, `crs:Tint` and the
-`papp:WbScaleVersion` stamp — because its model has no white-balance preset
-field and the render contract depends on an explicit pair (#1883). The web
-writer omits all four while its preset is `As Shot`, since emitting the
-estimator's as-shot seed would demote the As-Shot sentinel into an authored
-target (#1892). Apple's `crs:WhiteBalance="Custom"` is the truthful label for
-an always-explicit pair and is what the web parser already infers from one; it
-reads back as a no-op on Apple.
+`crs:WhiteBalance` names a preset. Six names resolve to a temperature/tint pair on read — Daylight (5500/10), Cloudy (6500/10), Shade (7500/10), Tungsten (2850/0), Fluorescent (3800/21), Flash (5500/0). `As Shot`, `Auto` and `Custom` resolve to nothing and leave the model defaults, because an explicit `crs:Temperature`/`crs:Tint` pair (which always wins) is what actually carries the value.
 
-Apple also emits every remaining slider in the group above unconditionally,
-while the web writer omits those at their defaults. That is the one content
-difference left between the two writers for a shared model, and it is why the
-parity fixture authors all of them.
+`raw-core` tracks whether each component was _explicitly present_ (`temperature_seen` / `tint_seen`). An absent `crs:Temperature` means "as shot" — the develop chain substitutes the camera's own value — which is materially different from an explicit `6500`, which since camera-space white balance means "Custom WB dialed to D65". This is why the Web writer skips the pair entirely for an As-Shot model (emitting the display seed would demote a real as-shot render into a float-rounded explicit target), and why the Apple decode path has an internal `omitWhiteBalance` mode that persisted saves can never reach.
 
-## Crop fields
+### WB slider-scale versioning
 
-All emit together when `crop` is non-identity. `HasCrop="True"` signals crop data.
+What a stored `crs:Temperature`/`crs:Tint` pair _means_ has changed five times, so the scale is stamped on the sidecar as `papp:WbScaleVersion`:
 
-| Field         | XMP key                   | Notes                        |
-| ------------- | ------------------------- | ---------------------------- |
-| (marker)      | `crs:HasCrop`             | Always `"True"` when cropped |
-| `crop.top`    | `crs:CropTop`             | 0…1                          |
-| `crop.left`   | `crs:CropLeft`            | 0…1                          |
-| `crop.bottom` | `crs:CropBottom`          | 0…1                          |
-| `crop.right`  | `crs:CropRight`           | 0…1                          |
-| `crop.angle`  | `crs:CropAngle`           | Only emit if ≠0              |
-| (marker)      | `crs:CropConstrainToWarp` | Always `"0"`                 |
+| Stamp | Meaning                                                                                                            |
+| ----- | ------------------------------------------------------------------------------------------------------------------ |
+| `1`   | Pre-camera-space scale: post-DCP CAT16 adaptation relative to a 6500 K / 0 identity.                               |
+| `2`   | Camera calibration-frame coordinates with the tint axis **inverted** relative to Adobe.                            |
+| `3`   | Calibration-frame coordinates, Adobe's tint direction, at the legacy 1e-4 uv-per-unit magnitude.                   |
+| `4`   | Adobe's direction and magnitude, but evaluated on the Hernández-Andrés daylight locus. Never shipped in a release. |
+| `5`   | Robertson-native — the pair means exactly what Adobe Camera Raw's own displayed pair means. Current default.       |
 
-## Culling fields
+Resolution rule, implemented identically in all four readers: an explicit stamp wins. Failing that, a document that carries the Maple `papp:` namespace **and** an explicit authored `crs:Temperature`/`crs:Tint` predates the versioning and is V1. Everything else — no `papp:` namespace at all (an Adobe-authored sidecar, already in Robertson coordinates) or no authored white balance (nothing to convert) — is V5.
 
-- `xmp:Rating` — only emitted when > 0 (Adobe convention: absence = unrated).
-- `papp:Flag` — only emitted when not "unflagged". Values: `pick` or `reject`,
-  matched case-sensitively on read by all three parsers.
-  **Legacy read-only alias (#2221):** Apple sidecars written before this
-  ticket carried the flag as `xmp:Label="Red"` (pick) / `xmp:Label="Rejected"`
-  (reject) instead. The Apple parser still accepts `red` / `pick` /
-  `reject` / `rejected` from `xmp:Label` (case-insensitive) so those files
-  keep their flags, and a normal save rewrites them to `papp:Flag`; no
-  serializer emits the alias any more, and `papp:Flag` takes precedence when
-  both attributes are present. The web/API parsers never read the alias —
-  they treat `xmp:Label` as a colour word only (see below).
-- `papp:ColorLabel` — only emitted when set. Values: `red` / `orange` /
-  `yellow` / `green` / `blue` / `purple` (the six-color vocabulary
-  settled in #1657; this line still listed the pre-#1657 five when Apple
-  gained the field in #1656). The web parser also reads Adobe's `xmp:Label`
-  colour word (`Red` / `Orange` / … ) as a colour label for Lightroom-authored
-  sidecars, preferring `papp:ColorLabel` when both are present.
-- `papp:Hidden` — `"true"` or `"false"`. Explicit user override for the
-  hidden-image feature; absence means no override (the effective hidden
-  state falls back to the describe stage's nudity verdict — see
-  `AssetDoc.hidden` in `db/schema.ts`). Apple only emits the attribute when
-  `true` (parity note: both platforms treat an absent attribute as
-  `false`/no-override).
+V2, V3 and V4 pairs **load-normalize to V5**: the pair is converted _jointly_ through physical chromaticity (evaluate on the legacy locus at that version's axis and magnitude, then invert through Robertson), because the two loci differ — even a temperature-only authored value moves slightly in both components. The in-memory model and every subsequent save are then uniformly V5. V1 deliberately does **not** load-normalize: its conversion needs the image's calibration frame, so `raw-core` converts it at develop time and the sidecar round-trips as V1. Writers therefore stamp only `1` or `5`, and clamp to that set so a corrupted model field can never produce a stamp `raw-core` would hard-fail on.
+
+Implementations: `authored_pair_to_v5` in raw-core's white-balance stage, `xmp-wb-scale.ts` (Web), `WbDngTemperature.authoredPairToV5` (Swift), `XmpWbScaleVersionTests.cs` pins the Windows half.
 
 ## Tone curves
 
-The **parametric region sliders** (`parametricHighlights/Lights/Darks/Shadows`)
-are NOT part of this nested form — they are flat PV2012 `crs:Parametric*`
-attributes, listed in the number-fields table above (#365).
+Two independent mechanisms, both PV2012-shaped.
 
-**Point curves** use the nested element form. Each curve is a
-`papp:SceneLinearToneCurve*` element containing an `rdf:Seq` of `rdf:li`
-strings in the format `"x, y"` (with a space after the comma).
+**Parametric region sliders** are four ordinary `crs:` attributes — `ParametricHighlights`, `ParametricLights`, `ParametricDarks`, `ParametricShadows`. Adobe's three split-point keys (`ParametricShadowSplit`/`MidtoneSplit`/`HighlightSplit`) are _not_ mapped: the model has no fields for them and the curve builder holds the split points as constants.
+
+**Point curves** are the one part of the schema that is not a flat attribute. Four parent elements in canonical emit order — `papp:SceneLinearToneCurve` (luma), `…Red`, `…Green`, `…Blue` — each wrapping an `rdf:Seq` of `rdf:li` leaves holding `"x, y"` text:
 
 ```xml
-<papp:SceneLinearToneCurve>
-  <rdf:Seq>
-    <rdf:li>0, 0</rdf:li>
-    <rdf:li>128, 140</rdf:li>
-    <rdf:li>255, 255</rdf:li>
-  </rdf:Seq>
-</papp:SceneLinearToneCurve>
+      <papp:SceneLinearToneCurve>
+        <rdf:Seq>
+          <rdf:li>0, 0</rdf:li>
+          <rdf:li>127.5, 140.25</rdf:li>
+          <rdf:li>255, 255</rdf:li>
+        </rdf:Seq>
+      </papp:SceneLinearToneCurve>
 ```
 
-Only emitted when the curve is non-identity. Child element order:
+Coordinates are stored on the model in `[0, 1]` and written in PV2012's `[0, 255]` wire domain, rescaled at the serializer boundary and passed through the same two-decimal number codec. (Windows is the exception: `AdjustmentState` stores curve points already in the wire domain, so its writer skips the rescale.) **Identity is silence** — an identity curve is the empty point list and emits no element at all, not an empty `rdf:Seq`, so an unedited sidecar keeps the bytes it had before point curves existed. A malformed `rdf:li` is dropped rather than failing the parse. Readers match `rdf:li` on its local name so a sidecar that binds RDF to a different prefix still parses.
 
-1. `papp:SceneLinearToneCurve` → `toneCurveLuma`
-2. `papp:SceneLinearToneCurveRed` → `toneCurveRed`
-3. `papp:SceneLinearToneCurveGreen` → `toneCurveGreen`
-4. `papp:SceneLinearToneCurveBlue` → `toneCurveBlue`
+Maple's curves are `papp:`, **not** Adobe's `crs:ToneCurvePV2012*`, because they are different quantities: Maple applies these pre-view-transform in scene-linear light, while a PV2012 curve was authored against Lightroom's display transform and only means anything after one. Reading a Lightroom curve into these fields would apply a display-referred shape to scene-linear data. `crs:ToneCurvePV2012*` is therefore deliberately never parsed — it rides the passthrough bucket and re-emits verbatim.
 
-Coordinates are stored on the model in `[0, 1]` and written in PV2012's
-`[0, 255]` domain; the scale factor is applied at the parser/serializer
-boundary only, and the coordinate strings go through the same number codec as
-attribute values (integers bare, non-integers at two decimals with trailing
-zeros stripped). **The identity curve is the empty control-point list, and it
-emits no element at all** — never an empty `rdf:Seq` — so a sidecar for an
-image with no authored curve is byte-identical to what the pre-#365 writers
-produced.
+## Crop fields
 
-### Namespace decision (#365)
+The crop rect is normalized `[0, 1]` edges, origin top-left, with `crs:CropAngle` in degrees (positive = clockwise). The group is emitted only when non-identity, at six decimals:
 
-Maple's point curves live under `papp:`, not Adobe's `crs:ToneCurvePV2012*`,
-because the two are **different quantities** rather than two spellings of the
-same one (`docs/maple-paper.md` § 3, "tone curve families"):
+```
+crs:HasCrop="True" crs:CropTop="0.100000" crs:CropLeft="0.050000"
+crs:CropBottom="0.900000" crs:CropRight="0.950000" crs:CropConstrainToWarp="0"
+crs:CropAngle="2.500000"
+```
 
-- `papp:SceneLinearToneCurve*` is **scene-linear**. The #273 pipeline
-  foundation applies these curves _before_ the AgX view transform, with the
-  curve's `[0, 255]` authoring domain mapped onto scene `[0, 4.0]`.
-- `crs:ToneCurvePV2012*` is **display-referred**. Those curves were authored
-  against Lightroom's own (proprietary, version-dependent) view transform and
-  only mean anything _after_ a view transform.
+Two rules govern reading. The four edges are **gated by `crs:HasCrop`** — when the marker is `False` or absent, any `crs:Crop*` edge values are ignored and the identity default stands; each reader does a two-pass walk over the element so attribute order is irrelevant. `crs:CropAngle` is **independent** of that gate, because a pure straighten with no rect trim is valid and emits the angle alone. `crs:HasCrop` and `crs:CropConstrainToWarp` are accepted and consumed but carry no model state.
 
-Consequently `crs:ToneCurvePV2012*` is **not parsed into `toneCurve*`** on any
-platform. Applying a display-referred shape to scene-linear light would render
-an imported Lightroom curve visibly wrong, and re-deriving one as a
-scene-linear curve would require inverting Lightroom's view transform — lossy
-even when it is possible. Nor is there a second display-referred storage slot
-today: nothing in the pipeline consumes one yet, so adding one would be
-speculative. Instead, `crs:ToneCurvePV2012*` rides the **unknown-node
-passthrough** — it is preserved verbatim across a read-modify-write, so an
-imported Lightroom sidecar keeps the curve intact for the round trip back.
+## Culling fields
 
-Real display-referred (post-AgX) tone-curve support — a pipeline slot plus the
-storage that goes with it — is tracked as **#2232**.
+| Attribute         | Values                                               | Written when                                          |
+| ----------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| `xmp:Rating`      | `1`–`5`                                              | rating > 0 (Adobe's absence-means-unrated convention) |
+| `papp:Flag`       | `pick`, `reject`                                     | flagged                                               |
+| `papp:ColorLabel` | `red`, `orange`, `yellow`, `green`, `blue`, `purple` | set                                                   |
+| `papp:Hidden`     | `true`, `false`                                      | explicitly touched (tri-state; absent ≠ false)        |
+| `dc:subject`      | nested `rdf:Bag` of `rdf:li` keywords                | any keyword present                                   |
 
-Both document writers implement passthrough. The TypeScript one has since P6
-(`PassthroughBucket.unknownAttributes` and `.unknownNodes`, the latter
-re-emitted from the source element's serialized form); Apple's grew the same
-two halves in **#2233** (`XMPPassthrough` in `XMPPassthrough.swift`), so a
-Lightroom curve now survives a read-modify-write on every platform that writes
-a whole sidecar. Rust ships only a fragment serializer (`xmp::serialize` for
-attributes, `xmp::serialize_tone_curves` for the curve block) and never writes
-a whole document, so it has nothing to preserve.
+The colour-label vocabulary is matched case-sensitively against that exact six-word list; an out-of-vocabulary value leaves the label unset rather than storing a string no other platform would accept. The web reader additionally maps Adobe's `xmp:Label` colour words (`Red`…`Purple`) onto colour labels, with `papp:ColorLabel` winning when both are present. Apple's reader does _not_ — the same attribute was historically overloaded there for the pick/reject flag (`Red` / `Rejected`), so reading Adobe colour words out of it would turn every legacy pick into a red label; it reads `xmp:Label` only as a legacy flag alias, and never writes it.
+
+Keywords are deduplicated at parse time (first occurrence wins, source order preserved) and blank entries dropped, on every platform, because the UIs iterate the list by value identity.
+
+`papp:IsScreenshot` is written and read only by the API's metadata route; the other implementations carry it through passthrough.
+
+## Metadata block
+
+The IPTC/EXIF batch-metadata fields ride the same document. Simple attributes: `exif:GPSLatitude`, `exif:GPSLongitude`, `exif:GPSAltitude`, `exif:GPSAltitudeRef`, `exif:DateTimeOriginal`, `papp:TimeZone`, `Iptc4xmpCore:Location`, `Iptc4xmpCore:CountryCode`, `photoshop:City`, `photoshop:State`, `photoshop:Country`, `photoshop:Headline`, `photoshop:Instructions`, `photoshop:AuthorsPosition`, `photoshop:Credit`, `photoshop:Source`, `xmpRights:Marked`. Nested lang-alt/seq elements: `dc:title`, `dc:creator`, `dc:description`, `dc:rights`, `xmpRights:UsageTerms`. GPS uses the standard XMP rational encoding (`deg,min.mmmmH`); altitude is `thousandths/1000` with a `0`/`1` sign reference.
+
+Child elements sit in fixed slots so the order is stable: title/creator/description, then `dc:subject`, then rights/usage terms, then the point tone curves, then preserved unknown nodes last.
 
 ## Passthrough
 
-Unknown attributes on `rdf:Description` go into `passthroughFields` and re-emit
-sorted alphabetically by full name (including namespace prefix).
+**A Maple writer must not destroy anything it does not understand.** A Lightroom sidecar carries mask groups, history, snapshots, `crs:ToneCurvePV2012*` curves and `xmpMM:` document IDs; all of it has to survive a Maple save.
 
-"Unknown attribute" means unknown by NAME, not by namespace: `crs:RawFileName`
-is a passthrough attribute that still sorts alphabetically inside the `crs:`
-block, because the ordering rule above keys on the prefix. Only attributes in a
-namespace outside the eight ranked prefixes land in the trailing unknown group.
+Three buckets, each with its own rule:
 
-Unknown nested elements inside `rdf:Description` go into `passthroughNodes` and
-re-emit **in original order** (masks, history, snapshots depend on ordering).
-Only the first line of a preserved node is re-indented onto the canonical
-ladder; its interior keeps the whitespace its author wrote, which is what makes
-the region byte-identical across a read-modify-write.
+1. **Unknown attributes on `rdf:Description`** are captured as decoded `(name, value)` pairs and re-emitted through the canonical attribute sort, where the unknown-namespace rank (500) places them after every known attribute. Values are re-escaped on write. Source order is not preserved — it is unrecoverable from an unordered attribute dictionary and moot anyway, since every attribute is re-sorted.
+2. **Unknown child elements of `rdf:Description`** are preserved as **verbatim source text** in **original document order**. Order is load-bearing: mask groups, history entries and snapshots are ordered stacks. Only the first line of each node is re-indented onto the canonical ladder; the interior keeps the whitespace its author wrote, which is what makes the region byte-identical across a read-modify-write. The Apple reader uses a source-slicing scanner (`XMPPassthroughScanner.swift`) rather than re-serializing parse events, precisely so a foreign subtree's attribute order is not reshuffled.
+3. **Siblings of `rdf:Description` inside `rdf:RDF`, and siblings of `rdf:RDF` inside `x:xmpmeta`**, preserved verbatim and re-indented at their own levels.
 
-Both writers implement both halves. They capture nodes differently, and the
-difference is deliberate:
+Namespace declarations needed by preserved content ride along: a `<xmpMM:History>` subtree re-emitted without its `xmlns:xmpMM` would produce a document a namespace-aware reader rejects. Declarations for prefixes the canonical envelope emits itself are dropped instead, so the output can never carry a duplicate `xmlns:` on one start tag; a default (`xmlns=`) declaration is likewise dropped, since it would change how every unprefixed name in the document resolves.
 
-- **TypeScript** takes `child.outerHTML` — the DOM's own re-serialization.
-- **Swift** slices the child's source text out of the document
-  (`XMPChildElementScanner`). `XMLParser` hands a start tag's attributes back
-  in an unordered `Dictionary`, so rebuilding a mask stack from SAX events
-  would reshuffle its attributes on every save and the sidecar would never
-  reach a fixed point; `XMLDocument`, which preserves order, is macOS-only and
-  Maple ships on iOS.
+The "known" set each implementation subtracts is hand-maintained (`XMPKnownFields` in `XMPPassthrough.swift`, `KNOWN_ATTRIBUTES` in `xmp-passthrough.ts`, `ConsumedAttributes` in `XmpParser.cs`) and must include read-only legacy aliases — a name missing from it would be emitted twice, once from the model and once from the passthrough pipe. Apple's suite asserts the serializer's own output is a subset of its known set for exactly this reason.
 
-One consequence of the source-slice capture: because a slice carries no
-inherited namespace context, the Swift parser also preserves foreign `xmlns:`
-declarations found on `rdf:Description`, minus the prefixes the canonical
-prelude declares itself. Without that, a preserved `<xmpMM:History>` would
-re-emit into a document where `xmpMM` is undeclared. The TypeScript parser
-drops every `xmlns:` attribute instead — an asymmetry tracked as **#2338**.
+A document that will not parse yields an empty passthrough bucket: malformed bytes are not trustworthy to carry forward, and the caller is about to replace the file either way.
 
-Before **#2233** Apple had neither half: its parser returned only
-`(AdjustmentModel, CullingState)` and its serializer rebuilt the document from
-those, so a Lightroom sidecar lost masks, history and snapshots on the first
-Apple edit.
+## Schema versioning
 
-## Version signaling
+Four independent version numbers appear in or around a sidecar, and they mean different things:
 
-Maple writes `crs:Version` and `crs:ProcessVersion` with the same value,
-currently hardcoded to `"11.0"` (Adobe's Process Version 2022 / PV11).
-Imported sidecars retain their original version string.
+- **`crs:Version` / `crs:ProcessVersion` (`"11.0"`)** — Adobe process-version signalling, written unconditionally, retained from an import.
+- **`papp:WbScaleVersion` (`1`–`5`)** — the only _semantics_ version in the schema; see above. An unknown value is a hard parse error in `raw-core`.
+- **`PIPELINE_OUTPUT_VERSION`** (`raw_core::version`, mirrored into `adjustment-model.generated.ts`) — not written to the sidecar. It is folded into every rendered-output cache key so a change that alters pixels for the same (RAW, sidecar) input invalidates stale entries on all platforms. See [caching](caching.md).
+- **`"schema": 2`** inside the `papp:InpaintRemovals` JSON payload — versioning local to that payload.
 
-## Capture-sharpening sigma migration (#456, #464)
+New fields are added by extending `ADJUSTMENT_SCHEMA`, regenerating with `tools/codegen.sh`, and mirroring the key in all writers; because absent attributes read back as the canonical default and defaults are omitted on write, a new field costs nothing in existing sidecars. Removing a field is the harder direction — the reader arm has to stay (as `papp:Look`'s does) or old sidecars stop round-tripping.
 
-PR #452 swapped the capture-sharpening PSF from an integer-radius
-tripled-box-blur to a true Gaussian parameterised by float sigma, but kept
-the XMP key as `papp:CaptureSharpeningRadius` — a silent semantic shift.
-Ticket #456 separated the legacy alias from the new canonical key, and
-#464 retired the legacy write path on Swift + TypeScript:
-
-- **Canonical key:** `papp:CaptureSharpeningSigma` (float, pixels). All
-  three writers (Rust, Swift, TypeScript) emit this key exclusively.
-  Writes flow to `AdjustmentModel::capture_sharpening_sigma`.
-- **Legacy key:** `papp:CaptureSharpeningRadius` is **read-only** on every
-  platform. The legacy value is routed into `capture_sharpening_sigma`
-  **unchanged** — no rescale. No shipping sidecar carries a non-zero
-  capture-sharpening amount (the slider is off by default), so any
-  rescale would be a guess. Authors who want the old box-blur look back
-  must re-tune the slider after the schema change.
-- **Precedence:** when both keys are present on the same
-  `rdf:Description`, `papp:CaptureSharpeningSigma` always wins,
-  regardless of document order. Each platform implements this through a
-  small precedence flag (raw-core's `sigma_seen`, Swift's
-  `captureSharpeningSigmaSeen`, TypeScript's `canonicallyApplied` set)
-  so the rule is source-order independent.
-
-## WB slider-scale versioning (#1756, #1780, #1875)
-
-PR #1756 changed what stored `crs:Temperature` / `crs:Tint` numbers MEAN:
-they are now interpreted in ACR's calibration frame
-(`raw-core stages::wb_camera::SliderFrame`, identity at the image's as-shot
-CCT) instead of the pre-#1756 post-DCP CAT16 scale (identity at
-6500 K / tint 0). #1875 then fixed the tint AXIS of that frame scale: the
-#1756–#1875 interpretation rendered positive tint green-ward — the
-opposite of ACR's convention (and of the slider gradient), where positive
-tint pushes the image toward magenta. Both are schema-semantics changes,
-versioned on the sidecar:
-
-- **Stamp:** `papp:WbScaleVersion` — `"1"` (pre-#1756 scale), `"2"`
-  (#1756–#1875 frame scale, tint axis inverted vs ACR), or `"3"`
-  (frame scale, ACR tint direction — current). Both the Swift and
-  TypeScript writers emit the stamp whenever they write an explicit
-  `crs:Temperature` / `crs:Tint` (the Swift writer emits those
-  unconditionally, so it always stamps). A version-1 sidecar re-saves as
-  version 1 so its stored numbers keep their meaning; everything else is
-  written as version 3 — the Swift and TS parsers normalize a loaded V2
-  model to V3 (negating an explicitly authored `crs:Tint`, which
-  preserves the authored look exactly since the two axis orientations are
-  the same line with opposite sign). Fresh models are version 3.
-- **Absent stamp:** decided by authorship. A document that carries a recognized
-  Maple `papp` namespace URI (every Maple writer declares one unconditionally)
-  AND an explicit `crs:Temperature`/`crs:Tint` predates
-  the versioning and reads as **1**. Everything else reads as **3**: a
-  document with no `papp:` namespace at all (ACR/Lightroom-authored) is
-  expressed in ACR's own convention — which V3 matches — and a document
-  with no authored WB has nothing to convert (as-shot renders identically
-  on every scale).
-- **Conversion happens in raw-core** (`wb_camera::resolve_target_versioned`
-  for the calibrated tiers, `white_balance::resolve_wb` for the fallback
-  tier): version-1 values with an explicit authored Temperature/Tint are
-  re-expressed in the current frame at develop time, and version-2
-  authored tints are negated into the V3 axis, so the rendered look is
-  preserved; the stored numbers are never rewritten by raw-core. (The
-  Swift/TS loaders additionally normalize V2 → V3 in-memory so slider
-  display, live render params, and re-saves are uniformly V3.)
-- All three parsers (Rust `xmp::parse`, Swift `XMPParser`, TS
-  `XmpParserService`) implement the same stamp-else-heuristic rule, and
-  the platform models carry the version (`wb_scale_version` /
-  `wbScaleVersion`) so host-serialized documents (e.g. the Apple render
-  path's temp sidecar) keep it intact.
-
----
-
-## What does not live in XMP
-
-XMP is the contract for **user-authored** adjustments, culling, crop, and metadata. Derived metadata — values produced by deterministic re-runnable enrichment passes — stays in MongoDB. The line is the same one drawn for face detections and reverse-geocoded place data today, and it now also covers the structured `vision.*` subdoc.
-
-The `vision.*` data (is_screenshot, nudity, caption, subjects, scene_type, setting, activity, time_of_day, lighting, weather, mood, colors, composition, text_visible, notable_objects, shot_type) is **never** written to the sidecar. The reason is that it is fully reproducible from `(model, prompt_version)` — the two fields carried in `vision_meta` — and the indexer already re-runs the describe stage automatically when either is bumped. Burning it into the XMP sidecar would mean a sidecar write on every re-caption (each prompt bump re-touches every asset), ~1 KB of sidecar bloat per asset, and a backwards-compat question every time the structured schema gains or renames a field.
-
-User-authored captions still round-trip via the existing free-text `description` and keyword paths — those are authored content, not derived, and they belong in the sidecar. The new structured `vision.*` doc is database-only. See `docs/indexer-enrichment.md` § "Vision (structured)" for the full field list and the OCR mirroring rule (`ocr_text` is populated from `vision.text_visible` on every describe pass).
-
----
+Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse_ adjustment model living in its own MongoDB collection (`src/api/src/routes/presets.ts`, `src/api/src/presets/preset-validation.ts`); applying one writes the resolved field values into the sidecar like any other slider move. Preset validation follows the same philosophy as passthrough: unknown fields from a newer schema version are accepted and preserved verbatim rather than rejected. Film looks likewise store only the catalog id in `papp:FilmLook` — the `.mlut` payloads ship with the app (`raw-core/src/film_catalog.rs`).
 
 ## Test contract
 
-Both parsers must produce the same `AdjustmentModel` from any valid input, and
-both serializers must produce the same bytes from any model whose field set
-they share (see "What the parity claim covers" above). What is in place today:
+Six claims, tested per platform:
 
-1. **Cross-engine zero-byte diff** — `XMPCanonicalFormatTests.swift` and
-   `xmp-canonical.spec.ts` build the same fully-authored model and assert
-   their own serializer reproduces the same golden document, character for
-   character. The literal is duplicated verbatim in both files, the shape
-   #365 established for the tone-curve block. There is no build that runs
-   Swift and TypeScript in one process, so duplicating the literal is the
-   diff: a divergence on either platform fails that platform's suite.
-2. **Canonical invariants**, asserted separately from the golden so a
-   regression names itself: the `papp:` URI, namespace declaration order, the
-   absence of `x:xmptk`, namespace-priority-then-alphabetical attribute order,
-   and the single six-space child-indent ladder.
-3. **Legacy-layout parse** — a sidecar in the pre-#1577 Apple layout (old
-   `papp:` URI, `crs, xmp, papp` declaration order, no `rdf:about`, unsorted
-   attributes) parses to the expected model and culling on both platforms. On
-   Swift it is written to a real file in a temp directory and read back from
-   disk, per CLAUDE.md's no-mocks-for-sidecars rule.
-4. **Write → parse → write is a fixed point** on both platforms, through real
-   files on Swift.
-5. **Per-field round-trips** — the existing per-feature suites
-   (`keywords.spec.ts`, `cull-flag.spec.ts`, `ToneCurveXMPTests.swift`, …)
-   continue to cover each field's own semantics.
+1. **The canonical envelope** — namespace URIs and order, no `x:xmptk`, attribute sort order, the six-space indent ladder.
+2. **The number codec** — the table in "Number formatting", case by case.
+3. **The cross-engine golden** — Swift and TypeScript each assert their own writer reproduces a byte-identical golden document, from an identical fixture model, duplicated verbatim in `XMPCanonicalFormatTests.swift` and `xmp-canonical.spec.ts`. A divergence on either side fails that side's suite; this is the zero-byte-diff check without a build that runs both languages in one process. Any change to the canonical format updates both copies **and this document** in the same commit.
+4. **Write → parse → write is a fixed point** — a canonical sidecar re-saves to identical bytes.
+5. **Field-level round trip** — every modeled field survives serialize → parse with its value intact.
+6. **Passthrough preservation** — a real Lightroom sidecar (masks, history, snapshots, `crs:ToneCurvePV2012`, `xmpMM:` ids) survives a Maple edit with every unknown node byte-identical, and legacy-layout sidecars (old `papp:` URI, unsorted attributes, no `rdf:about`) still parse and upgrade on the next save.
 
-6. **Passthrough survival** — `XMPPassthroughTests.swift` drives a real
-   Lightroom-authored sidecar (mask group, snapshot stack, `xmpMM:History`,
-   `crs:ToneCurvePV2012`) through `XMPSidecarStore`'s debounced write path
-   using real files in a temp directory, and asserts every preserved region
-   comes back byte-identical, in source order, with the re-save a fixed point.
-   The web half is covered per-feature by `point-tone-curve.spec.ts` and
-   `xmp-metadata-roundtrip.spec.ts`.
+What the byte-parity claim does **not** cover: whole-document equality for arbitrary round-tripped sidecars. Both writers preserve unknown content, but they capture it differently (a DOM re-serialization on the web, a source slice on Apple), so a document carrying foreign nested fields survives on both without the preserved bytes matching each other. It also excludes `papp:Hidden` (no web writer) and default-valued sliders (Apple emits its core block unconditionally, the web writer omits it).
 
-Any canonical-format change requires updating both implementations, both
-golden literals, **and** this document in the same commit.
+Windows is held to a weaker but honest bar: `AdjustmentState` is a structural subset of the cross-platform model (no crop, no keywords, no metadata block, no white-balance preset), so its suite asserts a fixed point of _meaning_ — parse → serialize → re-parse yields an equal model — plus passthrough preservation, with attribute passthrough compared order-insensitively and node passthrough compared as an exact ordered sequence.
+
+| Platform   | Test files                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rust       | `src/raw-pipeline/raw-core/src/xmp/tests.rs`, `tests_detail.rs`, `tests_effects.rs`, `tests_lens.rs`, `tests_metadata.rs`, `tests_modes.rs`, `tests_payloads.rs`, `tests_profile.rs`, `tests_tone_curves.rs`, `tests_wb_scale.rs`; schema drift in `types/adjustment/schema/tests.rs`                                                                                                                                                      |
+| Swift      | `XMPCanonicalFormatTests.swift`, `XMPPassthroughTests.swift`, `XMPSerializationTests.swift`, `ToneCurveXMPTests.swift`, `XMPCullFlagTests.swift`, `XMPMetadataTests.swift`, `XMPSerializationBlackWhiteTests.swift`, `XMPSerializationAutoExposureTests.swift`, `XMPSerializationStageKnobTests.swift`, `ColorGradingXMPTests.swift`, `FilmLookXMPTests.swift`, plus the adapter contract suite seeded from `SidecarContractSupport.swift` |
+| TypeScript | `xmp-canonical.spec.ts`, `xmp-fields.spec.ts`, `point-tone-curve.spec.ts`, `parametric-tone-curve.spec.ts`, `enum-modes.spec.ts`, `wb-scale-version.spec.ts`, `wb-dng-temperature.spec.ts`, `wb-as-shot-gate.spec.ts`, `black-white.spec.ts`, `color-grading.spec.ts`, `film-look.spec.ts`, `lens-correction.spec.ts`, `s5-effects.spec.ts`, `keywords.spec.ts`, `xmp-metadata*.spec.ts`, `sidecar.store.spec.ts`                          |
+| C#         | `XmpCanonicalEnvelopeTests.cs`, `XmpNumberFormatTests.cs`, `XmpRoundTripTests.cs`, `XmpPassthroughTests.cs`, `XmpParserLegacyLayoutTests.cs`, `XmpWbScaleVersionTests.cs`, `SidecarStoreRoundTripTests.cs`, `SidecarCorpusRoundTripTests.cs`                                                                                                                                                                                               |
+| API        | `src/api/src/xmp/metadata-parser.test.ts`, `metadata-serializer.test.ts`, `color-label.test.ts`                                                                                                                                                                                                                                                                                                                                            |
+
+`SidecarCorpusRoundTripTests.cs` is the only suite driven by a shared on-disk corpus — every `.xmp` under `test-fixtures/sidecars/` (golden Maple sidecars, Lightroom sidecars with masks and history, synthetic edge cases). That directory is gitignored, so the test skip-passes with a message when it is absent, mirroring the color harness's "no fixtures, skipping" convention.
+
+```bash
+# Rust
+cd src/raw-pipeline && cargo test -p raw-core --lib
+
+# Swift
+cd src/apple/Packages/MapleCore && swift test
+
+# Web (the XMP suite lives in the shared library project)
+cd src/web && bun x ng test Maple-common
+
+# Windows
+dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
+
+# API
+cd src/api && bun test
+
+# Regenerate the Swift/TS mirrors after a schema change (CI job `codegen-drift`)
+bash tools/codegen.sh
+```
+
+See [testing](testing.md) for the full gate list and [architecture](architecture.md) for where the sidecar sits in the system.

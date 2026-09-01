@@ -40,8 +40,7 @@ use std::ffi::{c_char, CStr};
 /// `maple_render_handle_scene_linear_tile`'s doc comment (`raw-ffi/src/handle.rs`)
 /// for the full rationale.
 ///
-/// Plan 3 — see .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
-/// Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
+/// See docs/zoom.md.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_render_file_scene_linear_tile(

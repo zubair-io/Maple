@@ -18,7 +18,7 @@
 // `crs:ToneCurvePV2012*`. The two are different quantities — #273's pipeline
 // applies these pre-AgX in scene-linear light, while a PV2012 curve was
 // authored against Lightroom's own display transform and only means anything
-// after a view transform (`docs/maple-paper.md` § 3). Reading a Lightroom
+// after a view transform (`docs/xmp-canonical-format.md` § "Tone curves"). Reading a Lightroom
 // curve into these fields would apply a display-referred shape to
 // scene-linear data and render it visibly wrong, so the `crs:` keys are
 // deliberately not parsed here.
