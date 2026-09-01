@@ -108,6 +108,17 @@ public actor BackupStateStore {
         }
     }
 
+    /// COUNT(*) for one state — the `tasks_state_idx` index answers this
+    /// without decoding rows. Use instead of `tasks(in:).count` when only
+    /// the figure is needed (e.g. the walk's permanently-failed summary).
+    public func count(in state: BackupState) throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db,
+                             sql: "SELECT COUNT(*) FROM tasks WHERE state = ?",
+                             arguments: [state.rawValue]) ?? 0
+        }
+    }
+
     private static func decode(_ row: Row) -> BackupTask {
         BackupTask(
             id: BackupTaskID(deviceId: row["device_id"], phassetLocalId: row["phasset_local_id"]),
