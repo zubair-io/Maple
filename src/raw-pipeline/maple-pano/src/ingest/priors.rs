@@ -35,11 +35,17 @@
 //! DJI's published 84° for the Mavic 3 wide camera. Fine for a BA seed,
 //! which is this value's only consumer.
 //!
-//! **Fallbacks:** without `f₃₅` there is no sensor geometry in EXIF to
-//! pin the pitch against, so `focal_px` stays `None` and the solver falls
-//! back to pairwise-homography focal estimation (spec §5.3 — outside this
-//! ticket). `f_mm` alone is *not* used: a mm value without sensor size
-//! says nothing about pixels.
+//! **Fallbacks:** without `f₃₅` directly in EXIF, [`derive_focal_35mm_equiv`]
+//! tries to derive it from `FocalLength` plus sensor geometry (`FocalPlane-
+//! XResolution`/`FocalPlaneResolutionUnit`, #2700) — full-frame bodies like
+//! the Canon 5DS R, which write only `FocalLength` (crop ≈ 1.0, so the
+//! 35mm-equivalent IS the focal length), and crop bodies whose physical
+//! sensor width comes out from that EXIF pair. Only when *neither* the
+//! direct tag nor the sensor-geometry derivation succeeds does `focal_px`
+//! stay `None` and the solver fall back to pairwise-homography focal
+//! estimation (spec §5.3 — outside this ticket). `f_mm` alone is *not*
+//! used on its own: a mm value without sensor size says nothing about
+//! pixels.
 //!
 //! # DJI gimbal XMP
 //!
@@ -65,6 +71,10 @@ use raw_core::PanoSourceMetadata;
 /// 35mm full-frame diagonal, mm: `√(36² + 24²)`.
 const FULL_FRAME_DIAG_MM: f64 = 43.266615305567875;
 
+/// 35mm full-frame sensor width, mm — the reference width
+/// [`derive_focal_35mm_equiv`]'s crop factor is taken against (#2700).
+const FULL_FRAME_WIDTH_MM: f64 = 36.0;
+
 /// DJI gimbal attitude as written in the XMP packet (degrees, DJI
 /// conventions — see module docs). Advisory prior only.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,7 +89,10 @@ pub struct GimbalPrior {
 pub struct FramePriors {
     /// EXIF `FocalLength`, mm (carried for diagnostics/reporting).
     pub focal_mm: Option<f32>,
-    /// EXIF `FocalLengthIn35mmFormat`, mm.
+    /// EXIF `FocalLengthIn35mmFormat`, mm — or, when the source omits
+    /// that tag, the value [`derive_focal_35mm_equiv`] derives from
+    /// `FocalLength` plus sensor geometry (#2700). Either way this is
+    /// what `focal_px` was computed from.
     pub focal_35mm_equiv: Option<f32>,
     /// Focal length in pixels (see module docs for derivation + error
     /// bars). `None` when EXIF lacks the 35mm-equivalent.
@@ -96,10 +109,18 @@ impl FramePriors {
     /// in both).
     pub fn from_metadata(md: &PanoSourceMetadata) -> Self {
         let (w, h) = md.output_dims;
+        let focal_35mm_equiv = md.focal_35mm_equiv.or_else(|| {
+            derive_focal_35mm_equiv(
+                md.focal_mm,
+                md.focal_plane_x_resolution,
+                md.focal_plane_resolution_unit,
+                w,
+            )
+        });
         Self {
             focal_mm: md.focal_mm,
-            focal_35mm_equiv: md.focal_35mm_equiv,
-            focal_px: focal_px_from_exif(md.focal_35mm_equiv, w, h),
+            focal_35mm_equiv,
+            focal_px: focal_px_from_exif(focal_35mm_equiv, w, h),
             gimbal: md.xmp_packet.as_deref().and_then(parse_dji_gimbal),
         }
     }
@@ -114,6 +135,45 @@ pub fn focal_px_from_exif(focal_35mm_equiv: Option<f32>, width: u32, height: u32
     }
     let diag_px = ((width as f64).powi(2) + (height as f64).powi(2)).sqrt();
     Some(f35 * diag_px / FULL_FRAME_DIAG_MM)
+}
+
+/// Derive a 35mm-equivalent focal length from EXIF `FocalLength` plus
+/// sensor geometry, for bodies whose firmware omits
+/// `FocalLengthIn35mmFormat` (#2700) — e.g. full-frame Canon 5DS R CR2s,
+/// where the 35mm equivalent IS the focal length (crop factor ≈ 1.0),
+/// and crop bodies where it is derivable from the sensor's physical
+/// width.
+///
+/// `focal_plane_x_resolution` (EXIF `FocalPlaneXResolution`, pixels per
+/// `focal_plane_resolution_unit`) combined with the decoded image width
+/// gives the sensor's physical width in millimetres; the crop factor is
+/// `36mm / sensor_width_mm` (the reference full-frame sensor width).
+/// `None` when any input is missing or non-positive, or the resolution
+/// unit isn't one EXIF actually writes (`2` = inches, `3` =
+/// centimetres) — there is no safe assumption to fall back on, and the
+/// caller's hard error (`StitchError::NoFocal`) is then unavoidable.
+pub fn derive_focal_35mm_equiv(
+    focal_mm: Option<f32>,
+    focal_plane_x_resolution: Option<f32>,
+    focal_plane_resolution_unit: Option<u16>,
+    image_width_px: u32,
+) -> Option<f32> {
+    let focal_mm = focal_mm.filter(|v| v.is_finite() && *v > 0.0)? as f64;
+    let res = focal_plane_x_resolution.filter(|v| v.is_finite() && *v > 0.0)? as f64;
+    let unit_mm_per_count = match focal_plane_resolution_unit {
+        Some(2) => 25.4, // inches
+        Some(3) => 10.0, // centimetres
+        _ => return None,
+    };
+    if image_width_px == 0 {
+        return None;
+    }
+    let sensor_width_mm = image_width_px as f64 * unit_mm_per_count / res;
+    if !sensor_width_mm.is_finite() || sensor_width_mm <= 0.0 {
+        return None;
+    }
+    let crop_factor = FULL_FRAME_WIDTH_MM / sensor_width_mm;
+    Some((focal_mm * crop_factor) as f32)
 }
 
 /// Parse `drone-dji:Gimbal{Yaw,Pitch,Roll}Degree` out of a raw XMP packet.
@@ -291,5 +351,138 @@ mod tests {
         assert_eq!(focal_px_from_exif(Some(0.0), 5272, 3948), None);
         assert_eq!(focal_px_from_exif(Some(-24.0), 5272, 3948), None);
         assert_eq!(focal_px_from_exif(Some(24.0), 0, 3948), None);
+    }
+
+    /// #2700: a Canon 5DS R-shaped full-frame body writes `FocalLength`
+    /// only. `FocalPlaneXResolution` measured against a 6000 px wide
+    /// output resolves to a 36 mm sensor width — crop factor 1.0, so the
+    /// 35mm equivalent comes out equal to the raw focal length.
+    #[test]
+    fn derive_focal_35mm_equiv_full_frame_body_crop_factor_one() {
+        let width_px = 6000_u32;
+        // sensor_width_mm = width_px * 25.4 / res = 36.0  =>  res = width_px * 25.4 / 36.0
+        let res = width_px as f32 * 25.4 / 36.0;
+        let f35 = derive_focal_35mm_equiv(Some(24.0), Some(res), Some(2), width_px)
+            .expect("full-frame body should derive a 35mm equivalent");
+        assert!((f35 - 24.0).abs() < 0.01, "got {f35}");
+    }
+
+    /// A Canon APS-C-shaped body (22.3 mm sensor width, crop ≈ 1.6143):
+    /// the derived 35mm equivalent should scale by the crop factor, not
+    /// equal the raw focal length.
+    #[test]
+    fn derive_focal_35mm_equiv_crop_body_scales_by_crop_factor() {
+        let width_px = 6000_u32;
+        let sensor_width_mm = 22.3_f64;
+        let res = (width_px as f64 * 25.4 / sensor_width_mm) as f32;
+        let f35 = derive_focal_35mm_equiv(Some(18.0), Some(res), Some(2), width_px)
+            .expect("crop body should derive a 35mm equivalent");
+        let expected = 18.0 * (36.0 / sensor_width_mm);
+        assert!(
+            (f35 as f64 - expected).abs() < 0.01,
+            "got {f35}, expected {expected}"
+        );
+    }
+
+    /// Centimetre resolution unit (`3`) is honoured, not just inches.
+    #[test]
+    fn derive_focal_35mm_equiv_accepts_centimetre_unit() {
+        let width_px = 6000_u32;
+        // sensor_width_mm = width_px * 10.0 / res = 36.0  =>  res = width_px * 10.0 / 36.0
+        let res = width_px as f32 * 10.0 / 36.0;
+        let f35 = derive_focal_35mm_equiv(Some(24.0), Some(res), Some(3), width_px)
+            .expect("cm-unit body should derive a 35mm equivalent");
+        assert!((f35 - 24.0).abs() < 0.01, "got {f35}");
+    }
+
+    #[test]
+    fn derive_focal_35mm_equiv_none_when_any_input_is_missing() {
+        assert_eq!(
+            derive_focal_35mm_equiv(None, Some(4233.3), Some(2), 6000),
+            None
+        );
+        assert_eq!(
+            derive_focal_35mm_equiv(Some(24.0), None, Some(2), 6000),
+            None
+        );
+        // No resolution unit EXIF actually writes (only 2 = inches or
+        // 3 = centimetres are real): no safe assumption, so None.
+        assert_eq!(
+            derive_focal_35mm_equiv(Some(24.0), Some(4233.3), None, 6000),
+            None
+        );
+        assert_eq!(
+            derive_focal_35mm_equiv(Some(24.0), Some(4233.3), Some(1), 6000),
+            None
+        );
+        assert_eq!(
+            derive_focal_35mm_equiv(Some(24.0), Some(4233.3), Some(2), 0),
+            None
+        );
+        assert_eq!(
+            derive_focal_35mm_equiv(Some(0.0), Some(4233.3), Some(2), 6000),
+            None
+        );
+        assert_eq!(
+            derive_focal_35mm_equiv(Some(24.0), Some(-1.0), Some(2), 6000),
+            None
+        );
+    }
+
+    /// End-to-end (#2700): a synthetic full-frame frame whose metadata
+    /// has no `FocalLengthIn35mmFormat` at all (the Canon 5DS R shape)
+    /// still resolves a usable `focal_px` through
+    /// `FramePriors::from_metadata`, instead of leaving it `None` (which
+    /// is what previously forced `StitchError::NoFocal`).
+    #[test]
+    fn from_metadata_derives_focal_px_for_synthetic_frame_lacking_35mm_exif() {
+        let width_px = 6000_u32;
+        let height_px = 4000_u32;
+        let res = width_px as f32 * 25.4 / 36.0; // sensor width = 36mm (full frame)
+        let md = PanoSourceMetadata {
+            camera_make: "Canon".to_string(),
+            camera_model: "Canon EOS 5DS R".to_string(),
+            unique_camera_model: None,
+            focal_mm: Some(24.0),
+            focal_35mm_equiv: None, // the firmware omits this tag
+            focal_plane_x_resolution: Some(res),
+            focal_plane_resolution_unit: Some(2),
+            orientation: raw_core::ExifOrientation::Normal,
+            output_dims: (width_px, height_px),
+            xmp_packet: None,
+        };
+        let priors = FramePriors::from_metadata(&md);
+        let f35 = priors
+            .focal_35mm_equiv
+            .expect("should derive 35mm equivalent from sensor geometry");
+        assert!((f35 - 24.0).abs() < 0.01, "got {f35}");
+        let focal_px = priors
+            .focal_px
+            .expect("focal_px should be populated by the derived 35mm equivalent");
+        let expected_focal_px = focal_px_from_exif(Some(f35), width_px, height_px).unwrap();
+        assert!((focal_px - expected_focal_px).abs() < 1e-6);
+    }
+
+    /// A frame with no focal information at all (neither the direct EXIF
+    /// tag nor the sensor-geometry fallback) still leaves `focal_px`
+    /// `None` — the hard error at the call site is unavoidable, exactly
+    /// as before #2700.
+    #[test]
+    fn from_metadata_leaves_focal_px_none_without_any_focal_source() {
+        let md = PanoSourceMetadata {
+            camera_make: "Unknown".to_string(),
+            camera_model: "Unknown".to_string(),
+            unique_camera_model: None,
+            focal_mm: None,
+            focal_35mm_equiv: None,
+            focal_plane_x_resolution: None,
+            focal_plane_resolution_unit: None,
+            orientation: raw_core::ExifOrientation::Normal,
+            output_dims: (6000, 4000),
+            xmp_packet: None,
+        };
+        let priors = FramePriors::from_metadata(&md);
+        assert_eq!(priors.focal_35mm_equiv, None);
+        assert_eq!(priors.focal_px, None);
     }
 }
