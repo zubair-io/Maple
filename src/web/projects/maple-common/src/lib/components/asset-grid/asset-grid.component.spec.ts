@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { AssetGridComponent } from './asset-grid.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { TRASH_CAPABILITY } from '../../trash/trash-capability';
 import type { Asset, AssetId } from '../../models/asset';
 
 function makeAsset(id: string): Asset {
@@ -279,5 +280,141 @@ describe('AssetGridComponent — folder section rows (#3099)', () => {
   it('emits no folder rows for a directory without subfolders', () => {
     const component = build([], [landscape('a1')]);
     expect(component.gridRows().map((r) => r.kind)).toEqual(['images']);
+  });
+});
+
+describe('AssetGridComponent — Delete/Backspace sends selection to Trash (#2752)', () => {
+  let trashAssets: ReturnType<typeof vi.fn>;
+  let available: boolean;
+  let busy: boolean;
+  let selectedTotalCount: number;
+  let selectedSourceId: string | undefined;
+  let selectedAssetIds: Set<AssetId>;
+  let selectedFolderIds: Set<string>;
+  let component: AssetGridComponent;
+
+  function keydown(key: string, target?: HTMLElement): KeyboardEvent {
+    return {
+      key,
+      target: target ?? document.body,
+      preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent;
+  }
+
+  beforeEach(() => {
+    trashAssets = vi.fn();
+    available = true;
+    busy = false;
+    selectedTotalCount = 1;
+    selectedSourceId = 'lib:2026';
+    selectedAssetIds = new Set(['a1' as AssetId]);
+    selectedFolderIds = new Set<string>();
+
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            selectedTotalCount: () => selectedTotalCount,
+            selectedSourceId: () => selectedSourceId,
+            selectedAssetIds: () => selectedAssetIds,
+            selectedFolderIds: () => selectedFolderIds,
+          },
+        },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+        {
+          provide: TRASH_CAPABILITY,
+          useValue: {
+            available: () => available,
+            busy: () => busy,
+            trashAssets,
+          },
+        },
+      ],
+    });
+
+    component = TestBed.runInInjectionContext(() => new AssetGridComponent());
+  });
+
+  it('sends the selection to Trash on Delete', () => {
+    component.onGridKeydown(keydown('Delete'));
+    expect(trashAssets).toHaveBeenCalledWith(['a1'], 'lib:2026', []);
+  });
+
+  it('sends the selection to Trash on Backspace', () => {
+    component.onGridKeydown(keydown('Backspace'));
+    expect(trashAssets).toHaveBeenCalledWith(['a1'], 'lib:2026', []);
+  });
+
+  it('sends folder ids alongside asset ids (#2976)', () => {
+    selectedFolderIds = new Set(['lib:2026/France']);
+    component.onGridKeydown(keydown('Delete'));
+    expect(trashAssets).toHaveBeenCalledWith(['a1'], 'lib:2026', ['lib:2026/France']);
+  });
+
+  it('calls preventDefault when it fires', () => {
+    const e = keydown('Delete');
+    component.onGridKeydown(e);
+    expect(e.preventDefault).toHaveBeenCalled();
+  });
+
+  it('ignores every other key', () => {
+    component.onGridKeydown(keydown('a'));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while focus is in a text input', () => {
+    component.onGridKeydown(keydown('Delete', document.createElement('input')));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while focus is in a textarea', () => {
+    component.onGridKeydown(keydown('Delete', document.createElement('textarea')));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while focus is in a contenteditable element', () => {
+    // jsdom doesn't compute `isContentEditable` from the `contenteditable`
+    // attribute the way real browsers do, so assert directly against the
+    // property the handler reads.
+    const editable = { isContentEditable: true } as unknown as HTMLElement;
+    component.onGridKeydown(keydown('Delete', editable));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while a modal dialog is open (batch rename / move-to / metadata / trash confirm)', () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.appendChild(dialog);
+    try {
+      component.onGridKeydown(keydown('Delete'));
+      expect(trashAssets).not.toHaveBeenCalled();
+    } finally {
+      dialog.remove();
+    }
+  });
+
+  it('does nothing when Trash is not wired up (Hosted)', () => {
+    available = false;
+    component.onGridKeydown(keydown('Delete'));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while a previous batch is still in flight', () => {
+    busy = true;
+    component.onGridKeydown(keydown('Delete'));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the selection is empty', () => {
+    selectedTotalCount = 0;
+    component.onGridKeydown(keydown('Delete'));
+    expect(trashAssets).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when no source folder is selected', () => {
+    selectedSourceId = undefined;
+    component.onGridKeydown(keydown('Delete'));
+    expect(trashAssets).not.toHaveBeenCalled();
   });
 });
