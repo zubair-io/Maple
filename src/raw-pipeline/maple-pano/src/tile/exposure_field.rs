@@ -17,8 +17,6 @@
 //! the canvas. Term construction iterates `BTreeMap`s and the CG loop is
 //! purely data-driven, so the result is deterministic.
 
-use crate::ingest::PlanarImage;
-
 use std::collections::BTreeMap;
 
 use super::photometry::{CoarseField, PairMap, PhotometryOptions};
@@ -31,8 +29,12 @@ const MIN_CELL_SAMPLES: f64 = 4.0;
 /// saves the per-pixel eval).
 const NEGLIGIBLE_LOG: f32 = 1e-4;
 
+/// `full_dims` is indexed by the *original* input frame index (same
+/// space as `poses[i].frame_idx`) — #3090: only pixel dimensions are
+/// needed here (frame coverage windows), never pixel data, so this never
+/// touches the on-demand decode cache at all.
 pub(super) fn solve_fields(
-    frames: &[PlanarImage],
+    full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
     opts: &PhotometryOptions,
@@ -41,7 +43,7 @@ pub(super) fn solve_fields(
     slope_x: f64,
     slope_y: f64,
 ) -> Vec<Option<CoarseField>> {
-    let k = frames.len();
+    let k = poses.len();
     let cell = opts.field_cell_px;
     let ncx = (canvas.width as usize).div_ceil(cell);
     let ncy = (canvas.height as usize).div_ceil(cell);
@@ -50,13 +52,17 @@ pub(super) fn solve_fields(
     // A similarity maps the frame rect to a convex quad; its cell-space
     // bbox is a solid rectangle, so per-frame windows have no holes and
     // smoothness terms connect every unknown of a frame.
-    let windows: Vec<(usize, usize, usize, usize)> = frames
+    let windows: Vec<(usize, usize, usize, usize)> = poses
         .iter()
-        .zip(poses)
-        .map(|(f, pose)| {
-            let (fw, fh) = (f.width() as f64, f.height() as f64);
-            let (mut x0, mut y0, mut x1, mut y1) =
-                (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        .map(|pose| {
+            let (fw, fh) = full_dims[pose.frame_idx];
+            let (fw, fh) = (fw as f64, fh as f64);
+            let (mut x0, mut y0, mut x1, mut y1) = (
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            );
             for &(x, y) in &[(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)] {
                 let (cx, cy) = pose.sim.apply(x, y);
                 let (cx, cy) = (cx + canvas.offset_x, cy + canvas.offset_y);
@@ -106,8 +112,7 @@ pub(super) fn solve_fields(
             if cacc.n < MIN_CELL_SAMPLES {
                 continue;
             }
-            let (Some(&ki), Some(&kj)) =
-                (index.get(&(i, cell_lin)), index.get(&(j, cell_lin)))
+            let (Some(&ki), Some(&kj)) = (index.get(&(i, cell_lin)), index.get(&(j, cell_lin)))
             else {
                 continue;
             };
