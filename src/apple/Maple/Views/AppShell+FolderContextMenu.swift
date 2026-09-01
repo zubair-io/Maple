@@ -188,7 +188,7 @@ extension AppShell {
         // is shared with the FileProvider extension, which sources its
         // names from the OS (already validated), so it doesn't itself
         // enforce `FilenameValidation`'s rules.
-        guard FilenameValidation.isValidFolderName(name) else {
+        guard FilenameValidation.isValidPathComponent(name) else {
             browseVM.loadError = FileOperationError.invalidName(name)
             return
         }
@@ -218,7 +218,7 @@ extension AppShell {
     /// both computed relative to `libraryRootPath`.
     func renameCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String,
                            absPath: String, newName: String) {
-        guard FilenameValidation.isValidFolderName(newName) else {
+        guard FilenameValidation.isValidPathComponent(newName) else {
             browseVM.loadError = FileOperationError.invalidName(newName)
             return
         }

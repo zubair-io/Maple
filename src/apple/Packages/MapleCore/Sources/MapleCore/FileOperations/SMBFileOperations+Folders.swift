@@ -11,7 +11,7 @@ extension SMBFileOperations {
     /// auto-suffixing, matching the API's `mkdir`.
     public static func createFolder(named name: String, in parentDir: String,
                                     transport: SMBFileTransport) async throws -> String {
-        guard FilenameValidation.isValidFolderName(name) else {
+        guard FilenameValidation.isValidPathComponent(name) else {
             throw FileOperationError.invalidName(name)
         }
         let target = posixJoin(parentDir, name)
@@ -35,7 +35,7 @@ extension SMBFileOperations {
     public static func moveFolder(_ folderPath: String, into newParentDir: String,
                                   newName: String? = nil,
                                   transport: SMBFileTransport) async throws -> String {
-        if let newName, !FilenameValidation.isValidFolderName(newName) {
+        if let newName, !FilenameValidation.isValidPathComponent(newName) {
             throw FileOperationError.invalidName(newName)
         }
         let name = newName ?? posixLastComponent(folderPath)

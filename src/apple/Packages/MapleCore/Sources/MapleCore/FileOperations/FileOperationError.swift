@@ -39,7 +39,7 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
     case invalidDestination(String)
 
     /// A single filename/foldername component failed
-    /// `FilenameValidation.isValidFolderName` — contains a path separator
+    /// `FilenameValidation.isValidPathComponent` — contains a path separator
     /// (which would smuggle a `../` traversal past `appendingPathComponent`,
     /// #2645 review), is empty, `.`/`..`, a trailing dot/space, or a
     /// Windows-reserved device name (enforced on every platform — see

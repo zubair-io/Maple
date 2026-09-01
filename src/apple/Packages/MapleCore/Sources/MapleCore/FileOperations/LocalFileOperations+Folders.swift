@@ -21,7 +21,7 @@ extension LocalFileOperations {
     /// — bounded only by the caller's security-scoped bookmark reach, not
     /// by anything this function checks.
     public static func createFolder(named name: String, in parentDir: URL) throws -> URL {
-        guard FilenameValidation.isValidFolderName(name) else {
+        guard FilenameValidation.isValidPathComponent(name) else {
             throw FileOperationError.invalidName(name)
         }
         let target = parentDir.appendingPathComponent(name)
@@ -48,7 +48,7 @@ extension LocalFileOperations {
         // already a real, on-disk component. But an explicit rename/move
         // target goes through `appendingPathComponent` below, same
         // traversal risk `createFolder` guards against (#2645 review).
-        if let newName, !FilenameValidation.isValidFolderName(newName) {
+        if let newName, !FilenameValidation.isValidPathComponent(newName) {
             throw FileOperationError.invalidName(newName)
         }
         let name = newName ?? folderURL.lastPathComponent

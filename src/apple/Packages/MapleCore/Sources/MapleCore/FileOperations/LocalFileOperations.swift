@@ -72,7 +72,7 @@ public enum LocalFileOperations {
         // New Folder/Rename already guards (#2645 review). This call site was
         // missing the same guard (found by the #2633 cross-platform parity
         // harness — the C# port added it, this one hadn't).
-        if let newBasename, !FilenameValidation.isValidFolderName(newBasename) {
+        if let newBasename, !FilenameValidation.isValidPathComponent(newBasename) {
             throw FileOperationError.invalidName(newBasename)
         }
 
