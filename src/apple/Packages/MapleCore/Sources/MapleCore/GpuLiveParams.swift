@@ -125,7 +125,16 @@ extension PipelineRenderer {
         p.tint = Float(model.tint)
         p.decoded_temperature = Float(decodedAnchor.temperature)
         p.decoded_tint = Float(decodedAnchor.tint)
-        p.wb_method = model.wbMethod == .diagonalRec2020 ? 1 : 0
+        // Exhaustive switch, not a `== .diagonalRec2020 ? 1 : 0` ternary
+        // (Copilot review, PR #3142): a ternary silently maps any FUTURE
+        // `WbMethod` case to the `0` (CAT16) branch, whereas an exhaustive
+        // switch fails to compile the moment the enum grows a third case,
+        // forcing this mapping to be updated deliberately rather than
+        // defaulting to the wrong render.
+        switch model.wbMethod {
+        case .cat16:           p.wb_method = 0
+        case .diagonalRec2020: p.wb_method = 1
+        }
 
         // --- scene tone controls ---
         p.exposure = Float(model.exposure)
@@ -147,7 +156,11 @@ extension PipelineRenderer {
         p.parametric_darks = Float(model.parametricDarks)
         p.parametric_lights = Float(model.parametricLights)
         p.parametric_highlights = Float(model.parametricHighlights)
-        p.tone_curve_mode = model.toneCurveMode == .ratioPreserving ? 1 : 0
+        // Same exhaustive-switch reasoning as `wb_method` above.
+        switch model.toneCurveMode {
+        case .perChannel:      p.tone_curve_mode = 0
+        case .ratioPreserving: p.tone_curve_mode = 1
+        }
 
         // --- color / spatial sliders ---
         p.vibrance = Float(model.vibrance)
