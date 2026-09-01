@@ -12,7 +12,7 @@
  * background stage and on-demand generation from this route.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
@@ -27,6 +27,7 @@ import {
   findAssetByAddress,
   parseWildcardSegments,
   serveCachedBytesOr404,
+  wildcardSlugParams,
 } from './shared.ts';
 
 const log = childLogger('routes/library/preview');
@@ -141,9 +142,6 @@ export const previewRoutes = new Elysia().get(
     );
   },
   {
-    params: t.Object({
-      slug: t.String({ minLength: 1 }),
-      '*': t.Optional(t.String()),
-    }),
+    params: wildcardSlugParams(),
   },
 );
