@@ -8,6 +8,7 @@ import { Asset, AssetId } from '../models/asset';
 import { SidebarEntry } from '../models/folder';
 import { LibraryStore } from './library-store.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
+import { naturalCompare } from '../util/natural-sort';
 
 @Injectable({ providedIn: 'root' })
 export class LibrarySelection {
@@ -94,7 +95,7 @@ export class LibrarySelection {
     }
 
     if (this.prefs.sort() === 'name') {
-      list = [...list].sort((a, b) => a.filename.localeCompare(b.filename));
+      list = [...list].sort((a, b) => naturalCompare(a.filename, b.filename));
     }
 
     return list;
@@ -112,7 +113,7 @@ export class LibrarySelection {
       list = list.filter((f) => f.name.toLowerCase().includes(q));
     }
 
-    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    return [...list].sort((a, b) => naturalCompare(a.name, b.name));
   });
 
   readonly focusedAsset = computed<Asset | null>(() => {
