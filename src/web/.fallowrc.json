@@ -12,6 +12,17 @@
     "projects/**/*.generated.ts",
     "projects/**/generated/**"
   ],
+  // #2149: fallow's complexity metric is calibrated for functions — every
+  // `@if`/`@for` block in an Angular container template counts as a branch,
+  // so template CRAP/cyclomatic/cognitive scores run 40-100x the function
+  // thresholds regardless of decomposition (measured on people.component.html:
+  // CRAP 4422 vs. threshold 30, even after extracting the entire list view).
+  // Templates get no realistic ceiling under this metric, so they're excluded
+  // from complexity analysis only — dead-code and duplicate-detection still
+  // run over .html files, since both have caught real issues on this repo.
+  "health": {
+    "ignore": ["**/*.html"]
+  },
   // The four entries after `fallow` are pre-existing package.json hygiene
   // findings (never-imported deps / test-only placement) tracked in #3002 —
   // suppressed so unrelated PRs that touch package.json don't gate on them.
