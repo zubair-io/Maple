@@ -10,6 +10,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  HostListener,
   Injector,
   OnDestroy,
   ViewChild,
@@ -33,6 +34,7 @@ import { parseAddress } from '../../addressing/maple-address';
 import { viewRouteCommands } from '../../addressing/route-address';
 import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import { ASSET_GRID_DROP_LIST_ID, type AssetDragData } from '../../drag-move/asset-drag-data';
+import { TRASH_CAPABILITY } from '../../trash/trash-capability';
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
@@ -98,6 +100,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
+  private readonly trash = inject(TRASH_CAPABILITY);
   protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
@@ -255,6 +258,46 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     }
     this.state.openSelfHostedSubfolder(relPath, folder.id);
     this.state.setFolderOpen(folder.id, true);
+  }
+
+  /**
+   * Delete/Backspace on the grid selection sends it to Trash (#2752) — the
+   * same reversible, confirmation-free action the toolbar's "Move to Trash"
+   * button calls (`self-hosted-browse-actions.component.ts`), gated on the
+   * same `TRASH_CAPABILITY`. Document-scoped like the shortcut handlers in
+   * `browse-shell.component.ts` (F2, 1-5, P, X, U) — this component is only
+   * mounted while Browse is showing, so there's no separate "grid focused"
+   * state to track.
+   *
+   * Guards, in order: not typing in a text field (matches the existing
+   * shortcut handlers' guard), no modal dialog open (batch rename, move-to,
+   * metadata editor, the Trash panel's own confirm dialogs — every dialog in
+   * this codebase marks its panel `aria-modal="true"`), Trash actually wired
+   * up and idle, and a non-empty selection.
+   */
+  @HostListener('document:keydown', ['$event'])
+  onGridKeydown(e: KeyboardEvent): void {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+    const target = e.target as HTMLElement;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+    )
+      return;
+
+    if (document.querySelector('[aria-modal="true"]')) return;
+    if (!this.trash.available() || this.trash.busy()) return;
+    if (this.state.selectedTotalCount() === 0) return;
+
+    const sourceId = this.state.selectedSourceId();
+    if (!sourceId) return;
+
+    this.trash.trashAssets([...this.state.selectedAssetIds()], sourceId, [
+      ...this.state.selectedFolderIds(),
+    ]);
+    e.preventDefault();
   }
 
   // ── Drag-move / drag-copy source (#2644) ───────────────────────────────
