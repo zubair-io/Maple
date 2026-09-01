@@ -49,3 +49,12 @@ src/api/tests/search/buckets.test.ts                                            
 src/api/tests/search-place-route.test.ts                                          # 664  — search-by-place tests
 src/api/tests/enrichment-dead-letter.test.ts                                      # 623  — enrichment dead-letter tests
 src/api/tests/backup-ingest.test.ts                                               # 628  — backup-ingest tests; split tracked in #252
+
+# --- Windows (WinUI 3 C# shell) ---
+# Day-0 audit for `.cs`, seeded by #2747 (the PR that first brought C# under
+# check-file-budget.sh / check-budget-headroom.sh — see docs/windows.md §
+# "Gates that do not apply to C#", pre-#2747 revision, for how long these
+# went unmeasured).
+src/windows/Maple.WinUI/MainWindow.xaml.cs                                        # 839  — window shell; split tracked in #3118
+src/windows/Maple.WinUI/Services/Cloud/CloudClient.cs                             # 631  — Maple Cloud HTTP client; split tracked in #3119
+src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.Library.cs                # 605  — library/folder-tree/thumbnails partial; split tracked in #3120
