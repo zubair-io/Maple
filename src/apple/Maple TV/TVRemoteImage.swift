@@ -183,6 +183,11 @@ struct TVRemoteImage: View {
   private func fetchAndDecode(fetch: () async -> Data?) async -> UIImage? {
     guard let data = await fetch() else { return nil }
     guard !Task.isCancelled, let cgImage = await Self.decode(data) else { return nil }
+    // Re-checked (Copilot review on #2116, PR #3129): the guard above only
+    // catches cancellation that happened BEFORE the decode await started —
+    // `load()` already re-checks after this function returns, but this
+    // function's own state should never claim success for a cancelled task.
+    guard !Task.isCancelled else { return nil }
     return UIImage(cgImage: cgImage)
   }
 
@@ -310,14 +315,19 @@ extension TVRemoteImage {
       await thumbCache.put(host: host, absPath: absPath, bytes)
       thumbBytes = bytes
     }
-    if let data = thumbBytes, !Task.isCancelled, let cg = await decode(data) {
+    // Both branches re-check cancellation after the `await decode(...)`
+    // call, not just before it (Copilot review on #2116, PR #3129): a task
+    // cancelled mid-decode must not still write a stale image into the
+    // shared cache.
+    if let data = thumbBytes, !Task.isCancelled, let cg = await decode(data), !Task.isCancelled {
       TVDecodedImageCache.shared.setImage(UIImage(cgImage: cg), forKey: key)
       return
     }
 
     guard !Task.isCancelled,
           let previewData = try? await thumbClient.preview(absPath: absPath),
-          !Task.isCancelled, let cg = await decode(previewData) else { return }
+          !Task.isCancelled, let cg = await decode(previewData),
+          !Task.isCancelled else { return }
     TVDecodedImageCache.shared.setImage(UIImage(cgImage: cg), forKey: key)
   }
 
