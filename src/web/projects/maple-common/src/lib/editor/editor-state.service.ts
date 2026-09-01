@@ -473,8 +473,9 @@ export class EditorStateService {
   private _applyAutoAdjustments(id: AssetId, patch: AutoAdjustPatch): boolean {
     if (this.imageId() !== id) return false;
     this.commit();
+    const exposure = clampAdjustment('exposure', patch.exposure);
     this.library.updateAdjustment(id, {
-      exposure: clampAdjustment('exposure', patch.exposure),
+      exposure,
       contrast: clampAdjustment('contrast', patch.contrast),
       highlights: clampAdjustment('highlights', patch.highlights),
       shadows: clampAdjustment('shadows', patch.shadows),
@@ -482,8 +483,10 @@ export class EditorStateService {
       blacks: clampAdjustment('blacks', patch.blacks),
       autoExposure: 'Off',
     });
-    const sign = patch.exposure >= 0 ? '+' : '';
-    this.autoResult.set(`Auto applied · Exposure ${sign}${patch.exposure.toFixed(2)} EV`);
+    // Report the CLAMPED value — the one actually written — so the feedback
+    // text can never disagree with the edit (#3130 review).
+    const sign = exposure >= 0 ? '+' : '';
+    this.autoResult.set(`Auto applied · Exposure ${sign}${exposure.toFixed(2)} EV`);
     return true;
   }
 

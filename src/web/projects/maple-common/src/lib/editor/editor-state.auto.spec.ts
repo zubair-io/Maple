@@ -118,6 +118,9 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
     expect(adj.shadows).toBeCloseTo(100, 9);
     expect(adj.whites).toBeCloseTo(-100, 9);
     expect(adj.blacks).toBeCloseTo(100, 9);
+    // The feedback message reports the CLAMPED exposure that was actually
+    // written, not the raw out-of-range recommendation (#3130 review).
+    expect(svc.autoResult()).toBe('Auto applied · Exposure +4.00 EV');
   });
 
   it('creates ONE undo entry that restores the pre-AUTO tone sliders too', async () => {
