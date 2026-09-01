@@ -2,7 +2,7 @@
 
 Bun + Elysia backend with MongoDB library index, background Indexer, raw-ffi thumbnail generation, and the same Angular WASM client as Maple Hosted — all self-hostable on your own hardware.
 
-Spec: `docs/spec/12-maple-apps-spec.md` § 07–08.
+Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 
 ## Quick start (local development)
 
@@ -60,7 +60,6 @@ in the background.
 | `MAPLE_MONGO_URI`       | `mongodb://localhost:27017`                                              | MongoDB connection string                                                                                                                                                                                                                                                 |
 | `MAPLE_MONGO_DB`        | `maple`                                                                  | MongoDB database name                                                                                                                                                                                                                                                     |
 | `MAPLE_ROOTS`           | `/`                                                                      | Colon-separated FS roots the server may browse and read. Defaults to `/` (Docker mount is the jail).                                                                                                                                                                      |
-| `MAPLE_INDEXER_WORKERS` | `2`                                                                      | Concurrent indexer worker threads                                                                                                                                                                                                                                         |
 | `MAPLE_DEV`             | (none)                                                                   | Set to `1` to proxy UI to Angular dev server                                                                                                                                                                                                                              |
 | `MAPLE_DEV_ORIGIN`      | `http://localhost:4201`                                                  | Angular dev server origin when `MAPLE_DEV=1` (the `maple` app serves on 4201)                                                                                                                                                                                             |
 | `MAPLE_UI_DIST`         | (auto-resolved)                                                          | Override the Angular bundle dist path                                                                                                                                                                                                                                     |
@@ -76,26 +75,7 @@ in the background.
 
 ## API reference
 
-```
-GET  /api/health                    — server liveness + DB status
-GET  /api/folders                   — list registered library folders
-POST /api/folders                   — register a folder (triggers background scan)
-GET  /api/folders/:id/assets        — paged asset list (?page=1&limit=100)
-GET  /api/assets/:id                — single asset metadata
-GET  /api/assets/:id/raw            — stream raw file bytes
-GET  /api/assets/:id/thumb?size=NxN — thumbnail from .maple/ cache
-GET  /api/assets/:id/xmp            — read XMP sidecar
-PUT  /api/assets/:id/xmp            — write XMP sidecar (atomic)
-GET  /api/indexer/stats             — queue stats
-GET  /api/indexer/progress          — SSE stream of indexer progress
-GET  /api/auth/status               — auth status (Phase 5: always authenticated)
-POST /api/auth/register             — WebAuthn registration (Phase 5: returns 501)
-POST /api/auth/verify               — WebAuthn verify (Phase 5: returns 501)
-GET  /api/fs/list?path=<abs>&showAll=0|1   — list subdirectories under <abs> (library picker)
-GET  /                              — Angular SPA (SPA fallback for all non-API routes)
-```
-
-The full machine-readable contract is available at `GET /openapi.json` when running `bun run dev` in `src/api/` (issue #131). A human-readable Scalar UI for the same spec is served at `GET /docs`. Both endpoints are unauthenticated so client codegen tooling can fetch the spec without a bearer token.
+The full route reference (195 routes, with auth tier and parameters) is generated from the source in [`docs/server-api.md`](../../docs/server-api.md). Process model, auth, storage layout, and operations are in [`docs/api.md`](../../docs/api.md); the indexer and worker stages are in [`docs/indexer-enrichment.md`](../../docs/indexer-enrichment.md).
 
 ## Development mode (UI hot-reload)
 
@@ -216,37 +196,14 @@ See `maple.service` for the full unit file.
 
 ## Architecture
 
-```
-Browser (Angular SPA)
-    │
-    ▼
-Elysia HTTP server (Bun)
-    ├── /api/folders, /api/assets  ← MongoDB (library index, non-authoritative)
-    ├── /api/assets/:id/raw         ← direct filesystem read
-    ├── /api/assets/:id/thumb       ← .maple/ cache on disk
-    ├── /api/assets/:id/xmp         ← XMP sidecar read/write (atomic)
-    ├── /api/indexer/progress       ← SSE stream
-    └── /*                          ← Angular bundle (SPA fallback)
-
-Indexer (in-process, EventEmitter-based queue)
-    ├── scan_folder → walk dir tree, upsert MongoDB records
-    ├── gen_thumb   → raw-ffi (libraw_ffi.dylib) → .maple/thumbs/
-    └── extract_exif → parse XMP sidecar → update MongoDB
-```
-
-**MongoDB is cache; sidecars (`.xmp`) are authoritative.** Deleting MongoDB and re-scanning will reproduce the index.
+See [`docs/api.md`](../../docs/api.md). In short: the API process serves the Angular bundle and the HTTP routes; a niced worker child process runs the indexer and enrichment stages; RAW decode runs in disposable FFI child processes so a native crash cannot take the server down.
 
 ## Testing
 
 ```bash
-bun test                # run all tests (no MongoDB required)
+bun test                # unit + integration; Mongo-backed tests skip-pass unless MAPLE_MONGO_URI points at a live mongod
 bun run typecheck       # TypeScript strict check
+bun run lint            # oxlint (correctness + fs-import guardrail)
 ```
 
-## Known limitations and deferrals
-
-- **WebAuthn auth**: deferred to Phase 5 per spec § 00. No auth is enforced in this build.
-- **Full-res RAW render**: the client-side WASM handles editing; the server only generates thumbnails.
-- **Linux native library**: requires a native Linux build or `cross` (Docker). See `scripts/build-raw-ffi.sh`.
-- **JPEG resize**: non-RAW thumbnail resize uses a BMP passthrough placeholder. TODO: integrate sharp.
-- **Face detection**: deferred beyond MVP.
+CI (`.github/workflows/api.yml`) runs the suite against real MongoDB 7 and Meilisearch services. To run the Mongo-backed tests locally, start a mongod and export `MAPLE_MONGO_URI` (for example `mongodb://localhost:27017`) before `bun test`. See [`docs/testing.md`](../../docs/testing.md).

@@ -1,7 +1,7 @@
 //! Tone-curve types attached to `AdjustmentModel`.
 //!
 //! Maple supports two families of user-authored tone curves (see
-//! `docs/maple-paper.md` § 3 "Tone curves"):
+//! `docs/xmp-canonical-format.md` § "Tone curves"):
 //!
 //! 1. **Parametric** — four region sliders (`parametric_highlights`,
 //!    `parametric_lights`, `parametric_darks`, `parametric_shadows`). Modeled

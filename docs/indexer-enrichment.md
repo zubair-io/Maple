@@ -1,573 +1,276 @@
-# Indexer enrichment
+# Indexer, Workers and Search
 
-Status: design · last updated 2026-05-08
+Everything Maple knows about a photo beyond its bytes is produced by a background pipeline that lives in the API server's worker tier. A **discover sweep** walks each registered library folder one directory at a time and keeps the `assets` collection in step with the filesystem — inserting new files, deduplicating identical content, repointing renames, tagging vanished files. Every asset then flows through a set of **stages** (EXIF, thumbnail, preview, vision captioning, geocoding, faces, transcription, search indexing), each of which is a small handler plus a target version number; a generic runner claims assets whose recorded version is below target, runs the handler, and writes the result back. Bumping a stage's `targetVersion` re-queues the whole library through that stage. Alongside the stages sit interval-driven **maintenance workers** (trash purge, missing-file reaper, one-shot migrations, deduplication, mirror replication, derivative audit) and a **JobRunner** for user-triggered one-off work like a batch export or a panorama stitch. Operators see and control all of it on Settings → Workers.
 
-This doc designs the **enrichment subsystem** that runs after the indexer's fast pipeline finishes. It covers the two-tier architecture, the per-asset state model, the geocode worker (self-hosted Nominatim against Geofabrik extracts), the search design (Albany NY / NY / Park / Musum), and the rollout plan.
+The whole tier runs in a separate, `nice`d child process spawned by the HTTP server, so indexing load can never starve or crash the API.
 
-Companion doc: `docs/workers-architecture.md` (the existing fast pipeline this builds on top of).
+## Where it runs
 
-## TL;DR
+`src/api/src/index.ts` spawns `src/api/src/workers/worker-main.ts` as a child process (`ChildProcessWorker`, niced) and auto-respawns it on death with exponential backoff (1 s → 30 s, reset once a worker has lived 60 s). Setting `MAPLE_INDEXER_AUTOSTART=0` suppresses the spawn entirely — useful for running an API-only replica.
 
-The current indexer is one linear pipeline that writes the asset row only at the end. It works for hash/exif/thumb but breaks for geocoding, face detection, and image descriptions: those stages are slow, depend on external services, and have wildly different latency profiles. Forcing them through the same chain means a 2-second thumb gates an LLM call that would have been 5 seconds and the user can't see their photo until everything finishes.
+`worker-main.ts` connects to Mongo, ensures indexes, initialises OpenTelemetry, loads the mirror registry, and calls `startWorkers()` in `src/api/src/workers/start-workers.ts`, which brings up:
 
-The fix is **two-tier**:
+- the stage orchestrator (`workers/orchestrator.ts`)
+- the discover sweep (`workers/discover/index.ts`) plus a one-shot cache-GC pass per library
+- the FFI decode pool (`ffi/ffi-pool-bootstrap.ts`)
+- enrichment bootstraps (Nominatim health check, face-model preload, describe config)
+- Meilisearch config refresh (`workers/enrichment-config-refresh.ts`)
+- the JobRunner and the import runner
+- maintenance jobs (`workers/maintenance.ts`)
 
-1. **Fast tier (existing pipeline, slightly shortened).** `discover → hash → exif → thumb → mongo-skeleton`. Writes a skeleton asset row as soon as the cheap stuff is known. The browse UI sees the photo within a second.
-2. **Slow tier (new enrichment workers).** Independent workers (`geocode`, `face`, `describe`) that each pull from Mongo, run their work, and patch the asset row. Each worker has its own pool, retry policy, and dead-letter handling. New worker types are additive — write a worker, deploy it, no pipeline changes.
+It also publishes a status snapshot into a `worker_status` Mongo document every 2 s. That is how the API process — which has an empty in-process registry — can answer `GET /api/workers/status`.
 
-Per-stage state lives on the asset document (`enrichment.geocode.doneAt`, `enrichment.face.doneAt`, etc.), so backfills are queries (`find({ "enrichment.geocode.doneAt": null })`) and restarts pick up where they left off.
+Native decoders are deliberately kept out of this process's address space: `src/api/scripts/check-worker-isolation.sh` fails if `sharp`, `onnxruntime-node`, or `heic-convert` are imported anywhere on the `worker-main` path outside a dedicated child (`thumbs/imgdecode.child.ts`, `enrichment/face-pool.child.ts`, and friends). A segfault in libraw or ONNX kills a child, not the tier.
 
-For geocoding, **Maple is purely a Nominatim client**. The user already runs Nominatim as a separate service (on Proxmox in this case); Maple talks to it over HTTP via a single configurable URL. We keep a quantized lat/lon cache to dedupe the 90% case (clustered photos at one location), and store both the structured address and a denormalized `searchBlob` field. A Mongo text index on the blob covers the "Albany NY" / "NY" / "Park" cases. Typo tolerance ("Musum" → Museum) needs a Meilisearch sidecar, which is deferred to v2.
+## Discovery: keeping Mongo in step with disk
 
-## 1. Two-tier architecture
-
-### 1.1 Fast tier — what changes
-
-The existing pipeline keeps `discover → hash → exif → thumb`. The mongo stage changes from "write everything" to "write a skeleton."
-
-The skeleton has every field the browse UI needs to show the photo:
-
-```ts
-{
-  _id: ObjectId,
-  mapleId: string,
-  folderId: ObjectId,
-  absPath: string,
-  filename: string,
-  size: number,
-  mtime: number,
-  sha1Head: string,
-  exif: AssetExif | null,        // EXIF block from existing parser
-  thumb: { ready: true, path: string },
+There is no filesystem watcher. `workers/discover/sweeper.ts` runs a breadth-first reconciliation sweep, one directory per tick, paced by `sweepDirIntervalMs` (default 250 ms) read from the `discover` row in `worker_config` on every tick — so pausing or re-pacing the sweep takes effect without a restart.
 
-  // Enrichment state — workers update these
-  enrichment: {
-    geocode:  { doneAt: null, lockedBy: null, leaseExpiresAt: null,
-                attempts: 0, lastError: null, version: null },
-    face:     { doneAt: null, lockedBy: null, leaseExpiresAt: null,
-                attempts: 0, lastError: null, version: null },
-    describe: { doneAt: null, lockedBy: null, leaseExpiresAt: null,
-                attempts: 0, lastError: null, version: null }
-  },
+Each directory visit (`visitDirectory`):
 
-  // Enrichment outputs (added later by workers)
-  place: null,        // see §4.4
-  faces: [],
-  description: null
-}
-```
+1. Lists the directory. Subdirectories are pushed onto a Mongo-backed frontier queue (`workers/discover/frontier.repo.ts`), skipping dotdirs (notably `.maple/`, our own derivative cache — indexing it would create a self-feeding `.maple/.maple/…` loop) and the `_duplicates/` quarantine.
+2. Does **one** indexed read for the assets already recorded in that directory, and diffs it against what is on disk. Files on disk with no row are "new candidates"; recorded entries absent from the listing are "missing candidates".
+3. Re-stats every missing candidate before believing it. A `readdir` on an SMB share can succeed and return an incomplete listing; only a genuine ENOENT counts, and if the library root itself is unavailable the whole visit confirms nothing rather than mass-tagging present files.
+4. Runs rename reconciliation, then emits ordinary `created` / `removed` events for whatever is left.
+5. Reconciles the folder-level `.hidden` marker (`workers/discover/folder-hidden.ts`).
 
-The fast pipeline's `runMongo` is the only stage that changes — instead of stuffing `faces`, `aiTags`, etc. into the upsert, it inserts the skeleton with empty enrichment state. The browse grid populates within ~200 ms of `exif` finishing instead of waiting through every external API call.
+When the frontier for a generation drains, `advanceSweep` records a checkpoint (`indexer/checkpoint.ts`) and reseeds the root at the next generation, so the sweep loops forever and a restart resumes the in-progress generation rather than re-walking from scratch.
 
-### 1.2 Slow tier — worker shape
+The supported extension set lives in `workers/discover/types.ts`: RAW formats decoded through libraw, bitmap formats through sharp, PSD/PSB and Radiance HDR, video containers (metadata-only), audio, and a handful of metadata-only stubs (`.eip`, `.braw`, `.afphoto`, `.ai`) that are indexed for filename/size/date and never decoded.
 
-Each enrichment worker is a small, independently deployable process that loops:
+### Per-event handling and content dedup
 
-```ts
-while (!shutdown) {
-  const job = await claim(); // findOneAndUpdate, see §3.1
-  if (!job) {
-    await sleep(POLL_MS);
-    continue;
-  }
-  try {
-    const result = await process(job);
-    await complete(job, result); // sets doneAt, writes outputs
-  } catch (err) {
-    await fail(job, err); // increments attempts, may dead-letter
-  }
-}
-```
+`workers/discover/handle-event.ts` is the chokepoint every producer funnels into — the sweep, the import runner, browse indexing, the pano handler.
 
-The same shape works for `geocode`, `face`, and `describe`. Only `process()` differs.
+- **created / modified** — hash the first 64 KB (`indexer/id.ts`), look up an existing row by `maple_id`, falling back to `sha1_head`. A hit **appends a location** to the existing row's `fileinfo[]` rather than inserting a duplicate; a miss inserts a fresh row with a blank `stages` skeleton. An E11000 race with a concurrent insert falls back to the append path. Before either, a "modified in place to new content" guard compares the stored `sha1_head` for that exact `(library, path, filename)`; a mismatch marks the old entry `deleted_at` + `missing_since: 'content-changed'` so the stale row stops claiming the location.
+- **removed** — re-confirm the file really is absent and the library root really is mounted, then stamp `missing_since` on **that one location**, never the whole asset. A photo that also exists elsewhere stays visible and claimable on its surviving entries.
+- **renamed** — rewrite the matching `fileinfo` entry in place (the array length does not change) and re-arm the `meili` stage, because `filename` is the highest-weight lexical field in the search index.
 
-Workers are independent. A geocode worker can run on a tiny VM next to Nominatim. A face worker can run on a GPU box. A describe worker can run on a host with an LLM API key. None of them know about each other — they coordinate exclusively through the asset document.
+Reserved trees (`.maple/`, `_duplicates/`) are refused for every event kind by `workers/discover/reserved-trees.ts`, whatever the producer.
 
-## 2. Per-stage state on the asset
+### Rename reconciliation
 
-The `enrichment.<stage>` sub-document is the contract between the fast pipeline and a worker:
+`workers/discover/rename-reconcile.ts` handles the common case where a file is renamed **outside** Maple between two sweeps. Without it the sweep would see an unrelated removed+created pair, orphaning the `.xmp` sidecar and every edit in it.
 
-| Field            | Purpose                                                                           |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `doneAt`         | ISO timestamp when the stage completed. `null` = pending.                         |
-| `lockedBy`       | Worker id holding the claim. `null` = available.                                  |
-| `leaseExpiresAt` | When the lock auto-releases. Crashed workers don't block forever.                 |
-| `attempts`       | Retry count. Crossed `MAX_ATTEMPTS` → dead-letter.                                |
-| `lastError`      | Last error message, for triage.                                                   |
-| `version`        | Handler version that produced the output. Bumping it triggers re-runs (see §7.3). |
+The match signal is a cheap fingerprint — file size + EXIF capture time + camera serial — rather than a full checksum, because a pure rename never touches bytes and the sweep already pays for the EXIF read. The false-positive guard is structural: candidates on both sides are grouped into fingerprint buckets, and a pairing is only ever yielded from a bucket pair where **both** buckets have exactly one member. An ambiguous bucket declines outright and falls through to ordinary created/removed handling. A reconciled rename repoints the `fileinfo` entry, re-arms `meili`, and resets the `thumb` and `preview` stages (their cache keys are path-derived, so the derivatives must be regenerated at the new location — the cache files themselves are never physically moved).
 
-This is the only state that needs to exist in Mongo for the architecture to work. The previous "linear pipeline + `dead_letter` collection" scheme moves _into_ the asset document. The dead_letter collection stays for fast-tier failures (a hash that can't be computed is still a fast-tier dead letter), but slow-tier failures live on the asset.
+### Missing files, damaged files, and the reaper
 
-## 3. Worker mechanics
+Three tags govern an asset's participation in the pipeline, and all three are enforced in one place — `buildClaimQuery` in `workers/claim-query.ts`:
 
-### 3.1 Claim query (the `findOneAndUpdate` pattern)
+| Signal                    | Set by                                                                           | Effect                                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| per-entry `missing_since` | discover `removed`, a file-reading stage's ENOENT, the content-changed guard     | that location is non-live; an asset with no live location drops out of reads and every stage's claim query |
+| per-entry `deleted_at`    | content replaced in place                                                        | same — the entry is dead, and is never re-stat'd (a different file may sit at that path)                   |
+| root `damaged.since`      | a file-reading stage that exhausts retries, or a handler returning `{ damaged }` | the asset parks out of **every** stage and appears in the Workers "Damaged" list                           |
 
-The geocode worker's claim query:
+Tagging is the only automatic step. `workers/missing-reaper.ts` then reconciles, on a 60 s interval in batches of 200:
 
-```js
-db.assets.findOneAndUpdate(
-  {
-    'exif.gps.lat': { $ne: null },
-    'exif.gps.lon': { $ne: null },
-    'enrichment.geocode.doneAt': null,
-    $or: [
-      { 'enrichment.geocode.lockedBy': null },
-      { 'enrichment.geocode.leaseExpiresAt': { $lt: now } }, // expired lease
-    ],
-  },
-  {
-    $set: {
-      'enrichment.geocode.lockedBy': workerId,
-      'enrichment.geocode.leaseExpiresAt': now + LEASE_MS,
-    },
-  },
-  { sort: { 'exif.captured_at': -1 } }, // newest first; tunable
-);
-```
+- **Recover** — the file reappeared: clear the tag, and re-arm any file-reading stage that had died on it. Never age-gated.
+- **Prune** — the location is confirmed gone and has been missing longer than `prune_window_hours` (default 12 h): `$pull` the entry.
+- **Soft-delete** — that prune emptied the row: set `deleted_at` + `deleted_reason: 'reaped'` and emit a `delete` change event. The record keeps its fileinfo and derived data; trash-GC purges it after the trash retention window, and a content re-discover revives it in the meantime.
 
-This is atomic — Mongo guarantees only one worker wins a given claim. Lease expiry handles crashed workers. The compound index for the geocode worker is `{ "exif.gps.lat": 1, "enrichment.geocode.doneAt": 1, "enrichment.geocode.lockedBy": 1 }`; each worker type gets its own index tuned to its claim shape.
+Safety properties, all load-bearing: the reaper boots **paused** and its paused state persists in `worker_config`, but pausing suspends only the record soft-delete — recovery and sibling-prune keep running. An unregistered library, an absent mount point, or an unstattable path skips the row entirely. Before a soft-delete, the parent directory is listed and a case/Unicode near-match vetoes the delete (a stored-path bug, not a deleted file). A pass that soft-deletes more than 25 rows _and_ more than half of what it scanned surfaces a persistent worker error as a systemic-misdetection tripwire.
 
-### 3.2 Polling vs change streams
+The prune window resolves DB row → `MAPLE_REAPER_PRUNE_HOURS` → 12 h default, clamped to 1 h–1 year, and is editable at `PATCH /api/workers/missing-reaper/prune-window`.
 
-Start with **polling at 1 Hz with batched claims** (claim up to N at a time, process them, repeat). Simple, no driver-level surprises, easy to reason about. Latency budget: ~1 second from `mongo-skeleton` write to first claim — fine for enrichment work that takes seconds anyway.
+## The stage machinery
 
-Evolve to **change streams** when you have a measurable reason. Mongo's change streams give near-realtime "watch a query" semantics without polling overhead. The trade-off is operational complexity (resume tokens, change-stream cursor lifetime, etc.) and version coupling to the Mongo cluster. Defer until polling actually hurts.
+A stage is one object built with `defineStage()` (`workers/stage-config.ts`) and handed to `runStage()` (`workers/run-stage.ts`). There are no child processes and no IPC — every stage is a poll loop in the worker process.
 
-### 3.3 Lease and retry
+### What a stage declares
 
-`LEASE_MS = 5 minutes` for geocode (network call, should be fast). `LEASE_MS = 30 minutes` for face (GPU model, can be slow). `LEASE_MS = 10 minutes` for describe (LLM call). Workers renew the lease if their work runs long.
+| Field                     | Meaning                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `name`                    | key in `worker_config` and in each asset's `stages.<name>` subdocument            |
+| `targetVersion`           | bumping it re-queues every asset below that version, and resets dead docs on boot |
+| `dependsOn`               | upstream stages, as `'exif'` (≥ v1) or `{ name, minVersion }`                     |
+| `defaults`                | `concurrency`, `maxAttempts`, `paused`, `pausedOnFirstBoot`                       |
+| `claimFilter`             | optional extra Mongo predicate `$and`-ed into the claim query                     |
+| `tagsMissingOnEnoent`     | ENOENT means the original vanished — tag for the reaper                           |
+| `tagsDamagedOnDeadLetter` | exhausting retries means the bytes are unreadable — tag `damaged`                 |
+| `onProgress`              | optional per-tick hook; only `face-embed` uses it (auto-clustering)               |
+| `handler`                 | `(image, ctx) => Promise<StageResult>`                                            |
 
-Retry on failure: increment `attempts`, set `leaseExpiresAt: now` so the lease releases immediately, leave `lockedBy: null`. Next claim picks it up after a backoff (the backoff happens because the worker's loop sleeps).
+`pausedOnFirstBoot` is the mechanism for a stage that cannot work until an operator configures something external — a Nominatim URL, an Ollama endpoint, Cloudflare credentials, a whisper model. It seeds `paused: true` on the very first boot only; from then on the saved value wins. Without it, a version-gated stage would mark every asset permanently handled before its configuration existed.
 
-`MAX_ATTEMPTS = 5`. After that, set `enrichment.<stage>.deadLetterAt = now`, leave `doneAt: null`. The claim query won't pick it up again because the worker can be configured to skip dead-letter rows.
+### The claim query
 
-A separate "reset" admin operation can clear `deadLetterAt` and reset `attempts` to retry — useful when you fix a bug and want to re-process.
+`buildClaimQuery` selects assets where `stages.<name>.version` is below target (or absent), the stage is not `dead`, the per-asset retry backoff has elapsed, at least one `fileinfo` entry is live, the asset is not tagged `damaged`, every `dependsOn` stage has reached its minimum version, and the id is not already in flight this tick. A stage's `claimFilter` is `$and`-merged on, so it cannot collide with the base query's keys — `transcribe` uses a video/audio filename regex so it never sweeps the photo library stamping "not media" skips.
 
-### 3.4 Idempotency
+### The poll loop
 
-Every worker handler must be safe to re-run on the same asset. If `process()` partially writes outputs and then crashes, the next claim re-runs `process()` and the outputs get overwritten. This is fine for geocode (the result is deterministic given lat/lon), face (the result is deterministic given the thumbnail), and describe (the LLM may give a different caption, but the field gets overwritten cleanly).
+Each tick claims up to `5 × concurrency` documents (`deriveBatchSize`), dispatches them through a bounded pool (`workers/dispatch-pool.ts`), then decides the next delay (`workers/loop-policy.ts`):
 
-What's _not_ safe is writing partial outputs across multiple Mongo updates. Each worker's `complete()` must be a single `updateOne` that sets the output and `doneAt` in one operation.
+- a full batch → poll again immediately, so a backlog drains as fast as the pool allows;
+- otherwise → the global 1 s idle cadence (there is no per-stage poll-interval knob);
+- after a tick that threw → exponential backoff 1 s → 30 s, and the error is published to the registry so it shows on `/status` rather than being log-only.
 
-## 4. Geocode worker (the detailed spec)
+`worker_config` is re-read from Mongo at most every 2 s, which is how a pause written by the API process reaches the running loop with no IPC.
 
-### 4.1 Nominatim — external service
+### Result shapes
 
-Maple does not run Nominatim. The operator runs it separately (in this deployment: a VM on Proxmox, loaded from a Geofabrik extract sized to the user's photo coverage). Maple consumes it as an HTTP client.
+A handler returns one of five things (`StageResult`):
 
-What Maple needs from the operator's instance:
+- `{ patch }` — field values written atomically together with the stage's own success state. Handlers may not write `stages.*` keys themselves; the runner rejects that. An optional `invalidates: ['meili']` marks downstream stages stale in the _same_ write, so a crash can never land new fields without also re-arming the consumer. `describe`, `geocode` and `sidecar-metadata-index` all use this to force a search re-index.
+- `{ wrote: true }` — the handler persisted its own output (e.g. `transcribe`), just record the stage state.
+- `{ skip: reason }` — nothing to do and nothing retryable: no GPS, not a media file, a stub format with no decode path. Recorded as `last_error: "skip: <reason>"` with `attempts` reset, and the version **is** advanced, so the asset counts as handled.
+- `{ rearm: { stage, reason } }` — an upstream artefact is missing even though that stage claims done (a moved cache directory, an interrupted write). The runner re-arms the named upstream stage, keeps this stage below target with its attempt spent, and the `dependsOn` gate parks the asset until the upstream completes. A pair that never converges dead-letters at `maxAttempts` instead of ping-ponging. The named stage must be one of this stage's dependencies.
+- `{ damaged: reason }` — the handler already knows retries are futile (a 0-byte file). Marks the stage dead after one attempt and tags the asset. Only allowed on stages that set `tagsDamagedOnDeadLetter`.
 
-- A reachable URL on the local network (e.g. `http://nominatim.lan:8080`).
-- A reverse-geocode endpoint at `/reverse` supporting `addressdetails=1`, `extratags=1`, `namedetails=1`.
-- A health endpoint at `/status` (Nominatim's default).
-- A rate limit generous enough for backlog processing — 10–20 req/s is plenty; we self-throttle below that.
+### Retry, backoff, and dead-letter
 
-Configuration on Maple's side is a single environment variable: `MAPLE_NOMINATIM_URL`. No credentials by default (private network); add a header-based auth shim if the operator fronts Nominatim with a reverse proxy.
+The attempt counter is persisted **before** the handler runs, so an uncatchable native crash (SIGSEGV/SIGABRT in libraw or ONNX) still counts against the budget. A clean success or a skip resets it to zero.
 
-Decoupling Maple from Nominatim ops has real benefits:
+A failure records `last_error`, `failed_at`, and `next_attempt_at` (`workers/stage-failure.ts`). The per-asset retry ladder is 30 s → 2 min → 5 min → 15 min with ±20 % jitter — minutes rather than seconds, because the failures worth surviving are provider restarts and model loads, and jitter because provider outages fail every in-flight asset within the same second. An error carrying `retryable: false` short-circuits the budget. Reaching `maxAttempts` sets `dead: true`, which removes the asset from the claim query.
 
-- Nominatim re-imports (monthly OSM updates) don't touch Maple at all.
-- Maple can swap providers (different self-hosted instance, public Nominatim with reduced rate, even a paid geocoder) by changing one URL.
-- Different installs can point at different Nominatim instances with different extract scopes — Maple doesn't care.
-- Nominatim crashes / reboots are isolated; the geocode worker dead-letters cleanly and resumes when service returns (see §4.5).
+Operators triage dead assets at `GET /api/workers/:name/dead` and reset them with `POST /api/workers/:name/retry-dead`. Damaged assets are listed at `GET /api/workers/damaged` and cleared with `POST /api/workers/damaged/clear`, which also resets the damage-tagging stages' bookkeeping so the file is genuinely retried.
 
-Failure-domain implications are in §4.5 — the worker treats Nominatim as a remote dependency with timeouts, retries, and a startup health check.
+(The `enrichment` subdocument in `db/schema.ts` and the `enrichment/dead-letter.repo.ts` triage helpers predate this design. Nothing writes that subdocument today except a `$setOnInsert` default, and the routes built on it are not mounted; `stages.<name>.dead` is the live dead-letter surface.)
 
-### 4.2 The geocode worker
+### Registering a stage
 
-The worker config:
+Three additions, all mechanical: export `start<Name>Stage()` from `workers/stages/<name>.ts`; add the stage to both `stageManifest` and `ALL_STAGE_NAMES` in `workers/stages/manifest.ts` (this is what makes existing assets retroactively eligible and what the status counters key off); add an entry to `STAGE_STARTERS` in `workers/orchestrator.ts` (this boots the poll loop). A fourth, optional, gives the UI a real label instead of the generic fallback: a `STAGE_META` entry in `src/web/projects/maple/src/app/settings/workers/workers.vm.ts`.
 
-```ts
-const GEOCODE_CONFIG = {
-  nominatimUrl: process.env.MAPLE_NOMINATIM_URL, // required; fail-fast at boot if missing
-  requestTimeoutMs: 5_000, // remote service; tighter than localhost
-  rateLimitPerSec: 10, // respectful even on a private instance
-  cacheQuantizationDecimals: 4, // ~11m precision, see §4.3
-  handlerVersion: 1,
-};
-```
+Boot is best-effort and retried: a stage whose starter throws (missing ONNX model, Mongo blip) is retried with the same 1 s → 30 s ladder while every other stage comes up, and it is pre-registered so `/status` reports it as an error row rather than silently omitting it.
 
-On boot, the worker hits `${nominatimUrl}/status` once. If that fails, the process exits with a clear error rather than silently dead-lettering every claim. This is critical when Maple and Nominatim live on different hosts — a typo in the URL or a Proxmox VM that hasn't booted yet shouldn't look like a thousand geocode failures.
+## The registered stages
 
-`process(job)`:
+All eleven live in `src/api/src/workers/stages/`.
 
-1. Read `job.exif.gps.lat`, `job.exif.gps.lon`. If either is null → `complete(job, { place: null, reason: "no-gps" })`. Done; no API call.
-2. Quantize lat/lon to `cacheQuantizationDecimals` precision and check the `geocode_cache` collection. If hit → use cached result.
-3. Otherwise, GET `${nominatimUrl}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&addressdetails=1&extratags=1&namedetails=1&zoom=18`.
-4. Parse the response into the `Place` schema (see §4.4).
-5. Write to `geocode_cache` keyed by quantized coords.
-6. `complete(job, { place })` updates the asset.
+| Stage                    | Depends on                  | Concurrency | Starts paused | What it does and where it writes                                                                                                                                                                                                                                            |
+| ------------------------ | --------------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exif`                   | —                           | 4           | no            | Reads EXIF via exifr; writes `exif` and a heuristic `is_screenshot`. Upgrades `maple_id` from its fallback form (hash of the first 64 KB) to the primary form (hash + capture time + camera serial + shutter count) once a capture date is available. Tags missing/damaged. |
+| `thumb`                  | `exif`                      | 2           | no            | 512-px AVIF at `<dir>/.maple/thumbs/<sha256_prefix16(filename)>.avif`, via `indexer/thumbnailer.ts`. Orientation is baked at decode time. Resets `cf-thumb-sync` on every rewrite. Tags missing/damaged.                                                                    |
+| `preview`                | `thumb`                     | 2           | no            | 1280-px AVIF at `<dir>/.maple/previews/<filename>.avif`, via `indexer/previewer.ts`. Feeds both the Preview screen and `describe`. Tags missing/damaged.                                                                                                                    |
+| `describe`               | `preview`                   | 2           | **yes**       | Vision-LLM captioning through a local Ollama pool. Writes `description`, `description_meta`, the structured `vision` doc + `vision_meta`, `ocr_text`/`ocr_meta`, and an authoritative `is_screenshot`. Invalidates `meili`.                                                 |
+| `geocode`                | `exif` ≥ v2                 | 1           | **yes**       | Reverse-geocodes `exif.gps` against a self-hosted Nominatim, through a quantised coordinate cache. Writes `place`; resets `backup_layout_version` when the resolved place changes the canonical backup folder. Invalidates `meili`. No GPS → skip.                          |
+| `face-detect`            | `thumb` ≥ v2                | 1           | **yes**       | SCRFD-10G ONNX detector over the cached thumbnail; writes one entry per detection into `faces[]` with bbox, 5-point landmarks, confidence, `person_id: null`.                                                                                                               |
+| `face-embed`             | `face-detect`               | 1           | **yes**       | ArcFace R100 recognizer using the _stored_ bbox + landmarks — it never re-detects, so operator `person_id` assignments survive a re-embed. Per-index `$set` of `embedding` + `embedding_version`. Its `onProgress` hook drives auto-clustering.                             |
+| `transcribe`             | — (claim-filtered to media) | 1           | **yes**       | Extracts a WAV and runs whisper.cpp on the CPU; writes `transcript` and re-arms `meili`. Timeout scales with audio duration (5 min floor, 6 h cap).                                                                                                                         |
+| `sidecar-metadata-index` | `exif`                      | 4           | no            | Reconciles `metadata_override` from the XMP sidecar off the request path, recomputes `captured_year`/`captured_month`, writes/removes the `.hidden` marker, and resets `geocode` when the sidecar's GPS changed. Invalidates `meili`.                                       |
+| `meili`                  | `exif`, `thumb`             | 2           | no            | Fan-in. Composes `search_blob` and upserts the Meilisearch document. Tombstones trashed or unlocatable assets instead of upserting.                                                                                                                                         |
+| `cf-thumb-sync`          | `thumb` ≥ v2                | 2           | **yes**       | Mirrors the on-disk thumbnail to the Cloudflare R2 edge cache. Skips hidden assets and proactively deletes their edge copy. Unpausing this stage _is_ the backfill.                                                                                                         |
 
-Rate-limiting: a token bucket per worker process. With one worker and `rateLimitPerSec: 10`, we'll hit ~36k geocodes/hour, which clears a 100k-photo library in under three hours assuming 70% cache-hit rate.
+Two details worth internalising:
 
-### 4.3 The coordinate cache
+**`describe` is locked in code.** Provider, model, and prompt are not operator-configurable — `DESCRIBE_VISION_OLLAMA_TAG` (`gemma4:12b`) and `DEFAULT_DESCRIBE_VISION_PROMPT` / `DESCRIBE_VISION_PROMPT_VERSION` in `enrichment/`. The structured-JSON parser only accepts the shape that prompt plus Ollama's grammar-constrained decoding produces, so an operator override would dead-letter every row. What _is_ configurable is the list of Ollama server URLs, pooled by `enrichment/describe-server-pool.ts` with per-server concurrency and failover. OCR is not a separate engine: `ocr_text` is mirrored from the vision model's `text_visible`, and `ocr_meta.engine` is the literal `"qwen2.5-vl"`. Because the on-disk preview is AVIF and every provider sends `image/jpeg`, the handler re-encodes to JPEG in memory per call rather than persisting a second artefact.
 
-For a single trip, photos cluster geographically — 100 shots inside a museum all return the same address. The cache turns 100 API calls into 1.
+**`meili` depends only on the always-on stages,** so search is available early. Every optional producer of searchable text — describe, geocode, transcribe, sidecar metadata, people renames — explicitly re-arms `meili` when its output changes.
 
-Quantization: round lat/lon to `N` decimals before keying.
+## Maintenance workers
 
-| Decimals | Precision | Notes                                                        |
-| -------- | --------- | ------------------------------------------------------------ |
-| 3        | ~111 m    | Coarse — groups a city block. Risk: misses neighboring POIs. |
-| **4**    | **~11 m** | **Default. Same building usually shares a key.**             |
-| 5        | ~1.1 m    | Almost no dedup; basically no cache.                         |
+These are not per-asset version-claim stages. Each runs its own interval loop and registers into the same in-process registry, so the standard `/api/workers/<name>/{status,pause,resume}` surface controls it. All are started from `workers/maintenance.ts`.
 
-The cache document:
+| Worker               | Cadence                  | Behaviour                                                                                                                                                                                                                                                                                           |
+| -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trash-gc`           | daily                    | Purges assets whose `deleted_at` is past the retention window (default 30 days): unlink the file in `.maple/trash/` and its sidecars, delete the row. Reaper soft-deletes (`deleted_reason: 'reaped'`) skip the unlink entirely — a file that quietly returned must never be deleted by this sweep. |
+| `missing-reaper`     | 60 s                     | Described above. Boots paused.                                                                                                                                                                                                                                                                      |
+| `migration`          | 5 s, 50 items            | Runs a registry of named one-shot library migrations (`workers/migration/index.ts` — eleven today, e.g. `refile-backups`, `backfill-video-exif`, `backfill-meilisearch-vectors`). Each has its own operator toggle; the worker idles until one is enabled.                                          |
+| `deduplicate`        | interval                 | Collapses an asset found at more than one live path down to one kept copy, **moving** the surplus originals and their sidecars into a reversible `_duplicates/` quarantine the sweep skips. A `.keep` marker pins every copy in its folder. `dry_run` previews without touching disk. Boots paused. |
+| `mirror` scan + copy | hourly scan              | Detector enqueues `mirror_queue` rows for files missing or stale on a library's mirror; a separate copy worker drains the queue. An offline mirror root is skipped, never treated as "everything is missing".                                                                                       |
+| `derivative-audit`   | 6 h                      | Verifies each live asset's thumb/preview/description on disk and its thumbnail in R2, and issues the canonical five-field stage reset when a derivative has drifted (most often after a move left the `.maple` cache behind). It never renders or uploads — it only re-arms the owning stage.       |
+| `generated-search`   | daily                    | Invents themed photo collections per library via Ollama for the widget, Maple TV, and settings surfaces. Boots paused.                                                                                                                                                                              |
+| `cache-gc`           | once per library at boot | Sweeps orphaned `.maple/{thumbs,previews}` files, including the retired `<maple_id>.avif` thumbs from when thumbnails were content-addressed. See [caching](caching.md).                                                                                                                            |
 
-```ts
-{
-  _id: "lat:42.6526,lon:-73.7562",       // quantized coords
-  place: { ... },                         // parsed Place (see §4.4)
-  fetchedAt: ISODate,
-  geocoderVersion: 1
-}
-```
+## The JobRunner
 
-TTL: indefinite. OSM addresses don't change often. Cache invalidation = bump `geocoderVersion`, cache entries with stale version are ignored.
+`src/api/src/job-runner/` is the sibling subsystem for **user-triggered, bounded** work: claim → dispatch → handle → complete/fail/cancel against the `jobs` collection, one in-flight job per runner, 1 s poll, 5 min lease. Handlers report progress and must consult `ctx.shouldCancel()` between steps so an in-flight job can be aborted.
 
-### 4.4 The `Place` schema
+Two kinds exist (`JobKind` in `db/schema.ts`, registry in `job-runner/handlers/index.ts`):
 
-This is what gets stored on `asset.place`:
+- `batch_jpeg_export` — renders the selected assets to JPEG into an output directory via the shared FFI pool.
+- `pano_stitch` — spawns `maple-cli pano stitch` over the selected assets, parses coarse stage progress off stderr, and imports the result as a new asset. The route enforces one at a time. See [pano](pano.md).
 
-```ts
-interface Place {
-  // Provenance
-  source: 'nominatim'; // future: "google", "azure", etc.
-  geocoderVersion: number; // see §7.3
-  geocodedAt: ISODate;
+**Which to reach for.** Anything whose job is "eventually, every eligible asset gets property X" is a stage, not a job — a stage gets pause/resume, concurrency, retry/backoff, dead-letter, and a live progress row on Settings → Workers for free from the generic machinery, and it becomes retroactively eligible for the existing library the moment it is added to the manifest. A JobRunner job is for a specific, user-selected request with no ongoing backlog behind it: export _these_ photos, stitch _this_ panorama.
 
-  // Raw lat/lon (so we can re-geocode later if needed)
-  lat: number;
-  lon: number;
+## Imports
 
-  // Nominatim's canonical name
-  // e.g. "New York State Museum, 222, Madison Avenue, Albany, ..."
-  displayName: string;
+`src/api/src/imports/` copies a server-local folder into a library. `scan.ts` walks the source (following symlinks, with realpath cycle detection and a re-jail check against `MAPLE_ROOTS`), classifies files, pairs `.xmp` sidecars to their parent image, and groups everything into `YEAR/MM` buckets keyed on **capture** time — EXIF `DateTimeOriginal`/`CreateDate`, falling back to file mtime — so the folder a photo lands in matches the date it is shown under everywhere else. The user reviews and edits the buckets, and the create route freezes the per-file destination list onto the import document.
 
-  // Structured components
-  address: {
-    houseNumber?: string;
-    road?: string;
-    neighbourhood?: string;
-    suburb?: string;
-    city?: string; // "Albany"
-    town?: string;
-    village?: string;
-    county?: string; // "Albany County"
-    state?: string; // "New York"
-    stateCode?: string; // "NY" (parsed from ISO3166-2-lvl4)
-    postcode?: string;
-    country?: string; // "United States"
-    countryCode?: string; // "us"
-  };
+`imports/worker.ts` then claims pending imports one at a time. Per image it copies sidecars first, then the image, then hands the image to `handleEvent` for indexing. Dedup is decided at the image (`maple_id`, then `sha1_head`); a duplicate image _and_ its sidecars are skipped, because an orphan sidecar would be meaningless. Name collisions resolve to a free sibling, byte-identical files already present are skipped, and cancellation is observed between files with already-copied files left in place.
 
-  // POIs at this location (extracted from amenity/tourism/leisure/historic/natural)
-  pois: Array<{
-    name: string; // "New York State Museum"
-    category: string; // "tourism"
-    type: string; // "museum"
-  }>;
+## Search
 
-  // Coarse rollups for browsing/grouping
-  rollups: {
-    locality: string | null; // city ?? town ?? village
-    region: string | null; // state
-    countryCode: string | null;
-  };
+Search has two layers, and the second is optional.
 
-  // Denormalized text for full-text search (see §5)
-  searchBlob: string;
-}
-```
+**Mongo `$text` is the floor.** The `meili` stage always writes `search_blob` — a lowercased, whitespace-split, deduplicated, alphabetically sorted token bag composed by `enrichment/search-blob.ts` from place metadata, the LLM caption, OCR text, the transcript, the structured vision fields (subjects, setting, activity, notable objects, tags), and named people. Mongo permits one text index per collection, and these sources land on different schedules, so a single recomputed field is what keeps them coherent. Auto-generated `Person N` cluster names are excluded — folding them in would pollute the index with the token "person".
 
-### 4.5 Failure modes
+**Meilisearch is the typo-tolerant layer above it.** Maple is purely a client (`enrichment/meilisearch-client.ts`, bare `fetch` against the REST surface); operators run the server elsewhere and configure it on Settings → Workers. When no URL is configured every client method is a no-op and `GET /api/search` uses the Mongo `$text` path — assets stay searchable, just without typo tolerance. `routes/search/list-meili.ts` returns `null` rather than throwing on a miss or an error, precisely so the route keeps answering 200s when Meilisearch is down. The Meili branch ranks by relevance and therefore paginates by offset; the Mongo branch supports seek pagination on `(exif.captured_at, _id)`.
 
-- **No GPS.** Job completes with `place: null`. Not a failure. The asset just has no place data; the search index won't find it geographically.
-- **Nominatim down or unreachable.** Network error or 5xx from the remote service. Worker retries with backoff via the lease + retry mechanism. After `MAX_ATTEMPTS` → dead-letter. Operator can bulk-reset (§7.2) once Nominatim is back. Because Nominatim runs in a different failure domain (different host, different reboot schedule), it's worth adding a circuit breaker — pause the worker for N minutes after K consecutive 5xx/timeout failures so an outage doesn't burn through every pending asset's retry budget. The startup health check (§4.2) catches the configuration-error case where the URL is just wrong.
-- **Nominatim slow.** Cold-cache reverse queries on a freshly-imported instance can take seconds. The 5s `requestTimeoutMs` is forgiving but not unlimited; tune up if your instance regularly exceeds it.
-- **Coordinates over open ocean / Antarctica / etc.** Nominatim returns 200 with `error: "Unable to geocode"`. Worker treats as "geocoded but unresolvable" — `place: { lat, lon, source: "nominatim", displayName: null, address: {} }`. The asset gets a place stub so we don't keep retrying, but the search blob is empty.
-- **Malformed lat/lon in EXIF.** Validate at claim time; mark as `place: null` with reason.
+Semantic search rides on Meilisearch's managed embedder. `enrichment/meilisearch-embedder-template.ts` is the single source of truth for both the document template Meilisearch renders and the fingerprint that decides whether a re-embed is needed. `ASSET_DOC_SHAPE_VERSION` is folded into that fingerprint _and_ is the `meili` stage's `targetVersion` — a document-shape change is exactly the condition under which every asset must be re-upserted, so the two can never disagree. Template field order is load-bearing: the rendered text is truncated before embedding, so the highest-value fields (filename, media type, people, place) come first. `enrichment/meilisearch-backfill.ts` provides a leased, resumable bulk re-upsert for the existing library.
 
-## 5. Search design
+## People and face clustering
 
-### 5.1 What we want
+`face-detect` and `face-embed` produce the raw material; `src/api/src/people/` turns it into people.
 
-| Query       | Should match                                            |
-| ----------- | ------------------------------------------------------- |
-| `Albany NY` | Photos in Albany, NY                                    |
-| `NY`        | All photos in New York state                            |
-| `Park`      | Photos at Central Park, Battery Park, parks of any kind |
-| `Musum`     | (typo) Photos at museums                                |
+`clustering-job.ts` runs online clustering: for each face without a `person_id`, find the nearest person centroid under cosine similarity and assign it if the score clears the threshold (default 0.5), else create a new auto-named "Person N" seeded with that embedding. Centroids are stored as the L2-normalised mean of assigned embeddings, so cosine similarity collapses to a dot product. The pass is incremental and idempotent — re-running touches only unassigned faces.
 
-The first three are **exact / prefix matching on words**. The fourth needs **fuzzy / typo tolerance**. We solve the first three in v1 with Mongo text indexes and a denormalized search blob; we defer the fourth to a Meilisearch sidecar.
+`cluster-coordinator.ts` fires it automatically, from two triggers: the work→drained edge of the `face-embed` stage (via its `onProgress` hook), and every N faces embedded (default 500, `MAPLE_AUTOCLUSTER_FACE_THRESHOLD`) so people populate progressively during a long run rather than only at the end. Both triggers, and the manual `POST /api/people/cluster`, share one single-flight guard that coalesces overlapping requests into exactly one follow-up pass — two concurrent passes would race on the same `person_id` writes.
 
-### 5.2 The denormalized `searchBlob`
+The pure clustering core is isolated in `people/cluster-embeddings.ts` so it can be gated without a database. `src/scripts/test_face_clustering.sh` runs it over a committed JSONL fixture set and ratchets purity / NMI / V-measure / ARI / recall@1 against `test-fixtures/face-clustering/budgets.json`; `.github/workflows/face-clustering.yml` runs that on any change under `src/api/src/people/`. Both skip-pass when the fixture is absent. See [testing](testing.md).
 
-When the geocode worker writes `asset.place`, it also computes `place.searchBlob`: a single space-separated string containing every word a search should match. Example for the museum case:
+## Operator surface
+
+`GET /api/workers/status` (`workers/routes-status.ts`) is the one endpoint the Settings → Workers page polls, every 2 s. Per worker it reports:
+
+| Field                                           | Source                                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `status`, `inFlight`, `throughput`, `lastError` | the live registry snapshot, read from the `worker_status` Mongo doc the worker process publishes |
+| `pending`                                       | assets below target version, not dead, with a live location                                      |
+| `ready`                                         | the subset the claim query would actually pick up right now                                      |
+| `blocked`                                       | derived as `pending − ready` — everything waiting on an upstream stage                           |
+| `dead`                                          | assets at `dead: true` for this stage                                                            |
+| `config`, `batchSize`                           | `worker_config`, with `batchSize` derived as 5 × concurrency                                     |
+
+Plus collection-level `damaged` and `newlyHiddenTotal` counts. The DB half is cached for 2 s, keyed on the stage-name + target-version signature; the registry half is recomposed on every call. The response always covers the full known set (`ALL_STAGE_NAMES` plus the reaper, migration, deduplicate, and discover), so rows never vanish when the worker process restarts — an absent worker simply reports `stopped`.
+
+The rest of the surface (see [server API](server-api.md) for the full reference):
 
 ```
-New York State Museum 222 Madison Avenue Albany Albany County
-New York NY United States US 12230 museum tourism
+GET   /api/workers/status
+POST  /api/workers/:name/pause | /resume | /retry-dead
+GET   /api/workers/:name/dead
+PATCH /api/workers/:name/config          # concurrency 1–100, maxAttempts 1–20, paused
+GET   /api/workers/damaged
+POST  /api/workers/damaged/clear
+GET   /api/workers/missing-reaper/prune-window
+PATCH /api/workers/missing-reaper/prune-window
+GET   /api/workers/deduplicate/config
+PATCH /api/workers/deduplicate/config
+GET   /api/workers/migration/migrations
+PATCH /api/workers/migration/migrations/:id
+GET   /api/workers/performance           # FFI decode-pool size + live pool stats
+PATCH /api/workers/performance           # clamped 1–16, resizes the pool live
 ```
 
-Construction rules:
+`pollIntervalMs` and `batchSize` are no longer knobs and a `PATCH` carrying either is rejected with a 400 rather than silently ignored. A `PATCH` to `preview`'s concurrency also resizes the on-demand preview limiter in the API process, since that path shares the setting.
 
-- All non-empty `address.*` values, lowercased and joined.
-- The `stateCode` (`NY`), so a search for "NY" matches.
-- POI names _and_ their `type` (`museum`, `park`), so a search for "Park" matches "Central Park" _and_ generic park photos, and a search for "Museum" matches museum photos by category.
-- Both full and abbreviated country names if available (`United States` and `US`).
+On the web side, `settings/workers/workers.vm.ts` supplies `STAGE_META` — group (Ingest / Enrich / Index), icon, human description, and which enrichment config panel a row expands into. A stage the server reports but the map does not know still renders, at the bottom of Ingest with a generic icon, so adding a stage does not _require_ a UI change. That module also pins `FIXED_DESCRIBE_MODEL` to mirror the server's locked describe model, which is why the UI shows it read-only.
 
-This blob lives on the asset (denormalized from `place.address` and `place.pois`) so the text index can sit on the asset collection directly. It's a few hundred bytes per asset — cheap.
+## Configuration
 
-### 5.3 Mongo text index
+Per-worker runtime knobs (`concurrency`, `maxAttempts`, `paused`, plus discover's `sweepDirIntervalMs`) live in the `worker_config` collection keyed by name. Domain configuration — Nominatim URL and rate limit, describe server list, whisper tier, face model directory and download URLs, Meilisearch URL/key/semantic settings — lives in the `enrichment` document in `app_settings`, resolved by `enrichment/enrichment-config.resolve.ts` with environment variables only as a fallback for existing deploys. Per-feature settings (missing-reaper prune window, dedupe, derivative audit, map tiles, display) each get their own `app_settings` document.
 
-```js
-db.assets.createIndex({ 'place.searchBlob': 'text' }, { default_language: 'english' });
+New tunables belong in this settings system, not in new environment variables: a DB-backed setting is operator-toggleable at runtime and visible in the UI. Environment variables are reserved for bootstrap that must be known before Mongo is reachable — `MAPLE_MONGO_URI`, the port, secrets, and `MAPLE_INDEXER_AUTOSTART`.
+
+Because settings are saved by the HTTP process while stages run in the child, `workers/enrichment-config-refresh.ts` polls the config row every 2 s in the worker and re-applies it — reconfiguring the Meilisearch client and dropping the describe stage's cached server pool — so an edit in `/settings/enrichment` takes effect without a restart.
+
+## Build and test
+
+```bash
+cd src/api
+bun install
+bun run dev          # API + spawned worker tier on http://localhost:3000
+bun test             # unit + integration; needs a reachable MongoDB
+bun run typecheck
+bun run lint
+
+# Guard: no native decoders on the worker-main import path
+bash scripts/check-worker-isolation.sh
+
+# Face-clustering quality ratchet (no MongoDB needed)
+bash src/scripts/test_face_clustering.sh
 ```
 
-Then:
-
-```js
-db.assets.find({ $text: { $search: 'Albany NY' } });
-// Matches assets whose searchBlob contains BOTH "Albany" AND "NY" — exactly what we want.
-
-db.assets.find({ $text: { $search: 'NY' } });
-// Matches every asset with "NY" in the blob.
-
-db.assets.find({ $text: { $search: 'Park' } });
-// Matches "Central Park", "Battery Park", and any asset tagged with park POIs.
-```
-
-For ranking, use Mongo's text score (`$meta: "textScore"`) and combine with capture date as a secondary sort.
-
-### 5.4 Faceted browse (orthogonal to search)
-
-For "browse by location" (the hierarchical UI: country → state → city), separate compound indexes serve:
-
-```js
-db.assets.createIndex({
-  'place.rollups.countryCode': 1,
-  'place.rollups.region': 1,
-  'place.rollups.locality': 1,
-});
-```
-
-Aggregation pipelines (`$group` on `rollups.region`, count) populate the browse tree. This is independent of the text search and can ship simultaneously.
-
-### 5.5 Deferred: typo tolerance via Meilisearch
-
-For "Musum" to match "museum", we need typo-tolerant search. Mongo text indexes can't do this. Options:
-
-1. **Meilisearch sidecar** (~20MB single binary, very fast, typo-tolerant by default). The geocode worker pushes `{ assetId, searchBlob }` to Meilisearch on completion. The search route queries Meilisearch first to get asset ids, then fetches the assets from Mongo. **Recommended for v2.**
-2. **Atlas Search** — has fuzzy operators but locks Maple Self Hosted into Atlas. Reject.
-3. **Postgres trigram (`pg_trgm`)** — they're already running Postgres for Nominatim. Could double-up. Couples search to the geocoding service though, and is slower than Meilisearch.
-
-V1 ships without typo tolerance. The first time a user types "Musum" and gets nothing, it's a small UX hit — acceptable for the launch.
-
-### 5.6 The shipped Meilisearch index
-
-§5.5 is the original design decision; this section describes what actually runs. Option 1 shipped, plus hybrid (keyword + vector) search against a managed Ollama embedder.
-
-**Document fields.** `MeilisearchAssetDoc` (`src/api/src/enrichment/meilisearch-client.ts`) is written by exactly two places, which must stay in lockstep: the per-asset meili stage (`workers/stages/meili.ts`) and the bulk backfill (`meilisearch-backfill-compose.ts`). Both derive the prose fields through `enrichment/asset-doc-fields.ts` so they cannot drift.
-
-Searchable attributes, in order — **the order is ranking-significant**, because Meilisearch's `attribute` rule favours matches in earlier attributes:
-
-```text
-filename, people, transcript, ocrText, description, placeText, searchBlob
-```
-
-- `filename` first keeps exact-identifier queries (`IMG_4185.MOV`) top-1.
-- `people` second: a name query wants photos _of_ that person, not a transcript that mentions them in passing. The field holds only resolved `PersonDoc.name`s — auto `Person N` clusters and merged rows are excluded upstream.
-- `transcript` / `ocrText` above `description`: what was actually said or written outranks what a captioner guessed.
-- `searchBlob` last. It remains searchable because it is the only home for the structured vision tokens, but at the lowest weight.
-
-**Embedding template.** Single-sourced in `enrichment/meilisearch-embedder-template.ts` and labelled per field. It deliberately excludes `searchBlob`: that field is a lowercased, deduped, **alphabetically sorted** token bag (§5.2, `enrichment/search-blob.ts`), and a sentence embedder reads word order and repetition, so feeding it the blob delivered scrambled tokens for real transcripts while generic captions arrived as fluent prose. Field order is a priority order, because truncation drops the tail: short high-precision fields first, then `description`, then `transcript`, with `ocrText` last as the noisiest source. `transcript` deliberately outranks `ocrText` — on a transcript-rich video it is the primary evidence, and a screenshot's chrome text must not crowd it out. `asset-doc-fields.ts` additionally caps the stored transcript at `MAX_INDEXED_TRANSCRIPT_CHARS`.
-
-Every field reference in the template **must** be `{% if %}`-guarded, and every key it dereferences **must** also have a matching entry in `TEMPLATE_FIELD_DEFAULTS`. These solve two different halves of the same problem. The defaults back-fill documents _we send_, so a tombstone (`{ id, deletedAt }`) does not reject its batch (#2369). The guard covers the documents _already in the index_: Meilisearch re-renders the template against all of them the moment embedder settings change, and those predate any newly-added field — an unguarded reference fails the whole `settingsUpdate` task with `invalid_document_fields`, so the migration can never start. That happened live on a 333k-document index during the #2384 rollout. `{% if %}` renders a missing key as empty; `{{ doc.x | default: "" }}` does not work. Meilisearch renders the template for every incoming document with strict Liquid lookups, so a document missing a referenced key rejects its **entire batch** with `invalid_document_fields` — hit live in #2369 by tombstone documents during a backfill.
-
-**The byte ceiling matters more than the template.** Meilisearch truncates the _rendered_ template to `documentTemplateMaxBytes` before embedding, and its default is **400 bytes**. Maple never set it, so every vector built before #2384 came from roughly the first 400 bytes of `{{ doc.searchBlob }} …` — about the first 50 tokens of an alphabetised bag, with description and people usually truncated away before the embedder ever saw them. `EMBEDDER_TEMPLATE_MAX_BYTES` now pins this at 5000 and it is part of the fingerprint, so changing it re-embeds. Because the tail is what truncation drops, **field order in the template is a priority order**, not cosmetic.
-
-`dimensions` is likewise declared explicitly for models listed in `EMBEDDER_DIMENSIONS`, which lets Meilisearch skip its own dimension-probe round-trip to the embedding server. Models not in that table deliberately omit it and fall back to the probe — a wrong `dimensions` would make Meilisearch reject or truncate every vector, and the model is operator-settable.
-
-### 5.6.1 Measured ranking baseline
-
-From `src/scripts/test_search_relevance.sh` against the committed 32-document corpus (Meilisearch 1.51.0 + Ollama `bge-m3`, 2026-07-28):
-
-| Metric                                                 | Before #2384 | After #2384 |
-| ------------------------------------------------------ | ------------ | ----------- |
-| Recall@10                                              | 0.8889       | 1.0000      |
-| MRR                                                    | 0.5631       | 0.7407      |
-| Exact filename (`IMG_4185.MOV`)                        | rank 29      | rank 1      |
-| Transcript semantics (`configuring the heating zones`) | rank 3       | rank 1      |
-
-The blend ratio was swept 0.3–0.9. Everything at or below 0.5 scores identically; 0.6 and above lose MRR _and_ regress exact-filename and named-person queries. `DEFAULT_MEILISEARCH_SEMANTIC_RATIO` stays 0.5 on that evidence.
-
-**What this corpus can and cannot tell you.** It is synthetic and small, and it does NOT reproduce the production semantic failure: at `semanticRatio` 1.0 the #2384 target ranks 5 here under every template tried, including the pre-change token bag, while the 333k-document production index ranks it ~97 pure-vector. Use it to catch plumbing and lexical regressions — field wiring, attribute order, exact filename, named-person precedence — which it does well. Do not use it to judge semantic ranking quality at scale; that requires a pure-semantic query against production after the v8 re-embed, with the asset's real transcript.
-
-### 5.7 Re-embedding after a document-shape change
-
-The semantic fingerprint is `v<ASSET_DOC_SHAPE_VERSION>:<sha256>`. When the shape version changes (a new field on `MeilisearchAssetDoc`), coverage is **not** carried forward: every asset reads as un-vectorized until it has been re-upserted with the new fields.
-
-That asymmetry is deliberate. A settings PATCH makes Meilisearch re-embed the documents already in its index, so a pure model / URL / template-wording change carries forward safely — the vectors really are rebuilt. But a shape change means the template now reads fields those indexed documents do not carry yet, so the re-embed would run against missing data. Counting it as coverage would show the operator 100% while every vector was built without, say, a transcript. See `documentShapeOf` in `enrichment/meilisearch-vector-coverage.ts`.
-
-**The backfill self-invalidates.** `meilisearch_backfill_state` stores the `doc_shape_version` its generation ran under, and `loadState` discards a generation belonging to a superseded shape. This matters because the batch runner short-circuits on `completed_at`: without the stamp, a deployment whose previous backfill had finished would report the new migration as already complete and re-upsert nothing, leaving the index on the old shape while the operator saw a green migration. `?reset=true` is therefore a manual override, not a required step.
-
-Two paths converge on the rebuild, and both are safe to run:
-
-1. **Automatic** — the meili stage's `targetVersion` is bound to `ASSET_DOC_SHAPE_VERSION`, so every asset becomes eligible again and the stage re-upserts it. Slow (concurrency 2) but needs no operator action.
-2. **Operator-driven** — `POST /api/admin/enrichment/backfill-meilisearch` (owner only) batches the same work at 250 documents per Meilisearch task. `?reset=true` discards prior backfill progress and re-scans from the start.
-
-Watch Settings → Workers: `vectorizedDocumentCount` climbs back toward `indexedDocumentCount` as the re-embed proceeds. Run the relevance harness only once coverage is complete — measuring a half-migrated index compares a mix of old and new documents.
-
-Prefer path 2 as the primary mechanism. Path 1 runs at concurrency 2 and is a safety net for assets the backfill misses, not a rollout plan: on a large library it leaves the index holding a mix of old- and new-shape documents for a long time, which makes ranking non-reproducible while it runs.
-
-**Expect the embedding work to happen twice.** `ensureIndex()` applies the new embedder settings at boot, and Meilisearch immediately re-embeds every document it already holds — which at that point still lack `transcript`, so that pass is wasted. The backfill then re-upserts each document with the new fields, triggering a second embed. It converges correctly, but budget roughly double the embedding time and load on the Ollama host. Avoiding it would need a two-release rollout (ship the document shape, complete the backfill, then activate the template), which is only worth doing if embedder capacity is the binding constraint.
-
-## 6. Face and describe workers (sketch)
-
-Same worker shape as geocode (§3). What changes:
-
-**Face worker.**
-
-- Claim query: `{ "thumb.ready": true, "enrichment.face.doneAt": null, ... }`.
-- `process()`: open the thumbnail file, run RetinaFace + MobileFaceNet via ONNX (the `AiFace` shape in `pipeline.ts` is already the target), write `asset.faces = [...]`.
-- Pool size: 1-2 (CPU-bound, expensive). 1 if you also want to run on a GPU box.
-- Lease: 30 min.
-
-**Describe worker.**
-
-- Claim query: `{ "preview.ready": true, "enrichment.describe.doneAt": null, ... }`.
-- `process()`: read the 1280-px preview JPEG (see `src/api/src/workers/stages/preview.ts`), call Ollama with the structured-JSON prompt `DEFAULT_DESCRIBE_VISION_PROMPT` (`src/api/src/enrichment/enrichment-config.repo.ts`), parse strictly with `parseVisionJson`, then write `description` (caption mirror), `description_meta`, the structured `vision` subdoc, and `vision_meta`.
-- Default provider: Ollama with `qwen3-vl:8b` (requires Ollama >= 0.12.7 — the prior `qwen2.5vl:7b` generation worked on older Ollama builds, but the qwen3 family needs the newer runtime). Anthropic / OpenAI / Gemini providers remain wired but are off by default.
-- `dependsOn: ["preview"]`. `targetVersion: 6` as of the qwen3-vl / prompt-v5 upgrade. `pausedOnFirstBoot: true`.
-- Pool size: 1 (single-slot on the 24 GB VLM host). Network-bound providers can raise this.
-- Lease: 10 min.
-- Failure path: malformed model output throws `VisionParseError`; the runtime stamps the error and dead-letters at `maxAttempts`. No silent skips.
-
-Both workers slot in without touching the geocode worker, the fast pipeline, or each other.
-
-### 6.1 Vision (structured)
-
-The describe stage emits a structured `VisionDoc` subdoc on the asset alongside the legacy free-text `description`. The structured fields are what enable faceted filters ("outdoor sports", "drone photos with readable text") and richer search-blob composition without needing a vector DB.
-
-The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `VisionMeta`). Summary, in prompt v5's field order — `is_screenshot` and `nudity` are classified first because Ollama's grammar-constrained decode emits JSON properties in schema order, so putting the classification fields first lets the rest of the response condition on them:
-
-| Field               | Meaning                                                                                                                                                                                                                           |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `is_screenshot`     | `true` for a screen capture of a phone/computer/app UI (including cropped screenshots and screenshots-of-screenshots), `false` for a photograph. When `true`, every scene field below is `null` (the "screenshot short-circuit"). |
-| `nudity`            | `none` \| `suggestive` \| `explicit`. See "Nudity ladder and auto-hide" below.                                                                                                                                                    |
-| `caption`           | 1–2 sentence search-oriented description. Mirrored to top-level `description`.                                                                                                                                                    |
-| `subjects[]`        | Categorical subject types: `person`, `child`, `adult`, `dog`, `bird`, `vehicle`, `building`, …                                                                                                                                    |
-| `scene_type`        | `indoor` \| `outdoor` \| `aerial` \| `macro` \| `studio` \| `mixed` \| `null` (screenshot).                                                                                                                                       |
-| `setting`           | Specific environment (`kitchen`, `beach`, `forest`, …), `null` when unidentifiable, or `null` (screenshot).                                                                                                                       |
-| `activity`          | What is happening, `null` for a static scene, or `null` (screenshot).                                                                                                                                                             |
-| `time_of_day`       | `morning` \| `midday` \| `afternoon` \| `golden hour` \| `evening` \| `night` \| `unknown` \| `null` (screenshot).                                                                                                                |
-| `lighting`          | `natural` \| `artificial` \| `mixed` \| `low-light` \| `backlit` \| `flash` \| `unknown` \| `null` (screenshot).                                                                                                                  |
-| `weather`           | `clear` \| `cloudy` \| `rainy` \| `snowy` \| `foggy` \| `indoor` \| `unknown` \| `null` (screenshot).                                                                                                                             |
-| `mood`              | 1–3 words.                                                                                                                                                                                                                        |
-| `colors[]`          | Dominant colors, max 5.                                                                                                                                                                                                           |
-| `composition`       | `wide shot` \| `close-up` \| `portrait` \| `landscape` \| `aerial` \| `macro` \| `null` (screenshot). `candid` left this enum in v5 — it's a shot-type concept.                                                                   |
-| `text_visible`      | Readable text transcribed verbatim (case + line order preserved), or `null` when nothing is legible. Always mirrored into `ocr_text` by the describe stage.                                                                       |
-| `notable_objects[]` | Distinctive objects, max 8.                                                                                                                                                                                                       |
-| `shot_type`         | `action` \| `static` \| `candid` \| `posed` \| `architectural` \| `nature` \| `event` \| `null` (screenshot).                                                                                                                     |
-
-`indoor_outdoor` (prompt v4 and earlier) was dropped in v5 — it's fully derivable from `scene_type`, and the parser's synonym map had accreted entries mopping up the model's own confusion between the two. Rows written under `prompt_version <= 4` still carry `indoor_outdoor` and a boolean `nudity_detected` instead of `nudity`; both fields stay on `VisionDoc` as deprecated-optional so readers can fall back until the `targetVersion: 6` re-run rewrites every row.
-
-`vision_meta` carries the provenance: `provider` (`ollama` \| `anthropic` \| `openai` \| `gemini`), `model` (e.g. `qwen3-vl:8b`), `prompt_version`, `generated_at`, `raw_response_size` (bytes of the model's raw JSON response — helps spot truncation).
-
-**Nudity ladder and auto-hide.** Prompt v4's `nudity_detected` boolean is now a three-point ladder: `explicit` (exposed genitals, buttocks, or female breasts/nipples — including in art, on statues, or on a screen within the image), `suggestive` (sexualized posing or underwear/lingerie-focused framing without exposure), and `none` (everything else, including swimwear, shirtless men, and ordinary family bath or beach photos). The describe stage's auto-hide safety net (`src/api/src/workers/stages/describe.ts`) fires only on `explicit` — `suggestive` leaves the asset visible. This preserves the old boolean's semantics: the v4 prompt's bare "contains nudity" question was written to mean what v5 calls `explicit`, so the hide threshold hasn't moved, it's just no longer conflating a nude photo with a shirtless-at-the-beach photo. `sidecar-metadata-index.ts`'s `nativeHidden` computation reads `vision.nudity === 'explicit'`, with a `vision.nudity_detected === true` fallback for stale v4 rows that haven't been re-captioned yet.
-
-**Preview dependency.** The describe stage reads the 1280-px JPEG written by the new `preview` stage (between `thumb` and `describe`; `dependsOn: ["thumb"]`; output at `<folder>/.maple/previews/<basename>_1280.jpg`). The 512-px thumb is too small for reliable captions or OCR on a 24 MP photo; the preview is sized to give the VLM enough resolution without blowing the VRAM budget. See `src/api/src/workers/stages/preview.ts` and `src/api/src/indexer/previewer.ts`.
-
-**Re-running on prompt or model swaps.** Two knobs drive invalidation:
-
-- `prompt_version` (on `description_meta` / `vision_meta`). Bump the constant in `enrichment-config.repo.ts`; the runtime treats any asset whose stored `prompt_version` is below the current value as pending.
-- Stage `targetVersion` on `describe`. Bumping it in `defineStage` re-queues every asset for the stage.
-
-Either knob causes existing assets to re-run the describe stage on their own. No backfill script, no admin route — the per-asset bookkeeping in `enrichment.<stage>` does the work.
-
-**OCR.** `ocr_text` is populated from `vision.text_visible` by the describe stage on every pass; `ocr_meta.engine === "qwen2.5-vl"` always. There is no separate OCR worker — the parallel Tesseract stage was removed in #158 because nothing consumed its per-word bboxes.
-
-**`search_blob` fan-in.** `composeSearchBlob` in `src/api/src/enrichment/search-blob.ts` folds `vision.subjects`, `vision.setting`, `vision.activity`, and `vision.notable_objects` into the per-asset search blob. The `meili` stage threads them through, so existing typo-tolerant text search benefits without any new infrastructure. Meili `targetVersion` was bumped to invalidate prior index entries.
-
-**Database-only.** Vision data is never written to the XMP sidecar — see `docs/xmp-canonical-format.md` § "What does not live in XMP" for the rationale.
-
-## 7. Operations
-
-### 7.1 Status surface
-
-The existing indexer status route gets per-worker fields:
-
-```json
-{
-  "fastPipeline": { /* existing pipeline status */ },
-  "enrichment": {
-    "geocode":  { workerId, claimsInFlight, completedSinceBoot, deadLetterCount,
-                  oldestPendingAge, lastError },
-    "face":     { ... },
-    "describe": { ... }
-  }
-}
-```
-
-Backfill counts: `db.assets.countDocuments({ "enrichment.geocode.doneAt": null, "exif.gps.lat": { $ne: null } })` — how many photos are still waiting to be geocoded.
-
-### 7.2 Dead-letter inspection
-
-A `GET /api/admin/dead-letter?stage=geocode&limit=50` route returns the last 50 dead-lettered geocode jobs with their `lastError`. Operator can `POST /api/admin/dead-letter/reset?stage=geocode&assetId=...` (or `/reset-all?stage=geocode`) to clear the dead-letter and re-claim.
-
-This is the prerequisite mentioned in `workers-architecture.md` §11 — must ship before external-dependency stages do.
-
-### 7.3 Versioned re-runs
-
-Each handler has a `version: number`. When you fix a parser bug or upgrade the AI model, bump the version and run:
-
-```js
-db.assets.updateMany(
-  { 'enrichment.geocode.version': { $lt: 2 } },
-  {
-    $set: {
-      'enrichment.geocode.doneAt': null,
-      'enrichment.geocode.attempts': 0,
-    },
-  },
-);
-```
-
-The worker picks up the affected assets on its next claim. No batch infrastructure needed.
-
-## 8. Implementation plan
-
-Phased so each phase is shippable and the user gets value before the next phase lands.
-
-**Phase 1 — skeleton upsert.** Modify `runMongo` in the existing pipeline to write the skeleton schema. Add `enrichment` subdocument with all stages set to pending. Browse UI starts showing photos faster. No new workers yet. ~1 day.
-
-**Phase 2 — geocode worker.** Wire the worker to the existing Nominatim instance via `MAPLE_NOMINATIM_URL`. Build the worker loop, startup health check, coordinate cache, `Place` schema, and the rate-limit / circuit-breaker controls. Deploy. Backfill existing assets. ~3-4 days (Nominatim already runs on Proxmox; Maple is just a client).
-
-**Phase 3 — search.** Add `place.searchBlob` denormalization, the text index, the search route. Faceted browse indexes. ~2 days.
-
-**Phase 4 — dead-letter inspection + admin routes.** ~1 day. Should land before phase 5.
-
-**Phase 5 — face worker.** Pulls in ONNX + RetinaFace/MobileFaceNet. Independent of everything above. ~3-5 days for first cut.
-
-**Phase 6 — describe worker.** LLM provider integration. Rate limit + cost cap. ~2-3 days.
-
-**Phase 7 — Meilisearch for typo tolerance.** Sidecar, sync from geocode worker, search route fans out. ~2-3 days.
-
-Total: ~3-4 weeks of focused work, deliverable in ~7 useful checkpoints.
-
-## 9. Open questions
-
-- **Polling rate.** Default 1 Hz feels right; revisit if first-paint enrichment lag is noticeable.
-- **In-process vs out-of-process workers.** Phase 2 can be in-process (same Bun runtime as the API). Phase 5 (face) probably wants its own process for GPU access. The architecture supports both — no decision needed up front.
-- **Fallback to public Nominatim if the private instance is unreachable?** Tempting (resilience) but the public Nominatim service has a 1 req/s rate-limit ToS — we'd violate it instantly while processing a backlog. Recommend NO fallback; dead-letter cleanly and surface the outage to the operator instead.
-- **Should the worker live on the same host as Maple's API or near Nominatim?** Either works. Same-host is operationally simpler and the per-call latency is fine (LAN to Proxmox is ~1 ms). Co-locating with Nominatim only helps if you also move the asset-doc reads/writes there, which we don't want.
-- **Meilisearch index size.** ~1KB per asset is generous; 100k assets = 100MB. Fine.
-- **What gets deleted when an asset is removed?** The `place` data is on the asset doc, so it goes with the soft-delete. The cache row in `geocode_cache` survives — that's correct (other assets may reuse it). The Meilisearch entry needs explicit deletion — the soft-delete path in `runMongo` should also enqueue a Meilisearch tombstone.
-
-## 10. References
-
-- Existing fast pipeline: `docs/workers-architecture.md`, `src/api/src/indexer/pipeline.ts`.
-- Nominatim docs: https://nominatim.org/release-docs/latest/
-- Geofabrik downloads: https://download.geofabrik.de/
-- Meilisearch (deferred to phase 7): https://www.meilisearch.com/
+`.github/workflows/api.yml` runs `bun test` against a MongoDB 7 service container plus a real Meilisearch container for the transport integration test. `.github/workflows/face-clustering.yml` runs the clustering ratchet on changes under `src/api/src/people/`. See [testing](testing.md) for the full gate list, [api](api.md) for the server's own architecture, and [caching](caching.md) for how the derivatives these stages write are keyed and invalidated.

@@ -12,7 +12,7 @@
 // Both version fields are bumped on a pipeline-output change; going forward
 // the canonical bump point is raw-core's `PIPELINE_OUTPUT_VERSION` (mirrored
 // here as `AdjustmentModel.pipelineOutputVersion`), which the Web thumb cache
-// keys on too — see docs/pipeline-output-version.md.
+// keys on too — see docs/pipeline.md § "Pipeline output version".
 //
 // Storage: .maple/previews/<key>.jpg
 // Entries are invalidated on any key component change.

@@ -1,7 +1,7 @@
 // ToneCurveComponent — tone curve panel (#1540 → #367).
 //
 // Two families of tone control on one surface, matching
-// `docs/maple-paper.md` § 3 and the two shapes `AdjustmentModel` carries:
+// `docs/xmp-canonical-format.md` § "Tone curves" and the two shapes `AdjustmentModel` carries:
 //
 //   * Four PARAMETRIC region sliders (`parametric{Highlights,Lights,
 //     Darks,Shadows}`), ±100 each, driving the stage's synthesised

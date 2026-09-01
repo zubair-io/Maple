@@ -1,376 +1,297 @@
 # Unified Component Catalog
 
-The design inventory. Every element appears once, grouped by **what it is**, not which product it came from. Each tier lists what it's built from, so you can design in dependency order.
+Maple UI is one design system implemented three times: as Angular components in `src/web/projects/maple-common/src/lib/ui/`, as SwiftUI views in `src/apple/Packages/MapleUI/Sources/MapleUI/`, and as WinUI controls in `src/windows/Maple.WinUI/MapleUI/`. Every element appears once here, under a design name, grouped by **what it is** rather than which product it came from. The three implementations are near-identical in coverage: 166 elements are implemented somewhere and 165 of those exist on all three platforms, so the useful content of this page is the inventory plus the two gaps (§ Gaps).
 
-Names here are design names. Implementation prefixes (`ui-`, platform types) are a code concern and don't appear.
+Elements are grouped in dependency order: **atoms** depend on nothing, **molecules L1** are built only from atoms, **molecules L2** add earlier molecules, **templates** are regions with no content, **organisms** are built from molecules, and **pages** are a template plus organisms. The directory layout on all three platforms mirrors those tiers, and so do the gallery apps.
+
+Colour, spacing, radius, and type tokens are not authored per platform. They live in `src/raw-pipeline/raw-core/src/ui_tokens.rs` and `tools/codegen.sh` emits them to SCSS, TypeScript, two Swift copies, and `src/windows/Maple.WinUI/Themes/Tokens.xaml`; the `codegen-drift` job in `.github/workflows/cross.yml` fails on any divergence.
 
 ---
 
-## How to use this
+## Contracts
 
-- **Atoms** — design these first. Nothing depends on anything else. The work is variants, sizes, and states.
-- **Molecules** — built only from atoms (Level 1) or from atoms plus earlier molecules (Level 2). The work is composition, spacing, and internal states.
-- **Organisms** — built from molecules. The work is layout, data states (loading/empty/error), and responsive behavior.
-- **Templates** — regions only, no content. The work is breakpoints and region sizing.
-- **Pages** — a template plus organisms. The work is which organisms go where.
+Twenty-five components have a written behavioural contract under `docs/design/maple-ui/components/` — every atom, plus List Row and Select. Each contract states the tier and then the sections `tools/check-maple-ui-contracts.sh` requires: **Purpose**, **Variants**, **States**, **Tokens used**, **Props**, **Accessibility**. A missing or empty section fails the `maple-ui-contracts` job in `.github/workflows/cross.yml` (which also runs the checker's own self-test, `tools/check-maple-ui-contracts.test.sh`).
 
-The **Built from** column is the dependency. Don't design something until everything in its Built-from column is done. §7 gives the resulting order.
+```bash
+bash tools/check-maple-ui-contracts.sh
+```
+
+The contract is authoritative over this catalog when the two disagree. `mui-button.component.ts` documents one such case in a header comment: the catalog historically listed five button variants, the contract defines four (its "secondary" already reads as an outlined button), and the implementation follows the contract.
+
+Contracts are also served to readers. `src/web/scripts/sync-maple-ui-docs.mjs` copies them into `maple-syrup`'s public assets — as a gitignored build artifact, refreshed by the `prestart:syrup` / `prebuild:syrup` hooks — where `MapleUiDocsService` fetches them and renders them beside the live components.
+
+## Galleries
+
+Each platform ships a developer-facing specimen gallery that renders every tier:
+
+| Platform | Where                                                                         | How to open                                |
+| -------- | ----------------------------------------------------------------------------- | ------------------------------------------ |
+| Web      | `src/web/projects/maple-syrup/src/app/maple-ui-page/`                         | route `/maple-ui` in the `maple-syrup` app |
+| Apple    | `src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/MapleUIGalleryView.swift` | the "Maple UI" tab in Settings             |
+| Windows  | `src/windows/Maple.WinUI/MapleUI/Gallery/MuiGalleryWindow.*`                  | Ctrl+Shift+G from the main window          |
+
+These are design tools, not product surfaces.
+
+## Gaps
+
+Only two rows in the whole catalog are not implemented everywhere.
+
+- **Toggle** — an atom, contract written, implemented only on Apple (`Atoms/MuiToggle.swift`). No `mui-toggle` component on web and no `MuiToggle.cs` on Windows. The contract draws the line against Checkbox precisely: Toggle is for a preference that takes effect the instant it flips; a control whose change waits for a separate Save is a Checkbox.
+- **Select** — an atom with a written contract and no implementation on any platform. The contract describes a single-choice dropdown for short, fixed option sets, distinct from the searchable Command Menu molecule.
+
+Web additionally carries five internal sub-components that the other platforms fold into their parent: `mui-export-options-fields`, `mui-kanban-card-tile`, `mui-rating-flags-display`, `mui-rating-flags-selector`, and `mui-tree-row-chevron`. They are implementation detail, not catalog entries.
+
+## Tests
+
+Coverage exists on all three platforms but tests different things. Web has 170 spec files under `lib/ui/` running in `ng test`. Apple has 97 test files in `src/apple/Packages/MapleUI/Tests/MapleUITests/`. Windows has 93 in `src/windows/Maple.WinUI.Tests/`, run by `dotnet test` in `.github/workflows/windows.yml` — and note the shape: because a WinUI control can't be exercised headlessly, the Windows implementation splits pure logic into sibling `*Math`, `*Logic`, and `*Reducer` files (`MuiSliderMath.cs`, `MuiInlineEditLogic.cs`, `MuiBrowsePageReducer.cs`) and the tests target those. Apple uses the same trick for its geometry helpers under `Internal/`.
 
 ---
 
 ## 1. Atoms
 
-### 1.1 Actions
+Nothing depends on anything else. Every atom has a contract.
 
-| Element           | Purpose                              | To design                                                                                                                                                                                 |
-| ----------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Button**        | Text action, optional icon           | Variants: primary, secondary, outline, ghost, destructive · Sizes: sm, md, lg · States: default, hover, active, focus, disabled, loading · Icon slots: leading, trailing, both, icon-only |
-| **Action Button** | Compact icon+label pill for toolbars | Sizes: sm, md · States: default, hover, active, focus, disabled, selected · Orientation: horizontal, stacked                                                                              |
-| **Icon**          | Single glyph                         | Sizes: xs, sm, md, lg, xl · Stroke vs. filled · Optical alignment rules                                                                                                                   |
-| **Link**          | Inline hyperlink                     | States: default, hover, visited, focus · Internal vs. external (affordance for external)                                                                                                  |
+| Component        | Web | Apple | Windows | Contract                                                              |
+| ---------------- | :-: | :---: | :-----: | --------------------------------------------------------------------- |
+| Action Button    |  ✓  |   ✓   |    ✓    | [action-button.md](design/maple-ui/components/action-button.md)       |
+| Avatar           |  ✓  |   ✓   |    ✓    | [avatar.md](design/maple-ui/components/avatar.md)                     |
+| Badge            |  ✓  |   ✓   |    ✓    | [badge.md](design/maple-ui/components/badge.md)                       |
+| Button           |  ✓  |   ✓   |    ✓    | [button.md](design/maple-ui/components/button.md)                     |
+| Canvas Surface   |  ✓  |   ✓   |    ✓    | [canvas-surface.md](design/maple-ui/components/canvas-surface.md)     |
+| Checkbox         |  ✓  |   ✓   |    ✓    | [checkbox.md](design/maple-ui/components/checkbox.md)                 |
+| Divider          |  ✓  |   ✓   |    ✓    | [divider.md](design/maple-ui/components/divider.md)                   |
+| Icon             |  ✓  |   ✓   |    ✓    | [icon.md](design/maple-ui/components/icon.md)                         |
+| Image            |  ✓  |   ✓   |    ✓    | [image.md](design/maple-ui/components/image.md)                       |
+| Input            |  ✓  |   ✓   |    ✓    | [input.md](design/maple-ui/components/input.md)                       |
+| Link             |  ✓  |   ✓   |    ✓    | [link.md](design/maple-ui/components/link.md)                         |
+| List             |  ✓  |   ✓   |    ✓    | [list.md](design/maple-ui/components/list.md)                         |
+| Progress         |  ✓  |   ✓   |    ✓    | [progress.md](design/maple-ui/components/progress.md)                 |
+| QR Code          |  ✓  |   ✓   |    ✓    | [qr-code.md](design/maple-ui/components/qr-code.md)                   |
+| Remote Image     |  ✓  |   ✓   |    ✓    | [remote-image.md](design/maple-ui/components/remote-image.md)         |
+| Segmented Toggle |  ✓  |   ✓   |    ✓    | [segmented-toggle.md](design/maple-ui/components/segmented-toggle.md) |
+| Select           |  —  |   —   |    —    | [select.md](design/maple-ui/components/select.md)                     |
+| Spinner          |  ✓  |   ✓   |    ✓    | [spinner.md](design/maple-ui/components/spinner.md)                   |
+| Stat             |  ✓  |   ✓   |    ✓    | [stat.md](design/maple-ui/components/stat.md)                         |
+| Status Text      |  ✓  |   ✓   |    ✓    | [status-text.md](design/maple-ui/components/status-text.md)           |
+| Text             |  ✓  |   ✓   |    ✓    | [text.md](design/maple-ui/components/text.md)                         |
+| Timestamp        |  ✓  |   ✓   |    ✓    | [timestamp.md](design/maple-ui/components/timestamp.md)               |
+| Toast            |  ✓  |   ✓   |    ✓    | [toast.md](design/maple-ui/components/toast.md)                       |
+| Toggle           |  —  |   ✓   |    —    | [toggle.md](design/maple-ui/components/toggle.md)                     |
 
-### 1.2 Content
-
-| Element       | Purpose                   | To design                                                                                                 |
-| ------------- | ------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Text**      | Styled text block         | The full type scale · Weights · Color roles: main, muted, on-accent, semantic · Truncation and line-clamp |
-| **Timestamp** | Formatted date/time       | Formats: relative, short, long, time-only · Tooltip on hover                                              |
-| **Badge**     | Small status label        | Variants: neutral, accent, success, warning, error · With/without leading dot or icon · Sizes: sm, md     |
-| **Stat**      | Labeled numeric value     | Sizes: sm, lg · Optional delta indicator and trend direction                                              |
-| **Divider**   | Rule, optional label      | Orientation: horizontal, vertical · With/without centered label · Inset vs. full-bleed                    |
-| **List**      | Ordered / unordered items | Marker styles · Nesting indent · Spacing density                                                          |
-
-### 1.3 Form controls
-
-| Element              | Purpose                | To design                                                                                                                                             |
-| -------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input**            | Single-line text field | Sizes: sm, md · States: default, focus, filled, error, disabled, read-only · Slots: prefix icon, suffix action, clear · Numeric variant with steppers |
-| **Checkbox**         | Labeled boolean        | States: unchecked, checked, indeterminate, focus, disabled · Label position                                                                           |
-| **Segmented Toggle** | 2–3 exclusive options  | Segment counts: 2, 3 · States per segment · Selection indicator motion                                                                                |
-
-### 1.4 Media
-
-| Element            | Purpose                            | To design                                                                      |
-| ------------------ | ---------------------------------- | ------------------------------------------------------------------------------ |
-| **Image**          | Raster leaf                        | Fit modes: fill, fit · Radii · Placeholder and broken states · Aspect handling |
-| **Remote Image**   | Authenticated, cached, tiered load | Tiers: thumb → preview → full · Blur-up transition · Retry affordance          |
-| **Avatar**         | User image with initials fallback  | Sizes: xs, sm, md, lg · Fallback color derivation · Presence dot               |
-| **QR Code**        | Renders a payload as a QR image    | Sizes · Quiet zone · Contrast requirement                                      |
-| **Canvas Surface** | Hosts a GPU-rendered layer         | Letterbox behavior · Background · Loading state before first frame             |
-
-### 1.5 Feedback
-
-| Element         | Purpose                       | To design                                                                                               |
-| --------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Progress**    | Determinate or indeterminate  | Shapes: bar, ring · Sizes · Indeterminate animation · With/without label                                |
-| **Spinner**     | Small indeterminate indicator | Sizes: sm, md · Inline vs. centered · Delay-before-show threshold                                       |
-| **Status Text** | Persistence / sync state line | States: idle, saving, saved, offline, error · Icon pairing                                              |
-| **Toast**       | Transient notification        | Variants: info, success, warning, error · With/without action · Auto-dismiss timing · Enter/exit motion |
-
-**22 atoms.**
-
----
+23 implemented (Apple), 22 on web and Windows; 24 contracted.
 
 ## 2. Molecules — Level 1
 
-Built only from atoms.
+Built only from atoms. Web: `lib/ui/<name>/`, re-exported through `molecules1-lane-a.ts` and `molecules1-lane-b.ts`. Apple: `Molecules/`. Windows: `MapleUI/Molecules/`.
 
-### 2.1 Form & entry
+| Component           | Web | Apple | Windows | Contract                                              |
+| ------------------- | :-: | :---: | :-----: | ----------------------------------------------------- |
+| 2-D Pad             |  ✓  |   ✓   |    ✓    | —                                                     |
+| Audio Player        |  ✓  |   ✓   |    ✓    | —                                                     |
+| Avatar Group        |  ✓  |   ✓   |    ✓    | —                                                     |
+| Banner              |  ✓  |   ✓   |    ✓    | —                                                     |
+| Bubble Menu         |  ✓  |   ✓   |    ✓    | —                                                     |
+| Chip Row            |  ✓  |   ✓   |    ✓    | —                                                     |
+| Code Block          |  ✓  |   ✓   |    ✓    | —                                                     |
+| Collapsible         |  ✓  |   ✓   |    ✓    | —                                                     |
+| Color Wheel         |  ✓  |   ✓   |    ✓    | —                                                     |
+| Command Menu        |  ✓  |   ✓   |    ✓    | —                                                     |
+| Connection Graph    |  ✓  |   ✓   |    ✓    | —                                                     |
+| Context Menu        |  ✓  |   ✓   |    ✓    | —                                                     |
+| Curve Plot          |  ✓  |   ✓   |    ✓    | —                                                     |
+| Drag Bar            |  ✓  |   ✓   |    ✓    | —                                                     |
+| Drag Preview        |  ✓  |   ✓   |    ✓    | —                                                     |
+| Empty State         |  ✓  |   ✓   |    ✓    | —                                                     |
+| Form Field          |  ✓  |   ✓   |    ✓    | —                                                     |
+| Frame-time HUD      |  ✓  |   ✓   |    ✓    | —                                                     |
+| Heatmap Layer       |  ✓  |   ✓   |    ✓    | —                                                     |
+| Histogram           |  ✓  |   ✓   |    ✓    | —                                                     |
+| Inline Rename Field |  ✓  |   ✓   |    ✓    | —                                                     |
+| Label-Value Grid    |  ✓  |   ✓   |    ✓    | —                                                     |
+| List Row            |  ✓  |   ✓   |    ✓    | [list-row.md](design/maple-ui/components/list-row.md) |
+| Living Slider       |  ✓  |   ✓   |    ✓    | —                                                     |
+| Map Annotation      |  ✓  |   ✓   |    ✓    | —                                                     |
+| Page Header         |  ✓  |   ✓   |    ✓    | —                                                     |
+| Parade              |  ✓  |   ✓   |    ✓    | —                                                     |
+| Popover             |  ✓  |   ✓   |    ✓    | —                                                     |
+| Preview Image       |  ✓  |   ✓   |    ✓    | —                                                     |
+| Rating & Flags      |  ✓  |   ✓   |    ✓    | —                                                     |
+| Search Bar          |  ✓  |   ✓   |    ✓    | —                                                     |
+| Slider              |  ✓  |   ✓   |    ✓    | —                                                     |
+| Suggestion Menu     |  ✓  |   ✓   |    ✓    | —                                                     |
+| Tabs                |  ✓  |   ✓   |    ✓    | —                                                     |
+| Toast Container     |  ✓  |   ✓   |    ✓    | —                                                     |
+| Toolbar             |  ✓  |   ✓   |    ✓    | —                                                     |
+| Tree Row            |  ✓  |   ✓   |    ✓    | —                                                     |
+| Value Chip          |  ✓  |   ✓   |    ✓    | —                                                     |
+| Value HUD           |  ✓  |   ✓   |    ✓    | —                                                     |
+| Vectorscope         |  ✓  |   ✓   |    ✓    | —                                                     |
+| Video Player        |  ✓  |   ✓   |    ✓    | —                                                     |
+| Waveform            |  ✓  |   ✓   |    ✓    | —                                                     |
 
-| Element                 | Purpose                             | Built from                |
-| ----------------------- | ----------------------------------- | ------------------------- |
-| **Form Field**          | Label + control + help/error        | Text, Input, Text         |
-| **Inline Rename Field** | Edit-in-place name                  | Input, Text               |
-| **Search Bar**          | Query pill with clear               | Icon, Input, Button       |
-| **Slider**              | Labeled slider with numeric readout | Text, Input               |
-| **Living Slider**       | Gradient-track slider               | Text, Input               |
-| **Drag Bar**            | Tick-marked scrub control           | Text                      |
-| **Color Wheel**         | Draggable hue/saturation puck       | _(none — primitive plot)_ |
-| **2-D Pad**             | Two-axis draggable puck             | _(none — primitive plot)_ |
-
-### 2.2 Selection
-
-| Element            | Purpose                               | Built from                    |
-| ------------------ | ------------------------------------- | ----------------------------- |
-| **Chip Row**       | Row of pills — select, apply, or edit | Badge, Icon, Input            |
-| **Tabs**           | Tab row with selection indicator      | Text, Icon                    |
-| **Tree Row**       | One row of a hierarchical tree        | Icon, Text, Badge, Spinner    |
-| **List Row**       | Row with metadata and inline actions  | Icon, Text, Timestamp, Button |
-| **Rating & Flags** | Star rating plus pick/reject          | Icon, Badge                   |
-
-### 2.3 Feedback & messaging
-
-| Element             | Purpose                               | Built from               |
-| ------------------- | ------------------------------------- | ------------------------ |
-| **Banner**          | Inline status strip                   | Icon, Text, Link, Button |
-| **Toast Container** | Stacks and positions toasts           | Toast                    |
-| **Empty State**     | Icon, title, message, optional action | Icon, Text, Button       |
-| **Value Chip**      | Floating value readout during a drag  | Badge, Text              |
-| **Value HUD**       | Center-screen scrub overlay           | Text, Progress           |
-| **Frame-time HUD**  | Performance readout overlay           | Text                     |
-
-### 2.4 Overlays & menus
-
-| Element             | Purpose                        | Built from                       |
-| ------------------- | ------------------------------ | -------------------------------- |
-| **Popover**         | Anchored floating container    | _(none — positioning primitive)_ |
-| **Context Menu**    | Keyboard-navigable action list | Popover, Icon, Text, Divider     |
-| **Suggestion Menu** | Query-driven autocomplete list | Popover, Icon, Text              |
-| **Command Menu**    | Searchable command palette     | Popover, Input, Icon, Text       |
-
-### 2.5 Structure
-
-| Element              | Purpose                            | Built from                   |
-| -------------------- | ---------------------------------- | ---------------------------- |
-| **Collapsible**      | Disclosure header + content region | Icon, Text                   |
-| **Page Header**      | Title bar with back and actions    | Button, Text, Icon           |
-| **Toolbar**          | Row of actions with overflow       | Action Button, Divider, Icon |
-| **Bubble Menu**      | Floating contextual format bar     | Icon, Divider                |
-| **Label-Value Grid** | Two-column metadata grid           | Text                         |
-| **Avatar Group**     | Overlapping avatars with overflow  | Avatar, Badge                |
-
-### 2.6 Data plots
-
-| Element              | Purpose                            | Built from         |
-| -------------------- | ---------------------------------- | ------------------ |
-| **Histogram**        | RGB distribution plot              | _(plot primitive)_ |
-| **Waveform**         | Luma waveform                      | _(plot primitive)_ |
-| **Parade**           | Three-channel waveform             | _(plot primitive)_ |
-| **Vectorscope**      | Chroma scatter plot                | _(plot primitive)_ |
-| **Curve Plot**       | Draggable point curve              | _(plot primitive)_ |
-| **Connection Graph** | Node-link graph                    | _(plot primitive)_ |
-| **Heatmap Layer**    | Density overlay synced to a camera | _(plot primitive)_ |
-
-### 2.7 Media
-
-| Element            | Purpose                          | Built from                  |
-| ------------------ | -------------------------------- | --------------------------- |
-| **Map Annotation** | Thumbnail pin or count cluster   | Image, Badge, Text          |
-| **Preview Image**  | Static image with load lifecycle | Image, Spinner              |
-| **Video Player**   | Playback with transport controls | Button, Progress, Timestamp |
-| **Audio Player**   | Waveform-less audio transport    | Button, Progress, Timestamp |
-| **Drag Preview**   | Ghost shown while dragging       | Image, Badge                |
-| **Code Block**     | Monospace block with copy        | Text, Button                |
-
-**44 molecules at Level 1.**
-
----
+42 elements, complete on all three platforms.
 
 ## 3. Molecules — Level 2
 
-Built from atoms plus Level 1 molecules.
+Atoms plus Level 1 molecules. Apple: `MoleculesL2/`. Windows: `MapleUI/MoleculesL2/`.
 
-| Element                | Purpose                                  | Built from                                        |
-| ---------------------- | ---------------------------------------- | ------------------------------------------------- |
-| **Media Cell**         | Thumbnail with badges, rating, selection | Image, Badge, Rating & Flags, Inline Rename Field |
-| **Card**               | Image + title + metadata tile            | Image, Text, Badge                                |
-| **Dialog**             | Prompt, confirm, or choice               | Popover, Text, Input, Button                      |
-| **Settings Row**       | Collapsible labeled setting              | Collapsible, Icon, Text, Divider                  |
-| **Embed Shell**        | Frame for embedded content               | Page Header, Progress, Icon                       |
-| **Description Field**  | Text with override and regenerate        | Text, Input, Button                               |
-| **Transcript Block**   | Timestamped read-only transcript         | Text, Timestamp                                   |
-| **Faces Row**          | Count, person chips, re-detect           | Chip Row, Button, Text                            |
-| **Place Row**          | Geocoded place with override             | Text, Input, Button                               |
-| **Vision Row**         | Classification result chips              | Chip Row                                          |
-| **Keyword Row**        | Editable tag chips                       | Chip Row, Input                                   |
-| **Preview List**       | Before → after row list                  | List Row, Text                                    |
-| **Progress Step**      | One step of a wizard                     | Text, Progress, Button                            |
-| **Suggestion Preview** | Proposed change with accept/reject       | Text, Button                                      |
-| **Bot Output**         | Streaming generated result               | Text, Progress, Avatar                            |
-| **Endpoint Form**      | Interactive request builder              | Form Field, Button, Badge                         |
-| **Response Viewer**    | Formatted response with status           | Code Block, Badge, Tabs                           |
-| **Filmstrip Row**      | Horizontal scrolling thumbnails          | Media Cell                                        |
-| **Filmstrip Rail**     | Collapsible vertical thumbnails          | Media Cell, Icon                                  |
-| **QR Scanner**         | Camera or paste payload capture          | Input, Button, Canvas Surface                     |
-| **Chat Message**       | One message bubble                       | Avatar, Text, Timestamp                           |
-| **Typing Indicator**   | Someone-is-typing affordance             | Avatar, Text                                      |
-| **Todo Popover**       | Task attribute editor                    | Popover, Form Field, Chip Row                     |
-| **Event Popover**      | Calendar event create/edit               | Popover, Form Field, Button                       |
+| Component          | Web | Apple | Windows | Contract |
+| ------------------ | :-: | :---: | :-----: | -------- |
+| Bot Output         |  ✓  |   ✓   |    ✓    | —        |
+| Card               |  ✓  |   ✓   |    ✓    | —        |
+| Chat Message       |  ✓  |   ✓   |    ✓    | —        |
+| Description Field  |  ✓  |   ✓   |    ✓    | —        |
+| Dialog             |  ✓  |   ✓   |    ✓    | —        |
+| Embed Shell        |  ✓  |   ✓   |    ✓    | —        |
+| Endpoint Form      |  ✓  |   ✓   |    ✓    | —        |
+| Event Popover      |  ✓  |   ✓   |    ✓    | —        |
+| Faces Row          |  ✓  |   ✓   |    ✓    | —        |
+| Filmstrip Rail     |  ✓  |   ✓   |    ✓    | —        |
+| Filmstrip Row      |  ✓  |   ✓   |    ✓    | —        |
+| Keyword Row        |  ✓  |   ✓   |    ✓    | —        |
+| Media Cell         |  ✓  |   ✓   |    ✓    | —        |
+| Place Row          |  ✓  |   ✓   |    ✓    | —        |
+| Preview List       |  ✓  |   ✓   |    ✓    | —        |
+| Progress Step      |  ✓  |   ✓   |    ✓    | —        |
+| QR Scanner         |  ✓  |   ✓   |    ✓    | —        |
+| Response Viewer    |  ✓  |   ✓   |    ✓    | —        |
+| Settings Row       |  ✓  |   ✓   |    ✓    | —        |
+| Suggestion Preview |  ✓  |   ✓   |    ✓    | —        |
+| To-do Popover      |  ✓  |   ✓   |    ✓    | —        |
+| Transcript Block   |  ✓  |   ✓   |    ✓    | —        |
+| Typing Indicator   |  ✓  |   ✓   |    ✓    | —        |
+| Vision Row         |  ✓  |   ✓   |    ✓    | —        |
 
-**24 molecules at Level 2. 68 molecules total.**
+24 elements, complete on all three platforms. 66 molecules in total.
 
----
+## 4. Templates
 
-## 4. Organisms
+Regions only, no content. Apple: `Templates/`. Windows: `MapleUI/Templates/`. Every modal organism sits on Overlay Shell, so templates are built before organisms.
 
-### 4.1 Collections
+| Component      | Regions                        | Web | Apple | Windows |
+| -------------- | ------------------------------ | :-: | :---: | :-----: |
+| App Shell      | navigation · content · overlay |  ✓  |   ✓   |    ✓    |
+| Drawer Shell   | scrim · panel                  |  ✓  |   ✓   |    ✓    |
+| Overlay Shell  | scrim · header · body · footer |  ✓  |   ✓   |    ✓    |
+| Settings Shell | section nav · pane             |  ✓  |   ✓   |    ✓    |
+| Sheet Shell    | scrim · grab handle · body     |  ✓  |   ✓   |    ✓    |
+| Split Layout   | sidebar · center · detail      |  ✓  |   ✓   |    ✓    |
+| Tab Shell      | tab bar · content              |  ✓  |   ✓   |    ✓    |
 
-| Element             | Purpose                               | Built from                                     |
-| ------------------- | ------------------------------------- | ---------------------------------------------- |
-| **Collection Grid** | Virtualized selectable thumbnail grid | Media Cell, Empty State, Spinner, Drag Preview |
-| **List View**       | Virtualized row list                  | List Row, Empty State, Spinner                 |
-| **Timeline**        | Date-grouped infinite scroll          | Collection Grid, Text, Chip Row                |
-| **Kanban Board**    | Drag-and-drop column board            | Card, Text, Button                             |
-| **Filmstrip**       | Focus-following thumbnail strip       | Filmstrip Row, Filmstrip Rail                  |
-| **Search Results**  | Paginated result grid with states     | Collection Grid, Empty State, Progress         |
+## 5. Organisms
 
-### 4.2 Navigation
+Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; web across `organisms-lane-a.ts` and `organisms-lane-b.ts`; Windows keeps one `MapleUI/Organisms/` directory.
 
-| Element          | Purpose                              | Built from                                                          |
-| ---------------- | ------------------------------------ | ------------------------------------------------------------------- |
-| **Sidebar**      | Hierarchical source / page tree      | Tree Row, Toolbar, Collapsible, Context Menu, Empty State           |
-| **Tool Dock**    | Tool group switcher                  | Action Button, Divider, Icon                                        |
-| **Search**       | Query, filters, and results together | Search Bar, Chip Row, Suggestion Menu, Search Results, Filter Panel |
-| **Filter Panel** | Faceted multi-select filters         | Collapsible, Chip Row, Checkbox, Form Field                         |
+| Component              | Web | Apple | Windows |
+| ---------------------- | :-: | :---: | :-----: |
+| Add Server Modal       |  ✓  |   ✓   |    ✓    |
+| Adjustments Panel      |  ✓  |   ✓   |    ✓    |
+| Backlinks Panel        |  ✓  |   ✓   |    ✓    |
+| Backup Monitor         |  ✓  |   ✓   |    ✓    |
+| Batch Metadata Modal   |  ✓  |   ✓   |    ✓    |
+| Batch Rename Modal     |  ✓  |   ✓   |    ✓    |
+| Card Detail Modal      |  ✓  |   ✓   |    ✓    |
+| Chat                   |  ✓  |   ✓   |    ✓    |
+| Collection Grid        |  ✓  |   ✓   |    ✓    |
+| Color Grading Panel    |  ✓  |   ✓   |    ✓    |
+| Control Surface        |  ✓  |   ✓   |    ✓    |
+| Crop Overlay           |  ✓  |   ✓   |    ✓    |
+| Crop Toolbar           |  ✓  |   ✓   |    ✓    |
+| Device List            |  ✓  |   ✓   |    ✓    |
+| Diagnostics            |  ✓  |   ✓   |    ✓    |
+| Enrichment Panel       |  ✓  |   ✓   |    ✓    |
+| Export Modal           |  ✓  |   ✓   |    ✓    |
+| Film Panel             |  ✓  |   ✓   |    ✓    |
+| Filmstrip              |  ✓  |   ✓   |    ✓    |
+| Filter Panel           |  ✓  |   ✓   |    ✓    |
+| HSL Panel              |  ✓  |   ✓   |    ✓    |
+| Image Canvas           |  ✓  |   ✓   |    ✓    |
+| Info Panel             |  ✓  |   ✓   |    ✓    |
+| Inspector Panel        |  ✓  |   ✓   |    ✓    |
+| Kanban Board           |  ✓  |   ✓   |    ✓    |
+| Library Picker Modal   |  ✓  |   ✓   |    ✓    |
+| List View              |  ✓  |   ✓   |    ✓    |
+| Map Surface            |  ✓  |   ✓   |    ✓    |
+| Mobile Control Bar     |  ✓  |   ✓   |    ✓    |
+| Move To Modal          |  ✓  |   ✓   |    ✓    |
+| Notification Feed      |  ✓  |   ✓   |    ✓    |
+| Pair Device Modal      |  ✓  |   ✓   |    ✓    |
+| Panorama Merge Modal   |  ✓  |   ✓   |    ✓    |
+| Pipeline Monitor       |  ✓  |   ✓   |    ✓    |
+| Presets Panel          |  ✓  |   ✓   |    ✓    |
+| Preview Surface        |  ✓  |   ✓   |    ✓    |
+| Result Report Modal    |  ✓  |   ✓   |    ✓    |
+| Rich Text Editor       |  ✓  |   ✓   |    ✓    |
+| Scopes Panel           |  ✓  |   ✓   |    ✓    |
+| Search                 |  ✓  |   ✓   |    ✓    |
+| Search Results         |  ✓  |   ✓   |    ✓    |
+| Selective Paste Modal  |  ✓  |   ✓   |    ✓    |
+| Settings Section       |  ✓  |   ✓   |    ✓    |
+| Setup Wizard           |  ✓  |   ✓   |    ✓    |
+| Share Modal            |  ✓  |   ✓   |    ✓    |
+| Sidebar                |  ✓  |   ✓   |    ✓    |
+| Structured Data Editor |  ✓  |   ✓   |    ✓    |
+| Template Gallery Modal |  ✓  |   ✓   |    ✓    |
+| Thread Panel           |  ✓  |   ✓   |    ✓    |
+| Timeline               |  ✓  |   ✓   |    ✓    |
+| Tone Curve Panel       |  ✓  |   ✓   |    ✓    |
+| Tool Dock              |  ✓  |   ✓   |    ✓    |
+| User Management        |  ✓  |   ✓   |    ✓    |
+| Version History Panel  |  ✓  |   ✓   |    ✓    |
+| Whiteboard Canvas      |  ✓  |   ✓   |    ✓    |
 
-### 4.3 Inspectors & panels
-
-| Element                   | Purpose                            | Built from                                                                    |
-| ------------------------- | ---------------------------------- | ----------------------------------------------------------------------------- |
-| **Inspector Panel**       | Tabbed right-side detail region    | Tabs, Page Header                                                             |
-| **Info Panel**            | Full asset metadata                | Label-Value Grid, Histogram, Keyword Row, Rating & Flags, Inline Rename Field |
-| **Enrichment Panel**      | AI-derived fields with live status | Description Field, Faces Row, Place Row, Transcript Block, Vision Row, Badge  |
-| **Adjustments Panel**     | All tool-group sliders             | Living Slider, Collapsible, Tabs                                              |
-| **Color Grading Panel**   | Shadows / mids / highlights        | Color Wheel, Living Slider                                                    |
-| **HSL Panel**             | Per-band hue / sat / luminance     | Chip Row, Living Slider                                                       |
-| **Tone Curve Panel**      | Channel curve plus parametrics     | Tabs, Curve Plot, Living Slider                                               |
-| **Film Panel**            | Look catalog with strength         | Chip Row, Card, Living Slider                                                 |
-| **Presets Panel**         | Save, apply, delete presets        | List Row, Button, Dialog                                                      |
-| **Scopes Panel**          | Pinned four-up scope stack         | Histogram, Waveform, Parade, Vectorscope                                      |
-| **Backlinks Panel**       | Inbound references                 | List Row, Empty State                                                         |
-| **Version History Panel** | Browse and restore versions        | List Row, Timestamp, Button, Dialog                                           |
-| **Thread Panel**          | Reply thread                       | Chat Message, Input, Button                                                   |
-
-### 4.4 Modals
-
-All built on the **Overlay Shell** template (§5).
-
-| Element              | Purpose                            | Built from                                   |
-| -------------------- | ---------------------------------- | -------------------------------------------- |
-| **Export**           | Format, size, quality, color space | Form Field, Progress, Banner                 |
-| **Batch Rename**     | Template with live preview         | Form Field, Chip Row, Preview List, Progress |
-| **Batch Metadata**   | Multi-field editor with confirm    | Form Field, Dialog, Progress                 |
-| **Move To**          | Tree destination picker            | Tree Row, Search Bar, Button                 |
-| **Panorama Merge**   | Stitch options and progress        | Form Field, Progress, Media Cell             |
-| **Selective Paste**  | Per-group apply toggles            | Checkbox, Text, Button                       |
-| **Library Picker**   | Remote filesystem browser          | Tree Row, Toolbar, Empty State               |
-| **Add Server**       | Sign-in and registration           | Form Field, Button, Banner                   |
-| **Pair Device**      | Multi-step pairing flow            | QR Code, QR Scanner, Progress, Progress Step |
-| **Share**            | Manage members and access          | Avatar Group, Form Field, List Row           |
-| **Template Gallery** | Browse and apply templates         | Card, Search Bar, Empty State                |
-| **Card Detail**      | Expanded board-card editor         | Form Field, Chip Row, Rich Text Editor       |
-| **Result Report**    | Per-item batch outcome             | List Row, Badge, Empty State                 |
-
-### 4.5 Editing surfaces
-
-| Element                    | Purpose                           | Built from                                                          |
-| -------------------------- | --------------------------------- | ------------------------------------------------------------------- |
-| **Image Canvas**           | Zoom, pan, before/after, render   | Canvas Surface, Preview Image, Crop Overlay                         |
-| **Crop Overlay**           | Draggable crop with grid and mask | Drag Bar, Icon                                                      |
-| **Crop Toolbar**           | Aspect presets and straighten     | Chip Row, Drag Bar, Button                                          |
-| **Control Surface**        | Panel for the armed tool          | Tabs, Living Slider, Chip Row, Value Chip                           |
-| **Mobile Control Bar**     | Phone bottom control stack        | Tool Dock, Control Surface, Tabs                                    |
-| **Rich Text Editor**       | Structured document editing       | Bubble Menu, Command Menu, Suggestion Menu, Embed Shell, Code Block |
-| **Whiteboard Canvas**      | Freeform canvas with AI prompt    | Canvas Surface, Toolbar, Command Menu                               |
-| **Structured Data Editor** | JSON as code or as a form         | Code Block, Form Field, Tabs                                        |
-| **Preview Surface**        | Full-screen media preview         | Page Header, Filmstrip, Preview Image, Video Player, Toolbar        |
-
-### 4.6 Map
-
-| Element         | Purpose                             | Built from                                 |
-| --------------- | ----------------------------------- | ------------------------------------------ |
-| **Map Surface** | Clustered pins with density overlay | Map Annotation, Heatmap Layer, Empty State |
-
-### 4.7 Communication
-
-| Element               | Purpose                  | Built from                                             |
-| --------------------- | ------------------------ | ------------------------------------------------------ |
-| **Chat**              | Real-time conversation   | Chat Message, Typing Indicator, Input, Suggestion Menu |
-| **Notification Feed** | Filterable activity list | List Row, Chip Row, Empty State                        |
-
-### 4.8 Configuration
-
-| Element              | Purpose                          | Built from                                |
-| -------------------- | -------------------------------- | ----------------------------------------- |
-| **Settings Section** | A group of related settings      | Settings Row, Form Field, Divider, Banner |
-| **Pipeline Monitor** | Live stage status and metrics    | List Row, Progress, Badge, Empty State    |
-| **Setup Wizard**     | Multi-step guided configuration  | Progress Step, Tabs, Form Field, Button   |
-| **User Management**  | Invite, list, and revoke access  | List Row, QR Code, Dialog, Form Field     |
-| **Device List**      | Paired devices with revoke       | List Row, Dialog, Empty State             |
-| **Backup Monitor**   | Configuration plus live progress | Form Field, Progress, Banner              |
-| **Diagnostics**      | Validation runs and raw output   | Button, Code Block, Badge                 |
-
-**52 organisms.**
-
----
-
-## 5. Templates
-
-Regions only. No content.
-
-| Element            | Regions                        | To design                                                           |
-| ------------------ | ------------------------------ | ------------------------------------------------------------------- |
-| **App Shell**      | Navigation · Content · Overlay | Root layout, overlay stacking order, toast/banner anchoring         |
-| **Split Layout**   | Sidebar · Center · Detail      | Min/max widths, collapse order, resize handles                      |
-| **Tab Shell**      | Tab bar · Content              | Tab bar placement per breakpoint, badge positioning                 |
-| **Settings Shell** | Section nav · Pane             | Nav width, pane max-width, deep-link behavior                       |
-| **Overlay Shell**  | Scrim · Header · Body · Footer | Sizes: sm, md, lg, full · Focus trap, dismissal, scroll containment |
-| **Sheet Shell**    | Scrim · Grab handle · Body     | Detents, drag-to-dismiss threshold, spring                          |
-| **Drawer Shell**   | Scrim · Panel                  | Edge, width, gesture dismissal                                      |
-
-**7 templates.**
-
----
+55 elements, complete on all three platforms.
 
 ## 6. Pages
 
-Each is a template plus organisms.
+A template plus organisms. Apple: `Pages/MuiPage*.swift`. Windows: `MapleUI/Pages/MuiPage*.cs`, each paired with a pure `Mui*PageReducer.cs` that holds the page's state transitions so they can be unit-tested. Web: `lib/ui/pages/<name>/`.
 
-| Page              | Template       | Organisms                                                                               |
-| ----------------- | -------------- | --------------------------------------------------------------------------------------- |
-| **Browse**        | Split Layout   | Sidebar, Collection Grid, Timeline, Map Surface, Toolbar                                |
-| **Editor**        | Split Layout   | Image Canvas, Tool Dock, Control Surface, Adjustments Panel, Inspector Panel, Filmstrip |
-| **Document**      | Split Layout   | Sidebar, Rich Text Editor, Backlinks Panel, Version History Panel                       |
-| **Preview**       | App Shell      | Preview Surface                                                                         |
-| **Search**        | App Shell      | Search                                                                                  |
-| **Board**         | App Shell      | Kanban Board                                                                            |
-| **Chat**          | Split Layout   | Chat, Thread Panel                                                                      |
-| **Notifications** | App Shell      | Notification Feed                                                                       |
-| **Settings**      | Settings Shell | Settings Section, Device List, User Management                                          |
-| **Admin**         | Settings Shell | Pipeline Monitor, Setup Wizard, Backup Monitor, Diagnostics                             |
-| **Sign In**       | App Shell      | Form Field, Button, Banner                                                              |
-| **Pairing**       | App Shell      | Pair Device                                                                             |
-| **TV Timeline**   | Tab Shell      | Timeline, Collection Grid                                                               |
-| **TV Viewer**     | App Shell      | Preview Surface                                                                         |
-| **TV Map**        | Tab Shell      | Map Surface                                                                             |
+| Page          | Web | Apple | Windows |
+| ------------- | :-: | :---: | :-----: |
+| Admin         |  ✓  |   ✓   |    ✓    |
+| Board         |  ✓  |   ✓   |    ✓    |
+| Browse        |  ✓  |   ✓   |    ✓    |
+| Chat          |  ✓  |   ✓   |    ✓    |
+| Document      |  ✓  |   ✓   |    ✓    |
+| Editor        |  ✓  |   ✓   |    ✓    |
+| Notifications |  ✓  |   ✓   |    ✓    |
+| Pairing       |  ✓  |   ✓   |    ✓    |
+| Preview       |  ✓  |   ✓   |    ✓    |
+| Search        |  ✓  |   ✓   |    ✓    |
+| Settings      |  ✓  |   ✓   |    ✓    |
+| Sign In       |  ✓  |   ✓   |    ✓    |
+| TV Map        |  ✓  |   ✓   |    ✓    |
+| TV Timeline   |  ✓  |   ✓   |    ✓    |
+| TV Viewer     |  ✓  |   ✓   |    ✓    |
 
-**15 page types.**
-
----
-
-## 7. Design order
-
-Each wave depends only on the ones before it.
-
-| Wave  | What                                                  | Count |
-| ----- | ----------------------------------------------------- | ----- |
-| **0** | Tokens — color, type, spacing, radius, shadow, motion | —     |
-| **1** | Atoms · Actions and Content                           | 10    |
-| **2** | Atoms · Form, Media, Feedback                         | 12    |
-| **3** | Molecules L1 · Form, Selection, Feedback              | 19    |
-| **4** | Molecules L1 · Overlays, Structure, Plots, Media      | 25    |
-| **5** | Molecules L2                                          | 24    |
-| **6** | Templates                                             | 7     |
-| **7** | Organisms · Collections, Navigation, Inspectors       | 23    |
-| **8** | Organisms · Modals, Editing, Map, Comms, Config       | 29    |
-| **9** | Pages                                                 | 15    |
-
-Waves 1 and 2 are the whole foundation and the smallest amount of work — 22 elements. Wave 6 (templates) comes before organisms because every modal depends on Overlay Shell.
-
-**Totals: 22 atoms · 68 molecules · 52 organisms · 7 templates · 15 pages.**
+15 page types, complete on all three platforms.
 
 ---
 
-## 8. What to specify per tier
+## Totals
 
-Applied consistently, this is what makes the guide usable rather than decorative.
+| Tier         |     Web |   Apple | Windows |
+| ------------ | ------: | ------: | ------: |
+| Atoms        |      22 |      23 |      22 |
+| Molecules L1 |      42 |      42 |      42 |
+| Molecules L2 |      24 |      24 |      24 |
+| Organisms    |      55 |      55 |      55 |
+| Templates    |       7 |       7 |       7 |
+| Pages        |      15 |      15 |      15 |
+| **Total**    | **165** | **166** | **165** |
 
-**Atoms** — every variant × every size × every state, as a matrix. Token references only, never raw values. Minimum hit area. Focus ring treatment.
+## Using the catalog
 
-**Molecules** — internal spacing between atoms. Overflow behavior. Which atom variants are permitted inside (a Banner uses ghost Buttons, not primary). Empty and loading appearance.
+New product UI composes these components rather than hand-rolling markup. On web that is enforced: `src/web/scripts/check-maple-ui-adoption.mjs` freezes already-migrated directories and files, so a raw `<button>` or a `btn-primary`-style class re-entering one fails `bun run maple-ui:adoption-check` in `.github/workflows/web.yml`. Apple and Windows have no equivalent ratchet — the discipline there is review.
 
-**Organisms** — layout at each breakpoint. Data states: loading, empty, error, partial. Scroll and virtualization behavior. Keyboard traversal order.
+Apple consumers import the `MapleUI` package, which is deliberately dependency-free (no MapleCore, no third-party SPM packages) so sibling apps can consume it directly. It targets macOS 14 and iOS 17; the tvOS app does not link it.
 
-**Templates** — region min/max sizes. Collapse and reflow order. Overlay stacking.
+What to specify when adding or changing an element:
 
-**Pages** — which organisms occupy which regions, and what changes per breakpoint.
+- **Atoms** — every variant × size × state as a matrix, token references only, minimum hit area, focus-ring treatment. Then write the contract doc; the CI job requires all six sections.
+- **Molecules** — internal spacing, overflow behaviour, which atom variants are permitted inside (a Banner uses ghost Buttons, not primary), empty and loading appearance.
+- **Organisms** — layout per breakpoint, the loading/empty/error/partial data states, scroll and virtualization, keyboard traversal order.
+- **Templates** — region min/max sizes, collapse and reflow order, overlay stacking.
+- **Pages** — which organisms occupy which regions, and what changes per breakpoint.
+
+See [best-practices](best-practices.md) for the Angular component rules and the Tailwind conversion recipe these components follow.

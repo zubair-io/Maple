@@ -1,8 +1,7 @@
 # Maple Web — Angular Workspace (Hosted + Self-Hosted)
 
 Maple photo editor, Web variants. The full RAW pipeline runs in the browser via WebAssembly
-(`raw-wasm`) on both variants. See `docs/spec/00-overview.md` and `docs/spec/12-maple-apps-spec.md`
-§§ 06–08.
+(`raw-wasm`) on both variants. See `docs/web.md` and `docs/architecture.md`.
 
 Two applications share one Angular library:
 
