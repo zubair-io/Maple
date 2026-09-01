@@ -306,6 +306,9 @@ jobs:
           # Written to a file with printf below, never interpolated into a
           # command — PR bodies are attacker-controlled text.
           PR_BODY: ${{ github.event.pull_request.body }}
+          # On pull_request runs HEAD is the synthetic merge commit, whose message is
+          # "Merge <sha> into <sha>" — read the PR head commit instead (Copilot, #3114).
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           # If budgets.json didn't exist at the merge base (brand-new file),
@@ -324,7 +327,7 @@ jobs:
           # into main's history, since the PR body itself does not.
           marker="$(mktemp)"
           printf '%s\n' "$PR_BODY" > "$marker"
-          git log -1 --format=%B HEAD >> "$marker"
+          git log -1 --format=%B "${HEAD_SHA:-HEAD}" >> "$marker"
           # The script fails (exit 1) if any existing budget cell was raised
           # (without a matching marker) or removed vs the base branch. New
           # cells (added coverage) pass.
