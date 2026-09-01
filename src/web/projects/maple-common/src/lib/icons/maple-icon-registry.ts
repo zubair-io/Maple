@@ -69,6 +69,12 @@ export type MapleIconName =
   // --- Folder-tree context menu (#2643): New Folder / Move to Trash. ---
   | 'folder-plus'
   | 'trash'
+  // --- Windows chrome mirrors (#3024): "Connect Maple Cloud" / "Connect to
+  // server…" (cloud) and the Timeline tree's per-node icon (calendar).
+  // Windows drew these first (#3022); path data copied verbatim from
+  // MapleIconShapes.cs so the glyphs stay pixel-identical across platforms.
+  | 'cloud'
+  | 'calendar'
   // --- Tool glyphs (S5 Editor). Final artwork in `tool-glyph-shapes.ts`. ---
   | ToolIconName;
 
@@ -229,6 +235,13 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
     path('M4.5 5l.6 8a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8'),
     path('M6.5 7.5v4M9.5 7.5v4'),
   ],
+  // Single cloud outline — "Connect Maple Cloud" sidebar button, "Connect to
+  // server…" button, cloud-folder list item icon (#3024, Windows-first
+  // #3022). Path data copied verbatim from MapleIconShapes.cs's "cloud".
+  cloud: [path('M4.6 12A2.6 2.6 0 014 6.9a3.6 3.6 0 017-1.3A2.8 2.8 0 0110.6 12H4.6z')],
+  // Rounded date grid — Timeline tree's per-node icon (#3024, Windows-first
+  // #3022). Path data copied verbatim from MapleIconShapes.cs's "calendar".
+  calendar: [rect(2.5, 3.5, 11, 10, 1.5), path('M5 2.5v2M11 2.5v2'), path('M2.5 6.5h11')],
 
   // ── S5 Editor tool glyphs (#640) ─────────────────────────────────────────
   // Final artwork, drawn as one family — see `tool-glyph-shapes.ts` for the
