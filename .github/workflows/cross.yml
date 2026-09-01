@@ -238,17 +238,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Judge growth PER FILE EXTENSION, not as one flat count (#2747).
-          # The append-forbidden rule exists to stop a new violator sneaking
-          # into a language this gate ALREADY covers. It was never meant to
-          # block a PR that brings a whole new language under the
-          # file-budget gate for the first time (tools/check-file-budget.sh
-          # gaining `*.cs`, here) — that necessarily seeds the language's
-          # day-0 violators in one shot, exactly like every currently-gated
-          # language's entries were seeded before this job existed. An
-          # extension that already had ANY entries at the merge base is
-          # unaffected by this: it stays fully append-forbidden, entry for
-          # entry, same as before.
+          # Judge growth PER FILE EXTENSION, and by PATH SET rather than a
+          # flat count (#2747). The append-forbidden rule exists to stop a
+          # new violator sneaking into a language this gate ALREADY covers.
+          # It was never meant to block a PR that brings a whole new
+          # language under the file-budget gate for the first time
+          # (tools/check-file-budget.sh gaining `*.cs`, here) — that
+          # necessarily seeds the language's day-0 violators in one shot,
+          # exactly like every currently-gated language's entries were
+          # seeded before this job existed. An extension that already had
+          # ANY entries at the merge base is unaffected by this: every path
+          # of that extension present at HEAD but absent at the merge base
+          # is a fresh error, full stop — a raw count comparison would miss
+          # a PR that removes one allowlisted path and adds a DIFFERENT one
+          # for the same extension (net-zero growth, but still a new
+          # violator let in).
 
           # Non-comment, non-blank lines with the inline `# comment` and
           # trailing whitespace stripped, so what's left is the bare path.
@@ -267,27 +271,34 @@ jobs:
             grep -Ev '^[[:space:]]*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' || true
           }
 
-          # Bare paths -> "ext count" pairs, one extension per line.
-          count_by_ext() {
-            extract_paths "$1" | sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' | sort | uniq -c | \
-              awk '{print $2, $1}'
-          }
+          # check-file-budget.sh AT THE MERGE BASE, fetched once into a real
+          # file rather than read live from `git show` on every call. `grep
+          # -q` exits the instant it finds a match, without draining the
+          # rest of its input — piped directly from a live `git show`, that
+          # races the writer: if grep quits first, git show can catch
+          # SIGPIPE and the pipeline's exit status becomes 128+13 under
+          # `set -o pipefail`, indistinguishable from "no match" to the
+          # caller (confirmed by hand: flaky across repeated runs of the
+          # piped form, always consistent once it reads a file instead).
+          gate_script_tmp="$(mktemp)"
+          { git show "${MERGE_BASE}:tools/check-file-budget.sh" 2>/dev/null; echo; } > "$gate_script_tmp"
 
-          # Whether `.$1` was already a gated extension in
-          # check-file-budget.sh AT THE MERGE BASE — the actual signal for
-          # "is this the PR onboarding the extension," and more robust than
+          # Whether `.$1` was already gated — the actual signal for "is
+          # this the PR onboarding the extension," and more robust than
           # asking whether the allowlist currently has zero entries for it
           # (an already-gated language that has fully paid off its
           # allowlist debt also reads zero entries at the merge base: a
           # flat zero-count check would treat that as a fresh onboarding
-          # and silently let one new violator back in with only a notice,
-          # no error). The trailing `([^A-Za-z0-9_]|$)` is an explicit
-          # non-word-character (or end-of-line) boundary rather than `\b`
-          # — `\b` is a GNU regex extension, not a POSIX ERE token — so
-          # matching `.ts` doesn't also match inside `.tsx`.
+          # and silently let one new violator back in). The blank line
+          # appended above guarantees a non-word character always follows
+          # the LAST possible match in the file, so the boundary needs only
+          # `[^A-Za-z0-9_]` — no `$` alternative, and so no dependence on
+          # where POSIX ERE considers `$` special mid-pattern (it's only
+          # unambiguously an anchor as the last character of an entire ERE;
+          # `\*\.$1(...|$)` put `$` before a closing paren, which isn't
+          # that, and isn't guaranteed to behave as an anchor there).
           extension_already_gated() {
-            git show "${MERGE_BASE}:tools/check-file-budget.sh" 2>/dev/null | \
-              grep -Eq -- "\*\.$1([^A-Za-z0-9_]|\$)"
+            grep -Eq -- "\*\.$1[^A-Za-z0-9_]" "$gate_script_tmp"
           }
 
           head_total="$(extract_paths tools/budget-allowlist.txt | wc -l | tr -d ' ')"
@@ -305,36 +316,40 @@ jobs:
           echo "base entries (at merge-base): ${base_total}"
           echo "head entries: ${head_total}"
 
-          # Per-extension base counts, looked up with awk rather than a bash
-          # associative array — this mirrors check-file-budget.sh's own
-          # "Bash 3.2 on macOS doesn't support associative arrays
-          # consistently" note, so the block stays testable by copy-pasting
-          # it into a local shell, not just on the ubuntu-latest runner.
-          base_ext_counts="$(mktemp)"
-          count_by_ext "$base_tmp" > "$base_ext_counts"
+          # Sorted PATH SETS, not counts, per language: a raw count
+          # comparison passes a PR that removes one allowlisted path and
+          # adds a DIFFERENT one for the same already-gated extension (net
+          # zero growth, but still a new violator let in — #2747 review).
+          # `comm -13 base head` prints lines unique to `head`: exactly the
+          # genuinely NEW paths, regardless of what else may have shrunk.
+          head_paths="$(mktemp)"
+          base_paths="$(mktemp)"
+          extract_paths tools/budget-allowlist.txt | sort > "$head_paths"
+          extract_paths "$base_tmp" | sort > "$base_paths"
           rm -f "$base_tmp"
 
           failed=0
-          while read -r ext count; do
-            [ -n "$ext" ] || continue
-            base_n="$(awk -v e="$ext" '$1==e {print $2}' "$base_ext_counts")"
-            base_n="${base_n:-0}"
+          for ext in $(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u); do
             if extension_already_gated "$ext"; then
-              if [ "$count" -gt "$base_n" ]; then
-                echo "::error::budget-allowlist.txt's .${ext} entries grew from ${base_n} to ${count} — that extension was already gated at the merge base and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
+              while read -r new_path; do
+                [ -n "$new_path" ] || continue
+                echo "::error::budget-allowlist.txt gained a new .${ext} entry (${new_path}) — that extension was already gated at the merge base and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
                 failed=1
+              done < <(comm -13 <(grep -E "\.${ext}\$" "$base_paths") <(grep -E "\.${ext}\$" "$head_paths"))
+            else
+              new_count="$(grep -c -E "\.${ext}\$" "$head_paths" || true)"
+              if [ "${new_count:-0}" -gt 0 ]; then
+                echo "::notice::.${ext} entries (${new_count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Any further growth of .${ext} is append-forbidden starting now."
               fi
-            elif [ "$count" -gt 0 ]; then
-              echo "::notice::.${ext} entries (${count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Growth of .${ext} beyond this is append-forbidden starting now."
             fi
-          done < <(count_by_ext tools/budget-allowlist.txt)
-          rm -f "$base_ext_counts"
+          done
+          rm -f "$head_paths" "$base_paths" "$gate_script_tmp"
 
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi
 
-          echo "OK — no already-gated extension grew (day-0 seeding of a newly-gated extension is allowed once)."
+          echo "OK — no already-gated extension gained a new entry (day-0 seeding of a newly-gated extension is allowed once)."
 
   budgets-ratchet-shrinks-only:
     name: budgets-ratchet-shrinks-only
