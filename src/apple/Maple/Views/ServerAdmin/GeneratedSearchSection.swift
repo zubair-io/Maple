@@ -116,6 +116,14 @@ struct GeneratedSearchSection: View {
         .task { await load() }
     }
 
+    // @MainActor on every method below: a SwiftUI View is not globally
+    // actor-isolated in Swift 5 mode and `.task`/`Task {}` closures run on
+    // the cooperative pool by default, so an unannotated async method
+    // mutating @State is a "publishing changes from background threads"
+    // hazard (#2887 — same fix already applied to NetworkSettingsView and
+    // CloudflareSettingsView).
+
+    @MainActor
     private func load() async {
         do {
             config = try await admin.fetchConfig()
@@ -131,6 +139,7 @@ struct GeneratedSearchSection: View {
     /// writes it), else the server's first registered library. A failure here
     /// leaves the config half working — an empty list is indistinguishable
     /// from "no run yet", which is the common case.
+    @MainActor
     private func loadCollections() async {
         let resolved: String?
         if let selected = CloudServerRegistry.shared.selectedLibraryID(for: admin.server) {
@@ -143,6 +152,7 @@ struct GeneratedSearchSection: View {
         collections = (try? await collectionsClient.collections(libraryID: resolvedID)) ?? []
     }
 
+    @MainActor
     private func setPaused(_ paused: Bool) async {
         isBusy = true
         defer { isBusy = false }
@@ -157,6 +167,7 @@ struct GeneratedSearchSection: View {
         }
     }
 
+    @MainActor
     private func runNow() async {
         isRunning = true
         defer { isRunning = false }
