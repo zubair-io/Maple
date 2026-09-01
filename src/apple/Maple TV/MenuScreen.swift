@@ -6,6 +6,7 @@ import SwiftUI
 enum RootScreen: String, Identifiable {
   case menu
   case timeline
+  case memories
   case lightTable
   case search
   case map
@@ -18,7 +19,9 @@ enum RootScreen: String, Identifiable {
 /// returns here from any content screen, and Back again from here backgrounds
 /// the app (tvOS default — the menu attaches no `onExitCommand`). A plain
 /// vertical list of focusable rows: the three content screens plus Log Out,
-/// which unpairs this server (milestone C's `onForgotten`).
+/// which unpairs this server (milestone C's `onForgotten`). Memories — the
+/// daily generated collections — is one of those rows: it used to be a shelf
+/// pinned above the Timeline grid, and is now a destination like the rest.
 struct MenuScreen: View {
   let libraryName: String
   let onSelect: (RootScreen) -> Void
@@ -35,6 +38,7 @@ struct MenuScreen: View {
           .accessibilityAddTraits(.isHeader)
 
         MenuRow(title: "Timeline", systemImage: "photo.on.rectangle") { onSelect(.timeline) }
+        MenuRow(title: "Memories", systemImage: "sparkles.rectangle.stack") { onSelect(.memories) }
         MenuRow(title: "Light Table", systemImage: "rectangle.on.rectangle.angled") { onSelect(.lightTable) }
         MenuRow(title: "Search", systemImage: "magnifyingglass") { onSelect(.search) }
         MenuRow(title: "Map", systemImage: "map") { onSelect(.map) }
