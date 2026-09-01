@@ -104,9 +104,15 @@ const scripts = await walkFiles(artifactRoot, (path) => path.endsWith('.js'));
  * builder wrote it — root-relative (`/main-...js`) and dot-relative
  * (`./main-...js`) hrefs are both plausible depending on `baseHref`/deploy-
  * url config, not just the bare filename this build happens to emit today
- * (Copilot review, PR #3141). */
+ * (Copilot review, PR #3141). The negative lookahead on the second slash
+ * leaves a protocol-relative `//example.com/...` href untouched (rather
+ * than reducing it to `/example.com/...`), so resolveEagerFile's explicit
+ * `startsWith('//')` check below stays reachable and gives that case its
+ * specific "external URL" message instead of falling through to the
+ * generic "resolves outside" one both still catch (Jules review, PR
+ * #3141). */
 function normalizeHref(href) {
-  return href.split(/[?#]/)[0].replace(/^\.?\//, '');
+  return href.split(/[?#]/)[0].replace(/^(?:\.\/|\/(?!\/))/, '');
 }
 
 /** Every href this build's `index.html` marks as eagerly needed: the entry
