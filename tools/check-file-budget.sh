@@ -16,12 +16,14 @@
 #
 # Scope: *.rs *.swift *.ts *.tsx *.js *.py *.cs — source code only. Generated
 # dirs (node_modules/, target/, dist/, .angular/, pkg/, DerivedData/,
-# .build/, bin/, obj/), vendored upstream crate sources (raw-pipeline/vendor/,
-# committed by `cargo vendor` — not our code), and generated wasm bindings
-# under raw-wasm/pkg/ are skipped. `.cs` (#2747) lives entirely under
-# src/windows today, so no extra path scoping is needed; `bin/`/`obj/` are
+# .build/, src/windows/*/bin/, src/windows/*/obj/), vendored upstream crate
+# sources (raw-pipeline/vendor/, committed by `cargo vendor` — not our code),
+# and generated wasm bindings under raw-wasm/pkg/ are skipped. `.cs` (#2747)
+# lives entirely under src/windows today; `src/windows/*/bin|obj/` are
 # dotnet's own build-output dirs (already gitignored, `**/bin/` / `**/obj/`),
-# the C# counterparts of `target/`/`dist/`.
+# the C# counterparts of `target/`/`dist/` — scoped to src/windows rather
+# than a bare `*/bin/*`/`*/obj/*`, which would also swallow real source
+# under e.g. `raw-pipeline/maple-pano/src/bin/*.rs`.
 #
 # Usage:
 #   tools/check-file-budget.sh                 # scan the whole repo
@@ -121,8 +123,8 @@ collect_files() {
       -not -path '*/DerivedData/*' \
       -not -path '*/raw-wasm/pkg/*' \
       -not -path '*/pkg/*' \
-      -not -path '*/bin/*' \
-      -not -path '*/obj/*' \
+      -not -path '*/src/windows/*/bin/*' \
+      -not -path '*/src/windows/*/obj/*' \
       -not -path "$REPO_ROOT/.claude/*" \
       -print
   fi

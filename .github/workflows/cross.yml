@@ -252,14 +252,35 @@ jobs:
 
           # Non-comment, non-blank lines with the inline `# comment` and
           # trailing whitespace stripped, so what's left is the bare path.
+          # `|| true`: under `set -o pipefail`, a `grep` that matches
+          # nothing (an empty or all-comments file — the allowlist itself
+          # right after #113, or a $base_tmp that's empty because the file
+          # didn't exist yet at the merge base) exits 1, which becomes the
+          # whole pipeline's exit status and would abort the script under
+          # `set -e` the moment it's used in `$(...)` (Copilot review
+          # #2747) — the same trap `check-budget-headroom.sh` already warns
+          # about for `is_allowlisted ... && continue`.
           extract_paths() {
-            grep -Ev '^\s*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//'
+            grep -Ev '^\s*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' || true
           }
 
           # Bare paths -> "ext count" pairs, one extension per line.
           count_by_ext() {
             extract_paths "$1" | sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' | sort | uniq -c | \
               awk '{print $2, $1}'
+          }
+
+          # Whether `.$1` was already a gated extension in
+          # check-file-budget.sh AT THE MERGE BASE — the actual signal for
+          # "is this the PR onboarding the extension," and more robust than
+          # asking whether the allowlist currently has zero entries for it
+          # (Jules review #2747: an already-gated language that has fully
+          # paid off its allowlist debt also reads zero entries at the
+          # merge base: a flat zero-count check would treat that as a fresh
+          # onboarding and silently let one new violator back in with only
+          # a notice, no error).
+          extension_already_gated() {
+            git show "${MERGE_BASE}:tools/check-file-budget.sh" 2>/dev/null | grep -q -- "\*\.$1\b"
           }
 
           head_total="$(extract_paths tools/budget-allowlist.txt | wc -l | tr -d ' ')"
@@ -291,10 +312,12 @@ jobs:
             [ -n "$ext" ] || continue
             base_n="$(awk -v e="$ext" '$1==e {print $2}' "$base_ext_counts")"
             base_n="${base_n:-0}"
-            if [ "$base_n" -gt 0 ] && [ "$count" -gt "$base_n" ]; then
-              echo "::error::budget-allowlist.txt's .${ext} entries grew from ${base_n} to ${count} — that extension is already gated and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
-              failed=1
-            elif [ "$base_n" -eq 0 ] && [ "$count" -gt 0 ]; then
+            if extension_already_gated "$ext"; then
+              if [ "$count" -gt "$base_n" ]; then
+                echo "::error::budget-allowlist.txt's .${ext} entries grew from ${base_n} to ${count} — that extension was already gated at the merge base and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
+                failed=1
+              fi
+            elif [ "$count" -gt 0 ]; then
               echo "::notice::.${ext} entries (${count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Growth of .${ext} beyond this is append-forbidden starting now."
             fi
           done < <(count_by_ext tools/budget-allowlist.txt)
