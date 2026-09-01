@@ -196,7 +196,7 @@ extension AppShell {
             guard let source = await connectedTrashSMBSource(for: share) else { return [] }
             return ((try? await source.listTrash()) ?? []).map(TrashBrowserRow.init(local:))
         case .cloud(let server, let libraryFolderID, _):
-            let remote = makeCloudTrashClient(server: server)
+            let remote = makeCloudCatalog(server: server)
             let items = ((try? await remote.listTrash(folderID: libraryFolderID))?.items) ?? []
             let rows = items.compactMap(TrashBrowserRow.init(cloud:))
             // Mirror `MapleEnumerator`'s trash listing: nil-assetID rows are
@@ -227,7 +227,7 @@ extension AppShell {
             )) != nil
             return ok ? .succeeded : .failed("")
         case .cloud(let server, _, _):
-            let remote = makeCloudTrashClient(server: server)
+            let remote = makeCloudCatalog(server: server)
             let ok = (try? await remote.restoreAsset(assetID: row.id, targetRelativePath: nil)) != nil
             return ok ? .succeeded : .failed("")
         }
@@ -261,7 +261,7 @@ extension AppShell {
             // silently re-trashing a live photo. That refusal surfaces as
             // `.stale`: the action did NOT proceed, and the row is removed
             // from THIS list (it no longer belongs here) with a reason.
-            let remote = makeCloudTrashClient(server: server)
+            let remote = makeCloudCatalog(server: server)
             do {
                 switch try await remote.deleteAsset(assetID: row.id, intent: .purge) {
                 case .ok:
@@ -286,12 +286,15 @@ extension AppShell {
     }
 
     /// Not `private` (review finding, jules): `AppShell+FolderContextMenu
-    /// .swift`'s `trashCloudFolder` reuses this exact construction rather
-    /// than inventing its own — a second, drifted copy that skipped
+    /// .swift`'s folder CRUD (`createCloudFolder`, `renameCloudFolder`,
+    /// `trashCloudFolder`) reuses this exact construction rather than
+    /// inventing its own — a drifted copy that skipped
     /// `LocalNetworkResolver.shared.effectiveURL(for:)` was exactly the bug
-    /// caught here. One `RemoteCatalog(server:)` construction path for
-    /// every Cloud trash/restore call site in the app.
-    func makeCloudTrashClient(server: URL) -> RemoteCatalog {
+    /// caught here (#2753). One `RemoteCatalog(server:)` construction path
+    /// for every Cloud trash/restore/folder-CRUD call site in the app.
+    /// Named surface-neutrally — it no longer only serves Trash — rather
+    /// than `makeCloudTrashClient`.
+    func makeCloudCatalog(server: URL) -> RemoteCatalog {
         let httpClient = makeAuthenticatedHTTPClient(server: server)
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: server)
         return RemoteCatalog(http: httpClient, server: effectiveServer)
