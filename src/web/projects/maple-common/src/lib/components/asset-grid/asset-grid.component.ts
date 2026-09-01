@@ -276,6 +276,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
    * up and idle, and a non-empty selection.
    */
   @HostListener('document:keydown', ['$event'])
+  // fallow-ignore-next-line complexity
   onGridKeydown(e: KeyboardEvent): void {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
 
