@@ -27,10 +27,14 @@ extension EditSession {
     /// sourceless asset) or the FFI render itself failed — either case
     /// falls through to the normal CIImage-graph export at the call site.
     ///
-    /// Non-RAW asset exports (JPEG, HEIF, etc.) always route through the
-    /// CIImage-graph path without film blending, while the GPU-live canvas
-    /// shows the look in real time — this cross-platform gap (#2713, Apple only)
-    /// is tracked for future unification.
+    /// Non-RAW asset exports (JPEG, HEIF, etc.) always fall through to the
+    /// CIImage-graph path — this method never blends a look outside the RAW
+    /// FFI entry. `EditSession+RenderHelpers.swift`'s `renderForExport()`
+    /// closes the non-RAW gap (#2713) at that call site instead, by
+    /// compositing `FilmLookCube` on the CIImage-graph result the same way
+    /// the interactive canvas's CPU fallback does — approximate (measured
+    /// by `FilmLookCubeDivergenceTests`), not bit-exact like this method's
+    /// RAW path.
     func renderExportWithFilmLook() async throws -> CIImage? {
         guard asset.isRaw, !model.filmLook.isEmpty,
               let url = asset.primaryURL,
