@@ -112,6 +112,15 @@ struct ImportsSettingsView: View {
 
     // MARK: - Load
 
+    // @MainActor on every async method below: a SwiftUI View is not
+    // globally actor-isolated in Swift 5 mode (`Package.swift` pins
+    // `swiftLanguageModes: [.v5]`) and `.task`/`Task {}` closures run on the
+    // cooperative pool by default, so an unannotated async method mutating
+    // @State is a "publishing changes from background threads" hazard
+    // (#2887 — same fix already applied to NetworkSettingsView and
+    // CloudflareSettingsView).
+
+    @MainActor
     private func initialLoad() async {
         busy = true
         errorMessage = nil
@@ -132,6 +141,7 @@ struct ImportsSettingsView: View {
 
     // MARK: - Step 1: library + picker
 
+    @MainActor
     private func selectLibrary(_ id: String) async {
         targetLibraryID = id
         selectedSource = nil
@@ -141,6 +151,7 @@ struct ImportsSettingsView: View {
         await open(roots.first ?? "/")
     }
 
+    @MainActor
     private func open(_ path: String) async {
         busy = true
         errorMessage = nil
@@ -152,6 +163,7 @@ struct ImportsSettingsView: View {
         busy = false
     }
 
+    @MainActor
     private func up() async {
         guard let parent = listing?.parent else { return }
         await open(parent)
@@ -166,6 +178,7 @@ struct ImportsSettingsView: View {
 
     // MARK: - Step 2: scan
 
+    @MainActor
     private func runScan() async {
         guard let source = selectedSource, !targetLibraryID.isEmpty else { return }
         busy = true
@@ -193,16 +206,19 @@ struct ImportsSettingsView: View {
 
     // MARK: - Step 3: create + progress
 
+    @MainActor
     private func startImport() async {
         await queue(labels: reviewForm.requestLabels(), auto: nil, notice: .manual)
     }
 
+    @MainActor
     private func autoImport() async {
         await queue(labels: nil, auto: true, notice: .auto)
     }
 
     /// Shared create + return-to-start-with-notice for both import paths,
     /// mirroring the web's `queue()`.
+    @MainActor
     private func queue(labels: [String: String]?, auto: Bool?, notice: ImportsQueuedNotice) async {
         guard let source = selectedSource, !targetLibraryID.isEmpty else { return }
         busy = true
@@ -226,9 +242,14 @@ struct ImportsSettingsView: View {
     /// `ImportSummary.isTerminal`. Runs as a plain loop rather than a timer
     /// publisher so it can `await` each request and back off implicitly:
     /// the next tick never fires until the previous one has returned.
+    @MainActor
     private func startPolling(_ id: String) {
         pollTask?.cancel()
-        pollTask = Task {
+        // Explicitly @MainActor rather than relying on isolation
+        // inheritance: this closure mutates SwiftUI @State, and the
+        // codebase spells that out at its other Task sites
+        // (CloudflareSettingsView, SelfHostedSettingsTab, AppShell+CloudActions).
+        pollTask = Task { @MainActor in
             while !Task.isCancelled {
                 do {
                     let summary = try await client.status(id: id)
@@ -243,6 +264,7 @@ struct ImportsSettingsView: View {
         }
     }
 
+    @MainActor
     private func cancel() async {
         guard let id = activeSummary?.id else { return }
         do {
@@ -252,6 +274,7 @@ struct ImportsSettingsView: View {
         }
     }
 
+    @MainActor
     private func retry() async {
         guard let id = activeSummary?.id else { return }
         do {
