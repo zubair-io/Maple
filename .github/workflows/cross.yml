@@ -302,6 +302,10 @@ jobs:
 
       - name: Enforce budgets.json one-way ratchet vs merge base
         if: github.event_name == 'pull_request'
+        env:
+          # Written to a file with printf below, never interpolated into a
+          # command — PR bodies are attacker-controlled text.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           # If budgets.json didn't exist at the merge base (brand-new file),
@@ -312,10 +316,20 @@ jobs:
           fi
           base="$(mktemp)"
           git show "${MERGE_BASE}:test-fixtures/budgets.json" > "$base"
+          # RE-BASELINE markers (#2335): an audited, per-cell escape hatch for
+          # a legitimate re-baseline. check_budget_ratchet.py looks for
+          # `RE-BASELINE: <fixture>/<case>.<metric>: <justification>` lines in
+          # the PR body and/or the head commit message — either location is
+          # fine, and the commit message is what survives "Rebase and merge"
+          # into main's history, since the PR body itself does not.
+          marker="$(mktemp)"
+          printf '%s\n' "$PR_BODY" > "$marker"
+          git log -1 --format=%B HEAD >> "$marker"
           # The script fails (exit 1) if any existing budget cell was raised
-          # or removed vs the base branch. New cells (added coverage) pass.
-          python3 tools/check_budget_ratchet.py --base "$base" --head test-fixtures/budgets.json
-          rm -f "$base"
+          # (without a matching marker) or removed vs the base branch. New
+          # cells (added coverage) pass.
+          python3 tools/check_budget_ratchet.py --base "$base" --head test-fixtures/budgets.json --marker-file "$marker"
+          rm -f "$base" "$marker"
 
   codegen-drift:
     name: codegen-drift (regenerated outputs are committed)
