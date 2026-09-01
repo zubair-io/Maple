@@ -503,3 +503,7 @@ mod tests;
 #[cfg(test)]
 #[path = "wb_camera_frame_tests.rs"]
 mod frame_tests;
+
+#[cfg(test)]
+#[path = "wb_camera_continuity_tests.rs"]
+mod continuity_tests;
