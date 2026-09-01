@@ -344,6 +344,7 @@ enum SettingsTab: String {
     case observability
     case finder
     case mapleUIGallery
+    case about
 }
 
 struct SettingsView: View {
@@ -403,6 +404,12 @@ struct SettingsView: View {
             }
             .tabItem { Label("Maple UI", systemImage: "square.grid.2x2") }
             .tag(SettingsTab.mapleUIGallery)
+            // #1804: build provenance (git SHA + build date) attributable
+            // at a glance, same content as the phone settings' About row.
+            AboutView()
+                .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(SettingsTab.about)
+                .accessibilityIdentifier("settings.tab.about")
         }
         #if os(macOS)
         .frame(width: 540, height: 480)
