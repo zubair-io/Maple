@@ -2,7 +2,7 @@
 import MapleCloudKit
 import SwiftUI
 
-/// One grid cell in the Timeline. A uniform `size`-square thumbnail
+/// One grid cell in the Timeline. A uniform square thumbnail of `size`
 /// (crop-to-fill via `TVRemoteImage`); the focused cell scales up
 /// (~1.09) with a red focus ring and reveals a caption below it
 /// (filename, star rating, capture time, a green dot when an XMP sidecar
@@ -16,16 +16,28 @@ struct TimelineCell: View {
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
   let identifier: String
+  /// Edge length of the square thumbnail. The Timeline derives this from the
+  /// real screen width (`TVGridLayout`) so a row of cells spans the content
+  /// width exactly; `targetSize` is the size that choice aims at.
+  var size: CGFloat = TimelineCell.targetSize
   /// D6 (#2102) wires this to the full-screen viewer (current result set
   /// + selected index); D5 only needs a stable, already-wired seam so
   /// selection isn't a follow-up plumbing change.
   let onSelect: () -> Void
 
-  static let size: CGFloat = 260
+  /// The cell size the Timeline's column count is chosen around — not the
+  /// size a cell necessarily renders at (see `size`).
+  static let targetSize: CGFloat = 260
 
   var body: some View {
     Button(action: onSelect) {
-      TimelineCellCard(asset: asset, server: server, thumbClient: thumbClient, thumbCache: thumbCache)
+      TimelineCellCard(
+        asset: asset,
+        server: server,
+        thumbClient: thumbClient,
+        thumbCache: thumbCache,
+        size: size
+      )
     }
     .buttonStyle(.plain)
     .accessibilityIdentifier(identifier)
@@ -53,6 +65,7 @@ private struct TimelineCellCard: View {
   let server: URL
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
+  let size: CGFloat
 
   @Environment(\.isFocused) private var isFocused
 
@@ -67,7 +80,7 @@ private struct TimelineCellCard: View {
         contentMode: .fill,
         accessibilityLabel: asset.filename
       )
-      .frame(width: TimelineCell.size, height: TimelineCell.size)
+      .frame(width: size, height: size)
       .clipShape(RoundedRectangle(cornerRadius: 12))
       .overlay(
         RoundedRectangle(cornerRadius: 12)
@@ -79,7 +92,7 @@ private struct TimelineCellCard: View {
       caption
         .opacity(isFocused ? 1 : 0)
     }
-    .frame(width: TimelineCell.size, alignment: .leading)
+    .frame(width: size, alignment: .leading)
   }
 
   @ViewBuilder
