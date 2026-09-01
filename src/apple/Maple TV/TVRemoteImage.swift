@@ -65,34 +65,24 @@ struct TVRemoteImage: View {
   /// element must carry a label (Global Constraint: Accessibility).
   var accessibilityLabel: String?
 
-  /// Optional hook fired whenever this view's fetch/decode phase settles:
-  /// `true` once `phase` becomes `.loaded`, `false` when it (re)enters
-  /// `.loading` or lands on `.failed`. `nil` (the default) is a complete
-  /// no-op — every existing call site (grid cells) is unaffected.
-  ///
-  /// Added for `PhotoViewerScreen`'s thumb→preview crossfade (D6, #2102):
-  /// `TVRemoteImage` renders an opaque `MapleTVTheme.surface` while
-  /// `.loading`, so simply stacking a `.preview` instance over a `.thumb`
-  /// instance would flash that surface color over the still-good thumb
-  /// while the preview fetches. The viewer instead keeps the preview
-  /// layer's opacity at 0 until this callback reports `true`, so the
-  /// thumb underneath keeps showing until the preview is actually ready
-  /// to swap in.
-  var onPhaseChange: ((Bool) -> Void)? = nil
-
   private enum Phase {
     case loading
     case loaded(UIImage)
     case failed
   }
 
-  @State private var phase: Phase = .loading
+  /// `nil` means "not resolved by this view yet" — `resolvedPhase` then falls
+  /// back to a synchronous decoded-cache read, so an image that is already
+  /// warm renders on the FIRST frame instead of showing one `.loading` frame
+  /// of opaque surface before the `.task` gets a chance to run. That one
+  /// frame was a visible grey flash every time a prefetched image appeared.
+  @State private var phase: Phase?
 
   var body: some View {
     Rectangle()
       .fill(Color.clear)
       .overlay {
-        switch phase {
+        switch resolvedPhase {
         case .loading:
           MapleTVTheme.surface
         case .loaded(let image):
@@ -117,16 +107,27 @@ struct TVRemoteImage: View {
       // cell never shows the PREVIOUS asset's pixels while the new one
       // loads.
       .task(id: cacheKey) {
-        phase = .loading
-        onPhaseChange?(false)
+        // A warm decoded image is adopted synchronously; only a genuine miss
+        // drops to `.loading`.
+        if let cached = TVDecodedImageCache.shared.image(forKey: cacheKey) {
+          phase = .loaded(cached)
+          return
+        }
+        phase = nil
         await load()
       }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(accessibilityLabel ?? fallbackAccessibilityLabel)
   }
 
+  private var resolvedPhase: Phase {
+    if let phase { return phase }
+    if let cached = TVDecodedImageCache.shared.image(forKey: cacheKey) { return .loaded(cached) }
+    return .loading
+  }
+
   private var cacheKey: String {
-    "\(server.cacheHostKey)|\(absPath)|\(kind.decodedCacheSuffix)"
+    Self.decodedCacheKey(server: server, absPath: absPath, kind: kind)
   }
 
   private var fallbackAccessibilityLabel: String {
@@ -136,7 +137,6 @@ struct TVRemoteImage: View {
   private func load() async {
     if let cached = TVDecodedImageCache.shared.image(forKey: cacheKey) {
       phase = .loaded(cached)
-      onPhaseChange?(true)
       return
     }
 
@@ -166,13 +166,11 @@ struct TVRemoteImage: View {
     guard !Task.isCancelled else { return }
 
     phase = .failed
-    onPhaseChange?(false)
   }
 
   private func finishLoaded(_ image: UIImage) {
     TVDecodedImageCache.shared.setImage(image, forKey: cacheKey)
     phase = .loaded(image)
-    onPhaseChange?(true)
   }
 
   /// Fetch bytes via `fetch`, then decode to a `UIImage`. Returns nil if
@@ -220,6 +218,35 @@ struct TVRemoteImage: View {
 }
 
 extension TVRemoteImage {
+  /// The `TVDecodedImageCache` key a `TVRemoteImage` of this `kind` looks up.
+  /// Shared so prefetchers and `PhotoViewerScreen` seed and read exactly the
+  /// slot the view itself will hit, rather than each rebuilding the string.
+  static func decodedCacheKey(server: URL, absPath: String, kind: Kind) -> String {
+    "\(server.cacheHostKey)|\(absPath)|\(kind.decodedCacheSuffix)"
+  }
+
+  /// Already-decoded image for this asset, or nil. Synchronous and cheap (an
+  /// `NSCache` read), so a caller can decide what to show on the very first
+  /// frame instead of rendering a placeholder and correcting it later.
+  static func cachedImage(server: URL, absPath: String, kind: Kind) -> UIImage? {
+    TVDecodedImageCache.shared.image(forKey: decodedCacheKey(server: server, absPath: absPath, kind: kind))
+  }
+
+  /// Fetch + decode the `.preview` tier, seeding `TVDecodedImageCache` under
+  /// the key a `TVRemoteImage(kind: .preview)` would look up. Returns nil on
+  /// any failure — callers decide whether that's an error state or, for a
+  /// speculative warm, nothing at all.
+  static func loadPreview(server: URL, absPath: String, thumbClient: CloudThumbClient) async -> UIImage? {
+    let key = decodedCacheKey(server: server, absPath: absPath, kind: .preview)
+    if let cached = TVDecodedImageCache.shared.image(forKey: key) { return cached }
+    guard let data = try? await thumbClient.preview(absPath: absPath), !Task.isCancelled,
+          let cgImage = decode(data), !Task.isCancelled
+    else { return nil }
+    let image = UIImage(cgImage: cgImage)
+    TVDecodedImageCache.shared.setImage(image, forKey: key)
+    return image
+  }
+
   /// Fetches + decodes `.preview` bytes for `absPath` and seeds
   /// `TVDecodedImageCache` under the exact key a subsequent
   /// `TVRemoteImage(kind: .preview)` for the same asset would look up —
@@ -245,7 +272,7 @@ extension TVRemoteImage {
   /// decoded-cached; all failures are swallowed (best-effort warm).
   static func prefetchThumb(server: URL, absPath: String,
                             thumbClient: CloudThumbClient, thumbCache: CloudThumbCache) async {
-    let key = "\(server.cacheHostKey)|\(absPath)|\(Kind.thumb.decodedCacheSuffix)"
+    let key = decodedCacheKey(server: server, absPath: absPath, kind: .thumb)
     guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
     let host = server.cacheHostKey
 
@@ -266,13 +293,7 @@ extension TVRemoteImage {
   }
 
   static func prefetchPreview(server: URL, absPath: String, thumbClient: CloudThumbClient) async {
-    let key = "\(server.cacheHostKey)|\(absPath)|\(Kind.preview.decodedCacheSuffix)"
-    guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
-    guard let data = try? await thumbClient.preview(absPath: absPath) else { return }
-    guard !Task.isCancelled else { return }
-    guard let cgImage = decode(data) else { return }
-    guard !Task.isCancelled else { return }
-    TVDecodedImageCache.shared.setImage(UIImage(cgImage: cgImage), forKey: key)
+    _ = await loadPreview(server: server, absPath: absPath, thumbClient: thumbClient)
   }
 }
 
