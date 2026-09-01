@@ -10,8 +10,9 @@
 
 use rayon::prelude::*;
 
-use crate::ingest::PlanarImage;
+use crate::error::PanoError;
 
+use super::frame_cache::TileFrameCache;
 use super::photometry::{PairMap, PhotometryOptions, MIN_LUM};
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp::{inverse_similarity_with_offset, sample_bicubic};
@@ -19,13 +20,21 @@ use super::warp::{inverse_similarity_with_offset, sample_bicubic};
 /// One strided canvas scan accumulating per-pair (and per-pair-per-cell)
 /// log-ratio statistics. Parallel over row bands; merged in band order
 /// for determinism.
+///
+/// `full_dims` is indexed by the *original* input frame index (same
+/// space as `cache` and `poses[i].frame_idx`) — #3090: frames are
+/// decoded on demand through `cache`, bounded to a handful resident at
+/// once, rather than requiring the whole set pre-decoded. `cache` is
+/// shared across the rayon-parallel row bands below (thread-safe by
+/// construction — see `TileFrameCache` docs).
 pub(super) fn sample_pairs(
-    frames: &[PlanarImage],
+    cache: &TileFrameCache,
+    full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
     opts: &PhotometryOptions,
-) -> PairMap {
-    let k = frames.len();
+) -> Result<PairMap, PanoError> {
+    let k = poses.len();
     let cw = canvas.width as usize;
     let ch = canvas.height as usize;
     let ncx = cw.div_ceil(opts.field_cell_px);
@@ -34,16 +43,18 @@ pub(super) fn sample_pairs(
         .iter()
         .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
         .collect();
-    let frame_dims: Vec<(f64, f64)> = frames
+    let frame_dims: Vec<(f64, f64)> = poses
         .iter()
-        .map(|f| (f.width() as f64, f.height() as f64))
+        .map(|p| {
+            let (w, h) = full_dims[p.frame_idx];
+            (w as f64, h as f64)
+        })
         .collect();
     // Canvas-space bboxes for the cheap per-sample prefilter.
-    let bboxes: Vec<(f64, f64, f64, f64)> = frames
+    let bboxes: Vec<(f64, f64, f64, f64)> = poses
         .iter()
-        .zip(poses)
-        .map(|(f, pose)| {
-            let (fw, fh) = (f.width() as f64, f.height() as f64);
+        .zip(&frame_dims)
+        .map(|(pose, &(fw, fh))| {
             [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)]
                 .iter()
                 .map(|&(x, y)| pose.sim.apply(x, y))
@@ -65,7 +76,7 @@ pub(super) fn sample_pairs(
 
     let band_maps: Vec<PairMap> = bands
         .par_iter()
-        .map(|band| {
+        .map(|band| -> Result<PairMap, PanoError> {
             let mut map = PairMap::new();
             let mut hits: Vec<(usize, f64, [f64; 3], f64, f64)> = Vec::with_capacity(k);
             for &ry in band.iter() {
@@ -83,7 +94,8 @@ pub(super) fn sample_pairs(
                         if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
                             continue;
                         }
-                        let Some(v) = sample_bicubic(&frames[i], fx - 0.5, fy - 0.5) else {
+                        let frame = cache.get(poses[i].frame_idx)?;
+                        let Some(v) = sample_bicubic(&frame, fx - 0.5, fy - 0.5) else {
                             continue;
                         };
                         let rgb = [
@@ -126,9 +138,9 @@ pub(super) fn sample_pairs(
                     }
                 }
             }
-            map
+            Ok(map)
         })
-        .collect();
+        .collect::<Result<Vec<PairMap>, PanoError>>()?;
 
     // Sequential band-order merge (deterministic float summation order).
     let mut merged = PairMap::new();
@@ -152,5 +164,5 @@ pub(super) fn sample_pairs(
             }
         }
     }
-    merged
+    Ok(merged)
 }

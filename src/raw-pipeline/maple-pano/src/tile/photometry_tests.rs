@@ -2,10 +2,21 @@
 //! genuine-exposure recovery, and residual-field absorption.
 //! Kept in a separate file for the file-size budget.
 
+use super::frame_cache::TileFrameCache;
 use super::photometry::{solve_photometry, FramePhotometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
+
+/// #3090: `solve_photometry` now takes an on-demand decode cache + dims
+/// instead of a full frame slice. `TileFrameCache::from_frames` (test-only)
+/// seeds the cache with these synthetic frames, keyed by their position in
+/// `frames` — the same index `translation_pose` below always uses for
+/// `frame_idx`, so it lines up with `full_dims` directly.
+fn cache_and_dims(frames: Vec<PlanarImage>) -> (TileFrameCache<'static>, Vec<(u32, u32)>) {
+    let full_dims = frames.iter().map(|f| (f.width(), f.height())).collect();
+    (TileFrameCache::from_frames(frames), full_dims)
+}
 
 fn translation_pose(frame_idx: usize, tx: f64, ty: f64) -> TilePose {
     TilePose {
@@ -85,7 +96,9 @@ fn shared_slope_absorbed_not_aliased_into_gain_ramp() {
         offset_y: 0.0,
     };
 
-    let (phot, summary) = solve_photometry(&frames, &poses, &canvas, &test_opts()).unwrap();
+    let (cache, full_dims) = cache_and_dims(frames);
+    let (phot, summary) =
+        solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts()).unwrap();
 
     assert!(
         (f64::from(summary.slope_x) - slope).abs() < 0.05,
@@ -133,7 +146,9 @@ fn true_exposure_steps_recovered_as_gains() {
         offset_y: 0.0,
     };
 
-    let (phot, summary) = solve_photometry(&frames, &poses, &canvas, &test_opts()).unwrap();
+    let (cache, full_dims) = cache_and_dims(frames);
+    let (phot, summary) =
+        solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts()).unwrap();
 
     assert!(
         f64::from(summary.slope_x).abs() < 0.05,
@@ -168,7 +183,10 @@ fn residual_blob_absorbed_by_field() {
         model_frame(w, h, 0.5, 0.0, 0.0, None),
         model_frame(w, h, 0.5, 0.0, 0.0, Some((amp, 32.0))),
     ];
-    let poses = vec![translation_pose(0, 0.0, 0.0), translation_pose(1, 32.0, 0.0)];
+    let poses = vec![
+        translation_pose(0, 0.0, 0.0),
+        translation_pose(1, 32.0, 0.0),
+    ];
     let canvas = TileCanvasSpec {
         width: w + 32,
         height: h,
@@ -177,7 +195,11 @@ fn residual_blob_absorbed_by_field() {
     };
 
     let opts = test_opts();
-    let (phot, summary) = solve_photometry(&frames, &poses, &canvas, &opts).unwrap();
+    // Cloned before the cache takes ownership — the RMS check below reads
+    // raw pixels back out directly, alongside the cache-mediated solve.
+    let frames_for_check = frames.clone();
+    let (cache, full_dims) = cache_and_dims(frames);
+    let (phot, summary) = solve_photometry(&cache, &full_dims, &poses, &canvas, &opts).unwrap();
     assert!(
         summary.field_max_abs_ev > 0.15,
         "field did not engage: max {} EV",
@@ -201,8 +223,8 @@ fn residual_blob_absorbed_by_field() {
             let (f1x, f1y) = (cx - 32.0, cy);
             let i0 = (f0y as usize).min(h as usize - 1) * w as usize + (f0x as usize);
             let i1 = (f1y as usize).min(h as usize - 1) * w as usize + (f1x as usize);
-            let v0 = f64::from(frames[0].r[i0]);
-            let v1 = f64::from(frames[1].r[i1]);
+            let v0 = f64::from(frames_for_check[0].r[i0]);
+            let v1 = f64::from(frames_for_check[1].r[i1]);
             if v0 <= 0.0 || v1 <= 0.0 {
                 continue;
             }
@@ -279,7 +301,8 @@ fn per_channel_gains_ignore_dark_channel_samples() {
         ..test_opts()
     };
 
-    let (phot, _) = solve_photometry(&frames, &poses, &canvas, &opts).unwrap();
+    let (cache, full_dims) = cache_and_dims(frames);
+    let (phot, _) = solve_photometry(&cache, &full_dims, &poses, &canvas, &opts).unwrap();
 
     // Blue gain ratios track the true blue offsets despite only half the
     // pixels contributing. Dividing by the luminance count `n` instead of

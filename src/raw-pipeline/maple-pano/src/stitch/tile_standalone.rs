@@ -17,7 +17,7 @@ use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
     MatchGraph,
 };
-use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame};
+use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
 use crate::robust::RobustOptions;
@@ -63,24 +63,37 @@ pub fn stitch_tile(
     }
 
     // ── stage 0: decode + priors ──────────────────────────────────────────
+    // #3090: `ingest_file_proxy` decodes full-res transiently to produce
+    // the long-edge proxy, then drops the full-res buffer before
+    // returning — matching `stitch::stitch`'s stage 0 exactly, so this
+    // standalone entry point no longer holds every input frame's full
+    // resolution pixels resident through the whole pipeline. Full-res
+    // pixels are decoded on demand later, in `tile_tail`, through its
+    // bounded cache.
     let t0 = Instant::now();
     progress(0, 0.0);
-    let mut frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
+    let mut metas: Vec<FrameMeta> = Vec::with_capacity(inputs.len());
     for (i, path) in inputs.iter().enumerate() {
         if is_cancelled() {
             return Err(StitchError::Cancelled);
         }
-        frames.push(ingest_file(path).map_err(|e| StitchError::Decode {
-            path: path.clone(),
-            cause: e.to_string(),
+        metas.push(ingest_file_proxy(path, opts.proxy_long_edge).map_err(|e| {
+            StitchError::Decode {
+                path: path.clone(),
+                cause: e.to_string(),
+            }
         })?);
         progress(0, (i + 1) as f32 / inputs.len() as f32);
     }
     let decode_s = t0.elapsed().as_secs_f64();
 
     let applied_opcodes: Vec<Vec<String>> =
-        frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-    let priors: Vec<FramePriors> = frames.iter().map(|f| f.priors.clone()).collect();
+        metas.iter().map(|m| m.applied_opcodes.clone()).collect();
+    let priors: Vec<FramePriors> = metas.iter().map(|m| m.priors.clone()).collect();
+    let full_dims: Vec<(u32, u32)> = metas
+        .iter()
+        .map(|m| (m.full_width, m.full_height))
+        .collect();
 
     // ── stage 1: ML load + proxy feature extraction ───────────────────────
     let t1 = Instant::now();
@@ -108,38 +121,42 @@ pub fn stitch_tile(
     )
     .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
 
-    let mut feature_sets = Vec::with_capacity(frames.len());
-    let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
+    let mut feature_sets = Vec::with_capacity(metas.len());
+    // Proxy was already computed in stage 0; re-use it directly (same as
+    // `stitch::stitch`'s stage 1 — see #3090 note on stage 0 above).
+    let proxy_dims: Vec<(u32, u32)> = metas
+        .iter()
+        .map(|m| (m.proxy.width(), m.proxy.height()))
+        .collect();
 
-    for (i, frame) in frames.iter().enumerate() {
+    for (i, meta) in metas.iter().enumerate() {
         if is_cancelled() {
             return Err(StitchError::Cancelled);
         }
-        let proxy = proxy_to_long_edge(&frame.image, opts.proxy_long_edge);
-        proxy_dims.push((proxy.width(), proxy.height()));
-        let rgb = interleave_planar(&proxy);
-        let lin = LinearRgbFrame::new(proxy.width(), proxy.height(), rgb).map_err(|e| {
-            StitchError::Feature {
-                frame_idx: i,
-                cause: e.to_string(),
-            }
-        })?;
+        let rgb = interleave_planar(&meta.proxy);
+        let lin =
+            LinearRgbFrame::new(meta.proxy.width(), meta.proxy.height(), rgb).map_err(|e| {
+                StitchError::Feature {
+                    frame_idx: i,
+                    cause: e.to_string(),
+                }
+            })?;
         let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
             frame_idx: i,
             cause: format!("detect: {e}"),
         })?;
         feature_sets.push(fs);
-        progress(1, (i + 1) as f32 / frames.len() as f32);
+        progress(1, (i + 1) as f32 / metas.len() as f32);
     }
     let features_s = t1.elapsed().as_secs_f64();
 
     // Build proxy-resolution camera seeds with unit focal (1.0). The tile
     // path uses pixel correspondences directly and skips perspective BA, so
     // no EXIF focal is needed.
-    let proxy_images: Vec<crate::graph::GraphImage> = frames
+    let proxy_images: Vec<crate::graph::GraphImage> = metas
         .iter()
         .enumerate()
-        .map(|(i, _f)| crate::graph::GraphImage {
+        .map(|(i, _m)| crate::graph::GraphImage {
             camera: crate::camera::Camera::new(
                 [0.0; 3],
                 1.0,
@@ -188,13 +205,13 @@ pub fn stitch_tile(
     // ── stages 3–5: NCC refine + placement + composite ────────────────────
     tile_tail(
         TileEarlyState {
-            frames,
+            full_dims,
             proxy_dims,
             _feature_sets: feature_sets,
             graph,
             strategy_report,
             stage_timings_012: [decode_s, features_s, graph_s],
-            _inputs: inputs,
+            inputs,
         },
         opts,
         applied_opcodes,

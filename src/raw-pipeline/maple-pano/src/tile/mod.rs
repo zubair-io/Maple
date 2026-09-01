@@ -69,12 +69,14 @@
 //! | `photometry.rs`  | Gain + shared-ramp solve, correction model (#350) |
 //! | `sampling.rs`    | The strided canvas scan both layers consume       |
 //! | `exposure_field.rs` | Screened-Poisson residual exposure fields      |
+//! | `frame_cache.rs` | On-demand decode cache bounding tile-path RSS (#3090) |
 
 pub mod placement;
 pub mod warp;
 
 mod composite;
 mod exposure_field;
+pub(crate) mod frame_cache;
 mod masks;
 mod photometry;
 mod sampling;
@@ -87,10 +89,10 @@ mod composite_tests;
 #[path = "photometry_tests.rs"]
 mod photometry_tests;
 
-pub use composite::{composite_tile, TileCompositeReport};
+pub(crate) use composite::composite_tile;
+pub use composite::TileCompositeReport;
 pub use placement::{
-    apply_canvas_cap, solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError,
-    TilePose,
+    apply_canvas_cap, solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError, TilePose,
 };
 pub use warp::warp_to_tile_canvas;
 

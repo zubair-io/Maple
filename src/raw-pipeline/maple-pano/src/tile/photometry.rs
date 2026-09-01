@@ -40,8 +40,8 @@ use std::collections::BTreeMap;
 
 use crate::error::PanoError;
 use crate::gain::{solve_dense, GainMode, GainOptions};
-use crate::ingest::PlanarImage;
 
+use super::frame_cache::TileFrameCache;
 use super::placement::{TileCanvasSpec, TilePose};
 use super::sampling::sample_pairs;
 
@@ -186,19 +186,27 @@ pub(super) struct PairAcc {
 pub(super) type PairMap = BTreeMap<(usize, usize), PairAcc>;
 
 /// Solve the full photometric correction for a placed frame set.
+///
+/// `full_dims` is indexed by the *original* input frame index (same
+/// space as `cache` and `poses[i].frame_idx`) — #3090: frames are
+/// decoded on demand through `cache` rather than requiring the whole
+/// set pre-decoded and resident.
 pub(super) fn solve_photometry(
-    frames: &[PlanarImage],
+    cache: &TileFrameCache,
+    full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
     opts: &PhotometryOptions,
 ) -> Result<(Vec<FramePhotometry>, PhotometrySummary), PanoError> {
-    let n = frames.len();
-    debug_assert_eq!(n, poses.len());
+    let n = poses.len();
     if n == 0 {
         return Ok((Vec::new(), PhotometrySummary::default()));
     }
     if n == 1 {
-        return Ok((vec![FramePhotometry::neutral()], PhotometrySummary::default()));
+        return Ok((
+            vec![FramePhotometry::neutral()],
+            PhotometrySummary::default(),
+        ));
     }
     if opts.stride == 0 || opts.field_cell_px == 0 {
         return Err(PanoError::InvalidOptions(
@@ -206,7 +214,7 @@ pub(super) fn solve_photometry(
         ));
     }
 
-    let pairs = sample_pairs(frames, poses, canvas, opts);
+    let pairs = sample_pairs(cache, full_dims, poses, canvas, opts)?;
 
     // ── Layer A: gains + shared slope ────────────────────────────────────
     let (a_lum, slope_x, slope_y) = solve_gain_slope(n, &pairs, opts);
@@ -237,7 +245,7 @@ pub(super) fn solve_photometry(
     // ── Layer B: residual fields ─────────────────────────────────────────
     let fields = if opts.field {
         super::exposure_field::solve_fields(
-            frames, poses, canvas, opts, &pairs, &a_lum, slope_x, slope_y,
+            full_dims, poses, canvas, opts, &pairs, &a_lum, slope_x, slope_y,
         )
     } else {
         vec![None; n]
@@ -263,7 +271,6 @@ pub(super) fn solve_photometry(
         .collect();
     Ok((photometry, summary))
 }
-
 
 /// Layer-A joint solve: per-frame log-gains `a_i` (luminance) plus the
 /// shared slope `(b, c)`. Gauge: Σa = 0 (strong row); tiny per-`a` ridge
@@ -291,14 +298,15 @@ fn solve_gain_slope(n: usize, pairs: &PairMap, opts: &PhotometryOptions) -> (Vec
     let mut atb = vec![0.0_f64; m];
     let mut total_w = 0.0_f64;
 
-    let mut add_row = |coeffs: &[(usize, f64)], rhs: f64, w: f64, ata: &mut Vec<Vec<f64>>, atb: &mut Vec<f64>| {
-        for &(p, cp) in coeffs {
-            for &(q, cq) in coeffs {
-                ata[p][q] += w * cp * cq;
+    let mut add_row =
+        |coeffs: &[(usize, f64)], rhs: f64, w: f64, ata: &mut Vec<Vec<f64>>, atb: &mut Vec<f64>| {
+            for &(p, cp) in coeffs {
+                for &(q, cq) in coeffs {
+                    ata[p][q] += w * cp * cq;
+                }
+                atb[p] += w * cp * rhs;
             }
-            atb[p] += w * cp * rhs;
-        }
-    };
+        };
 
     for (&(i, j), acc) in pairs.iter() {
         if (acc.n as usize) < opts.min_pair_samples {
@@ -326,9 +334,7 @@ fn solve_gain_slope(n: usize, pairs: &PairMap, opts: &PhotometryOptions) -> (Vec
     // Soft zero-trend prior on the gain chain (see the degeneracy note).
     if opts.ramp && n > 1 {
         let mid = (n as f64 - 1.0) / 2.0;
-        let trend: Vec<(usize, f64)> = (0..n)
-            .map(|i| (i, (i as f64 - mid) / n as f64))
-            .collect();
+        let trend: Vec<(usize, f64)> = (0..n).map(|i| (i, (i as f64 - mid) / n as f64)).collect();
         add_row(&trend, 0.0, 0.1 * total_w, &mut ata, &mut atb);
     }
     // Ridges.
@@ -339,7 +345,11 @@ fn solve_gain_slope(n: usize, pairs: &PairMap, opts: &PhotometryOptions) -> (Vec
 
     let x = solve_dense(ata, atb).unwrap_or_else(|| vec![0.0; m]);
     let a = x[..n].to_vec();
-    let (b, c) = if opts.ramp { (x[n], x[n + 1]) } else { (0.0, 0.0) };
+    let (b, c) = if opts.ramp {
+        (x[n], x[n + 1])
+    } else {
+        (0.0, 0.0)
+    };
     (a, b, c)
 }
 
