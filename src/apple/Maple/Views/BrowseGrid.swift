@@ -324,7 +324,7 @@ struct BrowseGrid: View {
                 // ("multi-select drag carries the whole selection if the
                 // dragged item is part of it").
                 //
-                // Performance (review finding, jules): this closure runs once
+                // Performance (#2646 review finding): this closure runs once
                 // per VISIBLE cell on every render — a `vm.assets.filter` here
                 // was an O(library size) scan per cell, so scrolling a 50k-
                 // asset library re-ran millions of comparisons a frame. Build
