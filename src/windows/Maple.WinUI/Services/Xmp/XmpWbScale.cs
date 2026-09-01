@@ -100,7 +100,7 @@ namespace Maple.WinUI.Services.Xmp
         // The Robertson-domain inverse (uv -> xy) has no caller: Windows
         // only ever loads a legacy-stamped pair (XyToTempTint, the forward
         // direction), never writes one (see the file header's YAGNI note),
-        // so it is intentionally not ported here (#2670 review — Copilot).
+        // so it is intentionally not ported here (#2670).
         // `LegacyUvToXy` below is the LEGACY-domain inverse and is used.
 
         private static (double Du, double Dv) IsothermUnitVector(int index)
