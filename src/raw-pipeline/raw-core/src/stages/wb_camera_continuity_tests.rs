@@ -24,7 +24,7 @@ use crate::math::Matrix3;
 
 /// A plausible (non-identity) DNG ColorMatrix — same fixture
 /// `wb_camera_tests.rs` uses, reused here for a realistic off-locus gap.
-const CM: [[f32; 3]; 3] = [
+const CANON_5D3_D65_CM: [[f32; 3]; 3] = [
     [0.6722, -0.0635, -0.0963],
     [-0.4287, 1.2460, 0.2028],
     [-0.0908, 0.2162, 0.5668],
@@ -33,9 +33,9 @@ const CM: [[f32; 3]; 3] = [
 fn frame(scene_cct: f32) -> SliderFrame {
     SliderFrame {
         endpoints: None,
-        cm_as_shot: Matrix3(CM),
+        cm_as_shot: Matrix3(CANON_5D3_D65_CM),
         scene_cct,
-        render_cm: Matrix3(CM),
+        render_cm: Matrix3(CANON_5D3_D65_CM),
     }
 }
 
@@ -44,7 +44,7 @@ fn frame(scene_cct: f32) -> SliderFrame {
 /// point at the same CCT, manufacturing the real off-locus gap a camera's
 /// as-shot chromaticity generally has.
 fn off_locus_as_shot(cct: f32) -> [f32; 3] {
-    camera_neutral_for(Matrix3(CM), cct, 40.0)
+    camera_neutral_for(Matrix3(CANON_5D3_D65_CM), cct, 40.0)
 }
 
 /// Temperature-only row. Currently RED — measured on this exact fixture: a
