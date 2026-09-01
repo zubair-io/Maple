@@ -158,11 +158,23 @@ compute_input_hash() {
 }
 INPUT_HASH="$(compute_input_hash)"
 
+# Checks the .a plus the headers every slice ships (Copilot review on
+# #2375, PR #3126): checking only libraw_ffi.a let --check-only report
+# "up to date" after a partial rebuild/clean that dropped Headers/
+# RawPipeline.h or Headers/module.modulemap but left the .a in place —
+# SwiftPM would still fail to import the binary target even though this
+# function said everything was there. Also checks the canonical header
+# copy at HEADERS_DIR, since that's the actual file `import RawPipeline`
+# resolves against for SwiftPM (see docs/apple.md).
 all_slices_present() {
     [[ -d "$XCFW_OUT_PROBE" ]] || return 1
+    [[ -f "$HEADERS_DIR/RawPipeline.h" ]] || return 1
+    [[ -f "$HEADERS_DIR/module.modulemap" ]] || return 1
     local d
     for d in "${EXPECTED_SLICE_DIRS[@]}"; do
         [[ -f "$XCFW_OUT_PROBE/$d/$LIB_NAME" ]] || return 1
+        [[ -f "$XCFW_OUT_PROBE/$d/Headers/RawPipeline.h" ]] || return 1
+        [[ -f "$XCFW_OUT_PROBE/$d/Headers/module.modulemap" ]] || return 1
     done
     return 0
 }
