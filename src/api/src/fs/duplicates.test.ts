@@ -35,6 +35,12 @@ describe('computeDuplicatesPath', () => {
   it('throws when the path is not under the root', () => {
     expect(() => computeDuplicatesPath('/elsewhere/IMG.dng', root)).toThrow();
   });
+
+  it('throws for a sibling root that merely shares a name prefix (#3094)', () => {
+    // `<root>` is a raw string prefix of `<root>2`, so an unbounded prefix
+    // check would quarantine a neighbouring library's file into this root.
+    expect(() => computeDuplicatesPath(root + '2/IMG.dng', root)).toThrow();
+  });
 });
 
 describe('moveToDuplicates', () => {
