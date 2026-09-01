@@ -87,6 +87,22 @@ const MARKED_TO_COPYRIGHT: Record<string, 'copyrighted' | 'public-domain'> = {
   False: 'public-domain',
 };
 
+/** XMP-standard `xmp:Label` colour words (Adobe Lightroom/Bridge) → Maple's
+ * `ColorLabel` vocabulary — mirrors the web `XmpParserService`'s `LABEL_MAP`
+ * (`xmp-culling.ts`). #2201: this API-side parser only recognised Maple's
+ * own `papp:ColorLabel` before, so a sidecar authored purely by Lightroom
+ * (which writes `xmp:Label`, never `papp:ColorLabel`) showed its color label
+ * in the web editor but was invisible to search/timeline color filtering,
+ * which reads the DB `color_label` field this parser populates. */
+const XMP_LABEL_WORD_MAP: Record<string, ColorLabel> = {
+  Red: 'red',
+  Orange: 'orange',
+  Yellow: 'yellow',
+  Green: 'green',
+  Blue: 'blue',
+  Purple: 'purple',
+};
+
 /** Map `xmpRights:Marked` value to tri-state; `null` for absent/unrecognised. */
 function copyrightStatusFromMarked(
   marked: string | null,
@@ -186,8 +202,145 @@ function extractKeywords(xml: string): string[] | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Public parse function
+// Public parse function — split into one sub-parser per field group
+// (GPS, simple string attrs, copyright status, nested elements, culling) so
+// `parseXmpMetadata` itself stays a flat compose-and-clean rather than
+// re-accumulating every group's branching into one function (fallow-audit
+// complexity gate).
 // ---------------------------------------------------------------------------
+
+type StrGetter = (key: string) => string | undefined;
+
+/** Attribute-map lookup, trimmed and undefined-if-empty. */
+function strGetter(attrs: Map<string, string>): StrGetter {
+  return (key: string) => {
+    const v = attrs.get(key);
+    if (v === undefined) return undefined;
+    const trimmed = v.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+}
+
+function parseGps(
+  str: StrGetter,
+): Pick<XmpMetadataResult, 'gpsLatitude' | 'gpsLongitude' | 'gpsAltitude'> {
+  const out: Pick<XmpMetadataResult, 'gpsLatitude' | 'gpsLongitude' | 'gpsAltitude'> = {};
+  const latStr = str('exif:GPSLatitude');
+  if (latStr !== undefined) {
+    const v = gpsFromXmp(latStr);
+    if (v !== null) out.gpsLatitude = v;
+  }
+  const lonStr = str('exif:GPSLongitude');
+  if (lonStr !== undefined) {
+    const v = gpsFromXmp(lonStr);
+    if (v !== null) out.gpsLongitude = v;
+  }
+  const altStr = str('exif:GPSAltitude');
+  if (altStr !== undefined) {
+    const v = altitudeFromXmp(altStr, str('exif:GPSAltitudeRef') ?? '0');
+    if (v !== null) out.gpsAltitude = v;
+  }
+  return out;
+}
+
+type SimpleTextFields =
+  | 'dateTimeOriginal'
+  | 'timeZone'
+  | 'sublocation'
+  | 'city'
+  | 'state'
+  | 'country'
+  | 'countryCode'
+  | 'headline'
+  | 'instructions'
+  | 'creatorJobTitle'
+  | 'credit'
+  | 'source';
+
+function parseSimpleTextAttrs(str: StrGetter): Pick<XmpMetadataResult, SimpleTextFields> {
+  return {
+    dateTimeOriginal: str('exif:DateTimeOriginal'),
+    timeZone: str('papp:TimeZone'),
+    sublocation: str('Iptc4xmpCore:Location'),
+    city: str('photoshop:City'),
+    state: str('photoshop:State'),
+    country: str('photoshop:Country'),
+    countryCode: str('Iptc4xmpCore:CountryCode'),
+    headline: str('photoshop:Headline'),
+    instructions: str('photoshop:Instructions'),
+    creatorJobTitle: str('photoshop:AuthorsPosition'),
+    credit: str('photoshop:Credit'),
+    source: str('photoshop:Source'),
+  };
+}
+
+function parseCopyrightStatus(str: StrGetter): Pick<XmpMetadataResult, 'copyrightStatus'> {
+  const status = copyrightStatusFromMarked(str('xmpRights:Marked') ?? null);
+  return status !== null ? { copyrightStatus: status } : {};
+}
+
+type NestedTextFields = 'title' | 'creator' | 'caption' | 'copyrightNotice' | 'usageTerms';
+
+function parseNestedElements(xml: string): Pick<XmpMetadataResult, NestedTextFields> {
+  return {
+    title: extractNestedText(xml, 'dc:title'),
+    creator: extractNestedText(xml, 'dc:creator'),
+    caption: extractNestedText(xml, 'dc:description'),
+    copyrightNotice: extractNestedText(xml, 'dc:rights'),
+    usageTerms: extractNestedText(xml, 'xmpRights:UsageTerms'),
+  };
+}
+
+function parseRatingAndFlag(str: StrGetter): Pick<XmpMetadataResult, 'rating' | 'flag'> {
+  const out: Pick<XmpMetadataResult, 'rating' | 'flag'> = {};
+  const ratingStr = str('xmp:Rating');
+  if (ratingStr !== undefined) {
+    const n = Number(ratingStr);
+    if (Number.isInteger(n) && n >= 1 && n <= 5) out.rating = n;
+  }
+  const flagStr = str('papp:Flag');
+  if (flagStr === 'pick' || flagStr === 'reject') out.flag = flagStr;
+  return out;
+}
+
+/** `papp:ColorLabel` (Maple's own key) wins when both are present; falls
+ * back to the XMP-standard `xmp:Label` word Lightroom/Bridge write when
+ * `papp:ColorLabel` is absent or out-of-vocabulary (#2201). */
+function parseColorLabel(str: StrGetter): Pick<XmpMetadataResult, 'colorLabel'> {
+  const colorLabelStr = str('papp:ColorLabel');
+  if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
+    return { colorLabel: colorLabelStr as ColorLabel };
+  }
+  const xmpLabelStr = str('xmp:Label');
+  if (xmpLabelStr !== undefined && xmpLabelStr in XMP_LABEL_WORD_MAP) {
+    return { colorLabel: XMP_LABEL_WORD_MAP[xmpLabelStr] };
+  }
+  return {};
+}
+
+function parseScreenshotAndHidden(
+  str: StrGetter,
+): Pick<XmpMetadataResult, 'isScreenshot' | 'hidden'> {
+  const out: Pick<XmpMetadataResult, 'isScreenshot' | 'hidden'> = {};
+  const isScrStr = str('papp:IsScreenshot');
+  if (isScrStr === 'true') out.isScreenshot = true;
+  else if (isScrStr === 'false') out.isScreenshot = false;
+  const hiddenStr = str('papp:Hidden');
+  if (hiddenStr === 'true' || hiddenStr === 'false') out.hidden = hiddenStr === 'true';
+  return out;
+}
+
+/** `xmp:Rating` / `papp:Flag` / the two color-label attribute forms /
+ * `papp:IsScreenshot` / `papp:Hidden`. */
+function parseCulling(
+  str: StrGetter,
+): Pick<XmpMetadataResult, 'rating' | 'flag' | 'colorLabel' | 'isScreenshot' | 'hidden'> {
+  return {
+    ...parseRatingAndFlag(str),
+    ...parseColorLabel(str),
+    ...parseScreenshotAndHidden(str),
+  };
+}
 
 /**
  * Parse the metadata block from an XMP sidecar string.
@@ -201,80 +354,16 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
   if (!xml || xml.trim().length === 0) return {};
 
   const attrs = extractAttributes(xml);
-  const result: XmpMetadataResult = {};
+  const str = strGetter(attrs);
 
-  const str = (key: string): string | undefined => {
-    const v = attrs.get(key);
-    if (v === undefined) return undefined;
-    const trimmed = v.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
+  const result: XmpMetadataResult = {
+    ...parseGps(str),
+    ...parseSimpleTextAttrs(str),
+    ...parseCopyrightStatus(str),
+    ...parseNestedElements(xml),
+    keywords: extractKeywords(xml),
+    ...parseCulling(str),
   };
-
-  // GPS
-  const latStr = str('exif:GPSLatitude');
-  if (latStr !== undefined) {
-    const v = gpsFromXmp(latStr);
-    if (v !== null) result.gpsLatitude = v;
-  }
-  const lonStr = str('exif:GPSLongitude');
-  if (lonStr !== undefined) {
-    const v = gpsFromXmp(lonStr);
-    if (v !== null) result.gpsLongitude = v;
-  }
-  const altStr = str('exif:GPSAltitude');
-  if (altStr !== undefined) {
-    const v = altitudeFromXmp(altStr, str('exif:GPSAltitudeRef') ?? '0');
-    if (v !== null) result.gpsAltitude = v;
-  }
-
-  // Simple string attrs
-  result.dateTimeOriginal = str('exif:DateTimeOriginal');
-  result.timeZone = str('papp:TimeZone');
-  result.sublocation = str('Iptc4xmpCore:Location');
-  result.city = str('photoshop:City');
-  result.state = str('photoshop:State');
-  result.country = str('photoshop:Country');
-  result.countryCode = str('Iptc4xmpCore:CountryCode');
-  result.headline = str('photoshop:Headline');
-  result.instructions = str('photoshop:Instructions');
-  result.creatorJobTitle = str('photoshop:AuthorsPosition');
-  result.credit = str('photoshop:Credit');
-  result.source = str('photoshop:Source');
-
-  // Copyright status
-  const markedStr = str('xmpRights:Marked') ?? null;
-  const status = copyrightStatusFromMarked(markedStr !== undefined ? markedStr : null);
-  if (status !== null) result.copyrightStatus = status;
-
-  // Nested lang-alt / seq elements
-  result.title = extractNestedText(xml, 'dc:title');
-  result.creator = extractNestedText(xml, 'dc:creator');
-  result.caption = extractNestedText(xml, 'dc:description');
-  result.copyrightNotice = extractNestedText(xml, 'dc:rights');
-  result.usageTerms = extractNestedText(xml, 'xmpRights:UsageTerms');
-
-  // Keywords bag
-  result.keywords = extractKeywords(xml);
-
-  // Culling
-  const ratingStr = str('xmp:Rating');
-  if (ratingStr !== undefined) {
-    const n = Number(ratingStr);
-    if (Number.isInteger(n) && n >= 1 && n <= 5) result.rating = n;
-  }
-  const flagStr = str('papp:Flag');
-  if (flagStr === 'pick' || flagStr === 'reject') result.flag = flagStr;
-  const colorLabelStr = str('papp:ColorLabel');
-  if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
-    result.colorLabel = colorLabelStr as ColorLabel;
-  }
-  const isScrStr = str('papp:IsScreenshot');
-  if (isScrStr === 'true') result.isScreenshot = true;
-  else if (isScrStr === 'false') result.isScreenshot = false;
-  const hiddenStr = str('papp:Hidden');
-  if (hiddenStr === 'true' || hiddenStr === 'false') {
-    result.hidden = hiddenStr === 'true';
-  }
 
   // Strip undefined keys so consumers can use `key in result` cleanly.
   for (const k of Object.keys(result) as (keyof XmpMetadataResult)[]) {
@@ -285,51 +374,97 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
 }
 
 // ---------------------------------------------------------------------------
-// Converter: XmpMetadataResult → MetadataOverride patch fields
+// Converter: XmpMetadataResult → MetadataOverride patch fields — split into
+// one sub-mapper per group (GPS, place text, plain scalars, culling) so the
+// public function stays a flat merge rather than one function carrying all
+// ~20 fields' branching (fallow-audit complexity gate).
 // ---------------------------------------------------------------------------
 
-/**
- * Map parsed XMP metadata to the `metadata_override` subdoc shape.
- * Returns a partial override (only the fields present in the parsed result).
- * `edited_at` and `touched_fields` are set by the caller.
- */
-export function xmpMetadataToOverridePatch(
-  parsed: XmpMetadataResult,
-): Omit<MetadataOverride, 'edited_at' | 'touched_fields'> {
-  const patch: Omit<MetadataOverride, 'edited_at' | 'touched_fields'> = {};
+type OverridePatch = Omit<MetadataOverride, 'edited_at' | 'touched_fields'>;
 
-  if (parsed.gpsLatitude !== undefined && parsed.gpsLongitude !== undefined) {
-    patch.gps = {
+function gpsPatch(parsed: XmpMetadataResult): Pick<OverridePatch, 'gps'> {
+  if (parsed.gpsLatitude === undefined || parsed.gpsLongitude === undefined) return {};
+  return {
+    gps: {
       lat: parsed.gpsLatitude,
       lng: parsed.gpsLongitude,
       ...(parsed.gpsAltitude !== undefined ? { alt: parsed.gpsAltitude } : {}),
-    };
-  }
+    },
+  };
+}
 
+/** Only set when at least one place-text field is present. */
+/** Drops every `undefined`-valued entry, so the caller can build a
+ * candidate object with every field present up front and let this decide
+ * which ones actually survive — replaces a chain of individual
+ * `x !== undefined ? {...} : {}` conditional spreads (each one its own
+ * branch for the complexity gate) with a single pass. */
+function definedEntries<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+function placeTextPatch(parsed: XmpMetadataResult): Pick<OverridePatch, 'place_text'> {
+  const place_text = definedEntries({
+    sublocation: parsed.sublocation,
+    city: parsed.city,
+    state: parsed.state,
+    country: parsed.country,
+    country_code: parsed.countryCode,
+  });
+  return Object.keys(place_text).length > 0 ? { place_text } : {};
+}
+
+/** Direct `parsed.x !== undefined -> patch.y = parsed.x` mapping for the
+ * text/date/keyword fields with no special composition (GPS and place text
+ * are handled separately above). Split across two halves purely to keep
+ * each function's branch count low. */
+function textFieldsPatch(
+  parsed: XmpMetadataResult,
+): Pick<
+  OverridePatch,
+  'captured_at' | 'time_zone' | 'keywords' | 'title' | 'caption' | 'headline'
+> {
+  const patch: Pick<
+    OverridePatch,
+    'captured_at' | 'time_zone' | 'keywords' | 'title' | 'caption' | 'headline'
+  > = {};
   if (parsed.dateTimeOriginal !== undefined) patch.captured_at = parsed.dateTimeOriginal;
   if (parsed.timeZone !== undefined) patch.time_zone = parsed.timeZone;
-
-  // Place text — only set when at least one field present.
-  const hasPlaceText =
-    parsed.sublocation !== undefined ||
-    parsed.city !== undefined ||
-    parsed.state !== undefined ||
-    parsed.country !== undefined ||
-    parsed.countryCode !== undefined;
-  if (hasPlaceText) {
-    patch.place_text = {
-      ...(parsed.sublocation !== undefined ? { sublocation: parsed.sublocation } : {}),
-      ...(parsed.city !== undefined ? { city: parsed.city } : {}),
-      ...(parsed.state !== undefined ? { state: parsed.state } : {}),
-      ...(parsed.country !== undefined ? { country: parsed.country } : {}),
-      ...(parsed.countryCode !== undefined ? { country_code: parsed.countryCode } : {}),
-    };
-  }
-
   if (parsed.keywords !== undefined) patch.keywords = parsed.keywords;
   if (parsed.title !== undefined) patch.title = parsed.title;
   if (parsed.caption !== undefined) patch.caption = parsed.caption;
   if (parsed.headline !== undefined) patch.headline = parsed.headline;
+  return patch;
+}
+
+function rightsFieldsPatch(
+  parsed: XmpMetadataResult,
+): Pick<
+  OverridePatch,
+  | 'instructions'
+  | 'creator'
+  | 'creator_job_title'
+  | 'copyright_notice'
+  | 'copyright_status'
+  | 'usage_terms'
+  | 'credit'
+  | 'source'
+> {
+  const patch: Pick<
+    OverridePatch,
+    | 'instructions'
+    | 'creator'
+    | 'creator_job_title'
+    | 'copyright_notice'
+    | 'copyright_status'
+    | 'usage_terms'
+    | 'credit'
+    | 'source'
+  > = {};
   if (parsed.instructions !== undefined) patch.instructions = parsed.instructions;
   if (parsed.creator !== undefined) patch.creator = parsed.creator;
   if (parsed.creatorJobTitle !== undefined) patch.creator_job_title = parsed.creatorJobTitle;
@@ -338,11 +473,33 @@ export function xmpMetadataToOverridePatch(
   if (parsed.usageTerms !== undefined) patch.usage_terms = parsed.usageTerms;
   if (parsed.credit !== undefined) patch.credit = parsed.credit;
   if (parsed.source !== undefined) patch.source = parsed.source;
+  return patch;
+}
+
+function cullingPatch(
+  parsed: XmpMetadataResult,
+): Pick<OverridePatch, 'rating' | 'flag' | 'color_label' | 'is_screenshot' | 'hidden'> {
+  const patch: Pick<OverridePatch, 'rating' | 'flag' | 'color_label' | 'is_screenshot' | 'hidden'> =
+    {};
   if (parsed.rating !== undefined) patch.rating = parsed.rating;
   if (parsed.flag !== undefined) patch.flag = parsed.flag;
   if (parsed.colorLabel !== undefined) patch.color_label = parsed.colorLabel;
   if (parsed.isScreenshot !== undefined) patch.is_screenshot = parsed.isScreenshot;
   if (parsed.hidden !== undefined) patch.hidden = parsed.hidden;
-
   return patch;
+}
+
+/**
+ * Map parsed XMP metadata to the `metadata_override` subdoc shape.
+ * Returns a partial override (only the fields present in the parsed result).
+ * `edited_at` and `touched_fields` are set by the caller.
+ */
+export function xmpMetadataToOverridePatch(parsed: XmpMetadataResult): OverridePatch {
+  return {
+    ...gpsPatch(parsed),
+    ...placeTextPatch(parsed),
+    ...textFieldsPatch(parsed),
+    ...rightsFieldsPatch(parsed),
+    ...cullingPatch(parsed),
+  };
 }
