@@ -88,8 +88,8 @@ const MARKED_TO_COPYRIGHT: Record<string, 'copyrighted' | 'public-domain'> = {
 };
 
 /** XMP-standard `xmp:Label` colour words (Adobe Lightroom/Bridge) → Maple's
- * `ColorLabel` vocabulary — mirrors the web `XmpParserService`'s `LABEL_MAP`
- * (`xmp-culling.ts`). #2201: this API-side parser only recognised Maple's
+ * `ColorLabel` vocabulary — mirrors the web `xmp-culling.ts`'s `LABEL_MAP`
+ * (used by `XmpParserService`). #2201: this API-side parser only recognised Maple's
  * own `papp:ColorLabel` before, so a sidecar authored purely by Lightroom
  * (which writes `xmp:Label`, never `papp:ColorLabel`) showed its color label
  * in the web editor but was invisible to search/timeline color filtering,
