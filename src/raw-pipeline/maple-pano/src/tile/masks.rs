@@ -1,8 +1,10 @@
 //! Voronoi ownership masks + overlap-width estimation for the tile
 //! composite. Split from `tile/mod.rs` for the file-size budget (#3086).
 
+use crate::error::PanoError;
 use crate::ingest::PlanarImage;
 
+use super::frame_cache::TileFrameCache;
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp;
 
@@ -10,14 +12,20 @@ use super::warp;
 /// coarse canvas-space scan (stride 8) to find pairwise overlap pixels.
 /// This is cheaper than a full voronoi pass and gives a good enough
 /// estimate for `levels_for_overlap_width`.
+///
+/// `full_dims` is indexed by the *original* input frame index (same
+/// space as `cache` and `poses[i].frame_idx`) — #3090: frames are
+/// decoded on demand through `cache` rather than requiring the whole
+/// set pre-decoded and resident.
 pub(super) fn estimate_min_overlap_width(
-    frames: &[PlanarImage],
+    cache: &TileFrameCache,
+    full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
-) -> usize {
+) -> Result<usize, PanoError> {
     use warp::inverse_similarity_with_offset;
 
-    let k = frames.len();
+    let k = poses.len();
     let cw = canvas.width as usize;
     let ch = canvas.height as usize;
     let stride = 8usize;
@@ -27,9 +35,12 @@ pub(super) fn estimate_min_overlap_width(
         .iter()
         .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
         .collect();
-    let frame_dims: Vec<(f64, f64)> = frames
+    let frame_dims: Vec<(f64, f64)> = poses
         .iter()
-        .map(|f| (f.width() as f64, f.height() as f64))
+        .map(|p| {
+            let (w, h) = full_dims[p.frame_idx];
+            (w as f64, h as f64)
+        })
         .collect();
 
     let mut overlap_count = vec![vec![0usize; k]; k];
@@ -44,16 +55,16 @@ pub(super) fn estimate_min_overlap_width(
             // is only produced when the bicubic kernel has sufficient valid-pixel
             // support (weight threshold 0.01). The simpler nearest-neighbour check
             // overestimates overlap near validity boundaries.
-            let covered: Vec<bool> = (0..k)
-                .map(|i| {
-                    let (fw, fh) = frame_dims[i];
-                    let (fx, fy) = inv_sims[i].apply(cx, cy);
-                    if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
-                        return false;
-                    }
-                    warp::sample_bicubic(&frames[i], fx - 0.5, fy - 0.5).is_some()
-                })
-                .collect();
+            let mut covered: Vec<bool> = vec![false; k];
+            for i in 0..k {
+                let (fw, fh) = frame_dims[i];
+                let (fx, fy) = inv_sims[i].apply(cx, cy);
+                if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
+                    continue;
+                }
+                let frame = cache.get(poses[i].frame_idx)?;
+                covered[i] = warp::sample_bicubic(&frame, fx - 0.5, fy - 0.5).is_some();
+            }
             for a in 0..k {
                 if !covered[a] {
                     continue;
@@ -78,11 +89,7 @@ pub(super) fn estimate_min_overlap_width(
             min_w = min_w.min(overlap_count[a][b] / rows);
         }
     }
-    if min_w == usize::MAX {
-        0
-    } else {
-        min_w
-    }
+    Ok(if min_w == usize::MAX { 0 } else { min_w })
 }
 
 /// Voronoi masks for a (possibly haloed) region.
@@ -121,11 +128,8 @@ pub(super) fn voronoi_masks_region(
         .zip(poses)
         .zip(frame_dims)
         .map(|((layer, pose), &(fw, fh))| {
-            let inv = warp::inverse_similarity_with_offset(
-                &pose.sim,
-                canvas.offset_x,
-                canvas.offset_y,
-            );
+            let inv =
+                warp::inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
             let (fw, fh) = (fw as f64, fh as f64);
             let mut d = vec![-1.0_f32; n];
             for py in 0..ch {
