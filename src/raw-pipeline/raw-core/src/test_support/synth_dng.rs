@@ -41,6 +41,10 @@ const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
 // path (rawler/src/decoders/mod.rs:641-642) before `raw_data` reaches us.
 const TAG_LINEARIZATION_TABLE: u16 = 50712;
 
+// DNG OpcodeList3, spec § "Opcode Lists" (tag 51022 / 0xC75E). See
+// `pipeline::pano::opcodes` for the binary layout and the reader.
+const TAG_OPCODE_LIST_3: u16 = 51022;
+
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
 
@@ -94,6 +98,12 @@ pub struct SyntheticGreyDng {
     /// code rawler will look up in the LUT — assertions then check that
     /// `raw.raw_data[k] ≈ table[encoded_value_override]`.
     pub encoded_value_override: Option<u16>,
+    /// Raw big-endian `OpcodeList3` blob (tag 51022) — see
+    /// [`fix_vignette_radial_opcode_list3`] to build one. No `ActiveArea`
+    /// tag is written by this struct, so the opcode's coordinate system
+    /// always resolves to the full frame (`ActiveAreaRect::full`, DNG
+    /// default — see `pipeline::pano::opcodes::read_opcode_list3`).
+    pub opcode_list3: Option<Vec<u8>>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -116,6 +126,7 @@ impl Default for SyntheticGreyDng {
             analog_balance_override: None,
             linearization_table: None,
             encoded_value_override: None,
+            opcode_list3: None,
         }
     }
 }
@@ -284,6 +295,13 @@ impl SyntheticGreyDng {
             // `Value::Short(points)` and panics on any other type — so we
             // must use the SHORT path here, not BYTE / LONG.
             ifd.add_shorts(TAG_LINEARIZATION_TABLE, table.clone());
+        }
+
+        if let Some(blob) = &self.opcode_list3 {
+            // UNDEFINED per DNG spec, but `read_opcode_list3` also accepts
+            // BYTE (rawler's `Value::Byte`) — same type this writer already
+            // uses for `TAG_DNG_VERSION` / `TAG_CFA_PATTERN`.
+            ifd.add_bytes(TAG_OPCODE_LIST_3, blob.clone());
         }
 
         ifd
@@ -552,6 +570,34 @@ pub(crate) fn write_srational(buf: &mut Vec<u8>, num: i32, den: i32) {
     buf.extend_from_slice(&den.to_le_bytes());
 }
 
+/// Build a big-endian `OpcodeList3` blob (tag 51022) carrying a single
+/// `FixVignetteRadial` opcode (id 3) — see [`opcode_list3`] on
+/// [`SyntheticGreyDng`] and `pipeline::pano::opcodes` for the binary
+/// layout this mirrors. `k` are the five radial gain coefficients
+/// (`g(t) = 1 + k0·t + k1·t² + k2·t³ + k3·t⁴ + k4·t⁵`); `center_x` /
+/// `center_y` are the optical center in normalized ActiveArea coordinates,
+/// horizontal first. Test-only (#2243): closes the gap that no committed
+/// RAW fixture carries this opcode, so nothing exercised the byte-level
+/// parser (`parse_fix_vignette_radial`) end to end.
+pub fn fix_vignette_radial_opcode_list3(k: [f64; 5], center_x: f64, center_y: f64) -> Vec<u8> {
+    let mut params = Vec::with_capacity(56);
+    for c in k {
+        params.extend_from_slice(&c.to_be_bytes());
+    }
+    params.extend_from_slice(&center_x.to_be_bytes());
+    params.extend_from_slice(&center_y.to_be_bytes());
+    debug_assert_eq!(params.len(), 56, "5×f64 + 2×f64 must be exactly 56 bytes");
+
+    let mut blob = Vec::with_capacity(4 + 16 + params.len());
+    blob.extend_from_slice(&1u32.to_be_bytes()); // count = 1 opcode
+    blob.extend_from_slice(&3u32.to_be_bytes()); // OpcodeID = FixVignetteRadial
+    blob.extend_from_slice(&0x0104_0000u32.to_be_bytes()); // DNGVersion 1.4.0.0 (unchecked by the parser)
+    blob.extend_from_slice(&1u32.to_be_bytes()); // flags: bit0 = optional
+    blob.extend_from_slice(&(params.len() as u32).to_be_bytes());
+    blob.extend_from_slice(&params);
+    blob
+}
+
 /// Compute per-CFA-position 16-bit raw values that decode to a uniform
 /// scene-linear neutral `linear_value` after black subtract, dynamic-range
 /// normalisation, and WB. `as_shot_neutral` follows DNG semantics
@@ -652,6 +698,25 @@ mod tests {
         write_srational(&mut buf, -1, 2);
         // -1 as i32 little-endian = 0xFFFFFFFF
         assert_eq!(buf, vec![0xFF, 0xFF, 0xFF, 0xFF, 2, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fix_vignette_radial_opcode_list3_matches_the_spec_layout() {
+        let k = [1.0f64, -2.0, 3.0, -4.0, 5.0];
+        let blob = fix_vignette_radial_opcode_list3(k, 0.5, 0.25);
+        // u32 count=1, then {u32 id=3, u32 version, u32 flags, u32 len=56},
+        // then the 56-byte param block — all big-endian.
+        assert_eq!(blob.len(), 4 + 16 + 56);
+        assert_eq!(&blob[0..4], &1u32.to_be_bytes());
+        assert_eq!(&blob[4..8], &3u32.to_be_bytes());
+        assert_eq!(&blob[12..16], &1u32.to_be_bytes(), "flags");
+        assert_eq!(&blob[16..20], &56u32.to_be_bytes(), "param length");
+        for (i, c) in k.iter().enumerate() {
+            let off = 20 + i * 8;
+            assert_eq!(&blob[off..off + 8], &c.to_be_bytes(), "k[{i}]");
+        }
+        assert_eq!(&blob[60..68], &0.5f64.to_be_bytes(), "center_x");
+        assert_eq!(&blob[68..76], &0.25f64.to_be_bytes(), "center_y");
     }
 
     #[test]
