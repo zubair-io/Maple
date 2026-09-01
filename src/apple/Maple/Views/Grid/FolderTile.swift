@@ -72,12 +72,34 @@ struct FolderTile: View {
         }
         .buttonStyle(FolderTileButtonStyle())
         .accessibilityLabel("Folder \(url.lastPathComponent)")
-        .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
-            guard let rootBookmark, let onDropAssets,
-                  let payload = payloads.first, !payload.ids.isEmpty else { return false }
-            onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
-            return true
-        }, isTargeted: { targeted in isDropTargeted = targeted })
+        .modifier(FolderDropTarget(
+            url: url,
+            rootBookmark: rootBookmark,
+            onDropAssets: onDropAssets,
+            isTargeted: $isDropTargeted
+        ))
+    }
+}
+
+/// Attaches the asset drop target only when the caller supplied both halves
+/// of the drop contract; otherwise the tile is left untouched, so it can
+/// never light up as a drop target it would then refuse.
+private struct FolderDropTarget: ViewModifier {
+    let url: URL
+    let rootBookmark: Data?
+    let onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)?
+    @Binding var isTargeted: Bool
+
+    func body(content: Content) -> some View {
+        if let rootBookmark, let onDropAssets {
+            content.dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
+                guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+                onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
+                return true
+            }, isTargeted: { targeted in isTargeted = targeted })
+        } else {
+            content
+        }
     }
 }
 
