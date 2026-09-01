@@ -294,17 +294,33 @@ mod tests {
     /// machine (fixtures are gitignored — soft-skips otherwise). Proves
     /// the I/O half (`probe_frame`) really does drop `test.dng` and keep
     /// the DJI frames, not just the pure decision logic above.
+    ///
+    /// `test.dng` itself now lives in the sibling `_stray/` directory
+    /// (this PR moved it out of `pano_00` for fixture hygiene — see the
+    /// PR description), so `pano_00` alone only has the 3 real frames.
+    /// Append the stray back in by hand rather than checking `pano_00`'s
+    /// raw file count, so this test still exercises the drop-a-stray
+    /// path instead of silently skipping on every machine forever
+    /// (Jules review on #3131).
     #[test]
     fn filter_conforming_frames_drops_real_stray_fixture_when_present() {
         let dir = std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../../test-fixtures/raws/pano_00"
         ));
-        if !dir.is_dir() {
-            eprintln!("skipping: {} not present", dir.display());
+        let stray = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../test-fixtures/raws/_stray/test.dng"
+        ));
+        if !dir.is_dir() || !stray.is_file() {
+            eprintln!(
+                "skipping: {} and/or {} not present",
+                dir.display(),
+                stray.display()
+            );
             return;
         }
-        let frames: Vec<PathBuf> = std::fs::read_dir(dir)
+        let mut frames: Vec<PathBuf> = std::fs::read_dir(dir)
             .expect("read_dir")
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| {
@@ -314,13 +330,14 @@ mod tests {
                     .unwrap_or(false)
             })
             .collect();
-        if frames.len() < 4 {
+        if frames.len() < 3 {
             eprintln!(
-                "skipping: expected >= 4 .dng (3 real + stray), found {}",
+                "skipping: expected >= 3 real .dng in pano_00, found {}",
                 frames.len()
             );
             return;
         }
+        frames.push(stray.to_path_buf());
         let kept = filter_conforming_frames("pano_00", frames);
         assert!(
             kept.iter()
