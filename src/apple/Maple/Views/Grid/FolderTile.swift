@@ -54,10 +54,9 @@ struct FolderTile: View {
             }
             .padding(.horizontal, 14)
             .frame(width: Self.width, height: Self.height)
-            .background(
-                MapleTokens.surface,
-                in: RoundedRectangle(cornerRadius: Self.cornerRadius)
-            )
+            // The `surface` ground is painted by `FolderTileButtonStyle`
+            // (with the press tint layered on top of it), not here — an
+            // opaque background on the label would hide the tint.
             .overlay {
                 if isDropTargeted {
                     RoundedRectangle(cornerRadius: Self.cornerRadius)
@@ -133,15 +132,20 @@ struct FolderTileSection<Tiles: View>: View {
     }
 }
 
-/// Press feedback for `FolderTile`. Scales down slightly and tints the
-/// ground while the pointer/finger is down, easing back on release.
+/// Press feedback for `FolderTile`. Paints the tile's `surface` ground and
+/// layers the `bgActive` tint over it while the pointer/finger is down,
+/// scaling down slightly and easing back on release.
 private struct FolderTileButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .background(
                 RoundedRectangle(cornerRadius: FolderTile.cornerRadius)
-                    .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
+                    .fill(MapleTokens.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: FolderTile.cornerRadius)
+                            .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
+                    )
             )
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
