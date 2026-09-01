@@ -33,6 +33,25 @@ final class BackupStateTests: XCTestCase {
         XCTAssertEqual(all[0].retryCount, 3)
     }
 
+    func testCountInStateMatchesTasksInState() async throws {
+        let store = try freshStore()
+        try await store.upsert(BackupTask(
+            id: BackupTaskID(deviceId: "d", phassetLocalId: "P1"),
+            state: .failedRetry, priority: .background))
+        try await store.upsert(BackupTask(
+            id: BackupTaskID(deviceId: "d", phassetLocalId: "P2"),
+            state: .failedRetry, priority: .background))
+        try await store.upsert(BackupTask(
+            id: BackupTaskID(deviceId: "d", phassetLocalId: "P3"),
+            state: .uploaded, priority: .background))
+        let failed = try await store.count(in: .failedRetry)
+        let uploaded = try await store.count(in: .uploaded)
+        let pending = try await store.count(in: .pending)
+        XCTAssertEqual(failed, 2)
+        XCTAssertEqual(uploaded, 1)
+        XCTAssertEqual(pending, 0)
+    }
+
     func testTransitionSetsStateAndError() async throws {
         let store = try freshStore()
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
