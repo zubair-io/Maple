@@ -52,11 +52,14 @@ const GAIN_SPREAD_WARNING_TEXT: &str =
 /// when fewer than two frames have a usable gain (nothing to spread),
 /// matching the rest of the report's "zero means no signal" convention.
 fn gain_spread_ev(gains: &[[f32; 3]]) -> f64 {
-    // Single pass: (count, min, max) over the finite, positive per-frame means.
+    // Single pass: (count, min, max) over the per-frame means of frames whose
+    // three channel gains are each finite and positive — `solve_gains` can
+    // leave a non-positive channel in per-channel mode, and a mean that
+    // happens to stay > 0 must not smuggle that frame into the spread.
     let (count, min, max) = gains
         .iter()
+        .filter(|g| g.iter().all(|c| c.is_finite() && *c > 0.0))
         .map(|g| (g[0] as f64 + g[1] as f64 + g[2] as f64) / 3.0)
-        .filter(|m| m.is_finite() && *m > 0.0)
         .fold(
             (0usize, f64::INFINITY, f64::NEG_INFINITY),
             |(n, lo, hi), m| (n + 1, lo.min(m), hi.max(m)),
@@ -365,6 +368,16 @@ mod tests {
         let gains = [[0.0_f32, 0.0, 0.0], [1.0, 1.0, 1.0], [3.0, 3.0, 3.0]];
         let spread = gain_spread_ev(&gains);
         assert!((spread - 3.0_f64.log2()).abs() < 1e-9, "got {spread}");
+    }
+
+    #[test]
+    fn gain_spread_ev_drops_frames_with_one_non_positive_channel() {
+        // Per-channel mode can leave a single non-positive channel while the
+        // frame's mean stays > 0; that frame must not enter the spread.
+        let clean = [[1.0f32, 1.0, 1.0], [2.0, 2.0, 2.0]];
+        let poisoned = [[1.0f32, 1.0, 1.0], [2.0, 2.0, 2.0], [9.0, 9.0, -0.5]];
+        assert_eq!(gain_spread_ev(&poisoned), gain_spread_ev(&clean));
+        assert!((gain_spread_ev(&clean) - 1.0).abs() < 1e-9);
     }
 
     #[test]
