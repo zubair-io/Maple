@@ -199,7 +199,12 @@ extension AppShell {
             return
         }
         Task { @MainActor in
-            let catalog = RemoteCatalog(http: makeAuthenticatedHTTPClient(server: server), server: server)
+            // `makeCloudCatalog` (`AppShell+Trash.swift`) — routes through
+            // `LocalNetworkResolver.shared.effectiveURL(for:)` so a server
+            // reachable on the local network doesn't take the WAN path
+            // (#2753: this call previously built a raw `RemoteCatalog(...)`
+            // from the unresolved server URL, skipping that entirely).
+            let catalog = makeCloudCatalog(server: server)
             do {
                 _ = try await catalog.makeDir(folderID: libraryFolderID, targetRelativePath: relative)
                 folderRefreshGeneration += 1
@@ -229,7 +234,9 @@ extension AppShell {
             return
         }
         Task { @MainActor in
-            let catalog = RemoteCatalog(http: makeAuthenticatedHTTPClient(server: server), server: server)
+            // `makeCloudCatalog` (`AppShell+Trash.swift`) — see the
+            // matching comment on `createCloudFolder` above (#2753).
+            let catalog = makeCloudCatalog(server: server)
             do {
                 let result = try await catalog.moveFolder(
                     folderID: libraryFolderID, sourceRelativePath: sourceRel, targetRelativePath: targetRel)
@@ -259,12 +266,12 @@ extension AppShell {
             return
         }
         Task { @MainActor in
-            // `makeCloudTrashClient` (`AppShell+Trash.swift`) — routes
-            // through `LocalNetworkResolver.shared.effectiveURL(for:)` so a
-            // server reachable on the local network doesn't take the WAN
-            // path (review finding, jules: a raw `RemoteCatalog(server:
+            // `makeCloudCatalog` (`AppShell+Trash.swift`) — routes through
+            // `LocalNetworkResolver.shared.effectiveURL(for:)` so a server
+            // reachable on the local network doesn't take the WAN path
+            // (review finding, jules: a raw `RemoteCatalog(server:
             // server)` construction here skipped that entirely).
-            let catalog = makeCloudTrashClient(server: server)
+            let catalog = makeCloudCatalog(server: server)
             do {
                 let summary = try await catalog.trashFolder(folderID: libraryFolderID, relativePath: relative)
                 folderRefreshGeneration += 1
