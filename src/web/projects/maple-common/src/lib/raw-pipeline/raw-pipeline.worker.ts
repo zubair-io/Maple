@@ -425,8 +425,10 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
 // and runs a single AE-Off/D65 probe to derive the 8 slider recommendations.
 //
 // AE-Off contract: the returned `exposure` was measured against an AE-Off base.
-// The Angular caller MUST set `autoExposure: 'Off'` alongside `exposure` (do NOT
-// write the returned tone fields in M0 — they are 0 and deferred to #1376).
+// The Angular caller MUST set `autoExposure: 'Off'` alongside `exposure`. The
+// five tone fields (contrast/highlights/shadows/whites/blacks) are calibrated,
+// scene-proportional values (#1376) that the caller DOES apply (#2255); only
+// `temperature`/`tint` are returned-but-unused (WB stays As-Shot).
 
 async function handleAutoAdjust(req: AutoAdjustRequest): Promise<void> {
   try {
