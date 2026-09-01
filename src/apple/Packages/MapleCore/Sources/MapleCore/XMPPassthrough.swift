@@ -108,6 +108,12 @@ enum XMPKnownFields {
         "crs:LuminanceSmoothing", "crs:ColorNoiseReduction",
         "papp:ChromaPrefilter", "papp:DeepDenoise", "papp:HotPixelSuppression",
         "papp:HighlightRecoveryMode", "papp:AutoExposure", "papp:Look", "papp:Profile",
+        // WB method + point-curve mode (#431/#436; wired into Swift by
+        // #2216) — without these two in the known set, a sidecar carrying
+        // them would fall through to the unknown-attribute passthrough
+        // bucket AND be re-emitted from the model, doubling the attribute
+        // on save (see `XMPPassthroughTests.testEverySerializedAttributeIsKnown`).
+        "papp:WbMethod", "papp:ToneCurveMode",
         "crs:PostCropVignetteAmount", "crs:PostCropVignetteFeather",
         "crs:GrainAmount", "crs:GrainSize", "crs:GrainFrequency",
         "crs:SplitToningShadowHue", "crs:SplitToningShadowSaturation",
