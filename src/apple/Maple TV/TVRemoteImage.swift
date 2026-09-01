@@ -182,7 +182,7 @@ struct TVRemoteImage: View {
   /// either step fails or the task was cancelled mid-fetch.
   private func fetchAndDecode(fetch: () async -> Data?) async -> UIImage? {
     guard let data = await fetch() else { return nil }
-    guard !Task.isCancelled, let cgImage = Self.decode(data) else { return nil }
+    guard !Task.isCancelled, let cgImage = await Self.decode(data) else { return nil }
     return UIImage(cgImage: cgImage)
   }
 
@@ -214,7 +214,19 @@ struct TVRemoteImage: View {
   /// `CGImageSource` — AVIF thumbs and JPEG previews both go through this
   /// same path). tvOS 16+ decodes AVIF natively through ImageIO, so no
   /// format-specific branch or fallback is needed here.
-  private static func decode(_ data: Data) -> CGImage? {
+  ///
+  /// `nonisolated async` (Copilot review on #2110, #2116): with no actor
+  /// annotation, awaiting this call moves its body off the caller's actor
+  /// onto the cooperative pool (SE-0338) — the same mechanism MapleCore's
+  /// `ThumbnailDecoder.image(for:key:)` uses to keep `CGImageSource` decode
+  /// work off the main actor. `load()`'s `.task(id:)` begins on the main
+  /// actor, so before this change every `CGImageSourceCreateImageAtIndex`
+  /// call for a wall of grid thumbnails ran on it, back to back — jank on
+  /// fast scrolling. Structured, not detached: because this is a plain
+  /// `await` (not `Task.detached`), it's still part of the caller's Task,
+  /// so `Task.isCancelled` at the call site above correctly reflects a
+  /// cell that scrolled off-screen and cancelled `.task(id:)`.
+  private static func decode(_ data: Data) async -> CGImage? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil),
           let img = CGImageSourceCreateImageAtIndex(src, 0, nil)
     else { return nil }
@@ -286,14 +298,14 @@ extension TVRemoteImage {
       await thumbCache.put(host: host, absPath: absPath, bytes)
       thumbBytes = bytes
     }
-    if let data = thumbBytes, !Task.isCancelled, let cg = decode(data) {
+    if let data = thumbBytes, !Task.isCancelled, let cg = await decode(data) {
       TVDecodedImageCache.shared.setImage(UIImage(cgImage: cg), forKey: key)
       return
     }
 
     guard !Task.isCancelled,
           let previewData = try? await thumbClient.preview(absPath: absPath),
-          !Task.isCancelled, let cg = decode(previewData) else { return }
+          !Task.isCancelled, let cg = await decode(previewData) else { return }
     TVDecodedImageCache.shared.setImage(UIImage(cgImage: cg), forKey: key)
   }
 
@@ -319,6 +331,17 @@ final class TVDecodedImageCache {
     // is a handful of cells) plus a scroll buffer either side; this is a
     // memory-pressure-evicted cache, not a hard budget.
     cache.countLimit = 400
+    // `countLimit` alone doesn't bound memory (Copilot review on #2110,
+    // #2116): this cache holds both small `.thumb` AVIF grid tiles and much
+    // larger ~1280px `.preview` `UIImage`s, so 400 entries could mean
+    // hundreds of MB if the mix skews toward previews. `totalCostLimit`
+    // follows MapleCore's `ThumbnailDecoder.cost(of:)` convention — cost is
+    // the decoded bitmap's byte size (bytesPerRow × height) rather than a
+    // bare count — so eviction tracks actual memory pressure. 128 MB is
+    // generous for what's ever concurrently warm on a TV screen (a handful
+    // of on-screen/scroll-buffer thumbs plus the viewer's immediate ±1
+    // preview neighbors) while still being an actual ceiling.
+    cache.totalCostLimit = 128 * 1024 * 1024
   }
 
   func image(forKey key: String) -> UIImage? {
@@ -326,6 +349,17 @@ final class TVDecodedImageCache {
   }
 
   func setImage(_ image: UIImage, forKey key: String) {
-    cache.setObject(image, forKey: key as NSString)
+    cache.setObject(image, forKey: key as NSString, cost: cost(of: image))
+  }
+
+  /// Decoded-bitmap byte size — `bytesPerRow × height` — mirroring
+  /// `ThumbnailDecoder.cost(of:)`'s convention for `NSCache.totalCostLimit`
+  /// accounting. Falls back to 0 (no cost tracked) for the pathological
+  /// case of a `UIImage` with no backing `CGImage`, which never happens for
+  /// images this cache actually receives (both `finishLoaded` and the
+  /// prefetch helpers only construct `UIImage(cgImage:)`).
+  private func cost(of image: UIImage) -> Int {
+    guard let cgImage = image.cgImage else { return 0 }
+    return cgImage.bytesPerRow * cgImage.height
   }
 }
