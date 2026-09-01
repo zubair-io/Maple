@@ -34,6 +34,38 @@ pub(super) struct ReportContext<'a> {
     pub timings_s: [(&'static str, f64); 8],
 }
 
+/// Spec §8 failure-mode threshold: "Mixed exposure without brackets:
+/// gain solve produces large spread → apply gains; warn if spread >
+/// 2 EV." (#1192)
+const GAIN_SPREAD_WARNING_EV: f64 = 2.0;
+
+/// Plain-language notice for the §8 mixed-exposure failure mode
+/// (product spec §8.3 table).
+const GAIN_SPREAD_WARNING_TEXT: &str =
+    "Exposure varied widely between shots; brightness was equalized";
+
+/// EV spread of the per-frame gains `solve_gains` produced, after its
+/// gauge normalization (spec §8). Each frame's `[r, g, b]` gain
+/// collapses to its mean (scalar-mode gains store the same value three
+/// times; per-channel mode averages the channels), then the spread is
+/// `log2(max / min)` over frames with a defined, positive gain. `0.0`
+/// when fewer than two frames have a usable gain (nothing to spread),
+/// matching the rest of the report's "zero means no signal" convention.
+fn gain_spread_ev(gains: &[[f32; 3]]) -> f64 {
+    let means: Vec<f64> = gains
+        .iter()
+        .map(|g| (g[0] as f64 + g[1] as f64 + g[2] as f64) / 3.0)
+        .filter(|m| m.is_finite() && *m > 0.0)
+        .collect();
+    let min = means.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = means.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    if means.len() < 2 || !min.is_finite() || !max.is_finite() {
+        0.0
+    } else {
+        (max / min).log2()
+    }
+}
+
 /// The `StitchReport`-shaped JSON (stitching spec §6).
 pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
     let solution = ctx.solution;
@@ -43,6 +75,14 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         .iter()
         .map(|&(k, v)| (k.to_string(), serde_json::json!(v)))
         .collect();
+    let gain_spread_ev = gain_spread_ev(&comp_report.gains);
+    let mut warnings: Vec<String> = Vec::new();
+    if !solution.motion_affected.is_empty() {
+        warnings.push("Movement detected, some areas may show ghosting".to_string());
+    }
+    if gain_spread_ev > GAIN_SPREAD_WARNING_EV {
+        warnings.push(GAIN_SPREAD_WARNING_TEXT.to_string());
+    }
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "retention": ctx.retention,
@@ -77,12 +117,13 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "motion_affected": solution.motion_affected,
         "motion_pruned_matches": solution.motion_pruned_matches,
         // Plain-language actionable notices (spec §6/§9.4 StitchReport
-        // contract); today the §8 movement warning is the only source.
-        "warnings": if solution.motion_affected.is_empty() {
-            Vec::<String>::new()
-        } else {
-            vec!["Movement detected, some areas may show ghosting".to_string()]
-        },
+        // contract): the §8 movement warning and the §8 mixed-exposure
+        // gain-spread warning.
+        "warnings": warnings,
+        // EV spread of the solved per-frame gains (spec §8: "warn if
+        // spread > 2 EV"). Not gated by the harness — capture-technique
+        // information, not a pipeline defect.
+        "gain_spread_ev": gain_spread_ev,
         "refined_matches": ctx.refined_matches,
         "fallback_matches": ctx.fallback_matches,
         "reverify_edges_dropped": ctx.reverify.edges_dropped,
@@ -211,9 +252,13 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         })
         .collect();
 
+    let gain_spread_ev = gain_spread_ev(&tr.gains);
     let mut warnings: Vec<String> = Vec::new();
     if let Some(w) = strat.warning {
         warnings.push(w.to_string());
+    }
+    if gain_spread_ev > GAIN_SPREAD_WARNING_EV {
+        warnings.push(GAIN_SPREAD_WARNING_TEXT.to_string());
     }
 
     serde_json::json!({
@@ -243,6 +288,10 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "tile_placement": placements,
         "mean_planar_residual_px": tr.mean_planar_residual_px,
         "max_planar_residual_px": tr.max_planar_residual_px,
+        // EV spread of the solved per-frame gains (spec §8: "warn if
+        // spread > 2 EV"). Not gated by the harness — capture-technique
+        // information, not a pipeline defect.
+        "gain_spread_ev": gain_spread_ev,
         "canvas": {
             "width": tr.canvas.width,
             "height": tr.canvas.height,
@@ -268,5 +317,57 @@ fn srgb_encode(v: f32) -> f32 {
         12.92 * v
     } else {
         1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gain_spread_ev_matches_pano_01_measurement() {
+        // #1192: pano_01's auto-exposure sky-to-ground sweep measured a
+        // 4.76x gain spread = 2.25 EV. log2(4.76) ≈ 2.2515.
+        let gains = [[1.0_f32, 1.0, 1.0], [4.76, 4.76, 4.76]];
+        let spread = gain_spread_ev(&gains);
+        assert!(
+            (spread - 2.25).abs() < 0.01,
+            "expected ~2.25 EV, got {spread}"
+        );
+        assert!(spread > GAIN_SPREAD_WARNING_EV);
+    }
+
+    #[test]
+    fn gain_spread_ev_averages_per_channel_gains() {
+        // Per-channel (GainMode::PerChannel) gains collapse to their
+        // mean before the spread is computed.
+        let gains = [[0.9_f32, 1.0, 1.1], [1.8, 2.0, 2.2]];
+        // means: 1.0 and 2.0 -> spread = log2(2.0) = 1.0
+        let spread = gain_spread_ev(&gains);
+        assert!((spread - 1.0).abs() < 1e-9, "got {spread}");
+        assert!(spread < GAIN_SPREAD_WARNING_EV);
+    }
+
+    #[test]
+    fn gain_spread_ev_zero_below_two_frames() {
+        assert_eq!(gain_spread_ev(&[]), 0.0);
+        assert_eq!(gain_spread_ev(&[[1.0, 1.0, 1.0]]), 0.0);
+    }
+
+    #[test]
+    fn gain_spread_ev_ignores_non_positive_gains() {
+        // A degenerate zero/negative gain (should not occur post
+        // gauge-normalization, but the spread computation must not
+        // divide by, or log2 of, a non-positive value) is excluded
+        // rather than poisoning the whole spread with NaN/inf.
+        let gains = [[0.0_f32, 0.0, 0.0], [1.0, 1.0, 1.0], [3.0, 3.0, 3.0]];
+        let spread = gain_spread_ev(&gains);
+        assert!((spread - 3.0_f64.log2()).abs() < 1e-9, "got {spread}");
+    }
+
+    #[test]
+    fn gain_spread_ev_uniform_gains_is_zero() {
+        let gains = [[1.0_f32, 1.0, 1.0]; 5];
+        assert_eq!(gain_spread_ev(&gains), 0.0);
     }
 }
