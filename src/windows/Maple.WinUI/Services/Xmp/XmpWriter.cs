@@ -165,7 +165,14 @@ namespace Maple.WinUI.Services.Xmp
         /// parsed, or added since) falls back to the pre-#2671 default:
         /// before every recorded slot, in canonical order — the same
         /// output a document with no passthrough content produced before
-        /// this fix.
+        /// this fix. Two defensive rules keep a `ChildOrder` that is
+        /// missing, stale, or out of sync with <see cref="XmpSidecarDocument.PassthroughNodes"/>
+        /// (nothing stops a caller from mutating that list directly, and
+        /// nothing required doing so before this PR) from losing content or
+        /// crashing the save: every `PassthroughNodes` entry not visited by
+        /// a recorded slot is appended afterward rather than dropped, and a
+        /// recorded tag `XmpSchema.ToneCurveElements` doesn't recognize is
+        /// looked up with `TryGetValue` rather than the indexer.
         /// </summary>
         private static string BuildChildren(XmpSidecarDocument doc)
         {
@@ -173,20 +180,32 @@ namespace Maple.WinUI.Services.Xmp
                 .ToDictionary(e => e.Tag, e => ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments)));
 
             var recordedTags = new HashSet<string>();
+            var visitedPassthroughIndexes = new HashSet<int>();
             var blocks = new List<string>();
             foreach (var slot in doc.ChildOrder)
             {
                 if (slot.ToneCurveTag is { } tag)
                 {
                     recordedTags.Add(tag);
-                    if (curveBlocks[tag] is { } block) blocks.Add(block);
+                    if (curveBlocks.TryGetValue(tag, out var block) && block is not null) blocks.Add(block);
                 }
-                else
+                else if (slot.PassthroughIndex >= 0 && slot.PassthroughIndex < doc.PassthroughNodes.Count)
                 {
+                    visitedPassthroughIndexes.Add(slot.PassthroughIndex);
                     // Preserved unknown node: first line re-indented onto
                     // the canonical ladder, interior whitespace kept as
                     // authored.
                     blocks.Add($"{ChildIndent}{doc.PassthroughNodes[slot.PassthroughIndex]}");
+                }
+            }
+
+            // Never silently drop a passthrough node just because
+            // ChildOrder didn't record its position.
+            for (var i = 0; i < doc.PassthroughNodes.Count; i++)
+            {
+                if (!visitedPassthroughIndexes.Contains(i))
+                {
+                    blocks.Add($"{ChildIndent}{doc.PassthroughNodes[i]}");
                 }
             }
 

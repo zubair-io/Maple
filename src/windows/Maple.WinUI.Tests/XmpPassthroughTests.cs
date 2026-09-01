@@ -366,5 +366,48 @@ namespace Maple.WinUI.Tests
             Assert.Contains("dc:subject", resaved);
             Assert.DoesNotContain("SceneLinearToneCurve", resaved);
         }
+
+        /// <summary>
+        /// #2671 review (Jules/Copilot): nothing enforced that every
+        /// `PassthroughNodes` entry has a matching `ChildOrder` slot before
+        /// this PR either, and `PassthroughNodes` is a public settable list
+        /// — a caller appending to it directly (bypassing the parser) must
+        /// not have that content silently dropped on save just because
+        /// `ChildOrder` doesn't know about it. `BuildChildren` falls back to
+        /// appending any unvisited entry.
+        /// </summary>
+        [Fact]
+        public void PassthroughNodeAddedWithoutAChildOrderSlotStillSurvivesSave()
+        {
+            var doc = XmpParser.Parse(DocWithUnknownAttributeAndNode);
+            Assert.NotNull(doc);
+
+            // Simulate a caller mutating PassthroughNodes directly, the way
+            // nothing in the public API prevented before this PR.
+            doc!.PassthroughNodes.Add("<dc:description><rdf:Alt><rdf:li>added later</rdf:li></rdf:Alt></dc:description>");
+
+            var resaved = XmpWriter.Serialize(doc);
+
+            Assert.Contains("<xmpMM:History", resaved);
+            Assert.Contains("added later", resaved);
+        }
+
+        /// <summary>
+        /// #2671 review (Jules): a `ChildOrder` entry naming a tone-curve
+        /// tag `XmpSchema.ToneCurveElements` doesn't recognize (stale data,
+        /// or a hand-built `XmpSidecarDocument`) must not crash the save —
+        /// it is simply skipped, the same as any other unrecognized field.
+        /// </summary>
+        [Fact]
+        public void UnrecognizedToneCurveTagInChildOrderDoesNotThrow()
+        {
+            var doc = XmpParser.Parse(DocWithUnknownAttributeAndNode);
+            Assert.NotNull(doc);
+            doc!.ChildOrder.Add(ChildSlot.ForToneCurve("papp:NotARealToneCurve"));
+
+            var resaved = XmpWriter.Serialize(doc);
+
+            Assert.Contains("<xmpMM:History", resaved);
+        }
     }
 }
