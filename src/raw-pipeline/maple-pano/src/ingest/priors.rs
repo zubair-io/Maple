@@ -105,15 +105,23 @@ impl FramePriors {
     /// in both).
     pub fn from_metadata(md: &PanoSourceMetadata) -> Self {
         let (w, h) = md.output_dims;
-        let focal_35mm_equiv = md.focal_35mm_equiv.or_else(|| {
-            derive_focal_35mm_equiv(
-                md.focal_mm,
-                md.focal_plane_x_resolution,
-                md.focal_plane_resolution_unit,
-                w,
-                h,
-            )
-        });
+        // Only a finite, positive direct EXIF value counts as "present" —
+        // an inf/NaN reading (e.g. a rational tag with a zero
+        // denominator) must fall through to the sensor-geometry
+        // derivation below rather than short-circuiting it via `Some`
+        // (Copilot review on #3122).
+        let focal_35mm_equiv = md
+            .focal_35mm_equiv
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .or_else(|| {
+                derive_focal_35mm_equiv(
+                    md.focal_mm,
+                    md.focal_plane_x_resolution,
+                    md.focal_plane_resolution_unit,
+                    w,
+                    h,
+                )
+            });
         Self {
             focal_mm: md.focal_mm,
             focal_35mm_equiv,
@@ -160,9 +168,11 @@ pub fn focal_px_from_exif(focal_35mm_equiv: Option<f32>, width: u32, height: u32
 /// crop-margin ambiguity in what "the sensor's pixel dimensions" means.
 ///
 /// `None` when any input is missing or non-positive, or the resolution
-/// unit isn't one EXIF actually writes (`2` = inches, `3` =
-/// centimetres) — there is no safe assumption to fall back on, and the
-/// caller's hard error (`StitchError::NoFocal`) is then unavoidable.
+/// unit isn't one of the two the EXIF 2.3 spec defines (`2` = inches,
+/// `3` = centimetres — a handful of firmwares write non-standard `4`/`5`
+/// meaning mm/µm, which this function doesn't recognize either) — there
+/// is no safe assumption to fall back on, and the caller's hard error
+/// (`StitchError::NoFocal`) is then unavoidable.
 pub fn derive_focal_35mm_equiv(
     focal_mm: Option<f32>,
     focal_plane_x_resolution: Option<f32>,

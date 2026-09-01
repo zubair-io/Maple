@@ -122,7 +122,10 @@ pub struct PanoSourceMetadata {
     /// `maple_pano::ingest::priors::derive_focal_35mm_equiv`.
     pub focal_plane_x_resolution: Option<f32>,
     /// EXIF `FocalPlaneResolutionUnit` (tag 0x9210): `2` = inches, `3` =
-    /// centimetres (the only values EXIF/rawler actually write).
+    /// centimetres — the only two values the EXIF 2.3 spec defines.
+    /// (A handful of camera firmwares write non-standard `4`/`5` meaning
+    /// mm/µm; `derive_focal_35mm_equiv` doesn't recognize those and
+    /// returns `None`, same as any other missing/unrecognized unit.)
     pub focal_plane_resolution_unit: Option<u16>,
     /// EXIF orientation of the source. [`decode_for_pano`] has already
     /// applied it to the pixel buffer; carried for diagnostics.
@@ -410,7 +413,12 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
                 .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalLengthIn35mmFormat))
         })
         .map(|e| e.value.force_f32(0))
-        .filter(|v| *v > 0.0);
+        // is_finite() guards a rational tag with a zero denominator
+        // (some firmware writes 0/0) from surfacing as `inf`, which
+        // would otherwise skip maple-pano's sensor-geometry fallback
+        // (Some(inf) short-circuits the `.or_else`) and later propagate
+        // into focal_px (Copilot review on #3122).
+        .filter(|v| v.is_finite() && *v > 0.0);
 
     // EXIF FocalPlaneXResolution (0x920E) + FocalPlaneResolutionUnit
     // (0x9210) — same IFD lookup pattern as FocalLengthIn35mmFormat
@@ -438,7 +446,9 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
                 .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneXResolution2))
         })
         .map(|e| e.value.force_f32(0))
-        .filter(|v| *v > 0.0);
+        // Same is_finite() guard as focal_35mm_equiv above — belt and
+        // braces, `derive_focal_35mm_equiv` also validates this input.
+        .filter(|v| v.is_finite() && *v > 0.0);
     let focal_plane_resolution_unit = exif_ifd
         .as_ref()
         .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneResolutionUnit))
