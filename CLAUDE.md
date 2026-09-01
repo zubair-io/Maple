@@ -8,7 +8,7 @@ The product bar is: color quality that a working photographer will trust, and a 
 
 Three-column shell (sources tree / image grid / detail inspector) on desktop and tablet, single-column on phone. Two modes — **Browse** (grid) and **Full image** (large preview with filmstrip). Every edit is non-destructive and persists to **XMP sidecars** — originals are never touched.
 
-The full feature spec is in `docs/feature-spec.md`. The UI contract is in `docs/ui-spec.md`. The interactive layout reference is `docs/mockup.html`. These are the source of truth, not this file. For the engineering contract (file-size budget, commit rules, tooling), see `CONTRIBUTING.md`.
+The product surface is documented in `docs/features.md`. The UI contract is the Maple UI design system: `docs/unified-component-catalog.md` plus the per-component contracts under `docs/design/maple-ui/components/`. These are the source of truth, not this file. The full doc index is `docs/README.md`. For the engineering contract (file-size budget, commit rules, tooling), see `CONTRIBUTING.md`.
 
 ## Load-bearing principles
 
@@ -16,7 +16,7 @@ Treat these as invariants. If you're about to violate one, stop and ask.
 
 1. **Non-destructive only.** Original files are never modified. All edits go to `.xmp` sidecars. The sidecar is the contract; the pixels are derived.
 2. **Scene-referred pipeline.** The working space is linear Rec.2020 D65 at f32. Exposure is a linear multiply. A single view transform at the end of the chain compresses scene range into display range. Nothing before the view transform clips.
-3. **One Rust core, three native pipelines.** Color math (decode, demosaic, calibration, LUT generation, dehaze, deconvolution) lives in `src/raw-pipeline/crates/raw-core`. That crate compiles once as a static library for Apple (via C-FFI) and once as WebAssembly for browsers. Platform GPU paths (Metal, WebGL2) are idiomatic on each platform but gated against the Rust reference.
+3. **One Rust core, one GPU chain, four bindings.** Color math (decode, demosaic, calibration, LUT generation, dehaze, deconvolution) lives in `src/raw-pipeline/raw-core`; the GPU develop chain is a single wgpu/WGSL implementation in `src/raw-pipeline/raw-gpu` gated against the CPU reference. The core reaches Apple as a C-FFI static library (xcframework), browsers as WebAssembly, the API as a `bun:ffi` dylib, and Windows as a directly linked DLL. See `docs/architecture.md`.
 4. **Parity before features.** Pixel parity between Apple and Web is a merge gate, not an aspiration. See `docs/testing.md` for the harness.
 5. **Performance is a product feature.** Target: slider tick renders a new preview inside 16ms on supported hardware. No feature ships that breaks that budget on the reference scene set.
 6. **Finish the work — no placeholder shortcuts.** Ship complete, working implementations. Never leave stubs, `TODO`/`FIXME` gaps, hard-coded fake data, empty handlers, or "wire this up later" holes dressed up to look done. If something genuinely can't be completed in one pass, **stop and say what's blocking** — don't paper over it. The only allowed exception is deliberate, incremental staging that is tracked by a referenced ticket and called out explicitly in the code (e.g. an overlay gated behind `#629` with a comment saying so); a silent placeholder is never acceptable. When in doubt, do the real thing.
@@ -27,64 +27,68 @@ Treat these as invariants. If you're about to violate one, stop and ask.
 
 ## Tech stack
 
-| Layer         | Apple                                 | Web                                | Shared                           |
-| ------------- | ------------------------------------- | ---------------------------------- | -------------------------------- |
-| UI            | SwiftUI                               | Angular 21 + standalone components | —                                |
-| State         | `@Observable` (Observation framework) | Signals + RxJS observables         | —                                |
-| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                 | `raw-core` crate                 |
-| GPU pipeline  | Metal Shading Language                | WebGL2 GLSL ES 3.0                 | Coefficients generated from Rust |
-| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript    | Schema validated on both sides   |
-| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB  | —                                |
-| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia  | Shared DTO types via codegen     |
-| Offline (web) | —                                     | Angular service worker + IndexedDB | —                                |
+| Layer         | Apple                                 | Web                                | Shared                         |
+| ------------- | ------------------------------------- | ---------------------------------- | ------------------------------ |
+| UI            | SwiftUI                               | Angular 21 + standalone components | —                              |
+| State         | `@Observable` (Observation framework) | Signals + RxJS observables         | —                              |
+| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                 | `raw-core` crate               |
+| GPU pipeline  | wgpu → Metal                          | wgpu → WebGPU (WASM-CPU fallback)  | One WGSL chain in `raw-gpu`    |
+| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript    | Schema validated on both sides |
+| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB  | —                              |
+| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia  | Shared DTO types via codegen   |
+| Offline (web) | —                                     | Angular service worker + IndexedDB | —                              |
 
 ## Project layout
 
 ```
 src/
-  apple/                      # Swift app (Mac, iOS, iPad) — SPM-based
-    Package.swift             # Declares MapleCore + MapleApp targets
-    Sources/MapleCore/        # Pipeline, sidecar, source adapters, caches
-    Sources/MapleApp/         # SwiftUI shell (AppShell, Browse, FullImage, DetailPanel)
-    Frameworks/               # RawPipeline.xcframework (committed binary)
-    Resources/                # Icon set, entitlements, TestFlight notes
-    Tests/                    # MapleCoreTests
+  apple/                      # Xcode project: Maple Exposure (macOS/iOS/iPadOS), Maple TV, extensions
+    Maple.xcodeproj           # Shared schemes "Maple Exposure", "MapleBackupAgent"
+    Maple/                    # App target (SwiftUI views, deep links, backup UI)
+    Maple TV/                 # tvOS target
+    MapleBackupAgent/ MapleFileProvider/ MapleFileProviderIOS/ MapleQuickLook/ MapleWidget/
+    MapleTests/ MapleUITests/ # App-target tests; XCUITest visual harnesses
+    Packages/MapleCore/       # Pipeline, sidecar, source adapters, caches, file operations
+    Packages/MapleUI/         # Design-system components (Mui* views), linked by the app target
+    Packages/MapleBackup/     # PhotoKit backup engine
+    Frameworks/               # RawPipeline.xcframework (headers committed; libs built locally)
     scripts/                  # build-xcframework.sh
+    ci_scripts/               # Xcode Cloud bootstrap
   raw-pipeline/               # Rust core (cargo workspace)
     raw-core/                 # Pure Rust image math (no platform deps)
-    raw-ffi/                  # cbindgen C headers for Apple xcframework
+    raw-gpu/                  # wgpu/WGSL GPU develop chain (Metal, WebGPU, lavapipe in CI)
+    raw-ffi/                  # C-FFI static lib + cbindgen headers (Apple, Windows, bun:ffi)
     raw-wasm/                 # wasm-bindgen bindings for Web
     maple-cli/                # Deterministic headless CLI harness
+    maple-pano/               # Panorama stitching
     codegen/                  # Rust → Swift/TS/SCSS/WGSL generator (run via tools/codegen.sh)
-  web/                        # Angular workspace (Maple Hosted UI; also consumed by Self Hosted)
-    projects/
-      maple/                  # The editor/browse application
-      maple-common/           # Shared library (components, services, models, raw-wasm consumer)
-    ngsw-config.json          # Service worker configuration
-  api/                        # Bun + Elysia + MongoDB (Maple Self Hosted backend + Indexer)
-    src/                      # Elysia routes, db, ffi, fs, indexer
+  web/                        # Angular workspace
+    projects/maple/           # Self Hosted library app, served by the API
+    projects/maple-syrup/     # Maple Hosted: browser-only app (Azure Blob deploy) + Maple UI gallery
+    projects/maple-common/    # Shared library (components, stores, render worker, XMP)
+    e2e/                      # Playwright
+  api/                        # Bun + Elysia + MongoDB (Self Hosted backend, indexer, workers)
+    src/                      # routes, auth, db, workers, indexer, enrichment, fs, ffi, ...
     native/                   # libmaple_core dylib consumed via bun:ffi
-  scripts/
-    test_color_pipeline.sh    # Color parity harness
-    compare_images.py         # ΔE₀₀ + per-channel bias metric
-    derive_agx_lut.py         # AgX coeffs/LUT → agx_coeffs.rs + agx_lut.bin + WGSL
+  windows/                    # Rust host crate + WinUI 3 (C#) shell
+  cloudflare/                 # Thumbnail-cache Worker (R2 edge cache)
+  scripts/                    # Colour/pano/search harnesses, compare_images.py, dev-self-hosted.sh
+tools/                        # File-budget gates, codegen.sh, maple-ui contract check, calibration
+test-fixtures/                # RAWs gitignored; ACR references, budgets.json, corpora committed
 
-docs/
-  feature-spec.md             # What the product does
-  ui-spec.md                  # How screens look/behave
-  architecture.md             # System design
-  best-practices.md           # Coding standards — read this
-  mockup.html                 # Interactive layout reference
-  pipeline.md, caching.md, testing.md, ...
+docs/                         # See docs/README.md for the index
+  architecture.md features.md pipeline.md apple.md web.md api.md server-api.md
+  indexer-enrichment.md windows.md xmp-canonical-format.md caching.md zoom.md pano.md
+  testing.md best-practices.md unified-component-catalog.md design/maple-ui/components/
 ```
 
 ## Read before editing
 
-- **Changing a color pipeline stage?** Read `docs/architecture.md` § "Scene-linear chain" and `docs/testing.md` § "Parity gates." Every stage change runs the parity harness.
+- **Changing a color pipeline stage?** Read `docs/pipeline.md` and `docs/testing.md`. Every stage change runs the parity harness, and a raw-core stage change needs the matching WGSL change in `raw-gpu` (see `docs/pipeline.md` § GPU path).
 - **Adding an Angular component?** Read `docs/best-practices.md` § "Angular". TL;DR: standalone, signals, `input()`/`output()`, separate `.ts`/`.html`/`.scss` files, observables at the service layer, view models in components.
 - **Adding a Swift view?** Read `docs/best-practices.md` § "Swift". TL;DR: `@Observable`, actor-isolated I/O, generation-counter guards for async state.
 - **Touching the XMP schema?** Read `docs/xmp-canonical-format.md`. Schema changes are versioned; passthrough XML preserves unknown fields byte-for-byte.
-- **Touching the describe stage?** Read `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md` first — it covers the structured `VisionDoc`, the preview-stage dependency, and the no-XMP-for-derived-data invariant. See the 2026-05-19 update at the end: qwen2.5-vl is the sole OCR source; the parallel Tesseract stage was removed in #158.
+- **Touching the describe stage?** Read `docs/indexer-enrichment.md` § describe first — it covers the structured `VisionDoc`, the preview-stage dependency, and the no-XMP-for-derived-data invariant. qwen2.5-vl is the sole OCR source.
 
 ## Build & test — Apple
 
@@ -156,8 +160,6 @@ python3 src/scripts/compare_images.py \
   > src/apple/MapleUITests/Goldens/.calibration/expected.json
 ```
 
-Brief: `.archived-plans/specs/2026-04-25-xcuitest-visual-harness-brief.md`. Plan: `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.
-
 ### Slider-matrix harness
 
 Companion test class `SliderMatrixUITests` (Ticket 10-C) at `src/apple/MapleUITests/SliderMatrixUITests.swift`. Iterates every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/` against the matching ACR-rendered reference at `test-fixtures/references/test_NNNN/down/<case>.png`. Per case: stages a tmp dir with the RAW + XMP renamed to `<stem>.xmp`, relaunches Maple pointed at the tmp, screenshots the canvas, resizes both to 1024px long edge, CIEDE2000-diffs.
@@ -179,7 +181,8 @@ Budgets are loose (mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10) to absor
 ```bash
 # Dev server
 cd src/web
-bun x ng serve maple          # http://localhost:4200
+bun run start:maple           # `maple` (Self Hosted UI) on http://localhost:4201
+bun run start:syrup           # `maple-syrup` (browser-only) on http://localhost:4200
 
 # Build/rebuild WASM — required once in every fresh clone or worktree before
 # `ng serve` / `ng build` / `ng test` will resolve `./pkg/raw_wasm`; the pkg/
@@ -198,12 +201,13 @@ bash scripts/sync-raw-wasm.sh   # copies pkg/ into maple-common
 cd src/web
 bun run format        # prettier --write over files this branch changes vs origin/main
 bun run format:check  # mirrors CI's format gate (.github/workflows/cross.yml format-check)
-bun run test
+bun x ng test maple-common   # `bun run test` is bare `ng test` with no default project — pass one
+bun x ng test maple
 ```
 
 To load a RAW file in dev automation without the native picker, drop it into `projects/maple/public/test.dng` and feed it into the hidden `<input type="file">` via `DataTransfer`. Setting `input.files` programmatically does not fire `change` — the synthetic event is required.
 
-**Canvas color-space (Web):** on WebGPU-capable browsers the live canvas routes through `render_bytes_gpu` (the GPU live path); `render_bytes` (WASM-CPU) is the fallback when WebGPU is unavailable. The render worker (`src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts`) tags the canvas surface as **display-P3** once at session open, reading back the browser-configured value via `getConfiguration()`. This matches the wide-gamut output of the core; do not assume an sRGB canvas. (The old dev-only `webgl-pipeline.ts` GLSL path was removed in the #925 wgpu/WGSL unification.)
+**Canvas color-space (Web):** on WebGPU-capable browsers the live canvas routes through `render_bytes_gpu` (the GPU live path); `render_bytes` (WASM-CPU) is the fallback when WebGPU is unavailable. The Rust `WebLiveSession::open` (`src/raw-pipeline/raw-wasm/src/web_live_session.rs`) configures the canvas surface as **display-P3** once at session open; the render worker (`src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts`) only reports the achieved tag. This matches the wide-gamut output of the core; do not assume an sRGB canvas. See `docs/web.md`.
 
 ## Build & test — API (Bun / Self Hosted)
 
@@ -305,7 +309,7 @@ The `codegen-drift` CI job (`.github/workflows/cross.yml`) confirms the committe
 - **Cold image open (cached):** one frame (~35ms) from click to pixels.
 - **Cold image open (uncached):** 250–1000ms. Show progress.
 - **Two-phase rendering:** fast phase (viewport, screen-res, cancellable) → 150ms debounced refine phase (full image, full resolution).
-- **Five caches:** thumbnail memory, thumbnail disk, rendered-preview (keyed on `(primary_url, primary_mtime, sidecar_mtime, screen_size, view_transform_version)` — `sidecar_mtime` is the adjustment-version proxy, so any slider change bumps the key), decoded-image (session-scoped, in-memory), remote-source-bytes (for network shares). On web: IndexedDB + in-memory equivalents. See `docs/caching.md`.
+- **Caches:** shared on-share derivatives under `.maple/` (`thumbs/<sha16>.avif` at 512 px, `previews/<file>.avif` at 1280 px, freshness-checked against original + sidecar mtimes), the Apple `RenderedPreviewCache` and `TileKey` (both fold `sidecar_mtime` into the key — the adjustment-version proxy, so any slider change bumps them), the single-entry `RawImageCache` plus the `RenderActor` decoded-image slot (keyed on the stripped adjustment model, not mtime), and on web IndexedDB + in-memory equivalents. Every cache, its key, and its invalidation trigger is tabulated in `docs/caching.md` — read it before adding one.
 
 If a new feature adds allocation inside the render loop, it does not ship. If it adds a round-trip across the WASM boundary per slider tick, it does not ship. Budget first, optimize later only when profiling says so.
 
@@ -335,15 +339,14 @@ If a new feature adds allocation inside the render loop, it does not ship. If it
 
 ## What lives where
 
-| If you need to…                           | Read this                            |
-| ----------------------------------------- | ------------------------------------ |
-| Decide what a feature should do           | `docs/feature-spec.md`               |
-| Decide how a screen should look or behave | `docs/ui-spec.md`                    |
-| See the layout in motion                  | `docs/mockup.html` (open in browser) |
-| Look up a color, font, or spacing token   | `docs/ui-spec.md` § "Visual design"  |
-| Look up the sidecar XMP schema            | `docs/xmp-canonical-format.md`       |
-| Pick a pattern for an Angular component   | `docs/best-practices.md` § "Angular" |
-| Pick a pattern for a Swift view           | `docs/best-practices.md` § "Swift"   |
-| Add a cache                               | `docs/caching.md`                    |
-| Understand the render pipeline            | `docs/architecture.md` § "Pipeline"  |
-| Add or change a parity gate               | `docs/testing.md`                    |
+| If you need to…                           | Read this                                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Decide what a feature should do           | `docs/features.md`                                                                           |
+| Decide how a screen should look or behave | `docs/unified-component-catalog.md` + `docs/design/maple-ui/components/`                     |
+| Look up a color, font, or spacing token   | `src/raw-pipeline/raw-core/src/ui_tokens.rs` (source of truth; generated into Swift/TS/SCSS) |
+| Look up the sidecar XMP schema            | `docs/xmp-canonical-format.md`                                                               |
+| Pick a pattern for an Angular component   | `docs/best-practices.md` § "Angular"                                                         |
+| Pick a pattern for a Swift view           | `docs/best-practices.md` § "Swift"                                                           |
+| Add a cache                               | `docs/caching.md`                                                                            |
+| Understand the render pipeline            | `docs/pipeline.md`                                                                           |
+| Add or change a parity gate               | `docs/testing.md`                                                                            |

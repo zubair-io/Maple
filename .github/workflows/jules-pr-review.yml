@@ -20,8 +20,6 @@ on:
     paths-ignore:
       - 'CLAUDE.md'
       - 'AGENTS.md'
-      - 'docs/superpowers/plans/**'
-      - 'docs/superpowers/specs/**'
 
 jobs:
   review:

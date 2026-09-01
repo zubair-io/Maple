@@ -213,9 +213,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
 /// Aspect math is local to the Rust renderer because it knows the
 /// source dimensions.
 ///
-/// Plan 1 v2 — see .archived-plans/plans/2026-04-24-ffi-split-plan-1.md
-/// Task 8 and docs/tickets/06-viewport-sized-rust-ffi-preview.md
-/// Milestone 2.
+/// See docs/pipeline.md § FFI surface and docs/zoom.md.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
     raw_path: *const c_char,
