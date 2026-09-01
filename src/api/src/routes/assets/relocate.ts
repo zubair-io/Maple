@@ -32,7 +32,7 @@ import { ObjectId } from 'mongodb';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { validateRelPathShape } from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
-import { parseAssetIdOr400, relocateResultResponse } from './_shared.ts';
+import { resolveAssetIdOrRespond, relocateResultResponse } from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const RelocateBodySchema = t.Object({
@@ -71,11 +71,8 @@ function validateDestinationShape(body: {
 export const relocateRoutes = new Elysia().post(
   '/:id/relocate',
   async ({ params, body, set }) => {
-    const idResult = parseAssetIdOr400(params.id);
-    if (!idResult.ok) {
-      set.status = idResult.status;
-      return idResult.body;
-    }
+    const id = resolveAssetIdOrRespond(params.id, set);
+    if (!(id instanceof ObjectId)) return id;
 
     const shapeError = validateDestinationShape(body);
     if (shapeError) {
@@ -94,7 +91,7 @@ export const relocateRoutes = new Elysia().post(
     }
 
     const result = await relocateAsset({
-      id: idResult.id,
+      id,
       mode: body.mode,
       collision: body.collision,
       destinationPath: body.destination_path,

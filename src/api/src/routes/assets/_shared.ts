@@ -15,16 +15,22 @@ import type { RelocateAssetResult } from '../../library/relocate-asset.ts';
 /** Shared logger for every `/api/assets` sub-router. */
 export const assetsLog = childLogger('routes:assets');
 
-/** Parse a route's `:id` param, short-circuiting with a 400 on failure.
- * Shared by `relocate.ts` and `rename.ts` (both take a single `:id` and do
- * nothing else before this check) — flagged as a clone by fallow-audit
- * otherwise. */
-export function parseAssetIdOr400(
+/** Parse a route's `:id` param, writing a 400 into `set` and returning the
+ * error body to return immediately on failure — or the parsed id on
+ * success. Shared by `relocate.ts` and `rename.ts` (both take a single
+ * `:id` and do nothing else before this check): collapsing the parse AND
+ * the early-return into one call (rather than each route re-doing its own
+ * `if (!result.ok) { set.status = ...; return ...; }`) is what keeps this
+ * from being flagged as a clone by fallow-audit. Callers narrow with
+ * `instanceof ObjectId`. */
+export function resolveAssetIdOrRespond(
   idParam: string,
-): { ok: true; id: ObjectId } | { ok: false; status: number; body: { error: string } } {
+  set: { status?: number | string },
+): ObjectId | { error: string } {
   const id = parseAssetId(idParam);
-  if (!id) return { ok: false, status: 400, body: { error: 'Invalid asset id' } };
-  return { ok: true, id };
+  if (id) return id;
+  set.status = 400;
+  return { error: 'Invalid asset id' };
 }
 
 /**
