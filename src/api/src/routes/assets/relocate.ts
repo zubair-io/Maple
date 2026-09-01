@@ -10,12 +10,25 @@
  * Body:
  *   mode: 'move' | 'copy'
  *   collision: 'auto-suffix' | 'skip' | 'replace' | 'keep-both'
- *   destination_path: string        — POSIX relative dir under the asset's
- *                                      library root ('' = root)
- *   destination_filename?: string   — defaults to the asset's current filename
+ *   destination_path: string             — POSIX relative dir under the
+ *                                           destination library's root
+ *                                           ('' = root)
+ *   destination_filename?: string        — defaults to the asset's current
+ *                                           filename
+ *   destination_library_id?: string      — #2725: the library
+ *                                           `destination_path` is relative
+ *                                           to. Omit for a same-library
+ *                                           relocate (the historical
+ *                                           default); a cross-library move
+ *                                           needs this — without it there is
+ *                                           no way to name a foreign
+ *                                           library, and `destination_path`
+ *                                           always resolves under the
+ *                                           asset's OWN library root.
  */
 
 import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { validateRelPathShape } from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
@@ -32,6 +45,7 @@ const RelocateBodySchema = t.Object({
   ]),
   destination_path: t.String(),
   destination_filename: t.Optional(t.String()),
+  destination_library_id: t.Optional(t.String()),
 });
 
 /** Fast, I/O-free rejection of an obviously-hostile `destination_path` /
@@ -69,12 +83,23 @@ export const relocateRoutes = new Elysia().post(
       return { error: shapeError };
     }
 
+    let destinationLibraryId: ObjectId | undefined;
+    if (body.destination_library_id !== undefined) {
+      try {
+        destinationLibraryId = new ObjectId(body.destination_library_id);
+      } catch {
+        set.status = 400;
+        return { error: 'destination_library_id is not a valid library id' };
+      }
+    }
+
     const result = await relocateAsset({
       id: idResult.id,
       mode: body.mode,
       collision: body.collision,
       destinationPath: body.destination_path,
       destinationFilename: body.destination_filename,
+      destinationLibraryId,
     });
 
     const { status, body: responseBody } = relocateResultResponse(result);
