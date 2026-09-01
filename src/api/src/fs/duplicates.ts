@@ -21,6 +21,7 @@
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { pickFreePath, moveSidecarsAlongside, type MoveResult } from './trash.ts';
+import { relativeUnderRoot } from './root-match.ts';
 
 /** Reserved top-level folder (under each library root) holding moved duplicate
  * originals. Excluded from indexing — see the module docstring. */
@@ -51,14 +52,18 @@ export async function directoryHasKeepFile(dir: string): Promise<boolean> {
  * Compute the `_duplicates`-side absolute path for a file under a library root:
  * `<root>/_duplicates/<rel>` where `rel` is the file's path relative to `root`.
  * Throws if `absPath` is not under `folderRoot` (same guard as `computeTrashPath`).
+ *
+ * Containment goes through the shared `relativeUnderRoot` rule (#3094): the
+ * previous literal `root + '/'` check could never match on a Windows-hosted
+ * server, where absolute paths arrive backslashed, so every quarantine move
+ * threw "not under root" — the same failure #2741 fixed for trash.
  */
 export function computeDuplicatesPath(absPath: string, folderRoot: string): string {
-  const root = folderRoot.replace(/\/$/, '');
-  if (absPath !== root && !absPath.startsWith(root + '/')) {
-    throw new Error(`Path "${absPath}" is not under root "${root}"`);
+  const rel = relativeUnderRoot(folderRoot, absPath);
+  if (rel === null) {
+    throw new Error(`Path "${absPath}" is not under root "${folderRoot}"`);
   }
-  const rel = absPath === root ? '' : absPath.slice(root.length + 1);
-  return path.join(root, DUPLICATES_DIR_NAME, rel);
+  return path.join(folderRoot, DUPLICATES_DIR_NAME, rel);
 }
 
 /**
