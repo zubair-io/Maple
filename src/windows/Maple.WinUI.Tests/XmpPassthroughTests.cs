@@ -5,13 +5,15 @@
 // namespace declaration it needs) and node passthrough, each asserted to
 // preserve its own relative order.
 //
-// `ChildOrderIsNotPreservedRelativeToModeledToneCurves` documents a real,
-// deliberately-not-corrected divergence found while writing this suite —
-// filed as a follow-up: #2671. It is written to assert the CURRENT behavior (a
-// characterization test), not the canonical behavior, because Windows never
-// promised source-order preservation relative to modeled fields in the
-// first place — only among passthrough nodes themselves, which is what the
-// other tests in this file check and which does hold today.
+// `ChildOrderIsPreservedRelativeToModeledToneCurves` (#2671) used to be
+// `ChildOrderIsNotPreservedRelativeToModeledToneCurves`, a characterization
+// test documenting that `XmpWriter.BuildChildren` unconditionally emitted
+// modeled tone-curve blocks before every passthrough node, regardless of
+// where they sat in the source document. `XmpSidecarDocument.ChildOrder`
+// (populated by `XmpParser.ParseChildren`, consumed by
+// `XmpWriter.BuildChildren`) now interleaves passthrough nodes and
+// tone-curve blocks back into their original relative order on write, so
+// this asserts the fixed, byte-stable position instead.
 
 using Maple.WinUI.Services.Xmp;
 using Xunit;
@@ -163,25 +165,17 @@ namespace Maple.WinUI.Tests
         }
 
         /// <summary>
-        /// KNOWN GAP (filed as a follow-up: #2671): `XmpWriter.BuildChildren`
-        /// always emits the modeled tone-curve blocks first, then every passthrough node
-        /// after, regardless of where those nodes sat relative to the tone
-        /// curve in the source document. Swift and TypeScript don't have
-        /// this failure mode for `dc:subject`/keywords specifically because
-        /// they model keywords as a first-class field with its own fixed
-        /// canonical position ahead of the tone-curve blocks (see
-        /// `xmp-serializer.service.ts`'s child-ordering comment: "title/
-        /// creator/description first, then keywords (dc:subject), then
-        /// [tone curves]") — Windows has no such field, so any unmodeled
-        /// child content that a real Maple/Lightroom sidecar carries ahead
-        /// of a tone curve gets silently reordered to after it on a Windows
-        /// read-modify-write. This test pins down the CURRENT behavior so a
-        /// change to it doesn't slip by unnoticed; it does not assert the
-        /// canonical/expected behavior, because Windows never modeled
-        /// (or promised to preserve the position of) that content.
+        /// #2671: a real Maple/Lightroom sidecar carrying unmodeled content
+        /// (here `dc:subject`, Windows has no keywords field) ahead of a
+        /// modeled tone curve must keep that relative order across a
+        /// read-modify-write, matching Swift/TS's own fixed keywords-then-
+        /// tone-curve position (`xmp-serializer.service.ts`'s child-
+        /// ordering comment). `XmpSidecarDocument.ChildOrder` is what makes
+        /// this hold for Windows's fully-generic passthrough bucket rather
+        /// than a single hard-coded field.
         /// </summary>
         [Fact]
-        public void ChildOrderIsNotPreservedRelativeToModeledToneCurves()
+        public void ChildOrderIsPreservedRelativeToModeledToneCurves()
         {
             var xml = string.Join("\n", new[]
             {
@@ -221,13 +215,156 @@ namespace Maple.WinUI.Tests
             var curveAt = resaved.IndexOf("SceneLinearToneCurve", System.StringComparison.Ordinal);
             Assert.True(subjectAt >= 0 && curveAt >= 0, "both blocks must survive the resave");
 
-            // Documents today's actual (reordered) output. If this starts
-            // failing because someone fixed the ordering, that's good news —
-            // delete this test (and close the follow-up ticket) rather than
-            // updating the assertion.
+            Assert.True(subjectAt < curveAt,
+                "#2671: dc:subject sat before the tone curve in the source document and must " +
+                "still sit before it after a read-modify-write");
+        }
+
+        /// <summary>Mirror of the previous test: the source order can run either way.</summary>
+        [Fact]
+        public void PassthroughNodeAfterToneCurveKeepsItsPosition()
+        {
+            var xml = string.Join("\n", new[]
+            {
+                "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+                "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+                "    <rdf:Description rdf:about=\"\"",
+                "      xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"",
+                "      xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"",
+                "      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"",
+                "      xmlns:dc=\"http://purl.org/dc/elements/1.1/\"",
+                "      crs:HasSettings=\"True\">",
+                "      <papp:SceneLinearToneCurve>",
+                "        <rdf:Seq>",
+                "          <rdf:li>0, 0</rdf:li>",
+                "          <rdf:li>255, 255</rdf:li>",
+                "        </rdf:Seq>",
+                "      </papp:SceneLinearToneCurve>",
+                "      <dc:subject>",
+                "        <rdf:Bag>",
+                "          <rdf:li>alpha</rdf:li>",
+                "        </rdf:Bag>",
+                "      </dc:subject>",
+                "    </rdf:Description>",
+                "  </rdf:RDF>",
+                "</x:xmpmeta>",
+                "<?xpacket end=\"w\"?>",
+            });
+
+            var doc = XmpParser.Parse(xml);
+            Assert.NotNull(doc);
+            var resaved = XmpWriter.Serialize(doc!);
+
+            var curveAt = resaved.IndexOf("SceneLinearToneCurve", System.StringComparison.Ordinal);
+            var subjectAt = resaved.IndexOf("dc:subject", System.StringComparison.Ordinal);
+            Assert.True(curveAt >= 0 && subjectAt >= 0, "both blocks must survive the resave");
             Assert.True(curveAt < subjectAt,
-                "known gap (#2671): passthrough content is re-emitted after modeled tone-curve " +
-                "blocks regardless of its original position");
+                "#2671: the tone curve sat before dc:subject in the source document and must " +
+                "still sit before it after a read-modify-write");
+        }
+
+        /// <summary>
+        /// A passthrough node sandwiched between two distinct tone-curve
+        /// tags must keep its slot relative to BOTH, not just the nearer
+        /// one — exercises `ChildOrder` recording more than one recognized
+        /// tag rather than treating "the tone curve group" as one unit.
+        /// </summary>
+        [Fact]
+        public void PassthroughNodeBetweenTwoToneCurvesStaysBetweenThem()
+        {
+            var xml = string.Join("\n", new[]
+            {
+                "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+                "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+                "    <rdf:Description rdf:about=\"\"",
+                "      xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"",
+                "      xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"",
+                "      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"",
+                "      xmlns:dc=\"http://purl.org/dc/elements/1.1/\"",
+                "      crs:HasSettings=\"True\">",
+                "      <papp:SceneLinearToneCurve>",
+                "        <rdf:Seq>",
+                "          <rdf:li>0, 0</rdf:li>",
+                "          <rdf:li>255, 255</rdf:li>",
+                "        </rdf:Seq>",
+                "      </papp:SceneLinearToneCurve>",
+                "      <dc:subject>",
+                "        <rdf:Bag>",
+                "          <rdf:li>alpha</rdf:li>",
+                "        </rdf:Bag>",
+                "      </dc:subject>",
+                "      <papp:SceneLinearToneCurveRed>",
+                "        <rdf:Seq>",
+                "          <rdf:li>0, 10</rdf:li>",
+                "          <rdf:li>255, 245</rdf:li>",
+                "        </rdf:Seq>",
+                "      </papp:SceneLinearToneCurveRed>",
+                "    </rdf:Description>",
+                "  </rdf:RDF>",
+                "</x:xmpmeta>",
+                "<?xpacket end=\"w\"?>",
+            });
+
+            var doc = XmpParser.Parse(xml);
+            Assert.NotNull(doc);
+            var resaved = XmpWriter.Serialize(doc!);
+
+            var lumaAt = resaved.IndexOf("<papp:SceneLinearToneCurve>", System.StringComparison.Ordinal);
+            var subjectAt = resaved.IndexOf("dc:subject", System.StringComparison.Ordinal);
+            var redAt = resaved.IndexOf("SceneLinearToneCurveRed", System.StringComparison.Ordinal);
+            Assert.True(lumaAt >= 0 && subjectAt >= 0 && redAt >= 0, "all three blocks must survive the resave");
+            Assert.True(lumaAt < subjectAt && subjectAt < redAt,
+                "#2671: dc:subject sat between the two tone-curve tags and must stay between them");
+        }
+
+        /// <summary>
+        /// A tone curve that was present in the source document but is
+        /// cleared to identity before saving (e.g. the user reset it) must
+        /// emit nothing at its recorded slot — surrounding passthrough
+        /// content keeps its own position rather than leaving a gap or
+        /// shifting.
+        /// </summary>
+        [Fact]
+        public void ClearedToneCurveLeavesNoGapAtItsRecordedSlot()
+        {
+            var xml = string.Join("\n", new[]
+            {
+                "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+                "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+                "    <rdf:Description rdf:about=\"\"",
+                "      xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"",
+                "      xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"",
+                "      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"",
+                "      xmlns:dc=\"http://purl.org/dc/elements/1.1/\"",
+                "      crs:HasSettings=\"True\">",
+                "      <dc:subject>",
+                "        <rdf:Bag>",
+                "          <rdf:li>alpha</rdf:li>",
+                "        </rdf:Bag>",
+                "      </dc:subject>",
+                "      <papp:SceneLinearToneCurve>",
+                "        <rdf:Seq>",
+                "          <rdf:li>0, 0</rdf:li>",
+                "          <rdf:li>255, 255</rdf:li>",
+                "        </rdf:Seq>",
+                "      </papp:SceneLinearToneCurve>",
+                "    </rdf:Description>",
+                "  </rdf:RDF>",
+                "</x:xmpmeta>",
+                "<?xpacket end=\"w\"?>",
+            });
+
+            var doc = XmpParser.Parse(xml);
+            Assert.NotNull(doc);
+            doc!.Adjustments.ToneCurveLuma.Clear();
+
+            var resaved = XmpWriter.Serialize(doc);
+
+            Assert.Contains("dc:subject", resaved);
+            Assert.DoesNotContain("SceneLinearToneCurve", resaved);
         }
     }
 }

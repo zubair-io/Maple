@@ -20,6 +20,25 @@ namespace Maple.WinUI.Services.Xmp
     public readonly record struct XmpNamespaceDecl(string Prefix, string Uri);
 
     /// <summary>
+    /// One slot in the original child-element order of `rdf:Description`,
+    /// captured during parse (#2671) so a rewrite doesn't unconditionally
+    /// reorder passthrough content relative to the modeled tone-curve
+    /// blocks. A slot is either a recognized tone-curve tag
+    /// (`ToneCurveTag` set, e.g. `"papp:SceneLinearToneCurve"`) or the
+    /// index of a <see cref="XmpSidecarDocument.PassthroughNodes"/> entry
+    /// (`PassthroughIndex` set, `ToneCurveTag` null). A tone-curve tag with
+    /// no recorded slot — never seen in the source document, because there
+    /// was no parse at all or the curve was added after loading — falls
+    /// back to the writer's pre-#2671 default position: before every
+    /// recorded slot, in canonical order.
+    /// </summary>
+    public readonly record struct ChildSlot(string? ToneCurveTag, int PassthroughIndex)
+    {
+        public static ChildSlot ForToneCurve(string tag) => new(tag, -1);
+        public static ChildSlot ForPassthrough(int index) => new(null, index);
+    }
+
+    /// <summary>
     /// One parsed sidecar. Fields Maple models live in <see cref="Adjustments"/>
     /// and the culling properties; everything else the source document carried
     /// rides the passthrough lists and re-emits verbatim on save.
@@ -62,6 +81,15 @@ namespace Maple.WinUI.Services.Xmp
 
         /// <summary>Unknown child elements of `rdf:Description`, verbatim XML, source order.</summary>
         public List<string> PassthroughNodes { get; set; } = new();
+
+        /// <summary>
+        /// Original relative order (#2671) of <see cref="PassthroughNodes"/>
+        /// entries against the modeled tone-curve blocks — see
+        /// <see cref="ChildSlot"/>. Empty for a document that was never
+        /// parsed (a fresh in-memory model), which is also the correct
+        /// input for the writer's fallback ordering.
+        /// </summary>
+        public List<ChildSlot> ChildOrder { get; set; } = new();
 
         /// <summary>Siblings of `rdf:Description` inside `rdf:RDF`, verbatim XML.</summary>
         public List<string> PassthroughRdfNodes { get; set; } = new();
