@@ -23,7 +23,11 @@ describe('naturalCompare', () => {
     expect([...names].sort(naturalCompare)).toEqual(['IMG_3', 'IMG_20', 'IMG_100']);
   });
 
-  it('treats equal names (up to case/accent) as equal', () => {
+  it('treats names differing only in case as equal', () => {
     expect(naturalCompare('Trip', 'trip')).toBe(0);
+  });
+
+  it('treats names differing only in accent/diacritics as equal (sensitivity: base)', () => {
+    expect(naturalCompare('café', 'cafe')).toBe(0);
   });
 });
