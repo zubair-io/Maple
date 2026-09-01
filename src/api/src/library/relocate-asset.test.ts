@@ -362,6 +362,82 @@ describe('relocateAsset', () => {
     expect(result.kind).toBe('not-found');
   });
 
+  test('#2725: cross-library move lands the file under the DESTINATION library root, not the source root', async () => {
+    if (!db) return;
+    // A second library, on its own temp root, distinct from `root` (the
+    // source library's root that `seedAsset`/`setLibraryRootsForTests`
+    // wires up by default).
+    const destRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-asset-dest-'));
+    try {
+      await write('a/IMG_1.dng', 'pixels');
+      const { id, libraryId: sourceLibraryId } = await seedAsset(db, 'a', 'IMG_1.dng');
+      const destLibraryId = new ObjectId();
+      setLibraryRootsForTests(
+        new Map([
+          [sourceLibraryId.toHexString(), root],
+          [destLibraryId.toHexString(), destRoot],
+        ]),
+      );
+
+      const result = await relocateAsset({
+        id,
+        mode: 'move',
+        collision: 'auto-suffix',
+        destinationPath: 'b',
+        destinationLibraryId: destLibraryId,
+      });
+
+      expect(result.kind).toBe('relocated');
+      if (result.kind !== 'relocated') return;
+      expect(result.newPath).toBe('b');
+      expect(result.newFilename).toBe('IMG_1.dng');
+
+      // The bug this closes: before #2725 the destination relPath was
+      // always resolved under the SOURCE library's root, so the file would
+      // have landed at `root/b/IMG_1.dng` instead. Assert it lands under
+      // the DESTINATION library's root instead.
+      expect(await fs.stat(path.join(destRoot, 'b', 'IMG_1.dng')).then(() => true)).toBe(true);
+      expect(
+        await fs
+          .stat(path.join(root, 'b', 'IMG_1.dng'))
+          .then(() => true)
+          .catch(() => false),
+      ).toBe(false);
+      expect(await exists('a/IMG_1.dng')).toBe(false); // source removed (move mode)
+
+      const row = await fetchAssetRow(db, id);
+      expect(row.fileinfo[0]!.path).toBe('b');
+      expect(row.fileinfo[0]!.filename).toBe('IMG_1.dng');
+      const fullRow = (await db.collection('assets').findOne({ _id: id })) as unknown as {
+        fileinfo: Array<{ library_id: ObjectId }>;
+      };
+      // The fileinfo entry's library_id must follow the file to the
+      // destination library — otherwise the catalog row claims the OLD
+      // library while the bytes live under the new one.
+      expect(fullRow.fileinfo[0]!.library_id.toHexString()).toBe(destLibraryId.toHexString());
+    } finally {
+      await fs.rm(destRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('#2725: an unknown destinationLibraryId is rejected as invalid, not silently applied under the source root', async () => {
+    if (!db) return;
+    await write('a/IMG_1.dng', 'pixels');
+    const { id } = await seedAsset(db, 'a', 'IMG_1.dng');
+
+    const result = await relocateAsset({
+      id,
+      mode: 'move',
+      collision: 'auto-suffix',
+      destinationPath: 'b',
+      destinationLibraryId: new ObjectId(), // never registered in the roots cache
+    });
+
+    expect(result.kind).toBe('invalid');
+    expect(await exists('a/IMG_1.dng')).toBe(true); // untouched
+    expect(await exists('b/IMG_1.dng')).toBe(false);
+  });
+
   test('already at destination: skipped without touching disk', async () => {
     if (!db) return;
     await write('a/IMG_1.dng', 'pixels');
