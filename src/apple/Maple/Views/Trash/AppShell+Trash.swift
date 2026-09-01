@@ -290,8 +290,11 @@ extension AppShell {
     /// `trashCloudFolder`) reuses this exact construction rather than
     /// inventing its own — a drifted copy that skipped
     /// `LocalNetworkResolver.shared.effectiveURL(for:)` was exactly the bug
-    /// caught here (#2753). One `RemoteCatalog(server:)` construction path
-    /// for every Cloud trash/restore/folder-CRUD call site in the app.
+    /// caught here (#2753). This is the shared construction path for the
+    /// Cloud trash-browser and folder-CRUD call sites; the other
+    /// `RemoteCatalog(http:server:)` sites in the app (`AppShell.swift`,
+    /// `AppShell+AssetDrop`, `AppShell+AssetRename`, `restoreCloudAsset`
+    /// above) already resolve `effectiveServer` inline and were left as-is.
     /// Named surface-neutrally — it no longer only serves Trash — rather
     /// than `makeCloudTrashClient`.
     func makeCloudCatalog(server: URL) -> RemoteCatalog {
