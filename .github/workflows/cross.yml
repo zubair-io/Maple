@@ -10,7 +10,15 @@
 #                             file past 570 LOC, so the cost of consuming the
 #                             headroom below the 600 ceiling lands on the PR
 #                             that spends it rather than the next one. Per #2311.
-#   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grew.
+#   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grows
+#                             for a file extension that already had allowlist
+#                             entries at the merge base (per-extension, not a
+#                             flat count — #2747: a language gated for the
+#                             first time is allowed to seed its day-0
+#                             violators in one PR, same as every other
+#                             language's entries were before this job existed;
+#                             an already-gated extension stays fully
+#                             append-forbidden).
 #   * codegen-drift         — fails if generated cross-platform constants are stale.
 #   * fallow-audit-web      — fallow audit (dead code / complexity / dupes) over
 #                             src/web, scoped to files changed vs the merge base.
@@ -230,36 +238,73 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Count non-comment, non-blank lines on the PR head.
-          count_entries() {
-            grep -Ev '^\s*(#|$)' "$1" | wc -l | tr -d ' '
+          # Judge growth PER FILE EXTENSION, not as one flat count (#2747).
+          # The append-forbidden rule exists to stop a new violator sneaking
+          # into a language this gate ALREADY covers. It was never meant to
+          # block a PR that brings a whole new language under the
+          # file-budget gate for the first time (tools/check-file-budget.sh
+          # gaining `*.cs`, here) — that necessarily seeds the language's
+          # day-0 violators in one shot, exactly like every currently-gated
+          # language's entries were seeded before this job existed. An
+          # extension that already had ANY entries at the merge base is
+          # unaffected by this: it stays fully append-forbidden, entry for
+          # entry, same as before.
+
+          # Non-comment, non-blank lines with the inline `# comment` and
+          # trailing whitespace stripped, so what's left is the bare path.
+          extract_paths() {
+            grep -Ev '^\s*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//'
           }
 
-          head_count="$(count_entries tools/budget-allowlist.txt)"
+          # Bare paths -> "ext count" pairs, one extension per line.
+          count_by_ext() {
+            extract_paths "$1" | sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' | sort | uniq -c | \
+              awk '{print $2, $1}'
+          }
+
+          head_total="$(extract_paths tools/budget-allowlist.txt | wc -l | tr -d ' ')"
 
           # Diff against the actual PR fork point, not `base.sha` (the base
           # tip at event time). If the base branch's allowlist shrinks after
           # the PR branched, `base.sha` would make any unchanged PR look like
           # it grew the file.
+          base_tmp="$(mktemp)"
           if git cat-file -e "${MERGE_BASE}:tools/budget-allowlist.txt" 2>/dev/null; then
-            tmp="$(mktemp)"
-            git show "${MERGE_BASE}:tools/budget-allowlist.txt" > "$tmp"
-            base_count="$(count_entries "$tmp")"
-            rm -f "$tmp"
-          else
-            # File didn't exist at merge base — anything but empty is a grow.
-            base_count=0
+            git show "${MERGE_BASE}:tools/budget-allowlist.txt" > "$base_tmp"
           fi
+          base_total="$(extract_paths "$base_tmp" | wc -l | tr -d ' ')"
 
-          echo "base entries (at merge-base): ${base_count}"
-          echo "head entries: ${head_count}"
+          echo "base entries (at merge-base): ${base_total}"
+          echo "head entries: ${head_total}"
 
-          if [ "$head_count" -gt "$base_count" ]; then
-            echo "::error::budget-allowlist.txt grew from ${base_count} to ${head_count} entries — file-size budget allowlist is append-forbidden. Split the offending file instead of allowlisting it."
+          # Per-extension base counts, looked up with awk rather than a bash
+          # associative array — this mirrors check-file-budget.sh's own
+          # "Bash 3.2 on macOS doesn't support associative arrays
+          # consistently" note, so the block stays testable by copy-pasting
+          # it into a local shell, not just on the ubuntu-latest runner.
+          base_ext_counts="$(mktemp)"
+          count_by_ext "$base_tmp" > "$base_ext_counts"
+          rm -f "$base_tmp"
+
+          failed=0
+          while read -r ext count; do
+            [ -n "$ext" ] || continue
+            base_n="$(awk -v e="$ext" '$1==e {print $2}' "$base_ext_counts")"
+            base_n="${base_n:-0}"
+            if [ "$base_n" -gt 0 ] && [ "$count" -gt "$base_n" ]; then
+              echo "::error::budget-allowlist.txt's .${ext} entries grew from ${base_n} to ${count} — that extension is already gated and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
+              failed=1
+            elif [ "$base_n" -eq 0 ] && [ "$count" -gt 0 ]; then
+              echo "::notice::.${ext} entries (${count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Growth of .${ext} beyond this is append-forbidden starting now."
+            fi
+          done < <(count_by_ext tools/budget-allowlist.txt)
+          rm -f "$base_ext_counts"
+
+          if [ "$failed" -ne 0 ]; then
             exit 1
           fi
 
-          echo "OK — allowlist did not grow (shrinks allowed)."
+          echo "OK — no already-gated extension grew (day-0 seeding of a newly-gated extension is allowed once)."
 
   budgets-ratchet-shrinks-only:
     name: budgets-ratchet-shrinks-only
