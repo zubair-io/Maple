@@ -20,7 +20,7 @@
 #   - xcodebuild (ships with Xcode)
 #
 # Output: src/apple/Frameworks/RawPipeline.xcframework
-# and:    src/apple/Sources/MapleCore/include/RawPipeline.h
+# and:    src/apple/Packages/MapleCore/Sources/MapleCore/include/RawPipeline.h
 
 set -euo pipefail
 
