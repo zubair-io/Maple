@@ -321,7 +321,15 @@ struct SearchScreen: View {
       ScrollView {
         LazyVGrid(columns: layout.gridItems, alignment: .center, spacing: Self.rowSpacing) {
           let results = viewModel.results
-          ForEach(Array(results.enumerated()), id: \.element.id) { index, asset in
+          // Indices, not `Array(results.enumerated())`: the latter allocates a
+          // fresh array of tuples on every render, and tvOS re-renders this
+          // grid on every focus move. Index-as-identity is safe here for the
+          // same reason it is on the Timeline — `SearchViewModel.results` is
+          // only ever replaced wholesale or appended to, never spliced in the
+          // middle, so no cell's identity shifts under it. Focus is unaffected
+          // either way: `.focused(equals:)` below keys on `asset.id`.
+          ForEach(results.indices, id: \.self) { index in
+            let asset = results[index]
             TimelineCell(
               asset: asset,
               server: session.server,
