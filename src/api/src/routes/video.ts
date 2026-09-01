@@ -16,6 +16,7 @@ import {
   parseWildcardSegments,
   safeStat,
   streamFileRange,
+  wildcardSlugParams,
 } from './library/shared.ts';
 
 function jwtSecret(): string {
@@ -113,10 +114,7 @@ export const videoRoutes = new Elysia({ prefix: '/api' })
       return streamFileRange(resolved.absPath, mimeForExt(ext), Number(st.size), headers.range);
     },
     {
-      params: t.Object({
-        slug: t.String({ minLength: 1 }),
-        '*': t.Optional(t.String()),
-      }),
+      params: wildcardSlugParams(),
       query: t.Object({ token: t.Optional(t.String()) }),
     },
   );

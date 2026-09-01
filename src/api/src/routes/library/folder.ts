@@ -25,6 +25,7 @@ import {
   IMAGE_EXTENSIONS_SET,
   STUB_AND_AUDIO_EXTENSIONS_SET,
   parseWildcardSegments,
+  wildcardSlugParams,
 } from './shared.ts';
 import { handleEvent } from '../../workers/discover/index.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
@@ -210,9 +211,6 @@ export const folderRoutes = new Elysia()
     ({ params }) => buildFolderListing(params.slug, (params as Record<string, string>)['*'] ?? ''),
     {
       beforeHandle: requireFileAccessBeforeHandle,
-      params: t.Object({
-        slug: t.String({ minLength: 1 }),
-        '*': t.Optional(t.String()),
-      }),
+      params: wildcardSlugParams(),
     },
   );
