@@ -121,17 +121,19 @@ final class EditorStateAutoResetTests: XCTestCase {
 
     // MARK: - AUTO (#1379)
 
-    func testApplyAutoAppliesExposureOnlyLeavingWBAndToneUntouched() async {
+    /// #2255 — #1376's calibrated tone sliders must land in the model
+    /// byte-identically to how a user drag would (so undo / sidecar write /
+    /// render invalidation all see them), while white balance stays untouched.
+    func testApplyAutoAppliesExposureAndCalibratedToneLeavingWBUntouched() async {
         let session = makeFileBackedSession()
         let state = EditorState(session: session)
-        // The injected result includes WB + tone, but AUTO applies EXPOSURE only.
         state.autoProvider = { _ in
             AutoAdjustmentsResult(
                 exposure: 1.2, temperature: 5200, tint: 8,
-                contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0
+                contrast: 12, highlights: -18, shadows: 22, whites: -6, blacks: -9
             )
         }
-        // Pre-set WB + a tone slider to prove AUTO leaves them untouched.
+        // Pre-set WB + a tone slider to prove AUTO overwrites tone but leaves WB.
         var dirty = session.model
         dirty.contrast = 40
         dirty.temperature = 7000
@@ -141,20 +143,26 @@ final class EditorStateAutoResetTests: XCTestCase {
         await state.applyAuto()
 
         let after = state.session.model
+        // The core's calibrated recommendation (#1376) lands exactly.
         XCTAssertEqual(after.exposure, 1.2, accuracy: 1e-9)
-        // White balance is NOT touched by AUTO (gray-world unreliable); tone is
-        // deferred to #1376 — both keep the pre-AUTO values.
+        XCTAssertEqual(after.contrast, 12, accuracy: 1e-9)
+        XCTAssertEqual(after.highlights, -18, accuracy: 1e-9)
+        XCTAssertEqual(after.shadows, 22, accuracy: 1e-9)
+        XCTAssertEqual(after.whites, -6, accuracy: 1e-9)
+        XCTAssertEqual(after.blacks, -9, accuracy: 1e-9)
+        // White balance is NOT touched by AUTO (gray-world unreliable) — keeps
+        // the pre-AUTO values.
         XCTAssertEqual(after.temperature, 7000, accuracy: 1e-9)
         XCTAssertEqual(after.tint, 12, accuracy: 1e-9)
-        XCTAssertEqual(after.contrast, 40, accuracy: 1e-9)
         // #1387: AUTO's exposure is measured against an AE-Off probe, so
         // autoExposure must flip alongside exposure — otherwise a
         // Profile.neutral decode double-counts the AE anchor gain.
         XCTAssertEqual(after.autoExposure, .off)
-        // One undo entry restores the pre-AUTO model.
+        // One undo entry restores the pre-AUTO model, tone included.
         XCTAssertTrue(state.canUndo)
         state.undo()
         XCTAssertEqual(state.session.model.exposure, AdjustmentModel.default.exposure, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.contrast, 40, accuracy: 1e-9)
         XCTAssertEqual(state.session.model.autoExposure, AdjustmentModel.default.autoExposure)
     }
 
@@ -187,18 +195,23 @@ final class EditorStateAutoResetTests: XCTestCase {
                        + "the recommendation against is the one that actually renders")
     }
 
-    func testApplyAutoClampsExposureAndIgnoresWB() async {
+    func testApplyAutoClampsExposureAndToneAndIgnoresWB() async {
         let session = makeFileBackedSession()
         let state = EditorState(session: session)
         state.autoProvider = { _ in
             AutoAdjustmentsResult(
                 exposure: 99, temperature: 99999, tint: 999,
-                contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0
+                contrast: 999, highlights: -999, shadows: 999, whites: -999, blacks: 999
             )
         }
         await state.applyAuto()
         let m = state.session.model
         XCTAssertEqual(m.exposure, AdjustmentModel.exposureRange.upperBound, accuracy: 1e-9)
+        XCTAssertEqual(m.contrast, AdjustmentModel.contrastRange.upperBound, accuracy: 1e-9)
+        XCTAssertEqual(m.highlights, AdjustmentModel.highlightsRange.lowerBound, accuracy: 1e-9)
+        XCTAssertEqual(m.shadows, AdjustmentModel.shadowsRange.upperBound, accuracy: 1e-9)
+        XCTAssertEqual(m.whites, AdjustmentModel.whitesRange.lowerBound, accuracy: 1e-9)
+        XCTAssertEqual(m.blacks, AdjustmentModel.blacksRange.upperBound, accuracy: 1e-9)
         // WB is not applied — stays at the model default despite the huge
         // injected temperature/tint.
         XCTAssertEqual(m.temperature, AdjustmentModel.default.temperature, accuracy: 1e-9)
@@ -219,5 +232,53 @@ final class EditorStateAutoResetTests: XCTestCase {
         await state.applyAuto()
         XCTAssertEqual(state.session.model.exposure, AdjustmentModel.default.exposure, accuracy: 1e-9)
         XCTAssertFalse(state.canUndo)
+    }
+
+    /// #2255 — the tone sliders AUTO writes must round-trip through the REAL
+    /// on-disk `.xmp` sidecar (no mocks — see CLAUDE.md § "No mocks for the
+    /// sidecar layer" and `XMPSerializationAutoExposureTests.
+    /// testSidecarStoreRoundTripAutoExposure`), proving the values reach the
+    /// file exactly like any other slider edit would — not just the
+    /// in-memory model applyAuto() writes.
+    func testApplyAutoToneSurvivesRealXMPSidecarRoundTrip() async throws {
+        let session = makeFileBackedSession()
+        let state = EditorState(session: session)
+        state.autoProvider = { _ in
+            AutoAdjustmentsResult(
+                exposure: 0.8, temperature: 6500, tint: 0,
+                contrast: 15, highlights: -20, shadows: 25, whites: -8, blacks: -12
+            )
+        }
+        await state.applyAuto()
+        let applied = state.session.model
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("dng")
+        let xmpURL = tmp.deletingPathExtension().appendingPathExtension("xmp")
+        defer { try? FileManager.default.removeItem(at: xmpURL) }
+
+        let store = XMPSidecarStore(rawURL: tmp)
+        await store.update(model: applied, culling: CullingState())
+        await store.flush()
+
+        // The raw XML on disk actually carries the calibrated values.
+        let xml = try String(contentsOf: xmpURL, encoding: .utf8)
+        XCTAssertTrue(xml.contains(#"crs:Contrast2012="15""#))
+        XCTAssertTrue(xml.contains(#"crs:Highlights2012="-20""#))
+        XCTAssertTrue(xml.contains(#"crs:Shadows2012="25""#))
+        XCTAssertTrue(xml.contains(#"crs:Whites2012="-8""#))
+        XCTAssertTrue(xml.contains(#"crs:Blacks2012="-12""#))
+
+        // Drop the in-memory cache so the read actually goes to disk.
+        let fresh = XMPSidecarStore(rawURL: tmp)
+        let (onDisk, _) = try await fresh.load()
+        XCTAssertEqual(onDisk.exposure, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(onDisk.contrast, 15, accuracy: 1e-9)
+        XCTAssertEqual(onDisk.highlights, -20, accuracy: 1e-9)
+        XCTAssertEqual(onDisk.shadows, 25, accuracy: 1e-9)
+        XCTAssertEqual(onDisk.whites, -8, accuracy: 1e-9)
+        XCTAssertEqual(onDisk.blacks, -12, accuracy: 1e-9)
+        XCTAssertEqual(onDisk.autoExposure, .off)
     }
 }

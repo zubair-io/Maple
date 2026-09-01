@@ -21,11 +21,13 @@ import { Injectable, computed, inject, signal, untracked } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { AssetId } from '../models/asset';
+import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
 import {
   type AdjustmentModel,
   type BlackWhiteMode,
   defaultAdjustmentModel,
 } from '../models/adjustment-model';
+import { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
 import {
   type ToolGroup,
@@ -418,12 +420,13 @@ export class EditorStateService {
   }
 
   // Snapshot the current adjustment, fetch auto recommendations from the WASM
-  // pipeline (via the worker), and apply { exposure, autoExposure: 'Off' } as
-  // ONE undo entry. Per live review, AUTO applies EXPOSURE ONLY — the WB
-  // estimate produced bad casts and is genuinely hard to guess, so
-  // temperature/tint stay at As-Shot. Tone (contrast/highlights/shadows/
-  // whites/blacks) is deferred to #1376. The WASM still returns WB + tone; the
-  // apply path intentionally ignores them.
+  // pipeline (via the worker), and apply { exposure, contrast, highlights,
+  // shadows, whites, blacks, autoExposure: 'Off' } as ONE undo entry. Per
+  // live review, AUTO applies EXPOSURE + the five calibrated tone sliders
+  // (#1376/#2255) — the WB estimate produced bad casts and is genuinely hard
+  // to guess, so temperature/tint deliberately stay at As-Shot. The WASM
+  // still returns WB in the same 8-field patch; the apply path intentionally
+  // ignores just those two fields.
 
   /** True while an AUTO analysis is in flight (disables the AUTO button). */
   readonly autoInFlight = signal<boolean>(false);
@@ -448,7 +451,7 @@ export class EditorStateService {
       const asset = this.library.assets().find((a) => a.id === id);
       const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
       const patch = await this.pipeline.computeAutoAdjustments(bytes, ext);
-      return this._applyAutoExposure(startId, patch.exposure);
+      return this._applyAutoAdjustments(startId, patch);
     } catch (err) {
       console.error('[EditorStateService] applyAuto failed:', err);
       if (this.imageId() === startId) this.autoResult.set('Auto could not be applied');
@@ -458,14 +461,29 @@ export class EditorStateService {
     }
   }
 
-  private _applyAutoExposure(id: AssetId, exposure: number): boolean {
+  /**
+   * Apply the full AUTO recommendation (#2255): exposure + the five
+   * calibrated tone sliders, clamped to each field's canonical range, plus
+   * the AE-Off mode — as ONE undo entry via the SAME `updateAdjustment` path
+   * a user drag uses, so undo, the debounced sidecar write, and render
+   * invalidation all see it identically. White balance is intentionally NOT
+   * written — WB stays at As-Shot (single-image gray-world WB is unreliable
+   * on colour-dominant scenes, a deliberate product call separate from tone).
+   */
+  private _applyAutoAdjustments(id: AssetId, patch: AutoAdjustPatch): boolean {
     if (this.imageId() !== id) return false;
     this.commit();
-    // Apply EXPOSURE ONLY (+ the AE-Off mode). White balance and tone are
-    // intentionally NOT written — WB stays at As-Shot, tone deferred to #1376.
-    this.library.updateAdjustment(id, { exposure, autoExposure: 'Off' });
-    const sign = exposure >= 0 ? '+' : '';
-    this.autoResult.set(`Auto applied · Exposure ${sign}${exposure.toFixed(2)} EV`);
+    this.library.updateAdjustment(id, {
+      exposure: clampAdjustment('exposure', patch.exposure),
+      contrast: clampAdjustment('contrast', patch.contrast),
+      highlights: clampAdjustment('highlights', patch.highlights),
+      shadows: clampAdjustment('shadows', patch.shadows),
+      whites: clampAdjustment('whites', patch.whites),
+      blacks: clampAdjustment('blacks', patch.blacks),
+      autoExposure: 'Off',
+    });
+    const sign = patch.exposure >= 0 ? '+' : '';
+    this.autoResult.set(`Auto applied · Exposure ${sign}${patch.exposure.toFixed(2)} EV`);
     return true;
   }
 
@@ -483,4 +501,10 @@ function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {
   const field = fieldFor(tool);
   if (!field) return 0;
   return internalValueFromDisplay(tool, adj[field] as number);
+}
+
+/** Clamp an AUTO-recommended value to `field`'s canonical generated range (#2255). */
+function clampAdjustment(field: keyof typeof ADJUSTMENT_RANGES, value: number): number {
+  const [min, max] = ADJUSTMENT_RANGES[field];
+  return Math.min(max, Math.max(min, value));
 }

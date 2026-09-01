@@ -4,9 +4,11 @@
 //
 //  Wraps the raw-ffi `maple_compute_auto_adjustments` entry: given a RAW file
 //  path it decodes the RAW, develops a single AE-Off / D65 probe buffer in the
-//  core, and returns recommended slider values. AUTO ships exposure + white
-//  balance (temperature + tint); the five tone sliders are 0 (auto-tone is
-//  deferred to #1376), so the caller applies exposure + WB only.
+//  core, and returns recommended slider values. The five tone sliders are
+//  calibrated, scene-proportional values (#1376); the caller
+//  (`EditorState.applyAuto`, #2255) applies exposure + the five tone sliders.
+//  `temperature`/`tint` are returned too but intentionally not applied —
+//  white balance stays at As-Shot.
 //
 //  The fit is a cold, per-image operation (decode + probe develop, far over the
 //  16ms slider budget), so it runs off the main actor via `Task.detached`.
@@ -20,8 +22,10 @@ import os
 private let autoAdjLog = Logger(subsystem: "app.justmaple.aperture", category: "auto-adjustments")
 
 /// One-shot AUTO recommendation for a RAW. `exposure` is in EV, `temperature`
-/// in Kelvin, `tint` and the five tone sliders in ±100 slider units. Tone is
-/// currently 0 (deferred to #1376).
+/// in Kelvin, `tint` and the five tone sliders in ±100 slider units. The five
+/// tone sliders (`contrast`/`highlights`/`shadows`/`whites`/`blacks`) are
+/// calibrated, scene-proportional values (#1376) that `applyAuto` writes to
+/// the model (#2255).
 public struct AutoAdjustmentsResult: Sendable {
     public let exposure: Double
     public let temperature: Double
