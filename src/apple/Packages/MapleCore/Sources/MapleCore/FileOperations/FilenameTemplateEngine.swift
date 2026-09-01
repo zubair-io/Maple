@@ -140,12 +140,12 @@ public enum FilenameTemplateEngine {
 
     /// Same rule set `render`'s output is checked against — exposed so a
     /// caller can validate a rendered/typed name without a template render.
-    /// Thin re-export: `FilenameValidation.isValidFolderName` already wraps
+    /// Thin re-export: `FilenameValidation.isValidPathComponent` already wraps
     /// `maple_validate_filename` for the New Folder / single-rename prompts;
     /// this keeps the batch-rename call sites reading from the engine that
     /// actually produced the name.
     public static func isValidName(_ name: String) -> Bool {
-        FilenameValidation.isValidFolderName(name)
+        FilenameValidation.isValidPathComponent(name)
     }
 
     private static func renderRaw(

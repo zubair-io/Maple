@@ -4,7 +4,7 @@
 // Replays the declarative corpus at
 // `test-fixtures/file-operations/cases.json` against THIS module's own
 // primitives (`LocalFileOperations.relocate`, `FilenameValidation.
-// isValidFolderName`, `LocalFileOperations.renameFolder`). The Bun runner
+// isValidPathComponent`, `LocalFileOperations.renameFolder`). The Bun runner
 // (`src/api/src/fs/relocate.parity.test.ts`) and the Windows runner
 // (`src/windows/Maple.WinUI.Tests/RelocateParityTests.cs`) replay the SAME
 // corpus against their own primitives — proving identical OUTCOMES without
@@ -293,8 +293,8 @@ final class RelocateParityTests: XCTestCase {
     private func runNameValidationCase(_ c: CorpusCase) {
         let name = c.operation!.name!
         XCTAssertEqual(
-            FilenameValidation.isValidFolderName(name), c.expected.valid,
-            "\(c.name): FilenameValidation.isValidFolderName(\"\(name)\")")
+            FilenameValidation.isValidPathComponent(name), c.expected.valid,
+            "\(c.name): FilenameValidation.isValidPathComponent(\"\(name)\")")
     }
 
     private func runFolderRenameCase(_ c: CorpusCase) throws {

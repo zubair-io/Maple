@@ -86,10 +86,10 @@ struct FolderTreeRow: View {
         return Array(selectedComponents.prefix(rootComponents.count)) == rootComponents
     }
     private var newFolderDraftIsValid: Bool {
-        FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        FilenameValidation.isValidPathComponent(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     private var renameDraftIsValid: Bool {
-        FilenameValidation.isValidFolderName(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        FilenameValidation.isValidPathComponent(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     /// Optimistic chevron rule — same contract as `CloudFolderTreeRow.hasChildren`:
     /// shows a chevron until enumeration proves the folder is a leaf.
@@ -222,7 +222,7 @@ struct FolderTreeRow: View {
                 TextField("Name", text: $newFolderDraft)
                 Button("Create") {
                     let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard FilenameValidation.isValidFolderName(name) else { return }
+                    guard FilenameValidation.isValidPathComponent(name) else { return }
                     onCreateFolder?(url, rootBookmark, name)
                 }
                 .disabled(!newFolderDraftIsValid)
@@ -236,7 +236,7 @@ struct FolderTreeRow: View {
                 TextField("Name", text: $renameDraft)
                 Button("Rename") {
                     let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard FilenameValidation.isValidFolderName(name), name != displayName else { return }
+                    guard FilenameValidation.isValidPathComponent(name), name != displayName else { return }
                     onRenameFolder?(url, rootBookmark, name)
                 }
                 .disabled(!renameDraftIsValid)

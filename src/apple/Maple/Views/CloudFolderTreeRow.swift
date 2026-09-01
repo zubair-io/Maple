@@ -120,10 +120,10 @@ struct CloudFolderTreeRow: View {
   }
 
   private var newFolderDraftIsValid: Bool {
-    FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    FilenameValidation.isValidPathComponent(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
   }
   private var renameDraftIsValid: Bool {
-    FilenameValidation.isValidFolderName(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    FilenameValidation.isValidPathComponent(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
   }
 
   private var indent: CGFloat {
@@ -249,7 +249,7 @@ struct CloudFolderTreeRow: View {
         TextField("Name", text: $newFolderDraft)
         Button("Create") {
           let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard FilenameValidation.isValidFolderName(name) else { return }
+          guard FilenameValidation.isValidPathComponent(name) else { return }
           onCreateFolder?(libraryFolderID, libraryRootPath, absPath, name)
         }
         .disabled(!newFolderDraftIsValid)
@@ -263,7 +263,7 @@ struct CloudFolderTreeRow: View {
         TextField("Name", text: $renameDraft)
         Button("Rename") {
           let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard FilenameValidation.isValidFolderName(name), name != displayName else { return }
+          guard FilenameValidation.isValidPathComponent(name), name != displayName else { return }
           onRenameFolder?(libraryFolderID, libraryRootPath, absPath, name)
         }
         .disabled(!renameDraftIsValid)

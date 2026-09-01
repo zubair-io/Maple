@@ -824,7 +824,7 @@ private struct SMBShareRow: View {
     @State private var isDropTargeted = false
 
     private var newFolderDraftIsValid: Bool {
-        FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        FilenameValidation.isValidPathComponent(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     var body: some View {
@@ -877,7 +877,7 @@ private struct SMBShareRow: View {
             TextField("Name", text: $newFolderDraft)
             Button("Create") {
                 let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard FilenameValidation.isValidFolderName(name) else { return }
+                guard FilenameValidation.isValidPathComponent(name) else { return }
                 onCreateFolder(name)
             }
             .disabled(!newFolderDraftIsValid)
