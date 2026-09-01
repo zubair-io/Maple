@@ -123,7 +123,13 @@ namespace Maple.WinUI.Services.Xmp
                     case "crs:ProcessVersion": doc.ProcessVersion = attr.Value; break;
                     case "crs:HasSettings": break;
                     case "papp:WbScaleVersion":
-                        if (int.TryParse(attr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stamp))
+                        // Mirrors Swift's `(1...5).contains(v)` guard: a
+                        // stamp outside the known range is treated as
+                        // absent, falling back to the authorship heuristic
+                        // below, rather than propagating an out-of-range
+                        // version into the conversion switch.
+                        if (int.TryParse(attr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stamp) &&
+                            stamp is >= 1 and <= 5)
                             wbStamp = stamp;
                         break;
                     case "papp:HighlightRecoveryMode":
@@ -221,11 +227,30 @@ namespace Maple.WinUI.Services.Xmp
                 ValidColorLabel(labelMaple) ?? ValidColorLabel(labelPapp) ?? ValidColorLabel(labelPlain)
                 ?? ColorLabelFromXmpLabel(xmpLabel);
 
-            // WB scale (#1780): explicit stamp wins; otherwise a Maple-authored
-            // document with an explicit Temperature/Tint predates versioning (1),
-            // everything else is current (5).
+            // WB scale (#1780/#1875/#1893/#1894/#2670): explicit stamp wins;
+            // otherwise a Maple-authored document with an explicit
+            // Temperature/Tint predates versioning (source version 1),
+            // everything else is current (5). A legacy source version
+            // (2/3/4) load-normalizes: the authored pair converts JOINTLY
+            // through physical chromaticity (`XmpWbScale.AuthoredPairToV5`,
+            // a faithful port of raw-core's `authored_pair_to_v5`, mirrored
+            // by Swift's `WbDngTemperature.authoredPairToV5` and TS's
+            // `xmp-wb-scale.ts`), and the STORED version is always clamped
+            // to {1, 5} — never 2, 3, or 4 — matching every other platform's
+            // in-memory model. V1 deliberately does not load-normalize:
+            // its conversion needs the image's calibration frame, which
+            // raw-core supplies at develop time.
             var tempOrTint = applied.Contains("crs:Temperature") || applied.Contains("crs:Tint");
-            doc.WbScaleVersion = wbStamp ?? (sawPapp && tempOrTint ? 1 : 5);
+            var sourceVersion = wbStamp ?? (sawPapp && tempOrTint ? 1 : 5);
+            doc.WbScaleVersion = sourceVersion == 1 ? 1 : 5;
+
+            if (sourceVersion is 2 or 3 or 4 && tempOrTint)
+            {
+                var (temperature, tint) = XmpWbScale.AuthoredPairToV5(
+                    state.Temperature, state.Tint, sourceVersion);
+                state.Temperature = temperature;
+                state.Tint = tint;
+            }
         }
 
         private static void CapturePassthroughAttribute(

@@ -1,41 +1,33 @@
-// XmpWbScaleVersionTests — characterizes a real cross-platform divergence
-// found while writing this suite. Filed as a follow-up: #2670.
+// XmpWbScaleVersionTests — WB slider-scale versioning (#1780/#1875/#1893/
+// #1894/#2670).
 //
-// `docs/xmp-canonical-format.md` § "WB slider-scale versioning" describes
-// `papp:WbScaleVersion` stamps 1/2/3 with an absent-stamp heuristic
-// resolving to 1 or 3 (the doc is itself stale here — see the PR
-// description; the actual Swift/TypeScript implementations recognize
-// stamps 1–5 and normalize the in-memory model to 1 or 5). What both
-// reference implementations do, precisely:
+// Mirrors the Rust tests in `raw-core/src/xmp/tests_wb_scale.rs`, the web
+// tests in `maple-common/src/lib/xmp/wb-scale-version.spec.ts`, and the
+// Swift tests in `WbScaleVersionTests.swift`:
 //
-//   - Swift: `XMPSerialization.swift` lines ~58-85 — an explicit stamp of
-//     2, 3, or 4 triggers `WbDngTemperature.authoredPairToV5`, a full
-//     Hernández-Andrés/CIE-1960-UCS/Robertson-isotherm re-projection of the
-//     authored (temperature, tint) pair, and the in-memory model is then
-//     stamped version 5 — never 2, 3, or 4.
-//   - TypeScript: `xmp-wb-scale.ts` `resolveWbScaleVersion` +
-//     `normalizeParsedWb` — same conversion (`authoredPairToV5`), same
-//     `modelVersion` clamp to {1, 5}.
+//  - explicit `papp:WbScaleVersion` stamp wins;
+//  - a stamp outside 1..5 is treated as absent (Swift's `(1...5).contains`
+//    guard) rather than propagated into the conversion;
+//  - a Maple-authored sidecar (papp namespace present) with no stamp is
+//    version 1 (pre-#1756 scale);
+//  - a V2/V3/V4 stamp load-normalizes: the authored `(temperature, tint)`
+//    pair converts JOINTLY through physical chromaticity
+//    (`XmpWbScale.AuthoredPairToV5`, ported from raw-core's
+//    `authored_pair_to_v5`), and the STORED version clamps to {1, 5} —
+//    never 2, 3, or 4;
+//  - V1 deliberately does NOT load-normalize (raw-core converts it at
+//    develop time, using the image's calibration frame).
 //
-// `XmpParser.cs`'s heuristic (`XmpParser.ParseAttributes`, the
-// `papp:WbScaleVersion` case plus the `doc.WbScaleVersion = wbStamp ?? …`
-// line) does neither: it stores whatever integer the stamp attribute
-// carries verbatim, with no clamp to {1, 5}, and never calls any
-// conversion function — `crs:Temperature`/`crs:Tint` go through the same
-// generic `NumericByKey` parse path as every other slider, a direct
-// `double.TryParse` with no post-processing.
+// Expected converted values are pinned against the same Rust reference
+// vectors the Swift and TypeScript suites use (`authored_pair_to_v5`),
+// copied from `WbScaleVersionTests.swift`, at the same tolerances (0.05 K /
+// 0.005 tint) since the Robertson/Hernández-Andrés math is transcendental
+// and floating-point paths differ slightly across languages.
 //
-// The practical effect: for the SAME sidecar carrying a real (historically
-// producible, per the version's own history in the canonical-format doc)
-// `papp:WbScaleVersion="2"` stamp, Windows and Apple/Web resolve DIFFERENT
-// in-memory (temperature, tint) values and a different stored version —
-// not merely a formatting difference, a white-balance rendering
-// difference. This suite can only exercise the Windows side (there's no
-// single process that runs Swift/TypeScript/C# together — the same
-// limitation `XMPCanonicalFormatTests.swift`'s header describes for the
-// golden-literal duplication), so what's asserted below is Windows's own
-// behavior, traced against the Swift/TypeScript source read alongside it.
+// Before #2670 this suite characterized Windows's OWN (wrong) behavior —
+// see git history for the "KnownGap_*" versions of these tests.
 
+using System;
 using Maple.WinUI.Services.Xmp;
 using Xunit;
 
@@ -43,7 +35,7 @@ namespace Maple.WinUI.Tests
 {
     public class XmpWbScaleVersionTests
     {
-        private static string DocumentWithStamp(string stamp) => string.Join("\n", new[]
+        private static string MapleSidecar(string attrs) => string.Join("\n", new[]
         {
             "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
             "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
@@ -52,9 +44,7 @@ namespace Maple.WinUI.Tests
             "      xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"",
             "      xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"",
             "      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"",
-            "      crs:Temperature=\"5900\"",
-            "      crs:Tint=\"20\"",
-            $"      papp:WbScaleVersion=\"{stamp}\"",
+            $"      {attrs}",
             "      crs:HasSettings=\"True\">",
             "    </rdf:Description>",
             "  </rdf:RDF>",
@@ -62,68 +52,190 @@ namespace Maple.WinUI.Tests
             "<?xpacket end=\"w\"?>",
         });
 
-        [Theory]
-        [InlineData("2")]
-        [InlineData("3")]
-        [InlineData("4")]
-        public void KnownGap_LegacyStampIsStoredVerbatimNotClampedToOneOrFive(string stamp)
+        /// <summary>ACR-shaped sidecar: `crs:` only, no Maple namespace anywhere.</summary>
+        private static string AcrSidecar(string attrs) => string.Join("\n", new[]
         {
-            var doc = XmpParser.Parse(DocumentWithStamp(stamp));
-            Assert.NotNull(doc);
+            "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+            "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+            "    <rdf:Description rdf:about=\"\"",
+            "      xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"",
+            $"      {attrs}",
+            "      crs:HasSettings=\"True\">",
+            "    </rdf:Description>",
+            "  </rdf:RDF>",
+            "</x:xmpmeta>",
+            "<?xpacket end=\"w\"?>",
+        });
 
-            // Swift/TS would store 5 here (modelVersion is always 1 or 5).
-            Assert.Equal(int.Parse(stamp), doc!.WbScaleVersion);
-        }
-
-        [Theory]
-        [InlineData("2")]
-        [InlineData("3")]
-        [InlineData("4")]
-        public void KnownGap_TemperatureAndTintAreNeverRescaledForLegacyStamps(string stamp)
+        /// <summary>
+        /// xUnit's `Assert.Equal(double, double, int precision)` rounds
+        /// both values to N decimal places, which doesn't express "within
+        /// 0.05 K" cleanly. This asserts an absolute-difference tolerance
+        /// instead, the same check the TypeScript suite's `toBeCloseTo`
+        /// performs.
+        /// </summary>
+        private static void AssertClose(double expected, double actual, double tolerance)
         {
-            var doc = XmpParser.Parse(DocumentWithStamp(stamp));
-            Assert.NotNull(doc);
-
-            // Swift/TS would run (5900, 20) through `authoredPairToV5` for
-            // this stamp and store a DIFFERENT physical-chromaticity-
-            // equivalent pair. Windows stores the raw XML numbers,
-            // unconverted — proving no rescale happens anywhere in the
-            // parse path.
-            Assert.Equal(5900, doc!.Adjustments.Temperature, precision: 9);
-            Assert.Equal(20, doc.Adjustments.Tint, precision: 9);
+            var diff = Math.Abs(expected - actual);
+            Assert.True(diff <= tolerance,
+                $"expected {actual} to be within {tolerance} of {expected}, but differed by {diff}");
         }
 
         [Fact]
-        public void KnownGap_ResaveOfALegacyStampedDocumentKeepsTheUnnormalizedStamp()
+        public void MapleAuthoredWithoutStampParsesAsVersion1()
         {
-            var doc = XmpParser.Parse(DocumentWithStamp("2"));
+            var doc = XmpParser.Parse(MapleSidecar("crs:Temperature=\"6282\" crs:Tint=\"-44\""));
+            Assert.NotNull(doc);
+            Assert.Equal(1, doc!.WbScaleVersion);
+            Assert.Equal(6282, doc.Adjustments.Temperature, precision: 9);
+            Assert.Equal(-44, doc.Adjustments.Tint, precision: 9);
+        }
+
+        [Fact]
+        public void AcrAuthoredWithoutPappParsesAsVersion5()
+        {
+            // ACR's crs:Temperature/crs:Tint are already expressed in the
+            // Robertson (V5, #1894) convention — pass through unconverted.
+            var doc = XmpParser.Parse(AcrSidecar("crs:Temperature=\"5500\" crs:Tint=\"10\""));
+            Assert.NotNull(doc);
+            Assert.Equal(5, doc!.WbScaleVersion);
+            Assert.Equal(5500, doc.Adjustments.Temperature, precision: 9);
+            Assert.Equal(10, doc.Adjustments.Tint, precision: 9);
+        }
+
+        [Fact]
+        public void ExplicitStampWinsOverHeuristicAndConvertsJointly()
+        {
+            // A V2 stamp beats the V1 authorship heuristic, then
+            // load-normalizes to 5. No tint was authored (absent-tint
+            // convention: 0), but the pair conversion is JOINT (#1894) — an
+            // authored temperature alone still moves both components.
+            // Pinned against `authored_pair_to_v5(5700, 0, V2)`.
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5700\" papp:WbScaleVersion=\"2\""));
+            Assert.NotNull(doc);
+            Assert.Equal(5, doc!.WbScaleVersion);
+            AssertClose(5697.007, doc.Adjustments.Temperature, 0.05);
+            AssertClose(11.083624, doc.Adjustments.Tint, 0.005);
+        }
+
+        [Fact]
+        public void V2AuthoredPairConvertsJointlyIntoV5OnLoad()
+        {
+            // The V2 scale's tint axis was inverted vs ACR at the legacy
+            // 1e-4 magnitude, evaluated on the Hernández-Andrés locus.
+            // Pinned against `authored_pair_to_v5(5700, 50, V2)`.
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5700\" crs:Tint=\"50\" papp:WbScaleVersion=\"2\""));
+            Assert.NotNull(doc);
+            Assert.Equal(5, doc!.WbScaleVersion);
+            AssertClose(5696.3936, doc.Adjustments.Temperature, 0.05);
+            AssertClose(-3.9181564, doc.Adjustments.Tint, 0.005);
+        }
+
+        [Fact]
+        public void V3AuthoredPairConvertsJointlyIntoV5OnLoad()
+        {
+            // V3 is the ACR direction at the legacy 1e-4 magnitude, legacy
+            // locus. Pinned against `authored_pair_to_v5(5520, -144, V3)`.
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5520\" crs:Tint=\"-144\" papp:WbScaleVersion=\"3\""));
+            Assert.NotNull(doc);
+            Assert.Equal(5, doc!.WbScaleVersion);
+            AssertClose(5526.068, doc.Adjustments.Temperature, 0.05);
+            AssertClose(-32.580647, doc.Adjustments.Tint, 0.005);
+        }
+
+        [Fact]
+        public void V4AuthoredPairConvertsJointlyIntoV5OnLoad()
+        {
+            // V4 shares V5's tint magnitude/axis but evaluated on the
+            // legacy (Hernández-Andrés) locus rather than Robertson — never
+            // shipped in a release, but a dev-window sidecar must still
+            // load-normalize. Pinned against
+            // `authored_pair_to_v5(5520, -53, V4)`.
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5520\" crs:Tint=\"-53\" papp:WbScaleVersion=\"4\""));
+            Assert.NotNull(doc);
+            Assert.Equal(5, doc!.WbScaleVersion);
+            AssertClose(5526.5674, doc.Adjustments.Temperature, 0.05);
+            AssertClose(-42.379494, doc.Adjustments.Tint, 0.005);
+        }
+
+        [Fact]
+        public void V5StampPassesThroughUnconverted()
+        {
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5520\" crs:Tint=\"-53\" papp:WbScaleVersion=\"5\""));
+            Assert.NotNull(doc);
+            Assert.Equal(5, doc!.WbScaleVersion);
+            Assert.Equal(5520, doc.Adjustments.Temperature, precision: 9);
+            Assert.Equal(-53, doc.Adjustments.Tint, precision: 9);
+        }
+
+        [Theory]
+        [InlineData("0")]
+        [InlineData("6")]
+        [InlineData("9")]
+        [InlineData("-1")]
+        public void OutOfRangeStampIsTreatedAsAbsent(string stamp)
+        {
+            // Mirrors Swift's `(1...5).contains(v)` guard: an out-of-range
+            // stamp must not be stored or fed into the conversion switch —
+            // it falls back to the authorship heuristic (papp namespace +
+            // explicit WB present here, so version 1, unconverted).
+            var doc = XmpParser.Parse(
+                MapleSidecar($"crs:Temperature=\"6282\" crs:Tint=\"-44\" papp:WbScaleVersion=\"{stamp}\""));
+            Assert.NotNull(doc);
+            Assert.Equal(1, doc!.WbScaleVersion);
+            Assert.Equal(6282, doc.Adjustments.Temperature, precision: 9);
+            Assert.Equal(-44, doc.Adjustments.Tint, precision: 9);
+        }
+
+        [Fact]
+        public void ResaveOfALegacyStampedDocumentUpgradesTheStampNotJustTheNumbers()
+        {
+            // A re-save must never emit "2" — Swift/TS never write anything
+            // but {1, 5}, and re-emitting the raw legacy stamp over
+            // already-converted V5 numbers would corrupt the next load.
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5700\" crs:Tint=\"50\" papp:WbScaleVersion=\"2\""));
             Assert.NotNull(doc);
 
             var resaved = XmpWriter.Serialize(doc!);
 
-            // Internally consistent (a fixed point from Windows's own
-            // point of view) but not what a platform implementing the
-            // documented normalization would produce on the same input —
-            // Swift/TS would write "5" here, never "2".
-            Assert.Contains("papp:WbScaleVersion=\"2\"", resaved);
+            Assert.Contains("papp:WbScaleVersion=\"5\"", resaved);
+            Assert.DoesNotContain("papp:WbScaleVersion=\"2\"", resaved);
+
+            var reparsed = XmpParser.Parse(resaved);
+            Assert.NotNull(reparsed);
+            Assert.Equal(5, reparsed!.WbScaleVersion);
+            // The writer's 2-decimal wire codec (`XmpSchema.FormatNumber`)
+            // quantizes the already-converted value, so the round trip
+            // isn't bit-exact — within 0.01 confirms it's the SAME
+            // converted number, not a re-conversion or the raw legacy one.
+            AssertClose(doc!.Adjustments.Temperature, reparsed.Adjustments.Temperature, 0.01);
+            AssertClose(doc.Adjustments.Tint, reparsed.Adjustments.Tint, 0.01);
         }
 
         [Fact]
         public void StampOneRoundTripsUnconvertedOnEveryPlatform()
         {
-            // Version 1 is the one case where Windows's "store it verbatim"
-            // behavior actually agrees with Swift/TS: an explicit V1 stamp
-            // deliberately does NOT load-normalize anywhere (raw-core
-            // converts it at develop time, using the image's calibration
-            // frame, which the sidecar layer doesn't have). This is the
-            // control case showing the divergence above is specific to
-            // 2/3/4, not a general "Windows ignores the stamp" problem.
-            var doc = XmpParser.Parse(DocumentWithStamp("1"));
+            // Version 1 deliberately does NOT load-normalize: its
+            // conversion needs the image's calibration frame, so raw-core
+            // converts it at develop time, and the sidecar round-trips as
+            // V1 on every platform.
+            var doc = XmpParser.Parse(
+                MapleSidecar("crs:Temperature=\"5900\" crs:Tint=\"20\" papp:WbScaleVersion=\"1\""));
             Assert.NotNull(doc);
 
             Assert.Equal(1, doc!.WbScaleVersion);
             Assert.Equal(5900, doc.Adjustments.Temperature, precision: 9);
             Assert.Equal(20, doc.Adjustments.Tint, precision: 9);
+
+            var resaved = XmpWriter.Serialize(doc);
+            Assert.Contains("papp:WbScaleVersion=\"1\"", resaved);
         }
     }
 }
