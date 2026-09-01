@@ -203,6 +203,43 @@ describe('MapleIconComponent', () => {
     });
   });
 
+  // ---- Windows chrome mirrors (#3024) ----
+  // "cloud" and "calendar" were drawn first on Windows (#3022) and mirrored
+  // here verbatim so the glyph is pixel-identical across platforms — assert
+  // the exact path/rect data rather than just shape counts.
+
+  describe('cloud (new in #3024)', () => {
+    it('renders the single cloud outline path, copied verbatim from Windows', () => {
+      const svg = render('cloud');
+      const paths = svg.querySelectorAll('path');
+      expect(paths.length).toBe(1);
+      expect(paths[0].getAttribute('d')).toBe(
+        'M4.6 12A2.6 2.6 0 014 6.9a3.6 3.6 0 017-1.3A2.8 2.8 0 0110.6 12H4.6z',
+      );
+      expect(ICON_SHAPES['cloud']).toEqual([
+        { kind: 'path', d: 'M4.6 12A2.6 2.6 0 014 6.9a3.6 3.6 0 017-1.3A2.8 2.8 0 0110.6 12H4.6z' },
+      ]);
+    });
+  });
+
+  describe('calendar (new in #3024)', () => {
+    it('renders a rounded date-grid rect plus binder posts and header rule', () => {
+      const svg = render('calendar');
+      const rects = svg.querySelectorAll('rect');
+      const paths = svg.querySelectorAll('path');
+      expect(rects.length).toBe(1);
+      expect(paths.length).toBe(2);
+      expect(rects[0].getAttribute('x')).toBe('2.5');
+      expect(rects[0].getAttribute('y')).toBe('3.5');
+      expect(rects[0].getAttribute('width')).toBe('11');
+      expect(rects[0].getAttribute('height')).toBe('10');
+      expect(rects[0].getAttribute('rx')).toBe('1.5');
+      const ds = Array.from(paths).map((p) => p.getAttribute('d'));
+      expect(ds).toContain('M5 2.5v2M11 2.5v2');
+      expect(ds).toContain('M2.5 6.5h11');
+    });
+  });
+
   // ---- Editor tool glyphs (#640) ----
   // The tool set ships to a stricter contract than the chrome glyphs: 16×16,
   // 1.6 stroke, round caps/joins, stroke-only. These tests assert the contract
