@@ -18,6 +18,7 @@ import * as path from 'node:path';
 import { resolveAddressString } from '../../library/address.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { safeReadFile } from '../../fs/root.ts';
+import { mostSpecificRoot } from '../../fs/root-match.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { buildContentDispositionAttachment } from '../../runtime/http-content-disposition.ts';
 import {
@@ -36,21 +37,29 @@ import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.c
  * root itself, and not an escaping `..`). Returns the library id, the POSIX
  * library-relative path, and the `slug:relPath` address when the library has a
  * slug. `null` when no registered root contains the path. Pure — unit-tested.
+ *
+ * Nested libraries resolve to the DEEPEST root that contains the path
+ * (#3094). Registration rejects only an exact duplicate path, so `/srv/photos`
+ * and `/srv/photos/2024` can both be registered; scanning for the first
+ * containing root would attribute `/srv/photos/2024/x.dng` to whichever was
+ * registered first and hand the caller the wrong library.
  */
 export function resolveFsPathToLibrary(
   abs: string,
   roots: ReadonlyMap<string, string>,
   idToSlug: ReadonlyMap<string, string>,
 ): { libraryId: string; relPath: string; address: string | null } | null {
-  for (const [libraryIdHex, root] of roots) {
-    const rel = path.relative(root, abs);
-    if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
-      const relPath = rel.split(path.sep).join('/');
-      const slug = idToSlug.get(libraryIdHex);
-      return { libraryId: libraryIdHex, relPath, address: slug ? `${slug}:${relPath}` : null };
-    }
-  }
-  return null;
+  const hit = mostSpecificRoot(abs, roots);
+  // An empty relPath means the path IS a library root — a directory, never an
+  // asset. Rejected here rather than in `mostSpecificRoot`, which reports
+  // containment for callers (the discover sweep) that do walk directories.
+  if (!hit || hit.relPath === '') return null;
+  const slug = idToSlug.get(hit.key);
+  return {
+    libraryId: hit.key,
+    relPath: hit.relPath,
+    address: slug ? `${slug}:${hit.relPath}` : null,
+  };
 }
 
 export const metadataRoutes = new Elysia()

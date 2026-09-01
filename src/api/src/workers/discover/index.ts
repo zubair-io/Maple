@@ -33,6 +33,7 @@ import { handleEvent } from './handle-event.ts';
 import { SweeperLoop } from './sweeper.ts';
 import { loadDiscoverConfig } from './discover-config.repo.ts';
 import { seedRoot, remainingForGen } from './frontier.repo.ts';
+import { mostSpecificRoot } from '../../fs/root-match.ts';
 import { readCheckpoint } from '../../indexer/checkpoint.ts';
 
 // Public re-exports — external consumers (`src/api/src/index.ts`,
@@ -52,16 +53,17 @@ function resolveFolder(
   absPath: string,
   folders: Array<{ _id: ObjectId; path: string }>,
 ): { id: ObjectId; root: string } | null {
-  let best: { _id: ObjectId; path: string } | null = null;
-  for (const f of folders) {
-    const root = f.path.endsWith('/') ? f.path : f.path + '/';
-    if (absPath.startsWith(root) || absPath === f.path) {
-      if (!best || f.path.length > best.path.length) {
-        best = f;
-      }
-    }
-  }
-  return best ? { id: best._id, root: best.path } : null;
+  // Containment via the shared `path.relative` rule (#3094). The literal
+  // `root + '/'` boundary this used could never match on a Windows-hosted
+  // server, where the sweep's absolute paths are backslashed — every file
+  // resolved to no folder at all. Longest-prefix behaviour is unchanged:
+  // `mostSpecificRoot` picks the deepest containing root, and a path equal to
+  // a root still matches (the sweep walks directories, not just files).
+  const hit = mostSpecificRoot(
+    absPath,
+    folders.map((f) => [f, f.path] as const),
+  );
+  return hit ? { id: hit.key._id, root: hit.key.path } : null;
 }
 
 /**
