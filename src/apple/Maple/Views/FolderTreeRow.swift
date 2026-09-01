@@ -112,9 +112,9 @@ struct FolderTreeRow: View {
                 expandable: hasChildren,
                 expanded: Binding(
                     get: { expanded },
-                    set: { _ in
+                    set: { newValue in
                         withAnimation(.easeInOut(duration: 0.12)) {
-                            expanded.toggle()
+                            expanded = newValue
                             if expanded && !didEnumerate { enumerateChildren() }
                         }
                     }
