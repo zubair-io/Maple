@@ -61,15 +61,23 @@ final class EditSessionNonRawFilmExportTests: XCTestCase {
 
     /// Render `image` to a plain RGBA8 byte buffer for a hash/equality
     /// comparison — never an eyeballed read (CLAUDE.md's color-testing rule).
+    ///
+    /// Renders `bounds: extent` itself (Copilot review, PR #3145), not a
+    /// reconstructed zero-origin `CGRect(0, 0, w, h)`: if the export's
+    /// CIImage graph ever produces a non-zero-origin extent, sampling from
+    /// (0,0) would hash a different region than the image's actual content,
+    /// which could pass or fail this regression gate for the wrong reason.
+    /// `.integral` rounds a fractional extent out to whole pixels so the
+    /// buffer size always matches what's rendered.
     private func pixelBytes(of image: CIImage) -> [UInt8] {
-        let extent = image.extent
+        let extent = image.extent.integral
         let w = max(1, Int(extent.width)), h = max(1, Int(extent.height))
         var buffer = [UInt8](repeating: 0, count: w * h * 4)
         let context = CIContext()
         buffer.withUnsafeMutableBytes { raw in
             context.render(
                 image, toBitmap: raw.baseAddress!, rowBytes: w * 4,
-                bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBA8,
+                bounds: extent, format: .RGBA8,
                 colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
         return buffer
