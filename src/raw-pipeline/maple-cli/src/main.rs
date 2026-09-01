@@ -156,6 +156,12 @@ enum Cmd {
     AutoTone {
         /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, etc.).
         raw: PathBuf,
+        /// Optional sidecar to develop against instead of
+        /// `AdjustmentModel::default()` — computes the recommendation
+        /// against the image's CURRENT edits (a "re-auto on top of what's
+        /// already applied" diagnostic).
+        #[arg(long)]
+        params: Option<PathBuf>,
     },
     /// Compute all eight Auto slider values for a RAW file and print as JSON.
     ///
@@ -380,7 +386,9 @@ fn main() -> ExitCode {
             &quality,
         )),
         Cmd::ExtractPreview { raw, out } => run_or_exit(commands::extract_preview::run(&raw, &out)),
-        Cmd::AutoTone { raw } => run_or_exit(commands::auto_tone::run(&raw)),
+        Cmd::AutoTone { raw, params } => {
+            run_or_exit(commands::auto_tone::run(&raw, params.as_deref()))
+        }
         Cmd::AutoAdjustments { raw } => run_or_exit(commands::auto_adjustments::run(&raw)),
         Cmd::Synthetic {
             kind,
