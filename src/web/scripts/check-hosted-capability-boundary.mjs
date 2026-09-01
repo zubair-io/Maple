@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { walkFiles } from './lib/walk-files.mjs';
 
@@ -99,6 +99,16 @@ const SELF_HOSTED_COMPOSITION = {
 
 const scripts = await walkFiles(artifactRoot, (path) => path.endsWith('.js'));
 
+/** Strip a query/hash suffix and a leading `./` or `/` from a parsed href
+ * so it matches a plain filename under `artifactRoot` regardless of how the
+ * builder wrote it — root-relative (`/main-...js`) and dot-relative
+ * (`./main-...js`) hrefs are both plausible depending on `baseHref`/deploy-
+ * url config, not just the bare filename this build happens to emit today
+ * (Copilot review, PR #3141). */
+function normalizeHref(href) {
+  return href.split(/[?#]/)[0].replace(/^\.?\//, '');
+}
+
 /** Every href this build's `index.html` marks as eagerly needed: the entry
  * `<script src>` plus every `<link rel="modulepreload">` — the set the
  * browser fetches before the app can render a first frame. A chunk reached
@@ -111,7 +121,21 @@ function eagerHrefsFromIndexHtml(html) {
     .filter((tag) => /\brel="modulepreload"/.test(tag))
     .map((tag) => tag.match(/\bhref="([^"]+)"/)?.[1])
     .filter((href) => href !== undefined);
-  return [...new Set([...scriptSrcs, ...modulepreloadHrefs])];
+  const normalized = [...scriptSrcs, ...modulepreloadHrefs].map(normalizeHref);
+  return [...new Set(normalized)];
+}
+
+/** Resolve an eager href to a file under `artifactRoot`, refusing to follow
+ * it outside that directory — an unexpected `../` traversal or an
+ * absolute/external href in a hand-authored `index.html` should fail loudly
+ * rather than `stat()` an arbitrary path (Copilot review, PR #3141). */
+function resolveEagerFile(href) {
+  const resolved = resolve(artifactRoot, href);
+  const rel = relative(artifactRoot, resolved);
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`Eager href "${href}" resolves outside ${artifactRoot}: ${resolved}`);
+  }
+  return resolved;
 }
 
 const indexHtmlPath = resolve(artifactRoot, 'index.html');
@@ -147,7 +171,7 @@ for (const path of scripts) {
 
 const eagerSizes = await Promise.all(
   eagerHrefs.map(async (href) => {
-    const size = (await stat(resolve(artifactRoot, href))).size;
+    const size = (await stat(resolveEagerFile(href))).size;
     return { href, size };
   }),
 );
