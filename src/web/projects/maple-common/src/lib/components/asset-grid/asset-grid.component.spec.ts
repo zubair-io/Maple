@@ -51,7 +51,6 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
     id: 'lib:2026/France',
     name: 'France',
     parentSourceId: 'lib:2026',
-    aspectRatio: 1,
   };
 
   beforeEach(() => {
@@ -226,5 +225,59 @@ describe('AssetGridComponent — thumbnail size accessibility (#2462)', () => {
     expect(slider().value).toBe('180');
     expect(slider().min).toBe('60');
     expect(slider().max).toBe('220');
+  });
+});
+
+describe('AssetGridComponent — folder section rows (#3099)', () => {
+  function build(folders: { id: string; name: string; parentSourceId: string }[], assets: Asset[]) {
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            thumbSize: () => 140,
+            foldersInSelectedFolder: () => folders,
+            assetsInSelectedFolder: () => assets,
+          },
+        },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+      ],
+    });
+    return TestBed.runInInjectionContext(() => new AssetGridComponent());
+  }
+
+  const folders = ['A', 'B', 'C', 'D', 'E'].map((n) => ({
+    id: `lib:${n}`,
+    name: n,
+    parentSourceId: 'lib',
+  }));
+  const landscape = (id: string): Asset => ({ ...makeAsset(id), aspectRatio: 3 / 2 });
+
+  it('packs folders into fixed 180×64 rows ahead of the justified image rows', () => {
+    const component = build(folders, [landscape('a1'), landscape('a2')]);
+    const rows = component.gridRows();
+
+    // Default 800px container → four 180px tiles (+4px gaps) per folder row.
+    expect(rows.map((r) => r.kind)).toEqual(['folders', 'folders', 'images']);
+    expect(rows[0].items).toHaveLength(4);
+    expect(rows[1].items).toHaveLength(1);
+    expect(rows[0].height).toBe(64);
+    expect(rows[0].gap).toBe(4);
+    expect(component.itemWidth(rows[0].items[0], rows[0])).toBe(180);
+
+    // Folder rows sit 4px apart; the last one carries the 12px section gap
+    // before the photos.
+    expect(rows[0].spacingBelow).toBe(4);
+    expect(rows[1].spacingBelow).toBe(12);
+
+    // Images never share a row with folders.
+    expect(rows[2].items.every((i) => i.kind === 'image')).toBe(true);
+    expect(rows[2].gap).toBe(3);
+    expect(component.itemWidth(rows[2].items[0], rows[2])).toBeCloseTo(1.5 * rows[2].height);
+  });
+
+  it('emits no folder rows for a directory without subfolders', () => {
+    const component = build([], [landscape('a1')]);
+    expect(component.gridRows().map((r) => r.kind)).toEqual(['images']);
   });
 });

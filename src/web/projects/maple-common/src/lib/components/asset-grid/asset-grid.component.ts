@@ -35,10 +35,27 @@ import { ASSET_GRID_DROP_LIST_ID, type AssetDragData } from '../../drag-move/ass
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
+/** One rendered grid row. Folder rows hold fixed 180×64 tiles wrapped
+ * left-to-right in their own section above the photos (#3099 — the Windows
+ * `BrowseFolderTiles` layout); image rows are justified to the container. */
 interface GridRow {
+  kind: 'folders' | 'images';
   items: GridItem[];
   height: number;
+  /** Space between tiles in this row, in px. */
+  gap: number;
+  /** Space below this row, in px — the last folder row carries the wider
+   * section gap that separates the folder block from the photos. */
+  spacingBelow: number;
 }
+
+/** Folder tile geometry, matching the Windows template (180×64, 4px apart). */
+export const FOLDER_TILE_WIDTH = 180;
+export const FOLDER_TILE_HEIGHT = 64;
+const FOLDER_TILE_GAP = 4;
+/** Gap between the folder section and the first photo row. */
+const FOLDER_SECTION_GAP = 12;
+const IMAGE_GAP = 3;
 
 @Component({
   selector: 'app-asset-grid',
@@ -71,8 +88,10 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   itemKey = (item: GridItem): string => (item.kind === 'image' ? item.asset.id : item.folder.id);
 
-  itemAspectRatio = (item: GridItem): number =>
-    item.kind === 'image' ? item.asset.aspectRatio : item.folder.aspectRatio;
+  /** Rendered width of a tile: folders are fixed-width; images scale with
+   * their justified row height. */
+  itemWidth = (item: GridItem, row: GridRow): number =>
+    item.kind === 'folder' ? FOLDER_TILE_WIDTH : item.asset.aspectRatio * row.height;
 
   readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
@@ -89,37 +108,52 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     const assets = this.state.assetsInSelectedFolder();
     const targetH = this.state.thumbSize();
     const containerW = this.containerWidth();
-    const GAP = 3;
+    const GAP = IMAGE_GAP;
 
-    // Folders sort first (Finder-style), then images.
-    const items: GridItem[] = [
-      ...folders.map<GridItem>((f) => ({ kind: 'folder', folder: f })),
-      ...assets.map<GridItem>((a) => ({ kind: 'image', asset: a })),
-    ];
+    // Folders first (Finder-style) in their own fixed-tile rows, then the
+    // justified image rows.
+    const perFolderRow = Math.max(
+      1,
+      Math.floor((containerW - 6 + FOLDER_TILE_GAP) / (FOLDER_TILE_WIDTH + FOLDER_TILE_GAP)),
+    );
+    const folderRowCount = Math.ceil(folders.length / perFolderRow);
+    const folderRows: GridRow[] = Array.from({ length: folderRowCount }, (_, i) => ({
+      kind: 'folders',
+      items: folders
+        .slice(i * perFolderRow, (i + 1) * perFolderRow)
+        .map<GridItem>((f) => ({ kind: 'folder', folder: f })),
+      height: FOLDER_TILE_HEIGHT,
+      gap: FOLDER_TILE_GAP,
+      spacingBelow: i === folderRowCount - 1 ? FOLDER_SECTION_GAP : FOLDER_TILE_GAP,
+    }));
 
-    const rows: GridRow[] = [];
+    const rows: GridRow[] = [...folderRows];
     let row: GridItem[] = [];
     let rowAr = 0;
 
-    for (const item of items) {
-      const ar = this.itemAspectRatio(item);
-      row.push(item);
-      rowAr += ar;
+    for (const asset of assets) {
+      row.push({ kind: 'image', asset });
+      rowAr += asset.aspectRatio;
       const rowWidth = rowAr * targetH + (row.length - 1) * GAP;
       if (rowWidth >= containerW * 0.92) {
         const availW = containerW - (row.length - 1) * GAP - 6;
         const h = Math.min(targetH * 1.4, availW / rowAr);
-        rows.push({ items: [...row], height: h });
+        rows.push({ kind: 'images', items: [...row], height: h, gap: GAP, spacingBelow: GAP });
         row = [];
         rowAr = 0;
       }
     }
 
     if (row.length) {
-      const totalAr = row.reduce((s, it) => s + this.itemAspectRatio(it), 0);
       const availW = containerW - (row.length - 1) * GAP - 6;
-      const h = Math.min(targetH, availW / totalAr);
-      rows.push({ items: row, height: Math.max(h, 40) });
+      const h = Math.min(targetH, availW / rowAr);
+      rows.push({
+        kind: 'images',
+        items: row,
+        height: Math.max(h, 40),
+        gap: GAP,
+        spacingBelow: GAP,
+      });
     }
 
     return rows;
