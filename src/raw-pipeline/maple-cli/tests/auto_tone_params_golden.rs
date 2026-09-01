@@ -81,17 +81,12 @@ fn auto_tone_with_params_develops_against_the_edited_model() {
          RAWs or run without --features fixtures (#1082)",
     );
 
-    // Per-process directory (not just per-test-binary): two concurrent
-    // `cargo test` invocations of this same binary would otherwise race on
-    // a shared fixed path. Cleared first in case a prior run of this same
-    // PID left stale contents (PIDs recycle across runs, not within one).
-    let tmp = std::env::temp_dir().join(format!(
-        "maple-auto-tone-params-golden-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).expect("create tmp dir");
-    let params_path = tmp.join("test_0017-edited.xmp");
+    // `tempfile::tempdir()` creates a securely-random, uniquely-named
+    // directory (not a predictable PID-based path, which a symlink placed
+    // ahead of creation could hijack — TOCTOU) and removes it on drop, so
+    // two concurrent `cargo test` runs can never collide or leak.
+    let tmp = tempfile::tempdir().expect("create tmp dir");
+    let params_path = tmp.path().join("test_0017-edited.xmp");
     std::fs::write(&params_path, PARAMS_XMP).expect("write params xmp");
 
     let out = Command::new(env!("CARGO_BIN_EXE_maple-cli"))
