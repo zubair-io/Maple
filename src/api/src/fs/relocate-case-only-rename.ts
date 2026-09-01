@@ -83,7 +83,28 @@ export async function classifySameFile(
   const sourceBase = path.basename(canonicalSource);
   const targetBase = path.basename(canonicalTarget);
   if (sourceBase === targetBase) return 'identical';
-  if (sourceBase.toLowerCase() === targetBase.toLowerCase()) return 'case-only-rename';
+  if (sourceBase.toLowerCase() !== targetBase.toLowerCase()) return 'different';
+
+  // Same directory, basenames differ only by case — string comparison
+  // alone can't tell a genuine case-only rename (a case-insensitive-but-
+  // case-preserving filesystem folding both spellings onto ONE inode)
+  // apart from two GENUINELY DIFFERENT files on a case-SENSITIVE
+  // filesystem (ext4 — this repo's CI runner) that simply happen to share
+  // a name differing only by case. Verify with the filesystem's own
+  // identity (device + inode), never assume from the strings alone (found
+  // in review on #2704: the string-only check would have let a direct
+  // `fs.rename` silently clobber an unrelated destination file's content
+  // on ext4).
+  try {
+    const [sourceStat, targetStat] = await Promise.all([fs.stat(source), fs.stat(target)]);
+    if (sourceStat.dev === targetStat.dev && sourceStat.ino === targetStat.ino) {
+      return 'case-only-rename';
+    }
+  } catch {
+    // `target` doesn't exist as a distinct entry (ENOENT) — on a
+    // case-sensitive filesystem this is simply an ordinary rename to a
+    // not-yet-existing name, not a same-file situation.
+  }
   return 'different';
 }
 
@@ -104,7 +125,10 @@ async function renamePrimaryAndSidecars(req: RelocateRequest): Promise<PrimaryRe
   try {
     await fs.rename(req.sourceAbsPath, req.destAbsPath);
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: `relocate: case-only rename failed (${req.sourceAbsPath} -> ${req.destAbsPath}): ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   const renamedSidecars: SidecarRename[] = [];
@@ -135,9 +159,23 @@ async function revertCaseOnlyRename(
   req: RelocateRequest,
   renamedSidecars: readonly SidecarRename[],
 ): Promise<void> {
-  await fs.rename(req.destAbsPath, req.sourceAbsPath).catch(() => {});
+  await fs.rename(req.destAbsPath, req.sourceAbsPath).catch((err) => {
+    log.warn(
+      {
+        from: req.destAbsPath,
+        to: req.sourceAbsPath,
+        err: err instanceof Error ? err.message : err,
+      },
+      'relocate: case-only-rename revert of the primary failed — on-disk casing may not match the DB',
+    );
+  });
   for (const { from, to } of renamedSidecars) {
-    await fs.rename(to, from).catch(() => {});
+    await fs.rename(to, from).catch((err) => {
+      log.warn(
+        { from: to, to: from, err: err instanceof Error ? err.message : err },
+        'relocate: case-only-rename revert of a sidecar failed — on-disk casing may not match the DB',
+      );
+    });
   }
 }
 
