@@ -212,6 +212,14 @@ struct WorkersSettingsView: View {
 
     // MARK: - Data
 
+    // @MainActor on every method below: a SwiftUI View is not globally
+    // actor-isolated in Swift 5 mode (`Package.swift` pins
+    // `swiftLanguageModes: [.v5]`) and `.task` takes a @Sendable closure, so
+    // an unannotated async method mutating @State would publish from the
+    // cooperative pool (#2887 — same fix already applied to
+    // NetworkSettingsView and CloudflareSettingsView).
+
+    @MainActor
     private func loadFallback() async {
         do {
             let snapshot = try await client.status()
@@ -227,6 +235,7 @@ struct WorkersSettingsView: View {
         }
     }
 
+    @MainActor
     private func consumeEvents() async {
         // Connection state arrives in-band. The client reconnects
         // internally, so the stream finishing means teardown, not a drop —
@@ -246,6 +255,7 @@ struct WorkersSettingsView: View {
         isLive = false
     }
 
+    @MainActor
     private func togglePause(_ stage: StageStatus) async {
         guard busyStage == nil else { return }
         busyStage = stage.name
@@ -268,6 +278,7 @@ struct WorkersSettingsView: View {
 
     /// Re-read status straight after a pause/resume so the row updates
     /// without waiting for the next broadcast tick.
+    @MainActor
     private func loadFallbackAfterAction() async {
         guard let snapshot = try? await client.status() else { return }
         feed.applyAuthoritative(snapshot)
@@ -275,6 +286,7 @@ struct WorkersSettingsView: View {
 
     /// Same idea after a drawer closes: retrying dead jobs or clearing
     /// damaged tags changes counts the table is showing.
+    @MainActor
     private func refreshAfterTriage() async {
         await loadFallbackAfterAction()
     }

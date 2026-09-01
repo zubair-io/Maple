@@ -65,6 +65,7 @@ private struct PruneWindowPanel: View {
         .task { await load() }
     }
 
+    @MainActor
     private func load() async {
         do {
             let value = try await client.pruneWindowHours()
@@ -130,6 +131,7 @@ private struct DecodePoolPanel: View {
         .task { await load() }
     }
 
+    @MainActor
     private func load() async {
         do {
             let value = try await client.performance()
@@ -201,6 +203,7 @@ private struct MigrationsPanel: View {
         .task { await load() }
     }
 
+    @MainActor
     private func load() async {
         do {
             migrations = try await client.migrations()
