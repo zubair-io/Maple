@@ -169,8 +169,11 @@ fn stitch_manifest(manifest_path: &Path, out_dir: &Path, args: &StitchArgs) -> R
         // of time) instead of failing the whole case.
         let frames = filter_conforming_frames(&name, frames);
         if frames.len() < 2 {
+            // #3089 review (Copilot on #3131): this count is POST-filter —
+            // say so, since a manifest that listed >= 2 frames can still
+            // land here if discovery warned-and-dropped enough of them.
             eprintln!(
-                "pano[{name}]: skipped — {} frame(s) in manifest",
+                "pano[{name}]: skipped — {} conforming frame(s) after filtering",
                 frames.len()
             );
             failures.push(name);
