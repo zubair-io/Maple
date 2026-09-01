@@ -1,25 +1,23 @@
-//! Local-adjustment + mask schema types (ticket #280, foundation slice).
+//! Local-adjustment + mask schema types (ticket #280).
 //!
 //! A `LocalAdjustment` is a (mask, partial-adjustments) pair. Applied between
 //! `dehaze` and `sharpen` (see `pipeline::develop`), each layer modifies the
 //! scene-linear Rec.2020 buffer by applying its `PartialAdjustments` weighted
 //! by the per-pixel mask value `w ∈ [0, 1]`.
 //!
-//! Foundation scope (this slice):
+//! Current scope:
 //!
 //! * Two mask shapes — `Linear` (gradient line) and `Radial` (ellipse).
 //!   Brush, AI subject / sky, and range masks defer to follow-up tickets.
-//! * `PartialAdjustments` lists the full eventual surface but only `exposure`
-//!   is wired in `stages::local_adjustments::apply`. The other fields are
-//!   carried through the type + XMP round-trip so the wire format settles
-//!   before UI ships; they become functional in subsequent slices.
+//! * Every field on `PartialAdjustments` is wired in
+//!   `stages::local_adjustments::apply` (PR #1450, closed #1422) — see that
+//!   module's own docs for the full per-pixel apply order and the operators
+//!   behind each control.
 //! * Wire format is a single `papp:LocalAdjustments` attribute (compact JSON,
 //!   implemented in [`wire`]) in the XMP sidecar. The brief's
 //!   `crs:GradientBasedCorrections` / nested `rdf:Bag` form is the long-run
 //!   goal — converting to it requires extending the attribute-only XMP
-//!   walker to track `Bag` / `li` state, which is its own slice. Because no
-//!   UI ships in this PR, no user-created sidecars exist yet, so the wire
-//!   format can be revised non-breakingly in a follow-up.
+//!   walker to track `Bag` / `li` state; tracked as #358.
 //!
 //! Coordinates are normalized to `[0, 1]` on each axis, origin top-left,
 //! independent of pixel dimensions. This keeps masks resolution-agnostic so
@@ -38,17 +36,14 @@ pub use wire::{decode_local_adjustments, encode_local_adjustments};
 /// with strength v, scaled by mask weight." Combining strategy is per-field
 /// and lives in `stages::local_adjustments::apply`.
 ///
-/// **Currently functional:** `exposure` (additive EV, multiplied through
-/// `exp2(w * exposure)`).
-///
-/// **Carried through the schema + XMP but no-op in apply (TODO #280 slice 2+):**
-/// `contrast`, `highlights`, `shadows`, `whites`, `blacks`, `saturation`,
-/// `vibrance`, `temperature`, `tint`.
-///
-/// Note on `contrast`: global contrast routes to the AgX sigmoid slope (see
-/// `view::agx`). A local contrast control can't share that path because AgX
-/// runs after this stage; the working assumption is a scene-linear contrast
-/// curve around 0.18 grey but the algorithm is a Slice-N decision.
+/// Every field is wired in `stages::local_adjustments::apply_pixel`, applied
+/// in this order: `exposure` → `temperature`/`tint` → `contrast` →
+/// `highlights` → `shadows` → `whites` → `blacks` → `saturation` →
+/// `vibrance`. See that module's docs for the operator behind each control
+/// (e.g. `contrast` is a scene-linear, luma-ratio-preserving power curve
+/// pivoted at 0.18 grey — global contrast routes to the AgX sigmoid slope
+/// instead, since AgX runs after this stage and a local mask can't share
+/// that path).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PartialAdjustments {
     pub exposure: Option<f32>,
