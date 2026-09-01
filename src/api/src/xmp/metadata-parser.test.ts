@@ -332,6 +332,19 @@ describe('parseXmpMetadata — colorLabel', () => {
     expect(parseXmpMetadata(xml).colorLabel).toBeUndefined();
   });
 
+  test('a malformed xmp:Label matching an inherited Object.prototype property name is ignored, not resolved to that prototype value', () => {
+    // Regression for review on #2201: `in` also matches the prototype
+    // chain, so "toString"/"constructor"/"hasOwnProperty" would previously
+    // read as a hit against the lookup map and assign the built-in
+    // FUNCTION as colorLabel — which crashes deep inside the BSON
+    // serializer the first time a worker tries to persist that patch.
+    for (const word of ['toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+      const xml = makeXmp(`xmp:Label="${word}"`);
+      const result = parseXmpMetadata(xml);
+      expect(result.colorLabel).toBeUndefined();
+    }
+  });
+
   test('neither key present leaves colorLabel unset', () => {
     const xml = makeXmp('photoshop:City="Paris"');
     expect(parseXmpMetadata(xml).colorLabel).toBeUndefined();
