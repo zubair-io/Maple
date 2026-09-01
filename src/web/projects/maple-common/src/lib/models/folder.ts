@@ -65,5 +65,4 @@ export interface GridFolderItem {
   name: string;
   absPath?: string;
   parentSourceId: string;
-  aspectRatio: number;
 }

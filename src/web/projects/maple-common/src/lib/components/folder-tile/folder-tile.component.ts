@@ -1,8 +1,9 @@
-// Folder tile rendered inline in the asset grid (Self-Hosted FS-walk only).
-// Sibling to `<maple-asset-tile>` — same parent dimensions (set by the
-// grid's justified row layout) but renders a folder affordance + name
-// instead of a RAW preview. Click drills into the folder via
-// LibraryStateService.
+// Folder tile rendered in the asset grid's folder section (Self-Hosted
+// FS-walk only). Fixed 180×64 landscape tile — the parent grid sets the
+// dimensions — laid out like the Windows `BrowseFolderTiles` template
+// (#3099): primary-red folder outline, 10px gap, body label with a tail
+// ellipsis, 14px side padding, 4px radius on a `surface` ground. Click
+// drills into the folder via LibraryStateService.
 //
 // Composed from Maple UI atoms (mui-icon, mui-text) rather than
 // `mui-media-cell` (MW6, ticket #3047) — this tile has no image, no

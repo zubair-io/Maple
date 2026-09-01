@@ -129,11 +129,16 @@
     minBufferPx="600"
     maxBufferPx="900"
   >
-    <div *cdkVirtualFor="let row of gridRows(); trackBy: trackRow" class="flex gap-[3px] mb-[3px]">
+    <div
+      *cdkVirtualFor="let row of gridRows(); trackBy: trackRow"
+      class="flex"
+      [style.gap.px]="row.gap"
+      [style.margin-bottom.px]="row.spacingBelow"
+    >
       @for (item of row.items; track itemKey(item)) {
         <div
           class="flex-shrink-0"
-          [style.width.px]="itemAspectRatio(item) * row.height"
+          [style.width.px]="itemWidth(item, row)"
           [style.height.px]="row.height"
           cdkDrag
           [cdkDragDisabled]="!isDraggable(item)"
