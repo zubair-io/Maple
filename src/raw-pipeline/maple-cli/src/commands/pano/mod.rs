@@ -29,6 +29,7 @@
 //! CLI is the operator surface; only the harness skip-passes, and it
 //! does so before invoking this command).
 
+mod discovery;
 mod io;
 mod tile;
 
@@ -42,6 +43,7 @@ use maple_pano::render::PngMetadata;
 use maple_pano::stitch::{self, StitchOptions, StitchSuccess};
 use raw_core::read_exif;
 
+use discovery::filter_conforming_frames;
 use io::{stitch_report, write_png16, ReportContext};
 
 mod args;
@@ -162,6 +164,10 @@ fn stitch_manifest(manifest_path: &Path, out_dir: &Path, args: &StitchArgs) -> R
                     .collect()
             })
             .unwrap_or_default();
+        // #3089: warn-and-skip a non-conforming frame (fixture-directory
+        // discovery has no way to know a stray .dng doesn't belong ahead
+        // of time) instead of failing the whole case.
+        let frames = filter_conforming_frames(&name, frames);
         if frames.len() < 2 {
             eprintln!(
                 "pano[{name}]: skipped — {} frame(s) in manifest",
