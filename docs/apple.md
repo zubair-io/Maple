@@ -156,7 +156,7 @@ The macOS and iOS File Provider extensions are both three-line subclasses (`File
 
 **MapleWidget** shows a photo from the day's generated collections with its caption, sized so small/medium/large earn their content rather than scaling one layout. It links only MapleCloudKit and talks to the server through `WidgetSession`.
 
-**Maple TV** is a separate tvOS app: timeline, light table, map with heatmap overlay, search, generated-search shelves, and a photo/video viewer, paired to a phone or iPad over the local network (`MapleCloudKit/Pairing`). It imports MapleCloudKit, SwiftUI, MapKit, AVKit and UIKit — deliberately not MapleCore or RawPipeline, so nothing tvOS has to link the Rust static library.
+**Maple TV** is a separate tvOS app: timeline, memories (the daily generated collections, on a screen of their own rather than a shelf above the timeline grid), light table, map with heatmap overlay, search, and a photo/video viewer, paired to a phone or iPad over the local network (`MapleCloudKit/Pairing`). It imports MapleCloudKit, SwiftUI, MapKit, AVKit and UIKit — deliberately not MapleCore or RawPipeline, so nothing tvOS has to link the Rust static library.
 
 ## Build and test
 
