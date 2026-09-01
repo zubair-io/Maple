@@ -20,7 +20,7 @@ These are invariants. If you're about to violate one, stop and ask.
 
 The headroom limit exists because the hard limit alone punishes the wrong PR (#2311). Splitting a file to clear 600 naturally lands it at 598 or 599, since that's the cheapest change that turns CI green — and then the next unrelated PR adding two lines is the one that fails. On 2026-07-25 that took `main` red: one PR left `raw-pipeline.service.ts` at 599, the next added 19 (#2266). **So when you split a file, split it with real margin** — aim well under 570, not just under 600.
 
-The allowlist is the day-0 audit of historical violators (#113). Every entry maps to a split ticket on the KTLO project board, and the allowlist is append-forbidden in CI (#114). When you split a file, remove its allowlist entry in the same PR. Allowlisted paths are exempt from the headroom check too.
+The allowlist is the day-0 audit of historical violators (#113). Every entry maps to a split ticket on the KTLO project board, and the allowlist is append-forbidden in CI (#114) — per file extension, not as one flat count (#2747): a PR extending `check-file-budget.sh` to gate a language for the first time may seed that language's own day-0 violators (a language with zero prior allowlist entries growing to N is allowed once), but a language that already had entries at the merge base may not grow past its own count. When you split a file, remove its allowlist entry in the same PR. Allowlisted paths are exempt from the headroom check too.
 
 To check locally:
 

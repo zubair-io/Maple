@@ -14,11 +14,14 @@
 # corresponding split ticket on the KTLO project, and the allowlist is
 # append-forbidden in CI (#114).
 #
-# Scope: *.rs *.swift *.ts *.tsx *.js *.py — source code only. Generated dirs
-# (node_modules/, target/, dist/, .angular/, pkg/, DerivedData/, .build/),
-# vendored upstream crate sources (raw-pipeline/vendor/, committed by
-# `cargo vendor` — not our code), and generated wasm bindings under
-# raw-wasm/pkg/ are skipped.
+# Scope: *.rs *.swift *.ts *.tsx *.js *.py *.cs — source code only. Generated
+# dirs (node_modules/, target/, dist/, .angular/, pkg/, DerivedData/,
+# .build/, bin/, obj/), vendored upstream crate sources (raw-pipeline/vendor/,
+# committed by `cargo vendor` — not our code), and generated wasm bindings
+# under raw-wasm/pkg/ are skipped. `.cs` (#2747) lives entirely under
+# src/windows today, so no extra path scoping is needed; `bin/`/`obj/` are
+# dotnet's own build-output dirs (already gitignored, `**/bin/` / `**/obj/`),
+# the C# counterparts of `target/`/`dist/`.
 #
 # Usage:
 #   tools/check-file-budget.sh                 # scan the whole repo
@@ -101,13 +104,13 @@ collect_files() {
       fi
       [[ -f "$f" ]] || continue
       case "$f" in
-        *.rs|*.swift|*.ts|*.tsx|*.js|*.py) printf '%s\n' "$f" ;;
+        *.rs|*.swift|*.ts|*.tsx|*.js|*.py|*.cs) printf '%s\n' "$f" ;;
       esac
     done
   else
     find "$REPO_ROOT" -type f \
       \( -name '*.rs' -o -name '*.swift' -o -name '*.ts' \
-         -o -name '*.tsx' -o -name '*.js' -o -name '*.py' \) \
+         -o -name '*.tsx' -o -name '*.js' -o -name '*.py' -o -name '*.cs' \) \
       -not -path '*/node_modules/*' \
       -not -path '*/target/*' \
       -not -path '*/vendor/*' \
@@ -118,6 +121,8 @@ collect_files() {
       -not -path '*/DerivedData/*' \
       -not -path '*/raw-wasm/pkg/*' \
       -not -path '*/pkg/*' \
+      -not -path '*/bin/*' \
+      -not -path '*/obj/*' \
       -not -path "$REPO_ROOT/.claude/*" \
       -print
   fi
