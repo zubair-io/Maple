@@ -36,7 +36,7 @@ pub use wire::{decode_local_adjustments, encode_local_adjustments};
 /// with strength v, scaled by mask weight." Combining strategy is per-field
 /// and lives in `stages::local_adjustments::apply`.
 ///
-/// Every field is wired in `stages::local_adjustments::apply_pixel`, applied
+/// Every field is wired in `stages::local_adjustments::apply`, applied
 /// in this order: `exposure` → `temperature`/`tint` → `contrast` →
 /// `highlights` → `shadows` → `whites` → `blacks` → `saturation` →
 /// `vibrance`. See that module's docs for the operator behind each control
