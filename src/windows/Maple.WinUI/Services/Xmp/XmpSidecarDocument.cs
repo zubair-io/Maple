@@ -44,11 +44,13 @@ namespace Maple.WinUI.Services.Xmp
         public string ProcessVersion { get; set; } = "11.0";
 
         /// <summary>
-        /// `papp:WbScaleVersion` (#1780/#1875/#1894). Parsed stamp, or the
-        /// stamp-absent heuristic result. Re-emitted unchanged whenever an
-        /// explicit `crs:Temperature`/`crs:Tint` is written, so stored WB
-        /// numbers keep the meaning they were authored in. Fresh documents
-        /// are the current version, 5.
+        /// `papp:WbScaleVersion` (#1780/#1875/#1894/#2670). Always 1 or 5 after
+        /// parse: a legacy 2/3/4 stamp is upgraded to 5 on load, with
+        /// `Temperature`/`Tint` rescaled to the V5 meaning in the same step
+        /// (`XmpParser`), so the pair never round-trips in an authored-legacy
+        /// scale. Stamp-absent documents take the heuristic result. Re-emitted
+        /// as stored whenever an explicit `crs:Temperature`/`crs:Tint` is
+        /// written. Fresh documents are the current version, 5.
         /// </summary>
         public int WbScaleVersion { get; set; } = 5;
 
