@@ -12,19 +12,30 @@
 //     range
 //   - enum fields → applied only when the value is a known variant
 //
-// Fields in `FieldName` that the Swift `AdjustmentModel` does NOT carry
-// (`wb_method`, `tone_curve_mode`, and the deprecated
-// `capture_sharpening_radius` alias) map to nil below: never captured,
-// skipped on apply, preserved in storage — the passthrough rule keeps a
-// web-written preset intact even though Apple can't apply those fields
-// until the Swift model gains them. `auto_exposure` (#1387) is now a Swift
-// enum field like `highlightRecovery` / `profile` — captured and applied
-// below, not routed through this passthrough list.
+// The deprecated `capture_sharpening_radius` alias (read-only even in the
+// XMP layer; see `XMPSerialization+ParseAttrs.swift`) maps to nil below:
+// never captured, skipped on apply, preserved in storage. `auto_exposure`
+// (#1387) is a Swift enum field like `highlightRecovery` / `profile` —
+// captured and applied below, not routed through this passthrough list.
+//
+// `wb_method` / `tone_curve_mode` (#431/#436) map to nil below too: the
+// Swift `AdjustmentModel` doesn't carry either field (`FieldName` still
+// has the codegen'd cases — the schema knows about them — but there is no
+// Swift property to write into). Wiring them onto the model is #2216,
+// scoped to the XMP sidecar layer; wiring THIS bridge to use them once
+// they exist is a further, separate step, same shape as this ticket's
+// `film_look` fix below.
 //
 // The four `tone_curve_*` point curves (#366) map to nil for a different
 // reason: the Swift model DOES carry them, but a preset `fields` map is a
 // flat scalar map on every client, so a structured curve has nowhere to go.
 // Curve presets land with the curve editor (#367).
+//
+// `film_look` (#2720) is a free-form string, not a closed rawValue enum —
+// captured/applied as `.string` verbatim (including the empty string, the
+// canonical "no look" / explicit-clear value), mirroring web's
+// `FREE_FORM_STRING_FIELDS` (`preset-model.ts`) and the API's
+// `allowsEmptyString` (`adjustment-fields.ts`).
 
 import Foundation
 
@@ -128,25 +139,21 @@ extension AdjustmentModel.FieldName {
         case .filmStrength:                 return \.filmStrength
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
-        // Enum-valued / not in the Swift model. `.autoExposure` (#1387) /
-        // `.blackWhite` (#276) have no *numeric* key path — like
-        // `.highlightRecovery`, they're captured and applied as a string
-        // enum below instead.
+        // Enum-valued fields have no *numeric* key path. `.highlightRecovery`
+        // / `.autoExposure` / `.look` / `.profile` / `.hotPixelSuppression` /
+        // `.blackWhite` / `.lensProfileEnable` are captured and applied as a
+        // string enum below instead. `.wbMethod` / `.toneCurveMode` have no
+        // Swift property at all yet (see the file header) — they map to nil
+        // here too, and fall through to `default` in `PresetAdjustments`
+        // below.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
              .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
             return nil
         // Film-look id (epic #2683) — a free-form string, not a numeric
         // slider or a closed rawValue enum, so it has no key path here (like
-        // the point tone curves below). Preset capture/apply for film looks
-        // is not part of Task 10's scope; a look-carrying preset falls
-        // through `default: break`/`default: continue` in
-        // `PresetAdjustments` below, same as every other field this switch
-        // maps to `nil`. (`film_strength` DOES have a key path above — it is
-        // an ordinary numeric field now that the Swift model carries it.)
-        //
-        // NOTE: Web/API presets DO carry `film_look` fields (codegen'd in
-        // FREE_FORM_STRING_FIELDS, adjustment-fields.ts); the Swift model's
-        // omission is a tracked cross-platform divergence (#2720, Apple only).
+        // the point tone curves below); captured/applied as `.string` in
+        // `PresetAdjustments` below (#2720). (`film_strength` DOES have a
+        // key path above — it is an ordinary numeric field.)
         case .filmLook:                     return nil
         // Point curves (#366) — structured `ToneCurve` values, not scalars.
         // A preset `fields` map is flat (number | string | bool) on every
@@ -294,6 +301,13 @@ public enum PresetAdjustments {
             // decode-product field.
             case .lensProfileEnable where model.lensProfileEnable != defaults.lensProfileEnable:
                 fields[field.rawValue] = .string(model.lensProfileEnable.rawValue)
+            // Film-look id (#2720) — free-form string, not a closed enum;
+            // same non-default capture gate as every other field here. The
+            // default is the empty string ("no look"), so this only fires
+            // for a genuinely selected look — matching web's
+            // `capturePresetFields` (`preset-model.ts`).
+            case .filmLook where model.filmLook != defaults.filmLook:
+                fields[field.rawValue] = .string(model.filmLook)
             default:
                 break
             }
@@ -322,9 +336,11 @@ public enum PresetAdjustments {
                 applied += 1
                 continue
             }
-            // Enum-valued fields: apply only known variants. Fields the
-            // Swift model doesn't carry (wb_method, tone_curve_mode,
-            // capture_sharpening_radius) fall through.
+            // Enum-valued fields: apply only known variants (`film_look`
+            // below is the one exception — free-form, so ANY string
+            // applies). `wb_method` / `tone_curve_mode` /
+            // `capture_sharpening_radius` have no Swift property at all
+            // (see the file header) and fall through to `default`.
             guard case .string(let rawValue) = value else { continue }
             switch field {
             case .highlightRecovery:
@@ -354,6 +370,18 @@ public enum PresetAdjustments {
             case .lensProfileEnable:
                 guard let mode = LensProfileEnable(rawValue: rawValue) else { continue }
                 merged.lensProfileEnable = mode
+                applied += 1
+            // Film-look id (#2720) — free-form string: ANY value applies,
+            // including the empty string, which is the canonical
+            // "no look" / explicit-clear value (mirrors web's
+            // `FREE_FORM_STRING_FIELDS` / the API's `allowsEmptyString`).
+            // Unlike every other case here there is no rawValue-membership
+            // guard, because there is no fixed variant list to check
+            // against — an id the film catalog doesn't recognise still
+            // applies and resolves to identity at render time
+            // (`FilmLutStore`), matching the XMP parser's `papp:FilmLook`.
+            case .filmLook:
+                merged.filmLook = rawValue
                 applied += 1
             default:
                 continue
