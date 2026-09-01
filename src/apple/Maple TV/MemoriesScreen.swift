@@ -10,8 +10,11 @@
 // focus region in the way of the one thing the Timeline is for. Browse is now
 // only the photo grid; memories get the whole screen and can breathe.
 //
-// Selecting a memory opens its photos in the existing full-screen viewer —
-// on a television the useful action is "show me these", not "filter a grid".
+// Selecting a memory opens that memory's own grid (`MemoryDetailScreen`),
+// and a photo in that grid opens the full-screen viewer. Selecting used to
+// drop straight into the viewer at the first photo, which gave no sense of
+// what was in the set and no way to reach a particular photo except by
+// stepping past everything before it.
 
 import MapleCloudKit
 import SwiftUI
@@ -21,13 +24,18 @@ struct MemoriesScreen: View {
   let libraryID: String
 
   @State private var viewModel: TVGeneratedSearchViewModel
-  /// Assets of the memory the viewer is currently showing, if any. Wrapped
-  /// because `fullScreenCover(item:)` needs an `Identifiable`, and a bare
-  /// array is not one.
-  @State private var openCollection: OpenCollection?
+  /// The memory whose grid is open, with the photos already fetched for it.
+  /// Wrapped because `fullScreenCover(item:)` needs an `Identifiable`.
+  @State private var openMemory: OpenMemory?
 
-  private struct OpenCollection: Identifiable {
-    let id: String
+  /// The memory whose photos are being fetched right now, if any. A memory's
+  /// assets are a round trip away, so without this the card would sit there
+  /// looking inert between the click and the grid appearing.
+  @State private var openingCollectionID: String?
+
+  private struct OpenMemory: Identifiable {
+    var id: String { collection.id }
+    let collection: GeneratedSearchCard
     let assets: [SearchAsset]
   }
 
@@ -57,13 +65,8 @@ struct MemoriesScreen: View {
     // rebuilds the view (and its `@State` viewModel) rather than re-running
     // `load()` against a viewModel still bound to the old library.
     .task { await viewModel.load() }
-    .fullScreenCover(item: $openCollection) { open in
-      PhotoViewerScreen(
-        assets: open.assets,
-        startIndex: 0,
-        session: session,
-        onDismiss: { _ in openCollection = nil }
-      )
+    .fullScreenCover(item: $openMemory) { open in
+      MemoryDetailScreen(collection: open.collection, assets: open.assets, session: session)
     }
   }
 
@@ -154,7 +157,8 @@ struct MemoriesScreen: View {
               collection: collection,
               cover: viewModel.covers[collection.id],
               session: session,
-              width: layout.cellWidth
+              width: layout.cellWidth,
+              isOpening: openingCollectionID == collection.id
             ) {
               open(collection)
             }
@@ -170,12 +174,15 @@ struct MemoriesScreen: View {
   }
 
   private func open(_ collection: GeneratedSearchCard) {
+    guard openingCollectionID == nil else { return }
+    openingCollectionID = collection.id
     Task {
       let assets = await viewModel.assets(for: collection)
-      // Don't open an empty viewer — a memory whose photos failed to load
+      openingCollectionID = nil
+      // Don't open an empty grid — a memory whose photos failed to load
       // should do nothing rather than show a blank screen.
       if !assets.isEmpty {
-        openCollection = OpenCollection(id: collection.id, assets: assets)
+        openMemory = OpenMemory(collection: collection, assets: assets)
       }
     }
   }
@@ -190,6 +197,9 @@ private struct MemoryCard: View {
   /// Derived from the real screen width by `TVGridLayout`; `targetWidth` is
   /// the size the column count is chosen around.
   let width: CGFloat
+  /// True while this memory's photos are being fetched — the card dims and
+  /// shows a spinner so the click has a visible consequence.
+  let isOpening: Bool
   let onSelect: () -> Void
 
   /// Chosen so a 1080p television lands on four cards per row (the derived
@@ -205,13 +215,22 @@ private struct MemoryCard: View {
       ZStack(alignment: .bottomLeading) {
         coverImage
         caption
+        if isOpening {
+          ZStack {
+            Color.black.opacity(0.5)
+            ProgressView().tint(.white)
+          }
+          .transition(.opacity)
+        }
       }
       .frame(width: width, height: height)
       .clipShape(RoundedRectangle(cornerRadius: 12))
+      .animation(.easeOut(duration: 0.15), value: isOpening)
     }
     .buttonStyle(.card)
     .accessibilityIdentifier("memory-card-\(collection.id)")
     .accessibilityLabel("\(collection.title), \(collection.result_count) photos")
+    .accessibilityValue(isOpening ? "Opening" : "")
   }
 
   @ViewBuilder
