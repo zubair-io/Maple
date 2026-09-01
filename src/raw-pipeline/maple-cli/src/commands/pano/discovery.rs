@@ -83,7 +83,11 @@ fn probe_frame(path: &Path) -> FrameProbe {
 fn drop_non_conforming(name: &str, probed: Vec<(PathBuf, FrameProbe)>) -> Vec<PathBuf> {
     let mut model_counts: BTreeMap<String, usize> = BTreeMap::new();
     for (_, probe) in &probed {
-        if !probe.camera_model.is_empty() {
+        // Only a frame that's otherwise conforming (has a derivable focal)
+        // gets a vote for "the set's body" — a cluster of no-focal strays
+        // sharing a model must never outvote the real frames and drag them
+        // down as "wrong body" too (Jules review on #3131).
+        if probe.has_focal && !probe.camera_model.is_empty() {
             *model_counts.entry(probe.camera_model.clone()).or_insert(0) += 1;
         }
     }
@@ -219,6 +223,27 @@ mod tests {
             vec![
                 probed("a.dng", "L3D-100c", true),
                 probed("b.dng", "L3D-100c", true),
+            ],
+        );
+        assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
+    }
+
+    /// Jules review on #3131: a cluster of no-focal strays that happen to
+    /// share a camera model must never outvote the real frames for
+    /// "majority body" — only frames with a derivable focal count toward
+    /// the majority vote. Without that guard, 3 no-focal strays sharing a
+    /// model would outnumber 2 real frames, and the real frames would get
+    /// dropped too as "wrong body", failing the whole set.
+    #[test]
+    fn no_focal_stray_majority_does_not_outvote_real_frames() {
+        let kept = drop_non_conforming(
+            "set",
+            vec![
+                probed("a.dng", "L3D-100c", true),
+                probed("b.dng", "L3D-100c", true),
+                probed("stray1.dng", "Stray Body", false),
+                probed("stray2.dng", "Stray Body", false),
+                probed("stray3.dng", "Stray Body", false),
             ],
         );
         assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
