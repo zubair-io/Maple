@@ -38,6 +38,7 @@ import { LibraryCache } from './library-cache.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 import { isSupportedRaw } from './raw-extensions';
+import { naturalCompare } from '../util/natural-sort';
 import { TypedStorage } from '../util/typed-storage';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
@@ -898,7 +899,7 @@ export class LibraryFetch {
                 // childrenStatus left undefined — fetched on first chevron expand.
               };
             })
-            .sort((a, b) => a.label.localeCompare(b.label)),
+            .sort((a, b) => naturalCompare(a.label, b.label)),
         };
       }),
     );
