@@ -308,7 +308,7 @@ enum ChangeObserverWiring {
         // apart from "never started" — both leave the queue empty (#3097).
         // The `.failedRetry` count is the terminal-failure figure the panel
         // captions; best-effort, a read failure just reports 0.
-        let failedPermanently = (try? await state.tasks(in: .failedRetry).count) ?? 0
+        let failedPermanently = (try? await state.count(in: .failedRetry)) ?? 0
         EngineHost.shared.progress.recordWalkSummary(BackupProgressViewModel.WalkSummary(
             enumerated: ids.count,
             enqueued: enqueuedCount + retriedCount,
