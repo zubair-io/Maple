@@ -439,7 +439,17 @@ describe('EditorStateService', () => {
       lib.primeBytes(ID, BYTES);
     });
 
-    it('writes exposure + autoExposure=Off ONLY — leaves white balance and tone sliders untouched', async () => {
+    it('writes exposure + the five calibrated tone sliders + autoExposure=Off — leaves white balance untouched (#2255)', async () => {
+      pipeline.patch = {
+        exposure: 0.5,
+        temperature: 5800,
+        tint: 5,
+        contrast: 12,
+        highlights: -18,
+        shadows: 22,
+        whites: -6,
+        blacks: -9,
+      };
       lib.updateAdjustment(ID, {
         contrast: 20,
         highlights: -30,
@@ -451,19 +461,65 @@ describe('EditorStateService', () => {
       const ok = await svc.applyAuto(ID);
       expect(ok).toBe(true);
       const adj = lib.adjustmentFor(ID)();
+      // The core's calibrated recommendation (#1376) lands byte-identically —
+      // same values a user drag would write, not discarded.
       expect(adj.exposure).toBeCloseTo(pipeline.patch.exposure, 9);
+      expect(adj.contrast).toBeCloseTo(pipeline.patch.contrast, 9);
+      expect(adj.highlights).toBeCloseTo(pipeline.patch.highlights, 9);
+      expect(adj.shadows).toBeCloseTo(pipeline.patch.shadows, 9);
+      expect(adj.whites).toBeCloseTo(pipeline.patch.whites, 9);
+      expect(adj.blacks).toBeCloseTo(pipeline.patch.blacks, 9);
       expect(adj.autoExposure).toBe('Off');
+      // White balance is NOT touched — WB stays at As-Shot.
       expect(adj.temperature).toBe(before.temperature);
       expect(adj.tint).toBe(before.tint);
-      expect(adj.contrast).toBe(before.contrast);
-      expect(adj.highlights).toBe(before.highlights);
-      expect(adj.shadows).toBe(before.shadows);
-      expect(adj.whites).toBe(before.whites);
-      expect(adj.blacks).toBe(before.blacks);
       expect(svc.autoResult()).toBe('Auto applied · Exposure +0.50 EV');
 
       svc.bind('other-image');
       expect(svc.autoResult()).toBeNull();
+    });
+
+    it('clamps out-of-range tone values to each field’s canonical range', async () => {
+      pipeline.patch = {
+        exposure: 99,
+        temperature: 99999,
+        tint: 999,
+        contrast: 999,
+        highlights: -999,
+        shadows: 999,
+        whites: -999,
+        blacks: 999,
+      };
+      const ok = await svc.applyAuto(ID);
+      expect(ok).toBe(true);
+      const adj = lib.adjustmentFor(ID)();
+      expect(adj.exposure).toBeCloseTo(4, 9); // exposureRange upper bound
+      expect(adj.contrast).toBeCloseTo(100, 9);
+      expect(adj.highlights).toBeCloseTo(-100, 9);
+      expect(adj.shadows).toBeCloseTo(100, 9);
+      expect(adj.whites).toBeCloseTo(-100, 9);
+      expect(adj.blacks).toBeCloseTo(100, 9);
+    });
+
+    it('creates ONE undo entry that restores the pre-AUTO tone sliders too', async () => {
+      pipeline.patch = {
+        exposure: 0.5,
+        temperature: 5800,
+        tint: 5,
+        contrast: 12,
+        highlights: -18,
+        shadows: 22,
+        whites: -6,
+        blacks: -9,
+      };
+      lib.updateAdjustment(ID, { contrast: 20, blacks: -5 });
+      const ok = await svc.applyAuto(ID);
+      expect(ok).toBe(true);
+      expect(svc.canUndo()).toBe(true);
+      svc.undo();
+      const adj = lib.adjustmentFor(ID)();
+      expect(adj.contrast).toBeCloseTo(20, 9);
+      expect(adj.blacks).toBeCloseTo(-5, 9);
     });
 
     it('creates exactly ONE undo entry and has in-flight guards', async () => {
