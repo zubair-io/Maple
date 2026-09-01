@@ -50,6 +50,10 @@ import * as crypto from 'node:crypto';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
 import { child as childLogger } from '../log.ts';
+import { sidecarRenameTarget } from './sidecar-rename.ts';
+import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
+
+export { sidecarRenameTarget };
 
 const log = childLogger('fs/relocate');
 
@@ -153,29 +157,6 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Sidecar base-swap (shared with `moveSidecarsAlongside` in `fs/trash.ts`)
-// ---------------------------------------------------------------------------
-
-/** Compute a sidecar's destination path when its RAW moves from
- * `oldAbsPath` to `newAbsPath`, applying the SAME base-swap
- * `moveSidecarsAlongside` (`fs/trash.ts`) uses — e.g.
- * `IMG_1 (conflict from Mac).xmp` follows `IMG_1.ARW` → `IMG_1.1.ARW` to
- * `IMG_1.1 (conflict from Mac).xmp`. Returns `null` (defensive skip) when
- * the sidecar's name doesn't start with the RAW's old base. */
-export function sidecarRenameTarget(
-  oldAbsPath: string,
-  newAbsPath: string,
-  sidecarAbsPath: string,
-): string | null {
-  const oldBase = path.basename(oldAbsPath, path.extname(oldAbsPath));
-  const newBase = path.basename(newAbsPath, path.extname(newAbsPath));
-  const sidecarName = path.basename(sidecarAbsPath);
-  if (!sidecarName.startsWith(oldBase)) return null;
-  const renamed = newBase + sidecarName.slice(oldBase.length);
-  return path.join(path.dirname(newAbsPath), renamed);
-}
-
-// ---------------------------------------------------------------------------
 // Copy + verify + publish
 // ---------------------------------------------------------------------------
 
@@ -205,53 +186,6 @@ async function revertCreated(createdPaths: string[]): Promise<void> {
   for (const p of createdPaths) {
     await fs.unlink(p).catch(() => {});
   }
-}
-
-// ---------------------------------------------------------------------------
-// Same-file guard
-// ---------------------------------------------------------------------------
-
-/** Resolve `p` to a canonical form for a same-file comparison: only the
- * PARENT directory is symlink-resolved (via `realpath`) — the basename is
- * always rejoined literally, never resolved as part of the full path.
- *
- * That split is deliberate, not incidental. `fs.realpath` on a
- * case-insensitive-but-case-preserving filesystem (APFS default, NTFS)
- * resolves a query that differs only in case to the file's STORED casing —
- * so realpath-ing the FULL path (basename included) would silently fold
- * `IMG.CR3` and `img.cr3` to the identical canonical string whenever one of
- * them already exists, making a same-file check built on it reject a
- * legitimate case-only rename. Realpath-ing only the directory sidesteps
- * that: two paths differing solely in their basename's case always compare
- * as different (case-sensitive string equality on the literal basename),
- * while a symlinked PARENT directory is still caught (its target is
- * resolved before the basename is reattached). Falls back to
- * `path.resolve` when even the parent doesn't exist yet — which can only
- * happen when the parent is freshly absent and therefore cannot be a
- * pre-existing symlink aliasing the source. */
-async function canonicalizeForComparison(p: string): Promise<string> {
-  const dir = path.dirname(p);
-  try {
-    const realDir = await fs.realpath(dir);
-    return path.join(realDir, path.basename(p));
-  } catch {
-    return path.resolve(p);
-  }
-}
-
-/** True when `a` and `b` name the exact same on-disk location — including
- * through a symlink indirection, but NOT merely because they differ only in
- * case. Guards the load-bearing invariant that a relocate never deletes the
- * only copy of a file: without this check, a destination that resolves to
- * the source (most directly via `collision: 'replace'`) would copy the
- * source onto itself and then, in `mode: 'move'`, unlink the only remaining
- * copy. */
-async function isSameFile(a: string, b: string): Promise<boolean> {
-  const [canonicalA, canonicalB] = await Promise.all([
-    canonicalizeForComparison(a),
-    canonicalizeForComparison(b),
-  ]);
-  return canonicalA === canonicalB;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,24 +327,40 @@ async function deleteOriginals(
 }
 
 export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcome> {
-  // Refuse a destination that resolves to the source itself — see
-  // `isSameFile`'s docstring. Checked against the CALLER'S REQUESTED
-  // `destAbsPath`, before any collision resolution runs (found by the
-  // #2633 cross-platform parity harness — the Swift and Windows twins
-  // already check this first; this used to run AFTER `resolveDestination`,
-  // so an `'auto-suffix'`/`'keep-both'` request that named the source as
-  // its own destination silently suffixed past the self-collision instead
-  // of refusing, and a `'skip'` request returned `{kind:'skipped'}` instead
-  // of the same explicit `sameFile` error every other collision policy
-  // gives — both diverging from the other two platforms for the exact same
-  // call). This must run before ANY copy: the danger is copying the source
-  // onto itself and then, in move mode, deleting the only remaining copy.
-  if (await isSameFile(req.sourceAbsPath, req.destAbsPath)) {
+  // Classify source vs destination BEFORE any collision resolution runs
+  // (found by the #2633 cross-platform parity harness — the Swift and
+  // Windows twins already check this first; this used to run AFTER
+  // `resolveDestination`, so an `'auto-suffix'`/`'keep-both'` request that
+  // named the source as its own destination silently suffixed past the
+  // self-collision instead of refusing, and a `'skip'` request returned
+  // `{kind:'skipped'}` instead of the same explicit `sameFile` error every
+  // other collision policy gives — both diverging from the other two
+  // platforms for the exact same call). This must run before ANY copy: the
+  // danger is copying the source onto itself and then, in move mode,
+  // deleting the only remaining copy.
+  const classification = await classifySameFile(req.sourceAbsPath, req.destAbsPath);
+  if (classification === 'identical') {
     return {
       kind: 'error',
       error:
         'relocate: destination resolves to the same file as the source — refusing to avoid data loss',
     };
+  }
+  // #2704: a case-only rename on a case-insensitive-but-case-preserving
+  // filesystem (`img.cr3` -> `IMG.CR3`) IS the same underlying file — see
+  // `performCaseOnlyRename`'s doc for why it needs its own direct-rename
+  // path rather than falling into collision handling / copy-verify-delete
+  // below, both of which would misread the target as "occupied by the
+  // source itself".
+  if (classification === 'case-only-rename') {
+    if (req.mode !== 'move') {
+      return {
+        kind: 'error',
+        error:
+          'relocate: case-only rename target is the same file as the source on a case-insensitive filesystem — copy is not meaningful',
+      };
+    }
+    return performCaseOnlyRename(req);
   }
 
   // 1. Resolve the destination per the caller's collision policy.
