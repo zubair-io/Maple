@@ -130,6 +130,17 @@ pub(super) struct PhotometryOptions {
 }
 
 impl PhotometryOptions {
+    /// Derive the photometric knobs from the caller's [`GainOptions`].
+    ///
+    /// `sigma_n` / `sigma_g` are deliberately NOT threaded through:
+    /// they parameterize the old single-scalar solve's data-vs-prior
+    /// balance, which this solve replaces. Their roles here are the
+    /// gauge/ridge weights in [`solve_gain_slope`] and `field_lambda`,
+    /// all expressed relative to the measured data mass so they stay
+    /// scale-free — a fixed sigma in linear intensity units would not.
+    /// Nothing exposes them on the tile path today (the composite is
+    /// called with `GainOptions::default()`); wire them in only if a
+    /// real caller needs to tune this solve, per YAGNI.
     pub fn from_gain(g: &GainOptions) -> Self {
         Self {
             stride: g.sample_stride.max(1) as usize,
@@ -164,6 +175,11 @@ pub(super) struct PairAcc {
     pub(super) n: f64,
     pub(super) s_lnr_lum: f64,
     pub(super) s_lnr_ch: [f64; 3],
+    /// Per-channel sample counts. A sample only enters `s_lnr_ch[c]`
+    /// when BOTH frames are above `MIN_LUM` in that channel, so this can
+    /// be smaller than `n` (dark or clipped channels) — dividing the
+    /// channel sum by `n` would bias the mean toward 0.
+    pub(super) n_ch: [f64; 3],
     pub(super) s_dxi: f64,
     pub(super) s_deta: f64,
     pub(super) cells: BTreeMap<u32, CellAcc>,
@@ -348,6 +364,7 @@ fn sample_pairs(
                             for c in 0..3 {
                                 if ch_i[c] > MIN_LUM && ch_j[c] > MIN_LUM {
                                     acc.s_lnr_ch[c] += ch_i[c].ln() - ch_j[c].ln();
+                                    acc.n_ch[c] += 1.0;
                                 }
                             }
                             let cacc = acc.cells.entry(cell).or_default();
@@ -374,6 +391,7 @@ fn sample_pairs(
             dst.s_deta += acc.s_deta;
             for c in 0..3 {
                 dst.s_lnr_ch[c] += acc.s_lnr_ch[c];
+                dst.n_ch[c] += acc.n_ch[c];
             }
             for (cell, cacc) in acc.cells {
                 let d = dst.cells.entry(cell).or_default();
@@ -481,9 +499,16 @@ fn solve_channel_gains(
         if (acc.n as usize) < opts.min_pair_samples {
             continue;
         }
-        let w = acc.n;
+        // Weight and normalize by the CHANNEL's own sample count: a pair
+        // whose samples are mostly dark in this channel carries less
+        // information about its gain, and its mean must not be diluted by
+        // luminance-only samples.
+        if (acc.n_ch[ch] as usize) < opts.min_pair_samples {
+            continue;
+        }
+        let w = acc.n_ch[ch];
         total_w += w;
-        let mean = acc.s_lnr_ch[ch] / acc.n
+        let mean = acc.s_lnr_ch[ch] / acc.n_ch[ch]
             - slope_x * (acc.s_dxi / acc.n)
             - slope_y * (acc.s_deta / acc.n);
         ata[i][i] += w;
