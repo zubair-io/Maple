@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { AssetGridComponent } from './asset-grid.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { GridRowVirtualScrollStrategy } from './grid-row-virtual-scroll-strategy';
 import type { Asset, AssetId } from '../../models/asset';
 
 function makeAsset(id: string): Asset {
@@ -71,9 +72,16 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
             selectFolder,
             openSelfHostedSubfolder,
             setFolderOpen,
+            // gridRows() inputs — the constructor's row-size effect reads
+            // these even though this describe block only exercises the
+            // click handlers.
+            foldersInSelectedFolder: () => [],
+            assetsInSelectedFolder: () => [],
+            thumbSize: () => 140,
           },
         },
         { provide: Router, useValue: { navigate } },
+        GridRowVirtualScrollStrategy,
       ],
     });
 
@@ -241,6 +249,7 @@ describe('AssetGridComponent — folder section rows (#3099)', () => {
           },
         },
         { provide: Router, useValue: { navigate: vi.fn() } },
+        GridRowVirtualScrollStrategy,
       ],
     });
     return TestBed.runInInjectionContext(() => new AssetGridComponent());

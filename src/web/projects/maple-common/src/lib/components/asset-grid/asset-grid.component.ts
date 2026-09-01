@@ -14,11 +14,12 @@ import {
   OnDestroy,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { ScrollingModule } from '@angular/cdk/scrolling';
+import { ScrollingModule, VIRTUAL_SCROLL_STRATEGY } from '@angular/cdk/scrolling';
 import { DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
@@ -32,6 +33,7 @@ import { parseAddress } from '../../addressing/maple-address';
 import { viewRouteCommands } from '../../addressing/route-address';
 import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import { ASSET_GRID_DROP_LIST_ID, type AssetDragData } from '../../drag-move/asset-drag-data';
+import { GridRowVirtualScrollStrategy } from './grid-row-virtual-scroll-strategy';
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
@@ -72,6 +74,18 @@ const IMAGE_GAP = 3;
   styleUrl: './asset-grid.component.scss',
   host: { class: 'flex flex-col min-h-0 flex-1' },
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // #3103: rows aren't fixed-height (justified image rows range from
+  // max(40, …) to thumbSize * 1.4; folder rows are a fixed but different
+  // 64px), so the viewport's `[itemSize]` average was only approximate.
+  // `GridRowVirtualScrollStrategy` computes an exact cumulative-offset
+  // table from `gridRows()`'s already-known row heights instead — provided
+  // here (not on the `<cdk-virtual-scroll-viewport>` element) so both the
+  // strategy the viewport reads via `VIRTUAL_SCROLL_STRATEGY` and the
+  // instance this component calls `setRowSizes` on are the same object.
+  providers: [
+    GridRowVirtualScrollStrategy,
+    { provide: VIRTUAL_SCROLL_STRATEGY, useExisting: GridRowVirtualScrollStrategy },
+  ],
 })
 export class AssetGridComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridContainer', { read: ElementRef }) gridContainerRef!: ElementRef<HTMLElement>;
@@ -97,11 +111,22 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   private readonly router = inject(Router);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
   protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
+  private readonly rowScrollStrategy = inject(GridRowVirtualScrollStrategy);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private containerWidth = signal<number>(800);
   private ro?: ResizeObserver;
+
+  constructor() {
+    // Keep the virtual-scroll strategy's cumulative-offset table exact:
+    // every row's vertical footprint is its own height plus the
+    // margin-bottom spacing the template renders below it.
+    effect(() => {
+      const sizes = this.gridRows().map((row) => row.height + row.spacingBelow);
+      this.rowScrollStrategy.setRowSizes(sizes);
+    });
+  }
 
   readonly gridRows = computed((): GridRow[] => {
     const folders = this.state.foldersInSelectedFolder();

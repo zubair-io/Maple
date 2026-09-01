@@ -122,13 +122,12 @@
   [id]="assetGridDropListId"
   cdkDropListSortingDisabled
 >
-  <cdk-virtual-scroll-viewport
-    class="grid-scroll flex-1 bg-bg"
-    #gridContainer
-    [itemSize]="state.thumbSize() * 1.2"
-    minBufferPx="600"
-    maxBufferPx="900"
-  >
+  <!-- #3103: no [itemSize] here — GridRowVirtualScrollStrategy (provided by
+       AssetGridComponent, see its @Component providers) drives the viewport
+       with an exact per-row cumulative-offset table instead of an averaged
+       fixed item size. Its 600/900px buffers match what minBufferPx /
+       maxBufferPx carried here before. -->
+  <cdk-virtual-scroll-viewport class="grid-scroll flex-1 bg-bg" #gridContainer>
     <div
       *cdkVirtualFor="let row of gridRows(); trackBy: trackRow"
       class="flex"
