@@ -19,6 +19,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
+import { RowHeightsVirtualScrollDirective } from './row-heights-virtual-scroll';
 import { DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
@@ -64,6 +65,7 @@ const IMAGE_GAP = 3;
     MapleIconComponent,
     MuiButtonComponent,
     ScrollingModule,
+    RowHeightsVirtualScrollDirective,
     DragDropModule,
     AssetTileComponent,
     FolderTileComponent,
@@ -158,6 +160,12 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
     return rows;
   });
+
+  /** Each row's full box height (row + spacing below) — what the viewport's
+   * row-heights scroll strategy measures against (#3103). */
+  readonly rowBoxHeights = computed((): number[] =>
+    this.gridRows().map((row) => row.height + row.spacingBelow),
+  );
 
   filterLabel = computed(() => {
     const f = this.state.filter();
