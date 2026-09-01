@@ -76,7 +76,7 @@
 //! `DecodedBufferCache`, was removed along with that dead subsystem in
 //! #2060). `RenderedPreviewCache` retains its local `viewTransformVersion` for
 //! the documented bump lineage in that file, but new pipeline-output changes
-//! bump this single source instead. See `docs/pipeline-output-version.md` for
+//! bump this single source instead. See `docs/pipeline.md § "Pipeline output version"` for
 //! the full narrative.
 
 /// Monotonic version of the develop pipeline's rendered output. See the

@@ -1,623 +1,233 @@
-# Maple — Best Practices
+# Coding Standards
 
-Coding standards and patterns for Maple across Angular (web), Swift (Apple), and Rust (shared core). These are conventions the team agreed on — follow them by default, deviate with a PR comment explaining why.
+Maple is four codebases held to one contract: a Rust core (`src/raw-pipeline/`), an Angular workspace (`src/web/`), a Swift/SwiftUI Apple app (`src/apple/`), a Bun/Elysia server (`src/api/`), and a WinUI shell (`src/windows/`). The rules below are the ones that are actually enforced — by a pre-commit hook, a CI job, or a generator — plus the handful of design conventions the enforced rules exist to protect. Read the enforcement column first: if a rule has a script behind it, that script is the source of truth and this doc is its summary.
 
-The bar is: a working photographer can trust the color, and the slider responds inside a single 60Hz frame. Code that sacrifices either is not ready to merge.
-
----
-
-## Guiding principles
-
-These sit above every pattern below. When in doubt, fall back to these.
-
-### 1. Don't reinvent the wheel
-
-If the platform provides a primitive that does what you need, use it. `CIContext`, Angular's `HttpClient`, Rust's `rayon`, `NSCache`, IndexedDB — these are production-hardened by large teams and we can't do better. "I could write a faster one" is almost always false, and even when it's true it's not worth the maintenance.
-
-What counts as "the wheel":
-
-- HTTP with caching and interceptors → `HttpClient`, not `fetch`.
-- In-memory LRU → `NSCache` on Apple, a small Map-based LRU on web (or the service worker cache for HTTP).
-- Offline-ready asset storage on web → IndexedDB via a minimal wrapper (Dexie or `idb`), not raw `IDBRequest`.
-- Async primitives in Rust → `rayon` for CPU parallelism, `tokio` only if we genuinely need I/O scheduling (we usually don't in the core).
-- GPU tiling → our own tile planner in Rust (shared across platforms), not per-platform reimplementations.
-
-What does _not_ count: color science. We write the color math from first principles, against published references, with pixel-parity gates. No shortcuts there.
-
-### 2. Keep it simple
-
-- Only make changes that are directly requested.
-- Don't add features beyond what was asked.
-- Don't add abstractions for hypothetical future requirements.
-- Don't add error handling for impossible scenarios.
-- Don't add feature flags unless shipping the feature behind one.
-- Three lines of clear code beats a premature abstraction.
-
-```typescript
-// Good — simple, obvious
-const name = user.name;
-const email = user.email;
-const createdAt = user.createdAt;
-
-// Avoid — "clever" but unreadable
-const extract = <T, K extends keyof T>(obj: T, fields: K[]): Pick<T, K> =>
-  fields.reduce((acc, f) => ({ ...acc, [f]: obj[f] }), {} as Pick<T, K>);
-```
-
-### 3. Small functional chunks
-
-Every function does one thing. Every component renders one thing. Every service owns one concern. When a function grows past ~40 lines or a component past ~150, split it.
-
-- A component that renders chat _and_ a note editor _and_ a lego grid is three components, wired together by a route.
-- A service that authenticates users _and_ fetches notebooks _and_ uploads thumbnails is three services.
-- A pipeline stage that demosaics _and_ applies white balance is two stages.
-
-### 4. Reactive by default — observables at the service layer, view models in components
-
-On the web, all async data flows through observables. Services expose `Observable<T>` from their public methods. Components build a view model — a small bundle of observables, signals, and computed values — and subscribe via `async` pipe or `toSignal()`. We do not `await` observables at the service boundary.
-
-See `§ Angular — Observables and view models` below for the pattern in detail.
-
-### 5. Performance is a feature
-
-- Slider tick: 16ms target, 50ms hard limit.
-- No allocation inside the render loop.
-- Cache before you compute. Compute before you re-fetch.
-- Measure with the color-pipeline harness and the browser's performance profiler. Don't guess.
+Three things bind every language here. Formatting is a tool's job, never yours. Anything that appears in more than one language is generated from `raw-core`, never re-typed. And no file grows past 600 lines, because that's where reviewers stop reading.
 
 ---
 
-## Code formatting
+## Formatting and pre-commit gates
 
-Prettier handles all formatting. Editor must format on save.
+`lefthook.yml` at the repo root wires the whole formatter set to pre-commit. Install once per clone:
 
-```json
-// src/web/.prettierrc — the config CI uses (everything else is Prettier defaults)
-{
-  "printWidth": 100,
-  "singleQuote": true,
-  "overrides": [{ "files": "*.html", "options": { "parser": "angular" } }]
-}
+```bash
+brew install lefthook   # or: npm i -g lefthook
+lefthook install
 ```
+
+Every hook **soft-skips** when its binary isn't installed locally — CI is the gate, the hook is the early warning. The hooks are:
+
+| Files                             | Tool                                     | Also gated in CI                               |
+| --------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| `src/api/src/**/*.ts`             | `oxlint --config src/api/.oxlintrc.json` | `cross.yml` → `oxlint-api`                     |
+| `*.{rs,swift,ts,tsx,js,py}`       | `tools/check-file-budget.sh`             | `cross.yml` → `file-budget`, `budget-headroom` |
+| `*.{ts,html,scss,json,yaml,md,…}` | `prettier --check`                       | `cross.yml` → `format-check`                   |
+| `*.rs`                            | `rustfmt --edition 2021 --check`         | only `-p raw-ffi` (`raw-pipeline.yml`)         |
+| `*.swift`                         | `xcrun swift-format lint --strict`       | not gated in CI                                |
+| `*.py`                            | `ruff format --check` + `ruff check`     | not gated in CI                                |
+| `*.{sh,bash}`                     | `shfmt -d`                               | not gated in CI                                |
+
+Prettier's config is `src/web/.prettierrc` (`printWidth: 100`, `singleQuote: true`, Angular parser for `.html`) and it applies repo-wide — `src/api` and `docs/` included. There is no ESLint on web; Prettier is the only TypeScript/HTML style gate there. Reproduce the CI format job exactly with:
 
 ```bash
 cd src/web
-bun run format          # prettier --write over files your branch changes vs origin/main
-bun run format:check    # the CI gate (cross.yml format-check): --check over the same files
+bun run format          # bash scripts/format.sh --write
+bun run format:check    # bash scripts/format.sh --check  ← what CI runs
 ```
 
-There is no web lint step — Prettier is the only TypeScript/HTML style gate; CI (`.github/workflows/cross.yml`) runs it over the files a PR changes, repo-wide (`src/api` and `docs/` included).
+`scripts/format.sh` scopes to the files your branch changes versus `origin/main`, which is precisely the set CI checks — so a green local run predicts a green CI run.
 
-**Do not manually format code.** If Prettier output looks wrong, fix Prettier config — don't fight the tool.
+Note the asymmetry in the table: `cargo fmt --check` runs in CI for `raw-ffi` only, and Swift/Python/shell formatting is pre-commit-only. Don't assume a repo-wide `cargo fmt` is safe to run and commit.
 
-Swift uses `swift-format` with the repo config. Rust uses `rustfmt` defaults. Same rule: let the tool win.
+**Commit messages** must be Conventional Commits (`type(scope)?: description`, types `feat fix docs style refactor perf test build ci chore revert`), enforced by the `commit-msg` hook. `Merge`/`Revert`/`fixup!`/`squash!` lines pass through.
+
+Two more repo-wide CI gates worth knowing before you push:
+
+- **`fallow audit`** (`cross.yml` → `fallow-audit-web`, `fallow-audit-api`) flags dead code, complexity, and duplication. It reports pre-existing findings but fails only on ones your changeset _introduces_.
+- **`gitleaks`** scans for committed secrets. There is no pre-commit credential scan — this is the only net.
+
+## File-size budget
+
+`tools/check-file-budget.sh` counts `wc -l` on `*.rs *.swift *.ts *.tsx *.js *.py`. C#, XAML, HTML, and SCSS are out of scope.
+
+| Threshold | Line count | Behavior                                                                    |
+| --------- | ---------- | --------------------------------------------------------------------------- |
+| Soft      | 400        | Warns. Never blocks.                                                        |
+| Headroom  | 570        | `tools/check-budget-headroom.sh` fails if your diff _grows_ a file past it. |
+| Hard      | 600        | Blocks commit and CI unless the path is in `tools/budget-allowlist.txt`.    |
+
+The headroom rule exists because the hard limit alone punishes the wrong pull request. Splitting a file to clear 600 naturally lands it at 598 — and then the next unrelated change that adds two lines is the one that goes red. **Split with real margin: aim well under 570.** The allowlist is a frozen day-0 audit; CI forbids appending to it, and when you split an allowlisted file you delete its entry in the same change.
+
+```bash
+bash tools/check-file-budget.sh                  # whole repo
+bash tools/check-budget-headroom.sh origin/main  # what the PR gate runs
+```
+
+## Functional, immutable style
+
+Compute a value through named, single-assignment bindings and early-return guards. Don't declare one mutable binding and reshape it across successive `if` branches — each value gets one name and the code reads as a pipeline.
+
+In TypeScript that means `const` over a reassigned `let`; in Swift `let` over `var`; in Rust `let` over `let mut`. Write it that way the first time.
+
+```typescript
+const stripped = name.replace(CIVIC_PREFIX, '').trim();
+const resolved = stripped.length > 0 ? stripped : name;
+return resolved === 'New York' ? 'New York City' : resolved;
+```
+
+Scope tightly, then finish completely. Build what the ticket requires and no config knob, abstraction layer, or extension point beyond it — every speculative parameter is code that has to be read, tested, and kept at parity across three pipelines. But within that scope, ship the real thing: no stubs, no hard-coded fake data, no empty handlers. If something genuinely can't be finished in one pass, say what's blocking instead of papering over it.
 
 ---
 
 ## TypeScript
 
-### Strict mode, no exceptions
+Both workspaces are `"strict": true`. The web adds `noImplicitOverride`, `noPropertyAccessFromIndexSignature`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, and `isolatedModules` (`src/web/tsconfig.json`), plus Angular's `strictTemplates`, `strictInjectionParameters`, and `strictInputAccessModifiers`.
 
-```json
-// tsconfig.json
-{
-  "compilerOptions": {
-    "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true
-  }
-}
-```
-
-### `import type` for type-only imports
-
-```typescript
-// Good
-import type { User, Notebook } from '@maple/shared';
-import { validateUser } from '@maple/shared';
-
-// Bad
-import { User, Notebook, validateUser } from '@maple/shared';
-```
-
-### Never `any` — use `unknown` and narrow
-
-```typescript
-// Bad
-function processData(data: any) {
-  return data.name;
-}
-
-// Good
-function processData(data: unknown): string {
-  if (typeof data === 'object' && data !== null && 'name' in data) {
-    return String(data.name);
-  }
-  throw new Error('Invalid data');
-}
-```
-
-### Prefer type guards over assertions
-
-```typescript
-function isUser(obj: unknown): obj is User {
-  return typeof obj === 'object' && obj !== null && 'email' in obj && '_id' in obj;
-}
-
-// Use assertions only when absolutely necessary, with a comment explaining why.
-const user = data as User; // narrowed by upstream validator
-```
-
-### Utility types
-
-`Partial`, `Pick`, `Omit`, `Required`, `Readonly`, `NonNullable` — prefer these over writing new interfaces for trivially derived shapes.
-
----
+- **Never `any`.** Take `unknown` at a boundary and narrow with a type guard. `src/api/.oxlintrc.json` warns on `typescript/no-explicit-any`.
+- **Split type-only imports.** `import type { Foo } from …` — `typescript/consistent-type-imports` is an oxlint error on the API side, and `isolatedModules` makes it load-bearing on web.
+- **Prefer type guards to assertions.** An `as` cast asserts something the compiler couldn't check; a `value is T` predicate makes the check real.
 
 ## Angular
 
-### Every component is three files
+The workspace is Angular 21 with two apps (`maple`, `maple-syrup`) and one library (`maple-common`). See [web](web.md) for the workspace map and build commands.
 
-```
-button/
-├── maple-button.component.ts       # Component class — logic only
-├── maple-button.component.html     # Template
-└── maple-button.component.scss     # Styles
-```
+**Every component is three files** — `.ts`, `.html`, `.scss` — in a folder named after the component. No inline templates, no inline `styles`. Create the SCSS even when it starts empty; several components now have none of their own styling left after the Tailwind port, and that's fine.
 
-Almost always TS + HTML + SCSS as separate files. No inline templates beyond a single `<ng-content />` sketch. No inline styles in `styleUrls`. SCSS is empty until it's not — create it anyway so the structure is consistent.
-
-### Standalone components, always
+**Standalone, `OnPush`, function-syntax I/O, `inject()`.** The `mui-*` design-system components are the reference implementations — `src/web/projects/maple-common/src/lib/ui/button/mui-button.component.ts` is a compact one to copy from.
 
 ```typescript
 @Component({
-  selector: 'app-button',
+  selector: 'mui-button',
   standalone: true,
-  imports: [CommonModule],
-  templateUrl: './button.component.html',
-  styleUrl: './button.component.scss',
+  imports: [MuiIconComponent],
+  templateUrl: './mui-button.component.html',
+  styleUrl: './mui-button.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ButtonComponent {}
-```
-
-`ChangeDetectionStrategy.OnPush` is the default. With signals and observables, we almost never need Zone-triggered change detection.
-
-### `input()` / `output()` — function syntax only
-
-```typescript
-// Good
-readonly variant = input<'primary' | 'secondary'>('primary');
-readonly disabled = input<boolean>(false);
-readonly clicked = output<void>();
-
-// Bad — decorator syntax is legacy
-@Input() variant: 'primary' | 'secondary' = 'primary';
-@Output() clicked = new EventEmitter<void>();
-```
-
-### `inject()` for dependency injection
-
-```typescript
-// Good
-export class EditorComponent {
-  private readonly editSession = inject(EditSessionService);
+export class MuiButtonComponent {
+  readonly variant = input<MuiButtonVariant>('secondary');
+  readonly disabled = input<boolean>(false);
+  readonly pressed = output<void>();
   private readonly router = inject(Router);
 }
-
-// Avoid
-export class EditorComponent {
-  constructor(
-    private editSession: EditSessionService,
-    private router: Router,
-  ) {}
-}
 ```
 
-### Control flow syntax
+Decorator `@Input()`/`@Output()`, constructor injection, and `*ngIf`/`*ngFor` are legacy — use `input()`/`output()`, `inject()`, and `@if`/`@for`/`@empty` with a stable `track` key.
 
-```html
-<!-- Good -->
-@if (isLoading()) {
-<app-spinner />
-} @else if (error()) {
-<app-error [message]="error()" />
-} @else {
-<div>Content</div>
-} @for (item of items(); track item.id) {
-<app-item [data]="item" />
-} @empty {
-<p>No items found</p>
-}
+**One page component per route.** Never switch page content with `@if (viewType === …)` inside a parent; that's what `canMatch` guards and lazy `loadComponent` are for. `src/web/projects/maple/src/app/app.routes.ts` lazy-loads every route.
 
-<!-- Bad — structural directives are legacy -->
-<app-spinner *ngIf="isLoading"></app-spinner>
-<div *ngFor="let item of items">...</div>
-```
-
-### Signals for local state
-
-```typescript
-// Good — signals for synchronous local state
-readonly count = signal(0);
-readonly doubled = computed(() => this.count() * 2);
-
-increment(): void {
-    this.count.update(c => c + 1);
-}
-
-// Bad — BehaviorSubject in a component for local state
-private countSubject = new BehaviorSubject(0);
-count$ = this.countSubject.asObservable();
-```
-
-### Page-level separation
-
-Each page component owns one concern. Never switch page content with `@if` inside a parent. Use `canMatch` route guards instead.
-
-```typescript
-// Good
-// chat-view.component.ts — only chat
-// note-view.component.ts — only notes
-// lego-view.component.ts — only lego
-
-// Bad
-@if (viewType === 'chat') {
-    <app-chat />
-} @else if (viewType === 'note') {
-    <app-note-editor />
-}
-```
-
-### Routing & Navigation
-
-1. **SPA Integrity:** Always use `routerLink` / `[routerLink]` rather than standard `href` / `[href]` for internal navigation (e.g. settings panels, worker pages, profile pages). Standard `href` triggers a full browser reload, which resets the Angular state and breaks browser history navigation.
-2. **Browser History Management:**
-   - Avoid using `replaceUrl: true` for normal master-detail / page transitions. Users expect the browser back button to navigate backwards sequentially through their page views.
-   - Only use `replaceUrl: true` for:
-     - Boot-level or guard redirects (e.g. `/` redirecting to `/browse` or authentication redirects).
-     - Close/dismiss action buttons (e.g., closing a detail panel so that browser Back does not trap the user inside the detail view).
-     - Reactive URL synchronization for search inputs or dynamic state parameters (e.g. updating `?q=` as the user types), to avoid filling the history stack with intermediate query states.
-
----
-
-## Angular — observables and view models
-
-This is the pattern that changes most from our earlier codebases. We are moving _away_ from `firstValueFrom` + `await`, and toward pure-observable service layers with component-level view models.
-
-### Services return `Observable<T>`
-
-Never `firstValueFrom`, never `toPromise`. Services are thin wrappers around `HttpClient` (or WASM calls wrapped with `from()`). They expose observables, and only observables.
-
-```typescript
-// Good
-@Injectable({ providedIn: 'root' })
-export class NotebookService {
-    private readonly http = inject(HttpClient);
-
-    list(): Observable<Notebook[]> {
-        return this.http.get<Notebook[]>('/api/notebooks');
-    }
-
-    get(id: string): Observable<Notebook> {
-        return this.http.get<Notebook>(`/api/notebooks/${id}`);
-    }
-
-    create(data: CreateNotebookDto): Observable<Notebook> {
-        return this.http.post<Notebook>('/api/notebooks', data);
-    }
-}
-
-// Bad — leaks promises into callers
-async list(): Promise<Notebook[]> {
-    return firstValueFrom(this.http.get<Notebook[]>('/api/notebooks'));
-}
-```
-
-### State services expose observables backed by `BehaviorSubject`
-
-For session-scoped state (the current notebook, the current edit session, the auth user), wrap a `BehaviorSubject` and expose it as an observable.
-
-```typescript
-@Injectable({ providedIn: 'root' })
-export class EditSessionService {
-  private readonly sessionSubject = new BehaviorSubject<EditSession | null>(null);
-  readonly session$ = this.sessionSubject.asObservable();
-
-  readonly adjustments$: Observable<AdjustmentModel | null> = this.session$.pipe(
-    map((s) => s?.adjustments ?? null),
-    distinctUntilChanged(),
-  );
-
-  open(asset: ImageAsset): Observable<EditSession> {
-    return this.loadSidecar(asset).pipe(
-      map((sidecar) => EditSession.from(asset, sidecar)),
-      tap((session) => this.sessionSubject.next(session)),
-    );
-  }
-
-  updateAdjustment<K extends keyof AdjustmentModel>(key: K, value: AdjustmentModel[K]): void {
-    const current = this.sessionSubject.value;
-    if (!current) return;
-    this.sessionSubject.next({
-      ...current,
-      adjustments: { ...current.adjustments, [key]: value },
-    });
-  }
-}
-```
+**Signals for synchronous local state, observables for async.** A `BehaviorSubject` inside a component to hold a counter is the wrong tool.
 
 ### Components build a view model
 
-A view model is a small object, created once in the component, that bundles the observables and signals the template needs. The template reads from the view model via `async` pipe or `toSignal()`.
+Services expose `Observable<T>` and only `Observable<T>` — no `firstValueFrom`, no `toPromise` at the service boundary. Components assemble a **view model**: a small object built once, bundling the observables and signals the template needs, consumed via the `async` pipe or `toSignal()`.
 
-```typescript
-@Component({
-  selector: 'app-editor',
-  standalone: true,
-  imports: [AsyncPipe, ColorPanelComponent, HistogramComponent],
-  templateUrl: './editor.component.html',
-  styleUrl: './editor.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class EditorComponent {
-  private readonly editSession = inject(EditSessionService);
-  private readonly histogram = inject(HistogramService);
+Non-trivial view models get their own `*.vm.ts` file beside the component — see `src/web/projects/maple-common/src/lib/components/develop/tone-curve.vm.ts`, `src/web/projects/maple-common/src/lib/info/info-panel.vm.ts`, and `src/web/projects/maple/src/app/settings/workers/workers.vm.ts`.
 
-  protected readonly vm = this.buildViewModel();
+The payoff is concrete, not stylistic. A new slider tick cancels the in-flight histogram request through `switchMap` — with promises that's manual `AbortController` plumbing. `debounceTime`/`distinctUntilChanged`/`combineLatest` compose the way the UI actually behaves. The `async` pipe owns the subscription lifecycle, so there's no `takeUntilDestroyed` scattered through the component. And `OnPush` plus `async` plus signals means the framework only rechecks components whose inputs really changed.
 
-  private buildViewModel() {
-    const session$ = this.editSession.session$;
-    const adjustments$ = this.editSession.adjustments$;
-    const histogram$ = adjustments$.pipe(
-      debounceTime(150),
-      switchMap((adj) => (adj ? this.histogram.compute(adj) : of(null))),
-    );
+Promises are fine for one-shot imperative actions (`router.navigate()`, logging) and for wrapping promise-only libraries — wrap with `from()` at the boundary.
 
-    return {
-      // Signals for synchronous, template-accessed values
-      isReady: toSignal(session$.pipe(map((s) => s !== null)), {
-        initialValue: false,
-      }),
+### Routing
 
-      // Observables for async-pipe use in templates
-      adjustments$,
-      histogram$,
-    } as const;
-  }
+Internal navigation uses `routerLink` / `[routerLink]`, never `href`. A plain `href` triggers a full browser reload, which throws away Angular state and breaks history navigation.
 
-  onExposureChange(value: number): void {
-    this.editSession.updateAdjustment('exposure', value);
-  }
-}
-```
+Reserve `replaceUrl: true` for boot-level and guard redirects, for close/dismiss buttons (so Back doesn't trap the user inside a detail view), and for reactive URL sync such as updating `?q=` as the user types. Ordinary master-detail transitions must push history — users expect Back to walk backwards.
 
-```html
-<!-- editor.component.html -->
-@if (vm.isReady()) { @if (vm.adjustments$ | async; as adj) {
-<app-color-panel [adjustments]="adj" (exposureChange)="onExposureChange($event)" />
-} @if (vm.histogram$ | async; as histogram) {
-<app-histogram [data]="histogram" />
-} }
-```
+### Styling: Tailwind first, tokens always
 
-### Why this pattern
+Design tokens are generated, not authored in CSS. Hex values live in `src/raw-pipeline/raw-core/src/ui_tokens.rs`; `tools/codegen.sh` emits them to `src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss` (plus `ui-tokens.ts`, Swift `UITokens.swift` for MapleCore _and_ MapleUI, and `src/windows/Maple.WinUI/Themes/Tokens.xaml`). `tokens.scss` wires the SCSS into Tailwind's `@theme` block. **A hex value never appears in a template or a component stylesheet.** If you need a color, add a token and regenerate.
 
-- **Cancellation is free.** A new slider tick cancels the in-flight histogram computation via `switchMap`. Promises require manual `AbortController` plumbing for the same behavior.
-- **Composition is declarative.** `debounceTime`, `distinctUntilChanged`, `combineLatest`, `switchMap` compose the way the UI actually behaves. Promises compose poorly past two steps.
-- **Memory lifecycle is handled by `async` pipe.** No manual `unsubscribe`, no `takeUntilDestroyed` sprinkled across the component.
-- **Change detection is minimal.** `OnPush` + `async` pipe + signals means the framework only re-checks components whose inputs actually changed.
+The conversion recipe at `src/web/projects/maple-common/src/lib/styles/TAILWIND-CONVERSION.md` is binding for any component you port or write. Its load-bearing rules:
 
-### When a promise is OK
+- **One mutually-exclusive computed string per shared CSS property.** When two states set the same property and the original SCSS resolved the winner by declaration order, do not reproduce that with two conditional utilities of equal specificity — Tailwind's generated order is not a template-level guarantee. Resolve the precedence in a `computed()` that returns only the winning classes. This holds even for a single add-on like `disabled:opacity-45` over a base `cursor-pointer`: fold both branches into the one computed.
+- Prefer a built-in variant (`disabled:`, `enabled:hover:`, `peer-focus-visible:`) when Tailwind already expresses the condition natively.
+- Spacing and radius utilities line up with `$maple-spacing-*` / `$maple-radius-*` by **coincidence** — those scales aren't registered in `@theme`. The coincidence stops past 4/8/16/24/32/48px, so use an arbitrary value rather than rounding to a "close" utility.
+- Bare `text-{xs,sm,base}` also sets `line-height`. Pair it with an explicit `leading-*`, or use `text-[Npx]`, when the original rule only specified a font size.
+- Unconditional `:host { display: X }` becomes `host: { class: 'X' }`; a conditional `:host` becomes one computed `host: { '[class]': fn }` returning the whole mutually-exclusive set.
+- Marker classes (`variant-x`, `is-active`) stay even when style-free if a spec asserts on them or an external `::ng-deep` targets them. Grep before deleting a class.
 
-- One-shot imperative actions: `router.navigate()`, file downloads, logging, analytics.
-- Interop with libraries that only expose promises (wrap with `from()` at the boundary).
-- Inside effects, wrap with `from()` to bring back into the observable world.
+Only two kinds of SCSS residue are legitimate: `@keyframes` (referenced through an arbitrary `[animation:…]` value) and pseudo-elements that need `content` plus absolute geometry, such as 44×44 hit targets. Sibling focus rings use `peer` / `peer-focus-visible:` instead.
+
+### Compose from Maple UI, don't hand-roll markup
+
+New UI composes `mui-*` components from `src/web/projects/maple-common/src/lib/ui/`, not raw `<button>` markup or `btn-primary`-style classes. `src/web/scripts/check-maple-ui-adoption.mjs` is an incremental ratchet: directories and files already migrated are frozen, and a raw `<button>` re-entering one fails `bun run maple-ui:adoption-check` in `web.yml`. See [unified-component-catalog](unified-component-catalog.md) for what exists on each platform.
 
 ---
 
-## Styling
+## API — Bun, Elysia, MongoDB
 
-### Tailwind first, design tokens always
-
-Tailwind utility classes are the primary styling method. Arbitrary values reference CSS variables from the design system.
-
-```html
-<button
-  class="px-4 py-2 bg-[var(--color-accent)] text-white rounded-md
-           hover:bg-[var(--color-accent-hover)] transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed"
->
-  Submit
-</button>
-```
-
-The design tokens (`src/web/projects/maple-common/src/lib/tokens.scss`) are the single source of truth for color, typography, spacing, and elevation. Hex values are authored in `src/raw-pipeline/raw-core/src/ui_tokens.rs` and emitted into `src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss` by `tools/codegen.sh`; `tokens.scss` wires those into the Tailwind `@theme` block and SCSS aliases. Hex values do not appear in component templates or SCSS. If you need a color, add a token first.
-
-Key rules for Maple's dark theme:
-
-- **Never pure black.** Root background is warm charcoal `var(--color-bg-root)` (`#1c1917`).
-- **Elevation = lighter warm surfaces**, not shadows.
-- **Accent `var(--color-accent)` is used sparingly** — selected nav, active tab indicator, focus rings, XMP badge border. Never as a fill on large surfaces.
-- **Scopes always render on `var(--color-bg-scope)`** (`#141210`, deeper than root) so RGB waveform colors read clearly.
-- **Images are the UI.** Chrome recedes; thumbnails and the full-image view dominate visual weight.
-
-### SCSS is for what Tailwind can't express
-
-- Complex animations with multiple keyframes
-- `::before` / `::after` pseudo-elements
-- Compound selectors that depend on structural state
-
-```scss
-// button.component.scss
-.button {
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: currentColor;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-
-  &:hover::after {
-    opacity: 0.1;
-  }
-}
-```
-
-### Never inline styles
-
-```html
-<!-- Bad -->
-<div style="color: red; margin: 10px;">
-  <!-- Good -->
-  <div class="text-[var(--color-danger)] m-2.5"></div>
-</div>
-```
-
----
-
-## Caching strategy
-
-Maple is a cache-heavy app by design — the alternative (re-decoding a 100MP RAW on every view) is not acceptable. Caching lives at every layer.
-
-### Web — the three layers
-
-1. **Angular service worker** (`ngsw-config.json`). Caches the app shell, static assets, and API responses with appropriate freshness strategies. Configured with `performance` strategy for static assets (cache-first) and `freshness` strategy for data APIs (network-first with fallback). The service worker is what makes the editor load in one frame on a repeat visit.
-
-2. **IndexedDB** via a minimal wrapper (`idb` library — ~2KB gzipped, no opinions). Used for:
-   - **Rendered preview cache.** Keyed on `(primaryUrl, primaryMtime, sidecarMtime, screenSize, adjustmentVersion, viewTransformVersion)`. Stores JPEG bytes. Cold-open hit returns pixels in ~35ms.
-   - **Thumbnail disk cache.** Keyed on `(assetId, size)`. Persistent across sessions.
-   - **Remote source bytes.** Cached RAW file bytes, keyed on remote path + mtime. We never re-download a RAW we've seen.
-
-3. **In-memory** via `BehaviorSubject`, signals, or a small Map-based LRU for hot paths. Session-scoped. The decoded scene-linear f32 buffer lives here — exactly one per open `EditSession`, cleared on `endEditing`.
-
-Service worker configuration lives at `src/web/projects/editor/ngsw-config.json`. Do not bypass it with `fetch` that sets `cache: 'no-store'` without a reason documented in the commit.
-
-### Apple — mirror layers
-
-1. **`NSCache`** for thumbnails in memory. App-scoped, auto-evicts on memory pressure.
-2. **File-based disk cache** at `~/Library/Caches/app.justmaple.aperture/` for rendered previews, thumbnails, and remote source bytes. Pruned on a 30-day LRU sweep.
-3. **Session state** in `@MainActor` `@Observable` types. Decoded f32 buffer lives in one slot per `EditSession`.
-
-### Invalidation
-
-Cache invalidation is the hard part. Every cache key above includes the fields that would change the output:
-
-- Rendered preview keyed on `viewTransformVersion` — swap the view transform in v2 and every cached preview invalidates automatically.
-- Rendered preview keyed on `adjustmentVersion` — any sidecar schema change ratchets the version.
-- Thumbnail keyed on `(assetId, size)` — a new size variant is its own cache entry, not a collision.
-
-If you add a new cache, document the key composition and the invalidation rule in `docs/caching.md`.
-
----
-
-## API (server) best practices
-
-### Repository pattern
-
-Data access lives in `*.repo.ts` files. Routes call repo functions, never a database driver directly.
+**Route families are prefixed Elysia instances**, one exported const per file under `src/api/src/routes/`:
 
 ```typescript
-// repositories/notebook.repo.ts
-export async function findById(id: string): Promise<Notebook | null> {
-  const doc = await collection().findOne({ _id: new ObjectId(id) });
-  return doc ? mapNotebook(doc) : null;
-}
-
-export async function create(data: CreateNotebook): Promise<Notebook> {
-  const now = new Date().toISOString();
-  const result = await collection().insertOne({
-    ...data,
-    createdAt: now,
-    updatedAt: now,
-  });
-  return {
-    _id: result.insertedId.toString(),
-    ...data,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-```
-
-### Route grouping with prefixes
-
-```typescript
-export const notebookRoutes = new Elysia({ prefix: '/api/notebooks' })
-  .use(jwtPlugin)
-  .derive(authDerivation)
+export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   .get('/', listHandler)
-  .post('/', createHandler, { body: createSchema })
-  .get('/:id', getHandler)
-  .put('/:id', updateHandler, { body: updateSchema })
-  .delete('/:id', deleteHandler);
+  .post('/', createHandler, { body: t.Object({ name: t.String({ minLength: 1 }) }) });
 ```
 
-### Consistent error shape
+Bodies and params validate through Elysia's TypeBox `t` schemas at the route, not by hand inside the handler.
+
+**Auth is grouped, not per-route.** `src/api/src/routes/authed-api.ts` is a named sub-app that `.use(requireAuth)` once and mounts every bearer-gated family inside it. The sub-app boundary matters: `requireAuth` is a scoped derive, so without it the guard would leak forward onto the static-UI plugin and break unauthenticated cold loads. Self-gating families (Cloudflare, users, service keys) and token-in-query families (events, video) deliberately mount outside it.
+
+**Errors are `set.status` plus a single-field body**: `return { error: 'file access permission required' }` with `set.status = 403` (`src/api/src/auth/middleware.ts`). There is no second `message` field.
+
+**Data access lives in `*.repo.ts`** under `src/api/src/db/` (`assets.repo.ts`, `changes.repo.ts`, `backup-sessions.repo.ts`) and in per-domain repos like `src/api/src/workers/worker-config.repo.ts`. Route handlers call repo functions; they don't reach for the Mongo driver.
+
+### The filesystem-import guardrail
+
+`src/api/.oxlintrc.json` makes `node:fs`, `node:fs/promises`, and their bare forms **restricted imports**. Durable writes go through `src/api/src/fs/mirrored.ts` so they replicate to the backup mirror. Read-only access, temp paths, and the mirror machinery itself are legitimate exceptions — add the file to the `overrides` allowlist in that config with a one-line reason rather than silencing the rule inline.
+
+### Tests
+
+`bun test` is the gate (`src/api/package.json`). Mongo-backed suites need a real database — they skip-pass when none is reachable.
+
+Scope every environment override to the suite with the helpers in `src/api/src/db/test-db.test-helpers.ts`:
 
 ```typescript
-{ error: 'Unauthorized', message: 'Invalid or expired token' }
-{ error: 'Not found', message: 'Notebook does not exist' }
-{ error: 'Validation failed', message: 'Name is required' }
+const dbName = withTestDb('maple_test_folders'); // sets MAPLE_MONGO_DB for this suite only
 ```
 
-### Validation via TypeBox
+This is not a style preference. Bun evaluates every module body during the import phase, before any test runs, so a suite that assigns `process.env.MAPLE_MONGO_DB` at module scope renames the database for the whole process: the last import wins, other suites' `getDb()` connect to it, and one suite's teardown drops a database another is still using. `withTestEnv` / `withTestDb` claim the value in `beforeAll` and restore it in `afterAll`, so an override is live only while its owner runs. Capturing the previous value at module scope is the same bug in disguise. Use `tryConnectTestMongo()` for the skip-pass check rather than rolling your own timeouts.
 
-```typescript
-.post('/', handler, {
-    body: t.Object({
-        name: t.String({ minLength: 1, maxLength: 100 }),
-        description: t.Optional(t.String({ maxLength: 500 })),
-        color: t.Optional(t.String({ pattern: '^#[0-9a-fA-F]{6}$' })),
-    }),
-})
-```
+### Configuration goes in settings, not new environment variables
+
+Runtime configuration belongs in Maple's database-backed settings — the `worker_config` and enrichment-config collections, surfaced on the Settings pages (`/settings/workers`, `/settings/sources`, `/settings/pano`, `/settings/map`, `/settings/network`, …). A DB-backed setting is toggleable at runtime with no restart and no shell access, and it is visible in the UI. An environment variable is invisible and needs a redeploy.
+
+Reserve environment variables for bootstrap that must be known before the database is reachable: port, `MAPLE_MONGO_URI`, `MAPLE_JWT_SECRET`, process role. A new feature toggle or threshold ships with its control on the relevant settings page, in the same change as the backend.
+
+### Ongoing per-asset work is a stage, not a job
+
+If the job description is "eventually, every eligible asset gets property X" — a derivative, a mirrored copy, a computed metric — it belongs in `src/api/src/workers/stages/` as a `defineStage()` stage (`src/api/src/workers/stage-config.ts`, run by `src/api/src/workers/run-stage.ts`), the same shape as `exif`, `thumb`, `preview`, `describe`, `geocode`, `meili`, `transcribe`. That machinery hands you pause/resume, concurrency, retry with backoff, dead-lettering, and a live progress row on Settings → Workers for free. A one-off job or a bespoke settings-page button reimplements a worse version and is invisible to the operator everywhere else.
+
+Registering a stage is three additions plus a label: the stage's own `startXStage()` export; entries in both `stageManifest` and `ALL_STAGE_NAMES` in `src/api/src/workers/stages/manifest.ts` (this is what makes existing assets retroactively eligible and what the generic status counters key off); an entry in `STAGE_STARTERS` in `src/api/src/workers/orchestrator.ts` (what boots the poll loop); and a `STAGE_META` entry in `src/web/projects/maple/src/app/settings/workers/workers.vm.ts` for a human-readable name.
+
+Ordering between stages is declared, not scheduled: each stage lists a `dependsOn` array of `{ name, minVersion }` entries, and the claim query parks an asset until every upstream stage has reached that version. Position in the manifest means nothing. A stage that discovers its upstream produced something unusable returns `{ rearm: { stage, reason } }`, which resets that upstream stage rather than marking the asset done.
+
+A stage that depends on configuration the operator may not have set yet — an API key, a service URL — starts `pausedOnFirstBoot: true`. `src/api/src/workers/stages/geocode.ts` is the precedent. This matters because a stage's `{ skip }` / `{ wrote }` / `{ patch }` return marks that asset permanently handled, so "not configured yet" must never reach that return path.
+
+Reserve `src/api/src/job-runner/` (`batch-jpeg-export.ts`, `pano-stitch.ts`) for genuinely one-off, user-selected actions bounded to a request: export these chosen photos, stitch this panorama. See [indexer-enrichment](indexer-enrichment.md) for the runtime.
 
 ---
 
-## Swift / SwiftUI
+## Swift and SwiftUI
 
-### `@Observable` + `@MainActor` for UI state
+Code lives in three local SPM packages under `src/apple/Packages/` plus the Xcode app targets:
 
-```swift
-@MainActor
-@Observable
-final class EditSession {
-    private(set) var adjustments: AdjustmentModel
-    private(set) var isRendering = false
+- **MapleCore** — pipeline, sidecars, source adapters, caches, view models. Also ships `MapleCloudKit`, deliberately dependency-free so the tvOS target can link it without `RawPipeline`.
+- **MapleUI** — the design system. Dependency-free by contract: no MapleCore import, no third-party packages, because sibling apps consume it directly. macOS 14 / iOS 17.
+- **MapleBackup** — backup engine.
 
-    func updateExposure(_ value: Double) {
-        adjustments.exposure = value
-        scheduleRender()
-    }
-}
-```
+### Module boundary
 
-State the UI observes lives on `@MainActor`. Work that doesn't (decode, parse, thumbnail generation) runs on detached tasks or actors.
+Shared domain logic belongs in MapleCore, not in the app target — `src/apple/Packages/MapleCore/Sources/MapleCore/BrowseViewModel.swift` is the pattern. Platform `#if` guards are confined to views. MapleUI stays free of both: no MapleCore import, no app-specific types.
 
-### Actors for I/O
+### `@Observable` state, actor-isolated I/O
 
-```swift
-actor XMPSidecarStore {
-    func read(url: URL) async throws -> AdjustmentModel { ... }
-    func write(_ model: AdjustmentModel, to url: URL) async throws { ... }
-}
-
-actor ThumbnailLoader {
-    private var activeSlots: Int = 0
-    private let maxSlots = 6
-    // Concurrency-limited with checked continuations.
-}
-```
+State the UI observes is `@MainActor` + `@Observable`. Disk and network work runs behind an actor — `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/PresetStore.swift` is an actor precisely so its disk I/O can't race with the UI. `@Published` and `ObservableObject` are superseded by `@Observable`.
 
 ### Generation counters for async state
 
-Folder switches and asset loads use a generation counter to reject stale writes.
+Generation counters guard every async write into observed state. A folder switch, a search, a map fetch, or a metadata capture that resolves after the user moved on must not write. Bump a counter before the await, re-check it after, and return if it moved:
 
 ```swift
 @MainActor
@@ -636,251 +246,74 @@ func loadAssets(for folder: URL) async {
 }
 ```
 
-### Module boundary
+Live examples: `BrowseViewModel.swift`, `MapViewModel.swift` and `SearchViewModel.swift` in `MapleCloudKit/Cloud/`, `PanoMergeSession.swift`, `src/apple/Maple TV/LightTableViewModel.swift`, and `src/apple/Maple/Views/PairAppleTVViewModel.swift`. Request-identity comparison is an acceptable variant where the request already has a natural identity (`BatchMetadataCaptureSection.swift`).
 
-All non-UI code in `MapleCore` SPM package. Platform `#if` guards are confined to views. No business logic in the app target.
+### Platform-gated code needs both builds
 
-### No template scaffold code
+A change behind `#if os(...)` must be built on every platform it touches. CI's only Swift gate is `swift build` of the MapleCore package on macOS (`.github/workflows/apple.yml`) — it never type-checks an `#if os(iOS)` or `#if os(tvOS)` branch, and it never builds the app targets at all. There are over 200 such guards in `src/apple`. A macOS-only modifier inside an iOS branch compiles green in CI and fails at the TestFlight archive. Build the iOS and tvOS destinations locally before you push. See [apple](apple.md) for the commands.
 
-Delete Xcode's `ContentView`/`Item` placeholders when you replace them. Don't leave "example" code in the repo.
-
----
+**Delete template scaffold.** Xcode's `ContentView`/`Item` placeholders go when you replace them.
 
 ## Rust core
 
-### Core is pure, platform bindings are thin
+`raw-core` is pure image math with no Apple or browser dependencies. It reaches platforms three ways: `raw-ffi` → the Apple xcframework, `raw-wasm` → the browser bundle, `raw-gpu` → the WGSL kernels. `maple-cli` is the headless harness. Details in [pipeline](pipeline.md).
 
-`raw-core` has no Apple or browser dependencies. It compiles to:
+- **Determinism is a hard requirement.** Same input plus same parameters gives byte-identical output across machines and across the WASM/native split. No wall-clock reads, no unseeded RNG, no parallel reductions with non-associative operators. `src/raw-pipeline/raw-core/src/api.rs` states this as a module invariant, and the baseline harness catches violations.
+- **No filesystem access in the core.** Entry points take and return bytes; the shell owns I/O.
+- **Never panic on bad input.** Library code returns `Result<T, E>`. `unwrap`/`expect` belong in tests and binaries.
+- **`rayon` for CPU parallelism.** Pixel-decomposable stages use parallel iterators; don't spawn threads by hand.
+- **Every stage gets unit tests**, and the ACR-referenced perceptual harness is the integration gate. Roughly one test per public function and per failure mode — not per line.
+- **A stage change must land its GPU counterpart.** `cargo test -p raw-core` cannot see WGSL divergence; `raw-pipeline.yml` runs a separate `raw-gpu` job that validates the shaders with `naga` and checks raw-core ↔ GPU parity.
 
-- An Apple xcframework via `raw-ffi` (cbindgen-generated C headers).
-- A WASM bundle via `raw-wasm` (wasm-bindgen).
+Anything that exists in two languages is single-sourced. Color matrices, the adjustment schema, UI tokens, and the film catalog are all emitted by `src/raw-pipeline/codegen` through `tools/codegen.sh`, and `cross.yml`'s `codegen-drift` job regenerates them and fails on any diff. Change the Rust constant and run the generator; never hand-edit a generated file.
 
-### Determinism is a hard requirement
+## Naming
 
-Same input + same params → byte-identical output, across machines, across WASM/native. No wallclock reads, no random seeds (unless keyed on input content), no parallel reductions with non-associative operators. The baseline test catches non-determinism.
-
-### `rayon` for CPU parallelism
-
-Pipeline stages that decompose over pixels use `rayon`'s parallel iterators. Don't spawn threads manually.
-
-### Tests at the stage level
-
-Every pipeline stage has unit tests. The end-to-end ACR reference dataset test is the integration gate. Aim for ~1 unit test per public function and per failure mode, not per line of code.
-
-### No `unwrap()` in library code
-
-Library code returns `Result<T, E>`. `unwrap` and `expect` are for tests and binaries only.
-
----
-
-## File naming
-
-### kebab-case on web
-
-```
-user-profile.component.ts
-auth.service.ts
-notebook.repo.ts
-page-type.guard.ts
-```
-
-### Suffixes
-
-| Type        | Suffix                    |
-| ----------- | ------------------------- |
-| Component   | `.component.ts/html/scss` |
-| Service     | `.service.ts`             |
-| Repository  | `.repo.ts`                |
-| Guard       | `.guard.ts`               |
-| Interceptor | `.interceptor.ts`         |
-| Resolver    | `.resolver.ts`            |
-| Schema      | `.schema.ts`              |
-| Model       | `.model.ts`               |
-| Test        | `.spec.ts`                |
-
-### Directory structure (Angular)
-
-The codebase uses a flat, feature-grouped layout — no atoms/molecules/organisms hierarchy.
-
-In `src/web/projects/maple-common/src/lib/`, each feature or component family gets its own folder at the top level of `lib/`. Reusable primitives (button, icons, collapsible) sit directly in named folders alongside feature groups (editor, info, library, search, shells). Larger feature groups that contain several related components use a single flat folder with no further nesting:
-
-```
-src/web/projects/maple-common/src/lib/
-├── button/                 # MapleButtonComponent — reusable primitive
-│   ├── maple-button.component.ts
-│   ├── maple-button.component.html
-│   └── maple-button.component.scss
-├── collapsible/            # MapleCollapsibleComponent — reusable primitive
-├── icons/                  # MaterialIconComponent, icon registry
-├── components/             # Feature components shared across views
-│   ├── asset-grid/
-│   ├── filmstrip/
-│   ├── image-canvas/
-│   ├── editor-detail-panel/
-│   └── ...                 # one folder per component, flat
-├── editor/                 # Editor panel components (drag-bar, group-tabs, …)
-├── info/                   # Info/metadata panel (histogram, keyword-chips, …)
-├── library/                # Library grid and filter components
-├── search/                 # Search bar, results sections
-├── shells/                 # Layout shells (browse-shell, editor-shell, …)
-│   ├── browse-shell/
-│   ├── editor-shell/
-│   └── source-picker-drawer/
-└── ...                     # services, models, state, webgl, xmp, etc.
-```
-
-Within each folder, every component is exactly three files — `.ts`, `.html`, `.scss` — with no sub-folders. App-specific pages in `src/web/projects/maple/src/app/` follow the same pattern (one folder per route/feature, flat files inside).
-
-The rule: one standalone component per folder, named after its folder. No barrel re-exports unless a folder is an intentional public-API boundary.
-
-### PascalCase for Swift types, snake_case for Rust
-
-Standard conventions for each language. No surprises.
-
----
-
-## Git
-
-### Commit format
-
-```
-type: short description
-
-Longer description if needed.
-```
-
-### Commit types
-
-| Type       | Description                           |
-| ---------- | ------------------------------------- |
-| `feat`     | New feature                           |
-| `fix`      | Bug fix                               |
-| `refactor` | Code restructure (no behavior change) |
-| `perf`     | Performance improvement               |
-| `docs`     | Documentation only                    |
-| `test`     | Adding/updating tests                 |
-| `chore`    | Build, deps, tooling                  |
-
-### Branch naming
-
-```
-feat/panorama-stitcher
-fix/webgl-gamut-mismatch
-perf/tile-planner-cache
-```
-
----
-
-## Security
-
-### Authentication
-
-- JWTs in httpOnly cookies on web.
-- Tokens in Keychain on Apple.
-- Never log tokens, sidecar paths with PII, or user file contents.
-- Implement silent token refresh; never prompt the user for a password on expiry if a refresh token is valid.
-
-### Input validation
-
-- Validate every inbound payload with TypeBox.
-- Sanitize user-generated content before rendering.
-- Use parameterized queries — no string-concatenated Mongo filters.
-
-### CORS
-
-- Allowlist known origins. No `*` in production.
-
-### Secrets
-
-- Environment variables in development, Key Vault (or equivalent) in production.
-- No secrets in the repo. `.env` is gitignored. Pre-commit hook scans for likely credential patterns.
-
----
-
-## Performance
-
-### Angular
-
-- `OnPush` change detection by default. Signals and observables flow cleanly through it.
-- `track` on `@for` — by stable ID, not index.
-- Lazy-load routes. Every page is its own bundle.
-- Defer heavy work with `@defer` blocks where appropriate (histograms, scopes).
-
-### API
-
-- Indexes on every field used in a query filter. Confirm with `.explain()`.
-- Pagination on every list endpoint. No unbounded returns.
-- Projection to limit returned fields when the full document isn't needed.
-
-### Swift
-
-- `Task.detached` for CPU-heavy work.
-- `AsyncStream` for event streams that cross actor boundaries.
-- Avoid `@Published` in SwiftUI — `@Observable` is strictly better.
-
-### Rust
-
-- `rayon` for embarrassingly parallel work.
-- Avoid allocation in hot loops. Reuse buffers.
-- Profile with `samply` or `perf` before optimizing. Measure, don't guess.
-
-### General
-
-- Bundle size budget on web: editor entry chunk < 500KB gzipped. CI gates this.
-- First contentful paint < 1.5s on a cold load.
-- Slider tick: 16ms target on reference scenes.
+| Language           | Convention                                                                 |
+| ------------------ | -------------------------------------------------------------------------- |
+| Web files          | kebab-case: `mui-button.component.ts`, `auth.service.ts`, `assets.repo.ts` |
+| Web suffixes       | `.component` `.service` `.repo` `.guard` `.interceptor` `.vm` `.spec`      |
+| Angular components | one standalone component per folder, folder named after the component      |
+| Swift              | PascalCase types; design-system types prefixed `Mui`                       |
+| Rust               | snake_case modules and functions                                           |
+| C# (WinUI)         | PascalCase; design-system types prefixed `Mui`                             |
 
 ---
 
 ## Don't ship these
 
-| Anti-pattern                                          |
-| ----------------------------------------------------- |
-| `firstValueFrom` / `toPromise` in service layer       |
-| `any` type                                            |
-| `BehaviorSubject` inside a component (use signals)    |
-| `@Input()` / `@Output()` decorator syntax             |
-| Constructor DI in Angular                             |
-| Inline templates or styles                            |
-| Hardcoded hex colors                                  |
-| Manual formatting                                     |
-| `*ngIf` / `*ngFor` structural directives              |
-| Combined page views with `@if (viewType === ...)`     |
-| `import { Type, value }` — split type-only imports    |
-| `console.log` in merged code                          |
-| `fetch()` directly — use `HttpClient`                 |
-| `localStorage` / `sessionStorage` for structured data |
-| `unwrap()` in Rust library code                       |
-| Platform `#if` in Swift business logic                |
-| Raw DB driver calls in route handlers                 |
-| Changes to color pipeline without running the harness |
-
-## Ship these
-
-| Practice                                          |
-| ------------------------------------------------- |
-| Standalone components, `OnPush`                   |
-| Signals for local state, observables for async    |
-| View models composing observables in components   |
-| `input()`, `output()`, `inject()`                 |
-| Separate `.ts` / `.html` / `.scss` files always   |
-| Tailwind utilities + design tokens                |
-| `@if` / `@for` control flow                       |
-| `HttpClient` with observables                     |
-| Service worker + IndexedDB on web                 |
-| `NSCache` + file cache + session state on Apple   |
-| Deterministic Rust core                           |
-| Generation counters for async state               |
-| Stage-level tests, end-to-end parity gates        |
-| Cache keys that include every invalidating field  |
-| Small focused components, services, and functions |
+| Anti-pattern                                           | Instead                                      |
+| ------------------------------------------------------ | -------------------------------------------- |
+| `firstValueFrom` / `toPromise` in a service            | return `Observable<T>`                       |
+| `any`                                                  | `unknown` plus a type guard                  |
+| `BehaviorSubject` for local component state            | a signal                                     |
+| `@Input()` / `@Output()` decorators, constructor DI    | `input()`, `output()`, `inject()`            |
+| `*ngIf` / `*ngFor`                                     | `@if` / `@for` with a stable `track`         |
+| Inline templates or styles                             | separate `.ts` / `.html` / `.scss`           |
+| Hardcoded hex colors                                   | a generated token                            |
+| `href` for internal navigation                         | `routerLink`                                 |
+| Raw `<button>` in a ratcheted directory                | `mui-button`                                 |
+| Two conditional Tailwind utilities on one CSS property | one `computed()` returning the winner        |
+| `import { Type, value }` from one module               | a separate `import type`                     |
+| `fetch()` in Angular code                              | `HttpClient`                                 |
+| `node:fs` in `src/api`                                 | `src/api/src/fs/mirrored.ts`                 |
+| `process.env.X = …` at test module scope               | `withTestEnv` / `withTestDb`                 |
+| A raw Mongo driver call in a route handler             | a `*.repo.ts` function                       |
+| A new environment variable for a feature toggle        | a DB-backed setting with a Settings control  |
+| A JobRunner job for ongoing per-asset work             | a `defineStage()` stage                      |
+| `unwrap()` in Rust library code                        | `Result<T, E>`                               |
+| An unguarded `await` writing into observed Swift state | a generation-counter guard                   |
+| Hand-editing a file under a `generated/` directory     | edit the Rust source, run `tools/codegen.sh` |
+| A colour-pipeline change with no harness run           | `src/scripts/test_color_pipeline.sh`         |
 
 ---
 
-## Related documents
+## Related
 
-- `architecture.md` — system design, pipeline stages, module boundaries
-- `caching.md` — cache layers, keys, invalidation rules
-- `testing.md` — parity gates, ACR reference harness, metrics
-- `xmp-canonical-format.md` — XMP format, namespaces, versioning
-- `ui-spec.md` — layout, interaction, motion contract
+- [architecture](architecture.md) — how the products and the shared core fit together
+- [web](web.md), [apple](apple.md), [api](api.md), [windows](windows.md) — per-surface build and test
+- [pipeline](pipeline.md) — the Rust image chain and codegen
+- [caching](caching.md) — every cache, its key, and its invalidation rule
+- [testing](testing.md) — the full gate and harness inventory
+- [unified-component-catalog](unified-component-catalog.md) — the design-system inventory
+- `CONTRIBUTING.md` — ticket, commit, and merge policy

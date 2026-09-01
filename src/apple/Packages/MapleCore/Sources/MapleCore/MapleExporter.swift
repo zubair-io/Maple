@@ -3,8 +3,8 @@
 // Formats: JPEG sRGB, JPEG P3, HEIC P3, TIFF 16-bit, PNG.
 // This stage encodes the already-rendered pipeline output. Peak-memory tiling
 // of the full-resolution render is a pipeline concern, not an encode concern —
-// see docs/tickets/03-cicontext-tiled-render.md and docs/spec/05-performance.md
-// § "When to tile". Core Image already tiles graph evaluation internally.
+// see docs/pipeline.md and docs/zoom.md. Core Image already tiles graph
+// evaluation internally.
 // macOS: NSSavePanel. iOS: UIActivityViewController (share sheet).
 
 import Foundation
@@ -103,8 +103,7 @@ public struct MapleExporter: Sendable {
     /// Image's renderer tiles graph evaluation internally to respect the GPU
     /// working-set limit, and the fp16-intermediate / `cacheIntermediates:
     /// false` / pipeline-tile work that bounds it further is tracked in
-    /// docs/tickets/03-cicontext-tiled-render.md (see also
-    /// docs/spec/05-performance.md § "When to tile"). The encode itself needs
+    /// docs/zoom.md. The encode itself needs
     /// the whole output buffer in memory — ImageIO has no public API to stream
     /// a single image to a destination strip by strip — so there is nothing
     /// useful to tile here. One encode path therefore serves every size and

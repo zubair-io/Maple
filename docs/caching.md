@@ -1,383 +1,244 @@
-# Caching Architecture
+# Caching
 
-Maple has five distinct cache layers, each serving a different access pattern. Together they ensure that browsing is instant, editing is responsive, and reopening a previously-edited image shows pixels in ~0ms.
+Maple caches four kinds of thing: **thumbnails** (small grid images), **previews** (a 1280-px developed still), **decoded/intermediate pixel state** (in memory, per session), and **API responses** (folder listings, counts, geocodes). The first two are written into a `.maple/` folder that sits next to the photos, so they travel with the library and are shared by the Mac app, the Windows app, the web client, and the Self-Hosted server. Everything in a cache is derived and disposable — an original file is never a cache entry, and losing the whole cache costs time, never data.
 
-Every cache that stores a _rendered_ artifact shares one invalidation signal: `PIPELINE_OUTPUT_VERSION`, a single monotonic version of the develop pipeline's output that is single-sourced in raw-core and mirrored into Swift and TypeScript by codegen. Each rendered-output cache folds it into its key, so that one bump in raw-core invalidates stale entries across every platform at once. Two caches key on it today — the Web Hosted thumbnail cache (#1927, via `THUMB_PIPELINE_VERSION`) and Apple's rendered-preview cache (#1928, §3 below) — replacing the hand-maintained per-cache version integers those used to carry. See `docs/pipeline-output-version.md` for the bump policy and how it relates to `wb_scale_version`.
+Two rules explain most of the design. First, **thumb and preview cache filenames are derived from the photo's own filename**, not its content or its database id — so the cache resolves with no database lookup and survives being copied to another machine, but nothing survives a rename or a move (the fix is to regenerate at the new path, never to relocate cache files). Second, **anything whose pixels depend on the develop pipeline is tied to a version number** — folded into the key on one platform, written as a marker file on another, tracked per stage on the server — so that a pipeline change invalidates every stale artifact at once.
 
----
+The one cache that tracks a photo's _edits_ is Apple's rendered-preview cache, and the adjustment-version proxy it uses is the modification time of the [XMP sidecar](xmp-canonical-format.md) — see [The adjustment-version proxy](#the-adjustment-version-proxy).
 
-## Cache Layers at a Glance
+## The shared `.maple/` folder
 
-| #   | Cache                  | Location                          | Format         | Lifetime                                   | Purpose                                       |
-| --- | ---------------------- | --------------------------------- | -------------- | ------------------------------------------ | --------------------------------------------- |
-| 1   | In-memory thumbnails   | `ThumbnailLoader.memoryCache`     | `CGImage`      | App session                                | Instant grid cell rendering                   |
-| 2   | On-disk thumbnails     | `.maple/thumbs/` next to photos   | JPEG q=0.8     | Travels with photos                        | Survives app restarts, external drive moves   |
-| 3   | Rendered preview cache | `.maple/previews/` next to photos | JPEG q=0.90    | Travels with photos; 20-entry memory front | Instant cold-open of previously-edited images |
-| 4   | Decoded CIImage        | `EditSession.decodedImage`        | CIImage (lazy) | Single editing session                     | Avoids re-decoding RAW on every slider change |
-| 5   | SMB file data          | `EditSession.cachedFileData`      | Raw `Data`     | Single editing session                     | Avoids re-downloading ~35MB over network      |
+Every layer agrees on this layout, sitting inside the folder that holds the photos:
 
----
+| Path                                             | Contents                                                       | Written by                                      |
+| ------------------------------------------------ | -------------------------------------------------------------- | ----------------------------------------------- |
+| `.maple/thumbs/<sha256_prefix16(filename)>.avif` | 512-px AVIF grid thumbnail                                     | Apple, Windows, Web, API indexer, pano stitcher |
+| `.maple/previews/<filename.ext>.avif`            | 1280-px AVIF display preview                                   | Apple, Web, API indexer, pano stitcher          |
+| `.maple/index.json`                              | Per-folder file list + culling state (Apple cold-open)         | Apple only                                      |
+| `.maple/id-cache-<writer>.json`                  | `path → maple_id` rows with size/mtime validation              | Apple (`-apple`), Web (`-web`)                  |
+| `.maple/trash/…`                                 | Trashed items plus `<basename>.trashed-YYYY-MM-DD` marker dirs | Apple (local + SMB)                             |
 
-## 1. In-Memory Thumbnail Cache
+`sha256_prefix16` is the first 16 lowercase hex characters (8 bytes) of `SHA-256` over the **basename with its extension** — UTF-8, no path. Four implementations must agree byte-for-byte, and cross-platform hash vectors pin them: `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift`, `src/api/src/fs/xmp.ts`, `src/web/projects/maple-common/src/lib/maple-cache/sha.ts`, `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs`.
 
-```
-ThumbnailLoader (actor)
-  └── memoryCache: LRUCache<String, CGImage>
-        capacity: 500 entries
-        key: "{assetID}_{maxDimension}"   e.g. "file:///Photos/IMG_001.CR3_280"
-        eviction: timestamp-based LRU on insert over capacity
-```
+Previews are deliberately **unhashed, unsized, and unversioned** — `IMG_1234.CR2` becomes `IMG_1234.CR2.avif`. The filename scheme is itself the version boundary: an older scheme lives at a path today's readers never consult, so migrating retires the old artifacts silently. Path composition lives in `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` and `src/api/src/fs/xmp.ts` (`cachePathFor` / `cachePathForAsset`).
 
-**Read path:** Grid cells call `viewModel.thumbnail(for:size:source:)` → `ThumbnailLoader.thumbnail(...)` → LRU lookup. O(1), no disk I/O.
+### The on-share write contract
 
-**Write path:** After a source thumbnail load completes, the result is stored via `cacheInMemory(key:image:)`. After an edit saves, `ThumbnailLoader.prime(assetID:size:image:)` injects the regenerated thumbnail directly.
+Because an existing `.maple/thumbs/` entry is served as-is by every other client with no self-healing re-render, a wrong-parameter write permanently degrades that thumbnail everywhere. Any client writing to the shared path must render at exactly **512 px long edge, AVIF quality 55** (`THUMB_LONG_EDGE_PX` / `THUMB_AVIF_QUALITY` in `src/api/src/thumbs/render.ts`; mirrored as `onShareThumbLongEdgePx` / `onShareThumbAVIFQuality` in `MapleThumbCacheKey.swift` and pinned by a test that reads the TypeScript values). Apple's own grid tier renders smaller (256 px, quality 0.5) for local use, so `ThumbnailLoader` re-encodes the _same_ decoded image a second time at the contract parameters before writing back to the share — writing the local-grid bytes would downgrade the entry for everyone.
 
-**Invalidation:** `invalidate(assetID:)` removes all size variants for an asset. Called when a thumbnail is regenerated after editing.
+Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.7** (`PREVIEW_LONG_EDGE_PX` / quality `70` in `src/api/src/indexer/previewer.ts`; `displayPreviewLongEdge` / `displayPreviewAvifQuality` in `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader+DisplayPreview.swift`).
 
-**Memory pressure:** `handleMemoryPressure()` shrinks to 25% of capacity by evicting oldest entries.
+## Pipeline output version
 
----
+`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **2**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
 
-## 2. On-Disk Thumbnail Cache
+The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
 
-```
-/Volumes/Photos/France/
-  ├── IMG_001.CR3
-  ├── IMG_002.DNG
-  └── .maple/
-      └── thumbs/
-          ├── IMG_001.CR3.jpg    (JPEG, ~50-100KB)
-          └── IMG_002.DNG.jpg
-```
+- Swift: `AdjustmentModel.pipelineOutputVersion` in `src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift`
+- TypeScript: `PIPELINE_OUTPUT_VERSION` in `src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts`
 
-**Location:** `{photo_directory}/.maple/thumbs/{original_filename}.jpg`
+Two caches consume it, and they consume it differently:
 
-**Read path:** `FilesystemSource.thumbnail(for:size:)` checks disk cache before extracting from the RAW file. Stale check: if the original file's modification date is newer than the cached thumbnail, the cache is treated as a miss.
+- **Apple's `RenderedPreviewCache`** folds it into the cache key (`pv<n>`), so a bump changes every key and every entry misses.
+- **Web's `MapleCacheService`** uses it as a _gate_, not a key. A locally-developed thumbnail written to `.maple/thumbs/<sha>.<ext>` gets a companion marker file `<sha>.<ext>.v` holding the version as text; on read, a marker below the current version forces a re-decode. A thumb with **no** marker is treated as foreign — written by the server or a native app from an embedded preview, which is pipeline-independent — and trusted as-is, which is what keeps the portable cross-platform contract intact (`src/web/projects/maple-common/src/lib/maple-cache/maple-cache.service.ts`).
 
-**Write path:**
+The API's stages use a separate, per-stage `targetVersion` for the same purpose (see [Regeneration on the server](#regeneration-on-the-server)). Apple additionally keeps two hand-maintained local counters for _host-side_ render-semantics fixes that raw-core's output doesn't cover — `RenderedPreviewCache.viewTransformVersion` (8) and `TileManager.viewTransformVersion` (5) — bumping those churns only Apple's caches, leaving correct web artifacts alone.
 
-- First extraction: `ThumbnailDiskCache.write(for:image:)` after source extraction
-- After editing: `EditSession.regenerateThumbnail(for:)` writes the processed thumbnail to disk so edits are reflected in the grid
+## Apple
 
-**Why **`**.maple/**`**?** The thumbnails travel with the photos. Copy the folder to another Mac or external drive and thumbnails come along — no re-extraction needed.
+Caches under `src/apple/Packages/MapleCore/Sources/MapleCore/`.
 
-**SMB/PhotoKit:** Disk thumbnail cache is only used for local filesystem sources. SMB and PhotoKit sources generate thumbnails on demand.
+| Cache                       | Stores                                                         | Where                                                                       | Key                                                                                                                          | Invalidated by                                                                                   | Bound                                                                                      |
+| --------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `ThumbnailDiskCache`        | AVIF thumbnail bytes + `CIImage`                               | `.maple/thumbs/<hash>.avif`, plus in-memory                                 | `sha256Prefix16(basename)`, or an opaque asset id for sourceless assets                                                      | Overwrite after a develop render; explicit delete on move                                        | 100 image + 100 data entries (FIFO); a 2000-entry `NSCache` for the non-blocking sync peek |
+| `RenderedPreviewCache`      | Developed JPEG at screen width                                 | `.maple/previews/<urlHash>_<variantHash>.jpg`, plus in-memory               | `sha256(path)[:16]` prefix + `sha256(primaryMtime, sidecarMtime, screenWidth, viewTransformVersion, pipelineOutputVersion)`  | Any key component; `invalidate(assetURL:)` on move/trash; memory tier dropped on memory pressure | 20 in-memory entries, oldest-first; disk unbounded                                         |
+| Display preview             | AVIF developed preview                                         | `.maple/previews/<filename.ext>.avif` (local) or `PUT /api/preview` (cloud) | The filename itself                                                                                                          | Read-side freshness check, not a key (below)                                                     | One file per asset, overwritten in place                                                   |
+| `RenderActor` decoded image | Scene-linear `CIImage` for the open asset                      | Memory, per edit session                                                    | Asset id + the _baked_ adjustment model (see below) + profile, auto-exposure mode, and whether it's a full-resolution decode | Any of those changing                                                                            | Single slot per session                                                                    |
+| `RawImageCache`             | Decoded rawler handle (~30–300 MB)                             | Memory only                                                                 | `(URL, file mtime)`, single entry                                                                                            | Opening a different asset, or the RAW's mtime changing                                           | Exactly one entry; concurrent callers share one in-flight decode                           |
+| `TileManager`               | Deep-zoom 512² tiles as `CIImage`                              | Memory only                                                                 | `(urlHash, sidecarMtime, viewTransformVersion, zoomBucket, tileX, tileY)`                                                    | Any key field; `invalidate(asset:)`                                                              | 256 MB byte budget, true LRU (≈128 resident tiles)                                         |
+| `SceneLinearChainCache`     | FFI chain output `CIImage`                                     | Memory, one per `EditSession`                                               | `(assetId, hash of scene-linear model fields, extent)` — sharpen / NR-colour / capture-sharpening deliberately excluded      | Any other slider moving                                                                          | Single slot                                                                                |
+| `FFIInputBufferCache`       | The GPU→CPU readback bytes fed to the FFI                      | Memory                                                                      | `ObjectIdentifier` of the decoded `CIImage` + post-prescale `(width, height)`                                                | A new decode instance                                                                            | Single slot                                                                                |
+| `ThumbnailDecoder`          | Eagerly-decoded `CGImage` bitmaps                              | Memory (`NSCache`)                                                          | Caller-supplied stable id                                                                                                    | Memory pressure                                                                                  | `totalCostLimit` 64 MB of decoded bitmaps                                                  |
+| `LibraryIndex`              | Per-folder file list, mtimes, stars/flags, rename fingerprints | `.maple/index.json`                                                         | Filename within the folder                                                                                                   | Re-read fresh on every access; entry moved by `refreshLibraryIndexAfterMove`                     | Unbounded (one row per file)                                                               |
+| `MapleIdCache`              | `(path key, maple_id, size, mtime)`                            | `.maple/id-cache-apple.json`                                                | Path key; row rejected when live size/mtime differ                                                                           | Content change at the same path                                                                  | Unbounded                                                                                  |
 
-**Windows (WinUI):** since #3083 the Windows app reads/writes the same shared location — `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs` mirrors `MapleThumbCacheKey.swift` / `sha256Prefix16`, pinned by the #2254 cross-platform hash vectors, and the grid tier renders via `maple_render_thumbnail_avif_to_file` at the #2690 write contract (512px, AVIF q55). An unwritable photo folder (read-only media/share) falls back to a machine-local cache at `%LOCALAPPDATA%\Maple\local-cache`, which also holds the Windows-only 2560px embedded-preview tier (no cross-app contract; 30-day age sweep). Relocates reclaim the old location's entry in `LocalFileOperations.FinalizeRelocate` — the Apple `invalidateDerivedCaches` semantics.
+The session decoded-image cache (`RenderActor.swift`, `RenderActor+DecodedCache.swift`) is the one place where sidecar mtime is deliberately **not** the freshness key. The decoded scene-linear buffer is a pure function of the RAW bytes plus the _stripped_ model — the Apple-GPU stages (exposure, noise-reduction colour, sharpen amount, and so on) are removed before decode and re-applied live per tick, so editing one of them cannot change the decode. Keying on mtime forced a full re-decode (measured at ~15 s on a large RAW) on the first edit after every drag pause, because the 750 ms-debounced sidecar autosave had moved the mtime. The cache now stores and value-compares the stripped model itself, with the sidecar mtime kept only as a fast-path gate: an unchanged mtime proves the file is byte-identical, so the per-tick hot path skips the XMP parse entirely and only falls through to parse-and-compare when a save actually landed. Mtime can therefore make the actor do more work, never serve a stale buffer.
 
----
+The `ThumbnailDiskCache` file header still describes an LRU with a 500 MB / 10,000-entry cap. **No such eviction exists in the code** — the on-disk thumb store is unbounded and the memory tiers use the FIFO/count bounds in the table above.
 
-## 3. Rendered Preview Disk Cache
+Sourced from `src/apple/Packages/MapleCore/Sources/MapleCloudKit/`, the Self-Hosted client adds four more, all under `~/Library/Caches/app.justmaple.aperture/`: `CloudThumbCache` (AVIF bytes keyed on absolute server path, LRU with a 2 GB soft cap and coalesced eviction sweeps), `CloudBucketsCache` and `CloudPagesCache` (JSON `/api/search` responses, stale-while-revalidate, no cap), `CloudFoldersCache` and `AuthUserCache` (last-known folder list and account metadata per `host:port`, used as an offline fallback).
 
-```
-<photos>/.maple/previews/
-  ├── a1b2c3d4e5f6a7b8.jpg
-  ├── c9d0e1f2a3b4c5d6.jpg
-  └── ...
-```
+### File Provider and Quick Look
 
-Implemented by `RenderedPreviewCache` (`src/apple/.../Cache/RenderedPreviewCache.swift`). Stored **next to the photos** in the same `.maple/` folder as the thumbnail cache (§2) — not the OS cache directory — so a developed preview travels with the images when the folder is copied to another Mac or drive. The folder is set per open folder via `configure(folderURL:)`.
+The File Provider extension (`.../MapleCore/FileProvider/`) is a separate process with its own caches:
 
-**Key:** `"{urlHash}_{variantHash}.jpg"`, where `urlHash = SHA256(primary_url)`'s first 16 hex chars and `variantHash = SHA256( "{primary_mtime_ms}_{sidecar_mtime_ms}_{screen_width}_v{view_transform_version}_pv{pipeline_output_version}" )`'s first 16 bytes (32 hex chars). The `urlHash` is kept as a literal prefix (not folded into `variantHash`) so `invalidate(assetURL:)` can match every screen-width variant of an asset by prefix. The six components:
+- **`RemoteCatalog` ETag cache** — in-memory `(etag, decoded payload)` keyed by absolute URL, LRU-bounded to **256** entries. Without the bound, a Finder spacebar-walk through a 10 k-asset folder pinned ~1 GB in the extension. `invalidateETagCache()` drops it wholesale.
+- **`QuickLookThumbDiskCache`** — AVIF thumb bytes at `<AppGroup>/QuickLookThumbs/<assetID>.<sha1(etag)[:16]>.avif`, so the short-lived Quick Look extension doesn't re-download on every spacebar press. Last-seen ETags live as one tiny text file per asset under `etag-pointers/` (per-file granularity avoids a cross-process read-modify-write race). Eviction is a **7-day TTL** swept at most once every 5 minutes, plus a **200 MB** size cap evicting oldest-by-mtime; pointer files are capped at **1024**. A payload larger than the whole cap is passed through without a write. Reads still revalidate with `If-None-Match` every time.
+- **`FileProviderMetaStore`** — a WAL-mode SQLite mirror in the App Group so Quick Look can resolve an asset id the File Provider wrote; rows carry a soft TTL because every `fetchContents` inserted a new UUID-keyed row.
+- **`LibraryRootCache`** — library-roots list held for the extension's process lifetime and persisted to App Group `UserDefaults`, with background revalidation and a generation counter so a slow in-flight fetch can't repopulate a cache that was just invalidated.
 
-- `primary_url` hash — identifies the asset.
-- `primary_mtime_ms` — the primary RAW's own modification time. The JPEG is rendered from those pixels, so a bytes change that leaves the sidecar untouched (re-import, external sync, filesystem restore) must miss (#1928).
-- `sidecar_mtime_ms` — the `.xmp` sidecar's modification time; `"0"` when absent. This is the **adjustment-version proxy** — any slider change rewrites the sidecar, bumping its mtime and thus the key, so a stale-adjustment entry is never served. There is no separate adjustment-JSON hash.
-- `screen_width` — the size bucket. Previews are cached at **viewport resolution** (the fast-preview / fit target), not refined zoom resolution, so files stay small (~hundreds of KB) and match what cold-open shows.
-- `view_transform_version` — the local Apple bump lineage: a per-instance constant whose value and bump history are documented inline in `RenderedPreviewCache.swift`.
-- `pipeline_output_version` — the single, codegen-sourced `PIPELINE_OUTPUT_VERSION` (#1926), mirrored into Swift as `AdjustmentModel.pipelineOutputVersion` and into TypeScript for the Web thumb cache. This is the canonical bump point going forward: a raw-core pipeline-output change bumps this one constant and invalidates this cache and the Web thumb cache together (`_pv{version}` in the token).
+### Display-preview freshness, and when it's written
 
-**Format:** JPEG, quality 0.90, sRGB, encoded via `CIContext.jpegRepresentation` (always opaque — avoids the ImageIO "AlphaPremulLast" warning that fires when writing CGImages with alpha to JPEG).
+Apple never writes the canonical `<filename>.avif` preview per slider tick. `EditSession+DisplayPreviewPersist.swift` captures the latest full-canvas frame and arms a **1.5 s idle debounce** (deliberately longer than the 150 ms refine debounce and the 750 ms sidecar autosave), plus a flush on editor exit. Destination is the session's sink: a local file write, or `PUT /api/preview?path=…` with an `image/avif` body for Self-Hosted assets (`Cache/DisplayPreviewSink.swift`).
 
-**Read path:** `EditSession` cold-open hydration → `RenderedPreviewCache.preview(for:screenWidth:)`. A hit (memory front, then disk) returns a `CIImage` that seeds the canvas immediately — the user sees pixels without waiting on the RAW decode, which runs in the background. On the GPU-live path the equivalent seed is written back by `persistGpuFrameToPreviewCache()` (#1665).
+On read, freshness is checked rather than keyed (`ThumbnailLoader+DisplayPreview.swift`): the preview must be at least as new as the original file, and it is rejected as superseded when the sidecar is more than **10 seconds** newer than it _and_ the sidecar parses to visual (non-white-balance) edits. An unparseable sidecar counts as edited — serving camera-original pixels over an unknown edit state is exactly what that gate prevents.
 
-**Write path:** `storePreview(_:for:screenWidth:)` via `persistCurrentPreviewToCache()` (CPU path) or the one-shot GPU-frame readback (GPU-live path), after the refine render lands. The encode + write runs on a detached utility-priority task to avoid blocking the main thread.
+### Memory pressure
 
-**Memory front:** an in-process dictionary of up to 20 most-recent `(CIImage, storedAt)` entries sits in front of the disk store; it evicts the oldest once full. The on-disk `.jpg` files are **not** swept on a byte budget — they are invalidated by key change (below), and the `.maple/` folder is managed alongside the thumbnail cache.
+`MapleApp.installMemoryPressureObserver` responds to macOS memory-pressure events and iOS memory warnings by shrinking `ThumbnailDiskCache`'s in-memory tiers to 25 %, dropping `RenderedPreviewCache`'s memory front entirely (disk untouched — the next read just pays a JPEG decode), and bumping a `MemoryPressureSignal` that `AppShell` fans out to every inactive edit session.
 
-**Cache coherency:** no explicit content invalidation on edit — a slider change bumps `sidecar_mtime` (and a bytes change bumps `primary_mtime`), so the next lookup computes a new key and misses, landing on a fresh render. `invalidate(assetURL:)` exists for the explicit case (e.g. immediately after a sidecar write, before its mtime is observable) and removes every screen-width variant for the asset from both the memory front and disk.
+## Web
 
----
+Caches under `src/web/projects/maple-common/src/lib/` unless noted.
 
-## 4. Decoded CIImage (In-Memory)
-
-```
-EditSession
-  └── decodedImage: CIImage?
-        format: lazy CIImage backed by CIRAWFilter graph (not a bitmap)
-        lifetime: one editing session
-        cost to produce: ~300ms for 100MP RAW
-```
-
-The decoded CIImage is the most expensive artifact to produce and the most valuable to retain. It's decoded once per asset (always at neutral WB/exposure) and reused for every slider change. The CIImage itself is lazy — it represents a filter graph, not a materialized bitmap. Pixels are only computed when `CIContext.createCGImage()` is called during render.
-
-**Cleared on:** `endEditing()`, asset switch, or app termination.
-
----
-
-## 5. SMB File Data Cache
-
-```
-EditSession
-  └── cachedFileData: Data?
-        format: raw file bytes (the entire DNG/CR3/etc.)
-        lifetime: one editing session
-        typical size: 20-50MB for RAW
-```
-
-For SMB sources where there's no local file URL, the full file is downloaded once via `source.fullImageData(for: asset)` and cached in memory. Without this, every slider change that triggers a re-decode would re-download ~35MB over the network.
-
-**Cleared on:** `endEditing()` or asset switch.
-
----
-
-## Cache Flow Diagram
-
-```
-User opens image (cold — first time)
-  │
-  ├─ RenderedPreviewCache.read() → MISS
-  │   └─ Decode RAW (~300ms, off main actor)
-  │   └─ Render at viewport size → show preview
-  │   └─ Refine (if zoomed) → persist to preview cache
-  │
-  ▼
-User opens image (warm — previously edited)
-  │
-  ├─ RenderedPreviewCache.read() → HIT
-  │   └─ Show cached JPEG instantly (~0ms)
-  │   └─ Decode RAW in background (for slider readiness)
-  │
-  ▼
-User drags slider
-  │
-  ├─ decodedImage is cached → skip decode
-  ├─ pipeline.process() + renderPreview() → fast preview (~30ms)
-  │
-  ▼
-User stops editing (idle 300ms)
-  │
-  ├─ Refine render (if zoomed) → higher-res preview
-  ├─ persistCurrentPreviewToCache() → JPEG to ~/Library/Caches/
-  │
-  ▼
-User closes image (endEditing)
-  │
-  ├─ Sidecar flushed → IMG_001.xmp
-  ├─ regenerateThumbnail() → 560px CGImage
-  │   ├─ ThumbnailDiskCache.write() → .maple/thumbs/IMG_001.CR3.jpg
-  │   └─ onThumbnailRegenerated → ThumbnailLoader.prime() → in-memory update
-  ├─ persistCurrentPreviewToCache() → disk preview cache
-  └─ Clear decodedImage, cachedFileData, previewImage
-  │
-  ▼
-User returns to grid
-  │
-  ├─ ThumbnailCell.onAppear detects stale tick → re-fetches from
-  │   ThumbnailLoader → hits primed in-memory cache → shows edited thumbnail
-```
-
----
-
-## Clearing Caches
-
-| Cache                | How to Clear                                                    | Effect                                           |
-| -------------------- | --------------------------------------------------------------- | ------------------------------------------------ |
-| In-memory thumbnails | `ThumbnailLoader.clearAll()` / memory pressure                  | Grid cells re-extract from source on next appear |
-| On-disk thumbnails   | Delete `.maple/thumbs/` in photo directory                      | Thumbnails re-extracted on next browse           |
-| Rendered previews    | `RenderedPreviewCache.clear()` or OS purges `~/Library/Caches/` | Cold-open of images takes ~300ms again           |
-| Decoded CIImage      | Automatic on `endEditing()`                                     | Next edit session re-decodes                     |
-| SMB file data        | Automatic on `endEditing()`                                     | Next edit session re-downloads                   |
-
----
-
-## Web — Service Worker (Angular)
-
-The Apple caches above have browser counterparts (in-memory blob URLs +
-IndexedDB; see `LibraryCache`). On top of those, both web builds — Hosted
-(`projects/maple-syrup`) and Self-Hosted (`projects/maple`) — register an
-Angular service worker (wired via `provideServiceWorker`).
-It adds an HTTP-layer cache that the application code never has to manage.
-
-Hosted uses `src/web/ngsw-config.hosted.json`; Self Hosted uses
-`src/web/ngsw-config.json`. The asset groups are intentionally parallel, while
-only Self Hosted declares the HTTP thumbnail `dataGroup`.
-
-### What the SW caches
-
-| Group        | Type       | Strategy                 | Contents                                                                     |
-| ------------ | ---------- | ------------------------ | ---------------------------------------------------------------------------- |
-| `app`        | assetGroup | prefetch                 | App shell: `index.html`, `manifest.webmanifest`, all `*.js`/`*.css`, favicon |
-| `raw-wasm`   | assetGroup | lazy + prefetch-upd      | `raw_wasm_bg.wasm`, `raw_wasm.js`                                            |
-| `fonts`      | assetGroup | lazy + prefetch-upd      | Bundled webfonts                                                             |
-| `images`     | assetGroup | lazy                     | Static bundle images (`/assets/**`, root `svg/png/webp/…`)                   |
-| `thumbnails` | dataGroup  | performance (1500 / 30d) | Self Hosted only: `/api/fs/thumb`, `/api/assets/*/thumb`                     |
-
-The `thumbnails` dataGroup is the SW-owned thumbnail cache. It only matches
-HTTP thumbnail endpoints, which today means the **Self-Hosted** Bun API
-(`/api/fs/thumb?path=…`, `/api/assets/:id/thumb?size=…`). On Hosted, thumbnails
-are produced from File System Access reads / WASM decodes — those are not HTTP
-requests, so a SW cannot intercept them; they keep the in-memory blob-URL +
-`.maple/thumbs/` disk cache described above. `performance` = cache-first: a
-cached thumbnail is served without touching the network, with an LRU cap of
-1500 entries and a 30-day max age.
-
-Library **data** APIs (`/api/fs/raw`, `/api/assets/:id/raw`, folder/asset
-listings, auth) are deliberately _not_ cached — they always hit the server, so
-MongoDB stays authoritative. `navigationUrls` also excludes `/api/**` so the SW
-never serves the app shell in place of an API response.
-
-### Background app updates
-
-`AppUpdateService` (`maple-common/src/lib/sw/`) owns the update lifecycle:
-
-1. The SW lazily downloads a freshly-deployed build in the background.
-2. On `VERSION_READY`, `AppUpdateService` arms the update and shows the in-app
-   install toast (`UpdateToastComponent`, rendered once by `RootShellComponent`).
-3. "Install" → `activateUpdate()` + reload. Otherwise the update stays armed and
-   the **next route change** triggers a hard `location.assign(target)` — a fresh
-   client boots on the new version and still lands on the intended page.
-4. A 30-min poll (`checkForUpdate`) catches deploys on long-lived tabs.
-
-### Clearing the SW caches
-
-| Cache              | How to Clear                                                  | Effect                             |
-| ------------------ | ------------------------------------------------------------- | ---------------------------------- |
-| SW thumbnails/data | DevTools → Application → Cache Storage (or unregister the SW) | Thumbnails re-fetched from the API |
-| App shell / assets | Deploy a new build (update flow) or unregister the SW         | Next load fetches the new bundle   |
-
----
-
-## Web Hosted — unedited-preview cache (`.maple/previews/`, #2010)
-
-The "unedited preview" is the higher-resolution still the Preview screen swaps
-in over the grid thumbnail (the camera-embedded JPEG a RAW already carries, at
-1280 px long edge — **not** a re-render of the sensor data through the develop
-pipeline). In **Hosted** (File System Access) mode this is produced client-side
-and cached on disk next to the photos, following the canonical cross-platform
-contract shared with the server and Apple app.
-
-**Location:** `{photo_directory}/.maple/previews/{original_filename}.{ext}` plus
-`{original_filename}.preview.json`. The `.maple/` folder sits in the asset's
-**own** directory and the filename keeps its original extension
-(`IMG_1234.CR2` → `IMG_1234.CR2.jpg` + `IMG_1234.CR2.preview.json`). The
-descriptor records schema version, actual format/MIME, source identity, and
-the artifact mtime used for cross-platform freshness reconciliation.
-Keyed off **directory + filename**, not a content hash — a preview written by
-Hosted lands in one predictable slot. The fixed `<filename>.avif` artifact
-remains the cross-platform API/Apple contract; browser-native alternatives are
-Hosted-private local cache files and do not travel over the wire.
-
-**Derivation:** `EmbeddedPreviewService` (a dedicated Web Worker, separate from
-the decode/live-render worker so it never contends with that worker's
-single-in-flight-decode gate) calls the shared Rust core
-`raw_core::preview::extract_embedded_preview` via the `raw-wasm`
-`extract_embedded_preview` binding — the exact same extraction (rawler
-preview/full/thumbnail-slot hunt + resize + baked EXIF orientation) the native
-server/Apple preview tier uses, so the pixels match across platforms.
-
-**Format decision — store what the browser actually produced.** The unedited
-tier stores its already-sized extracted JPEG directly, avoiding a redundant
-canvas transcode. Developed previews use genuine browser AVIF when available
-and the existing high-quality JPEG encoder otherwise. The closed descriptor
-registry also recognizes WebP and PNG for safe forward-compatible reads.
-Extension, declared MIME, and byte signature must agree; arbitrary descriptor
-paths and MIME types are rejected. This avoids a WASM AV1 encoder and never
-writes JPEG or PNG bytes under an `.avif` name.
-
-The display path is always the extracted JPEG (fast, universal); persistence is
-a fire-and-forget side effect gated on a write-capable folder.
-
-Implemented by `HostedPreviewResolver` (`lib/state/hosted-preview-resolver.service.ts`),
-routed through `LibraryCache.subscribePreviewUrl`. Read/write-through helpers:
-`MapleCacheService.readPreview` / `writePreview`. No `PIPELINE_OUTPUT_VERSION`
-marker (contrast the thumb tier): a preview is a pure re-encode of the camera's
-own embedded JPEG, never touching the develop pipeline, so a raw-core/AgX bump
-can't stale it.
-
-**Validation, invalidation, and migration:** writes publish the verified image
-artifact first and its descriptor last. Reads require the descriptor's format,
-MIME, signature, and exact RAW `size` + `lastModified` identity to agree. A
-present corrupt/stale descriptor fails closed. When the descriptor is absent,
-Hosted still reads legacy `<filename>.avif` plus its `.source.json` identity;
-older API/Apple AVIF entries without that companion use the derivative-mtime
-freshness rule. This preserves existing caches without allowing a corrupt new
-entry to fall through to unrelated stale bytes. A canonical AVIF written by
-Apple/API after a Hosted-native artifact supersedes its descriptor, so a
-local JPEG cannot permanently shadow a newer cross-platform develop. Cache
-generation also verifies RAW size/mtime before and after extraction or decode;
-a same-named file replaced while work is in flight is displayed for that
-request but never published under the replacement file's identity.
-
-| Cache                   | How to Clear                                     | Effect                            |
-| ----------------------- | ------------------------------------------------ | --------------------------------- |
-| Hosted unedited preview | Delete `.maple/previews/` in the photo directory | Preview re-extracted on next open |
-
----
-
-## Web editor — edit-time developed-preview persist (#2018)
-
-The "developed preview" is the OTHER half of the same `.maple/previews/<filename>`
-cache file (#2010 produces the unedited/camera-embedded tier above): on a
-pixel-affecting edit, the web editor (`EditorShellComponent`, `/edit/:slug/**`
-— the sole live editor since the S5 editor's retirement, epic #1807) re-renders
-the DEVELOPED image (RAW + current XMP) at the canonical 1280px-long-edge
-preview size and overwrites the same file. Both tiers share one cache slot —
-whichever a client rendered most recently wins, matching the "pure cache,
-overwritten in place" contract epic #1993 established.
-
-**Write policy — idle debounce + exit, NOT per slider tick:** the live
-on-screen render (`ImageCanvasComponent`'s two-phase fast/refine passes) is
-completely separate from this persist. `LibraryStateService.updateAdjustment`
-(every pixel-affecting edit — NOT the culling mutators, which don't touch
-pixels) arms a 2-second idle debounce on `EditPreviewPersistService`; only
-once the user stops editing does the service run ONE decode + encode + write.
-`EditorShellComponent` also flushes any pending persist immediately on
-`beforeunload` and `ngOnDestroy` (navigate-away / close / editor-teardown),
-mirroring `LibraryFetch.flushPendingXmpWrites`'s role for the sidecar
-debounce. This is a bounded, occasional cost — never a per-tick allocation or
-WASM round-trip (CLAUDE.md's performance invariants) — and shares the
-existing `RawPipelineService` single-in-flight decode queue, so it simply
-queues behind (never alongside) a live render.
-
-**AVIF-encode reality (#2018, following #2010's measurement that no shipping
-browser's canvas can genuinely encode AVIF today — see above):**
-
-- **Server-backed (Self-Hosted):** encodes AVIF client-side when this browser
-  genuinely can (`canEncodeAvif`); otherwise falls back to a HIGH-quality JPEG
-  (`encodeDevelopedRenderToJpeg`, quality 0.92 — an intermediate, not the
-  final artifact) and `PUT`s that instead. The server's `/api/preview` route
-  (`routes/preview.ts`) accepts EITHER format: an AVIF body is staged as-is;
-  a JPEG body is transcoded to AVIF server-side via
-  `renderImageThumbToFileViaPool` — the SAME isolated-child-process sharp
-  pipeline the index-time preview stage already uses for bitmap sources, so a
-  malformed/hostile upload can only crash that isolated child, never the HTTP
-  process. Either input format is then validated with a real decode
-  (`validateAvifOutput`, #2014) before the atomic publish. Net effect: the
-  server-backed path persists a genuine developed AVIF on every browser
-  today, not just AVIF-capable ones.
-- **Hosted (File System Access folder handle):** encodes genuine AVIF when
-  available, otherwise writes the high-quality JPEG under `.jpg`. The local
-  descriptor records the actual format and source identity. No server
-  transcode is needed, and the cache remains local implementation detail.
-
-Implemented by `EditPreviewPersistService`
-(`lib/state/edit-preview-persist.service.ts`), which owns the debounce timers
-and the Hosted-vs-server-backed branch; the encode helpers
-(`encodeDevelopedRenderToAvif` / `encodeDevelopedRenderToJpeg`) live in
-`raw-pipeline/image-utils.ts`, reusing the same `canEncodeAvif()` capability
-probe as the thumbnail tier. The Hosted write path reuses
-`MapleCacheService.writePreview`; the
-server-backed path uses `BunApiBackendService.putPreview` and retains its fixed
-AVIF final-artifact contract.
-
-Non-RAW assets (JPEG/PNG/HEIC sources) are out of scope for this tier:
-`RawPipelineService.decode`'s non-RAW branch decodes browser-natively and
-does not apply the XMP adjustment at all, so there is no "developed" render
-to persist through this code path — the unedited tier (#2010) already keeps
-that asset's preview current, and persisting an unedited render under the
-edited contract would be actively wrong, not just incomplete.
-
-| Cache                          | How to Clear                                     | Effect                                                 |
-| ------------------------------ | ------------------------------------------------ | ------------------------------------------------------ |
-| Web developed preview (either) | Delete `.maple/previews/` in the photo directory | Re-derives on next open (unedited) or edit (developed) |
+Ten IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the ten has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
+
+| Database                                   | Store                 | Key                            | Value                    | Invalidated by                                                      |
+| ------------------------------------------ | --------------------- | ------------------------------ | ------------------------ | ------------------------------------------------------------------- |
+| `maple-id-cache`                           | `ids`                 | `slug:relPath` address         | `{size, mtime, mapleId}` | Live size/mtime mismatch                                            |
+| `maple-folder-listing-cache` (v2)          | `listings-by-address` | address                        | folder listing           | DB version bump; explicit `clear()`                                 |
+| `maple-sidecar-cache` (v2)                 | `sidecars-by-path`    | path                           | XMP text                 | DB version bump; explicit delete                                    |
+| `maple-film-lut-cache`                     | `luts-by-id`          | LUT id                         | `.mlut` bytes            | Nothing — no delete path exists                                     |
+| `maple-file-cache`                         | `files`               | id                             | imported `File`          | `clear()` runs in the same transaction as every write — single-slot |
+| `maple-slug-registry` / `maple-fs-handles` | —                     | slug / UUID                    | directory + file handles | Explicit removal only                                               |
+| `maple-fallback-cache`                     | `blobs`               | `` `${folderLabel}/${path}` `` | bytes                    | Nothing                                                             |
+| `maple-observability` / `maple-presets`    | `config` / `presets`  | `'current'` / preset id        | config / preset          | Overwrite; user delete                                              |
+
+In memory (`state/library-cache.service.ts`, `state/lru-cache.ts`):
+
+| Cache                      | Bound                                         | Notes                                                                                                                                                       |
+| -------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RAW byte cache             | **1 GB**, byte-bounded LRU keyed by `AssetId` | The eviction loop keeps at least one entry, so a single oversized RAW can exceed the cap                                                                    |
+| Thumbnail blob-URL channel | 500 entries                                   | Revokes `blob:` URLs on evict, overwrite, and clear                                                                                                         |
+| Preview blob-URL channel   | 64 entries                                    | Separate keyspace so a 1280-px preview load never evicts thumbnails                                                                                         |
+| `thumbBlobCache`           | unbounded                                     | Keyed by absolute path; caches the _Promise_ so concurrent callers share one round-trip. Cleared on folder switch and sign-out; failed requests self-remove |
+| `ThumbFailMemory`          | unbounded `Set`                               | Binary negative cache, session-scoped, no TTL or backoff by design                                                                                          |
+| `legacyBytes`              | unbounded `Map`                               | Bytes for drag-drop / file-input imports                                                                                                                    |
+
+In Hosted mode the browser writes into the same `.maple/previews/` folder through a File System Access directory handle, but it cannot always produce AVIF — no shipping browser's canvas encodes it — so a companion descriptor at `<filename.ext>.preview.json` records the actual format, MIME type, the source RAW's `{size, lastModified}`, and the artifact's own mtime (`maple-cache/preview-cache-protocol.ts`). A read requires the descriptor's format, MIME, byte signature, and source identity all to agree; a corrupt or stale descriptor fails closed rather than falling through to unrelated bytes. The `artifactLastModified` field is what lets a canonical AVIF written later by Apple or the API supersede a Hosted-private JPEG, so a local fallback can never permanently shadow a newer cross-platform develop.
+
+Thumbnail loading is additionally gated at **4 concurrent loads** (`state/library-cache.thumb-queue.ts`, `components/timeline-view/timeline-thumb-loader.ts`).
+
+The render worker (`raw-pipeline/raw-pipeline.worker.ts`) holds **no decode cache** — every request is one-shot decode-post-free. What it does retain is a single live GPU session (`raw-pipeline/raw-pipeline.session-handler.ts`): one image open at a time, opening a new one replaces the resident session, and operations are serialized through a chain because the wasm-bindgen `&mut self` borrow spans a whole render promise.
+
+There is **no deep-zoom tile cache on web**. The editor renders a full-frame canvas via the GPU live session or a 2D decode fallback; the only tiles in the codebase are MapLibre basemap tiles, cached by MapLibre and the HTTP layer.
+
+### Service worker
+
+Two configurations: `src/web/ngsw-config.json` for the `maple` app, `src/web/ngsw-config.hosted.json` for `maple-syrup`. Both register only in production builds, via `provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' })`.
+
+Asset groups are identical in both: `app` (prefetch — `index.html`, `favicon.ico`, the web manifest, all CSS and JS), `raw-wasm` (lazy install, prefetch update — `raw_wasm_bg.wasm` and `/pkg/**`), `fonts` (lazy install, prefetch update), `images` (fully lazy). `navigationUrls` excludes `/api/**`.
+
+Data groups exist **only in the self-hosted config** — Hosted is browser-only with no API to cache:
+
+| Group        | URLs                                   | Strategy    | Max size | Max age |
+| ------------ | -------------------------------------- | ----------- | -------- | ------- |
+| `thumbnails` | `/api/fs/thumb`, `/api/assets/*/thumb` | performance | 1500     | 30 d    |
+| `film-luts`  | `/film-luts/*.mlut`                    | performance | 12       | 30 d    |
+
+Library data APIs are deliberately not cached so MongoDB stays authoritative. The web client uses no Cache API storage of its own and has no caching HTTP interceptor — the only interceptor attaches the bearer token.
+
+## API and edge
+
+### On-disk derivatives
+
+The `thumb` and `preview` stages (`src/api/src/workers/stages/`) write the same shared `.maple/` files described above. Both resolve their output path from `fileinfo[0]` — the library root, the relative directory, and the filename — with no EXIF read, no content hash, and no extra database round-trip (`cachePathForAsset` in `src/api/src/fs/xmp.ts`). Neither path is stored in MongoDB, deliberately: a persisted `thumb_path` field would be exactly the dependency that path-keying exists to avoid. The cost of that cheapness is that neither artifact survives a rename or a move.
+
+A third artifact shares the previews directory: the histogram sidecar at `.maple/previews/<filename.ext>.histogram.json`.
+
+Orphans are reclaimed on two paths. Synchronously, wherever a `fileinfo` entry is removed, `cleanPreviewsCacheForLocation` runs from the missing-reaper (`src/api/src/workers/missing-reaper.reconcile.ts`) and the dedupe hook (`src/api/src/workers/dedupe.ts`) — **previews only**; thumbs rely entirely on the sweep. As a backstop, `src/api/src/workers/cache-gc.ts` sweeps each registered library once at boot: a `thumbs` file is live only if some live filename in that exact directory hashes to its stem; a `previews` file is live only if its name matches a live location in that directory. Retired schemes — 32-hex `<maple_id>.avif` thumbs from the content-addressed era, pre-AVIF `.jpg` files, `<filename>.1280.avif` previews, and `<sha16>_1600.jpg` pano pre-seeds — are always orphaned and reclaimed here. Two guards keep it safe: files written within the last **60 seconds** are skipped (a file could be mid-write while the sweep reads the directory), and three consecutive unlink failures with the same errno abort the pass, on the assumption that a read-only or permission-denied mount is an operator problem rather than something to grind against. If the library id can't be resolved because the database is momentarily unavailable, the previews sweep counts files but makes no delete decisions at all — a transient failure can never mass-delete live previews. Writes go through `src/api/src/fs/mirrored.ts`, so a library with a configured backup mirror reclaims orphans on the mirror too rather than accumulating dead files there.
+
+### HTTP caching
+
+| Route                                            | ETag                                     | `Cache-Control`                                                                            |
+| ------------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/thumb/:slug/*` (indexed)               | `"<maple_id>"` — content-keyed           | `public, max-age=31536000, immutable`                                                      |
+| `GET /api/thumb/:slug/*` (pre-index fallback)    | source-derived, weak                     | `private, max-age=10, must-revalidate`                                                     |
+| `GET /api/preview/:slug/*`                       | `"<mtimeMs>-<size>"` of the preview file | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/fs/thumb`                              | SHA-1 of the response body               | `private, max-age=3600`                                                                    |
+| `GET /api/fs/raw` (originals)                    | `"<mtimeMs>-<size>"`                     | `private, max-age=86400`                                                                   |
+| `GET /api/assets/:id/histogram`                  | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`    | `private, max-age=300`                                                                     |
+| Media streaming (`/api/video/*`, `/api/image/*`) | none                                     | `private, max-age=0, must-revalidate`                                                      |
+| Static Angular bundle                            | none                                     | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+
+Folder and directory listings (`/api/folders`, `/api/fs`) set no `Cache-Control` but do emit a body-hash ETag with a 304 short-circuit, which is what makes the File Provider extension's revalidation cheap.
+
+The preview ETag is deliberately **not** floored to whole milliseconds: the file is overwritten in place, so two rapid re-saves of identical byte size within one millisecond would collide under a floored mtime and wrongly serve a 304 with stale bytes. And the preview is never `immutable` — it lives at a stable URL and changes whenever the editor saves, so a client that cached it forever would never see an edit. Helpers are in `src/api/src/routes/library/shared.ts` and `src/api/src/runtime/http-etag.ts`.
+
+`PUT /api/preview?path=…` (`src/api/src/routes/preview.ts`) is the write half — the remote editor already holds developed pixels, so it publishes them straight to the cache path, atomically via temp-then-rename. It accepts **AVIF or JPEG** bodies: current browsers' canvas `convertToBlob` cannot genuinely encode AVIF, so a JPEG body is transcoded server-side through the same isolated-child-process decoder the indexer uses. Both branches converge on a real decode validation before publish; a truncated or mis-tagged result is rejected `422` and never reaches the cache path. There is no mtime precondition or conflict-copy dance, unlike the XMP write — a preview is a pure cache.
+
+### R2 mirror and the Cloudflare Worker
+
+The `cf-thumb-sync` stage mirrors each indexed asset's on-disk thumbnail into an R2 bucket. It starts `pausedOnFirstBoot: true` because Cloudflare credentials are operator-entered on Settings → Cloudflare, and unpausing processes the whole backlog — the stage _is_ the backfill. It depends on `thumb` at `minVersion: 2`, and the `thumb` stage resets it to version 0 on every rewrite, so a re-rendered thumbnail always re-uploads instead of leaving a stale edge copy. Hidden assets are excluded, and `src/api/src/cloudflare/hidden-cleanup.ts` actively deletes an already-synced object from every write path that flips `hidden` to true — the Worker checks only token validity, not per-asset visibility, so R2 residency alone determines exposure.
+
+R2 objects are deleted **only** on a false→true `hidden` transition. Nothing deletes the old object on delete, trash, or relocate: a relocate resets the thumb stage, which cascades a `cf-thumb-sync` reset and uploads at the _new_ key, leaving the old key resident in R2 with no equivalent of `cache-gc` to reclaim it. R2 objects also carry no expiry — they live until explicitly deleted.
+
+The Worker (`src/cloudflare/src/index.ts`) fronts `GET /api/thumb/*` only — everything else, including the legacy `/api/fs/thumb`, must be routed straight to the origin. Note that **R2 itself is the cache**; the Worker never touches Cloudflare's Cache API. It verifies an HS256 bearer token before touching R2, then derives the object key from the URL alone — no database access — as `thumbs/<slug>/<relDir…>/<filename>`, each segment URL-encoded, mirroring `src/api/src/cloudflare/thumb-key.ts` by hand (there is no shared import between the two deploy units). Because the key is path-based, a re-render simply overwrites the object; there is no separate invalidation step.
+
+An R2 hit streams back with `public, max-age=31536000, immutable`; R2's `onlyIf: { etagDoesNotMatch }` turns a matching client `If-None-Match` into a bodyless 304. A miss forwards to the origin with the same bearer token and conditional headers, streams the response to the client, and `tee()`s a copy into R2 via `waitUntil` — but **only for a confirmed 200 with a body**, so 202-unindexed, 304, 404, and 5xx pass through uncached. Requests carrying an opaque image capability bypass R2 entirely and proxy to the origin, because only the API can authoritatively validate path and expiry; those responses are marked `private, no-store`, and a 401 is marked `no-store` so an intermediary can't keep rejecting a client that later authenticates. A `?format=jpg` request decodes the AVIF and re-encodes JPEG in the Worker, dropping the `etag`, `content-length`, and `content-encoding` headers that no longer describe the bytes; the stored object stays AVIF.
+
+### Server-side in-process caches
+
+| Cache                                                                | Scope                          | Key                                                        | TTL / invalidation                                                                                                              |
+| -------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `libraries.cache.ts`                                                 | Module-scope, process lifetime | — (whole map: `library_id → root`, `slug → {root,label}`)  | No TTL; explicit `invalidateLibraryRoots()` on folder writes                                                                    |
+| `total-cache.ts`                                                     | Module-scope `Map`             | Full filter set of `GET /api/search`                       | 30 s                                                                                                                            |
+| `buckets.ts`                                                         | Module-scope `Map`             | Full filter set of `/api/search/buckets`                   | 30 s                                                                                                                            |
+| `admin-meilisearch-status.ts`                                        | Single slot                    | —                                                          | 30 s                                                                                                                            |
+| `inflightThumbGen` (`routes/library/thumb.ts`)                       | Module-scope `Map`             | Absolute path                                              | Not a result cache — a thundering-herd collapser, deleted in `finally`                                                          |
+| `browseRootsMemo` / `registeredRootsMemo` (`fs/browse.ts`)           | Module-scope + `WeakMap`       | Env / the libraries `Map` instance                         | The `WeakMap` key is the trick: invalidating the libraries cache hands out a fresh `Map` instance, so the memo misses naturally |
+| `geocode_cache` collection                                           | MongoDB                        | `lat:<4dp>,lon:<4dp>` (≈11 m — same building shares a key) | Entries are immortal; staleness handled by bumping the geocoder handler version, which makes older entries read as misses       |
+| `image_access_tokens`, `challenges`, `refresh_tokens`, handoff codes | MongoDB                        | —                                                          | Mongo TTL indexes; auth state, not derivative data                                                                              |
+
+There is **no in-memory LRU of decoded images or FFI handles in the API**. `src/api/src/ffi/` holds a bounded worker _pool_ (`FfiWorkerPool`, sized by `ffi-pool-config.repo.ts` to bound dylib loads and per-worker memory on small self-hosted boxes); the `pending` maps in that pool and in the image-decode and face-cluster pools correlate in-flight requests to their resolvers and are emptied on settle.
+
+### Regeneration on the server
+
+Each pipeline stage (see [indexer and enrichment](indexer-enrichment.md)) carries a `targetVersion` (`src/api/src/workers/stage-config.ts`). There is no boolean "done" marker — the marker _is_ the integer `stages.<name>.version`, and the claim query is a `<` comparison against `targetVersion`, so raising the constant makes every previously-complete document eligible again without deleting anything from MongoDB. A bump on deploy also triggers a dead-document reset at boot.
+
+`thumb` and `preview` are both at v4, and their bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)` every reader actually computes; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Old-scheme files are never renamed — they orphan out through `cache-gc`.
+
+The `thumb` stage also cascades: every successful write resets `cf-thumb-sync` to version 0 (clearing attempts, last error, processed-at, and the dead flag) so a re-rendered thumbnail re-uploads instead of leaving a stale edge copy. That reset is best-effort and must never fail the thumb write itself.
+
+One inconsistency worth knowing about: `src/api/src/workers/derivative-audit/checks.ts` carries its own audit targets (`THUMB_TARGET = 3`, `PREVIEW_TARGET = 4`, `DESCRIBE_TARGET = 7`, `CF_TARGET = 1`) that are separate constants from the stage `targetVersion`s. `THUMB_TARGET` is 3 while the thumb stage is at 4, so the audit's notion of "current" trails the stage's.
+
+## Invalidation on move, rename, and relocate
+
+**Cache files are never physically relocated.** Both sides delete the old entry and let regeneration happen at the new path, because the key is path-derived and the new path simply has no entry yet.
+
+On the server, `src/api/src/library/relocate-asset.ts` resets `stages.thumb` and `stages.preview` to version 0 (clearing attempts, last error, and the dead flag) inside the same atomic update that repoints the `fileinfo` document, so the workers regenerate at the new location. `src/api/src/workers/discover/rename-reconcile.ts` does the same when the discovery sweep matches a vanished file to a new one by fingerprint — file size plus EXIF `DateTimeOriginal` plus camera serial, with a structural guard that yields a pairing only when both fingerprint buckets hold exactly one member. `src/api/src/fs/relocate.ts` itself never touches cache files at all — that is the caller's job inside its `onVerified` hook.
+
+Only those two cheap raster stages reset. `describe`, `geocode`, `face-detect`, and `face-embed` keep their versions and timestamps, and `src/api/src/library/cache-invalidation-on-move.test.ts` asserts that explicitly: a move doesn't change pixels, so a caption, a reverse-geocode, or a face embedding computed before it is still valid, and re-running them would turn an O(1) filesystem operation into an O(inference) one. The same test also pins that re-running the thumb stage handler for that single asset — never a folder-wide rescan — is enough to produce a correct thumbnail at the new path, and that the old thumb is never served for it, because the two are different filesystem paths by construction rather than one cache slot being repointed.
+
+On Apple, `LocalFileOperations.invalidateDerivedCaches` (and its SMB twin) removes the old `.maple/thumbs/` and `.maple/previews/` files **and** awaits `RenderedPreviewCache.invalidate(assetURL:)`. That second call is load-bearing: the rendered-preview cache is an Apple-local cold-open cache with its own `<urlHash>_<variantHash>.jpg` naming in the same folder plus a 20-entry memory front, and a bare file removal never touches it. Nothing ever revisits a moved asset's old URL, so without the explicit call the old entry leaks in memory and on disk indefinitely — not a bounded wait for eviction. `refreshLibraryIndexAfterMove` separately carries the old `.maple/index.json` row's stars and flag across so a moved photo doesn't transiently read as unflagged.
+
+**One deliberate cross-platform difference in mtime handling.** Apple's `copyVerified` explicitly restores the source's modification date onto the copy, because a plain move must not look like an edit to the mtime-keyed rendered-preview cache (or to the trash-date bookkeeping, which is why `TrashMarker` uses a companion `<basename>.trashed-YYYY-MM-DD` directory instead of repurposing the file's mtime). The API's `relocateFile` does **not** preserve mtime — its destination carries a fresh write time — and `src/api/src/library/cache-invalidation-on-move.test.ts` records that as expected and in fact desirable: a relocate always changes `primary_mtime`, so a stale-adjustment entry can never be served under a reused key. What that test pins as load-bearing is that the _content_ crossing to the new path is byte-for-byte identical.
+
+## Windows
+
+`src/windows/Maple.WinUI/Services/ThumbnailService.cs` runs two tiers. The **512-px grid tier** writes the cross-app shared `.maple/thumbs/` cache via `ThumbCachePaths`, and serves an existing entry as-is with no staleness check — originals are immutable, so a thumb once written never needs invalidating by a source change. When the photo folder is unwritable (read-only media, a share without write permission), it falls back to a machine-local copy so thumbnails still work.
+
+The **2560-px full-screen embedded-preview tier** has no cross-app contract, so it stays machine-local under `%LOCALAPPDATA%\Maple\local-cache`, keyed on `SHA-256(path|mtimeTicks|size|maxPx)[:32]`. Edits and moves therefore orphan entries naturally; a **30-day age sweep** on construction is what keeps that bounded, alongside a one-shot deletion of the pre-shared-cache `%LOCALAPPDATA%\Maple\thumbs` directory. The shared tier's old entries are cleaned synchronously by `LocalFileOperations.FinalizeRelocate`.
+
+## The adjustment-version proxy
+
+**Sidecar mtime is the adjustment-version proxy, and only Apple's rendered-preview and tile caches actually key on it.** Verified in code:
+
+- `RenderedPreviewCache.cacheKey` hashes `"<primaryMtime>_<sidecarMtime>_<screenWidth>_v<viewTransformVersion>_pv<pipelineOutputVersion>"`. Because every sidecar write bumps the file's mtime, any slider change changes the key. `primaryMtime` is in there too, so a change to the RAW's own bytes that leaves the sidecar untouched — a re-import, an external sync tool, a filesystem restore — also misses, rather than serving a preview developed from the old bytes under an identical key.
+- `TileKey` carries `sidecarMtime` directly as a field, described in code as bumping on every adjustment edit.
+
+Everything else treats adjustments differently. **Thumbnails do not key on adjustments at all** — originals are immutable, so a thumb never goes stale by itself; instead Apple's `ThumbnailLoader.updateThumbnailFromRender` proactively _overwrites_ the thumb after a develop render so the grid reflects the edit on the next browse. The `.maple/previews/<filename>.avif` display preview has no version or edit token in its name either; it is checked for freshness at read time by comparing its mtime against the original and against the sidecar (with the 10-second autosave slack and the visual-edit test described above), and overwritten in place by the editor's idle-debounce persist. The server's preview ETag — the preview file's own `mtimeMs` and size — is what propagates an edit to HTTP clients.
+
+And one cache deliberately rejects the proxy: the session decoded-image slot on `RenderActor` keys on the stripped adjustment model instead, because most slider moves don't change the decode at all and treating a sidecar write as a decode invalidation cost a full re-decode on every drag pause. Sidecar mtime survives there only as a cheap gate that decides whether the XMP is worth re-parsing.
+
+## Comparison with the previous version of this document
+
+Five things the old document stated that the code does not support:
+
+1. **The decode caches in old §4 and §5 no longer exist under those names.** Old §4 described `EditSession.decodedImage` as "a lazy CIImage backed by a CIRAWFilter graph"; old §5 described `EditSession.cachedFileData` holding whole SMB file bytes. Neither symbol exists. Decoding never goes through `CIRAWFilter` — that type is used only to read as-shot metadata, and `ImageMetadataReader.swift` says so explicitly. What replaced them is a pair: `RawImageCache`, a single-entry in-memory hold on the rawler decode handle keyed on `(URL, mtime)`, and the `RenderActor` decoded-image slot keyed on the _stripped_ adjustment model rather than sidecar mtime. A third, disk-backed decoded-buffer cache with its own `rustVersion` counter also existed and was removed; its version lineage survives only as commentary inside `RenderedPreviewCache.swift`.
+2. **Thumbnail naming, format, and size.** Old §2 gives the on-disk thumbnail as `.maple/thumbs/{original_filename}.jpg` at JPEG quality 0.8. It is `.maple/thumbs/<sha256_prefix16(basename)>.avif`, and the shared write contract is 512 px at AVIF quality 55 — distinct from Apple's 256-px local grid tier, which is why the Apple writer re-encodes the same decoded image a second time before writing back to a share.
+3. **Thumb eviction.** Old doc and the `ThumbnailDiskCache` file header both claim LRU-by-mtime with a 500 MB / 10,000-entry cap. There is no such code. The on-disk thumb store is unbounded on Apple; the memory tiers are FIFO-capped at 100 entries with a 2000-entry `NSCache` for synchronous peeks. Likewise old §1's `ThumbnailLoader.memoryCache` — a 500-entry `LRUCache<String, CGImage>` keyed `"{assetID}_{maxDimension}"`, with `prime(assetID:size:image:)` and `invalidate(assetID:)` — does not exist; no `LRUCache` type is defined in MapleCore at all.
+4. **Where rendered previews live.** Old §3's body correctly says `.maple/previews/`, but its own flow diagram and its "Clearing Caches" table both say previews persist to `~/Library/Caches/` and are lost when the OS purges it. They do not; they sit next to the photos and travel with them. (Apple's Self-Hosted client caches — cloud thumbs, search buckets, folder lists, account metadata — _are_ the things under `~/Library/Caches/app.justmaple.aperture/`.)
+5. **The five-cache framing.** The old "five caches at a glance" table describes an Apple-only world. It omits the layers that carry most of today's behavior: the pipeline-output-version mechanism as a key on one platform and a marker-file gate on the other, the R2 and Cloudflare Worker edge tier, the File Provider and Quick Look caches, the ten web IndexedDB stores and the byte-bounded in-memory tiers, the API's per-stage `targetVersion` regeneration and its `cache-gc` sweep, and the server-side TTL caches for search counts and reverse-geocodes.
+
+Two things the old doc got right and this one preserves: the `RenderedPreviewCache` key composition, including sidecar mtime as the adjustment-version proxy, and the Hosted preview cache's descriptor-based validation. Separately, the `<sha16>_1600.jpg` naming that sometimes gets attributed to the preview cache is a retired scheme on both sides — `cache-gc`'s `LEGACY_PANO_PREVIEW_RE` recognizes it for reclamation and nothing writes it, and Apple's reader never consults the equivalent old path.

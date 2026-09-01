@@ -5,7 +5,7 @@
 //! The scene-linear working space is Rec.2020 D65 at f32; the curve's
 //! authoring `[0, 1]` domain maps to scene `[0, REF_MAX]` with
 //! `REF_MAX = 4.0` (two stops above diffuse white, per
-//! `docs/maple-paper.md` § 4.6 — covers AgX-friendly headroom without
+//! `docs/pipeline.md` § "The develop chain" — covers AgX-friendly headroom without
 //! truncating specular detail).
 //!
 //! Identity guarantee: this stage is a strict no-op when every
