@@ -455,4 +455,13 @@ describe('sidecarRenameTarget', () => {
     );
     expect(result).toBeNull();
   });
+
+  test("the prefix match is case-insensitive, matching listPairedSidecars' own case-insensitive pairing (review on #2704)", () => {
+    // RAW is IMG.CR3 (uppercase base); sidecar is STORED as img.xmp
+    // (lowercase) — listPairedSidecars already treats this pair as linked
+    // (its own regex is case-insensitive), so this must not silently
+    // orphan the sidecar.
+    const result = sidecarRenameTarget(abs('src/IMG.CR3'), abs('dst/IMG.CR3'), abs('src/img.xmp'));
+    expect(result).toBe(abs('dst/IMG.xmp'));
+  });
 });

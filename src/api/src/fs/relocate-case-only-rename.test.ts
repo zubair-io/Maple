@@ -189,3 +189,39 @@ describe('relocateFile — case-only rename (#2704)', () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Case-SENSITIVE filesystem: two genuinely distinct files whose names
+// differ only by case must NOT be misclassified as a case-only rename
+// (review on #2704 — a pure string-comparison classification would
+// misidentify this pair on ext4/CI and let a direct `fs.rename` silently
+// clobber the destination's real content). Skipped outright on a
+// case-INSENSITIVE volume: there it's impossible to even create two such
+// files — the second write just overwrites the first.
+// ---------------------------------------------------------------------------
+
+describe('relocateFile — case-SENSITIVE filesystem: distinct same-case-insensitive-name files are never conflated', () => {
+  test.skipIf(CASE_INSENSITIVE_FS)(
+    'a genuinely different file that merely shares a case-insensitive name is refused, never clobbered',
+    async () => {
+      await write('a/img.cr3', 'source-pixels');
+      await write('a/IMG.CR3', 'unrelated-destination-pixels');
+      const outcome = await relocateFile({
+        sourceAbsPath: abs('a/img.cr3'),
+        destAbsPath: abs('a/IMG.CR3'),
+        mode: 'move',
+        collision: 'auto-suffix',
+      });
+      // NOT 'relocated' via a same-file direct rename — auto-suffix collision
+      // handling must run instead, since these are two real, different files.
+      expect(outcome.kind).toBe('relocated');
+      if (outcome.kind !== 'relocated') return;
+      expect(outcome.renamedOnCollision).toBe(true);
+      // The load-bearing assertion: the unrelated destination file's
+      // content survives untouched, and the source's content lands at the
+      // auto-suffixed path — not clobbering IMG.CR3.
+      expect(await read('a/IMG.CR3')).toBe('unrelated-destination-pixels');
+      expect(await exists('a/img.cr3')).toBe(false); // source moved (mode: move)
+    },
+  );
+});
