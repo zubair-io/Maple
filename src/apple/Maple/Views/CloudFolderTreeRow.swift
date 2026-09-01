@@ -146,9 +146,9 @@ struct CloudFolderTreeRow: View {
         expandable: hasChildren,
         expanded: Binding(
           get: { isExpanded },
-          set: { _ in
+          set: { newValue in
             withAnimation(.easeInOut(duration: 0.12)) {
-              toggleExpanded()
+              setExpanded(newValue)
             }
           }
         ),
@@ -334,12 +334,15 @@ struct CloudFolderTreeRow: View {
     }
   }
 
-  private func toggleExpanded() {
-    if isExpanded {
-      expanded.remove(absPath)
-    } else {
+  /// Honors the value the row's `expanded` binding is set to (rather than
+  /// blindly toggling), so a programmatic `true`/`false` from `MuiTreeRow`
+  /// can never invert the tree's state.
+  private func setExpanded(_ value: Bool) {
+    if value {
       expanded.insert(absPath)
       loadIfNeeded()
+    } else {
+      expanded.remove(absPath)
     }
   }
 
