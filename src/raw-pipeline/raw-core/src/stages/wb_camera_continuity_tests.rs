@@ -1,4 +1,10 @@
-//! #2321 continuity gate: camera-space WB near the as-shot point.
+//! #2321 continuity CASE for camera-space WB near the as-shot point.
+//!
+//! NOTE: both tests below are currently `#[ignore]`d — this file does NOT
+//! gate `cargo test`'s default surface yet. It documents and quantifies a
+//! real discontinuity, pending the design call #1746 leaves open (see each
+//! test's `#[ignore]` reason for the measured numbers). Un-ignore once that
+//! call lands and the underlying math is fixed.
 //!
 //! Sibling of [`super::tests`] (`wb_camera_tests.rs`) split out under the
 //! 600-LOC file-size budget — same pattern as `wb_camera_frame_tests.rs`.
@@ -42,8 +48,8 @@ fn off_locus_as_shot(cct: f32) -> [f32; 3] {
 }
 
 /// Temperature-only row. Currently RED — measured on this exact fixture: a
-/// 1K nudge off as-shot moves a channel by an 0.1151 fraction (11.5%), not
-/// the O(1K) response the gate expects. See #2321.
+/// 1K nudge off as-shot moves a channel by a 0.1151 fraction (11.5%), not
+/// the O(1K) response this case expects. See #2321.
 #[test]
 #[ignore = "#2321: camera-space WB is discontinuous at the as-shot point \
             (measured: a 1K nudge moves a channel by 11.5%, not O(delta)); \
