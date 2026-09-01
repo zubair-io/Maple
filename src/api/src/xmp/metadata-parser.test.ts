@@ -7,6 +7,7 @@
 
 import { describe, test, expect } from 'bun:test';
 import { parseXmpMetadata, xmpMetadataToOverridePatch } from './metadata-parser.ts';
+import type { ColorLabel } from './color-label.ts';
 
 // ---------------------------------------------------------------------------
 // Helper: build a minimal XMP sidecar string with given content
@@ -282,6 +283,87 @@ describe('parseXmpMetadata — keywords', () => {
   test('absent dc:subject returns undefined keywords', () => {
     const xml = makeXmp('photoshop:City="Paris"');
     expect(parseXmpMetadata(xml).keywords).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Color label (#2201) — papp:ColorLabel (Maple's own key) vs the
+// XMP-standard xmp:Label word Adobe Lightroom/Bridge write.
+// ---------------------------------------------------------------------------
+
+describe('parseXmpMetadata — colorLabel', () => {
+  test('papp:ColorLabel alone is parsed', () => {
+    const xml = makeXmp('papp:ColorLabel="green"');
+    expect(parseXmpMetadata(xml).colorLabel).toBe('green');
+  });
+
+  test('every XMP-standard xmp:Label colour word maps to the matching colorLabel', () => {
+    const words: Record<string, ColorLabel> = {
+      Red: 'red',
+      Orange: 'orange',
+      Yellow: 'yellow',
+      Green: 'green',
+      Blue: 'blue',
+      Purple: 'purple',
+    };
+    for (const [word, expected] of Object.entries(words)) {
+      const xml = makeXmp(`xmp:Label="${word}"`);
+      expect(parseXmpMetadata(xml).colorLabel).toBe(expected);
+    }
+  });
+
+  test('papp:ColorLabel wins when both papp:ColorLabel and xmp:Label are present', () => {
+    const xml = makeXmp('papp:ColorLabel="blue" xmp:Label="Red"');
+    expect(parseXmpMetadata(xml).colorLabel).toBe('blue');
+  });
+
+  test('falls back to xmp:Label when papp:ColorLabel is absent', () => {
+    const xml = makeXmp('xmp:Label="Orange"');
+    expect(parseXmpMetadata(xml).colorLabel).toBe('orange');
+  });
+
+  test('falls back to xmp:Label when papp:ColorLabel is present but out-of-vocabulary', () => {
+    const xml = makeXmp('papp:ColorLabel="magenta" xmp:Label="Purple"');
+    expect(parseXmpMetadata(xml).colorLabel).toBe('purple');
+  });
+
+  test('an unrecognised xmp:Label word (not one of the six Adobe default colours) is ignored', () => {
+    const xml = makeXmp('xmp:Label="To Do"'); // a real Bridge/Lightroom label word, but not a colour
+    expect(parseXmpMetadata(xml).colorLabel).toBeUndefined();
+  });
+
+  test('neither key present leaves colorLabel unset', () => {
+    const xml = makeXmp('photoshop:City="Paris"');
+    expect(parseXmpMetadata(xml).colorLabel).toBeUndefined();
+  });
+
+  test('a real Lightroom-authored sidecar (xmp:Label only, no papp: namespace at all) populates colorLabel', () => {
+    // This is the exact repro of #2201: a sidecar written PURELY by
+    // Lightroom/Bridge carries xmp:Label but never papp:ColorLabel — before
+    // this fix, the API parser silently left colorLabel unset, so the
+    // asset's label was invisible to search/timeline color filtering even
+    // though the web editor displayed it (the web parser already read
+    // xmp:Label as a fallback).
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 6.0-c002 79.164036, 2020/01/30-15:50:38">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmp:Rating="4"
+    xmp:Label="Purple"
+    crs:Version="15.0"
+    crs:ProcessVersion="15.4"
+    crs:Exposure2012="+0.35">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`;
+    const result = parseXmpMetadata(xml);
+    expect(result.colorLabel).toBe('purple');
+    expect(result.rating).toBe(4);
+    // Feeds directly into the DB patch the sidecar-metadata-index stage
+    // writes — this is the field search/timeline color filtering reads.
+    expect(xmpMetadataToOverridePatch(result).color_label).toBe('purple');
   });
 });
 
