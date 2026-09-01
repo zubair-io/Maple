@@ -2,7 +2,18 @@
 # build-xcframework.sh — compile raw-ffi for Apple targets, run cbindgen,
 # bundle into RawPipeline.xcframework.
 #
-# Usage: ./scripts/build-xcframework.sh [--debug]
+# Usage: ./scripts/build-xcframework.sh [--debug|--check-only]
+#
+# --check-only does no building — it just compares the current Rust/cbindgen
+# input hash against the last successful build's stamp and exits 1 with an
+# actionable message if the xcframework is stale (#2375). Wired as the
+# "Maple Exposure" scheme's Pre-actions Run Script so a stale xcframework
+# fails the build BEFORE MapleCore compiles against it — MapleCore is a
+# package dependency of the app target and therefore builds before the app
+# target's own "Build Rust xcframework" script phase ever runs, so that
+# phase can only ever repair the *next* build, not the one hitting a stale
+# header. The check is a plain hash comparison (no cargo/cbindgen
+# invocation), so it costs a fraction of a second on every build.
 #
 # The default profile is RELEASE. The Maple pano path (maple_pano_stitch) runs
 # ~16× slower in debug than release on CPU-heavy SIMD/ONNX workloads (measured:
@@ -66,69 +77,9 @@ if [[ "${1:-}" == "--debug" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# GPU build (epic #925 / #1064) — always on.
-#
-# As of #1064 the Apple build is always-gpu (no wgpu-free variant): raw-ffi is
-# built with `--features gpu`, which links wgpu/naga/metal into every slice
-# (incl. aarch64-apple-ios — the #1 cross-compile risk) and compiles the
-# `maple_gpu_*` FFI surface the always-compiled Swift GPU live path links
-# against. The `MAPLE_GPU` compile gate on the Swift side is gone, and the
-# cbindgen header now declares `maple_gpu_*` unconditionally, so the libs MUST
-# contain them — hence `--features gpu` is unconditional here.
-#
-# The build is OFFLINE from the vendored sources. wgpu's full dep tree IS
-# vendored under `src/raw-pipeline/vendor/` (`cargo vendor` after #996 —
-# wgpu/wgpu-core/wgpu-hal/wgpu-types, naga, metal, ash, gpu-alloc*/gpu-descriptor*,
-# pollster, futures-channel, … all present with their `.cargo-checksum.json`), so
-# the build is hermetic: no crates.io round-trip, no intermittent "Could not
-# resolve host" DNS flake on the Xcode Cloud workers, and a loud failure if
-# vendor/ is ever stale instead of a silent network fallback.
-
-echo "==> build-xcframework.sh"
-echo "    raw-ffi:    $RAW_FFI_DIR"
-echo "    frameworks: $FRAMEWORKS_DIR"
-echo "    profile:    $PROFILE"
-echo "    GPU:        ON (--features gpu, offline + vendored — always-gpu since #1064)"
-echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 #1244)"
-
-# ---------------------------------------------------------------------------
-# 0a-pano. Provision the ONNX Runtime iOS static xcframework (M6 #1244).
-#
-# The ORT iOS static lib is required for the iOS + iOS-sim slices when
-# `pano-ios` is enabled. The zip (pod-archive-onnxruntime-c-1.22.0.zip,
-# 45 MB) is vendored in the repo at src/apple/vendor/ort-ios/ (#1353).
-# fetch-ort-ios.sh copies it to ~/.cache/maple-pano/ort-ios/, verifies
-# the ZIP SHA-256, and extracts it. No network access is required.
-#
-# ORT version 1.22.0 pairs with the workspace's `ort = "=2.0.0-rc.10"`
-# crate (which binds ORT 1.22.x C API). The official iOS pod is a static
-# xcframework — libonnxruntime.a for arm64 and a fat arm64+x86_64 for the
-# simulator — and includes the CoreML EP symbols (M6-C placeholder, not yet
-# wired).
-# ---------------------------------------------------------------------------
-ORT_IOS_XCFW_BASE="${HOME}/.cache/maple-pano/ort-ios/onnxruntime-c-1.22.0/onnxruntime.xcframework"
-
-fetch_ort_ios_if_needed() {
-    local fetch_script="$SCRIPT_DIR/fetch-ort-ios.sh"
-    if [[ ! -x "$fetch_script" ]]; then
-        echo "ERROR: fetch-ort-ios.sh not found at $fetch_script" >&2
-        exit 1
-    fi
-    if [[ ! -f "${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime" ]]; then
-        echo "==> ORT iOS static lib not cached — fetching..."
-        "$fetch_script"
-    else
-        echo "==> ORT iOS static lib cached at $ORT_IOS_XCFW_BASE"
-    fi
-}
-
-fetch_ort_ios_if_needed
-
-LIB_NAME="libraw_ffi.a"
-
-# ---------------------------------------------------------------------------
-# 0a. Fast-path: skip if no relevant Rust input has changed since the last
-#     build.
+# Content-hash staleness check (#1946, #2375) — hoisted above the GPU banner
+# and ORT provisioning so `--check-only` (see header comment) can answer
+# "is the xcframework stale?" without doing any of that work first.
 #
 # We hash the *content* of every input that can change the compiled
 # libraw_ffi.a or the generated header — not file mtimes. mtime-based
@@ -147,6 +98,7 @@ LIB_NAME="libraw_ffi.a"
 # the symbol-consistency guard at the end — never on a skipped/no-op run.
 # `--force` / FORCE_XCFRAMEWORK_REBUILD=1 bypass the fast-path.
 # ---------------------------------------------------------------------------
+LIB_NAME="libraw_ffi.a"
 XCFW_OUT_PROBE="$NATIVE_DIR/Frameworks/RawPipeline.xcframework"
 # A pre-#1064 wgpu-free stamp can't be mistaken for this always-gpu build:
 # cbindgen.toml is in the input hash below, and the #1064 change to it (drop the
@@ -215,6 +167,102 @@ all_slices_present() {
     return 0
 }
 
+# --check-only (#2375): answer the staleness question and exit — no build,
+# no ORT provisioning, no tool validation. Meant to run as a Pre-actions
+# script on the Xcode scheme, ahead of MapleCore's compile, so a stale
+# xcframework fails the build with this message instead of an opaque
+# "value of type '...' has no member '...'" Swift compiler error.
+if [[ "${1:-}" == "--check-only" ]]; then
+    if [[ -f "$STAMP" ]]; then
+        stamped_hash="$(tr -d '[:space:]' < "$STAMP" 2>/dev/null)"
+    else
+        stamped_hash=""
+    fi
+    if [[ "$stamped_hash" == "$INPUT_HASH" ]] && all_slices_present; then
+        echo "==> RawPipeline.xcframework is up to date (hash $INPUT_HASH)."
+        exit 0
+    fi
+    {
+        echo ""
+        echo "ERROR: RawPipeline.xcframework is stale or incomplete."
+        echo "       raw-core/raw-ffi/raw-gpu/maple-pano sources have changed since the"
+        echo "       last successful build (or a slice is missing), so MapleCore would"
+        echo "       fail to compile against the checked-in header with a confusing"
+        echo "       \"value of type '...' has no member '...'\" error."
+        echo ""
+        echo "       Fix: run ./src/apple/scripts/build-xcframework.sh (add --debug for a"
+        echo "       faster iteration build), then build again."
+        echo ""
+    } >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# GPU build (epic #925 / #1064) — always on.
+#
+# As of #1064 the Apple build is always-gpu (no wgpu-free variant): raw-ffi is
+# built with `--features gpu`, which links wgpu/naga/metal into every slice
+# (incl. aarch64-apple-ios — the #1 cross-compile risk) and compiles the
+# `maple_gpu_*` FFI surface the always-compiled Swift GPU live path links
+# against. The `MAPLE_GPU` compile gate on the Swift side is gone, and the
+# cbindgen header now declares `maple_gpu_*` unconditionally, so the libs MUST
+# contain them — hence `--features gpu` is unconditional here.
+#
+# The build is OFFLINE from the vendored sources. wgpu's full dep tree IS
+# vendored under `src/raw-pipeline/vendor/` (`cargo vendor` after #996 —
+# wgpu/wgpu-core/wgpu-hal/wgpu-types, naga, metal, ash, gpu-alloc*/gpu-descriptor*,
+# pollster, futures-channel, … all present with their `.cargo-checksum.json`), so
+# the build is hermetic: no crates.io round-trip, no intermittent "Could not
+# resolve host" DNS flake on the Xcode Cloud workers, and a loud failure if
+# vendor/ is ever stale instead of a silent network fallback.
+
+echo "==> build-xcframework.sh"
+echo "    raw-ffi:    $RAW_FFI_DIR"
+echo "    frameworks: $FRAMEWORKS_DIR"
+echo "    profile:    $PROFILE"
+echo "    GPU:        ON (--features gpu, offline + vendored — always-gpu since #1064)"
+echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 #1244)"
+
+# ---------------------------------------------------------------------------
+# 0a-pano. Provision the ONNX Runtime iOS static xcframework (M6 #1244).
+#
+# The ORT iOS static lib is required for the iOS + iOS-sim slices when
+# `pano-ios` is enabled. The zip (pod-archive-onnxruntime-c-1.22.0.zip,
+# 45 MB) is vendored in the repo at src/apple/vendor/ort-ios/ (#1353).
+# fetch-ort-ios.sh copies it to ~/.cache/maple-pano/ort-ios/, verifies
+# the ZIP SHA-256, and extracts it. No network access is required.
+#
+# ORT version 1.22.0 pairs with the workspace's `ort = "=2.0.0-rc.10"`
+# crate (which binds ORT 1.22.x C API). The official iOS pod is a static
+# xcframework — libonnxruntime.a for arm64 and a fat arm64+x86_64 for the
+# simulator — and includes the CoreML EP symbols (M6-C placeholder, not yet
+# wired).
+# ---------------------------------------------------------------------------
+ORT_IOS_XCFW_BASE="${HOME}/.cache/maple-pano/ort-ios/onnxruntime-c-1.22.0/onnxruntime.xcframework"
+
+fetch_ort_ios_if_needed() {
+    local fetch_script="$SCRIPT_DIR/fetch-ort-ios.sh"
+    if [[ ! -x "$fetch_script" ]]; then
+        echo "ERROR: fetch-ort-ios.sh not found at $fetch_script" >&2
+        exit 1
+    fi
+    if [[ ! -f "${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime" ]]; then
+        echo "==> ORT iOS static lib not cached — fetching..."
+        "$fetch_script"
+    else
+        echo "==> ORT iOS static lib cached at $ORT_IOS_XCFW_BASE"
+    fi
+}
+
+fetch_ort_ios_if_needed
+
+# ---------------------------------------------------------------------------
+# 0a. Fast-path: skip if no relevant Rust input has changed since the last
+#     build. LIB_NAME/STAMP/EXPECTED_SLICE_DIRS/compute_input_hash/
+#     all_slices_present/INPUT_HASH are all defined above (hoisted ahead of
+#     the GPU banner so `--check-only` can use them without the ORT/tool
+#     setup below).
+# ---------------------------------------------------------------------------
 if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "${1:-}" != "--force" && \
       -f "$STAMP" ]]; then
     stamped_hash="$(tr -d '[:space:]' < "$STAMP" 2>/dev/null)"
