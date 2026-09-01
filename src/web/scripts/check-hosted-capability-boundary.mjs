@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { walkFiles } from './lib/walk-files.mjs';
 
@@ -7,7 +7,19 @@ const artifactRoot = resolve(
   process.env.MAPLE_HOSTED_ARTIFACT ??
     fileURLToPath(new URL('../dist/maple-syrup/browser', import.meta.url)),
 );
-const MAX_MAIN_BYTES = 840_000;
+// #2709: this used to stat only main-*.js. That was a sound proxy while
+// Hosted's initial payload was essentially one eager bundle, but esbuild
+// factors shared framework code into its own eager chunk as soon as any
+// code-splitting happens (first hit in #2643/#2705's @defer split) — main
+// shrinks, the ratchet reports a large win, and the actual initial payload
+// can be flat or worse. `index.html`'s `<script src>` (the entry) plus its
+// `<link rel="modulepreload">` hrefs are exactly the chunks the browser
+// fetches before the app can render a frame — Angular's esbuild builder
+// emits a modulepreload for every eagerly (statically) imported chunk and
+// none for a lazy-route or `@defer` chunk, which is only ever reached via a
+// runtime `import()` the builder can't know is coming. Summing those is the
+// actual initial payload; anything else in dist/ is deferred by definition.
+const MAX_EAGER_BYTES = 1_160_000;
 const SERVER_ONLY_MARKERS = [
   '/api/metadata/snapshots',
   '/api/pano/stitch',
@@ -86,9 +98,28 @@ const SELF_HOSTED_COMPOSITION = {
 };
 
 const scripts = await walkFiles(artifactRoot, (path) => path.endsWith('.js'));
-const mainScripts = scripts.filter((path) => /^main-[A-Z0-9]+\.js$/.test(basename(path)));
-if (mainScripts.length !== 1) {
-  throw new Error(`Expected one Hosted main bundle, found ${mainScripts.length}`);
+
+/** Every href this build's `index.html` marks as eagerly needed: the entry
+ * `<script src>` plus every `<link rel="modulepreload">` — the set the
+ * browser fetches before the app can render a first frame. A chunk reached
+ * only via a runtime `import()` (a lazy route, an `@defer` block) gets
+ * neither, so it's excluded by construction rather than by a marker list
+ * this script would have to keep in sync with the app's route/defer graph. */
+function eagerHrefsFromIndexHtml(html) {
+  const scriptSrcs = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map((m) => m[1]);
+  const modulepreloadHrefs = (html.match(/<link\b[^>]*>/g) ?? [])
+    .filter((tag) => /\brel="modulepreload"/.test(tag))
+    .map((tag) => tag.match(/\bhref="([^"]+)"/)?.[1])
+    .filter((href) => href !== undefined);
+  return [...new Set([...scriptSrcs, ...modulepreloadHrefs])];
+}
+
+const indexHtmlPath = resolve(artifactRoot, 'index.html');
+const indexHtml = await readFile(indexHtmlPath, 'utf8');
+const eagerHrefs = eagerHrefsFromIndexHtml(indexHtml);
+const entryHrefs = eagerHrefs.filter((href) => /^main-[A-Za-z0-9]+\.js$/.test(href));
+if (entryHrefs.length !== 1) {
+  throw new Error(`Expected one Hosted main bundle in ${indexHtmlPath}, found ${entryHrefs.length}`);
 }
 
 for (const boundary of SOURCE_BOUNDARIES) {
@@ -114,9 +145,23 @@ for (const path of scripts) {
   if (marker) throw new Error(`Hosted bundle ${path} contains server-only marker: ${marker}`);
 }
 
-const mainBytes = (await stat(mainScripts[0])).size;
-if (mainBytes > MAX_MAIN_BYTES) {
-  throw new Error(`Hosted main bundle is ${mainBytes} bytes; ratchet is ${MAX_MAIN_BYTES}`);
+const eagerSizes = await Promise.all(
+  eagerHrefs.map(async (href) => {
+    const size = (await stat(resolve(artifactRoot, href))).size;
+    return { href, size };
+  }),
+);
+const eagerBytes = eagerSizes.reduce((total, { size }) => total + size, 0);
+if (eagerBytes > MAX_EAGER_BYTES) {
+  const breakdown = eagerSizes
+    .sort((a, b) => b.size - a.size)
+    .map(({ href, size }) => `  ${href}: ${size}`)
+    .join('\n');
+  throw new Error(
+    `Hosted eager payload is ${eagerBytes} bytes; ratchet is ${MAX_EAGER_BYTES}\n${breakdown}`,
+  );
 }
 
-console.log(`Hosted capability boundary passed (${mainBytes}/${MAX_MAIN_BYTES} main bytes).`);
+console.log(
+  `Hosted capability boundary passed (${eagerBytes}/${MAX_EAGER_BYTES} eager bytes across ${eagerHrefs.length} chunk(s)).`,
+);
