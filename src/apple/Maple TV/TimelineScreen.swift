@@ -3,8 +3,9 @@ import MapleCloudKit
 import SwiftUI
 
 /// The Timeline: a flat, newest-first wall of photos (no day/location
-/// section grouping). `RootTabView` (#2121) hosts it as one of three tabs
-/// under the floating pill tab bar. The header (`TimelineTopBar`) reflects
+/// section grouping) and nothing else — the generated-collections shelf that
+/// used to sit above it now has a screen of its own (`MemoriesScreen`), so
+/// browsing is only the photo wall. The header (`TimelineTopBar`) reflects
 /// the *focused* photo — its short capture date and, when geocoded, its
 /// place — so the day and location live in one place that updates as you
 /// move the Siri Remote, rather than as repeated in-grid section headers.
@@ -18,20 +19,6 @@ struct TimelineScreen: View {
   let libraryName: String
 
   @State private var viewModel: TVTimelineViewModel
-  /// The "Rediscover" shelf above the grid. Independent of the feed below —
-  /// if it fails to load it simply renders nothing, leaving the Timeline
-  /// fully usable.
-  @State private var collectionsViewModel: TVGeneratedSearchViewModel
-  /// Assets of the collection the viewer is currently showing, if any.
-  /// Wrapped because `fullScreenCover(item:)` needs an `Identifiable`, and a
-  /// bare array is not one.
-  @State private var openCollection: OpenCollection?
-
-  /// A collection's photos, presented full-screen.
-  private struct OpenCollection: Identifiable {
-    let id: String
-    let assets: [SearchAsset]
-  }
   /// Presents `PhotoViewerScreen` (current feed + selected index) via
   /// `.fullScreenCover(item:)` when non-nil. Set by a cell's `onSelect`.
   @State private var selectedAsset: SearchAsset?
@@ -49,15 +36,16 @@ struct TimelineScreen: View {
       libraryID: libraryID,
       searchClient: session.searchClient
     ))
-    _collectionsViewModel = State(initialValue: TVGeneratedSearchViewModel(
-      libraryID: libraryID,
-      client: session.generatedSearchClient
-    ))
   }
 
-  /// Fixed-width columns matching `TimelineCell.size` — a wall of uniform
-  /// square cells, not a proportional/adaptive layout.
-  private static let columns = [GridItem(.adaptive(minimum: TimelineCell.size, maximum: TimelineCell.size), spacing: 32)]
+  /// Gaps between cells, and the outer margin the wall keeps clear on each
+  /// side. `TVGridLayout` turns these plus `TimelineCell.targetSize` into a
+  /// whole number of columns and the exact cell size that makes a row span
+  /// the content width — so every gap is `cellSpacing` and both margins are
+  /// `horizontalInset`, with nothing left over to skew the wall sideways.
+  private static let cellSpacing: CGFloat = 32
+  private static let rowSpacing: CGFloat = 40
+  private static let horizontalInset: CGFloat = 72
 
   /// How many trailing cells from the end of the loaded feed trigger the
   /// next page — wide enough that paging kicks in before focus reaches the
@@ -69,20 +57,6 @@ struct TimelineScreen: View {
       MapleTVTheme.background.ignoresSafeArea()
       VStack(alignment: .leading, spacing: 0) {
         TimelineTopBar(title: headerTitle, subtitle: headerSubtitle)
-        GeneratedSearchShelf(
-          collections: collectionsViewModel.collections,
-          covers: collectionsViewModel.covers,
-          session: session
-        ) { collection in
-          Task {
-            let assets = await collectionsViewModel.assets(for: collection)
-            // Don't open an empty viewer — a collection whose photos failed
-            // to load should do nothing rather than show a blank screen.
-            if !assets.isEmpty {
-              openCollection = OpenCollection(id: collection.id, assets: assets)
-            }
-          }
-        }
         content
       }
     }
@@ -92,15 +66,6 @@ struct TimelineScreen: View {
     // `@State` viewModel scoped to the new library) rather than re-running
     // `load()` against a viewModel still bound to the old `libraryID`.
     .task { await viewModel.load() }
-    .task { await collectionsViewModel.load() }
-    .fullScreenCover(item: $openCollection) { open in
-      PhotoViewerScreen(
-        assets: open.assets,
-        startIndex: 0,
-        session: session,
-        onDismiss: { _ in openCollection = nil }
-      )
-    }
     .fullScreenCover(item: $selectedAsset) { asset in
       let resultSet = viewModel.assets
       let startIndex = resultSet.firstIndex(where: { $0.id == asset.id }) ?? 0
@@ -203,41 +168,51 @@ struct TimelineScreen: View {
     .accessibilityLabel("No photos yet")
   }
 
+  /// The photo wall. Column count and cell size both come from the real
+  /// container width via `TVGridLayout`, so the grid is centred with equal
+  /// margins and uniform gaps at any screen size.
   private var grid: some View {
-    ScrollView {
-      LazyVGrid(columns: Self.columns, alignment: .center, spacing: 40) {
-        let assets = viewModel.assets
-        // Iterate indices rather than `Array(assets.enumerated())`: the latter
-        // allocates a fresh array of tuples on every render, and tvOS
-        // re-renders this grid on every focus move. Index-as-identity is safe
-        // for THIS feed specifically — it only ever grows by appending a page
-        // or is replaced wholesale by `load()`, never spliced in the middle —
-        // so no cell's identity shifts under it. Focus is unaffected either
-        // way: `.focused(equals:)` below keys on `asset.id`, not the index.
-        ForEach(assets.indices, id: \.self) { index in
-          let asset = assets[index]
-          TimelineCell(
-            asset: asset,
-            server: session.server,
-            thumbClient: session.thumbClient,
-            thumbCache: session.thumbCache,
-            identifier: "timeline-cell-\(asset.id)",
-            onSelect: { selectedAsset = asset }
-          )
-          .focused($focusedCellID, equals: asset.id)
-          .onAppear {
-            guard viewModel.canLoadMore, index >= assets.count - Self.pageAheadThreshold else { return }
-            Task { await viewModel.loadMore() }
+    GeometryReader { proxy in
+      let layout = TVGridLayout(
+        containerWidth: proxy.size.width,
+        targetCellWidth: TimelineCell.targetSize,
+        spacing: Self.cellSpacing,
+        horizontalInset: Self.horizontalInset
+      )
+      ScrollView {
+        LazyVGrid(columns: layout.gridItems, alignment: .center, spacing: Self.rowSpacing) {
+          let assets = viewModel.assets
+          // Iterate indices rather than `Array(assets.enumerated())`: the latter
+          // allocates a fresh array of tuples on every render, and tvOS
+          // re-renders this grid on every focus move. Index-as-identity is safe
+          // for THIS feed specifically — it only ever grows by appending a page
+          // or is replaced wholesale by `load()`, never spliced in the middle —
+          // so no cell's identity shifts under it. Focus is unaffected either
+          // way: `.focused(equals:)` below keys on `asset.id`, not the index.
+          ForEach(assets.indices, id: \.self) { index in
+            let asset = assets[index]
+            TimelineCell(
+              asset: asset,
+              server: session.server,
+              thumbClient: session.thumbClient,
+              thumbCache: session.thumbCache,
+              identifier: "timeline-cell-\(asset.id)",
+              size: layout.cellWidth,
+              onSelect: { selectedAsset = asset }
+            )
+            .focused($focusedCellID, equals: asset.id)
+            .onAppear {
+              guard viewModel.canLoadMore, index >= assets.count - Self.pageAheadThreshold else { return }
+              Task { await viewModel.loadMore() }
+            }
           }
         }
+        .padding(.horizontal, Self.horizontalInset)
+        // Room for the focused cell's 1.09 scale to grow into at the top row
+        // rather than clipping against the scroll view's edge.
+        .padding(.top, 24)
+        .padding(.bottom, 72)
       }
-      // Cap the grid width and center it so a row of the larger cells sits in
-      // the middle of the screen rather than left-packed against the edge.
-      .frame(maxWidth: 1600)
-      .frame(maxWidth: .infinity, alignment: .center)
-      .padding(.horizontal, 72)
-      .padding(.top, 8)
-      .padding(.bottom, 72)
     }
   }
 
