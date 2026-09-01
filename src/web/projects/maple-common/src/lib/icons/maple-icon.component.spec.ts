@@ -237,6 +237,11 @@ describe('MapleIconComponent', () => {
       const ds = Array.from(paths).map((p) => p.getAttribute('d'));
       expect(ds).toContain('M5 2.5v2M11 2.5v2');
       expect(ds).toContain('M2.5 6.5h11');
+      expect(ICON_SHAPES['calendar']).toEqual([
+        { kind: 'rect', x: 2.5, y: 3.5, width: 11, height: 10, rx: 1.5 },
+        { kind: 'path', d: 'M5 2.5v2M11 2.5v2' },
+        { kind: 'path', d: 'M2.5 6.5h11' },
+      ]);
     });
   });
 
