@@ -81,11 +81,41 @@ export function withTestEnv(name: string, value: string): void {
 }
 
 /**
- * Point `getDb()` at `testDb` for the duration of this suite, and hand the
- * name back so a suite that also needs it can name and claim its database in
- * one binding.
+ * Point `getDb()` at `testDb` for the duration of this suite, hand the name
+ * back so a suite that also needs it can name and claim its database in one
+ * binding, AND register a generic `afterAll` that drops `testDb` when the
+ * suite finishes.
+ *
+ * #2491: the per-file unique database naming (`maple_test_<name>_<pid>`) is
+ * what keeps parallel and concurrent-agent runs from colliding — that stays.
+ * What doesn't is depending on every suite to remember its own drop: on the
+ * dev mongod this measured at 11,375 leaked test databases, because a suite
+ * that never got a `dropDatabase()` call written (or whose own `afterAll`
+ * never runs — a killed/timed-out process skips every `afterAll` in the
+ * file, `withTestDb`'s included) leaves its database behind forever. Owning
+ * the drop here means every suite gets it whether or not its own file
+ * remembers, including ones that don't otherwise touch Mongo cleanup at all.
+ *
+ * Uses its OWN short-lived connection (`tryConnectTestMongo`), entirely
+ * independent of whatever client a suite's own hooks manage — `dropDatabase`
+ * is idempotent, so this is safe to run whether it fires before, after, or
+ * instead of a suite's own (now-redundant, safe to leave as-is) drop. Skips
+ * silently when Mongo is unreachable, matching the skip-pass convention
+ * every Mongo-backed suite already follows — there is nothing to clean up
+ * on a machine without a database.
  */
 export function withTestDb(testDb: string): string {
   withTestEnv('MAPLE_MONGO_DB', testDb);
+
+  afterAll(async () => {
+    const client = await tryConnectTestMongo();
+    if (!client) return;
+    try {
+      await client.db(testDb).dropDatabase();
+    } finally {
+      await client.close();
+    }
+  });
+
   return testDb;
 }
