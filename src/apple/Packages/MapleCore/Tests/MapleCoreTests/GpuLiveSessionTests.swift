@@ -30,6 +30,7 @@ final class GpuLiveSessionTests: XCTestCase {
         AdjustmentModel(
             temperature: 5200,
             tint: 8,
+            wbMethod: .diagonalRec2020,
             exposure: 1.5,
             contrast: 25,
             highlights: -40,
@@ -53,7 +54,8 @@ final class GpuLiveSessionTests: XCTestCase {
             captureSharpeningSigma: 1.3,
             nrLuminance: 17,
             nrColor: 41,
-            profile: .auto
+            profile: .auto,
+            toneCurveMode: .ratioPreserving
         )
     }
 
@@ -80,7 +82,13 @@ final class GpuLiveSessionTests: XCTestCase {
                        "WB temperature must be the ABSOLUTE live value (not an as-shot delta)")
         XCTAssertEqual(p.tint, Float(model.tint),
                        "WB tint must be the ABSOLUTE live value")
-        XCTAssertEqual(p.wb_method, 0, "WB method must default to CAT16")
+        // (#2216) — the model's non-default `wbMethod`/`toneCurveMode` must
+        // reach the FFI scalars (`1` = DiagonalRec2020 / RatioPreserving),
+        // not silently collapse to the CAT16/PerChannel default the way
+        // they did before this ticket wired the fields onto the model.
+        XCTAssertEqual(p.wb_method, 1, "WB method must map the model's DiagonalRec2020 choice")
+        XCTAssertEqual(p.tone_curve_mode, 1,
+                       "tone-curve mode must map the model's RatioPreserving choice")
 
         // (3) REAL sharpen + NR — they run IN the scene-linear chain (replacing the
         //     post-AgX Metal kernels). This is the sanctioned convergence divergence.
@@ -138,6 +146,8 @@ final class GpuLiveSessionTests: XCTestCase {
 
         XCTAssertEqual(p.temperature, 6500, "default WB temperature is 6500K")
         XCTAssertEqual(p.tint, 0)
+        XCTAssertEqual(p.wb_method, 0, "default WB method is CAT16")
+        XCTAssertEqual(p.tone_curve_mode, 0, "default tone-curve mode is PerChannel")
         XCTAssertEqual(p.exposure, 0)
         XCTAssertEqual(p.sharpen_amount, 0)
         XCTAssertEqual(p.nr_color, 0)

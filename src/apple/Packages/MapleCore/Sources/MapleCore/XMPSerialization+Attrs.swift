@@ -233,6 +233,19 @@ extension XMPSerializer {
         if model.autoExposure != .on {
             attrs.append(("papp:AutoExposure", model.autoExposure.rawValue))
         }
+        // White-balance method (#431; wired into Swift by #2216) — the
+        // default `.cat16` is omitted; an explicit `.diagonalRec2020`
+        // (parity A/B, or a legacy pre-#431 sidecar re-saved as-is) is
+        // written. Same omit-on-default convention as every other papp:
+        // enum field.
+        if model.wbMethod != .cat16 {
+            attrs.append(("papp:WbMethod", model.wbMethod.rawValue))
+        }
+        // Per-channel point tone-curve mode (#436; wired into Swift by
+        // #2216) — the default `.perChannel` is omitted.
+        if model.toneCurveMode != .perChannel {
+            attrs.append(("papp:ToneCurveMode", model.toneCurveMode.rawValue))
+        }
         // DisplayLookCurve (#371; retired in #443) — the field is a no-op
         // post-#443 but the attribute is still emitted on non-default
         // values so it round-trips with pre-#443 sidecars. Default-valued
