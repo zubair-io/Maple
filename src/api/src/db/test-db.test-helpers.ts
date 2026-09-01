@@ -29,14 +29,20 @@ import { MongoClient } from 'mongodb';
  *
  * One copy, shared: each suite that rolled its own drifted on the timeouts
  * and on whether the half-open client was closed after a failed connect.
+ *
+ * `uri` lets a caller pass an explicitly-captured connection string instead
+ * of reading `process.env.MAPLE_MONGO_URI` fresh — `withTestDb` below needs
+ * this because by the time its drop runs, a suite-level `MAPLE_MONGO_URI`
+ * override may already have been restored (see its comment).
  */
-export async function tryConnectTestMongo(): Promise<MongoClient | null> {
-  // Read the env at connect time, not at module scope. Bun evaluates every
-  // module body during the import phase, before any hook runs, so a value
-  // captured up there is the one from before any `beforeAll` that sets it —
-  // the same trap `withTestEnv` above exists to avoid.
-  const uri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-  const client = new MongoClient(uri, {
+export async function tryConnectTestMongo(uri?: string): Promise<MongoClient | null> {
+  // Read the env at connect time, not at module scope, when no explicit URI
+  // is given. Bun evaluates every module body during the import phase,
+  // before any hook runs, so a value captured up there is the one from
+  // before any `beforeAll` that sets it — the same trap `withTestEnv` above
+  // exists to avoid.
+  const resolvedUri = uri ?? process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+  const client = new MongoClient(resolvedUri, {
     serverSelectionTimeoutMS: 1500,
     connectTimeoutMS: 1500,
   });
@@ -103,12 +109,31 @@ export function withTestEnv(name: string, value: string): void {
  * silently when Mongo is unreachable, matching the skip-pass convention
  * every Mongo-backed suite already follows — there is nothing to clean up
  * on a machine without a database.
+ *
+ * Captures `MAPLE_MONGO_URI` in its own `beforeAll` rather than letting the
+ * drop's `tryConnectTestMongo()` re-read the env when it runs. A suite that
+ * also overrides `MAPLE_MONGO_URI` (e.g. `withTestEnv('MAPLE_MONGO_URI', …)`
+ * called before this, as `routes/pano.resolve.test.ts` does to point at its
+ * own throwaway mongod) registers that override's restore-on-teardown
+ * `afterAll` BEFORE this function's drop `afterAll` — and bun runs `afterAll`
+ * hooks in registration order, so by the time the drop fires,
+ * `MAPLE_MONGO_URI` has already been put back to whatever it was before the
+ * suite ran. Reading it fresh at that point connects to the wrong Mongo (or
+ * none at all) and silently fails to drop the suite's actual database.
+ * Capturing during `beforeAll` — which runs while the override is still
+ * live, since callers override `MAPLE_MONGO_URI` before calling `withTestDb`
+ * — and reusing that value for the drop sidesteps the whole ordering trap.
  */
 export function withTestDb(testDb: string): string {
   withTestEnv('MAPLE_MONGO_DB', testDb);
 
+  let capturedUri: string | undefined;
+  beforeAll(() => {
+    capturedUri = process.env.MAPLE_MONGO_URI;
+  });
+
   afterAll(async () => {
-    const client = await tryConnectTestMongo();
+    const client = await tryConnectTestMongo(capturedUri);
     if (!client) return;
     try {
       await client.db(testDb).dropDatabase();
