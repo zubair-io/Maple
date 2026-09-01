@@ -80,15 +80,15 @@ enum ColumnStrategy {
 /// `ForEach` (only realized cells build their item + derive overlays).
 ///
 /// `selection` is keyed by `Element.ID`; `onTap` / `onAppearItem` hand the
-/// element back so call sites avoid any id→element reverse lookup. The optional
-/// `leading` slot renders INSIDE the same `LazyVGrid` before the photo cells, so
-/// folder cells keep the interleaved column flow (no reflow).
+/// element back so call sites avoid any id→element reverse lookup. Folder
+/// tiles are NOT part of this grid — `BrowseGrid` / `LibraryGrid` render a
+/// `FolderTileSection` above it (#3099), so the former `leading:` slot is gone.
 ///
 /// `multiSelectChecked` — when non-nil, is called per visible element and the
 /// result is forwarded to `PhotoThumbnailCell.multiSelectChecked`. Enables the
 /// top-trailing checkmark badge (BrowseGrid multi-select) without polluting the
 /// `PhotoGridItem` model with UI-only state.
-struct PhotoGrid<Element: Identifiable, Leading: View>: View {
+struct PhotoGrid<Element: Identifiable>: View {
 
     let data: [Element]
     let columns: ColumnStrategy
@@ -119,12 +119,9 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     var renameOverlay: ((Element) -> AnyView?)? = nil
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
-    let leading: () -> Leading
 
     @Environment(\.mapleLayout) private var layout
 
-    /// Primary initialiser. Explicit so `leading` can carry `@ViewBuilder`.
-    /// Use the `EmptyView` convenience below when no leading content is needed.
     init(
         data: [Element],
         columns: ColumnStrategy,
@@ -138,8 +135,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         contextMenuItems: ((Element) -> AnyView?)? = nil,
         renameOverlay: ((Element) -> AnyView?)? = nil,
         onTap: @escaping (Element) -> Void,
-        makeItem: @escaping (Element) -> PhotoGridItem,
-        @ViewBuilder leading: @escaping () -> Leading
+        makeItem: @escaping (Element) -> PhotoGridItem
     ) {
         self.data = data
         self.columns = columns
@@ -154,7 +150,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.renameOverlay = renameOverlay
         self.onTap = onTap
         self.makeItem = makeItem
-        self.leading = leading
     }
 
     var body: some View {
@@ -162,7 +157,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
             columns: columns.gridItems(for: layout),
             spacing: columns.rowSpacing(for: layout)
         ) {
-            leading()
             ForEach(data) { element in
                 // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
                 // only realized (visible) cells build their item + derive overlays.
@@ -186,43 +180,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                 .id(element.id)
             }
         }
-    }
-}
-
-// MARK: - EmptyView convenience initialiser (no leading content)
-
-extension PhotoGrid where Leading == EmptyView {
-    init(
-        data: [Element],
-        columns: ColumnStrategy,
-        provider: ThumbnailProvider,
-        displayMode: GridDisplayMode,
-        selection: Set<Element.ID> = [],
-        transitionNamespace: Namespace.ID? = nil,
-        onAppearItem: ((Element) -> Void)? = nil,
-        multiSelectChecked: ((Element) -> Bool?)? = nil,
-        dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
-        contextMenuItems: ((Element) -> AnyView?)? = nil,
-        renameOverlay: ((Element) -> AnyView?)? = nil,
-        onTap: @escaping (Element) -> Void,
-        makeItem: @escaping (Element) -> PhotoGridItem
-    ) {
-        self.init(
-            data: data,
-            columns: columns,
-            provider: provider,
-            displayMode: displayMode,
-            selection: selection,
-            transitionNamespace: transitionNamespace,
-            onAppearItem: onAppearItem,
-            multiSelectChecked: multiSelectChecked,
-            dragPayload: dragPayload,
-            contextMenuItems: contextMenuItems,
-            renameOverlay: renameOverlay,
-            onTap: onTap,
-            makeItem: makeItem,
-            leading: { EmptyView() }
-        )
     }
 }
 
