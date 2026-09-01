@@ -221,3 +221,87 @@ fn residual_blob_absorbed_by_field() {
         "field absorbed too little: before {rms_before:.4}, after {rms_after:.4}"
     );
 }
+
+/// Per-channel gains must be normalized by each channel's OWN sample
+/// count. Samples where a channel is below `MIN_LUM` never enter
+/// `s_lnr_ch`, so dividing by the luminance count `n` biased the mean
+/// toward 0 and flattened real colour-gain ratios (#350 review).
+///
+/// Layout mirrors `true_exposure_steps_recovered_as_gains`: 4 frames at
+/// non-uniform spacing so gains and the shared slope are separable (a
+/// single pair is degenerate by construction — see the module note).
+#[test]
+fn per_channel_gains_ignore_dark_channel_samples() {
+    let (w, h) = (64u32, 48u32);
+    // BLUE carries non-monotonic per-frame exposure offsets AND is below
+    // MIN_LUM inside a CENTERED band (half the width, so it is symmetric
+    // about the frame center and induces no linear ramp for the shared
+    // slope to absorb). Blue therefore has both a real ratio to recover
+    // and roughly half the sample count — the combination the bug
+    // flattened. Red and green are flat and fully sampled, as the
+    // control. A contiguous band (not a checkerboard) keeps the bicubic
+    // taps clean away from the two band edges.
+    let blue_log = [0.0_f64, 0.25, -0.1, 0.15];
+    let tx = [0.0_f64, 16.0, 44.0, 56.0];
+    let build = |a_blue: f64| {
+        let n = (w * h) as usize;
+        let mut r = vec![0.0_f32; n];
+        let mut g = vec![0.0_f32; n];
+        let mut b = vec![0.0_f32; n];
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) as usize;
+                r[i] = 0.4;
+                g[i] = 0.4;
+                b[i] = if x < w / 4 || x >= 3 * w / 4 {
+                    0.4 * (a_blue.exp() as f32)
+                } else {
+                    0.0
+                };
+            }
+        }
+        PlanarImage::from_planes(w, h, r, g, b, ValidityMask::new_filled(w, h, true))
+    };
+    let frames: Vec<PlanarImage> = blue_log.iter().map(|&a| build(a)).collect();
+    let poses: Vec<TilePose> = tx
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| translation_pose(i, t, 0.0))
+        .collect();
+    let canvas = TileCanvasSpec {
+        width: w + 56,
+        height: h,
+        offset_x: 0.0,
+        offset_y: 0.0,
+    };
+    let opts = PhotometryOptions {
+        per_channel: true,
+        ..test_opts()
+    };
+
+    let (phot, _) = solve_photometry(&frames, &poses, &canvas, &opts).unwrap();
+
+    // Blue gain ratios track the true blue offsets despite only half the
+    // pixels contributing. Dividing by the luminance count `n` instead of
+    // blue's own count halves these and fails here.
+    for i in 0..blue_log.len() - 1 {
+        let got = f64::from(phot[i].gain[2] / phot[i + 1].gain[2]).ln();
+        let want = blue_log[i + 1] - blue_log[i];
+        assert!(
+            (got - want).abs() < 0.06,
+            "blue gain ratio {i}->{}: ln={got:.4} want {want:.4}",
+            i + 1
+        );
+    }
+    // Red and green are equal across frames and fully sampled: ratios ~1.
+    for ch in [0usize, 1] {
+        for i in 0..blue_log.len() - 1 {
+            let ratio = f64::from(phot[i].gain[ch] / phot[i + 1].gain[ch]).ln();
+            assert!(
+                ratio.abs() < 0.06,
+                "channel {ch} ratio {i}->{}: ln={ratio:.4} want 0",
+                i + 1
+            );
+        }
+    }
+}
