@@ -89,7 +89,8 @@ export async function classifySameFile(
 
 type SidecarRename = { from: string; to: string };
 type PrimaryRenameResult =
-  { ok: true; renamedSidecars: SidecarRename[] } | { ok: false; error: string };
+  | { ok: true; renamedSidecars: SidecarRename[] }
+  | { ok: false; error: string };
 
 /** Renames the primary file directly (`fs.rename`, no staged copy), then
  * best-effort renames every paired sidecar alongside — matching
