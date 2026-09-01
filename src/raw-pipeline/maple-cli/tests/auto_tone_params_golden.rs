@@ -22,9 +22,17 @@ use std::process::Command;
 /// default-state `0.03521794`: re-auto on top of an already-pushed +2EV
 /// recommends pulling most of it back, which is exactly the "re-auto on top
 /// of current edits" contract #813 adds `--params` for. Update this
-/// constant — and only this constant — when the develop chain or the Auto
-/// Tone math intentionally changes.
+/// constant when the develop chain or the Auto Tone math intentionally
+/// changes — and also re-check the default-state sanity floor below
+/// (`DEFAULT_STATE_GOLDEN_EXPOSURE`, duplicated from `auto_tone_golden.rs`'s
+/// own pinned constant) if THAT one is ever re-pinned.
 const EXPECTED_EXPOSURE_TEST_0017_WITH_PARAMS: f64 = -1.9680367;
+
+/// Duplicated from `auto_tone_golden.rs`'s `EXPECTED_EXPOSURE_TEST_0017` —
+/// the two test binaries can't share a constant across separate `tests/*.rs`
+/// compilation units. Used only as a "didn't silently ignore --params"
+/// sanity floor below, not as a golden pin in its own right.
+const DEFAULT_STATE_GOLDEN_EXPOSURE: f64 = 0.03521794;
 
 /// Tolerance for the pinned value — same rationale as `auto_tone_golden.rs`.
 const EXPOSURE_TOLERANCE: f64 = 0.05;
@@ -73,7 +81,15 @@ fn auto_tone_with_params_develops_against_the_edited_model() {
          RAWs or run without --features fixtures (#1082)",
     );
 
-    let tmp = std::env::temp_dir().join("maple-auto-tone-params-golden");
+    // Per-process directory (not just per-test-binary): two concurrent
+    // `cargo test` invocations of this same binary would otherwise race on
+    // a shared fixed path. Cleared first in case a prior run of this same
+    // PID left stale contents (PIDs recycle across runs, not within one).
+    let tmp = std::env::temp_dir().join(format!(
+        "maple-auto-tone-params-golden-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).expect("create tmp dir");
     let params_path = tmp.join("test_0017-edited.xmp");
     std::fs::write(&params_path, PARAMS_XMP).expect("write params xmp");
@@ -110,13 +126,13 @@ fn auto_tone_with_params_develops_against_the_edited_model() {
     );
 
     // The whole point of #813: developing against the edited sidecar must
-    // NOT silently fall back to the default-state recommendation
-    // (`auto_tone_golden.rs`'s pinned 0.03521794) — a regression that
-    // ignored `--params` would still land there.
+    // NOT silently fall back to the default-state recommendation — a
+    // regression that ignored `--params` would still land there.
     assert!(
-        (exposure - 0.03521794_f64).abs() > 0.5,
+        (exposure - DEFAULT_STATE_GOLDEN_EXPOSURE).abs() > 0.5,
         "exposure {} is suspiciously close to the DEFAULT-state golden \
-         (0.03521794) — --params may not be reaching the develop chain",
+         ({}) — --params may not be reaching the develop chain",
         exposure,
+        DEFAULT_STATE_GOLDEN_EXPOSURE,
     );
 }
