@@ -75,6 +75,13 @@ struct DeadJobsDrawer: View {
         }
     }
 
+    // @MainActor: a SwiftUI View is not globally actor-isolated in Swift 5
+    // mode and `.task`/`Task {}` closures run on the cooperative pool by
+    // default, so an unannotated async method mutating @State is a
+    // "publishing changes from background threads" hazard (#2887 — same fix
+    // already applied to NetworkSettingsView and CloudflareSettingsView).
+
+    @MainActor
     private func load() async {
         do {
             jobs = try await client.deadJobs(stage: stage)
@@ -84,6 +91,7 @@ struct DeadJobsDrawer: View {
         }
     }
 
+    @MainActor
     private func retryAll() async {
         isRetrying = true
         defer { isRetrying = false }
@@ -199,6 +207,7 @@ struct DamagedAssetsDrawer: View {
         }
     }
 
+    @MainActor
     private func load() async {
         do {
             assets = try await client.damagedAssets()
@@ -208,6 +217,7 @@ struct DamagedAssetsDrawer: View {
         }
     }
 
+    @MainActor
     private func clear(id: String?) async {
         busy = true
         defer { busy = false }
