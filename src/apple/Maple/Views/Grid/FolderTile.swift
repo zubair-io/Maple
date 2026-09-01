@@ -104,10 +104,13 @@ private struct FolderDropTarget: ViewModifier {
 }
 
 /// The folder block above a photo grid: `tiles` wrap left-to-right with a
-/// ragged right edge (`FlowLayout`), leading-aligned, with the section gap
-/// below so the first photo row reads as a separate block. Callers hide it
-/// entirely (rather than passing an empty `ForEach`) when there are no
-/// subfolders or while multi-selecting.
+/// ragged right edge, leading-aligned, with the section gap below so the
+/// first photo row reads as a separate block. A `LazyVGrid` of fixed
+/// `FolderTile.width` columns (not `FlowLayout`) so a directory with
+/// thousands of subfolders only realises the tiles on screen — the same
+/// laziness the photo grid has. Callers hide the section entirely (rather
+/// than passing an empty `ForEach`) when there are no subfolders or while
+/// multi-selecting.
 struct FolderTileSection<Tiles: View>: View {
     /// Gap between the folder block and the first photo row.
     static var sectionGap: CGFloat { 12 }
@@ -115,10 +118,17 @@ struct FolderTileSection<Tiles: View>: View {
     @ViewBuilder let tiles: () -> Tiles
 
     var body: some View {
-        FlowLayout(spacing: FolderTile.spacing) {
+        LazyVGrid(
+            columns: [GridItem(
+                .adaptive(minimum: FolderTile.width, maximum: FolderTile.width),
+                spacing: FolderTile.spacing,
+                alignment: .leading
+            )],
+            alignment: .leading,
+            spacing: FolderTile.spacing
+        ) {
             tiles()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, Self.sectionGap)
     }
 }
