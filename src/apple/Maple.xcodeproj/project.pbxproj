@@ -435,6 +435,7 @@
 				A1F0000A00000000000000A1 /* Frameworks */,
 				A1F0001300000000000000A1 /* Resources */,
 				BAD237F2A91BD12FDAF04E36 /* Embed Foundation Extensions */,
+				A1F0005200000000000000A1 /* Stamp build provenance */,
 			);
 			buildRules = (
 			);
@@ -746,6 +747,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -eu\n# build-xcframework.sh internally fast-paths when no Rust source has\n# changed since the last successful build, so this is cheap on no-op builds.\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\" --release\nelse\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\"\nfi\n";
+		};
+		A1F0005200000000000000A1 /* Stamp build provenance */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build provenance";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\n# #1804: stamp the git SHA + build date into the already-generated\n# Info.plist (GENERATE_INFOPLIST_FILE=YES, so there is no committed\n# Info.plist to edit source-side) so Settings > About can attribute a\n# device screenshot to a commit at a glance. Runs last in buildPhases so\n# the target's Info.plist has already been synthesized and copied into\n# the bundle being signed. Xcode Cloud sets CI_COMMIT to the built commit\n# SHA; a local build falls back to `git rev-parse` against SRCROOT.\n#\n# INFOPLIST_PATH (not CODESIGNING_FOLDER_PATH + \"/Info.plist\") because a\n# macOS app nests it at \"<name>.app/Contents/Info.plist\" while an iOS app\n# bundle is flat (\"<name>.app/Info.plist\") -- INFOPLIST_PATH already\n# encodes that per-platform difference, relative to TARGET_BUILD_DIR.\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nif [ -f \"$INFO_PLIST\" ]; then\n  GIT_SHA=\"${CI_COMMIT:-$(git -C \"${SRCROOT}\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)}\"\n  BUILD_DATE=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\n  /usr/libexec/PlistBuddy -c \"Delete :MapleBuildGitSHA\" \"$INFO_PLIST\" 2>/dev/null || true\n  /usr/libexec/PlistBuddy -c \"Add :MapleBuildGitSHA string $GIT_SHA\" \"$INFO_PLIST\"\n  /usr/libexec/PlistBuddy -c \"Delete :MapleBuildDate\" \"$INFO_PLIST\" 2>/dev/null || true\n  /usr/libexec/PlistBuddy -c \"Add :MapleBuildDate string $BUILD_DATE\" \"$INFO_PLIST\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
