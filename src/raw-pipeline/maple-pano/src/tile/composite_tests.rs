@@ -227,14 +227,14 @@ fn canvas_cap_scales_poses_and_canvas_uniformly() {
     };
 
     // Within budget: untouched.
-    let (p_same, c_same) = apply_canvas_cap(poses.clone(), canvas.clone(), 4_000_000);
+    let (p_same, c_same) = apply_canvas_cap(poses.clone(), canvas.clone(), 4_000_000).unwrap();
     assert_eq!(c_same.width, 2000);
     assert_eq!(c_same.height, 1000);
     assert_eq!(p_same[1].sim.tx, 1000.0);
 
     // Over budget: uniform downscale to fit.
     let cap = 500_000usize;
-    let (p_cap, c_cap) = apply_canvas_cap(poses.clone(), canvas.clone(), cap);
+    let (p_cap, c_cap) = apply_canvas_cap(poses.clone(), canvas.clone(), cap).unwrap();
     let px = c_cap.width as usize * c_cap.height as usize;
     assert!(px <= cap, "capped canvas {px} px > cap {cap}");
     let s = (cap as f64 / 2_000_000.0).sqrt();
@@ -257,4 +257,11 @@ fn canvas_cap_scales_poses_and_canvas_uniformly() {
             "capped mapping ({nx},{ny}) != s×({ox},{oy})"
         );
     }
+
+    // A zero cap is rejected, not silently collapsed to a 1x1 canvas -
+    // same contract as the rotation path's auto_canvas.
+    assert!(matches!(
+        apply_canvas_cap(poses, canvas, 0),
+        Err(TilePlacementError::InvalidCanvasCap)
+    ));
 }
