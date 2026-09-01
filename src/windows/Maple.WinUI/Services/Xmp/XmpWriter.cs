@@ -155,43 +155,72 @@ namespace Maple.WinUI.Services.Xmp
 
         // ── Nested children ─────────────────────────────────────────────────
 
+        /// <summary>
+        /// Interleaves the modeled tone-curve blocks back into passthrough
+        /// content at their original source position (#2671), via
+        /// <see cref="XmpSidecarDocument.ChildOrder"/>. A tone-curve tag
+        /// that is now identity (no points) emits nothing at its slot —
+        /// "identity is silence" — while every other recorded slot still
+        /// runs in source order. A curve with no recorded slot (never
+        /// parsed, or added since) falls back to the pre-#2671 default:
+        /// before every recorded slot, in canonical order — the same
+        /// output a document with no passthrough content produced before
+        /// this fix.
+        /// </summary>
         private static string BuildChildren(XmpSidecarDocument doc)
         {
-            var blocks = new List<string>();
-            var curveBlock = ToneCurveBlocks(doc.Adjustments);
-            if (curveBlock.Length > 0) blocks.Add(curveBlock);
+            var curveBlocks = XmpSchema.ToneCurveElements
+                .ToDictionary(e => e.Tag, e => ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments)));
 
-            // Preserved unknown nodes: first line re-indented onto the
-            // canonical ladder, interior whitespace kept as authored.
-            blocks.AddRange(doc.PassthroughNodes.Select(n => $"{ChildIndent}{n}"));
+            var recordedTags = new HashSet<string>();
+            var blocks = new List<string>();
+            foreach (var slot in doc.ChildOrder)
+            {
+                if (slot.ToneCurveTag is { } tag)
+                {
+                    recordedTags.Add(tag);
+                    if (curveBlocks[tag] is { } block) blocks.Add(block);
+                }
+                else
+                {
+                    // Preserved unknown node: first line re-indented onto
+                    // the canonical ladder, interior whitespace kept as
+                    // authored.
+                    blocks.Add($"{ChildIndent}{doc.PassthroughNodes[slot.PassthroughIndex]}");
+                }
+            }
+
+            var freshCurveBlocks = XmpSchema.ToneCurveElements
+                .Where(e => !recordedTags.Contains(e.Tag))
+                .Select(e => curveBlocks[e.Tag])
+                .Where(b => b is not null)
+                .Select(b => b!);
+            blocks.InsertRange(0, freshCurveBlocks);
 
             return string.Join("\n", blocks);
         }
 
         /// <summary>
-        /// The four `papp:SceneLinearToneCurve*` blocks (#365), canonical order,
-        /// identity (empty) curves emitting nothing. Coordinates are stored on
-        /// the Windows model in the wire domain `[0, 255]` already, so they go
-        /// straight through the number codec.
+        /// One `papp:SceneLinearToneCurve*` block (#365), or null for an
+        /// identity (empty) curve — "identity is silence". Coordinates are
+        /// stored on the Windows model in the wire domain `[0, 255]`
+        /// already, so they go straight through the number codec.
         /// </summary>
-        private static string ToneCurveBlocks(AdjustmentState state)
+        private static string? ToneCurveBlock(string tag, List<CurvePoint> points)
         {
-            var blocks = XmpSchema.ToneCurveElements
-                .Select(e => (e.Tag, Points: e.Curve(state)))
-                .Where(e => e.Points.Count > 0)
-                .Select(e => string.Join("\n", new[]
-                    {
-                        $"{ChildIndent}<{e.Tag}>",
-                        $"{ChildIndent}  <rdf:Seq>",
-                    }
-                    .Concat(e.Points.Select(p =>
-                        $"{ChildIndent}    <rdf:li>{XmpSchema.FormatNumber(p.X)}, {XmpSchema.FormatNumber(p.Y)}</rdf:li>"))
-                    .Concat(new[]
-                    {
-                        $"{ChildIndent}  </rdf:Seq>",
-                        $"{ChildIndent}</{e.Tag}>",
-                    })));
-            return string.Join("\n", blocks);
+            if (points.Count == 0) return null;
+            return string.Join("\n", new[]
+                {
+                    $"{ChildIndent}<{tag}>",
+                    $"{ChildIndent}  <rdf:Seq>",
+                }
+                .Concat(points.Select(p =>
+                    $"{ChildIndent}    <rdf:li>{XmpSchema.FormatNumber(p.X)}, {XmpSchema.FormatNumber(p.Y)}</rdf:li>"))
+                .Concat(new[]
+                {
+                    $"{ChildIndent}  </rdf:Seq>",
+                    $"{ChildIndent}</{tag}>",
+                }));
         }
 
         // ── Document assembly ───────────────────────────────────────────────

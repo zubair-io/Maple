@@ -276,9 +276,15 @@ namespace Maple.WinUI.Services.Xmp
                 {
                     curve.Clear();
                     curve.AddRange(ParseCurvePoints(child));
+                    // Record the slot even though the curve's own content
+                    // isn't passthrough (#2671) — the writer needs to know
+                    // where this tag sat relative to the passthrough nodes
+                    // below to reproduce a byte-stable read-modify-write.
+                    doc.ChildOrder.Add(ChildSlot.ForToneCurve($"papp:{child.Name.LocalName}"));
                     continue;
                 }
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
+                doc.ChildOrder.Add(ChildSlot.ForPassthrough(doc.PassthroughNodes.Count - 1));
             }
         }
 
