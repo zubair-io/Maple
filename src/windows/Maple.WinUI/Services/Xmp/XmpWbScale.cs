@@ -97,11 +97,11 @@ namespace Maple.WinUI.Services.Xmp
             return (2.0 * x / denom, 3.0 * y / denom);
         }
 
-        private static (double X, double Y) UvToXy(double u, double v)
-        {
-            var denom = u - 4.0 * v + 2.0;
-            return (1.5 * u / denom, v / denom);
-        }
+        // The Robertson-domain inverse (uv -> xy) has no caller: Windows
+        // only ever loads a legacy-stamped pair (XyToTempTint, the forward
+        // direction), never writes one (see the file header's YAGNI note),
+        // so it is intentionally not ported here (#2670 review — Copilot).
+        // `LegacyUvToXy` below is the LEGACY-domain inverse and is used.
 
         private static (double Du, double Dv) IsothermUnitVector(int index)
         {
