@@ -91,13 +91,20 @@ fn drop_non_conforming(name: &str, probed: Vec<(PathBuf, FrameProbe)>) -> Vec<Pa
             *model_counts.entry(probe.camera_model.clone()).or_insert(0) += 1;
         }
     }
-    // Only a model two or more frames agree on counts as "the set's
-    // body" — a single frame is not evidence against any other frame.
-    let majority_model = model_counts
-        .into_iter()
-        .filter(|&(_, count)| count >= 2)
-        .max_by_key(|&(_, count)| count)
-        .map(|(model, _)| model);
+    // Only a *strict* majority counts as "the set's body": the top model
+    // needs at least two votes (a single frame is not evidence against
+    // any other frame) AND no other model tied with it (e.g. two frames
+    // from body A and two from body B is a tie, not a majority for
+    // either — filtering by it would drop valid frames from whichever
+    // body lost the arbitrary tie-break) (Copilot review on #3131).
+    let mut counts: Vec<(String, usize)> = model_counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let majority_model = match counts.as_slice() {
+        [(model, top), tail @ ..] if *top >= 2 && tail.first().map(|(_, c)| c) != Some(top) => {
+            Some(model.clone())
+        }
+        _ => None,
+    };
 
     probed
         .into_iter()
@@ -199,6 +206,23 @@ mod tests {
             ],
         );
         assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
+    }
+
+    /// A tie between two bodies (two frames each) is not a majority for
+    /// either — filtering by it would arbitrarily drop one body's real
+    /// frames as "wrong body" (Copilot review on #3131).
+    #[test]
+    fn tied_vote_between_two_bodies_establishes_no_majority() {
+        let kept = drop_non_conforming(
+            "set",
+            vec![
+                probed("a.dng", "Body A", true),
+                probed("b.dng", "Body A", true),
+                probed("c.dng", "Body B", true),
+                probed("d.dng", "Body B", true),
+            ],
+        );
+        assert_eq!(names(kept), vec!["a.dng", "b.dng", "c.dng", "d.dng"]);
     }
 
     /// A frame with no focal is still dropped even when every frame in
