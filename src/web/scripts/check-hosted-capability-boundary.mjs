@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { walkFiles } from './lib/walk-files.mjs';
 
@@ -125,14 +125,32 @@ function eagerHrefsFromIndexHtml(html) {
   return [...new Set(normalized)];
 }
 
+/** Directory-traversal guard: an exact match or a real separator boundary
+ * — NOT a bare `startsWith(root)` prefix check, which a sibling like
+ * `${artifactRoot}_evil/…` would pass, and NOT `path.relative(...).
+ * startsWith('..')`, which false-rejects a legitimate in-root filename
+ * that happens to start with `..` (e.g. `..foo.js`) — Jules review, PR
+ * #3141. Mirrors serve-dist-coep.mjs's `isWithinRoot` / src/api's
+ * static_ui.ts, the project's existing pattern for this exact check. */
+function isWithinRoot(root, abs) {
+  return abs === root || abs.startsWith(root + sep);
+}
+
 /** Resolve an eager href to a file under `artifactRoot`, refusing to follow
- * it outside that directory — an unexpected `../` traversal or an
- * absolute/external href in a hand-authored `index.html` should fail loudly
- * rather than `stat()` an arbitrary path (Copilot review, PR #3141). */
+ * it outside that directory — an unexpected `../` traversal, an absolute
+ * filesystem path, or a fully-qualified/protocol-relative URL in a
+ * hand-authored `index.html` should fail loudly with a clear message
+ * rather than `stat()` an arbitrary path or crash with a cryptic ENOENT
+ * (Copilot + Jules review, PR #3141: `path.resolve` treats
+ * `https://example.com/x.js` as a relative path segment, which would
+ * otherwise slip past a naive containment check and only fail later, deep
+ * inside `stat()`). */
 function resolveEagerFile(href) {
+  if (href.startsWith('//') || href.includes('://')) {
+    throw new Error(`Eager href "${href}" is an external URL, not a local build output path`);
+  }
   const resolved = resolve(artifactRoot, href);
-  const rel = relative(artifactRoot, resolved);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
+  if (!isWithinRoot(artifactRoot, resolved)) {
     throw new Error(`Eager href "${href}" resolves outside ${artifactRoot}: ${resolved}`);
   }
   return resolved;
