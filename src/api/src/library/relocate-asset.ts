@@ -53,14 +53,26 @@ export interface RelocateAssetInput {
   id: ObjectId;
   mode: RelocateMode;
   collision: CollisionPolicy;
-  /** POSIX relative dir under the asset's library root the destination
-   * lives in. `''` = library root. Defaults to the asset's CURRENT relPath
-   * — i.e. omitting it makes this call a same-folder rename, per the
-   * design doc's "rename IS relocate(sameFolder, newName, move)" framing
-   * (`routes/assets/rename.ts`, #2636). */
+  /** POSIX relative dir the destination lives in, relative to
+   * `destinationLibraryId`'s root when given, otherwise the asset's OWN
+   * library root. `''` = that root. Defaults to the asset's CURRENT
+   * relPath — i.e. omitting it makes this call a same-folder rename, per
+   * the design doc's "rename IS relocate(sameFolder, newName, move)"
+   * framing (`routes/assets/rename.ts`, #2636). */
   destinationPath?: string;
   /** Defaults to the asset's current filename. */
   destinationFilename?: string;
+  /** #2725: which library `destinationPath` is relative to. Omit for a
+   * same-library relocate (the historical default, and still what every
+   * existing caller does). When given and it differs from the asset's own
+   * library, this is a cross-library move: the file is copied/moved under
+   * the NAMED library's root and the asset's `fileinfo` entry is repointed
+   * to that library, not just to a new path within its old one. Before this
+   * field existed, a caller with no way to express "library B" would have a
+   * same-library-shaped `destinationPath` silently resolved and applied
+   * under the SOURCE library's root instead — the live misplacement bug
+   * this field closes. */
+  destinationLibraryId?: ObjectId;
 }
 
 export type RelocateAssetResult =
@@ -160,15 +172,15 @@ async function findLiveOccupant(
 async function occupiedResultIfReplaceBlocked(
   c: Awaited<ReturnType<typeof assetsCollection>>,
   input: RelocateAssetInput,
-  primary: FileInfo,
-  libRoot: string,
+  destLibraryId: ObjectId,
+  destLibRoot: string,
   destAbsPath: string,
 ): Promise<Extract<RelocateAssetResult, { kind: 'occupied' }> | null> {
   if (input.collision !== 'replace') return null;
-  const destSplit = splitRelPath(libRoot, destAbsPath);
+  const destSplit = splitRelPath(destLibRoot, destAbsPath);
   const occupiedByAssetId = await findLiveOccupant(
     c,
-    primary.library_id,
+    destLibraryId,
     destSplit.relPath,
     destSplit.filename,
     input.id,
@@ -203,6 +215,17 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   const libRoot = libs.get(primary.library_id.toHexString());
   if (!libRoot) return { kind: 'error', error: 'library root not found for asset' };
 
+  // #2725: `destinationPath` resolves against the NAMED destination
+  // library's root when the caller gives one, not always the asset's own
+  // (source) library root — that "always source" behavior was the
+  // cross-library misplacement bug: a caller with a destination relPath
+  // meant for a different library had no way to say so, and it got applied
+  // under the wrong root with no error. Omitting the field keeps the
+  // historical same-library behavior for every existing caller.
+  const destLibraryId = input.destinationLibraryId ?? primary.library_id;
+  const destLibRoot = libs.get(destLibraryId.toHexString());
+  if (!destLibRoot) return { kind: 'invalid', error: 'destination library not found' };
+
   // Validate BOTH destination parts before touching disk. `destinationPath`
   // is a multi-segment relPath (jailed via the same symlink-safe check the
   // M1 addressing routes share — `resolveRelPathUnderRoot`, tolerant of the
@@ -213,7 +236,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   const destinationPath = input.destinationPath ?? primary.path;
   let destDir: string;
   try {
-    destDir = await resolveRelPathUnderRoot(libRoot, destinationPath);
+    destDir = await resolveRelPathUnderRoot(destLibRoot, destinationPath);
   } catch (err) {
     return { kind: 'invalid', error: err instanceof Error ? err.message : String(err) };
   }
@@ -236,7 +259,13 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // alongside it. `'auto-suffix'` / `'keep-both'` never reach an occupied
   // path (they suffix around it) and `'skip'` is a no-op, so this check is
   // scoped to `'replace'` alone — see `occupiedResultIfReplaceBlocked`.
-  const occupied = await occupiedResultIfReplaceBlocked(c, input, primary, libRoot, destAbsPath);
+  const occupied = await occupiedResultIfReplaceBlocked(
+    c,
+    input,
+    destLibraryId,
+    destLibRoot,
+    destAbsPath,
+  );
   if (occupied) return occupied;
 
   // The DB repoint below is a MOVE-only concern: a copy leaves the source
@@ -247,8 +276,12 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // the ORIGINAL asset doc at the copy's location and catalog-orphan the
   // untouched source file.
   const repointToNewLocation = async ({ newAbsPath }: { newAbsPath: string }) => {
-    const split = splitRelPath(libRoot, newAbsPath);
+    const split = splitRelPath(destLibRoot, newAbsPath);
     const set: Record<string, unknown> = {
+      // #2725: repoint library_id too — a plain path/filename repoint left
+      // a cross-library move's fileinfo entry claiming the OLD library
+      // while the bytes now live under the new one.
+      'fileinfo.$.library_id': destLibraryId,
       'fileinfo.$.path': split.relPath,
       'fileinfo.$.filename': split.filename,
       'fileinfo.$.missing_since': null,
@@ -290,7 +323,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
 
   switch (outcome.kind) {
     case 'relocated': {
-      const split = splitRelPath(libRoot, outcome.newAbsPath);
+      const split = splitRelPath(destLibRoot, outcome.newAbsPath);
       log.info(
         {
           id: input.id.toHexString(),
