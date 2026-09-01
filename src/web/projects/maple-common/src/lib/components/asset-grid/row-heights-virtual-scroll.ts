@@ -46,6 +46,7 @@ export class RowHeightsVirtualScrollStrategy implements VirtualScrollStrategy {
     this.updateRenderedRange();
   }
 
+  // fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code.
   detach(): void {
     this.scrolledIndex$.complete();
     this.viewport = null;
@@ -61,17 +62,21 @@ export class RowHeightsVirtualScrollStrategy implements VirtualScrollStrategy {
     this.updateRenderedRange();
   }
 
+  // fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code.
   onContentScrolled(): void {
     this.updateRenderedRange();
   }
 
+  // fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code.
   onDataLengthChanged(): void {
     this.updateTotalContentSize();
     this.updateRenderedRange();
   }
 
+  // fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code.
   onContentRendered(): void {}
 
+  // fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code.
   onRenderedOffsetChanged(): void {}
 
   scrollToIndex(index: number, behavior: ScrollBehavior): void {
