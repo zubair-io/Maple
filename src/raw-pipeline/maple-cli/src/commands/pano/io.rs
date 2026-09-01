@@ -52,14 +52,16 @@ const GAIN_SPREAD_WARNING_TEXT: &str =
 /// when fewer than two frames have a usable gain (nothing to spread),
 /// matching the rest of the report's "zero means no signal" convention.
 fn gain_spread_ev(gains: &[[f32; 3]]) -> f64 {
-    let means: Vec<f64> = gains
+    // Single pass: (count, min, max) over the finite, positive per-frame means.
+    let (count, min, max) = gains
         .iter()
         .map(|g| (g[0] as f64 + g[1] as f64 + g[2] as f64) / 3.0)
         .filter(|m| m.is_finite() && *m > 0.0)
-        .collect();
-    let min = means.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = means.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    if means.len() < 2 || !min.is_finite() || !max.is_finite() {
+        .fold(
+            (0usize, f64::INFINITY, f64::NEG_INFINITY),
+            |(n, lo, hi), m| (n + 1, lo.min(m), hi.max(m)),
+        );
+    if count < 2 {
         0.0
     } else {
         (max / min).log2()
@@ -75,12 +77,12 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         .iter()
         .map(|&(k, v)| (k.to_string(), serde_json::json!(v)))
         .collect();
-    let gain_spread_ev = gain_spread_ev(&comp_report.gains);
+    let gain_spread = gain_spread_ev(&comp_report.gains);
     let mut warnings: Vec<String> = Vec::new();
     if !solution.motion_affected.is_empty() {
         warnings.push("Movement detected, some areas may show ghosting".to_string());
     }
-    if gain_spread_ev > GAIN_SPREAD_WARNING_EV {
+    if gain_spread > GAIN_SPREAD_WARNING_EV {
         warnings.push(GAIN_SPREAD_WARNING_TEXT.to_string());
     }
     serde_json::json!({
@@ -123,7 +125,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         // EV spread of the solved per-frame gains (spec §8: "warn if
         // spread > 2 EV"). Not gated by the harness — capture-technique
         // information, not a pipeline defect.
-        "gain_spread_ev": gain_spread_ev,
+        "gain_spread_ev": gain_spread,
         "refined_matches": ctx.refined_matches,
         "fallback_matches": ctx.fallback_matches,
         "reverify_edges_dropped": ctx.reverify.edges_dropped,
@@ -252,12 +254,12 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         })
         .collect();
 
-    let gain_spread_ev = gain_spread_ev(&tr.gains);
+    let gain_spread = gain_spread_ev(&tr.gains);
     let mut warnings: Vec<String> = Vec::new();
     if let Some(w) = strat.warning {
         warnings.push(w.to_string());
     }
-    if gain_spread_ev > GAIN_SPREAD_WARNING_EV {
+    if gain_spread > GAIN_SPREAD_WARNING_EV {
         warnings.push(GAIN_SPREAD_WARNING_TEXT.to_string());
     }
 
@@ -291,7 +293,7 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         // EV spread of the solved per-frame gains (spec §8: "warn if
         // spread > 2 EV"). Not gated by the harness — capture-technique
         // information, not a pipeline defect.
-        "gain_spread_ev": gain_spread_ev,
+        "gain_spread_ev": gain_spread,
         "canvas": {
             "width": tr.canvas.width,
             "height": tr.canvas.height,
