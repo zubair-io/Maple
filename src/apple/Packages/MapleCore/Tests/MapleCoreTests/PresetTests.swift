@@ -132,48 +132,72 @@ final class PresetTests: XCTestCase {
         XCTAssertEqual(merged.exposure, 0, accuracy: 1e-9)
     }
 
-    func testMergedSkipsFieldsTheSwiftModelDoesNotCarry() {
-        // wb_method / tone_curve_mode exist in the web schema (and
-        // FieldName) but not on the Swift struct yet — a web-written
-        // preset carrying them must apply its other fields and skip these
-        // (they stay preserved in the stored document). `auto_exposure`
-        // (#1387) IS now a Swift field — see
-        // `testMergedAppliesAutoExposure` below.
+    func testMergedSkipsFieldsNotWiredIntoThePresetBridge() {
+        // `capture_sharpening_radius` is a `FieldName` case the Swift
+        // struct genuinely has no property for (the legacy, read-only
+        // capture-sharpening alias — see `AdjustmentModel` docs). `wb_method`
+        // / `tone_curve_mode` are schema fields (`FieldName` carries the
+        // cases via codegen) that aren't wired into the preset bridge at
+        // all yet — see `PresetAdjustmentBridge.swift`'s file header. A
+        // web-written preset carrying any of these three must apply its
+        // other fields and skip these (preserved in the stored document,
+        // never applied). `auto_exposure` (#1387) and `film_look` (#2720)
+        // ARE wired — see `testMergedAppliesAutoExposure` and
+        // `testMergedAppliesFilmStrengthAndFilmLook` below.
         let (merged, applied) = PresetAdjustments.merged(.default, applying: [
-            "wb_method": .string("Cat16"),
+            "wb_method": .string("DiagonalRec2020"),
             "tone_curve_mode": .string("RatioPreserving"),
             "capture_sharpening_radius": .number(1.5), // deprecated alias
-            // `film_look` (#2683) is a free-form string with no Swift key
-            // path — skipped like the above. Its sibling `film_strength` IS
-            // a real Swift field now, so it is NOT in this payload; see
-            // `testMergedAppliesFilmStrengthButSkipsFilmLook`.
-            "film_look": .string("kodak_portra_400"),
             "contrast": .number(10),
         ])
         XCTAssertEqual(applied, 1)
         XCTAssertEqual(merged.contrast, 10, accuracy: 1e-9)
-        XCTAssertEqual(merged.filmLook, "")
     }
 
-    func testMergedAppliesFilmStrengthButSkipsFilmLook() {
-        // Film emulation (#2683): the Swift model carries `filmStrength` as
-        // an ordinary numeric field, so a preset applies it like any slider.
-        // `filmLook` has no key path (free-form string) and stays skipped —
-        // the Apple-side preset gap tracked as #2720.
+    func testMergedAppliesFilmStrengthAndFilmLook() {
+        // Film emulation (#2683/#2720): both `filmStrength` (an ordinary
+        // numeric field) and `filmLook` (a free-form string, wired into the
+        // Apple preset bridge by #2720) apply from a preset.
         let (merged, applied) = PresetAdjustments.merged(.default, applying: [
             "film_look": .string("kodak_portra_400"),
             "film_strength": .number(80),
         ])
-        XCTAssertEqual(applied, 1)
+        XCTAssertEqual(applied, 2)
         XCTAssertEqual(merged.filmStrength, 80, accuracy: 1e-9)
+        XCTAssertEqual(merged.filmLook, "kodak_portra_400")
+    }
+
+    /// #2720 — a preset's `film_look: ""` is the explicit "clear this look"
+    /// value (mirroring web's `FREE_FORM_STRING_FIELDS` / the API's
+    /// `allowsEmptyString`), not an unknown/skipped value. Starting from a
+    /// model that already has a look, applying an explicit empty string
+    /// must clear it.
+    func testMergedAppliesExplicitEmptyStringFilmLookAsClear() {
+        var lookedModel = AdjustmentModel.default
+        lookedModel.filmLook = "kodak_portra_400"
+        let (merged, applied) = PresetAdjustments.merged(lookedModel, applying: [
+            "film_look": .string(""),
+        ])
+        XCTAssertEqual(applied, 1)
         XCTAssertEqual(merged.filmLook, "")
     }
 
-    func testCaptureFieldsNeverEmitsFilmLookButCapturesFilmStrength() {
-        // Film emulation (#2683). `film_look` has no Swift key path, so
-        // capture never emits it (Apple-side preset gap, #2720).
-        // `film_strength` IS a real numeric field: absent at its default
-        // (100, sparse-map convention), emitted once edited.
+    /// An id the film catalog doesn't recognise still applies verbatim —
+    /// there is no fixed variant list to check `film_look` against (unlike
+    /// every enum field above); it resolves to identity at render time
+    /// (`FilmLutStore`), matching the XMP parser's `papp:FilmLook`.
+    func testMergedAppliesUnknownFilmLookIdVerbatim() {
+        let (merged, applied) = PresetAdjustments.merged(.default, applying: [
+            "film_look": .string("not_in_any_catalog"),
+        ])
+        XCTAssertEqual(applied, 1)
+        XCTAssertEqual(merged.filmLook, "not_in_any_catalog")
+    }
+
+    func testCaptureFieldsCapturesFilmLookAndFilmStrength() {
+        // `film_look` (#2720) and `film_strength` are both absent at their
+        // defaults (the sparse-map convention) and both captured once
+        // edited.
         let atDefault = PresetAdjustments.captureFields(from: .default)
         XCTAssertNil(atDefault["film_look"])
         XCTAssertNil(atDefault["film_strength"])
@@ -182,11 +206,17 @@ final class PresetTests: XCTestCase {
         edited.filmLook = "kodak_portra_400"
         edited.filmStrength = 62
         let fields = PresetAdjustments.captureFields(from: edited)
-        XCTAssertNil(fields["film_look"])
+        XCTAssertEqual(fields["film_look"], .string("kodak_portra_400"))
         guard case .number(let strength)? = fields["film_strength"] else {
             return XCTFail("film_strength should be captured once non-default")
         }
         XCTAssertEqual(strength, 62, accuracy: 1e-9)
+
+        // Round-trips onto a fresh default model.
+        let (merged, applied) = PresetAdjustments.merged(.default, applying: fields)
+        XCTAssertEqual(applied, 2)
+        XCTAssertEqual(merged.filmLook, "kodak_portra_400")
+        XCTAssertEqual(merged.filmStrength, 62, accuracy: 1e-9)
     }
 
     func testMergedAppliesAutoExposure() {
