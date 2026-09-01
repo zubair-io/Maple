@@ -76,14 +76,16 @@ is_allowlisted() {
 is_source_path() {
   # Paths are repo-relative, so a top-level `node_modules/x.ts` has no leading
   # segment for `*/node_modules/*` to match — each pattern needs a bare form too.
+  # `bin/`/`obj/` (#2747) are dotnet's own build-output dirs, gitignored via
+  # `**/bin/` / `**/obj/`, the C# counterparts of `target/`/`dist/`.
   case "$1" in
     node_modules/* | target/* | vendor/* | dist/* | .angular/* | \
-      .build/* | DerivedData/* | pkg/*) return 1 ;;
+      .build/* | DerivedData/* | pkg/* | bin/* | obj/*) return 1 ;;
     */node_modules/* | */target/* | */vendor/* | */dist/* | */.angular/* | \
-      */.build/* | */DerivedData/* | */pkg/*) return 1 ;;
+      */.build/* | */DerivedData/* | */pkg/* | */bin/* | */obj/*) return 1 ;;
   esac
   case "$1" in
-    *.rs | *.swift | *.ts | *.tsx | *.js | *.py) return 0 ;;
+    *.rs | *.swift | *.ts | *.tsx | *.js | *.py | *.cs) return 0 ;;
     *) return 1 ;;
   esac
 }
