@@ -46,7 +46,11 @@ fn expected_gain(x: u32, y: u32) -> f64 {
     let (aa_w, aa_h) = (DIM as f64, DIM as f64);
     let cx = CENTER.0 * aa_w;
     let cy = CENTER.1 * aa_h;
-    let norm_radius_sq = f64::hypot(cx.abs().max(aa_w - cx), cy.abs().max(aa_h - cy)).powi(2);
+    let norm_radius_sq = f64::hypot(
+        cx.abs().max((aa_w - cx).abs()),
+        cy.abs().max((aa_h - cy).abs()),
+    )
+    .powi(2);
     let dx = x as f64 - cx;
     let dy = y as f64 - cy;
     let t = ((dx * dx + dy * dy) / norm_radius_sq).min(1.0);
