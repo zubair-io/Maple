@@ -294,10 +294,11 @@ export type WorkerResponse =
 // Standalone decode + probe: the worker calls `compute_auto_adjustments_from_bytes`
 // with the RAW bytes and (optionally) the current XMP, returning the 8-field
 // recommended slider patch. The caller MUST apply `autoExposure: 'Off'` alongside
-// `exposure` (the returned value is measured against an AE-Off probe). The five
-// tone fields are returned for completeness but the Angular consumer intentionally
-// applies ONLY `{ exposure, temperature, tint, autoExposure: 'Off',
-// whiteBalancePreset: 'Custom' }` — tone auto is deferred to #1376.
+// `exposure` (the returned value is measured against an AE-Off probe). The
+// Angular consumer applies `{ exposure, contrast, highlights, shadows, whites,
+// blacks, autoExposure: 'Off' }` — the calibrated tone sliders (#1376/#2255).
+// `temperature`/`tint` are returned too but intentionally NOT applied — white
+// balance stays at As-Shot (see `EditorStateService.applyAuto`).
 
 /** Request the worker to analyse a RAW and return auto adjustment recommendations (#1379). */
 export interface AutoAdjustRequest {
@@ -314,8 +315,8 @@ export interface AutoAdjustRequest {
 /**
  * The 8-field recommendation returned by the WASM `compute_auto_adjustments_from_bytes`.
  * `exposure` is in EV; `temperature` is in Kelvin; `tint` and the five tone fields are in
- * ±100 units. Tone fields are ALWAYS 0 in M0 (deferred to #1376) — the caller must NOT
- * write them.
+ * ±100 units. The five tone fields are calibrated, scene-proportional values (#1376) —
+ * the Angular consumer applies them alongside `exposure`; see `EditorStateService.applyAuto`.
  */
 export interface AutoAdjustPatch {
   exposure: number;
