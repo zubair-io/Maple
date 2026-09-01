@@ -20,6 +20,11 @@
 // `papp:Hidden` (no web writer) and default-valued sliders
 // (Apple authors them unconditionally, the web writer omits them); the fixture
 // therefore sets every unconditionally-emitted field to a non-default value.
+//
+// `papp:WbMethod` / `papp:ToneCurveMode` (#2216) are included at non-default
+// values as of this ticket — both the Swift and TypeScript writers now emit
+// them under the ordinary omit-on-default rule, so they need no special
+// handling here beyond being in the fixture like every other enum field.
 
 import XCTest
 @testable import MapleCore
@@ -88,11 +93,8 @@ final class XMPCanonicalFormatTests: XCTestCase {
         m.grayMixerMagenta = -18
         m.highlightRecovery = .blend
         m.autoExposure = .off
-        // `papp:WbMethod` / `papp:ToneCurveMode` are deliberately left at
-        // their defaults: Apple's `AdjustmentModel` has no field for either
-        // (#2216), so only the web writer can emit them and a non-default
-        // value would put an attribute in the golden one engine cannot
-        // produce.
+        m.wbMethod = .diagonalRec2020
+        m.toneCurveMode = .ratioPreserving
         m.hotPixelSuppression = .on
         m.profile = .neutral
         m.crop = Crop(top: 0.1, left: 0.05, bottom: 0.9, right: 0.95, angle: 2.5)
@@ -341,6 +343,8 @@ let xmpCanonicalGoldenDocument = """
       papp:HighlightRecoveryMode="Blend"
       papp:HotPixelSuppression="On"
       papp:Profile="Neutral"
+      papp:ToneCurveMode="RatioPreserving"
+      papp:WbMethod="DiagonalRec2020"
       papp:WbScaleVersion="5">
       <dc:subject>
         <rdf:Bag>

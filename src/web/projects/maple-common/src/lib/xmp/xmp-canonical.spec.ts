@@ -15,11 +15,13 @@
 // for arbitrary round-tripped sidecars — this writer preserves unknown
 // attributes and nested nodes while Apple's has no passthrough at all (#2233),
 // so a document carrying foreign fields cannot be byte-equal across the two.
-// It also excludes `papp:Hidden` (no web writer), `papp:WbMethod` /
-// `papp:ToneCurveMode` (no Apple model field — #2216) and default-valued
+// It also excludes `papp:Hidden` (no web writer) and default-valued
 // sliders (Apple authors them unconditionally, this writer omits them); the
 // fixture therefore sets every unconditionally-emitted field to a non-default
-// value.
+// value. `papp:WbMethod` / `papp:ToneCurveMode` are included at non-default
+// values as of #2216, which wired both onto the Swift model — before that
+// ticket they were left at their defaults here since only this writer could
+// produce them.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -91,6 +93,8 @@ function canonicalFixtureModel(): AdjustmentModel {
     grayMixerMagenta: -18,
     highlightRecovery: 'Blend',
     autoExposure: 'Off',
+    wbMethod: 'DiagonalRec2020',
+    toneCurveMode: 'RatioPreserving',
     hotPixelSuppression: 'On',
     profile: 'Neutral',
     crop: { top: 0.1, left: 0.05, bottom: 0.9, right: 0.95, angle: 2.5 },
@@ -383,6 +387,8 @@ const CANONICAL_GOLDEN_DOCUMENT = `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSz
       papp:HighlightRecoveryMode="Blend"
       papp:HotPixelSuppression="On"
       papp:Profile="Neutral"
+      papp:ToneCurveMode="RatioPreserving"
+      papp:WbMethod="DiagonalRec2020"
       papp:WbScaleVersion="5">
       <dc:subject>
         <rdf:Bag>

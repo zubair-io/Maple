@@ -57,9 +57,12 @@ extension PipelineRenderer {
     /// reads them only for the duration of the render call; storing them here would
     /// dangle).
     ///
-    /// `wb_method` defaults to CAT16 (0) — the Apple model carries no WB-method
-    /// field, matching `develop`'s default. `tone_curve_mode` defaults to
-    /// PerChannel (0). The four per-channel POINT curves ARE mirrored on the
+    /// `wb_method` / `tone_curve_mode` (#2216) map straight from
+    /// `model.wbMethod` / `model.toneCurveMode` — `0` = CAT16 / PerChannel
+    /// (both defaults), `1` = DiagonalRec2020 / RatioPreserving, matching
+    /// the `MapleGpuLiveParams` header doc.
+    ///
+    /// The four per-channel POINT curves ARE mirrored on the
     /// Swift `AdjustmentModel` since #366, but they are variable-length arrays
     /// like the Auto Profile artifacts, so they are bound by
     /// `GpuLiveSession.withGpuLiveParams` inside a live `withUnsafeBufferPointer`
@@ -122,7 +125,7 @@ extension PipelineRenderer {
         p.tint = Float(model.tint)
         p.decoded_temperature = Float(decodedAnchor.temperature)
         p.decoded_tint = Float(decodedAnchor.tint)
-        p.wb_method = 0 // CAT16 (the Apple model carries no method field)
+        p.wb_method = model.wbMethod == .diagonalRec2020 ? 1 : 0
 
         // --- scene tone controls ---
         p.exposure = Float(model.exposure)
@@ -144,7 +147,7 @@ extension PipelineRenderer {
         p.parametric_darks = Float(model.parametricDarks)
         p.parametric_lights = Float(model.parametricLights)
         p.parametric_highlights = Float(model.parametricHighlights)
-        p.tone_curve_mode = 0 // PerChannel (Apple model has no per-channel mode field)
+        p.tone_curve_mode = model.toneCurveMode == .ratioPreserving ? 1 : 0
 
         // --- color / spatial sliders ---
         p.vibrance = Float(model.vibrance)

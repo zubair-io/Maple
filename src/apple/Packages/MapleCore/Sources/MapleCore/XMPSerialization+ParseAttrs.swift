@@ -137,6 +137,28 @@ extension _XMPParserDelegate {
             case "off": model.autoExposure = .off
             default: break
             }
+        // White-balance method (#431; wired into Swift by #2216) —
+        // Maple-proprietary enum. Case-insensitive like the other papp:
+        // enum parsers; raw-core additionally accepts an all-caps
+        // "CAT16" spelling for the CAT16 variant (`xmp/fields.rs`), folded
+        // in here by the same lowercase match. Unknown values keep the
+        // current model value (default `.cat16`).
+        case "papp:WbMethod":
+            switch value.lowercased() {
+            case "cat16":           model.wbMethod = .cat16
+            case "diagonalrec2020": model.wbMethod = .diagonalRec2020
+            default: break
+            }
+        // Per-channel point tone-curve mode (#436; wired into Swift by
+        // #2216) — Maple-proprietary enum. Case-insensitive like the other
+        // papp: enum parsers. Unknown values keep the current model value
+        // (default `.perChannel`).
+        case "papp:ToneCurveMode":
+            switch value.lowercased() {
+            case "perchannel":     model.toneCurveMode = .perChannel
+            case "ratiopreserving": model.toneCurveMode = .ratioPreserving
+            default: break
+            }
         case "papp:Look":
             // DisplayLookCurve (#371). Case-insensitive parse mirrors
             // `papp:HighlightRecoveryMode`. Unknown values keep the current
