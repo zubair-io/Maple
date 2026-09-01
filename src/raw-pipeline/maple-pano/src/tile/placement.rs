@@ -99,6 +99,8 @@ pub enum TilePlacementError {
     IndexOutOfBounds { have: usize, bad: usize },
     #[error("disconnected graph: frame {frame} is unreachable from anchor")]
     Disconnected { frame: usize },
+    #[error("apply_canvas_cap: max_canvas_px must be >= 1")]
+    InvalidCanvasCap,
 }
 
 /// The result of [`solve_tile_poses`].
@@ -368,14 +370,22 @@ pub fn solve_tile_poses(
 /// uniform downscale by `s` multiplies `sim.scale`, `sim.tx/ty`, and the
 /// canvas offsets by `s` (θ unchanged). Within budget the inputs pass
 /// through untouched.
+///
+/// `max_px` must be ≥ 1 — the rotation path rejects a zero cap in
+/// [`crate::canvas::auto_canvas`] ("max_pixels must be >= 1") and this is
+/// the same contract; a zero cap would otherwise scale every placement to
+/// a 1×1 canvas.
 pub fn apply_canvas_cap(
     poses: Vec<TilePose>,
     canvas: TileCanvasSpec,
     max_px: usize,
-) -> (Vec<TilePose>, TileCanvasSpec) {
+) -> Result<(Vec<TilePose>, TileCanvasSpec), TilePlacementError> {
+    if max_px == 0 {
+        return Err(TilePlacementError::InvalidCanvasCap);
+    }
     let px = canvas.width as usize * canvas.height as usize;
     if px <= max_px || px == 0 {
-        return (poses, canvas);
+        return Ok((poses, canvas));
     }
     let s = (max_px as f64 / px as f64).sqrt();
     let scaled_poses = poses
@@ -396,7 +406,7 @@ pub fn apply_canvas_cap(
         offset_x: canvas.offset_x * s,
         offset_y: canvas.offset_y * s,
     };
-    (scaled_poses, scaled_canvas)
+    Ok((scaled_poses, scaled_canvas))
 }
 
 // Solver functions (ls_scalar, ls_translation, gauss_eliminate, size_canvas)
