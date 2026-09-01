@@ -36,9 +36,9 @@
 //! which is this value's only consumer.
 //!
 //! **Fallbacks:** without `f₃₅` directly in EXIF, [`derive_focal_35mm_equiv`]
-//! tries to derive it from `FocalLength` plus sensor geometry (`FocalPlane-
-//! XResolution`/`FocalPlaneResolutionUnit`, #2700) — full-frame bodies like
-//! the Canon 5DS R, which write only `FocalLength` (crop ≈ 1.0, so the
+//! tries to derive it from `FocalLength` plus sensor geometry
+//! (`FocalPlaneXResolution`/`FocalPlaneResolutionUnit`, #2700) — full-frame
+//! bodies like the Canon 5DS R, which write only `FocalLength` (crop ≈ 1.0, so the
 //! 35mm-equivalent IS the focal length), and crop bodies whose physical
 //! sensor diagonal comes out from that EXIF pair. Only when *neither* the
 //! direct tag nor the sensor-geometry derivation succeeds does `focal_px`
@@ -186,7 +186,17 @@ pub fn derive_focal_35mm_equiv(
         return None;
     }
     let crop_factor = FULL_FRAME_DIAG_MM / sensor_diag_mm;
-    Some((focal_mm * crop_factor) as f32)
+    let f35 = focal_mm * crop_factor;
+    // Guard the final result too, not just the intermediate sensor_diag_mm:
+    // an extreme (but individually finite/positive) EXIF value — a near-
+    // zero resolution, say — can still blow up the product into a
+    // non-finite or f32-overflowing result, which would otherwise leak an
+    // `inf`/absurd seed into focal_px and the downstream BA solver
+    // (Copilot review on #3122).
+    if !f35.is_finite() || f35 <= 0.0 || f35 > f32::MAX as f64 {
+        return None;
+    }
+    Some(f35 as f32)
 }
 
 /// Parse `drone-dji:Gimbal{Yaw,Pitch,Roll}Degree` out of a raw XMP packet.

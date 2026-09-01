@@ -261,6 +261,24 @@ fn derive_focal_35mm_equiv_none_when_any_input_is_missing() {
     );
 }
 
+/// #2700 review (Copilot on #3122): inputs that are each individually
+/// finite and positive can still combine into a `focal_mm * crop_factor`
+/// product that overflows `f32` — this must not leak a non-finite or
+/// absurd `focal_35mm_equiv` into the BA solver seed. The final result
+/// is guarded, not just the intermediate `sensor_diag_mm`.
+#[test]
+fn derive_focal_35mm_equiv_none_on_overflow() {
+    // sensor_diag_mm = diag_px * 25.4 / res ≈ 1.83e-5 mm (an absurdly
+    // tiny "sensor"), so crop_factor ≈ 2.36e6, and focal_mm (already an
+    // extreme value) × crop_factor overflows f32::MAX (≈3.4e38).
+    let huge_focal_mm = 1.0e35_f32;
+    let huge_res = 1.0e10_f32;
+    assert_eq!(
+        derive_focal_35mm_equiv(Some(huge_focal_mm), Some(huge_res), Some(2), 6000, 4000),
+        None
+    );
+}
+
 /// End-to-end (#2700): a synthetic full-frame frame whose metadata
 /// has no `FocalLengthIn35mmFormat` at all (the Canon 5DS R shape)
 /// still resolves a usable `focal_px` through

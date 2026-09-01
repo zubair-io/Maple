@@ -414,8 +414,10 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
 
     // EXIF FocalPlaneXResolution (0x920E) + FocalPlaneResolutionUnit
     // (0x9210) — same IFD lookup pattern as FocalLengthIn35mmFormat
-    // above. Sensor-geometry fallback for bodies that omit the 35mm-
-    // equivalent tag (#2700); the derivation itself lives in
+    // above, also falling back to the "*2" tag IDs (0xA20E / 0xA210)
+    // some camera firmware writes instead of the primary ones (Copilot
+    // review on #3122). Sensor-geometry fallback for bodies that omit
+    // the 35mm-equivalent tag (#2700); the derivation itself lives in
     // `maple_pano::ingest::priors`, this is just the raw EXIF read.
     let focal_plane_x_resolution = exif_ifd
         .as_ref()
@@ -424,6 +426,16 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
             root_ifd
                 .as_ref()
                 .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneXResolution))
+        })
+        .or_else(|| {
+            exif_ifd
+                .as_ref()
+                .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneXResolution2))
+        })
+        .or_else(|| {
+            root_ifd
+                .as_ref()
+                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneXResolution2))
         })
         .map(|e| e.value.force_f32(0))
         .filter(|v| *v > 0.0);
@@ -434,6 +446,16 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
             root_ifd
                 .as_ref()
                 .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneResolutionUnit))
+        })
+        .or_else(|| {
+            exif_ifd
+                .as_ref()
+                .and_then(|ifd| ifd.get_entry(ExifTag::FocalPlaneResolutionUnit2))
+        })
+        .or_else(|| {
+            root_ifd
+                .as_ref()
+                .and_then(|ifd| ifd.get_entry_recursive(ExifTag::FocalPlaneResolutionUnit2))
         })
         .map(|e| e.value.force_u16(0));
 
