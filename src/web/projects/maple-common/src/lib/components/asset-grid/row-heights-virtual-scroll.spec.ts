@@ -88,9 +88,10 @@ describe('RowHeightsVirtualScrollStrategy', () => {
     const vp = fakeViewport({ size: 600, scroll: 1000, rendered: { start: 3, end: 10 } });
     const strategy = new RowHeightsVirtualScrollStrategy(HEIGHTS, 100, 200);
     strategy.attach(vp);
-    // Row 3 top = 347 ≤ 1000 - 100 and end === rowCount → nothing to do.
-    expect(vp.setRenderedRange).toHaveBeenLastCalledWith({ start: 3, end: 10 });
-    expect(vp.setRenderedContentOffset).toHaveBeenLastCalledWith(347);
+    // Row 3 top = 347 ≤ 1000 - 100 and end === rowCount → nothing to do:
+    // no range or offset write on this scroll tick.
+    expect(vp.setRenderedRange).not.toHaveBeenCalled();
+    expect(vp.setRenderedContentOffset).not.toHaveBeenCalled();
   });
 
   it('re-renders when the buffer above runs thinner than minBufferPx', () => {

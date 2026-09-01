@@ -133,13 +133,16 @@ export class RowHeightsVirtualScrollStrategy implements VirtualScrollStrategy {
     const keep =
       current.end > current.start && current.end <= rowCount && coveredAbove && coveredBelow;
 
-    const range = keep
-      ? current
-      : {
-          start: this.indexAt(scrollOffset - this.maxBufferPx),
-          end: Math.min(rowCount, this.indexAt(scrollOffset + viewportSize + this.maxBufferPx) + 1),
-        };
+    if (keep) {
+      // Nothing to re-render — only the first-visible index may have moved.
+      this.scrolledIndex$.next(firstVisible);
+      return;
+    }
 
+    const range = {
+      start: this.indexAt(scrollOffset - this.maxBufferPx),
+      end: Math.min(rowCount, this.indexAt(scrollOffset + viewportSize + this.maxBufferPx) + 1),
+    };
     viewport.setRenderedRange(range);
     viewport.setRenderedContentOffset(this.offsets[range.start]);
     this.scrolledIndex$.next(firstVisible);
