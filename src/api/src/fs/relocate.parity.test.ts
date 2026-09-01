@@ -318,21 +318,19 @@ interface KnownFailure {
   /** Whether the divergence can actually manifest in THIS environment. A
    * `test.failing` case that is skipped (or that legitimately passes) counts
    * as an unexpected pass and fails the run — so a divergence that only
-   * exists on some filesystems must only be marked on those filesystems.
-   * #2704 is exactly that: on a case-SENSITIVE volume `img.cr3` → `IMG.CR3`
-   * is an ordinary rename to a different name and works fine, so the case is
-   * skipped by its `case-insensitive-fs` requirement and must NOT be marked
-   * as expected-to-fail. */
+   * exists on some filesystems must only be marked on those filesystems. A
+   * case gated by a `case-insensitive-fs` `requires` entry is the prototype:
+   * on a case-SENSITIVE volume the case is skipped outright by that
+   * requirement (see #2704's fix, which used `probeCaseInsensitiveFs` here
+   * for exactly that reason before the underlying bug was closed) and must
+   * NOT be marked as expected-to-fail. */
   appliesHere: () => boolean;
 }
 
-const KNOWN_FAILURES: Record<string, KnownFailure> = {
-  case_only_rename_file_succeeds_with_sidecar: {
-    reason:
-      '#2704 — relocateFile has no case-only-rename special case; auto-suffixes to IMG.1.CR3 instead of renaming in place on a case-insensitive filesystem',
-    appliesHere: probeCaseInsensitiveFs,
-  },
-};
+// #2704's case_only_rename_file_succeeds_with_sidecar entry lived here until
+// relocateFile grew a case-only-rename special case — kept empty (not
+// deleted) as the landing spot for the next confirmed TS-only divergence.
+const KNOWN_FAILURES: Record<string, KnownFailure> = {};
 
 // ---------------------------------------------------------------------------
 // Dispatch — one `test()` per corpus case, skipped loudly when unsupported.
