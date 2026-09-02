@@ -59,6 +59,48 @@ final class ExpiringActivityResultBoxTests: XCTestCase {
     }
   }
 
+  func test_adopt_afterTheBoxAlreadySettled_cancelsTheLateTaskInsteadOfStoringIt() async {
+    // The race this guards: `performExpiringActivity`'s block can be called
+    // twice concurrently on different threads — the non-expired invocation
+    // that starts the operation, and an "expired" invocation that can, in
+    // principle, run and resolve (declined) BEFORE the first one reaches
+    // `adopt(_:)`. A late-arriving task must be cancelled immediately, not
+    // stored — otherwise it keeps running with nothing able to cancel it
+    // through the box, and its own eventual `resolve` call is a silent
+    // no-op once the box has already settled (Copilot review, #3226).
+    let ranToCompletion = XCTestExpectation(description: "late task ran unprotected")
+    ranToCompletion.isInverted = true
+    let observedCancellation = XCTestExpectation(description: "late task observed cancellation")
+
+    do {
+      _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AuthTokens, Error>) in
+        let box = ExpiringActivityResultBox(continuation: continuation)
+        // Expiry arrives FIRST, before any task exists — settles the box as
+        // declined, exactly like the "no time granted at all" case.
+        box.handleExpired()
+        // The non-expired invocation, racing on another thread, only now
+        // gets around to starting its task and adopting it.
+        let task = Task {
+          try? await Task.sleep(for: .milliseconds(50))
+          if Task.isCancelled {
+            observedCancellation.fulfill()
+          } else {
+            ranToCompletion.fulfill()
+            box.resolve(.success(AuthTokens(access: "ranToCompletion", refresh: "R")))
+          }
+        }
+        box.adopt(task)
+      }
+      XCTFail("the box already settled (declined) before adopt — that result must stand")
+    } catch is CancellationError {
+      // expected — the decline from handleExpired() must be what the
+      // caller sees, unreplaced by the late task's own resolve attempt.
+    } catch {
+      XCTFail("expected CancellationError, got \(error)")
+    }
+    await fulfillment(of: [observedCancellation, ranToCompletion], timeout: 2)
+  }
+
   func test_handleExpired_withAnAdoptedTask_cancelsItRatherThanResolvingDirectly() async {
     // Once an operation is in flight, expiry must cancel IT (so the
     // flock-holding `URLSession.data(for:)` unwinds and the operation's own
