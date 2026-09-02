@@ -16,6 +16,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import {
+  type ApnsConfigResponse,
   type NetworkConfigPatch,
   type NetworkConfigResponse,
   BunApiBackendService,
@@ -56,6 +57,14 @@ export class NetworkSettingsComponent implements OnInit {
   protected readonly loadState = signal<LoadState>({ kind: 'loading' });
   protected readonly saveState = signal<SaveState>({ kind: 'idle' });
 
+  // ── APNs push-to-signal (#1025) — separate load/save from the LAN
+  // address form above: different API resource, different save action. ──
+  protected readonly apnsConfig = signal<ApnsConfigResponse | null>(null);
+  protected readonly apnsLoadState = signal<LoadState>({ kind: 'loading' });
+  protected readonly apnsSaveState = signal<SaveState>({ kind: 'idle' });
+  protected readonly fApnsEnabled = signal(false);
+  private apnsFormSeeded = false;
+
   // ── Editable form ────────────────────────────────────────────────────────
   protected readonly fEnabled = signal(true);
   protected readonly fIpOverride = signal('');
@@ -71,10 +80,17 @@ export class NetworkSettingsComponent implements OnInit {
       this.formSeeded = true;
       this.seedForm(cfg);
     });
+    effect(() => {
+      const cfg = this.apnsConfig();
+      if (!cfg || this.apnsFormSeeded) return;
+      this.apnsFormSeeded = true;
+      this.fApnsEnabled.set(cfg.enabled);
+    });
   }
 
   ngOnInit(): void {
     void this.load();
+    void this.loadApns();
   }
 
   private async load(): Promise<void> {
@@ -135,6 +151,49 @@ export class NetworkSettingsComponent implements OnInit {
       }, 2000);
     } catch (err) {
       this.saveState.set({ kind: 'error', message: errorMessage(err) });
+    }
+  }
+
+  private async loadApns(): Promise<void> {
+    this.apnsLoadState.set({ kind: 'loading' });
+    try {
+      const cfg = await firstValueFrom(this.api.getApnsConfig());
+      this.apnsConfig.set(cfg);
+      this.apnsLoadState.set({ kind: 'loaded' });
+    } catch (err) {
+      this.apnsLoadState.set({ kind: 'error', message: errorMessage(err) });
+    }
+  }
+
+  /** Bound to the checkbox's `(checkedChange)`. Flips the signal
+   * optimistically (so the UI feels instant) but remembers the pre-toggle
+   * value so `saveApns` can revert it on a failed PUT (Copilot review
+   * #3214) — without this, a rejected save left the checkbox showing
+   * "on" while nothing was actually persisted. */
+  protected onApnsToggle(checked: boolean): void {
+    const previous = this.fApnsEnabled();
+    this.fApnsEnabled.set(checked);
+    void this.saveApns(previous);
+  }
+
+  protected async saveApns(revertTo?: boolean): Promise<void> {
+    this.apnsSaveState.set({ kind: 'saving' });
+    try {
+      const fresh = await firstValueFrom(this.api.saveApnsConfig({ enabled: this.fApnsEnabled() }));
+      this.apnsConfig.set(fresh);
+      // Reflect back whatever the server actually persisted (Copilot
+      // review #3214) — today that's always exactly what we sent, but a
+      // future server-side normalization/validation must not leave the
+      // checkbox silently drifted from the real saved value until a
+      // full reload.
+      this.fApnsEnabled.set(fresh.enabled);
+      this.apnsSaveState.set({ kind: 'saved' });
+      setTimeout(() => {
+        this.apnsSaveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
+      }, 2000);
+    } catch (err) {
+      if (revertTo !== undefined) this.fApnsEnabled.set(revertTo);
+      this.apnsSaveState.set({ kind: 'error', message: errorMessage(err) });
     }
   }
 

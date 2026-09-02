@@ -131,5 +131,65 @@
         </div>
       </section>
     }
+
+    <!-- Push notifications (APNs) — #1025. Independent load/save from the
+         LAN-address form above (separate API resource), so its own @if
+         does not nest inside `loadState()`'s. -->
+    <section>
+      <div class="set-subhead">Push notifications (Apple devices)</div>
+      <p class="m-0 mb-3.5 text-[11.5px] text-[var(--s-text-muted)] leading-[1.5] max-w-[540px]">
+        The Files app extension on iPhone/iPad/Mac normally keeps a persistent connection open to
+        notice changes, which costs a small amount of battery in the background around the clock.
+        Turning this on switches it to Apple push notifications instead: the server pushes a silent
+        wake-up only when something actually changed, so the extension can stay fully idle the rest
+        of the time. The persistent connection remains the fallback whenever this is off, or on but
+        not yet usable (see below).
+      </p>
+      @if (apnsLoadState().kind === 'loading') {
+        <p class="text-[var(--s-text-dim)] italic text-[12.5px] m-0">Loading configuration…</p>
+      } @else if (apnsLoadState().kind === 'error') {
+        @if (apnsLoadState(); as als) {
+          @if (als.kind === 'error') {
+            <p class="error">Failed to load config: {{ als.message }}</p>
+          }
+        }
+      } @else {
+        @if (apnsConfig(); as acfg) {
+          @if (acfg.enabled && !acfg.credentials_configured) {
+            <p
+              class="m-0 mb-3.5 text-[11.5px] leading-[1.5] max-w-[540px] text-[var(--s-warn,#d99a3d)]"
+            >
+              This server has no Apple push credentials configured (MAPLE_APNS_KEY_ID /
+              MAPLE_APNS_TEAM_ID / MAPLE_APNS_PRIVATE_KEY). Turning this on is safe, but push stays
+              a no-op — clients keep using the persistent connection — until an operator sets those
+              on the server.
+            </p>
+          }
+        }
+
+        <div class="check-row set-check-row">
+          <mui-checkbox
+            label="Use push notifications instead of a persistent connection"
+            [checked]="fApnsEnabled()"
+            (checkedChange)="onApnsToggle($event)"
+          />
+        </div>
+
+        <div class="form-actions set-form-actions-row">
+          @if (apnsSaveState(); as ass) {
+            @if (ass.kind === 'saved') {
+              <span class="test-ok set-test-ok"
+                ><maple-settings-icon name="check" [size]="13" /> Saved.</span
+              >
+            }
+            @if (ass.kind === 'error') {
+              <span class="test-err set-test-err"
+                ><maple-settings-icon name="x" [size]="13" /> {{ ass.message }}</span
+              >
+            }
+          }
+        </div>
+      }
+    </section>
   </div>
 </maple-settings-shell>
