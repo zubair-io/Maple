@@ -179,6 +179,13 @@ export class XmpSerializerService {
       if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
       const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
+      // A `NaN`/`Infinity`/`-Infinity` model value (a corrupted in-memory
+      // model, or a hand-edited/malicious sidecar that round-tripped one
+      // through the parser before this guard existed) is never
+      // representable in XMP and must never be written — matches
+      // `raw-core`'s and Swift's rejection of non-finite numeric values on
+      // write (docs/xmp-canonical-format.md § "Number formatting", #3186).
+      if (!Number.isFinite(value)) continue;
       // Omit-on-default compares the serialized wire forms, not the raw
       // values: the codec rounds to 2 decimals, so a raw comparison would
       // emit the default wire value for near-default inputs (0.004 →
