@@ -99,6 +99,24 @@ describe('validatePresetFields', () => {
     expect(validatePresetFields({ future_null: null })).toHaveProperty('error');
   });
 
+  // #2232 round-trip: a preset `fields` map is flat-scalar-only, so BOTH
+  // curve families — the pre-existing scene-linear `tone_curve_*` and the
+  // new display-referred `display_tone_curve_*` — are unknown to the
+  // validator (see the module doc and `adjustment-fields.test.ts`'s golden
+  // gate) and hit the same unknown-field path as anything else. A curve
+  // object rejects with a clean 400 rather than silently dropping —
+  // it never reaches storage in either shape.
+  it('rejects a preset field carrying an actual curve object, scene-linear or display', () => {
+    const curve = {
+      points: [
+        [0, 0],
+        [1, 1],
+      ],
+    };
+    expect(validatePresetFields({ tone_curve_luma: curve })).toHaveProperty('error');
+    expect(validatePresetFields({ display_tone_curve_luma: curve })).toHaveProperty('error');
+  });
+
   it('rejects non-object fields payloads', () => {
     expect(validatePresetFields(null)).toHaveProperty('error');
     expect(validatePresetFields([1])).toHaveProperty('error');
