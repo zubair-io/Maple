@@ -435,5 +435,53 @@ namespace Maple.WinUI.Tests
             Assert.True(firstAt >= 0, "the node must still survive the resave");
             Assert.Equal(firstAt, lastAt);
         }
+
+        /// <summary>
+        /// Mirror of <see cref="DuplicatePassthroughIndexInChildOrderEmitsTheNodeOnlyOnce"/>
+        /// for the other `ChildOrder` slot kind (#3113 review, Copilot):
+        /// a stale/out-of-sync `ChildOrder` that repeats the same
+        /// tone-curve tag must not duplicate that block in the output —
+        /// only the first occurrence emits.
+        /// </summary>
+        [Fact]
+        public void DuplicateToneCurveTagInChildOrderEmitsTheBlockOnlyOnce()
+        {
+            var xml = string.Join("\n", new[]
+            {
+                "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+                "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+                "    <rdf:Description rdf:about=\"\"",
+                "      xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"",
+                "      xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"",
+                "      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"",
+                "      crs:HasSettings=\"True\">",
+                "      <papp:SceneLinearToneCurve>",
+                "        <rdf:Seq>",
+                "          <rdf:li>0, 0</rdf:li>",
+                "          <rdf:li>255, 255</rdf:li>",
+                "        </rdf:Seq>",
+                "      </papp:SceneLinearToneCurve>",
+                "    </rdf:Description>",
+                "  </rdf:RDF>",
+                "</x:xmpmeta>",
+                "<?xpacket end=\"w\"?>",
+            });
+
+            var doc = XmpParser.Parse(xml);
+            Assert.NotNull(doc);
+
+            // The parsed document already has one ChildOrder slot for
+            // papp:SceneLinearToneCurve — append a second slot for the
+            // same tag, simulating stale data.
+            doc!.ChildOrder.Add(ChildSlot.ForToneCurve("papp:SceneLinearToneCurve"));
+
+            var resaved = XmpWriter.Serialize(doc);
+
+            var firstAt = resaved.IndexOf("<papp:SceneLinearToneCurve>", System.StringComparison.Ordinal);
+            var lastAt = resaved.LastIndexOf("<papp:SceneLinearToneCurve>", System.StringComparison.Ordinal);
+            Assert.True(firstAt >= 0, "the tone-curve block must still survive the resave");
+            Assert.Equal(firstAt, lastAt);
+        }
     }
 }
