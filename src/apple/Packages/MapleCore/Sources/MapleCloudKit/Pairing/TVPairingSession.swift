@@ -33,8 +33,11 @@ public final class TVPairingSession {
     self.token = token
     self.now = now
     self.createdAt = now()
+    // v2 (#2137's compact binary + base32 QR format) — every phone build
+    // reaching this session must already accept v2 by the time a TV build
+    // emits it; see the sequencing note on `PairingQRPayload`.
     self.qrPayload = PairingQRPayload(
-      v: 1,
+      v: 2,
       ip: ip,
       port: port,
       token: token,
