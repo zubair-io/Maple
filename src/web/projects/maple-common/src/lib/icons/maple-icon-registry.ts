@@ -309,15 +309,24 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   // `strokeWidth: 1` pins these three chip glyphs to the original inline
   // markup's IMPLICIT stroke-width (the attribute was never set, so the SVG
   // spec default of 1 applied) — without the override they'd inherit the
-  // component's own 1.5 default and render visibly heavier.
+  // component's own 1.5 default and render visibly heavier. `sharp: true`
+  // for the same reason: the originals set no stroke-linecap/linejoin
+  // either, so the SVG defaults (butt cap, miter join) applied — the
+  // component would otherwise force its own round-cap/round-join default
+  // onto every stroked shape (review round, #956).
   'search-chip-event': [
-    { kind: 'rect', x: 1.5, y: 2, width: 9, height: 8.5, rx: 1, strokeWidth: 1 },
-    { kind: 'path', d: 'M1.5 4.5h9M4 1v2M8 1v2', strokeWidth: 1 },
+    { kind: 'rect', x: 1.5, y: 2, width: 9, height: 8.5, rx: 1, strokeWidth: 1, sharp: true },
+    { kind: 'path', d: 'M1.5 4.5h9M4 1v2M8 1v2', strokeWidth: 1, sharp: true },
   ],
   // Search-chip glyph: person (search-bar.component.html's chip switch).
   'search-chip-person': [
-    { kind: 'circle', cx: 6, cy: 4, r: 2.2, strokeWidth: 1 },
-    { kind: 'path', d: 'M1.8 10.5c.6-2.2 2.3-3.2 4.2-3.2s3.6 1 4.2 3.2', strokeWidth: 1 },
+    { kind: 'circle', cx: 6, cy: 4, r: 2.2, strokeWidth: 1, sharp: true },
+    {
+      kind: 'path',
+      d: 'M1.8 10.5c.6-2.2 2.3-3.2 4.2-3.2s3.6 1 4.2 3.2',
+      strokeWidth: 1,
+      sharp: true,
+    },
   ],
   // Search-chip glyph: place. The SAME glyph is drawn independently in
   // search-bar.component.html's chip switch, search-facet-section.component.html,
@@ -327,6 +336,7 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
       kind: 'path',
       d: 'M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z',
       strokeWidth: 1,
+      sharp: true,
     },
     { kind: 'circle', cx: 6, cy: 4.6, r: 1.2, filled: true },
   ],
@@ -351,7 +361,10 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   ],
   // Broken-image placeholder (photo-results-section.component.html).
   'photo-placeholder': [
-    { kind: 'path', d: 'M4 6h16v12H4z', strokeWidth: 1 },
+    // sharp: true — the original set no stroke-linejoin, so its default
+    // miter join kept this frame's corners square; the component's own
+    // round-join default would otherwise visibly round them.
+    { kind: 'path', d: 'M4 6h16v12H4z', strokeWidth: 1, sharp: true },
     { kind: 'circle', cx: 9, cy: 11, r: 1.5, filled: true },
     { kind: 'path', d: 'M5 17l5-5 4 4 3-3 2 2v2H5z', filled: true },
   ],
