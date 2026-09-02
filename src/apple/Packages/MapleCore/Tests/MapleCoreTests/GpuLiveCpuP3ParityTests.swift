@@ -23,14 +23,23 @@ import XCTest
 @testable import MapleCore
 
 final class GpuLiveCpuP3ParityTests: XCTestCase {
-    private static let stateLock = NSLock()
-
     /// Force `CanvasColorSpace.current` to `.displayP3` for the duration of
     /// `body`, restoring the prior UserDefaults state afterward — same
-    /// save/mutate/restore + lock pattern `CanvasColorSpaceTests` uses,
-    /// since this key is process-global.
+    /// save/mutate/restore pattern `CanvasColorSpaceTests` uses, since this
+    /// key is process-global.
+    ///
+    /// Deliberately NO `NSLock` here (jules review on #3239): `body` is
+    /// `async`, and `NSLock` is thread-affine — holding it across an
+    /// `await` suspension is illegal, since Swift Concurrency is free to
+    /// resume the task on a different thread than the one that locked it,
+    /// and the `defer`'s `unlock()` would then trap. `CanvasColorSpaceTests`
+    /// gets away with an `NSLock` because ITS `body` is synchronous (never
+    /// suspends), so the lock is held and released on one thread. This file
+    /// has exactly one test method, so no cross-method serialization is
+    /// needed within the file; cross-file serialization isn't needed either
+    /// since this bundle runs its tests serially (no `-parallel-testing-
+    /// enabled` in any documented test invocation).
     private func withP3CanvasColorSpace(_ body: () async throws -> Void) async rethrows {
-        Self.stateLock.lock()
         let saved = UserDefaults.standard.object(forKey: CanvasColorSpace.defaultsKey)
         UserDefaults.standard.set(CanvasColorSpace.displayP3.rawValue, forKey: CanvasColorSpace.defaultsKey)
         defer {
@@ -39,7 +48,6 @@ final class GpuLiveCpuP3ParityTests: XCTestCase {
             } else {
                 UserDefaults.standard.removeObject(forKey: CanvasColorSpace.defaultsKey)
             }
-            Self.stateLock.unlock()
         }
         try await body()
     }
