@@ -1572,6 +1572,18 @@ extension PipelineRenderer {
         width: Int,
         height: Int
     ) throws -> Data {
+        // Same zero-dimension guard as `encodeDisplay` / `applyChainAndEncodeDisplay`
+        // (Copilot review on #3239 — pre-existing gap on this function
+        // specifically, fixed alongside its new P3-aware sibling): without
+        // this, a 0×0 caller would pass the size check below with an empty
+        // `inputBytes`, and `Data(count: 0)`'s nil `baseAddress` would trap
+        // the force unwraps.
+        guard width > 0, height > 0 else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "encodeDisplaySRGB: zero dimension width=\(width) height=\(height)"
+            )
+        }
         let lanes = width * height * 4
         let expectedBytes = lanes * MemoryLayout<Float>.size
         guard inputBytes.count == expectedBytes else {
@@ -1604,12 +1616,37 @@ extension PipelineRenderer {
     /// display-gamma-encoded f32 RGBA in THAT primaries space — the caller
     /// must tag the resulting `CIImage` to match (sRGB tag for `0`, Display
     /// P3 tag for `1`), not always sRGB.
+    ///
+    /// Rejects a `targetPrimaries` outside `CanvasColorSpace`'s two wire
+    /// values (`0`/`1`) rather than letting the Rust side's defensive
+    /// `TargetPrimaries::from_u32` silently coerce an invalid caller value
+    /// to sRGB (Copilot review on #3239) — a Swift-side bug that passes the
+    /// wrong constant should surface here, not render silently wrong.
     public static func encodeDisplay(
         inputBytes: Data,
         width: Int,
         height: Int,
         targetPrimaries: UInt32
     ) throws -> Data {
+        // Zero/negative dims must fail HERE, not at the buffer pointers below
+        // (Copilot review on #3239, same reasoning `applyChainAndEncodeDisplay`
+        // already documents): with width or height 0, `expectedBytes` is 0, an
+        // empty `inputBytes` would pass the size check, and `Data(count: 0)`
+        // yields a nil `baseAddress` — the force unwraps below would trap.
+        guard width > 0, height > 0 else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "encodeDisplay: zero dimension width=\(width) height=\(height)"
+            )
+        }
+        guard targetPrimaries == CanvasColorSpace.srgb.wireValue
+            || targetPrimaries == CanvasColorSpace.displayP3.wireValue
+        else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "encodeDisplay: unsupported targetPrimaries=\(targetPrimaries)"
+            )
+        }
         let lanes = width * height * 4
         let expectedBytes = lanes * MemoryLayout<Float>.size
         guard inputBytes.count == expectedBytes else {
@@ -1735,6 +1772,17 @@ extension PipelineRenderer {
             throw PipelineError.renderFailed(
                 code: 2,
                 message: "applyChainAndEncodeDisplayTarget: zero dimension width=\(width) height=\(height)"
+            )
+        }
+        // Same rejection as `encodeDisplay` — do not let an invalid Swift-side
+        // caller value fall through to Rust's defensive sRGB coercion
+        // (Copilot review on #3239).
+        guard targetPrimaries == CanvasColorSpace.srgb.wireValue
+            || targetPrimaries == CanvasColorSpace.displayP3.wireValue
+        else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "applyChainAndEncodeDisplayTarget: unsupported targetPrimaries=\(targetPrimaries)"
             )
         }
         let lanes = width * height * 4

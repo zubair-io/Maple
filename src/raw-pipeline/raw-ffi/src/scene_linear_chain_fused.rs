@@ -145,10 +145,12 @@ unsafe fn apply_chain_and_encode_inner(
 }
 
 /// Run the per-tick scene-linear chain (`maple_apply_scene_linear_chain_f32`)
-/// and the display encode (`maple_encode_display_srgb_f32`) back-to-back
-/// over a single input buffer, writing the final sRGB-gamma-encoded
-/// sRGB-primary f32 RGBA result directly to `out_ptr` — no Swift-side
-/// CIImage wrap/readback between the two stages.
+/// and the display encode (`maple_encode_display_f32`, called here with
+/// `target_primaries = 0` / sRGB — see [`maple_apply_chain_and_encode_display_target_f32`]
+/// for the P3-capable sibling) back-to-back over a single input buffer,
+/// writing the final sRGB-gamma-encoded sRGB-primary f32 RGBA result
+/// directly to `out_ptr` — no Swift-side CIImage wrap/readback between the
+/// two stages.
 ///
 /// `in_ptr` and `out_ptr` MUST point to buffers of size
 /// `16 * width * height` bytes (= `4 * width * height` f32 lanes), same

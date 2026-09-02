@@ -250,7 +250,7 @@ public actor ImageEditPipeline {
 
     /// Effective fused-chain-encode disabled state — forces
     /// `processSceneLinear` / `processSceneLinearNonRaw` to always take the
-    /// two-step `applySceneLinearChainViaFFI` + `encodeDisplaySRGBViaFFI`
+    /// two-step `applySceneLinearChainViaFFI` + `encodeDisplayViaFFI`
     /// path, even when the fused-path identity gate (sharpen/nr_color both
     /// ≈0) holds. The test override (when set) wins over the env default.
     /// Mirrors `MAPLE_DISABLE_FFI_CACHE` / `MAPLE_DISABLE_FFI_INPUT_CACHE` —
@@ -937,7 +937,7 @@ public actor ImageEditPipeline {
         // implementation is not under our control and is known to
         // autorelease scratch buffers) are released the instant this
         // function returns — BEFORE the next stage (the sibling
-        // `encodeDisplaySRGBViaFFI` round trip) allocates its own
+        // `encodeDisplayViaFFI` round trip) allocates its own
         // ~GB-scale buffers. Without
         // this, Swift gives no guarantee `inputBytes` is freed before
         // function return (ARC's last-use release is an optimisation, not
@@ -1027,7 +1027,7 @@ public actor ImageEditPipeline {
     // MARK: Fused chain + display encode (#2092, follow-on to #1959 / PR #2083)
 
     /// Fused per-tick path: `applySceneLinearChainViaFFI` followed by
-    /// `encodeDisplaySRGBViaFFI` in ONE FFI call
+    /// `encodeDisplayViaFFI` in ONE FFI call
     /// (`maple_apply_chain_and_encode_display_f32`), over ONE input buffer,
     /// producing the FINAL sRGB-gamma-encoded CIImage directly — no
     /// intermediate CIImage wrap, no second `CIContext.render` readback.
@@ -1098,7 +1098,7 @@ public actor ImageEditPipeline {
         }
 
         // Same #2042 autoreleasepool reasoning as `applySceneLinearChainViaFFI`
-        // / `encodeDisplaySRGBViaFFI` — bounds the input readback buffer's
+        // / `encodeDisplayViaFFI` — bounds the input readback buffer's
         // lifetime to this call, before the (single) output buffer here.
         return autoreleasepool {
             let inputBytes: Data
@@ -1145,7 +1145,7 @@ public actor ImageEditPipeline {
 
             // Output is gamma-encoded in `targetPrimaries`' primaries — tag
             // the CIImage to MATCH (#3190), same rule as
-            // `encodeDisplaySRGBViaFFI`'s successful result.
+            // `encodeDisplayViaFFI`'s successful result.
             let tag = targetPrimaries == .displayP3
                 ? Self.displayEncodedColorSpaceP3 : Self.displayEncodedColorSpace
             return mapleStage("fused chain+encode CIImage build") {
@@ -1162,17 +1162,17 @@ public actor ImageEditPipeline {
 
     // MARK: Display encode (Rec.2020 → sRGB Oklab gamut compression) — #877
 
-    /// Color space the gamut-correct display encode (`encodeDisplaySRGBViaFFI`)
+    /// Color space the gamut-correct display encode (`encodeDisplayViaFFI`)
     /// hands back: **sRGB-gamma-encoded sRGB-primary**. CoreImage reads this
     /// tag and converts sRGB → the canvas output (P3) WITHOUT a Rec.2020→sRGB
     /// per-channel clamp — that clamp is exactly the #871/#877 wide-gamut-green
-    /// blowout, and `encodeDisplaySRGBViaFFI` has already replaced it with
+    /// blowout, and `encodeDisplayViaFFI` has already replaced it with
     /// raw-core's hue-preserving Oklab compression.
     nonisolated public static let displayEncodedColorSpace =
         CGColorSpace(name: CGColorSpace.sRGB)!
 
     /// Display P3 counterpart of `displayEncodedColorSpace` (#3190) — the
-    /// tag for a buffer `encodeDisplaySRGBViaFFI` encoded at
+    /// tag for a buffer `encodeDisplayViaFFI` encoded at
     /// `CanvasColorSpace.displayP3`. Using this (not the sRGB tag above) on
     /// a P3-gamma-encoded buffer is what makes the P3 canvas toggle
     /// actually change the rendered bytes' color management instead of
@@ -1180,12 +1180,13 @@ public actor ImageEditPipeline {
     nonisolated public static let displayEncodedColorSpaceP3 =
         CGColorSpace(name: CGColorSpace.displayP3)!
 
-    /// Apply raw-core's canonical display encode (#877) to a post-AgX
-    /// **display-linear Rec.2020** CIImage: materialise it to f32 RGBA, hand
-    /// it to the `maple_encode_display_srgb_f32` FFI (Oklab gamut compression
-    /// + sRGB gamma — the EXACT stages the CPU/CLI reference runs between AgX
-    /// and the Auto Profile cube), and wrap the result back into a CIImage
-    /// tagged `sRGB`.
+    /// Apply raw-core's canonical display encode (#877, P3-aware since
+    /// #3190) to a post-AgX **display-linear Rec.2020** CIImage: materialise
+    /// it to f32 RGBA, hand it to the `maple_encode_display_f32` FFI (Oklab
+    /// gamut compression against `targetPrimaries`' hull + display gamma —
+    /// the EXACT stages the CPU/CLI reference runs between AgX and the Auto
+    /// Profile cube), and wrap the result back into a CIImage tagged to
+    /// match `targetPrimaries`.
     ///
     /// This makes the Apple canvas gamut-correct for wide-gamut content by
     /// construction: it shares raw-core's reference math instead of relying on
@@ -1211,7 +1212,7 @@ public actor ImageEditPipeline {
     /// the CPU-only fallback path) honors `CanvasColorSpace.current` this
     /// way instead of always encoding sRGB regardless of the user's canvas
     /// setting.
-    nonisolated private func encodeDisplaySRGBViaFFI(
+    nonisolated private func encodeDisplayViaFFI(
         _ input: CIImage,
         targetPrimaries: CanvasColorSpace = .srgb
     ) -> CIImage? {
@@ -1219,7 +1220,7 @@ public actor ImageEditPipeline {
         let w = Int(extent.width.rounded())
         let h = Int(extent.height.rounded())
         guard w > 0, h > 0 else {
-            logger.error("encodeDisplaySRGBViaFFI: degenerate extent \(w)x\(h); no encode")
+            logger.error("encodeDisplayViaFFI: degenerate extent \(w)x\(h); no encode")
             return nil
         }
 
@@ -1254,7 +1255,7 @@ public actor ImageEditPipeline {
                 return true
             }
             guard renderSucceeded else {
-                logger.error("encodeDisplaySRGBViaFFI: CIContext.render failed; no encode")
+                logger.error("encodeDisplayViaFFI: CIContext.render failed; no encode")
                 return nil
             }
 
@@ -1267,7 +1268,7 @@ public actor ImageEditPipeline {
                     )
                 }
             } catch {
-                logger.error("encodeDisplaySRGBViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+                logger.error("encodeDisplayViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
                 return nil
             }
             // `inputBytes` dies at this closure's scope exit (the
@@ -1295,7 +1296,7 @@ public actor ImageEditPipeline {
     /// Resolve the final display image, enforcing the **encode + cube travel
     /// together** invariant (#877 error-path fix).
     ///
-    /// `encoded` is the result of `encodeDisplaySRGBViaFFI`: a non-nil
+    /// `encoded` is the result of `encodeDisplayViaFFI`: a non-nil
     /// sRGB-gamma-encoded sRGB-primary CIImage on success, or `nil` when the
     /// gamut-correct encode failed. `fallback` is the un-encoded, still
     /// **Rec.2020-tagged** display-linear image (the encode's input).
@@ -1425,7 +1426,7 @@ public actor ImageEditPipeline {
         // encode failure fall back to the Rec.2020 buffer (no cube on this
         // path) — CoreImage then does its own coherent Rec.2020→canvas
         // conversion.
-        return encodeDisplaySRGBViaFFI(chained, targetPrimaries: CanvasColorSpace.current) ?? chained
+        return encodeDisplayViaFFI(chained, targetPrimaries: CanvasColorSpace.current) ?? chained
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -1635,7 +1636,7 @@ public actor ImageEditPipeline {
         //     the tagged buffer → P3 with all values in-gamut — nothing
         //     clips, whether the buffer was already P3 (a no-op convert) or
         //     still sRGB.
-        let encoded = encodeDisplaySRGBViaFFI(
+        let encoded = encodeDisplayViaFFI(
             chained,
             targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current
         )
@@ -1696,7 +1697,7 @@ public actor ImageEditPipeline {
     ///
     /// Output format is `RGBAf` + **sRGB** (#877). The `processSceneLinear`
     /// output is now sRGB-gamma-encoded sRGB-primary (the gamut-correct
-    /// `encodeDisplaySRGBViaFFI` is the final develop-chain op — see #877),
+    /// `encodeDisplayViaFFI` is the final develop-chain op — see #877),
     /// tagged `sRGB`. Materialising in the same `sRGB` space keeps the refine
     /// path byte-consistent with the live `CIImageView` path: both hand
     /// CoreImage an sRGB image and let it convert sRGB → the canvas's P3 at
