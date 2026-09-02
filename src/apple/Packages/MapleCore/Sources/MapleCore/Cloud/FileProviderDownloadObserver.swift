@@ -13,11 +13,12 @@
 // This observer fills that gap. On `start(url:progress:)` it asks the
 // FileProvider framework whether the URL maps to a known item; if so it
 // triggers the system download (via `NSFileProviderManager.requestDownloadFor
-// Item`) and polls `URLResourceKey.totalFileAllocatedSizeKey` against
-// `.fileSizeKey` until the download flips to "downloaded" — bridging those
-// numbers into `DownloadProgress.report(received:total:)` so the editor's
-// existing overlay shows received/total/speed exactly like the cloud-search
-// path.
+// Item`) and observes real byte progress via `NSFileProviderManager
+// .globalProgress(for:)` (#1385) — bridging `completedUnitCount`/
+// `totalUnitCount` into `DownloadProgress.report(received:total:)` so the
+// editor's existing overlay shows received/total/speed exactly like the
+// cloud-search path. See that method's doc comment below for why it's used
+// instead of the URL-resource polling this replaces.
 //
 // For local files (non-FileProvider URLs) detection silently no-ops — the
 // editor's overlay stays hidden, and the synchronous `Data(contentsOf:)`
@@ -31,20 +32,30 @@ import FileProvider
 /// Drives `DownloadProgress` while iOS/macOS materializes a FileProvider-
 /// backed file. No-op for local files.
 ///
-/// `stop()` cancels the local poll loop and flips the bound `DownloadProgress`
-/// to `finish()`, so the editor's overlay dismisses immediately. It does NOT
-/// abort the underlying `NSFileProviderManager.requestDownloadForItem` — the
-/// Swift refined API returns void, so there's no `Progress` handle to cancel.
-/// The system download continues in the background until the FileProvider
-/// extension completes it.
+/// `stop()` cancels the KVO observation (or the polling fallback) and flips
+/// the bound `DownloadProgress` to `finish()`, so the editor's overlay
+/// dismisses immediately. It does NOT abort the underlying
+/// `NSFileProviderManager.requestDownloadForItem` — the Swift refined API
+/// returns void, so there's no handle to cancel. The system download
+/// continues in the background until the FileProvider extension completes
+/// it.
 @MainActor
 public final class FileProviderDownloadObserver {
-    /// Background poll loop. Kept around so `stop()` can cancel it via
-    /// `Task.cancel()` — that propagates into the loop as `Task.isCancelled`.
+    /// Background poll loop (URL-resource fallback only — see `start`).
+    /// Kept around so `stop()` can cancel it via `Task.cancel()` — that
+    /// propagates into the loop as `Task.isCancelled`.
     private var pollTask: Task<Void, Never>?
+    /// KVO token for the `NSFileProviderManager.globalProgress(for:)` path
+    /// (#1385) — the preferred path whenever a domain-specific manager is
+    /// available. Invalidated by deallocation or an explicit `stop()`.
+    private var progressObservation: NSKeyValueObservation?
     /// Weak reference to the sink so `stop()` can call `finish()` without
     /// keeping the progress alive past the editor session.
     private weak var progressSink: DownloadProgress?
+    /// Last known expected byte count, updated as either observation path
+    /// learns more (the KVO path's `totalUnitCount` starts at `-1`
+    /// — "unknown" — until the FileProvider extension reports a real size).
+    private var lastExpectedBytes: Int64?
 
     public init() {}
 
@@ -69,15 +80,16 @@ public final class FileProviderDownloadObserver {
 
         // (2) Best-effort expected size from URL resource values. Falls back
         // to nil when unknown; `DownloadProgress.begin(expectedBytes: nil)`
-        // renders the bar indeterminate until the poll loop learns more.
+        // renders the bar indeterminate until an observation path learns more.
         let initialExpected = Self.fileSize(of: url)
+        lastExpectedBytes = initialExpected
         progress.begin(expectedBytes: initialExpected)
         self.progressSink = progress
 
         // (3) Resolve the domain so we can build a per-domain manager. A nil
         // domainID corresponds to the system's default domain — we leave the
-        // manager as `nil` in that case and rely on the URL-driven polling
-        // path, which still works.
+        // manager as `nil` in that case and fall back to URL-driven polling,
+        // which still works (just without continuous KVO updates).
         let manager: NSFileProviderManager?
         if let domainID = identifier.domainID {
             manager = await Self.manager(for: domainID)
@@ -85,10 +97,10 @@ public final class FileProviderDownloadObserver {
             manager = nil
         }
 
-        // (4) Kick the download. The Swift refined API returns void; we
-        // observe bytes-received via URL resource polling. Errors here are
-        // benign — the file will still materialize when `Data(contentsOf:)`
-        // touches it; we just won't get progress feedback.
+        // (4) Kick the download. The Swift refined API returns void; progress
+        // is observed separately below (KVO when possible, polling otherwise).
+        // Errors here are benign — the file will still materialize when
+        // `Data(contentsOf:)` touches it; we just won't get progress feedback.
         if let manager {
             Task.detached {
                 try? await manager.requestDownloadForItem(
@@ -98,34 +110,31 @@ public final class FileProviderDownloadObserver {
             }
         }
 
-        // (5) Detached so the URL-resource read (which can hit disk) doesn't
-        // block MainActor. The loop hops back to MainActor only for the brief
-        // `progress.report` / `progress.finish` writes. The loop body is
-        // inlined here (instead of passed to a `runPollLoop(progress:)`
-        // helper) so the `[weak progress]` capture is re-evaluated on every
-        // iteration — a function parameter would hold a strong reference for
-        // the entire loop and defeat the weak capture (#1384 review).
-        pollTask = Task.detached { [weak progress] in
-            var lastExpected: Int64? = initialExpected
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard !Task.isCancelled else { break }
-                // Re-read the weak capture each iteration so we exit as soon
-                // as the editor releases the progress sink (typically when
-                // the EditSession deallocates).
-                guard let progress else { break }
-
-                let snap = Self.snapshot(url: url)
-                if let total = snap.total, total > 0 {
-                    lastExpected = total
-                }
-                let expected = lastExpected
-                await MainActor.run {
-                    progress.report(received: snap.received, total: expected)
-                    if snap.isDone { progress.finish() }
-                }
-                if snap.isDone { break }
-            }
+        // (5) Observe progress. `NSFileProviderManager.globalProgress(for:)`
+        // (macOS 11.3+ / iOS 16+, both already covered by this method's own
+        // `#available` guard) exposes a real NSProgress for every in-flight
+        // operation of a kind on this domain — "retained by the caller and
+        // to be observed through KVO" per its own doc comment. It replaces
+        // the 200 ms URL-resource poll loop this ticket exists to remove:
+        // that loop could only see bytes AFTER the FileProvider extension
+        // had already written them to disk, which on a single-jump
+        // materialization strategy (allocate-then-fill, not stream-as-you-
+        // go) meant the bar sat at 0/total for the whole wait and then
+        // jumped straight to total/total.
+        //
+        // `globalProgress` is DOMAIN-global, not per-item — the doc comment
+        // is explicit that concurrent operations of the same kind sum into
+        // one total. That's an acceptable trade here: this observer only
+        // ever has one FileProvider download in flight per editor session
+        // (one sidebar-opened file), so in practice the global figure IS
+        // this file's figure. A domain-specific `manager` is required to
+        // call it at all, so the nil-`manager` branch (no resolvable
+        // domain — the pre-existing degraded case) keeps the polling
+        // fallback, unchanged from before this fix.
+        if let manager {
+            observeGlobalProgress(manager: manager, progress: progress)
+        } else {
+            startPolling(url: url, progress: progress)
         }
         #else
         _ = url
@@ -133,12 +142,15 @@ public final class FileProviderDownloadObserver {
         #endif
     }
 
-    /// Cancel the poll loop and finish the bound progress so the editor's
-    /// overlay dismisses. Does NOT cancel the underlying FileProvider
-    /// download — see the class header. Safe to call multiple times.
+    /// Cancel any active observation (KVO or polling) and finish the bound
+    /// progress so the editor's overlay dismisses. Does NOT cancel the
+    /// underlying FileProvider download — see the class header. Safe to
+    /// call multiple times.
     public func stop() {
         pollTask?.cancel()
         pollTask = nil
+        progressObservation?.invalidate()
+        progressObservation = nil
         progressSink?.finish()
         progressSink = nil
     }
@@ -146,6 +158,75 @@ public final class FileProviderDownloadObserver {
     deinit {
         // Best-effort cancellation — `stop()` is the documented teardown.
         pollTask?.cancel()
+        progressObservation?.invalidate()
+    }
+
+    // MARK: - KVO progress path (#1385)
+
+    #if canImport(FileProvider)
+    @available(macOS 13.0, iOS 16.0, *)
+    private func observeGlobalProgress(manager: NSFileProviderManager, progress: DownloadProgress) {
+        let global = manager.globalProgress(for: .downloading)
+        // `.initial` fires the handler once synchronously with the CURRENT
+        // values, so a download that's already partway in by the time we
+        // start observing (another tab/window kicked it earlier) doesn't
+        // sit unreported until the next real change.
+        progressObservation = global.observe(\.fractionCompleted, options: [.initial, .new]) {
+            [weak self] observed, _ in
+            guard let self else { return }
+            // NSProgress documents its main-queue-updated properties as
+            // triggering KVO synchronously on that same queue, but this
+            // hops explicitly rather than assuming — `report`/`finish`
+            // mutate MainActor-isolated state and must not race a
+            // differently-scheduled notification.
+            Task { @MainActor in
+                guard self.progressSink === progress else { return }
+                let total = observed.totalUnitCount > 0 ? observed.totalUnitCount : nil
+                if let total { self.lastExpectedBytes = total }
+                progress.report(received: observed.completedUnitCount, total: self.lastExpectedBytes)
+                if observed.isFinished {
+                    progress.finish()
+                    self.stop()
+                }
+            }
+        }
+    }
+    #endif
+
+    // MARK: - URL-resource polling fallback
+
+    /// Detached so the URL-resource read (which can hit disk) doesn't block
+    /// MainActor. The loop hops back to MainActor only for the brief
+    /// `progress.report` / `progress.finish` writes. The loop body is
+    /// inlined here (instead of passed to a helper) so the `[weak progress]`
+    /// capture is re-evaluated on every iteration — a function parameter
+    /// would hold a strong reference for the entire loop and defeat the
+    /// weak capture (#1384 review).
+    private func startPolling(url: URL, progress: DownloadProgress) {
+        #if canImport(FileProvider)
+        pollTask = Task.detached { [weak self, weak progress] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { break }
+                // Re-read the weak captures each iteration so we exit as
+                // soon as the editor releases the progress sink (typically
+                // when the EditSession deallocates).
+                guard let progress else { break }
+
+                let snap = Self.snapshot(url: url)
+                let expected = await MainActor.run { () -> Int64? in
+                    guard let self else { return nil }
+                    if let total = snap.total, total > 0 { self.lastExpectedBytes = total }
+                    return self.lastExpectedBytes
+                }
+                await MainActor.run {
+                    progress.report(received: snap.received, total: expected)
+                    if snap.isDone { progress.finish() }
+                }
+                if snap.isDone { break }
+            }
+        }
+        #endif
     }
 
     // MARK: - Internals
