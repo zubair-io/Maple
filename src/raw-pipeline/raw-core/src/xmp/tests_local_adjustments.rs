@@ -215,6 +215,105 @@ fn unrecognized_mask_kind_is_skipped_not_fatal() {
     assert!(model.local_adjustments.is_empty());
 }
 
+/// A recognized mask's core geometry is required, not defaulted: a
+/// gradient mask missing `crs:ZeroX` is a hard parse error rather than a
+/// silently invented `0` (Copilot review on #3212 — a silently-placed mask
+/// would produce a plausible-looking but wrong render with no signal
+/// anything was off).
+#[test]
+fn missing_required_geometry_is_a_hard_error() {
+    let children = r#"      <crs:GradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="1">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroY="0" crs:FullX="1" crs:FullY="1"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:GradientBasedCorrections>"#;
+    assert!(parse(&sidecar(children)).is_err());
+}
+
+/// `crs:CorrectionActive="False"` drops the whole correction — Lightroom's
+/// own "disabled pin" semantics, since Maple has no present-but-inactive
+/// layer state to preserve it as (Copilot review on #3212).
+#[test]
+fn inactive_correction_is_dropped() {
+    let children = r#"      <crs:GradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="False" crs:LocalExposure2012="2">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0" crs:ZeroY="0" crs:FullX="1" crs:FullY="0"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:GradientBasedCorrections>"#;
+    let model = parse(&sidecar(children)).expect("parse");
+    assert!(model.local_adjustments.is_empty());
+}
+
+/// `crs:CorrectionAmount` (Adobe's 0-1 overall-strength dial) scales every
+/// wired slider by that amount at parse time (Copilot review on #3212).
+#[test]
+fn correction_amount_scales_every_slider() {
+    let children = r#"      <crs:GradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="0.5" crs:CorrectionActive="True" crs:LocalExposure2012="2" crs:LocalContrast2012="-40">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0" crs:ZeroY="0" crs:FullX="1" crs:FullY="0"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:GradientBasedCorrections>"#;
+    let model = parse(&sidecar(children)).expect("parse");
+    assert_eq!(model.local_adjustments.len(), 1);
+    assert_eq!(model.local_adjustments[0].adjustments.exposure, Some(1.0));
+    assert_eq!(model.local_adjustments[0].adjustments.contrast, Some(-20.0));
+}
+
+/// A mask leaf written as an explicit open/close pair (`<rdf:li
+/// ...></rdf:li>`, `Event::Start`+`Event::End` with no text) rather than
+/// self-closing must parse the same as the self-closing form — a
+/// third-party writer's XML-shape choice shouldn't silently drop the mask
+/// (Copilot + Jules review on #3212).
+#[test]
+fn non_self_closing_mask_li_still_parses() {
+    let children = r#"      <crs:GradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="0.5">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.1" crs:ZeroY="0.2" crs:FullX="0.9" crs:FullY="0.8"></rdf:li>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:GradientBasedCorrections>"#;
+    let model = parse(&sidecar(children)).expect("parse");
+    assert_eq!(model.local_adjustments.len(), 1);
+    match &model.local_adjustments[0].mask {
+        Mask::Linear { start, end, .. } => {
+            assert!((start.x - 0.1).abs() < 1e-4);
+            assert!((end.y - 0.8).abs() < 1e-4);
+        }
+        other => panic!("expected linear mask, got {other:?}"),
+    }
+}
+
 /// A recognized mask with a corrupt numeric field is a hard parse error —
 /// matches every other known numeric key in the schema.
 #[test]

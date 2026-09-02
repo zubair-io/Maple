@@ -1,0 +1,160 @@
+//! Attribute-level parsing for one correction / one mask leaf. Split out of
+//! `mod.rs` (#358 review round) so the document-structure walker isn't
+//! competing with this file's own growth for the 570-line headroom budget —
+//! same rationale as `xmp/fields.rs` being split out of `xmp/mod.rs` in #365.
+
+use super::{Kind, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
+use crate::error::{Error, Result};
+use crate::types::local_adjustment::{Mask, PartialAdjustments, Point2};
+use quick_xml::events::BytesStart;
+
+fn attr_str(e: &BytesStart<'_>, key: &str) -> Result<Option<String>> {
+    for attr_result in e.attributes() {
+        let attr = attr_result.map_err(|err| Error::Xmp(err.to_string()))?;
+        let k =
+            std::str::from_utf8(attr.key.as_ref()).map_err(|err| Error::Xmp(err.to_string()))?;
+        if k == key {
+            let v = attr
+                .unescape_value()
+                .map_err(|err| Error::Xmp(err.to_string()))?;
+            return Ok(Some(v.into_owned()));
+        }
+    }
+    Ok(None)
+}
+
+fn attr_f32(e: &BytesStart<'_>, key: &str) -> Result<Option<f32>> {
+    match attr_str(e, key)? {
+        Some(v) => {
+            let parsed: f32 = v
+                .parse()
+                .map_err(|err| Error::Xmp(format!("{key} has non-numeric value {v}: {err}")))?;
+            if !parsed.is_finite() {
+                return Err(Error::Xmp(format!("{key} has non-finite value {v}")));
+            }
+            Ok(Some(parsed))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Like [`attr_f32`], but a missing attribute is itself the error — for the
+/// handful of geometry fields that define WHERE a recognized mask sits, a
+/// silently invented `0`/`1` default would render a plausible-looking mask
+/// in the wrong place with no signal anything was wrong.
+fn attr_f32_required(e: &BytesStart<'_>, key: &str) -> Result<f32> {
+    attr_f32(e, key)?.ok_or_else(|| Error::Xmp(format!("mask is missing required {key}")))
+}
+
+/// One correction's parsed attributes, before the mask is known.
+pub(super) struct CorrectionAttrs {
+    pub(super) adjustments: PartialAdjustments,
+    /// `false` when `crs:CorrectionActive="False"` — the correction is a
+    /// disabled pin and contributes nothing.
+    pub(super) active: bool,
+}
+
+/// Parse a correction `rdf:Description`'s Local* sliders plus the
+/// `crs:CorrectionActive` / `crs:CorrectionAmount` bookkeeping attributes.
+/// `crs:What` is ignored — it is always `"Correction"` and carries no
+/// information a fixed field list needs.
+pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAttrs> {
+    let active = attr_str(e, "crs:CorrectionActive")?
+        .map(|v| !matches!(v.as_str(), "false" | "False" | "0"))
+        .unwrap_or(true);
+    let amount = attr_f32(e, "crs:CorrectionAmount")?.unwrap_or(1.0);
+    let raw = PartialAdjustments {
+        exposure: attr_f32(e, "crs:LocalExposure2012")?,
+        contrast: attr_f32(e, "crs:LocalContrast2012")?,
+        highlights: attr_f32(e, "crs:LocalHighlights2012")?,
+        shadows: attr_f32(e, "crs:LocalShadows2012")?,
+        whites: attr_f32(e, "crs:LocalWhites2012")?,
+        blacks: attr_f32(e, "crs:LocalBlacks2012")?,
+        saturation: attr_f32(e, "crs:LocalSaturation")?,
+        vibrance: attr_f32(e, "papp:LocalVibrance")?,
+        temperature: attr_f32(e, "crs:LocalTemperature")?,
+        tint: attr_f32(e, "crs:LocalTint")?,
+    };
+    // Amount==1 is the overwhelmingly common case (Maple's own writer always
+    // emits it); skip the multiply entirely rather than reintroduce float
+    // noise into values that were already clean.
+    let adjustments = if (amount - 1.0).abs() <= f32::EPSILON {
+        raw
+    } else {
+        scale_adjustments(&raw, amount)
+    };
+    Ok(CorrectionAttrs {
+        adjustments,
+        active,
+    })
+}
+
+/// Scale every present field by `amount` — Adobe's own Amount slider has
+/// exactly this effect on the stored per-control deltas, so this reproduces
+/// it rather than inventing a separate "amount" concept in Maple's model.
+fn scale_adjustments(a: &PartialAdjustments, amount: f32) -> PartialAdjustments {
+    let s = |v: Option<f32>| v.map(|x| x * amount);
+    PartialAdjustments {
+        exposure: s(a.exposure),
+        contrast: s(a.contrast),
+        highlights: s(a.highlights),
+        shadows: s(a.shadows),
+        whites: s(a.whites),
+        blacks: s(a.blacks),
+        saturation: s(a.saturation),
+        vibrance: s(a.vibrance),
+        temperature: s(a.temperature),
+        tint: s(a.tint),
+    }
+}
+
+/// Parse one `crs:CorrectionMasks > rdf:Seq > rdf:li` mask descriptor.
+/// `Ok(None)` = an unrecognized `crs:What` (skip, forward-compat with mask
+/// kinds Maple doesn't model); `Err` = a recognized shape missing (or with a
+/// corrupt) required geometry field.
+pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<Mask>> {
+    let what = attr_str(e, "crs:What")?;
+    let recognized = matches!(
+        (kind, what.as_deref()),
+        (Kind::Linear, Some(MASK_WHAT_LINEAR)) | (Kind::Radial, Some(MASK_WHAT_RADIAL))
+    );
+    if !recognized {
+        return Ok(None);
+    }
+    match kind {
+        Kind::Linear => {
+            let start = Point2::new(
+                attr_f32_required(e, "crs:ZeroX")?,
+                attr_f32_required(e, "crs:ZeroY")?,
+            );
+            let end = Point2::new(
+                attr_f32_required(e, "crs:FullX")?,
+                attr_f32_required(e, "crs:FullY")?,
+            );
+            let feather = attr_f32(e, "papp:LocalFeather")?.unwrap_or(0.5);
+            Ok(Some(Mask::Linear {
+                start,
+                end,
+                feather,
+            }))
+        }
+        Kind::Radial => {
+            let top = attr_f32_required(e, "crs:Top")?;
+            let left = attr_f32_required(e, "crs:Left")?;
+            let bottom = attr_f32_required(e, "crs:Bottom")?;
+            let right = attr_f32_required(e, "crs:Right")?;
+            let angle_deg = attr_f32(e, "crs:Angle")?.unwrap_or(0.0);
+            let feather_pct = attr_f32(e, "crs:Feather")?.unwrap_or(50.0);
+            let flipped = attr_str(e, "crs:Flipped")?
+                .map(|v| matches!(v.as_ref(), "true" | "True"))
+                .unwrap_or(false);
+            Ok(Some(Mask::Radial {
+                center: Point2::new((left + right) / 2.0, (top + bottom) / 2.0),
+                radii: Point2::new((right - left) / 2.0, (bottom - top) / 2.0),
+                angle: angle_deg.to_radians(),
+                feather: (feather_pct / 100.0).clamp(0.0, 1.0),
+                invert: flipped,
+            }))
+        }
+    }
+}
