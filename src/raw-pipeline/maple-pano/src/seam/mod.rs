@@ -60,7 +60,11 @@ impl SeamStrategy {
     pub fn label(self) -> &'static str {
         match self {
             SeamStrategy::Voronoi => "voronoi",
-            SeamStrategy::GraphCut => "graph_cut",
+            // Kebab-case to match the CLI's `--seam-strategy graph-cut`
+            // value (clap's ValueEnum derive renders variants kebab-case)
+            // — the report JSON should read the same as the flag that
+            // selected it, not a differently-cased synonym.
+            SeamStrategy::GraphCut => "graph-cut",
         }
     }
 }
