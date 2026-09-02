@@ -6,13 +6,20 @@
  *
  * Two things this file exists to prove:
  *
- *   1. None of the five real route registrations trigger Elysia's "Failed
- *      to create exactMirror" fallback warning on a representative
- *      wildcard request — the bug this ticket closes.
+ *   1. `wildcardSlugParams()` itself never triggers Elysia's "Failed to
+ *      create exactMirror" fallback warning — the bug this ticket closes —
+ *      checked against a fresh `Elysia` instance per test so the result
+ *      can't be hidden by another test's compile (see the second describe
+ *      block below for why a live check can't do this for the five real
+ *      routes' shared, cross-file-reused singletons).
  *   2. The schema itself still validates/passes through a request exactly
  *      as the old per-route `{ slug, '*' }` object did: bare path, nested
  *      path, a URL-encoded segment, and an unmatched (empty-slug) path all
  *      keep their existing status.
+ *
+ * A third thing, in the second describe block below: that each of the five
+ * real routes is actually wired to `wildcardSlugParams()`, not a hand-rolled
+ * duplicate that could reintroduce the bug independently of the schema.
  *
  * Each route's own test file (`video.test.ts`, `library/folder.test.ts`,
  * etc.) still owns the FULL behaviour contract for that route — auth,
@@ -100,31 +107,56 @@ describe('wildcardSlugParams — schema behaviour', () => {
   });
 });
 
-describe('wildcardSlugParams — the five real routes register without the exactMirror fallback', () => {
-  // `app` is typed structurally (just the one method this test calls)
+/**
+ * Proves each real route is actually WIRED to the shared, fixed schema —
+ * not that the schema itself is warning-free (the "schema behaviour" block
+ * above already owns that, with a fresh `Elysia` instance per test).
+ *
+ * This deliberately does NOT trigger the routes and inspect `console.warn`
+ * the way the block above does. `videoRoutes`, `folderRoutes`, etc. are
+ * module-singleton `Elysia` instances that this file shares with each
+ * route's OWN dedicated test file (`video.test.ts`, `library/folder.test.ts`,
+ * ...) — bun collects and runs every test file in one process, and Elysia
+ * memoizes a route's compiled params validator on first `.handle()` call
+ * (confirmed by direct experiment: a second `.handle()` on the same route
+ * does not recompile or re-warn). Whichever test file's `.handle()` call
+ * runs first — by file path, alphabetically, across the whole suite — wins
+ * that compile, using ITS OWN (real, uninstrumented) `console.warn`. Proven
+ * with a throwaway regression (temporarily reintroducing the old buggy
+ * `'*': t.Optional(t.String())` schema and running the full `src/routes`
+ * suite): the warning was only caught here for `video` — `folder`, `image`,
+ * `thumb`, and `preview` all sort alphabetically ahead of
+ * `wildcard-slug-params.test.ts` and had already warmed (and silently
+ * absorbed the warning via) their own dedicated test files by the time this
+ * file's `beforeEach` spy existed. A `.handle()`-based check here would
+ * have caught only 1 of 5 real regressions.
+ *
+ * Comparing each route's actual registered `params` hook against a fresh
+ * `wildcardSlugParams()` call sidesteps the whole ordering hazard: it's a
+ * plain structural read, not a side effect that depends on being first.
+ */
+describe('wildcardSlugParams — the five real routes are wired to the shared schema', () => {
+  // `app` is typed structurally (just the one property this test reads)
   // rather than as `Elysia` — each route export's real type is a distinct,
   // rich phantom type per its own route chain, which a shared array type
-  // can't unify without widening. Handle is all this test needs.
+  // can't unify without widening.
   const cases: Array<{
     name: string;
-    app: { handle: (req: Request) => Promise<Response> };
+    app: { routes: Array<{ path: string; hooks?: { params?: unknown } }> };
     path: string;
   }> = [
-    { name: 'video', app: videoRoutes, path: '/api/video/mylib/sub/dir/clip.mov' },
-    { name: 'folder', app: folderRoutes, path: '/api/folder/mylib/sub/dir' },
-    { name: 'image', app: imageRoutes, path: '/api/image/mylib/sub/dir/photo.jpg' },
-    { name: 'thumb', app: thumbRoutes, path: '/api/thumb/mylib/sub/dir/photo.jpg' },
-    { name: 'preview', app: previewRoutes, path: '/api/preview/mylib/sub/dir/photo.jpg' },
+    { name: 'video', app: videoRoutes, path: '/api/video/:slug/*' },
+    { name: 'folder', app: folderRoutes, path: '/folder/:slug/*' },
+    { name: 'image', app: imageRoutes, path: '/image/:slug/*' },
+    { name: 'thumb', app: thumbRoutes, path: '/thumb/:slug/*' },
+    { name: 'preview', app: previewRoutes, path: '/preview/:slug/*' },
   ];
 
   for (const { name, app, path } of cases) {
-    test(`${name}: no "Failed to create exactMirror" warning on a wildcard request`, async () => {
-      // The response itself may well be a 401/404/500 — these apps aren't
-      // wired with real auth/DB/filesystem state here. Only the warning
-      // behaviour (a property of route REGISTRATION, not of the response)
-      // is under test.
-      await app.handle(new Request(`http://localhost${path}`));
-      expect(warnedAboutExactMirror()).toBe(false);
+    test(`${name}: the wildcard route's params hook is wildcardSlugParams()`, () => {
+      const route = app.routes.find((r) => r.path === path);
+      expect(route).toBeDefined();
+      expect(route?.hooks?.params).toEqual(wildcardSlugParams());
     });
   }
 });
