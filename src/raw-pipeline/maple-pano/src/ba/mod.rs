@@ -137,11 +137,15 @@ pub fn solve(
         has_edge[edge.a] = true;
         has_edge[edge.b] = true;
     }
-    let (orphans_with_prior, orphans_without_prior): (Vec<usize>, Vec<usize>) = graph
+    // NOT "orphans without a prior" — this bucket also catches orphans
+    // that DO have one but were excluded because they have at least one
+    // verified edge (into a disconnected sub-cluster), which the
+    // `!has_edge[index]` check above is what actually rules on.
+    let (orphans_with_prior, orphans_not_placed): (Vec<usize>, Vec<usize>) = graph
         .orphans
         .iter()
         .partition(|&&index| !has_edge[index] && images[index].prior_rotation.is_some());
-    let mut dropped: Vec<DroppedFrame> = orphans_without_prior
+    let mut dropped: Vec<DroppedFrame> = orphans_not_placed
         .into_iter()
         .map(|index| DroppedFrame {
             index,
@@ -531,7 +535,13 @@ fn place_low_texture_orphans(
             .expect("orphans_with_prior is pre-filtered to Some(prior_rotation)");
         match gauge_rotation {
             Some(g) => {
-                let world_rotation = g.mul_mat(&prior);
+                // `align_gauge_to_priors` returns `g` such that
+                // `g · solved ≈ prior` (it fits and left-multiplies the
+                // SOLVED rotations to match the priors). Placing an
+                // orphan needs the inverse map — prior frame into the
+                // solve's world frame — which for a rotation matrix is
+                // the transpose (Copilot review).
+                let world_rotation = g.transpose().mul_mat(&prior);
                 let img = &images[index].camera;
                 solution.cameras[index] = Some(Camera::new(
                     matrix_to_axis_angle(&world_rotation),
