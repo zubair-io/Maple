@@ -84,4 +84,32 @@ final class CanvasColorSpaceTests: XCTestCase {
             XCTAssertEqual(CanvasColorSpace.current, expected)
         }
     }
+
+    /// `current` is read from `GpuLiveSession` — a plain (non-MainActor)
+    /// `actor` — on every render tick (#1338 review round on #3192: three
+    /// independent passes flagged the pre-fix `UIScreen.main`/`NSScreen.main`
+    /// straight-line read as a Main-Thread-Checker crash risk from exactly
+    /// this call pattern). Exercise the SAME shape here: call `current` from
+    /// a detached, definitely-off-main `Task` and from a background
+    /// `DispatchQueue`, both live (not merely "doesn't throw") — a crash or
+    /// hang would fail the test outright rather than assert false.
+    func testCurrentIsSafeToReadFromABackgroundThread() async {
+        withCleanDefaults {
+            _ = CanvasColorSpace.current // warm `mainDisplaySupportsP3` before spawning off-main
+        }
+        let fromTask = await Task.detached { () -> CanvasColorSpace in
+            XCTAssertFalse(Thread.isMainThread, "Task.detached must not land on the main thread")
+            return CanvasColorSpace.current
+        }.value
+        XCTAssertTrue(CanvasColorSpace.allCases.contains(fromTask))
+
+        let expectation = expectation(description: "background queue read")
+        var fromQueue: CanvasColorSpace?
+        DispatchQueue.global(qos: .userInitiated).async {
+            fromQueue = CanvasColorSpace.current
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 2)
+        XCTAssertNotNil(fromQueue)
+    }
 }
