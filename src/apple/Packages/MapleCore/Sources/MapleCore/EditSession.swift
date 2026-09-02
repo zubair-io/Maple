@@ -154,6 +154,20 @@ public final class EditSession {
     /// (non-RAW, `RawlerFallback` bodies) — those keep legacy behaviour.
     public internal(set) var wbSliderFrame: WbSliderFrame?
 
+    /// Whether this asset's RAW carries lens-correction opcodes at all
+    /// (#2231) — updated from every decode snapshot (`decodeAndRender`),
+    /// same lifecycle as `wbSliderFrame`. `false` until a decode lands, or
+    /// forever for non-RAW / seeded-preview-only assets. The Lens
+    /// Corrections inspector panel binds to this to disable/hide itself.
+    public internal(set) var hasLensCorrections: Bool = false
+
+    /// Whether the chromatic-aberration slider (`lensCorrectionCa`) is
+    /// INERT for this asset (#2231) — no per-plane divergence in the
+    /// DNG's `WarpRectilinear` opcode, so the slider changes nothing. The
+    /// panel greys the CA slider (rather than hiding it) when this is
+    /// `true`, so a hand-edited sidecar value is still visible.
+    public internal(set) var lensCorrectionCaInert: Bool = true
+
     /// The WB delta anchor: the WB actually baked into the buffer. The
     /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own
     /// pair when present, else the legacy estimate. NOT 6500/0 (#1976):

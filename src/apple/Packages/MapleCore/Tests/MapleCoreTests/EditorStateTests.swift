@@ -402,12 +402,13 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentyEightToolsExist() {
+    func testTwentyNineToolsExist() {
         // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
         // the Detail group when the Develop tab was removed (#875), +
         // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276),
-        // + Tone Curve in Light (#367), + Film in Effects.
-        XCTAssertEqual(Tool.allCases.count, 28)
+        // + Tone Curve in Light (#367), + Film in Effects, + Lens
+        // Corrections in Detail (#2231).
+        XCTAssertEqual(Tool.allCases.count, 29)
     }
 
     func testToolGroupMembership() {
@@ -417,8 +418,9 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(Tool.tools(in: .color).count, 6)
         // Effects gained Film: 6 → 7.
         XCTAssertEqual(Tool.tools(in: .effects).count, 7)
-        // Detail gained captureSharpen + captureSigma (#875): 5 → 7.
-        XCTAssertEqual(Tool.tools(in: .detail).count, 7)
+        // Detail gained captureSharpen + captureSigma (#875): 5 → 7, then
+        // Lens Corrections (#2231): 7 → 8.
+        XCTAssertEqual(Tool.tools(in: .detail).count, 8)
     }
 
     func testBrightnessToolWiresToModel() {
@@ -438,7 +440,7 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
     }
 
-    func testWiredToolsCoverTwentySevenTools() {
+    func testWiredToolsCoverTwentyEightTools() {
         // The S5 effects all left the #952 stub list as their stages
         // landed (vignette #1109, grain #1110, colorGrade #1111 —
         // superseded split tone at #275), and HSL left it at #274 — its 24
@@ -452,8 +454,12 @@ final class EditorStateTests: XCTestCase {
         // joined wired with the same shape as HSL: four parametric region
         // sub-params plus four point curves, and no primary field. Film
         // joined wired with a look selection plus a `strength` sub-param.
+        // Lens Corrections (#2231) joined wired with the same no-primary-
+        // field shape as HSL/Tone Curve/Film: three sub-params
+        // (distortion/ca/vignetting) plus the master toggle the section
+        // itself owns.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 27)
+        XCTAssertEqual(wired.count, 28)
         XCTAssertTrue(Tool.hsl.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
         XCTAssertTrue(Tool.toneCurve.isWired)

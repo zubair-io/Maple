@@ -184,6 +184,12 @@ enum ToolGlyphShapes {
         // Capture sharpening Sigma — the same disc, with its radius drawn.
         case .captureSigma:
             return [.circle(cx: 8, cy: 8, r: 4.8), .path("M8 8h3.2")]
+        // Lens Corrections (#2231) — two concentric rings: a lens barrel
+        // seen head-on, the same reading a DNG's `OpcodeList3` corrects
+        // (distortion, chromatic aberration, vignetting all describe how
+        // light passes through the lens's own elements).
+        case .lensCorrections:
+            return [.circle(cx: 8, cy: 8, r: 4.8), .circle(cx: 8, cy: 8, r: 2.2)]
 
         // ── Standalone ──────────────────────────────────────────────────────
         // Two crop rails crossing.

@@ -179,6 +179,19 @@ pub struct MapleSceneLinearBufferF32 {
     /// struct tail per the offset-stable ABI convention (inline scalar,
     /// nothing to free).
     pub ae_gain: f32,
+    /// Whether this RAW carries a parsed `OpcodeList3` at all
+    /// (`RawImage::has_lens_corrections`, #2231) — the signal the
+    /// lens-correction inspector panel uses to disable/hide itself when
+    /// there is nothing for `lens_profile_enable`/`lens_correction_*` to
+    /// scale. `0` = false, non-zero = true (same convention as
+    /// `MapleGpuLiveParams.capture_sharpening_enabled`).
+    pub has_lens_corrections: u32,
+    /// Whether the chromatic-aberration slider (`lens_correction_ca`) is
+    /// INERT on this RAW — no `WarpRectilinear` opcode, or every one
+    /// carries a single coefficient set with no per-plane divergence
+    /// (`RawImage::lens_correction_ca_inert`, #2231). `0` = false
+    /// (CA is live), non-zero = true (CA does nothing).
+    pub lens_correction_ca_inert: u32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -210,6 +223,8 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_render_fm_cold: [0.0; 9],
             wb_frame_render_fm_warm: [0.0; 9],
             ae_gain: 1.0,
+            has_lens_corrections: 0,
+            lens_correction_ca_inert: 1,
         }
     }
 }

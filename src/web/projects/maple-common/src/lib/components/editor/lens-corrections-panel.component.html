@@ -1,0 +1,52 @@
+<!-- LensCorrectionsPanelComponent — master toggle + three DNG-correction
+     sliders (#2231). Structural twin of Apple's LensCorrectionsSection. -->
+<div class="flex min-h-0 flex-col gap-2.5 p-2.5" data-testid="lens-corrections-panel">
+  <button
+    type="button"
+    class="group flex w-full cursor-pointer items-center gap-2.5 border-none bg-none px-0 font-[inherit] text-[color:var(--pro-text)]"
+    role="switch"
+    [attr.aria-checked]="enabled()"
+    aria-label="Lens Profile Corrections"
+    data-testid="lens-corrections-toggle"
+    (click)="toggleEnabled()"
+  >
+    <span
+      class="relative h-[20px] w-[34px] shrink-0 rounded-[10px] bg-[color:var(--pro-glass-border)] transition-[background] duration-150 ease-out group-aria-checked:bg-[color:var(--pro-accent)]"
+    >
+      <span
+        class="absolute top-[2px] left-[2px] h-4 w-4 rounded-full bg-[color:var(--pro-text)] transition-transform duration-150 ease-out group-aria-checked:translate-x-[14px] group-aria-checked:bg-white"
+      ></span>
+    </span>
+    <span class="text-[13px] font-medium">Lens Profile Corrections</span>
+  </button>
+
+  <div class="flex w-full flex-col gap-2.5" data-testid="lens-corrections-sliders">
+    <mui-living-slider
+      label="Distortion"
+      [value]="distortion()"
+      [min]="distortionMin"
+      [max]="distortionMax"
+      (valueChange)="onDistortionChange($event)"
+      (dragEnd)="onDistortionDragEnd()"
+      (resetRequest)="onDistortionReset()"
+    />
+    <mui-living-slider
+      label="Chromatic Aberration"
+      [value]="ca()"
+      [min]="caMin"
+      [max]="caMax"
+      (valueChange)="onCaChange($event)"
+      (dragEnd)="onCaDragEnd()"
+      (resetRequest)="onCaReset()"
+    />
+    <mui-living-slider
+      label="Vignetting"
+      [value]="vignetting()"
+      [min]="vignettingMin"
+      [max]="vignettingMax"
+      (valueChange)="onVignettingChange($event)"
+      (dragEnd)="onVignettingDragEnd()"
+      (resetRequest)="onVignettingReset()"
+    />
+  </div>
+</div>
