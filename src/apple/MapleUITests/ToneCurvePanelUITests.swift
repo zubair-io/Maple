@@ -68,6 +68,12 @@ final class ToneCurvePanelUITests: XCTestCase {
     private func launchWithCurveArmed() throws -> XCUIApplication {
         let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
         driver.waitForCanvasReady(timeout: 30)
+        // The decode that needed the staged fixture file has already
+        // happened by this point — safe to clean up now rather than leak a
+        // maple-uitest-* dir per run (Copilot review on #3193). This
+        // helper returns only `app`, not `driver`, so there is no later
+        // point a caller could `defer` this from.
+        driver.cleanupStagedFixture()
 
         let app = XCUIApplication()
         let curveButton = app.buttons["editor-dock-tool-toneCurve"]
