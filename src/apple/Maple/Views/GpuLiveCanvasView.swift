@@ -26,11 +26,16 @@
 // decode. The controller therefore registers the layer only; wgpu configures a
 // viewport-sized drawable and CoreAnimation scales it across the image leaf.
 //
-// Colour space: the chain outputs sRGB-primary, gamma-encoded pixels, so the
-// layer is tagged sRGB (#1512) and CoreAnimation converts sRGB → the display's
-// space (P3 on a P3 panel). It was previously tagged Display P3, which made
-// CoreAnimation treat the sRGB bytes as ALREADY P3 and skip the conversion,
-// over-saturating every image. See the tag set in `init()` below.
+// Colour space: the chain's `display_encode` stage bakes IN whichever
+// primaries `CanvasColorSpace.current` selects (`target_primaries`, #1337/
+// #1338) — sRGB or true Display P3 — and the layer tag must always name
+// THAT SAME space, or CoreAnimation double-converts: tag sRGB over P3-encoded
+// bytes washes the image out, tag P3 over sRGB-encoded bytes over-saturates
+// it (#1512 — the bug this exact mismatch caused when the tag was hardcoded
+// to `.displayP3` while the chain was still sRGB-only). `GpuLiveDriver.
+// retagLayerIfNeeded` re-reads the same setting every present and keeps the
+// tag in lockstep with what `GpuLiveParams`/`PipelineRenderer` just baked
+// into the pixels.
 
 import SwiftUI
 import MapleCore
@@ -43,9 +48,14 @@ import UIKit
 #endif
 
 /// Owns the canvas `CAMetalLayer` for the wgpu live path and registers it with
-/// the session's driver. The driver presents into it from the render scheduler;
-/// this controller only manages the layer's size + colour-space tag and triggers
-/// the first render once the surface is ready.
+/// the session's driver. The driver presents into it from the render scheduler
+/// and — per #1338 — owns the colour-space tag too, keeping it in lockstep
+/// with the SAME `CanvasColorSpace` setting `PipelineRenderer`/`GpuLiveParams`
+/// read on every render call (`GpuLiveDriver.retagLayerIfNeeded`); this
+/// controller only manages the layer's identity + size and triggers the first
+/// render once the surface is ready. Before that first present the layer has
+/// no explicit colorspace tag — harmless, since nothing has been drawn into
+/// it yet for CoreAnimation to mis-tag.
 @MainActor
 final class GpuLiveCanvasController {
     let layer = CAMetalLayer()
@@ -56,24 +66,6 @@ final class GpuLiveCanvasController {
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
         layer.isOpaque = true
-        // The present chain writes sRGB-primary, sRGB-gamma pixels
-        // (`display_encode` with target_primaries=0). Tag the layer sRGB so
-        // CoreAnimation color-manages sRGB→the display's space (P3 on a P3
-        // panel) — exactly the conversion the header comment above describes.
-        // Tagging the layer `.displayP3` (the old value) instead told
-        // CoreAnimation the bytes were ALREADY P3, so NO conversion ran and
-        // sRGB values were reinterpreted as P3 — over-saturating every image
-        // (raw + non-raw); neutrals were unaffected (gray axis is tag-invariant).
-        // #1512.
-        //
-        // NOTE: this tag MUST track `GpuLiveParams.target_primaries`. It is `0`
-        // (sRGB) today, so the canvas caps at sRGB gamut. When #1338 wires the
-        // Display-P3 path (`target_primaries = 1`, outputting P3-primary pixels to
-        // use the panel's full gamut), this tag must flip back to `.displayP3` so
-        // the layer tag again matches the encoded primaries.
-        if let srgb = CGColorSpace(name: CGColorSpace.sRGB) {
-            layer.colorspace = srgb
-        }
     }
 
     func bind(session: EditSession) {

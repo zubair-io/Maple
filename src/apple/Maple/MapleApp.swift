@@ -430,6 +430,11 @@ struct GeneralSettingsTab: View {
     // Bound to the same @AppStorage key EditorView reads so toggling here
     // flips the editor layout immediately.
     @AppStorage("proControlVariant") private var controlVariant: String = ControlVariant.compact.rawValue
+    // Canvas colorspace (#1338) — default mirrors `CanvasColorSpace.current`
+    // (P3 if the display reports the gamut, sRGB otherwise) so the picker
+    // reads correctly before the key is ever written, same pattern as
+    // `useAmaze` above.
+    @AppStorage(CanvasColorSpace.defaultsKey) private var canvasColorSpace = CanvasColorSpace.current.rawValue
 
     var body: some View {
         Form {
@@ -453,6 +458,17 @@ struct GeneralSettingsTab: View {
                     }
                 }
                 .accessibilityIdentifier("general.settings.useAmazeDemosaic")
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("Editor canvas colorspace", selection: $canvasColorSpace) {
+                        Text("Display P3").tag(CanvasColorSpace.displayP3.rawValue)
+                        Text("sRGB").tag(CanvasColorSpace.srgb.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Display P3 uses the panel's full gamut on a P3-capable display. Takes effect on the next render — no restart needed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("general.settings.canvasColorSpace")
             }
             .listRowBackground(MapleTokens.surface)
         }

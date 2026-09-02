@@ -88,6 +88,11 @@ public final class GpuLiveDriver {
     /// view goes away the driver simply has nothing to present to.
     private weak var layer: CAMetalLayer?
 
+    /// The `CanvasColorSpace` last tagged onto `layer.colorspace` (#1338) —
+    /// tracked so `present()` only touches the layer when the user-facing
+    /// setting actually changed, not on every tick.
+    private var taggedColorSpace: CanvasColorSpace?
+
     /// The surface-cache generation token (#1769). Forwarded to every
     /// `maple_gpu_present_chain`; the Rust side keys its PROCESS-WIDE present
     /// surface on `(generation, layer, dims)`. Bumped when:
@@ -186,7 +191,26 @@ public final class GpuLiveDriver {
         if layer !== self.layer {
             self.layer = layer
             surfaceGeneration &+= 1
+            // A newly-registered layer has whatever tag `GpuLiveCanvasController.
+            // init()` gave it — re-derive on the next present rather than
+            // trusting it matches THIS driver's most recent `taggedColorSpace`.
+            taggedColorSpace = nil
         }
+    }
+
+    /// Keep `layer.colorspace` in lockstep with `CanvasColorSpace.current`
+    /// (#1338) — the SAME setting `PipelineRenderer`/`GpuLiveParams` just
+    /// read to pick `target_primaries` for the pixels this present is about
+    /// to write. A stale tag here reproduces #1512 (CoreAnimation double- or
+    /// non-converting the primaries) the moment the Settings toggle flips
+    /// while an asset is open.
+    private func retagLayerIfNeeded(_ layer: CAMetalLayer) {
+        let target = CanvasColorSpace.current
+        guard target != taggedColorSpace else { return }
+        let name: CFString = target == .displayP3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB
+        guard let space = CGColorSpace(name: name) else { return }
+        layer.colorspace = space
+        taggedColorSpace = target
     }
 
     /// Open (or re-open) the session for `pixels` at `width × height` — the decoded
@@ -278,6 +302,7 @@ public final class GpuLiveDriver {
             gpuDriverLog.notice("GPU-TRACE driver.present skipped: no layer")
             return
         }
+        retagLayerIfNeeded(layer)
         gpuDriverLog.notice("GPU-TRACE driver.present begin drawableSize=\(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height))")
         // drawableSize divergence check (#1769): the Rust side is
         // `drawableSize`'s single writer (`surface.configure`), so when this
