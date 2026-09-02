@@ -7,7 +7,7 @@
 export const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 export const XMP_NAMESPACE = 'http://ns.adobe.com/xap/1.0/';
 export const CRS_NAMESPACE = 'http://ns.adobe.com/camera-raw-settings/1.0/';
-export const PAPP_NAMESPACES = [
+const PAPP_NAMESPACES = [
   'http://ns.justmaple.app/photo/1.0/',
   'http://ns.justmaple.app/1.0/',
 ] as const;
@@ -91,6 +91,26 @@ export function mergedXmpDescription(document: Document): Element | null {
     }
   }
   return merged;
+}
+
+/**
+ * Maple-authorship marker (#1780): detects a recognized Maple URI on any
+ * declaration, element, or attribute in the document — a writer may declare
+ * it on `xmpmeta` rather than `rdf:Description`. Used by
+ * `XmpParserService.parseAdjustmentModel` to gate the WB scale-version
+ * inference in `resolveWbScaleVersion` (`xmp-wb-scale.ts`).
+ */
+export function sawMapleAuthorshipMarker(document: Document): boolean {
+  return Array.from(document.getElementsByTagName('*')).some(
+    (el) =>
+      PAPP_NAMESPACES.includes(el.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
+      Array.from(el.attributes).some(
+        (attr) =>
+          PAPP_NAMESPACES.includes(attr.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
+          (attr.namespaceURI === 'http://www.w3.org/2000/xmlns/' &&
+            PAPP_NAMESPACES.includes(attr.value as (typeof PAPP_NAMESPACES)[number])),
+      ),
+  );
 }
 
 /** Try canonical namespaced and legacy unprefixed attribute variants. */
