@@ -394,6 +394,17 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
   ],
 };
 
+// Lens Corrections (#2231) is deliberately NOT declared in `SUB_PARAMS`
+// above, even though it has three fields: `LensCorrectionsPanelComponent`
+// is a bespoke panel (like Film's catalog picker) that writes
+// `LibraryStateService.updateAdjustment` directly, with each of its three
+// sliders holding its own in-progress drag value locally between
+// `dragStart`/`dragEnd` rather than going through this module's shared
+// armed-pair/deferred-write machinery — the same shape `filmLook`'s
+// `filmStrength` slider takes (zero entries here; writes straight through
+// `FilmPanelComponent`). `subParamsFor('lensCorrections')` therefore
+// correctly falls through to `[]` via the `Partial<Record<...>>` default.
+
 const GENERATED_DEFAULTS = defaultGeneratedAdjustmentModel();
 
 /** Ordered sub-params for a tool; empty for single-param tools. */

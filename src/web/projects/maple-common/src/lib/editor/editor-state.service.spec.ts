@@ -438,14 +438,15 @@ describe('EditorStateService', () => {
 
   describe('tool catalog', () => {
     it('verifies tool registry configuration', () => {
-      expect(ALL_TOOLS.length).toBe(25);
+      expect(ALL_TOOLS.length).toBe(26);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(6);
       expect(TOOLS_IN_GROUP.effects.length).toBe(7);
-      expect(TOOLS_IN_GROUP.detail.length).toBe(5);
+      // Detail gained lensCorrections (#2231): 5 → 6.
+      expect(TOOLS_IN_GROUP.detail.length).toBe(6);
 
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(24);
+      expect(wired.length).toBe(25);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
       expect(isWired('colorGrade')).toBe(true);

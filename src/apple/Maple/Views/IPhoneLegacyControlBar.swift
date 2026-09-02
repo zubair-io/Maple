@@ -44,6 +44,14 @@ struct IPhoneLegacyControlBar: View {
                 FilmSection(state: state)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 7)
+            } else if state.armedTool == .lensCorrections {
+                // Master toggle + three DNG-correction sliders replace the
+                // drag bar (#2231): Lens has no single primary field, so
+                // this is its whole control surface, same swap as Tone
+                // Curve / Film.
+                LensCorrectionsSection(state: state)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 7)
             } else {
                 DragBar(state: state)
                     .padding(.vertical, 7)

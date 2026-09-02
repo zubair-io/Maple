@@ -64,6 +64,7 @@
        their shared sub-param editing surface (chip selector + drag bar +
        value chip) in here instead. Colour Grading projects its four-wheel
        panel. Film (#2683) projects the catalog picker + strength slider.
+       Lens Corrections (#2231) projects its toggle + three sliders.
        Anything else falls back to the plain slider grid. -->
   @if (activeTool() === 'hsl' || activeTool() === 'bwMix') {
     <ng-content select="[cardBodySubParam]" />
@@ -71,6 +72,8 @@
     <ng-content select="[cardBodyGrade]" />
   } @else if (activeTool() === 'filmLook') {
     <ng-content select="[cardBodyFilm]" />
+  } @else if (activeTool() === 'lensCorrections') {
+    <ng-content select="[cardBodyLens]" />
   } @else {
     <div class="slider-grid flex flex-col gap-2.5">
       @for (tool of slidersFor(activeGroup()); track tool) {

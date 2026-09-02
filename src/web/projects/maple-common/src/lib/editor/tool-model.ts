@@ -63,6 +63,7 @@ export type ToolId =
   | 'sharpen'
   | 'noise'
   | 'colorNR'
+  | 'lensCorrections'
   | 'crop'
   | 'presets';
 
@@ -97,6 +98,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   sharpen: 'Sharpen',
   noise: 'Noise',
   colorNR: 'Color NR',
+  lensCorrections: 'Lens',
   crop: 'Crop',
   presets: 'Presets',
 };
@@ -111,7 +113,9 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // (Black & White) collapses it to monochrome via 8 gray-mixer weights.
   color: ['temp', 'tint', 'vibrance', 'saturation', 'hsl', 'bwMix'],
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'colorGrade', 'filmLook'],
-  detail: ['sharpen', 'noise', 'colorNR', 'crop', 'presets'],
+  // lensCorrections (#2231) joins Detail: DNG-embedded distortion/CA/
+  // vignetting scales, decode-product like sharpen/noise/colorNR.
+  detail: ['sharpen', 'noise', 'colorNR', 'lensCorrections', 'crop', 'presets'],
 };
 
 export const ALL_TOOLS: readonly ToolId[] = Object.values(TOOLS_IN_GROUP).flat();

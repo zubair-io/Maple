@@ -398,6 +398,36 @@ extension Tool {
                              defaultDisplayValue: Self.defaults.sharpenMasking,
                              decimals: 0),
             ]
+        case .lensCorrections:
+            // DNG-embedded lens corrections (#376's model fields, #2231's
+            // panel). All three are DECODE-PRODUCT scales — moving any of
+            // them re-runs the Rust decode (`OpcodeList3` application),
+            // not a per-tick shader pass — so all three commit on release,
+            // the same convention `.noise`'s `deep`/`prefilter` sub-params
+            // use. `.linear` (not `.anchored`): the canonical default sits
+            // at each range's own upper bound (100), and `.anchored`'s
+            // divide-by-`(default - hi)` would be a division by zero
+            // there — same reasoning as `.filmLook`'s `strength`.
+            return [
+                ToolSubParam(id: "distortion", label: "Distortion",
+                             keyPath: \.lensCorrectionDistortion, mapping: .linear,
+                             range: AdjustmentModel.lensCorrectionDistortionRange,
+                             defaultDisplayValue: Self.defaults.lensCorrectionDistortion,
+                             decimals: 0,
+                             commitsOnRelease: true),
+                ToolSubParam(id: "ca", label: "Chromatic Aberration",
+                             keyPath: \.lensCorrectionCa, mapping: .linear,
+                             range: AdjustmentModel.lensCorrectionCaRange,
+                             defaultDisplayValue: Self.defaults.lensCorrectionCa,
+                             decimals: 0,
+                             commitsOnRelease: true),
+                ToolSubParam(id: "vignetting", label: "Vignetting",
+                             keyPath: \.lensCorrectionVignetting, mapping: .linear,
+                             range: AdjustmentModel.lensCorrectionVignettingRange,
+                             defaultDisplayValue: Self.defaults.lensCorrectionVignetting,
+                             decimals: 0,
+                             commitsOnRelease: true),
+            ]
         default:
             return []
         }

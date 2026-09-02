@@ -281,6 +281,38 @@ pub struct RawImage {
     pub focal_length: Option<f32>,
 }
 
+impl RawImage {
+    /// Whether this RAW carries a parsed `OpcodeList3` at all — the signal
+    /// the lens-correction inspector panel (#2231) uses to disable/hide
+    /// itself when there is nothing for `lens_profile_enable` /
+    /// `lens_correction_*` to scale. `false` for any source with no
+    /// `OpcodeList3` tag, or whose tag failed to parse into a recognised
+    /// opcode (see `pipeline::pano::opcodes::read_opcode_list3`).
+    pub fn has_lens_corrections(&self) -> bool {
+        self.opcode_list3.is_some()
+    }
+
+    /// Whether the chromatic-aberration slider (`lens_correction_ca`) is
+    /// INERT on this RAW — true when there is no `WarpRectilinear` opcode,
+    /// or every `WarpRectilinear` opcode carries a single coefficient set
+    /// (`planes.len() <= 1`, #2231). A single set applies identically to
+    /// every color plane (`WarpRectilinearOpcode`'s own doc comment: "N = 1
+    /// means common"), so there is no per-plane divergence for the CA scale
+    /// to attenuate — moving the slider changes nothing. `true` (inert) is
+    /// also the answer when there are no lens corrections at all, matching
+    /// `has_lens_corrections() == false` implying every scale is a no-op.
+    pub fn lens_correction_ca_inert(&self) -> bool {
+        use crate::pipeline::pano::opcodes::PanoOpcode;
+        let Some((list, _)) = &self.opcode_list3 else {
+            return true;
+        };
+        list.opcodes.iter().all(|op| match op {
+            PanoOpcode::WarpRectilinear(w) => w.planes.len() <= 1,
+            _ => true,
+        })
+    }
+}
+
 /// DNG camera-recommended render rectangle in raw-sensor coordinates.
 ///
 /// Encodes the `DefaultCropOrigin` (tag 50719) + `DefaultCropSize` (tag 50720)
@@ -568,5 +600,106 @@ mod tests {
     fn assert_space_panics_on_mismatch() {
         let img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.assert_space(ColorSpace::DisplayLinearSrgb);
+    }
+
+    // ── has_lens_corrections / lens_correction_ca_inert (#2231) ──────────
+
+    fn fake_raw_with_opcodes(
+        opcode_list3: Option<(
+            crate::pipeline::pano::opcodes::OpcodeList3,
+            crate::pipeline::pano::opcodes::ActiveAreaRect,
+        )>,
+    ) -> RawImage {
+        RawImage {
+            width: 4,
+            height: 4,
+            cfa: CfaPattern::Rggb,
+            black_level: [0, 0, 0, 0],
+            white_level: 1023,
+            raw_data: vec![0u16; 16],
+            as_shot_neutral: [1.0, 1.0, 1.0],
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            unique_camera_model: None,
+            color_matrices: HashMap::new(),
+            forward_matrices: HashMap::new(),
+            orientation: ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+            hsm_data: HashMap::new(),
+            plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
+            crop_rect: None,
+            iso: 100,
+            noise_profile: None,
+            opcode_list3,
+            aperture: None,
+            focal_length: None,
+        }
+    }
+
+    fn active_area() -> crate::pipeline::pano::opcodes::ActiveAreaRect {
+        crate::pipeline::pano::opcodes::ActiveAreaRect { top: 0, left: 0, width: 4, height: 4 }
+    }
+
+    fn warp(planes: usize) -> crate::pipeline::pano::opcodes::PanoOpcode {
+        use crate::pipeline::pano::opcodes::{PanoOpcode, WarpPlaneParams, WarpRectilinearOpcode};
+        PanoOpcode::WarpRectilinear(WarpRectilinearOpcode {
+            planes: (0..planes)
+                .map(|_| WarpPlaneParams { kr: [1.0, 0.0, 0.0, 0.0], kt: [0.0, 0.0] })
+                .collect(),
+            center_x: 0.5,
+            center_y: 0.5,
+        })
+    }
+
+    fn vignette_only() -> crate::pipeline::pano::opcodes::PanoOpcode {
+        use crate::pipeline::pano::opcodes::{FixVignetteRadialOpcode, PanoOpcode};
+        PanoOpcode::FixVignetteRadial(FixVignetteRadialOpcode {
+            k: [0.0, 0.0, 0.0, 0.0, 0.0],
+            center_x: 0.5,
+            center_y: 0.5,
+        })
+    }
+
+    #[test]
+    fn no_opcode_list3_has_no_corrections_and_ca_is_inert() {
+        let raw = fake_raw_with_opcodes(None);
+        assert!(!raw.has_lens_corrections());
+        assert!(raw.lens_correction_ca_inert());
+    }
+
+    #[test]
+    fn single_coefficient_warp_has_corrections_but_ca_is_inert() {
+        use crate::pipeline::pano::opcodes::OpcodeList3;
+        let raw = fake_raw_with_opcodes(Some((
+            OpcodeList3 { opcodes: vec![warp(1)], skipped_unknown: 0 },
+            active_area(),
+        )));
+        assert!(raw.has_lens_corrections());
+        assert!(raw.lens_correction_ca_inert(), "a single coefficient set has no per-plane divergence");
+    }
+
+    #[test]
+    fn multi_plane_warp_has_corrections_and_ca_is_live() {
+        use crate::pipeline::pano::opcodes::OpcodeList3;
+        let raw = fake_raw_with_opcodes(Some((
+            OpcodeList3 { opcodes: vec![warp(3)], skipped_unknown: 0 },
+            active_area(),
+        )));
+        assert!(raw.has_lens_corrections());
+        assert!(!raw.lens_correction_ca_inert(), "3 coefficient sets diverge per plane — CA is live");
+    }
+
+    #[test]
+    fn vignette_only_has_corrections_and_ca_is_inert() {
+        use crate::pipeline::pano::opcodes::OpcodeList3;
+        let raw = fake_raw_with_opcodes(Some((
+            OpcodeList3 { opcodes: vec![vignette_only()], skipped_unknown: 0 },
+            active_area(),
+        )));
+        assert!(raw.has_lens_corrections(), "vignette alone still counts as a lens correction");
+        assert!(raw.lens_correction_ca_inert(), "no WarpRectilinear opcode at all — CA has nothing to do");
     }
 }

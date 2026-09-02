@@ -85,6 +85,7 @@ import { ToneCurveComponent } from '../../components/develop/tone-curve.componen
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { ColorGradingPanelComponent } from '../../components/develop/color-grading-panel.component';
 import { FilmPanelComponent } from '../../components/editor/film-panel.component';
+import { LensCorrectionsPanelComponent } from '../../components/editor/lens-corrections-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
 import { SubParamRowComponent } from '../../editor/sub-param-row.component';
@@ -141,6 +142,7 @@ import * as sc from './editor-shell.classes';
     WbPadComponent,
     ColorGradingPanelComponent,
     FilmPanelComponent,
+    LensCorrectionsPanelComponent,
     CropToolbarComponent,
     PresetsPanelComponent,
     SubParamRowComponent,
