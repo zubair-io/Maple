@@ -219,7 +219,7 @@ pub(super) fn refine_if_needed(
     // `build_match_graph` needs an owned return value while the cache
     // stays intact for reuse), but a pair nobody re-requests now costs
     // nothing, instead of always paying a full deep-clone up front
-    // (#1214 review, Copilot).
+    //.
     let cache: HashMap<(usize, usize), Vec<PixelCorrespondence>> =
         std::mem::take(raw_matches_cache).into_iter().collect();
     let mut newly_fetched: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
