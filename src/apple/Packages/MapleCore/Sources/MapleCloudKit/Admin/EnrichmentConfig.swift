@@ -1,9 +1,10 @@
-// EnrichmentConfig.swift — wire types for /api/enrichment/config (T5a).
+// EnrichmentConfig.swift — wire types for /api/enrichment/config (T5a + T5b).
 //
-// Configures the four service-backed enrichment stages: Describe,
-// Transcribe, Geocode, Meilisearch (src/api/src/routes/enrichment.ts). Face
-// models and the maintenance panels are #2772 (T5b) and deliberately absent
-// here — this file only models what T5a's rows read and write.
+// Configures the six service-backed enrichment stages: Describe,
+// Transcribe, Geocode, Face-detect, Face-embed, Meilisearch
+// (src/api/src/routes/enrichment.ts). The maintenance panels (mirror,
+// derivative-audit, GPU live render) are separate documents/routes and live
+// in MirrorConfig.swift / DerivativeAuditConfig.swift / RenderConfig.swift.
 //
 // The PUT is patch/merge against ONE shared document that every enrichment
 // row writes to. `ConfigBody` in enrichment.ts marks exactly two fields
@@ -41,13 +42,32 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
   public let meilisearchEmbedderModel: String
   public let meilisearchSemanticRatio: Double
   public let serviceSearchRateLimitPerMinute: Int
+  // ── Face worker (T5b, #2772) ─────────────────────────────────────────
+  /// Resolved model dir (DB → env → ~/.maple/models/). Always populated.
+  public let faceModelDir: String
+  /// `nil` when neither DB nor env supplied a download URL — the worker
+  /// then uses the file already on disk, or auto-downloads.
+  public let faceDetectorURL: String?
+  public let faceDetectorSHA256: String?
+  public let faceRecognizerURL: String?
+  public let faceRecognizerSHA256: String?
+  /// Resolved minimum face-size threshold, normalised [0,1) on the 640-px
+  /// detection frame. Always a number on the wire (default 0.06).
+  public let faceMinDetectionSize: Double
+  /// Live face-model loader status + on-disk probe. Absent on responses
+  /// that don't carry it (e.g. hand-built test fixtures) — optional so
+  /// decoding never fails on that account.
+  public let faceModels: FaceModelsStatus?
 
   public init(
     nominatimURL: String?, geocodeWorkerEnabled: Bool, nominatimRateLimitPerSec: Double,
     describeProviderURL: String?, transcribeModelTier: WhisperModelTier, meilisearchURL: String?,
     meilisearchAPIKeySet: Bool, meilisearchTaskTimeoutSeconds: Int, meilisearchSemanticEnabled: Bool,
     meilisearchEmbedderURL: String, meilisearchEmbedderModel: String, meilisearchSemanticRatio: Double,
-    serviceSearchRateLimitPerMinute: Int
+    serviceSearchRateLimitPerMinute: Int, faceModelDir: String = "", faceDetectorURL: String? = nil,
+    faceDetectorSHA256: String? = nil, faceRecognizerURL: String? = nil,
+    faceRecognizerSHA256: String? = nil, faceMinDetectionSize: Double = 0.06,
+    faceModels: FaceModelsStatus? = nil
   ) {
     self.nominatimURL = nominatimURL
     self.geocodeWorkerEnabled = geocodeWorkerEnabled
@@ -62,6 +82,13 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
     self.meilisearchEmbedderModel = meilisearchEmbedderModel
     self.meilisearchSemanticRatio = meilisearchSemanticRatio
     self.serviceSearchRateLimitPerMinute = serviceSearchRateLimitPerMinute
+    self.faceModelDir = faceModelDir
+    self.faceDetectorURL = faceDetectorURL
+    self.faceDetectorSHA256 = faceDetectorSHA256
+    self.faceRecognizerURL = faceRecognizerURL
+    self.faceRecognizerSHA256 = faceRecognizerSHA256
+    self.faceMinDetectionSize = faceMinDetectionSize
+    self.faceModels = faceModels
   }
 
   enum CodingKeys: String, CodingKey {
@@ -78,6 +105,40 @@ public struct EnrichmentConfig: Decodable, Sendable, Equatable {
     case meilisearchEmbedderModel = "meilisearch_embedder_model"
     case meilisearchSemanticRatio = "meilisearch_semantic_ratio"
     case serviceSearchRateLimitPerMinute = "service_search_rate_limit_per_minute"
+    case faceModelDir = "face_model_dir"
+    case faceDetectorURL = "face_detector_url"
+    case faceDetectorSHA256 = "face_detector_sha256"
+    case faceRecognizerURL = "face_recognizer_url"
+    case faceRecognizerSHA256 = "face_recognizer_sha256"
+    case faceMinDetectionSize = "face_min_detection_size"
+    case faceModels = "face_models"
+  }
+
+  /// Decodes with every T5b field defaulting when absent, so a server
+  /// response or fixture that predates this file still decodes — mirrors
+  /// the tolerance the T5a fields already had for `source`/unknown keys.
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    nominatimURL = try c.decodeIfPresent(String.self, forKey: .nominatimURL)
+    geocodeWorkerEnabled = try c.decode(Bool.self, forKey: .geocodeWorkerEnabled)
+    nominatimRateLimitPerSec = try c.decode(Double.self, forKey: .nominatimRateLimitPerSec)
+    describeProviderURL = try c.decodeIfPresent(String.self, forKey: .describeProviderURL)
+    transcribeModelTier = try c.decode(WhisperModelTier.self, forKey: .transcribeModelTier)
+    meilisearchURL = try c.decodeIfPresent(String.self, forKey: .meilisearchURL)
+    meilisearchAPIKeySet = try c.decode(Bool.self, forKey: .meilisearchAPIKeySet)
+    meilisearchTaskTimeoutSeconds = try c.decode(Int.self, forKey: .meilisearchTaskTimeoutSeconds)
+    meilisearchSemanticEnabled = try c.decode(Bool.self, forKey: .meilisearchSemanticEnabled)
+    meilisearchEmbedderURL = try c.decode(String.self, forKey: .meilisearchEmbedderURL)
+    meilisearchEmbedderModel = try c.decode(String.self, forKey: .meilisearchEmbedderModel)
+    meilisearchSemanticRatio = try c.decode(Double.self, forKey: .meilisearchSemanticRatio)
+    serviceSearchRateLimitPerMinute = try c.decode(Int.self, forKey: .serviceSearchRateLimitPerMinute)
+    faceModelDir = try c.decodeIfPresent(String.self, forKey: .faceModelDir) ?? ""
+    faceDetectorURL = try c.decodeIfPresent(String.self, forKey: .faceDetectorURL)
+    faceDetectorSHA256 = try c.decodeIfPresent(String.self, forKey: .faceDetectorSHA256)
+    faceRecognizerURL = try c.decodeIfPresent(String.self, forKey: .faceRecognizerURL)
+    faceRecognizerSHA256 = try c.decodeIfPresent(String.self, forKey: .faceRecognizerSHA256)
+    faceMinDetectionSize = try c.decodeIfPresent(Double.self, forKey: .faceMinDetectionSize) ?? 0.06
+    faceModels = try c.decodeIfPresent(FaceModelsStatus.self, forKey: .faceModels)
   }
 }
 
@@ -122,6 +183,11 @@ public enum EnrichmentLimits {
   /// to the server; this enforces both bounds client-side, which matches
   /// the server's actual validation exactly and is stricter than the web.
   public static let serviceSearchRateLimitPerMinute = 1...10_000
+  /// `MIN_FACE_MIN_DETECTION_SIZE` / `MAX_FACE_MIN_DETECTION_SIZE` — half-open
+  /// because the server's own check is `>= MAX` (exclusive), matching the web
+  /// input's `max="0.99"` hint and `workers.component.ts`'s `< 1` guard. A
+  /// blank field sends null (never 0 — see `FaceDetectSettingsForm`).
+  public static let faceMinDetectionSize = 0.0..<1.0
 }
 
 // MARK: - Patches

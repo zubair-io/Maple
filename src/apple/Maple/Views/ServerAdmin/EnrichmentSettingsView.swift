@@ -1,17 +1,22 @@
 // EnrichmentSettingsView.swift — Settings → Cloud → Manage → Enrichment
-// (T5a, #2771).
+// (T5a #2771 + T5b #2772).
 //
-// Four rows — Describe, Transcribe, Geocode, Meilisearch — each writing to
-// the SAME shared `app_settings` document server-side
-// (src/api/src/routes/enrichment.ts). Every row is split into its own file
-// (DescribeSettingsRow.swift etc.), mirroring the "enrichment forms
-// subdivided by stage family" split called out in epic #2765's file-budget
-// section, and each row's `patch(echoing:)` sends only the fields that row
-// owns (see EnrichmentConfig.swift's file comment for the two required
-// passthrough fields every row still has to carry).
+// Six rows — Describe, Transcribe, Geocode, Face-detect, Face-embed,
+// Meilisearch — each writing to the SAME shared `app_settings` document
+// server-side (src/api/src/routes/enrichment.ts). Every row is split into
+// its own file (DescribeSettingsRow.swift etc.), mirroring the "enrichment
+// forms subdivided by stage family" split called out in epic #2765's
+// file-budget section, and each row's `patch(echoing:)` sends only the
+// fields that row owns (see EnrichmentConfig.swift's file comment for the
+// two required passthrough fields every row still has to carry). The two
+// face rows carry the same merge hazard the four T5a rows do — face-detect
+// must never send a face_recognizer_* key and vice versa — see
+// FaceDetectSettingsRow.swift.
 //
-// Face models and the maintenance panels are #2772 (T5b) and deliberately
-// absent — no row here reads or writes a `face_*` field.
+// The maintenance panels (mirror, derivative-audit, GPU live render) are
+// also T5b but are NOT enrichment-document fields, so they live on the
+// Workers page instead (WorkersSettingsView.swift's Maintenance/Rendering
+// sections), matching where the web places them.
 //
 // Save is unavailable until this page's `.task` resolves the first GET:
 // no row exists to save from before then, matching the pattern in
@@ -25,6 +30,7 @@ import MapleUI
 
 struct EnrichmentSettingsView: View {
     let client: EnrichmentConfigClient
+    let purgeClient: FacePurgeClient
 
     private enum LoadState: Equatable {
         case loading
@@ -62,6 +68,11 @@ struct EnrichmentSettingsView: View {
                     client: client, snapshot: config, onSaved: { loadState = .loaded($0) })
                 GeocodeSettingsRow(
                     client: client, snapshot: config, onSaved: { loadState = .loaded($0) })
+                FaceDetectSettingsRow(
+                    client: client, purgeClient: purgeClient, snapshot: config,
+                    onSaved: { loadState = .loaded($0) })
+                FaceEmbedSettingsRow(
+                    client: client, snapshot: config, onSaved: { loadState = .loaded($0) })
                 MeilisearchSettingsRow(
                     client: client, snapshot: config, onSaved: { loadState = .loaded($0) })
             }
@@ -87,6 +98,6 @@ struct EnrichmentSettingsView: View {
 }
 
 #Preview("Unreachable server") {
-    EnrichmentSettingsView(client: .preview())
+    EnrichmentSettingsView(client: .preview(), purgeClient: .preview())
         .frame(width: 620, height: 760)
 }

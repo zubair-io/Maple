@@ -141,14 +141,19 @@ struct ServerAdminView: View {
                     client: CloudflareConfigClient(server: server, httpClient: httpClient))
             case .enrichment:
                 EnrichmentSettingsView(
-                    client: EnrichmentConfigClient(server: server, httpClient: httpClient))
+                    client: EnrichmentConfigClient(server: server, httpClient: httpClient),
+                    purgeClient: FacePurgeClient(server: server, httpClient: httpClient))
             case .workers:
                 WorkersSettingsView(
                     client: WorkersAdminClient(server: server, httpClient: httpClient),
                     events: eventsClient,
                     generatedSearch: GeneratedSearchAdminClient(server: server, httpClient: httpClient),
                     generatedSearchCollections: GeneratedSearchClient(server: server, httpClient: httpClient),
-                    foldersClient: CloudFoldersClient(server: server, httpClient: httpClient))
+                    foldersClient: CloudFoldersClient(server: server, httpClient: httpClient),
+                    mirrorClient: MirrorConfigClient(server: server, httpClient: httpClient),
+                    derivativeAuditClient: DerivativeAuditConfigClient(
+                        server: server, httpClient: httpClient),
+                    renderConfigClient: RenderConfigClient(server: server, httpClient: httpClient))
             case .imports:
                 ImportsSettingsView(
                     client: ImportsClient(server: server, httpClient: httpClient))
