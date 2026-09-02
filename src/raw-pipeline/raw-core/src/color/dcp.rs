@@ -2425,6 +2425,92 @@ mod tests {
         );
     }
 
+    /// #825: `BundleConfident` must not silently drop a source DNG's own
+    /// HueSatMap data. The current committed `profiles.bin` ships matrices
+    /// only (no HSM — regenerating it needs the external `.dcp` corpus
+    /// `convert_dcps.py --include-hsm` reads from, not present in this
+    /// repo), so `profile_loader::to_dcp_profile`'s fallback to
+    /// `raw.hsm_data` (keyed by the BUNDLE's own illum1/illum2, per its doc
+    /// comment) is, today, the ONLY path any bundled body's HSM reaches the
+    /// render — exercised for real by `test_0000.DNG` (Hasselblad L3D-100c),
+    /// which ships CM + its own HSM but no FM, so it can't qualify for
+    /// `EmbeddedFull` and instead resolves `BundleConfident` (per #460)
+    /// with its genuine embedded HSM preserved through the fallback. This
+    /// test pins that behaviour with a synthetic fixture (no real RAW
+    /// needed) so a future change to the resolver or the fallback can't
+    /// silently regress it back to discarding real calibration data — there
+    /// was no coverage of this fallback anywhere before this test.
+    #[test]
+    fn bundle_confident_falls_back_to_source_dng_hsm_when_bundle_has_none() {
+        // Canon EOS 5D Mark IV's bundle entry: illum1=StdA, illum2=D65,
+        // CM1+CM2+FM1+FM2 all present, HSM1/HSM2 both absent (matrices-only
+        // bundle) — confirmed via the `--ucm` probe this test's PR
+        // description cites. The synthetic raw below ships plausible CMs at
+        // the SAME two illuminants (so the dual-illuminant path engages)
+        // but NO forward matrices (so `EmbeddedFull`'s CM+FM+HSM gate
+        // fails) and a real (if minimal) HSM at each illuminant.
+        let cm_stda = Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]);
+        let cm_d65 = Matrix3([
+            [0.5921, -0.0421, -0.0813],
+            [-0.3654, 1.1523, 0.1876],
+            [-0.0754, 0.1901, 0.5234],
+        ]);
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::StdA, cm_stda);
+        cms.insert(Illuminant::D65, cm_d65);
+
+        // Minimal but genuinely non-identity HSM tables — a single lattice
+        // cell each, distinguishable per illuminant so the test can tell
+        // WHICH one the resolver picked.
+        let hsm_stda = hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![5.0, 1.1, 1.0], // hueDelta=5deg, satScale=1.1, valScale=1.0
+            hsm::HsmEncoding::Linear,
+        )
+        .expect("valid HSM table");
+        let hsm_d65 = hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![-3.0, 0.9, 1.0], // hueDelta=-3deg, satScale=0.9, valScale=1.0
+            hsm::HsmEncoding::Linear,
+        )
+        .expect("valid HSM table");
+        let mut hsm_data = std::collections::HashMap::new();
+        hsm_data.insert(Illuminant::StdA, hsm_stda);
+        hsm_data.insert(Illuminant::D65, hsm_d65);
+
+        // No forward matrices — the fixture that disqualifies EmbeddedFull
+        // while still carrying real CM + HSM data worth preserving.
+        let raw = make_raw_with_ucm(
+            "Canon EOS 5D Mark IV",
+            cms,
+            std::collections::HashMap::new(),
+            hsm_data,
+        );
+        assert!(
+            crate::color::profile_loader::lookup_profile(&raw).is_some(),
+            "test prerequisite: 'Canon EOS 5D Mark IV' must be bundled."
+        );
+
+        let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
+        assert_eq!(
+            source,
+            ProfileSource::BundleConfident,
+            "CM+HSM-but-no-FM DNG with a bundled body must resolve to \
+             BundleConfident (the FM gate disqualifies EmbeddedFull). Got {:?}",
+            source
+        );
+        assert!(
+            profile.hsm.is_some(),
+            "BundleConfident must not discard the source DNG's own HSM when \
+             the bundle entry itself has none — this is the #825 regression \
+             this test guards."
+        );
+    }
+
     /// Tier 4: a body with no bundled profile and no embedded matrices
     /// (the vendor-RAW case after `decode.rs`'s `cm_in_ifd` gate drops
     /// rawler's substituted matrices) must resolve to `RawlerFallback`.
