@@ -88,7 +88,8 @@ extension PipelineRenderer {
         asShotCCT: Double? = nil,
         asShotTint: Double? = nil,
         inputShape: UInt32 = 0,
-        wbFrame: WbSliderFrame? = nil
+        wbFrame: WbSliderFrame? = nil,
+        targetColorSpace: CanvasColorSpace = .current
     ) -> MapleGpuLiveParams {
         // Per-field assignment (not a literal init) — the Swift expression type-
         // checker hits its complexity ceiling on a ~40-field literal init, exactly
@@ -295,9 +296,16 @@ extension PipelineRenderer {
         p.film_strength = Float(model.filmStrength)
 
         // Target display primaries (#1337/#1338): sRGB or P3 per the
-        // user-facing Settings toggle (`CanvasColorSpace`), re-read every
-        // call so a Settings change takes effect on the next render tick.
-        p.target_primaries = CanvasColorSpace.current.wireValue
+        // user-facing Settings toggle. `targetColorSpace` defaults to
+        // `.current` (re-read every call, same-tick as before) for callers
+        // that don't have a `CAMetalLayer` to keep in lockstep (tests,
+        // `GpuLiveSession.renderToBuffer`'s headless path); `GpuLiveDriver.
+        // present` instead captures `.current` ONCE and passes the SAME
+        // value it just tagged the layer with — two independent `.current`
+        // reads a moment apart could otherwise observe a mid-flight Settings
+        // change differently and reproduce #1512 for exactly one frame
+        // (Copilot review on #3192).
+        p.target_primaries = targetColorSpace.wireValue
         // Input shape tag (#1331): forwarded from the driver so the chain knows
         // which leading stages to run. 0 = RAW (full chain), 1 = pano PNG
         // (skip WB + capture_sharpening). The default (0) preserves the

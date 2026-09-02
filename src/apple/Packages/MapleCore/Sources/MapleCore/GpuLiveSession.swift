@@ -258,14 +258,15 @@ public actor GpuLiveSession {
         asShotTint: Double? = nil,
         inputShape: UInt32 = 0,
         surfaceGeneration: UInt64 = 0,
-        wbFrame: WbSliderFrame? = nil
+        wbFrame: WbSliderFrame? = nil,
+        targetColorSpace: CanvasColorSpace = .current
     ) throws -> Double? {
         guard var h = handle else {
             throw GpuLiveError(message: "present: session is closed")
         }
         let params = PipelineRenderer.makeGpuLiveParams(
             from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
-            inputShape: inputShape, wbFrame: wbFrame
+            inputShape: inputShape, wbFrame: wbFrame, targetColorSpace: targetColorSpace
         )
         let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
         let cancelPtr = cancel?.pointer
