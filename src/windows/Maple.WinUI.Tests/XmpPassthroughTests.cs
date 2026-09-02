@@ -409,5 +409,31 @@ namespace Maple.WinUI.Tests
 
             Assert.Contains("<xmpMM:History", resaved);
         }
+
+        /// <summary>
+        /// #3113 review (Copilot): a stale/out-of-sync `ChildOrder` that
+        /// repeats the same `PassthroughIndex` twice must not duplicate
+        /// that node in the output — only the first occurrence emits, the
+        /// same defensive posture `BuildChildren` already takes for an
+        /// out-of-range or missing index.
+        /// </summary>
+        [Fact]
+        public void DuplicatePassthroughIndexInChildOrderEmitsTheNodeOnlyOnce()
+        {
+            var doc = XmpParser.Parse(DocWithUnknownAttributeAndNode);
+            Assert.NotNull(doc);
+
+            // The parsed document already has one ChildOrder slot pointing
+            // at PassthroughIndex 0 (the xmpMM:History node) — append a
+            // second slot pointing at the same index, simulating stale data.
+            doc!.ChildOrder.Add(ChildSlot.ForPassthrough(0));
+
+            var resaved = XmpWriter.Serialize(doc);
+
+            var firstAt = resaved.IndexOf("<xmpMM:History", System.StringComparison.Ordinal);
+            var lastAt = resaved.LastIndexOf("<xmpMM:History", System.StringComparison.Ordinal);
+            Assert.True(firstAt >= 0, "the node must still survive the resave");
+            Assert.Equal(firstAt, lastAt);
+        }
     }
 }
