@@ -6,6 +6,7 @@
 use super::{Kind, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
 use crate::types::local_adjustment::{Mask, PartialAdjustments, Point2};
+use crate::xmp::parse_xmp_bool;
 use quick_xml::events::BytesStart;
 
 fn attr_str(e: &BytesStart<'_>, key: &str) -> Result<Option<String>> {
@@ -59,8 +60,13 @@ pub(super) struct CorrectionAttrs {
 /// `crs:What` is ignored — it is always `"Correction"` and carries no
 /// information a fixed field list needs.
 pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAttrs> {
+    // Same case-insensitive spelling set every other boolean-like field in
+    // the schema accepts (`docs/xmp-canonical-format.md` § "Enum fields and
+    // parse strictness"); an absent or unrecognized value defaults to
+    // active, matching Adobe's own "no explicit CorrectionActive means the
+    // correction applies" convention.
     let active = attr_str(e, "crs:CorrectionActive")?
-        .map(|v| !matches!(v.as_str(), "false" | "False" | "0"))
+        .and_then(|v| parse_xmp_bool(&v))
         .unwrap_or(true);
     let amount = attr_f32(e, "crs:CorrectionAmount")?.unwrap_or(1.0);
     let raw = PartialAdjustments {
@@ -146,7 +152,7 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
             let angle_deg = attr_f32(e, "crs:Angle")?.unwrap_or(0.0);
             let feather_pct = attr_f32(e, "crs:Feather")?.unwrap_or(50.0);
             let flipped = attr_str(e, "crs:Flipped")?
-                .map(|v| matches!(v.as_ref(), "true" | "True"))
+                .and_then(|v| parse_xmp_bool(&v))
                 .unwrap_or(false);
             Ok(Some(Mask::Radial {
                 center: Point2::new((left + right) / 2.0, (top + bottom) / 2.0),
