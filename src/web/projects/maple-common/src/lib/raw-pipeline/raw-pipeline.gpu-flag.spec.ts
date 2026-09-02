@@ -15,8 +15,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RawPipelineService } from './raw-pipeline.service';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
+import { CanvasColorSpacePref } from './canvas-color-space.pref';
 import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
-import type { DecodeRequest, DecodeSuccess } from './raw-pipeline.types';
+import type { DecodeRequest, DecodeSuccess, OpenSessionRequest } from './raw-pipeline.types';
 
 /** Minimal Worker stub — captures the posted request, replays a reply. */
 class WorkerStub {
@@ -80,6 +81,8 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     // #1062: the gate warm-starts from localStorage, so clear any cached
     // operator value — these cases exercise the build-time token alone.
     TypedStorage.remove(STORAGE_KEYS.GPU_LIVE_RENDER_ENABLED);
+    // #3191: same warm-start caveat for the canvas colour-space preference.
+    TypedStorage.remove(STORAGE_KEYS.CANVAS_COLOR_SPACE);
     install();
   });
 
@@ -242,6 +245,82 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     const info = await promise;
     expect(info.width).toBe(4000);
     expect(info.colorSpace).toBe('display-p3');
+  });
+
+  // #3191: the web half of the #1338 P3 toggle — `openLiveSession` reads
+  // `CanvasColorSpacePref.current()` per request (same pattern as the GPU
+  // gate above it) and threads it into the request's `targetColorSpace`.
+
+  /** Reply to an in-flight `open-session` so its promise settles — the new
+   * tests below only care about the OUTGOING request, but an unresolved
+   * promise still rejects (`RawPipelineService destroyed`) when the TestBed
+   * module tears down, which vitest reports as an unhandled rejection. */
+  function resolveOpen(msg: OpenSessionRequest): void {
+    workerStub.reply({
+      id: msg.id,
+      type: 'open-session-success',
+      width: 100,
+      height: 100,
+      asShotTemperature: 5200,
+      asShotTint: 0,
+      colorSpace: 'display-p3',
+    });
+  }
+
+  it('openLiveSession requests the gamut-probed default when no choice is stored', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    const service = TestBed.inject(RawPipelineService);
+    const pref = TestBed.inject(CanvasColorSpacePref);
+
+    const promise = service.openLiveSession({} as OffscreenCanvas, new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+
+    const sent = workerStub.postMessage.mock.calls[0][0] as OpenSessionRequest;
+    expect(sent.targetColorSpace).toBe(pref.current());
+    resolveOpen(sent);
+    await promise;
+  });
+
+  it('openLiveSession requests a user-saved colour space, not the default', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    TestBed.inject(CanvasColorSpacePref).set('srgb');
+    const service = TestBed.inject(RawPipelineService);
+
+    const promise = service.openLiveSession({} as OffscreenCanvas, new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+
+    const sent = workerStub.postMessage.mock.calls[0][0] as OpenSessionRequest;
+    expect(sent.targetColorSpace).toBe('srgb');
+    resolveOpen(sent);
+    await promise;
+  });
+
+  it('a mid-session preference change lands on the NEXT session open, not the current one', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    const service = TestBed.inject(RawPipelineService);
+    const pref = TestBed.inject(CanvasColorSpacePref);
+    pref.set('display-p3');
+
+    const first = service.openLiveSession({} as OffscreenCanvas, new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+    const firstMsg = workerStub.postMessage.mock.calls[0][0] as OpenSessionRequest;
+    expect(firstMsg.targetColorSpace).toBe('display-p3');
+    resolveOpen(firstMsg);
+    await first;
+
+    pref.set('srgb');
+    const second = service.openLiveSession({} as OffscreenCanvas, new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+    const secondMsg = workerStub.postMessage.mock.calls[1][0] as OpenSessionRequest;
+    expect(secondMsg.targetColorSpace).toBe('srgb');
+    resolveOpen(secondMsg);
+    await second;
   });
 
   it('renderLiveSession posts render-session and resolves the colour-space tag', async () => {

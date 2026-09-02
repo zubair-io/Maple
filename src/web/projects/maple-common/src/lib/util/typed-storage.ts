@@ -49,6 +49,13 @@ export const STORAGE_KEYS = {
    * phone bottom sheet keeps its own always-starts-closed session state and
    * never touches this key. */
   PREVIEW_INFO_OPEN: 'cm.preview.infoOpen',
+  /** User-chosen GPU-live canvas colour space (#3191, web half of the #1338
+   * P3 toggle): `'display-p3' | 'srgb'`, or absent — a per-viewer DISPLAY
+   * preference, not server config, mirroring Apple's `CanvasColorSpace`
+   * UserDefaults key. Absent ⇒ `CanvasColorSpacePref` falls back to
+   * `'display-p3'` when this browser's screen reports the P3 gamut, else
+   * `'srgb'`. */
+  CANVAS_COLOR_SPACE: 'cm.canvasColorSpace',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
