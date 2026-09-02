@@ -57,6 +57,10 @@ interface CorpusCase {
     folderPath?: string;
     newName?: string;
     name?: string;
+    /** Non-sidecar companions to relocate alongside the primary (#2667) —
+     * relative to the case's temp root, fed to `relocateFile`'s
+     * `extraCompanionAbsPaths`. API-only (`requires: ["companion-file"]`). */
+    companions?: string[];
   };
   fileinfo?: {
     path: string;
@@ -68,6 +72,9 @@ interface CorpusCase {
     outcome?: 'relocated' | 'skipped' | 'error';
     renamedOnCollision?: boolean;
     sidecarFollowed?: boolean;
+    /** Whether every listed `operation.companions` entry successfully
+     * copied to the new location (#2667). */
+    companionFollowed?: boolean;
     tree?: CorpusFile[];
     valid?: boolean;
     selectedIndex?: number;
@@ -181,6 +188,7 @@ async function requiresSkipReason(c: CorpusCase): Promise<string | null> {
       case 'symlinks':
       case 'posix-permissions':
       case 'multi-location-fileinfo':
+      case 'companion-file':
         continue; // always available to the Bun/API runner on macOS+Linux
       case 'case-insensitive-fs':
         if (!probeCaseInsensitiveFs()) return 'case-insensitive-fs: temp volume is case-sensitive';
@@ -236,6 +244,7 @@ async function runRelocateCase(c: CorpusCase): Promise<void> {
       destAbsPath: destAbs,
       mode: op.mode!,
       collision: op.collision as CollisionPolicy,
+      extraCompanionAbsPaths: op.companions?.map((rel) => path.join(root, ...rel.split('/'))),
     });
 
     assertRelocateOutcome(c, outcome);
@@ -269,6 +278,11 @@ function assertRelocateOutcome(
   if (c.expected.sidecarFollowed !== undefined) {
     expect(outcome.sidecarPaths.length > 0, `${c.name}: sidecarFollowed`).toBe(
       c.expected.sidecarFollowed,
+    );
+  }
+  if (c.expected.companionFollowed !== undefined) {
+    expect(outcome.companionPaths.length > 0, `${c.name}: companionFollowed`).toBe(
+      c.expected.companionFollowed,
     );
   }
 }

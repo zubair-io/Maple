@@ -16,17 +16,19 @@
  * a failed repoint leaves the original completely untouched (at worst a
  * harmless duplicate copy sits at the destination).
  *
- * Deliberately does NOT (yet) handle the `apple_rendered_path` companion or
- * the byte-identical dedupe short-circuit that
- * `workers/migration/move-backup-asset.ts` (`moveBackupAsset`) implements
- * for the geo-relocate route (`routes/library-relocate.ts`). Both are
- * outside this ticket's (#2629) 8-step contract, and `moveBackupAsset` is
- * also shared with the just-landed day-dir-refile migration
- * (`workers/migration/refile-legacy-daydir.ts`) — rewriting its call site
- * risked either silently orphaning Apple-rendered companions for backed-up
- * assets or regressing that migration. `routes/library-relocate.ts` is left
- * calling `moveBackupAsset` as-is; generalizing this primitive to subsume
- * it is tracked as a follow-up: #2667.
+ * #2667: also accepts an optional `renderedCompanionAbsPath` — a PhotoKit
+ * backup's Apple-rendered JPEG companion (`apple_rendered_path`), carried
+ * alongside the primary + sidecars via `fs/relocate.ts`'s
+ * `extraCompanionAbsPaths` and written back to `apple_rendered_path` in the
+ * SAME repoint write as everything else. `routes/library-relocate.ts` (the
+ * on-demand geo-relocate route) is built on this. The byte-identical dedupe
+ * short-circuit `workers/migration/move-backup-asset.ts` (`moveBackupAsset`)
+ * also implements is deliberately NOT reproduced here — it is
+ * content-identity semantics specific to that one caller, not a generic
+ * relocate concern, so it stays a caller-side pre-check
+ * (`library/relocate-geo.ts`) before this function is even called.
+ * `moveBackupAsset` itself is unchanged and still used as-is by the
+ * day-dir-refile migration (`workers/migration/refile-legacy-daydir.ts`).
  */
 
 import * as path from 'node:path';
@@ -34,7 +36,12 @@ import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { MEILI_REARM_SET } from '../people/people-search-reindex.ts';
-import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/relocate.ts';
+import {
+  relocateFile,
+  type CollisionPolicy,
+  type RelocateMode,
+  type RelocateVerifiedInfo,
+} from '../fs/relocate.ts';
 import { resolveRelPathUnderRoot } from './address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { child as childLogger } from '../log.ts';
@@ -67,6 +74,14 @@ export interface RelocateAssetInput {
    * under the SOURCE library's root instead — the live misplacement bug
    * this field closes. */
   destinationLibraryId?: ObjectId;
+  /** Absolute path of the asset's Apple-rendered JPEG companion
+   * (`apple_rendered_path`), if any — carried alongside the primary +
+   * sidecars the same way a `.xmp` sidecar is (#2667). `null`/omitted for
+   * an asset with no such companion. The caller is responsible for
+   * resolving the doc's `apple_rendered_path` to an absolute path (and for
+   * confirming it exists on disk) before passing it — this function is
+   * asset-shape-agnostic beyond that. */
+  renderedCompanionAbsPath?: string | null;
 }
 
 export type RelocateAssetResult =
@@ -291,8 +306,8 @@ function buildRepointHook(
   primary: FileInfo,
   destLibraryId: ObjectId,
   destLibRoot: string,
-): (info: { newAbsPath: string }) => Promise<void> {
-  return async ({ newAbsPath }) => {
+): (info: RelocateVerifiedInfo) => Promise<void> {
+  return async ({ newAbsPath, companionPaths }) => {
     const split = splitRelPath(destLibRoot, newAbsPath);
     const set: Record<string, unknown> = {
       // #2725: repoint library_id too — a plain path/filename repoint left
@@ -305,6 +320,18 @@ function buildRepointHook(
       ...MEILI_REARM_SET,
       ...relocateCacheStageResetSet(),
     };
+    // #2667: only touch `apple_rendered_path` when the companion actually
+    // copied — a companion that was REQUESTED but failed to copy (best-effort,
+    // `fs/relocate.ts`'s `tryCopyCompanion`) leaves `companionPaths` empty, and
+    // omitting the field here means the doc's existing value is left exactly
+    // as it was, matching `moveBackupAsset`'s same "unchanged on a companion
+    // that didn't move" behavior.
+    if (input.renderedCompanionAbsPath && companionPaths[0]) {
+      set.apple_rendered_path = path
+        .relative(destLibRoot, companionPaths[0])
+        .split(path.sep)
+        .join('/');
+    }
     const res = await c.updateOne(liveFileinfoMatchFilter(input.id, primary), {
       $set: set,
     } as never);
@@ -361,6 +388,9 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
     mode: input.mode,
     collision: input.collision,
     callerTag: 'relocateAsset',
+    extraCompanionAbsPaths: input.renderedCompanionAbsPath
+      ? [input.renderedCompanionAbsPath]
+      : undefined,
     ...(input.mode === 'move' ? { onVerified: repointToNewLocation } : {}),
   });
 
