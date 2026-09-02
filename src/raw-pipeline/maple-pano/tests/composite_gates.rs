@@ -10,6 +10,7 @@ use maple_pano::gain::GainMode;
 use maple_pano::ingest::{PlanarImage, ValidityMask};
 use maple_pano::prng::SplitMix64;
 use maple_pano::render::{build_camera_set, render_frame, CameraSetOptions, Pattern};
+use maple_pano::seam::SeamStrategy;
 use maple_pano::source::EquirectSource;
 
 fn ring(count: u32, fov_deg: f64, full: bool) -> CameraSetOptions {
@@ -303,8 +304,16 @@ fn tiling_equals_real_composite() {
 
     // Tiled at multiple heights, including non-divisors and the full height.
     for tile_rows in [1u32, 7, 23, 64, canvas.height] {
-        let (tiled, _) = composite_tiled_frames(&frames, &cams, gains, &[], canvas, tile_rows)
-            .expect("tiled composite");
+        let (tiled, _) = composite_tiled_frames(
+            &frames,
+            &cams,
+            gains,
+            &[],
+            canvas,
+            tile_rows,
+            SeamStrategy::Voronoi,
+        )
+        .expect("tiled composite");
 
         let mut validity_mismatches = 0usize;
         let mut value_mismatches = 0usize;

@@ -149,6 +149,13 @@ pub fn build_from_paths(
             gains.len(),
         )));
     }
+    if !local_corrections.is_empty() && local_corrections.len() != paths.len() {
+        return Err(PanoError::InvalidOptions(format!(
+            "seam::masks::build_from_paths: {} local corrections vs {} paths (pass an empty slice to skip alignment)",
+            local_corrections.len(),
+            paths.len()
+        )));
+    }
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let mut layers = Vec::with_capacity(paths.len());
     for (i, (path, cam)) in paths.iter().zip(cameras).enumerate() {
@@ -180,6 +187,12 @@ pub fn build_from_frames(
         frames.len(),
         gains.len(),
         "seam::masks::build_from_frames: frame/gain count mismatch"
+    );
+    assert!(
+        local_corrections.is_empty() || local_corrections.len() == frames.len(),
+        "seam::masks::build_from_frames: {} local corrections vs {} frames (pass an empty slice to skip alignment)",
+        local_corrections.len(),
+        frames.len()
     );
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let layers: Vec<PlanarImage> = frames
@@ -280,5 +293,47 @@ mod tests {
             "expected at least one sample deep inside a frame's footprint \
              (total weight near 1.0), max seen was {max_total_seen}"
         );
+    }
+
+    /// A `local_corrections` slice that is neither empty nor exactly
+    /// per-frame must be rejected explicitly, not silently truncated by
+    /// `.get(i)` inside the warp loop (which would leave later frames'
+    /// alignment corrections quietly dropped). The mismatch is caught
+    /// before any file I/O, so nonexistent paths are fine here.
+    #[test]
+    fn build_from_paths_rejects_mismatched_local_corrections() {
+        let cams = ring_cameras(2);
+        let paths = vec![
+            std::path::PathBuf::from("/nonexistent/a.dng"),
+            std::path::PathBuf::from("/nonexistent/b.dng"),
+        ];
+        let gains = vec![[1.0, 1.0, 1.0]; cams.len()];
+        let canvas = crate::canvas::auto_canvas(&cams, &crate::canvas::CanvasOptions::default())
+            .expect("canvas");
+        // One entry for two frames: neither empty nor exactly per-frame.
+        let short_lc: Vec<Option<LocalCorrection>> = vec![None];
+
+        let result = build_from_paths(&paths, &cams, &gains, &short_lc, &canvas);
+        assert!(
+            result.is_err(),
+            "expected a length-mismatch error, got Ok (silently truncated)"
+        );
+    }
+
+    /// Same contract as [`build_from_paths_rejects_mismatched_local_corrections`]
+    /// for the pre-loaded-frames entry point — infallible, so the contract
+    /// is a panic instead of a `Result::Err`.
+    #[test]
+    #[should_panic(expected = "local corrections")]
+    fn build_from_frames_rejects_mismatched_local_corrections() {
+        let cams = ring_cameras(2);
+        let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
+        let gains = vec![[1.0, 1.0, 1.0]; cams.len()];
+        let canvas = crate::canvas::auto_canvas(&cams, &crate::canvas::CanvasOptions::default())
+            .expect("canvas");
+        // One entry for two frames: neither empty nor exactly per-frame.
+        let short_lc: Vec<Option<LocalCorrection>> = vec![None];
+
+        build_from_frames(&frames, &cams, &gains, &short_lc, &canvas);
     }
 }
