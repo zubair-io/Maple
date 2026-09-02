@@ -21,6 +21,18 @@
 // migration (thumbnail AVIF epic): existing `.jpg` entries are left as
 // orphans rather than fallback-read — the cache is treated as cold and
 // regenerates under `.avif`.
+//
+// Sourceless assets (PhotoKit, Self-Hosted browse) are the exception to the
+// `.maple/thumbs/` scheme above (#2763): they have no filesystem URL to hash
+// a basename from, so `thumbnailData(forKey:)`/`storeThumbnailData(forKey:)`
+// key by the asset's own stable id instead — and, since that stable id has
+// no relationship to `cacheDir` (whichever LOCAL folder was most recently
+// `configure()`d), those two methods write to a FIXED location under the
+// app's Caches directory (`sourcelessCacheDir`) rather than `cacheDir`.
+// Writing them through `cacheDir` was the #2763 bug: a PhotoKit/Self-Hosted
+// browse that followed a local-folder browse silently wrote into that
+// unrelated folder's `.maple/thumbs/`, unreadable by a fresh session or a
+// later `configure()` call for a third folder.
 
 import Foundation
 import CoreImage
@@ -35,6 +47,31 @@ public actor ThumbnailDiskCache {
     private var memCache: [String: CIImage] = [:] // hot in-memory cache
     private var dataMemCache: [String: Data] = [:] // hot AVIF-bytes cache (for UI cells)
     private let maxMemEntries = 100
+
+    /// On-disk store for SOURCELESS thumbnails (PhotoKit, Self-Hosted browse
+    /// without a local mirror) — #2763. Deliberately independent of
+    /// `cacheDir`: `cacheDir` tracks whichever LOCAL folder was most
+    /// recently `configure()`d, and a sourceless asset has no relationship
+    /// to that folder at all. Before this fix, `thumbnailData(forKey:)`/
+    /// `storeThumbnailData(_:forKey:)` wrote sourceless bytes through
+    /// `cacheDir` anyway — a PhotoKit or Self-Hosted browse that followed a
+    /// local-folder browse in the same session silently wrote into that
+    /// UNRELATED folder's `.maple/thumbs/`, and a fresh session (or a
+    /// `configure()` call for a THIRD folder) could never read it back,
+    /// forcing a full re-render/re-fetch every time. A sourceless asset's
+    /// stable id already makes the cache KEY folder-independent; this
+    /// property makes the on-disk DIRECTORY match that, at a fixed location
+    /// under the app's own Caches directory (same convention as
+    /// `CloudThumbCache`'s `cloud-thumbs`) rather than one hostage to
+    /// whatever local folder happens to be open.
+    private let sourcelessCacheDir: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = caches
+            .appendingPathComponent("app.justmaple.aperture", isDirectory: true)
+            .appendingPathComponent("sourceless-thumbs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
 
     /// Thumbnail target size per spec § 03 (256 px long edge).
     public static let defaultThumbSize = CGSize(width: 256, height: 256)
@@ -89,13 +126,25 @@ public actor ThumbnailDiskCache {
 
     /// Return AVIF bytes for the given asset URL, or nil if not cached.
     /// Preferred entry-point for UI cells that render via `Image(data:)`.
+    ///
+    /// Does NOT delegate to `thumbnailData(forKey:)` (#2763): that overload
+    /// now reads from `sourcelessCacheDir`, a fixed location independent of
+    /// `cacheDir` — correct for a sourceless (PhotoKit/Self-Hosted) stable
+    /// id, wrong for a URL-backed local asset, which must keep resolving
+    /// against `cacheDir` (the actual asset's folder). The two overloads
+    /// share the same hash function (`cacheKey`/`hashKey`, both
+    /// `MapleThumbCacheKey.sha256Prefix16`) but not the same directory.
     public func thumbnailData(for assetURL: URL) -> Data? {
-        // Pass the BASENAME to `forKey:` (not a pre-hashed key). The
-        // `forKey:` variant hashes its argument internally — passing
-        // `cacheKey(for:)` here double-hashed and wrote to a path that
-        // diverged from the API/Web (`<folder>/.maple/thumbs/<sha256(basename).prefix16>.avif`),
-        // defeating cross-app cache sharing.
-        return thumbnailData(forKey: assetURL.lastPathComponent)
+        let key = cacheKey(for: assetURL)
+        if let d = dataMemCache[key] { return d }
+        guard let dir = cacheDir else { return nil }
+        let fileURL = dir.appendingPathComponent("\(key).avif")
+        guard fm.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL) else { return nil }
+        evictIfNeeded()
+        dataMemCache[key] = data
+        syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+        return data
     }
 
     /// Return AVIF bytes for an opaque stable key (e.g. an `AssetRef.id` or a
@@ -107,8 +156,7 @@ public actor ThumbnailDiskCache {
     public func thumbnailData(forKey key: String) -> Data? {
         let hashed = hashKey(key)
         if let d = dataMemCache[hashed] { return d }
-        guard let dir = cacheDir else { return nil }
-        let fileURL = dir.appendingPathComponent("\(hashed).avif")
+        let fileURL = sourcelessCacheDir.appendingPathComponent("\(hashed).avif")
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL) else { return nil }
         evictIfNeeded()
@@ -152,9 +200,19 @@ public actor ThumbnailDiskCache {
 
     /// Store pre-encoded AVIF bytes. Used by `ThumbnailLoader` which encodes
     /// off-actor (avoids blocking the cache actor on the encode round-trip).
+    ///
+    /// Does NOT delegate to `storeThumbnailData(_:forKey:)` (#2763) — see
+    /// `thumbnailData(for:)`'s doc comment for why the two overloads can no
+    /// longer share an implementation now that they write to different
+    /// directories.
     public func storeThumbnailData(_ data: Data, for assetURL: URL) {
-        // See `thumbnailData(for:)` — pass the basename, not a pre-hashed key.
-        storeThumbnailData(data, forKey: assetURL.lastPathComponent)
+        let key = cacheKey(for: assetURL)
+        evictIfNeeded()
+        dataMemCache[key] = data
+        syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+        guard let dir = cacheDir else { return }
+        let fileURL = dir.appendingPathComponent("\(key).avif")
+        try? data.write(to: fileURL, options: .atomic)
     }
 
     /// Store pre-encoded AVIF bytes under an opaque stable key. Sibling of the
@@ -164,8 +222,7 @@ public actor ThumbnailDiskCache {
         evictIfNeeded()
         dataMemCache[hashed] = data
         syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
-        guard let dir = cacheDir else { return }
-        let fileURL = dir.appendingPathComponent("\(hashed).avif")
+        let fileURL = sourcelessCacheDir.appendingPathComponent("\(hashed).avif")
         try? data.write(to: fileURL, options: .atomic)
     }
 

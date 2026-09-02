@@ -44,15 +44,6 @@ final class ThumbnailLoaderSourcelessTests: XCTestCase {
     // MARK: - Test
 
     func testLoaderUsesSourceThumbAndCachesByStableID() async throws {
-        // Configure the disk cache to a fresh tmp dir so we don't pollute the
-        // shared cache across tests.
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("maple-thumb-srcless-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-
-        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
-
         let canned = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x12, 0x34])
         let source = StubSource(canned: canned)
 
@@ -60,7 +51,15 @@ final class ThumbnailLoaderSourcelessTests: XCTestCase {
         // path wouldn't trigger because `thumb` succeeds, but the absence of
         // a provider also guarantees a regression toward the renderer would
         // surface as `nil`, not a successful match).
-        let stableID = "maple:abcdef0123456789"
+        //
+        // UUID-suffixed (#2763): sourceless thumbnails now persist at a
+        // FIXED disk location independent of `configure(folderURL:)` (the
+        // whole point of the fix — a prior "cold cache after a fresh
+        // session" was the bug). A hardcoded stable id would therefore
+        // leak across separate `swift test` invocations on the same
+        // machine and start this test from an already-warm cache, hiding
+        // whether `source.thumb(for:)` genuinely fires on a real miss.
+        let stableID = "maple:abcdef0123456789-\(UUID().uuidString)"
         let asset = AssetRef(
             displayName: "IMG_42.dng",
             hintExtension: "dng",
