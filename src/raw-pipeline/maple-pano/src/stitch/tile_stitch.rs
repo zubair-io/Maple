@@ -41,18 +41,45 @@ use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
     GraphImage, MatchGraph, ReverifySummary,
 };
-use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame, PlanarImage};
+use crate::ingest::FramePriors;
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
 use crate::refine::{refine_correspondences, RefineOptions};
 use crate::robust::RobustOptions;
 use crate::stitch::interleave_planar;
 use crate::strategy::StrategyReport;
+use crate::tile::frame_cache::TileFrameCache;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
 use crate::tile::{composite_tile, verify_tile_edges};
 use crate::twoview::PixelCorrespondence;
 
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
+
+/// Cap on frames the tile tail's on-demand decode cache keeps resident at
+/// once (#3090, redone under #3197 after the first attempt — #3146 —
+/// was reverted for serializing the whole tile tail).
+///
+/// Sized from the strip geometry, not picked arbitrarily: a nadir strip
+/// capture (the tile strategy's own motivating case — see `tile/mod.rs`)
+/// overlaps only its immediate neighbours along the flight path, so any
+/// point on the canvas is covered by at most 2 frames (a slight path
+/// wobble might occasionally bring a 3rd into view, rarely more). A
+/// "wave" of spatially-adjacent work (`frame_window`'s cell grouping)
+/// therefore only ever touches a small, slowly-changing set of frame
+/// indices as it sweeps along the strip. Capacity 6 gives roughly 3× that
+/// typical touch count — enough headroom that consecutive waves usually
+/// share most of their pinned set, so the sweep doesn't immediately evict
+/// a frame it will need again a few cells later. A 100 MP frame's three
+/// f32 planes are already ~1.2 GB, so 6 resident frames alone is ~7 GB;
+/// see `TileFrameCache::pin_many`'s `DECODE_CONCURRENCY` for why the
+/// number of frames *decoding at once* is capped separately (lower)
+/// from this residency count — that distinction is what took pano_03
+/// from a transient ~30 GB spike down to a measured 16.4 GB peak RSS
+/// (595.6 s), against a 33.5 GB / 501.6 s pre-fix baseline. This is a
+/// memory/parallelism tradeoff, not a correctness one: a wave whose own
+/// touched-frame count exceeds this cap is still processed correctly
+/// (see `frame_window::group_into_waves`), just without the headroom.
+const TILE_CACHE_CAPACITY: usize = 6;
 
 // ─── Shared early-stage state ─────────────────────────────────────────────────
 
@@ -61,8 +88,11 @@ use super::types::{StitchError, StitchOptions, TileStitchOutcome};
 /// Fields are ordered by how they are produced during the shared pipeline:
 /// stage-0 meta → stage-1 features + proxy dims → stage-2 match graph.
 pub(super) struct TileEarlyState<'a> {
-    /// Ingested full-resolution frames; the tile refine step reads pixels here.
-    pub frames: Vec<IngestedFrame>,
+    /// Per-frame full-resolution pixel dimensions — a cheap metadata-only
+    /// fact from stage 0's `FrameMeta`, not a decode (#3197). Pixels
+    /// themselves are decoded on demand through the `TileFrameCache`
+    /// `tile_tail` builds from `inputs`.
+    pub full_dims: Vec<(u32, u32)>,
     /// Per-frame proxy dimensions `(width, height)`.
     pub proxy_dims: Vec<(u32, u32)>,
     /// Feature sets extracted by ALIKED (kept here for the struct but not read
@@ -81,8 +111,10 @@ pub(super) struct TileEarlyState<'a> {
     pub focal_seed_source: Option<super::FocalSeedSource>,
     /// Wall-clock times for stages 0, 1, 2 (seconds).
     pub stage_timings_012: [f64; 3],
-    /// Path list parallel to `frames` (for the stitch report).
-    pub _inputs: &'a [PathBuf],
+    /// Path list parallel to `full_dims` — used both for the stitch
+    /// report and to build the on-demand decode cache `tile_tail`'s
+    /// stage 3–5 work reads frames through (#3197).
+    pub inputs: &'a [PathBuf],
 }
 
 // ─── Tile branch helper called from stitch() ─────────────────────────────────
@@ -99,6 +131,11 @@ pub(super) struct TileBranchInput<'a> {
     pub opts: &'a super::types::StitchOptions,
     /// Raw LightGlue correspondences keyed by `(a, b)` in candidate order.
     pub raw_matches_cache: Vec<((usize, usize), Vec<PixelCorrespondence>)>,
+    /// Per-frame full-resolution pixel dimensions from stage 0 (already
+    /// computed there — `FrameMeta::full_width`/`full_height` — so this
+    /// costs nothing extra; #3197 threads it through instead of
+    /// re-decoding every frame to learn its size).
+    pub full_dims: Vec<(u32, u32)>,
     /// Per-frame proxy dimensions `(width, height)` from stage 0.
     pub proxy_dims: Vec<(u32, u32)>,
     /// Feature sets from stage 1 (kept for future re-matching without ALIKED).
@@ -127,7 +164,7 @@ pub(super) struct TileBranchInput<'a> {
 /// Returns a `TileStitchOutcome` ready for `StitchSuccess::Tile`.
 pub(super) fn run_tile_branch(
     input: TileBranchInput<'_>,
-    mut progress: impl FnMut(u32, f32),
+    progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
 ) -> Result<TileStitchOutcome, super::types::StitchError> {
     use super::types::StitchError;
@@ -136,6 +173,7 @@ pub(super) fn run_tile_branch(
         inputs,
         opts,
         raw_matches_cache,
+        full_dims,
         proxy_dims,
         feature_sets,
         strategy_report,
@@ -212,36 +250,20 @@ pub(super) fn run_tile_branch(
         return Err(StitchError::MatchFailed(tile_match_failures));
     }
 
-    // Decode full-res frames for NCC refinement.  This is the first work of
-    // the tile tail (stage 3), which runs *after* stages 0–2 completed in
-    // `stitch()`.  Report progress on ordinal 3 so callers see a monotonically
-    // increasing stage number (0→1→2→3→4→5) and the fraction does not appear
-    // to go backwards.
-    // For pano_00 (3 frames, ~130 MP total) this is ~3 GB transient RSS;
-    // the rotation path avoids this via the 2-entry LRU cache (#1254).
-    progress(3, 0.0);
-    let mut tile_frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
-    for (i, path) in inputs.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        tile_frames.push(ingest_file(path).map_err(|e| StitchError::Decode {
-            path: path.clone(),
-            cause: e.to_string(),
-        })?);
-        progress(3, (i + 1) as f32 / inputs.len() as f32);
-    }
-
+    // #3197: no upfront full-res decode here — `full_dims` was already
+    // computed cheaply in stage 0 (`FrameMeta::full_width`/`full_height`).
+    // `tile_tail` builds the on-demand decode cache from `inputs` and
+    // pixels get decoded only when a stage actually needs them.
     tile_tail(
         TileEarlyState {
-            frames: tile_frames,
+            full_dims,
             proxy_dims,
             _feature_sets: feature_sets,
             graph: tile_graph,
             strategy_report,
             focal_seed_source: Some(focal_seed_source),
             stage_timings_012,
-            _inputs: inputs,
+            inputs,
         },
         opts,
         applied_opcodes,
@@ -272,37 +294,57 @@ pub(super) fn tile_tail(
     use std::time::Instant;
 
     let TileEarlyState {
-        frames,
+        full_dims,
         proxy_dims,
         _feature_sets: _,
         mut graph,
         strategy_report,
         focal_seed_source,
         stage_timings_012: [decode_s, features_s, graph_s],
-        _inputs: _,
+        inputs,
     } = state;
+
+    // #3197: on-demand decode cache — at most TILE_CACHE_CAPACITY frames
+    // resident at once, instead of every input frame up front. Shared by
+    // stage 3 (sequential edge-pair refine below), the photometric solve,
+    // and the composite tile loop (both inside `composite_tile`). See
+    // `TILE_CACHE_CAPACITY`'s doc comment for how that number was chosen,
+    // and `tile::frame_cache` for the per-frame locking that lets a miss
+    // on one frame decode without blocking any other frame's access.
+    let cache = TileFrameCache::new(inputs, TILE_CACHE_CAPACITY);
 
     // ── stage 3: full-resolution NCC refinement ───────────────────────────
     // No rotation geometry for the tile path — pass `None` for geometry.
+    // Sequential over edges (not parallel): each edge only ever needs its
+    // own two frames pinned, so there's no per-sample cache churn to
+    // avoid here the way `sampling.rs`/`masks.rs` need to (#3197).
     let t3 = Instant::now();
     progress(3, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
     let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
-    for edge in &mut graph.edges {
-        let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
-        let scale_of = |img: &PlanarImage, i: usize| {
+    let edge_count = graph.edges.len();
+    for (ei, edge) in graph.edges.iter_mut().enumerate() {
+        let get = |idx: usize| -> Result<_, StitchError> {
+            cache.get(idx).map_err(|e| StitchError::Decode {
+                path: inputs.get(idx).cloned().unwrap_or_default(),
+                cause: e.to_string(),
+            })
+        };
+        let img_a = get(edge.a)?;
+        let img_b = get(edge.b)?;
+        let scale_of = |dims: (u32, u32), proxy: (u32, u32)| {
             (
-                img.width() as f64 / proxy_dims[i].0 as f64,
-                img.height() as f64 / proxy_dims[i].1 as f64,
+                dims.0 as f64 / proxy.0 as f64,
+                dims.1 as f64 / proxy.1 as f64,
             )
         };
         let outcome = refine_correspondences(
-            img_a,
-            img_b,
-            scale_of(img_a, edge.a),
-            scale_of(img_b, edge.b),
+            &img_a,
+            &img_b,
+            scale_of((img_a.width(), img_a.height()), proxy_dims[edge.a]),
+            scale_of((img_b.width(), img_b.height()), proxy_dims[edge.b]),
             None,
             &edge.inlier_matches,
             &RefineOptions::default(),
@@ -310,6 +352,7 @@ pub(super) fn tile_tail(
         refined_matches += outcome.refined_count;
         fallback_matches += outcome.fallback_count;
         edge.inlier_matches = outcome.refined;
+        progress(3, (ei + 1) as f32 / edge_count.max(1) as f32);
     }
     // No full-resolution rotation reverification for tile.
     let reverify = ReverifySummary {
@@ -333,10 +376,6 @@ pub(super) fn tile_tail(
                 .into(),
         ]));
     }
-    let frame_dims: Vec<(u32, u32)> = frames
-        .iter()
-        .map(|f| (f.image.width(), f.image.height()))
-        .collect();
     let constraints: Vec<TileConstraint> = tile_edges
         .iter()
         .map(|e| TileConstraint {
@@ -347,7 +386,7 @@ pub(super) fn tile_tail(
         })
         .collect();
     let (solved_poses, solved_canvas, tile_orphans) =
-        solve_tile_poses(frames.len(), &constraints, 0, &frame_dims)
+        solve_tile_poses(full_dims.len(), &constraints, 0, &full_dims)
             .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
     // Honor the total-canvas pixel cap (uniform downscale to fit) — the
     // same `--max-canvas-px` contract the rotation path applies via
@@ -359,31 +398,21 @@ pub(super) fn tile_tail(
     progress(4, 1.0);
 
     let poses_placed = poses.len();
+    // #3197: no more moving decoded images out of a pre-decoded `frames`
+    // list — `poses[i].frame_idx` already identifies which original
+    // frame each pose covers, and `composite_tile` decodes it on demand
+    // through `cache`. `poses.len()` alone is exactly the placed-frame
+    // count the old `component_frames.len()` check reflected.
     let reachable_set: HashSet<usize> = poses.iter().map(|p| p.frame_idx).collect();
-    // Move (don't clone) each placed frame's full-resolution image out of
-    // `frames` into the composite input. `poses` carries strictly distinct,
-    // in-bounds `frame_idx` values (see `solve_tile_poses`: built from the
-    // ascending `reachable` set), so every slot is taken at most once and the
-    // `expect` cannot fire. Avoids deep-copying full-res planes (#1254).
-    let mut frame_slots: Vec<Option<PlanarImage>> =
-        frames.into_iter().map(|f| Some(f.image)).collect();
-    let component_frames: Vec<PlanarImage> = poses
-        .iter()
-        .map(|p| {
-            frame_slots[p.frame_idx]
-                .take()
-                .expect("each pose maps a distinct, present frame")
-        })
-        .collect();
     let component_edges: Vec<crate::tile::TileEdge> = tile_edges
         .iter()
         .filter(|e| reachable_set.contains(&e.a) && reachable_set.contains(&e.b))
         .cloned()
         .collect();
 
-    if component_frames.len() < 2 {
+    if poses.len() < 2 {
         return Err(StitchError::TooFewSurvivors {
-            survived: component_frames.len(),
+            survived: poses.len(),
             dropped: vec![],
         });
     }
@@ -395,8 +424,8 @@ pub(super) fn tile_tail(
         return Err(StitchError::Cancelled);
     }
     let (image, tile_report) = composite_tile(
-        &component_frames,
-        component_frames.len(),
+        &cache,
+        &full_dims,
         &component_edges,
         &poses,
         &canvas_spec,
