@@ -30,6 +30,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 
@@ -47,6 +48,7 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 })
 export class LensCorrectionsPanelComponent {
   private readonly library = inject(LibraryStateService);
+  private readonly editorState = inject(EditorStateService);
 
   readonly distortionMin = DISTORTION_RANGE[0];
   readonly distortionMax = DISTORTION_RANGE[1];
@@ -80,6 +82,7 @@ export class LensCorrectionsPanelComponent {
   toggleEnabled(): void {
     const id = this.library.focusedAssetId();
     if (!id) return;
+    this.editorState.commit();
     this.library.updateAdjustment(id, { lensProfileEnable: this.enabled() ? 'Off' : 'On' });
   }
 
@@ -134,6 +137,10 @@ export class LensCorrectionsPanelComponent {
   ): void {
     const id = this.library.focusedAssetId();
     if (!id) return;
+    // Snapshot undo BEFORE the write (Copilot review on #3184) — same
+    // "commit, then write" ordering `EditorStateService`'s own mutators use,
+    // so a Lens Corrections gesture is undoable like every other edit.
+    this.editorState.commit();
     this.library.updateAdjustment(id, { [field]: v });
   }
 }
