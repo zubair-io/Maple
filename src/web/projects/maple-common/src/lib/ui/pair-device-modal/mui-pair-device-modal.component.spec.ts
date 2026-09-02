@@ -1,9 +1,21 @@
+// Step 0 renders `mui-qr-code`, which calls an injected encoder function in
+// a constructor `effect()` — jsdom has no working canvas 2D context (see
+// qr-code's own spec), so the real `qrcode`-backed default has to be
+// overridden here. It's overridden via the `QR_CODE_TO_CANVAS` DI token
+// (#3034) rather than `vi.mock('qrcode', ...)` — see that token's doc
+// comment in `mui-qr-code.component.ts` for why module-level mocking isn't
+// reliable under this test runner once more than one spec renders the
+// component in the same Vitest worker.
+
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { MuiPairDeviceModalComponent } from './mui-pair-device-modal.component';
+import { QR_CODE_TO_CANVAS } from '../qr-code/mui-qr-code.component';
+
+const mockedToCanvas = vi.fn().mockResolvedValue(undefined);
 
 @Component({
   standalone: true,
@@ -33,7 +45,10 @@ class HostComponent {
 }
 
 function render(): { fixture: ComponentFixture<HostComponent>; host: HostComponent } {
-  TestBed.configureTestingModule({ imports: [HostComponent] });
+  TestBed.configureTestingModule({
+    imports: [HostComponent],
+    providers: [{ provide: QR_CODE_TO_CANVAS, useValue: mockedToCanvas }],
+  });
   const fixture = TestBed.createComponent(HostComponent);
   fixture.detectChanges();
   return { fixture, host: fixture.componentInstance };
