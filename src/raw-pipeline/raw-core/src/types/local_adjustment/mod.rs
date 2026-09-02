@@ -13,11 +13,11 @@
 //!   `stages::local_adjustments::apply` (PR #1450, closed #1422) — see that
 //!   module's own docs for the full per-pixel apply order and the operators
 //!   behind each control.
-//! * Wire format is a single `papp:LocalAdjustments` attribute (compact JSON,
-//!   implemented in [`wire`]) in the XMP sidecar. The brief's
-//!   `crs:GradientBasedCorrections` / nested `rdf:Bag` form is the long-run
-//!   goal — converting to it requires extending the attribute-only XMP
-//!   walker to track `Bag` / `li` state; tracked as #358.
+//! * Wire format is the canonical `crs:GradientBasedCorrections` /
+//!   `crs:CircularGradientBasedCorrections` nested-RDF form (#358,
+//!   `xmp::local_adjustments`) — ACR/Lightroom-readable, unlike Slice 1's
+//!   single `papp:LocalAdjustments` JSON attribute (still parsed for
+//!   migration by [`wire::decode_local_adjustments`], never written).
 //!
 //! Coordinates are normalized to `[0, 1]` on each axis, origin top-left,
 //! independent of pixel dimensions. This keeps masks resolution-agnostic so

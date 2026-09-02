@@ -1,16 +1,20 @@
-//! Wire format for `LocalAdjustment` in XMP sidecars (Slice 1 of #280).
+//! Legacy wire format for `LocalAdjustment` in XMP sidecars (Slice 1 of
+//! #280, superseded by #358).
 //!
-//! Slice 1 ships a single XMP attribute `papp:LocalAdjustments` whose value
-//! is compact JSON: an array of `{mask, adjustments}` objects. We use
+//! Slice 1 shipped a single XMP attribute `papp:LocalAdjustments` whose
+//! value is compact JSON: an array of `{mask, adjustments}` objects. We use
 //! `serde_json::Value` directly (no `Serialize`/`Deserialize` derives on the
 //! schema types) to keep the `types` module free of serde plumbing.
 //!
-//! **Long-run goal:** switch to canonical `crs:GradientBasedCorrections` +
-//! `crs:CircularGradientBasedCorrections` nested-RDF form. That requires
-//! extending the attribute-only XMP walker (`xmp::parse`) to track `Bag` /
-//! `li` state — a separate slice. Because no UI ships in Slice 1, no
-//! user-authored sidecars exist yet, so this format can be revised without
-//! breaking compat.
+//! **#358 replaced the write side** with the canonical
+//! `crs:GradientBasedCorrections` / `crs:CircularGradientBasedCorrections`
+//! nested-RDF form (`xmp::local_adjustments`) — ACR/Lightroom can read that
+//! form; they have no idea what this module's JSON blob means. This module
+//! now exists purely for **migration**: [`decode_local_adjustments`] still
+//! reads a hand-authored pre-#358 fixture carrying the old attribute, but
+//! [`encode_local_adjustments`] has no caller in `raw-core` anymore (kept
+//! for the round-trip unit tests below, which pin the legacy format's own
+//! shape so a future reader change can't silently break migration).
 
 use super::{LocalAdjustment, Mask, PartialAdjustments, Point2};
 use serde_json::{json, Value};
