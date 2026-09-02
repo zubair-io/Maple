@@ -162,7 +162,12 @@ enum CanvasCapture {
         // pixels for the container it actually captured. Cropping outside
         // that would introduce blank padding rather than skew the diff.
         let bitmapBounds = CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
-        let pixelRect = rawPixelRect.intersection(bitmapBounds).integral
+        // `.integral` rounds OUTWARD to the smallest integer-aligned rect
+        // CONTAINING the original — which can push the already-clamped
+        // rect back outside `bitmapBounds` by up to ~1px (Copilot review,
+        // same PR). Re-intersect after rounding so the final rect is
+        // strictly within the captured bitmap either way.
+        let pixelRect = rawPixelRect.intersection(bitmapBounds).integral.intersection(bitmapBounds)
         // An empty intersection (marker rect entirely outside the bitmap —
         // an unexpected frame/scale mismatch, not the ordinary case above)
         // means there is nothing to crop; `crop`'s `from:` origin can go
