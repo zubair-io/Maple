@@ -71,9 +71,23 @@ RAW_FFI_DIR="$RAW_PIPELINE_DIR/raw-ffi"
 FRAMEWORKS_DIR="$NATIVE_DIR/Frameworks"
 HEADERS_DIR="$NATIVE_DIR/Packages/MapleCore/Sources/MapleCore/include"
 
+# Flags are combinable in any order (see the usage header) — scan them all
+# rather than testing only "$1", which silently ignored e.g.
+# `--debug --check-only` (Copilot review, #2375).
+ARG_DEBUG=0; ARG_FORCE=0; ARG_CHECK_ONLY=0
+for arg in "$@"; do
+    case "$arg" in
+        --debug) ARG_DEBUG=1 ;;
+        --release) ;;
+        --force) ARG_FORCE=1 ;;
+        --check-only) ARG_CHECK_ONLY=1 ;;
+        *) echo "build-xcframework.sh: unknown flag '$arg' (see usage header)" >&2; exit 2 ;;
+    esac
+done
+
 PROFILE="release"
 CARGO_PROFILE_FLAG="--release"
-if [[ "${1:-}" == "--debug" ]]; then
+if [[ "$ARG_DEBUG" == "1" ]]; then
     PROFILE="debug"
     CARGO_PROFILE_FLAG=""
     echo "WARNING: building debug xcframework — maple_pano_stitch runs ~16× slower" >&2
@@ -189,7 +203,7 @@ all_slices_present() {
 # script on the Xcode scheme, ahead of MapleCore's compile, so a stale
 # xcframework fails the build with this message instead of an opaque
 # "value of type '...' has no member '...'" Swift compiler error.
-if [[ "${1:-}" == "--check-only" ]]; then
+if [[ "$ARG_CHECK_ONLY" == "1" ]]; then
     if [[ -f "$STAMP" ]]; then
         stamped_hash="$(tr -d '[:space:]' < "$STAMP" 2>/dev/null)"
     else
@@ -280,7 +294,7 @@ fetch_ort_ios_if_needed
 #     the GPU banner so `--check-only` can use them without the ORT/tool
 #     setup below).
 # ---------------------------------------------------------------------------
-if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "${1:-}" != "--force" && \
+if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "$ARG_FORCE" != "1" && \
       -f "$STAMP" ]]; then
     stamped_hash="$(tr -d '[:space:]' < "$STAMP" 2>/dev/null)"
     if [[ "$stamped_hash" == "$INPUT_HASH" ]] && all_slices_present; then
