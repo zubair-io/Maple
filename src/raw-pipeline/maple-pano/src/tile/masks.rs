@@ -5,9 +5,10 @@ use crate::error::PanoError;
 use crate::ingest::PlanarImage;
 
 use super::frame_cache::TileFrameCache;
-use super::frame_window::{self, WINDOW_PX};
+use super::frame_window;
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp;
+use super::TILE_PX;
 
 /// Estimate minimum overlap width for pyramid level selection, using a
 /// coarse canvas-space scan (stride 8) to find pairwise overlap pixels.
@@ -68,7 +69,7 @@ pub(super) fn estimate_min_overlap_width(
     let mut overlap_count = vec![vec![0usize; k]; k];
     let mut overlap_rows = vec![vec![std::collections::BTreeSet::<usize>::new(); k]; k];
 
-    let cells = frame_window::spatial_cells(cw, ch, WINDOW_PX);
+    let cells = frame_window::spatial_cells(cw, ch, TILE_PX);
     let waves = frame_window::group_into_waves(
         &cells,
         &bboxes,

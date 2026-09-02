@@ -5,7 +5,7 @@
 //! Both scans used to call `TileFrameCache::get` once **per sample
 //! point**, which is what actually thrashed the cache (see
 //! `frame_cache` module docs). The fix here is geometric, not just a
-//! locking change: split the canvas into `WINDOW_PX`-sided square cells,
+//! locking change: split the canvas into `TILE_PX`-sided square cells,
 //! resolve each cell's active frame set once from its (already-computed)
 //! canvas bbox, then group spatially-consecutive cells into "waves"
 //! whose union of active frames never exceeds the cache's capacity. A
@@ -48,11 +48,6 @@ use super::frame_cache::TileFrameCache;
 use crate::error::PanoError;
 use crate::ingest::PlanarImage;
 use std::sync::Arc;
-
-/// Cell side length, canvas pixels. Matches `composite::TILE_PX` — both
-/// exist for the same reason (bound how many frames a spatial unit of
-/// work can touch), so there's no reason for the two to disagree.
-pub(super) const WINDOW_PX: usize = 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Cell {
