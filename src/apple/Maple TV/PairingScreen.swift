@@ -59,9 +59,10 @@ struct PairingScreen: View {
         // Sized for couch-distance scanning. #2137 shrank the payload from a
         // fixed-shape ~210-char JSON+base64url string (a 59x59-module
         // symbol at level-M correction) to a ~114-char binary-packed base32
-        // one (39x39 modules — measured in
+        // one (39x39 px of rendered symbol — measured in
         // PairingProtocolTests.test_qrPayloadV2_rendersSmallerQRSymbolThanV1,
-        // which prints the real module counts on every run) — this 560pt
+        // which prints the CIQRCodeGenerator output widths on every run;
+        // the generator emits ~1 px per module, so px ≈ modules) — this 560pt
         // size and that format shrink are the two halves of the same
         // readability fix. At 300pt the original 59-module symbol was
         // ~5.1pt per module, too fine for a phone camera across a room; the
