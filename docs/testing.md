@@ -200,13 +200,15 @@ cargo build -p raw-ffi --features gpu                      # the FFI GPU surface
 cargo check -p raw-wasm --all-features --all-targets       # raw-wasm's gpu module tree type-checks
 cargo install naga-cli --locked --version 23.0.0
 bash src/scripts/check_wgsl.sh                             # naga front-end + validator, no GPU needed
-cargo test -p raw-gpu                                      # every WGSL kernel vs its raw-core Rust stage
+cargo test -p raw-gpu -- --test-threads=1                  # every WGSL kernel vs its raw-core Rust stage
 cargo test -p raw-wasm --features gpu                      # render_bytes_gpu vs render_bytes
 ```
 
 `check_wgsl.sh` exists because naga has no `#include` but the Rust pipeline accessors assemble kernels by prepending generated headers (`generated/color_matrices.wgsl`, `generated/agx_coeffs.wgsl`). It validates each kernel under a ladder of header prefixes — standalone, with matrices, with matrices plus AgX coefficients — and passes if any rung validates, so a kernel calling `mul_rec2020_to_srgb` isn't a false "unknown identifier". naga-cli is pinned to the version wgpu bundles so the gate matches the compiler the app runs.
 
 The job sets `MAPLE_REQUIRE_GPU=1`, which turns raw-wasm's developer-friendly "no adapter, skipping" soft-pass into a panic. On a runner deliberately provisioned with an adapter, a skip is a broken gate, not a valid outcome.
+
+**`raw-gpu`'s tests run serialised in CI (#2336).** The crate's ~200 tests each build their own `GpuContext` from scratch (a fresh wgpu Instance+Adapter+Device), and by default `cargo test` runs them across one thread per logical CPU. On lavapipe that intermittently SIGSEGV'd the whole test binary — always the three `present_chain::tests::offscreen_*` / `present_paints_the_image_not_the_clear_color` tests, the only ones in the crate that create a `wgpu::Texture` and read it back (every other test is buffer-only compute), and always with an identical crash signature and test-binary hash across otherwise-unrelated commits, proving the source diff under test was never the cause. `--test-threads=1` removes the concurrent context churn a software rasterizer isn't validated for, at the cost of wall time, with no test skipped and no coverage lost.
 
 **What this does not cover:** lavapipe is a Vulkan/SPIR-V target, so the gate proves raw-core↔WGSL agreement but says nothing about the Metal backend (naga's MSL output, Apple driver rounding) or a browser's real WebGPU implementation. Those are only exercised on real hardware — locally, and through the Apple UITest harness.
 
