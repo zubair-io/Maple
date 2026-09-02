@@ -121,7 +121,17 @@ public final class FolderMergeAdapter {
         let t = Task { await self.rebuild() }
         warmTask = t
         await t.value
-        warmTask = nil
+        // Identity-checked, not an unconditional nil (Jules review, PR
+        // #3187): `invalidate()` can run while this `await` is suspended,
+        // clearing `warmTask` and letting a NEW `warmUp()` call install its
+        // own task in its place. An unconditional `warmTask = nil` here
+        // would then clobber that new task's reference once THIS call
+        // resumes, breaking coalescing for whoever is awaiting it next.
+        // Only clear the slot if it's still holding the task this call
+        // itself created.
+        if warmTask == t {
+            warmTask = nil
+        }
     }
 
     /// Drop the cache and release every opened folder's security scope.
@@ -214,10 +224,16 @@ public final class FolderMergeAdapter {
             return
         }
 
-        // Release scope on any PREVIOUSLY-opened sources this rebuild is
-        // replacing (a re-`warmUp()` after the saved-folders list changed)
-        // before swapping in the fresh set.
-        for old in sources { await old.close() }
+        // Swap state SYNCHRONOUSLY, with no `await` in between (Jules
+        // review, PR #3187) — the previous shape closed the
+        // previously-opened sources (an `await`ing loop) BEFORE the swap,
+        // leaving a second suspension window after the cancellation guard
+        // above where `invalidate()` could still run and get silently
+        // overwritten once this resumed. Old sources are captured into a
+        // local snapshot and closed AFTER the swap instead, so nothing
+        // async stands between "cancellation was checked" and "state is
+        // applied".
+        let oldSources = sources
         sources = newSources
         bucketsByMonth = buckets
         hasFreshData = true
@@ -225,5 +241,7 @@ public final class FolderMergeAdapter {
         for handler in warmUpObservers.values {
             handler()
         }
+
+        for old in oldSources { await old.close() }
     }
 }
