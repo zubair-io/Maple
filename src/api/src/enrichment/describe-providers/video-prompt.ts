@@ -32,7 +32,7 @@ Return ONLY a valid JSON object matching this schema:
 }
 
 Rules:
-- Include one scenes entry per image you were sent, in the same order, each with the correct frame_index.
+- Add a scenes entry for each image that shows something worth calling out, in chronological order, each with the correct frame_index — skip an image only when it adds nothing beyond an adjacent entry already sent.
 - Describe only what is visible in each frame. Do not infer what happens between frames.
 - Never guess real names of people. Use generic descriptors.
 - summary should read as one coherent description of the clip, not a list of the individual frames.
