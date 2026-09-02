@@ -38,6 +38,17 @@ namespace Maple.WinUI.Native
         public fixed float wb_frame_render_fm_cold[9];
         public fixed float wb_frame_render_fm_warm[9];
         public float ae_gain;
+        // Lens-correction decode signals (#2231, #3189) — pre-existing gap on
+        // this mirror: the Rust struct appended `has_lens_corrections` and
+        // `lens_correction_ca_inert` after `ae_gain` in #2231, but this C#
+        // side was never updated to match, so `write_scene_linear_buf_f32`
+        // has been writing those two fields into whatever came after this
+        // struct's old end since #2231 landed. Added here alongside #3189's
+        // new `lens_correction_distortion_inert` field, in the exact Rust
+        // declaration order.
+        public uint has_lens_corrections;
+        public uint lens_correction_ca_inert;
+        public uint lens_correction_distortion_inert;
     }
 
     /// <summary>
