@@ -20,19 +20,23 @@
 // value locally between `dragStart`/`dragEnd` and writes to the model only
 // once, on release.
 //
-// KNOWN GAP (#3182, split out of #2231): unlike the Apple panel, this one
-// does not yet disable itself when the open RAW carries no `OpcodeList3`,
-// or greys the CA slider when the DNG's `WarpRectilinear` opcode has no
-// per-plane divergence — the web decode pipeline has no surfaced signal
-// for either yet. The toggle and all three sliders are always interactive
-// here; #3182 tracks wiring the same `hasLensCorrections`/
-// `lensCorrectionCaInert` gate Apple's `EditSession` already exposes.
+// #3182 (split out of #2231): mirrors Apple's `LensCorrectionsSection` gate
+// — the whole panel (toggle + all three sliders) disables + dims when the
+// open RAW carries no `OpcodeList3` (`LibraryStateService.lensCorrectionsFor`,
+// seeded at cold-open time from `hasLensCorrections`/`lensCorrectionCaInert`);
+// the CA slider ADDITIONALLY disables + dims on its own when the DNG's
+// `WarpRectilinear` opcode carries only a single (not per-plane) coefficient
+// set — but only in that narrower case, not also when the whole panel is
+// already off, so the two dims don't multiply (same reasoning as Apple's
+// `.opacity` gate on the CA slider specifically checking
+// `hasLensCorrections && lensCorrectionCaInert`, not just `lensCorrectionCaInert`).
 
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
+import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
 
 const DISTORTION_RANGE = ADJUSTMENT_RANGES.lensCorrectionDistortion;
 const CA_RANGE = ADJUSTMENT_RANGES.lensCorrectionCa;
@@ -64,6 +68,21 @@ export class LensCorrectionsPanelComponent {
 
   readonly enabled = computed<boolean>(() => this.adj()?.lensProfileEnable === 'On');
 
+  /** Decode-time lens-correction signal for the focused asset (#3182) — the
+   *  fail-closed default (panel disabled) when nothing has decoded yet. */
+  private readonly capabilities = computed(() => {
+    const id = this.library.focusedAssetId();
+    return id ? this.library.lensCorrectionsFor(id)() : DEFAULT_LENS_CORRECTION_CAPABILITY;
+  });
+  /** Whole panel: toggle + all three sliders. */
+  readonly panelDisabled = computed<boolean>(() => !this.capabilities().hasLensCorrections);
+  /** True only when the panel IS active but the CA scale is a structural
+   *  no-op — the narrower case the dim class gates on (see file banner). */
+  readonly caInertOnly = computed<boolean>(
+    () => this.capabilities().hasLensCorrections && this.capabilities().lensCorrectionCaInert,
+  );
+  readonly caDisabled = computed<boolean>(() => this.panelDisabled() || this.caInertOnly());
+
   // In-progress drag values — `null` when no gesture is live, in which
   // case the slider tracks the committed model value. See the file banner
   // for why these hold the value locally instead of writing per tick.
@@ -80,6 +99,7 @@ export class LensCorrectionsPanelComponent {
   );
 
   toggleEnabled(): void {
+    if (this.panelDisabled()) return; // #3182 — defense-in-depth past the `disabled` attribute
     const id = this.library.focusedAssetId();
     if (!id) return;
     this.editorState.commit();

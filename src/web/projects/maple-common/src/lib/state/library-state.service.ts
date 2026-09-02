@@ -250,6 +250,28 @@ export class LibraryStateService {
     return this.store.asShotWbFor(id);
   }
 
+  /** Record `id`'s decode-time lens-correction capability (#3182) — call
+   *  from the cold-open call sites right beside `seedAsShotWhiteBalance`.
+   *  Reached only through the `Render2dHost`/`GpuPresentHost` interface (see
+   *  `image-canvas.render2d.ts` / `image-canvas.gpu-present.ts`), which
+   *  static analysis can't trace back to this concrete method — same
+   *  false-positive class as `seedAsShotWhiteBalance` above and
+   *  `RawPipelineService.openLiveSession`. */
+  // fallow-ignore-next-line unused-class-member
+  seedLensCorrections(
+    id: AssetId,
+    hasLensCorrections: boolean,
+    lensCorrectionCaInert: boolean,
+  ): void {
+    this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert);
+  }
+
+  /** Reactive per-asset lens-correction capability (#3182); the fail-closed
+   *  default when `id` hasn't decoded yet. */
+  lensCorrectionsFor(id: AssetId) {
+    return this.store.lensCorrections.for(id);
+  }
+
   cacheThumbnailUrl(id: AssetId, url: string): void {
     this.cache_.cacheThumbnailUrl(id, url);
   }

@@ -5,6 +5,10 @@
 //! Split out of `lib.rs` (file-size budget) mirroring `raw-ffi`'s own
 //! `render.rs`, which carries the same "legacy 8-bit sRGB entries"
 //! grouping (`maple_render_file`, `maple_render_bytes`) for the C ABI.
+//! `render_bytes_with_film`/`render_bytes_sized_with_film` moved out to
+//! `render_film.rs` (#3182 — this file was at the file-budget ceiling and
+//! the film variants needed no code here beyond `MapleRender::new`, already
+//! `pub(crate)` for `gpu_render.rs`'s use).
 //!
 //! wasm-bindgen exports items regardless of which module declares them (see
 //! `preview.rs`'s `extract_embedded_preview`, which has never needed a
@@ -27,18 +31,23 @@ pub struct MapleRender {
     rgb: Vec<u8>,
     as_shot_temperature: f32,
     as_shot_tint: f32,
+    has_lens_corrections: bool,
+    lens_correction_ca_inert: bool,
 }
 
 impl MapleRender {
-    /// Internal constructor so the gpu-gated `render_bytes_gpu` entry
-    /// (`gpu_render.rs`) can build the same return type as `render_bytes`
-    /// without naming the private fields across the submodule boundary. wasm-only
-    /// with `render_bytes_gpu` itself (the native host parity test drives
-    /// `render_gpu_core`, which returns a raw `(w, h, Vec<u8>)`). The GPU
-    /// one-shot develops fit to a viewport target (#1080), so the caller passes
-    /// the NATIVE oriented dims (`native_render_dims`) for `full_*` explicitly —
-    /// the same contract `render_bytes_sized` fills (#1101).
-    #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
+    /// Internal constructor used by every render entry in this crate that
+    /// isn't in THIS module (`gpu_render.rs`'s `render_bytes_gpu`,
+    /// `render_film.rs`'s film-look siblings) — same-module entries
+    /// (`render_bytes`, `render_bytes_sized`, `develop_non_raw` below) build
+    /// the struct literal directly. Unconditional (not gpu/wasm32-gated,
+    /// unlike before #3182): `render_film.rs`'s functions run in the default
+    /// (gpu feature OFF) native-host test build too, so a cfg-gated ctor
+    /// would leave them with no way to construct a `MapleRender` there. The
+    /// GPU one-shot develops fit to a viewport target (#1080), so its caller
+    /// passes the NATIVE oriented dims (`native_render_dims`) for `full_*`
+    /// explicitly — the same contract `render_bytes_sized` fills (#1101).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         width: u32,
         height: u32,
@@ -47,6 +56,8 @@ impl MapleRender {
         rgb: Vec<u8>,
         as_shot_temperature: f32,
         as_shot_tint: f32,
+        has_lens_corrections: bool,
+        lens_correction_ca_inert: bool,
     ) -> Self {
         Self {
             width,
@@ -56,6 +67,8 @@ impl MapleRender {
             rgb,
             as_shot_temperature,
             as_shot_tint,
+            has_lens_corrections,
+            lens_correction_ca_inert,
         }
     }
 }
@@ -112,6 +125,23 @@ impl MapleRender {
     #[wasm_bindgen(getter)]
     pub fn as_shot_tint(&self) -> f32 {
         self.as_shot_tint
+    }
+    /// Whether this RAW carries a DNG `OpcodeList3` (`RawImage::has_lens_corrections`,
+    /// #3182 — mirrors Apple's `EditSession.hasLensCorrections`). `false` for
+    /// every non-DNG RAW and for `develop_non_raw`'s already-decoded input.
+    /// Disables the web Lens Corrections panel when `false`.
+    #[wasm_bindgen(getter)]
+    pub fn has_lens_corrections(&self) -> bool {
+        self.has_lens_corrections
+    }
+    /// Whether the CA slider is a structural no-op for this RAW —
+    /// `RawImage::lens_correction_ca_inert`: true when there's no
+    /// `WarpRectilinear` opcode, or every one carries a single (not
+    /// per-plane) coefficient set. Mirrors Apple's `EditSession.lensCorrectionCaInert`.
+    /// Meaningless (defaults `true`) whenever `has_lens_corrections` is `false`.
+    #[wasm_bindgen(getter)]
+    pub fn lens_correction_ca_inert(&self) -> bool {
+        self.lens_correction_ca_inert
     }
 }
 
@@ -174,6 +204,10 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+    // #3182 — decode-time facts, not view-dependent, so both branches below
+    // share the same pair.
+    let has_lens_corrections = raw_img.has_lens_corrections();
+    let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -199,6 +233,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 rgb: bytes,
                 as_shot_temperature,
                 as_shot_tint,
+                has_lens_corrections,
+                lens_correction_ca_inert,
             })
         }
         Some(cap) => {
@@ -215,92 +251,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 rgb: bytes,
                 as_shot_temperature,
                 as_shot_tint,
-            })
-        }
-    }
-}
-
-/// Sibling of [`render_bytes`] that also threads a baked film-look LUT through
-/// to the `film_look` stage (epic #2683, Task 9) — the WASM-CPU fallback's
-/// counterpart of `WebLiveSession::set_film_lut`'s live-preview upload, used
-/// on browsers without WebGPU (or as the GPU-adapter-failure fallback, see
-/// `raw-pipeline.worker.ts`'s `handleLegacyDecode`).
-///
-/// `film_lut_bytes` is a `.mlut` v1 buffer ([`raw_core::film::decode_mlut`]);
-/// empty renders byte-identically to [`render_bytes`] regardless of
-/// `model.film_look` / `model.film_strength`, mirroring `set_film_lut`'s
-/// empty-bytes-clears contract.
-#[wasm_bindgen]
-pub fn render_bytes_with_film(
-    raw: &[u8],
-    ext: &str,
-    xmp: Option<String>,
-    film_lut_bytes: &[u8],
-) -> Result<MapleRender, JsError> {
-    let raw_img =
-        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
-
-    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
-
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
-
-    let film_lut = if film_lut_bytes.is_empty() {
-        None
-    } else {
-        Some(
-            raw_core::film::decode_mlut(film_lut_bytes)
-                .map_err(|e| JsError::new(&e.to_string()))?,
-        )
-    };
-
-    // Same #2661 memory clamp as `render_bytes` — this entry serves the very
-    // same unsized CPU-fallback requests, just with a film LUT threaded
-    // through, so an unclamped large sensor would trap here identically.
-    let quality = raw_core::pipeline::RenderQuality::Amaze;
-    let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
-    match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
-        None => {
-            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_source_and_film(
-                &raw_img,
-                &model,
-                quality,
-                source,
-                film_lut.as_ref(),
-            )
-            .map_err(|e| JsError::new(&e.to_string()))?;
-            Ok(MapleRender {
-                width: w,
-                height: h,
-                full_width: w,
-                full_height: h,
-                rgb: bytes,
-                as_shot_temperature,
-                as_shot_tint,
-            })
-        }
-        Some(cap) => {
-            let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-            let (w, h, bytes) =
-                raw_core::pipeline::render_sized_from_raw_with_quality_source_and_film(
-                    &raw_img,
-                    &model,
-                    quality,
-                    source,
-                    cap,
-                    film_lut.as_ref(),
-                )
-                .map_err(|e| JsError::new(&e.to_string()))?;
-            Ok(MapleRender {
-                width: w,
-                height: h,
-                full_width,
-                full_height,
-                rgb: bytes,
-                as_shot_temperature,
-                as_shot_tint,
+                has_lens_corrections,
+                lens_correction_ca_inert,
             })
         }
     }
@@ -343,6 +295,8 @@ pub fn render_bytes_sized(
     // seeds the same sliders. Display-only; a fresh open renders at the
     // As-Shot sentinel, never at a pushed pair (#1892 — see `render_bytes`).
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+    let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
+    let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -382,96 +336,8 @@ pub fn render_bytes_sized(
         rgb: bytes,
         as_shot_temperature,
         as_shot_tint,
-    })
-}
-
-/// Sized variant of [`render_bytes_with_film`] — the sized-plus-film sibling
-/// `raw-pipeline.worker.ts`'s routing has documented as a gap since epic
-/// #2683 Task 9 (#2719): a non-WebGPU browser's live canvas renders through
-/// [`render_bytes_sized`] for the fast/refine phases, and until this entry
-/// existed a loaded film look had no sized route to ride — the look only
-/// ever reached the canvas via export ([`render_bytes_with_film`]'s unsized
-/// path) or the GPU live session's `set_film_lut`.
-///
-/// Byte-for-byte the union of the two siblings, not a new code path:
-/// [`render_bytes_sized`]'s sizing/clamp contract (the `max_long_edge`
-/// validation, `quality_preview` branch, and #2661 sensor clamp, keyed off
-/// `Some(max_long_edge)` so a >32 MP sensor develops at the requested cap
-/// rather than auto-detecting one the way the unsized film entry does) plus
-/// [`render_bytes_with_film`]'s `.mlut` decode and empty-bytes-clears
-/// contract. Shares `raw_core::pipeline::render_sized_from_raw_with_quality_source_and_film`
-/// with `render_bytes_with_film`'s own sized-cap branch — same function, same
-/// view tail, so this can never drift from what the film-look math produces
-/// there.
-#[wasm_bindgen]
-pub fn render_bytes_sized_with_film(
-    raw: &[u8],
-    ext: &str,
-    xmp: Option<String>,
-    quality_preview: bool,
-    max_long_edge: u32,
-    film_lut_bytes: &[u8],
-) -> Result<MapleRender, JsError> {
-    if max_long_edge == 0 {
-        return Err(JsError::new(
-            "render_bytes_sized_with_film: max_long_edge must be > 0",
-        ));
-    }
-    let raw_img =
-        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
-
-    // As-shot derivation — IDENTICAL to `render_bytes_sized` so a sized cold
-    // open seeds the same sliders regardless of whether a look is loaded.
-    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
-
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
-
-    let film_lut = if film_lut_bytes.is_empty() {
-        None
-    } else {
-        Some(
-            raw_core::film::decode_mlut(film_lut_bytes)
-                .map_err(|e| JsError::new(&e.to_string()))?,
-        )
-    };
-
-    let quality = if quality_preview {
-        raw_core::pipeline::RenderQuality::Preview
-    } else {
-        // Full-quality path: AMaZE by default (#940).
-        raw_core::pipeline::RenderQuality::Amaze
-    };
-    // #2661 clamp — identical to `render_bytes_sized`'s (keyed off the
-    // REQUESTED cap, not the unsized film entry's auto-detect-only-if-huge
-    // clamp), so a film-look request never falls out of the CPU memory
-    // budget the plain sized entry already respects.
-    let effective_long_edge = crate::cpu_budget::clamp_develop_long_edge(
-        raw_img.width,
-        raw_img.height,
-        Some(max_long_edge),
-    )
-    .unwrap_or(max_long_edge);
-    let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-    let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_source_and_film(
-        &raw_img,
-        &model,
-        quality,
-        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        effective_long_edge,
-        film_lut.as_ref(),
-    )
-    .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleRender {
-        width: w,
-        height: h,
-        full_width,
-        full_height,
-        rgb: bytes,
-        as_shot_temperature,
-        as_shot_tint,
+        has_lens_corrections,
+        lens_correction_ca_inert,
     })
 }
 
@@ -556,6 +422,11 @@ pub fn develop_non_raw(
         rgb,
         as_shot_temperature: 6500.0,
         as_shot_tint: 0.0,
+        // #3182: an already browser-decoded non-RAW image carries no DNG
+        // OpcodeList3 — the Lens Corrections panel is disabled for it, same
+        // as Apple's `EditSession` default.
+        has_lens_corrections: false,
+        lens_correction_ca_inert: true,
     })
 }
 
