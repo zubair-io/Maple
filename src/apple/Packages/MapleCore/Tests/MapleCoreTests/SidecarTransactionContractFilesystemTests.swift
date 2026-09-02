@@ -67,12 +67,16 @@ final class SidecarTransactionContractFilesystemTests: XCTestCase {
         "cycle \(cycle): culling must round-trip")
       XCTAssertEqual(reloadedCulling.keywords, vectorCulling.keywords)
 
-      // ...and preserved (unknown) content, byte-for-byte.
+      // ...and preserved (unknown) content, byte-for-byte. `crs:ToneCurvePV2012`
+      // is excluded: #2232 made it a MODELED field (`displayToneCurveLuma`), so
+      // an `update(model: vectorModel, ...)` legitimately overwrites it with
+      // the vector model's own curve value — exactly like `crs:Exposure2012`
+      // already does above — rather than preserving the original bytes.
       let onDisk = try String(contentsOf: sidecarURL, encoding: .utf8)
       let sourceNodes = XMPChildElementScanner.descriptionChildren(
         in: SidecarContractVectors.passthroughLadenDocument)
       XCTAssertEqual(sourceNodes.map(\.qName), SidecarContractVectors.passthroughNodeNames)
-      for node in sourceNodes {
+      for node in sourceNodes where node.qName != "crs:ToneCurvePV2012" {
         XCTAssertTrue(
           onDisk.contains(node.source),
           "cycle \(cycle): \(node.qName) must survive verbatim")

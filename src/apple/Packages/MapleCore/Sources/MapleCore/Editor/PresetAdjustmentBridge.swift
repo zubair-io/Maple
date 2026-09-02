@@ -169,6 +169,11 @@ extension AdjustmentModel.FieldName {
         // land with the curve editor (#367).
         case .toneCurveLuma, .toneCurveRed, .toneCurveGreen, .toneCurveBlue:
             return nil
+        // Display-referred point curves (#2232) — same structured-`ToneCurve`
+        // reasoning as the scene-linear curves above.
+        case .displayToneCurveLuma, .displayToneCurveRed, .displayToneCurveGreen,
+            .displayToneCurveBlue:
+            return nil
         }
     }
 
