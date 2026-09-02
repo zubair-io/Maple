@@ -4,7 +4,7 @@
 // Sibling of `ToneCurveXMPTests.swift` (the scene-linear `papp:` family).
 // `canonicalBlock` here is this ticket's own cross-language parity artifact
 // — the same literal must appear in `tests_display_tone_curves.rs` and
-// `point-tone-curve.spec.ts`.
+// `display-tone-curve.spec.ts`.
 
 import XCTest
 
