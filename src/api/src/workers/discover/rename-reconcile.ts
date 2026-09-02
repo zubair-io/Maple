@@ -156,11 +156,18 @@ function groupByFingerprint<T>(
  * common to both sides and yields a `(missing, fresh)` pair ONLY when both
  * buckets it draws from hold exactly one candidate. A key with two or more
  * candidates on either side is logged and skipped — every candidate in that
- * bucket falls through to the caller's ordinary created/removed handling. */
-function* resolvableBucketPairs(
-  missingGroups: ReadonlyMap<string, MissingFileCandidate[]>,
-  newGroups: ReadonlyMap<string, NewFileCandidate[]>,
-): Generator<{ missing: MissingFileCandidate; fresh: NewFileCandidate }> {
+ * bucket falls through to the caller's ordinary created/removed handling.
+ *
+ * Generic over the candidate shape (bounded only to `{ filename: string }`,
+ * which is all the decline-logging below needs) rather than hardcoded to
+ * `MissingFileCandidate`/`NewFileCandidate` — `matchExternalRenameFingerprints`
+ * below reuses it with the bare `ExternalRenameCandidate` shape, so the
+ * cross-surface parity corpus (#2934) exercises this SAME bucketing logic,
+ * not a parity-only reimplementation of it. */
+function* resolvableBucketPairs<M extends { filename: string }, N extends { filename: string }>(
+  missingGroups: ReadonlyMap<string, M[]>,
+  newGroups: ReadonlyMap<string, N[]>,
+): Generator<{ missing: M; fresh: N }> {
   for (const [key, missingBucket] of missingGroups) {
     const newBucket = newGroups.get(key);
     if (!newBucket) continue;
@@ -177,6 +184,67 @@ function* resolvableBucketPairs(
       'rename-reconcile: declining — more than one plausible candidate shares this fingerprint',
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pure matcher over bare fingerprints (#2934) — mirrors Apple's
+// `ExternalRenameMatcher.match` and Windows' `RenameReconciliationLogic.
+// ReconcileFingerprints`: no Mongo doc, no filesystem path, just a
+// structured (size, capture time, serial) record per candidate. Built on
+// the SAME `groupByFingerprint` + `resolvableBucketPairs` the production
+// `reconcileRenamesInDirectory` uses (via `missingFingerprint`/
+// `newFileFingerprint` adapting a DB/FS-shaped candidate down to a bare
+// `Fingerprint` first) — this is that same bucketing core with a bare
+// `{ filename, fingerprint }` adapter instead, not a second implementation
+// of the matching rule to keep in sync by hand.
+// ---------------------------------------------------------------------------
+
+/** A cheap, non-checksum identity signal for a single photo — the public,
+ * bare-data counterpart to the internal `Fingerprint` this module already
+ * used to compare candidates. `dateTimeOriginal: null` means EXIF couldn't
+ * be read for this file: the candidate contributes NO fingerprint and is
+ * therefore excluded from matching entirely, mirroring every platform's
+ * production behaviour (`missingFingerprint`/`newFileFingerprint` above,
+ * Apple's `ExternalRenameFingerprint.live`, Windows' nullable
+ * `CaptureTimeUtc`) — never a silent fall-back to a weaker, size-only
+ * fingerprint. */
+export interface ExternalRenameFingerprint {
+  size: number;
+  dateTimeOriginal: string | null;
+  cameraSerial: string | null;
+}
+
+export interface ExternalRenameCandidate {
+  filename: string;
+  fingerprint: ExternalRenameFingerprint;
+}
+
+export interface ExternalRenameMatch {
+  missingFilename: string;
+  newFilename: string;
+}
+
+function toFingerprint(f: ExternalRenameFingerprint): Fingerprint | null {
+  if (f.dateTimeOriginal === null) return null;
+  return { size: f.size, capturedAt: f.dateTimeOriginal, serial: f.cameraSerial };
+}
+
+/** Match `missing` candidates against `new` candidates by fingerprint,
+ * declining every ambiguous bucket (more than one plausible candidate on
+ * either side) rather than guessing. Deliberately pure and I/O-free, like
+ * its Apple/Windows counterparts — callers own gathering real candidates
+ * from disk/Mongo; this only ever sees already-computed fingerprints. */
+export function matchExternalRenameFingerprints(
+  missing: readonly ExternalRenameCandidate[],
+  fresh: readonly ExternalRenameCandidate[],
+): ExternalRenameMatch[] {
+  const missingGroups = groupByFingerprint(missing, (c) => toFingerprint(c.fingerprint));
+  const newGroups = groupByFingerprint(fresh, (c) => toFingerprint(c.fingerprint));
+  const matches: ExternalRenameMatch[] = [];
+  for (const pair of resolvableBucketPairs(missingGroups, newGroups)) {
+    matches.push({ missingFilename: pair.missing.filename, newFilename: pair.fresh.filename });
+  }
+  return matches;
 }
 
 /** Moves the sidecar (if any) from the old RAW's path to the new one.
