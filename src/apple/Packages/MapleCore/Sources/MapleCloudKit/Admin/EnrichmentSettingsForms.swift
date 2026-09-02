@@ -116,6 +116,92 @@ public struct GeocodeSettingsForm: Equatable, Sendable {
   }
 }
 
+// MARK: - Face-detect
+
+/// Detector row (T5b, #2772). Owns the shared model directory plus the
+/// detector's own download URL / sha256 / minimum face size.
+public struct FaceDetectSettingsForm: Equatable, Sendable {
+  public var modelDir: String
+  public var detectorURL: String
+  public var detectorSHA256: String
+  /// Free text so a blank field is representable and distinguishable from
+  /// `0` while the operator is mid-edit — `0` is a valid "filter off" value.
+  public var minDetectionSize: String
+
+  public init(
+    modelDir: String = "", detectorURL: String = "", detectorSHA256: String = "",
+    minDetectionSize: String = ""
+  ) {
+    self.modelDir = modelDir
+    self.detectorURL = detectorURL
+    self.detectorSHA256 = detectorSHA256
+    self.minDetectionSize = minDetectionSize
+  }
+
+  public static func seeded(from config: EnrichmentConfig) -> FaceDetectSettingsForm {
+    FaceDetectSettingsForm(
+      modelDir: config.faceModelDir,
+      detectorURL: config.faceDetectorURL ?? "",
+      detectorSHA256: config.faceDetectorSHA256 ?? "",
+      minDetectionSize: Self.formatted(config.faceMinDetectionSize))
+  }
+
+  /// Builds the PUT body. `minDetectionSize` resolves to `nil` (explicit
+  /// `null`) for BOTH a blank field and an out-of-range value — never `0`
+  /// unless the operator actually typed `0`, since a blank field silently
+  /// becoming `0` would turn the size filter off without the operator
+  /// noticing.
+  public func patch(echoing config: EnrichmentConfig) -> FaceDetectConfigPatch {
+    FaceDetectConfigPatch(
+      nominatimURL: config.nominatimURL,
+      geocodeWorkerEnabled: config.geocodeWorkerEnabled,
+      faceModelDir: nilIfBlank(modelDir),
+      faceDetectorURL: nilIfBlank(detectorURL),
+      faceDetectorSHA256: nilIfBlank(detectorSHA256),
+      faceMinDetectionSize: Self.sanitizedMinSize(minDetectionSize))
+  }
+
+  private static func sanitizedMinSize(_ text: String) -> Double? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, let value = Double(trimmed), value.isFinite,
+      EnrichmentLimits.faceMinDetectionSize.contains(value)
+    else { return nil }
+    return value
+  }
+
+  private static func formatted(_ value: Double) -> String {
+    value.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(value)) : String(value)
+  }
+}
+
+// MARK: - Face-embed
+
+/// Recognizer row (T5b, #2772). Never carries the model directory — that
+/// field belongs to the face-detect row.
+public struct FaceEmbedSettingsForm: Equatable, Sendable {
+  public var recognizerURL: String
+  public var recognizerSHA256: String
+
+  public init(recognizerURL: String = "", recognizerSHA256: String = "") {
+    self.recognizerURL = recognizerURL
+    self.recognizerSHA256 = recognizerSHA256
+  }
+
+  public static func seeded(from config: EnrichmentConfig) -> FaceEmbedSettingsForm {
+    FaceEmbedSettingsForm(
+      recognizerURL: config.faceRecognizerURL ?? "",
+      recognizerSHA256: config.faceRecognizerSHA256 ?? "")
+  }
+
+  public func patch(echoing config: EnrichmentConfig) -> FaceEmbedConfigPatch {
+    FaceEmbedConfigPatch(
+      nominatimURL: config.nominatimURL,
+      geocodeWorkerEnabled: config.geocodeWorkerEnabled,
+      faceRecognizerURL: nilIfBlank(recognizerURL),
+      faceRecognizerSHA256: nilIfBlank(recognizerSHA256))
+  }
+}
+
 // MARK: - Meilisearch
 
 public struct MeilisearchSettingsForm: Equatable, Sendable {

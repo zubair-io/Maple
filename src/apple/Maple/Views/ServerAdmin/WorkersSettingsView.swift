@@ -6,7 +6,12 @@
 // overwrite real numbers.
 //
 // Scope: the collapsed table, header chips, and pause/resume. Dead/damaged
-// drawers are #2769; per-stage runtime config is #2770.
+// drawers are #2769; per-stage runtime config is #2770. The Maintenance
+// (mirror, derivative-audit, generated-search) and Rendering (GPU live
+// render) sections beneath the stage table are T5b (#2772) — they live here
+// rather than on the Enrichment page because they aren't enrichment-document
+// fields, matching where the web places them (workers.component.html's
+// Maintenance/Rendering groups).
 
 import SwiftUI
 import MapleCore
@@ -22,19 +27,30 @@ struct WorkersSettingsView: View {
     let generatedSearch: GeneratedSearchAdminClient?
     let generatedSearchCollections: GeneratedSearchClient?
     let foldersClient: CloudFoldersClient?
+    /// Maintenance/Rendering clients (T5b, #2772). Optional for the same
+    /// reason as the generated-search trio above.
+    let mirrorClient: MirrorConfigClient?
+    let derivativeAuditClient: DerivativeAuditConfigClient?
+    let renderConfigClient: RenderConfigClient?
 
     init(
         client: WorkersAdminClient,
         events: WorkerEventsClient,
         generatedSearch: GeneratedSearchAdminClient? = nil,
         generatedSearchCollections: GeneratedSearchClient? = nil,
-        foldersClient: CloudFoldersClient? = nil
+        foldersClient: CloudFoldersClient? = nil,
+        mirrorClient: MirrorConfigClient? = nil,
+        derivativeAuditClient: DerivativeAuditConfigClient? = nil,
+        renderConfigClient: RenderConfigClient? = nil
     ) {
         self.client = client
         self.events = events
         self.generatedSearch = generatedSearch
         self.generatedSearchCollections = generatedSearchCollections
         self.foldersClient = foldersClient
+        self.mirrorClient = mirrorClient
+        self.derivativeAuditClient = derivativeAuditClient
+        self.renderConfigClient = renderConfigClient
     }
 
     @State private var feed = WorkersFeed()
@@ -99,11 +115,20 @@ struct WorkersSettingsView: View {
                         .listRowBackground(MapleTokens.surface)
                     }
                 }
+                if let mirrorClient, let foldersClient {
+                    MirrorSettingsView(client: mirrorClient, foldersClient: foldersClient)
+                }
+                if let derivativeAuditClient {
+                    DerivativeAuditSettingsView(client: derivativeAuditClient)
+                }
                 if let generatedSearch, let generatedSearchCollections, let foldersClient {
                     GeneratedSearchSection(
                         admin: generatedSearch,
                         collectionsClient: generatedSearchCollections,
                         foldersClient: foldersClient)
+                }
+                if let renderConfigClient {
+                    RenderConfigSettingsView(client: renderConfigClient)
                 }
             } else if let loadError {
                 Section {

@@ -55,4 +55,47 @@ final class EnrichmentSettingsVMTests: XCTestCase {
     func test_apiKeyPlaceholder_emptyWhenNoKeyStored() {
         XCTAssertEqual(EnrichmentSettingsVM.meilisearchAPIKeyPlaceholder(apiKeyIsSet: false), "")
     }
+
+    // MARK: - faceModelStatusHeadline (T5b, #2772)
+
+    func test_faceModelStatusHeadline_nilStatus() {
+        XCTAssertEqual(
+            EnrichmentSettingsVM.faceModelStatusHeadline(nil), "Model status unknown.")
+    }
+
+    func test_faceModelStatusHeadline_loaded() {
+        let status = FaceModelsStatus(
+            status: .loaded, errorDetail: nil,
+            detector: .init(path: "/x/scrfd_10g.onnx", present: true, bytes: 1),
+            recognizer: .init(path: "/x/arcface.onnx", present: true, bytes: 1))
+        XCTAssertEqual(EnrichmentSettingsVM.faceModelStatusHeadline(status), "Models loaded.")
+    }
+
+    func test_faceModelStatusHeadline_errorIncludesDetail() {
+        let status = FaceModelsStatus(
+            status: .error, errorDetail: "sha256 mismatch",
+            detector: .init(path: "/x/scrfd_10g.onnx", present: false, bytes: 0),
+            recognizer: .init(path: "/x/arcface.onnx", present: false, bytes: 0))
+        XCTAssertEqual(
+            EnrichmentSettingsVM.faceModelStatusHeadline(status),
+            "Model load failed: sha256 mismatch.")
+    }
+
+    func test_faceModelStatusHeadline_idle() {
+        let status = FaceModelsStatus(
+            status: .idle, errorDetail: nil,
+            detector: .init(path: "/x/scrfd_10g.onnx", present: false, bytes: 0),
+            recognizer: .init(path: "/x/arcface.onnx", present: false, bytes: 0))
+        XCTAssertEqual(
+            EnrichmentSettingsVM.faceModelStatusHeadline(status), "Models not yet loaded.")
+    }
+
+    // MARK: - formatModelBytes
+
+    func test_formatModelBytes_humanReadable() {
+        // ByteCountFormatter is locale/OS-version sensitive on the exact
+        // separator, so assert on content rather than an exact string.
+        let formatted = EnrichmentSettingsVM.formatModelBytes(16_700_000)
+        XCTAssertTrue(formatted.contains("MB"), "expected an MB-scale string, got \(formatted)")
+    }
 }
