@@ -10,9 +10,10 @@
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
 //! `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
-//! `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain`. `agx` (and
-//! the P3 display-primary conversion after it) run only when `skip_agx ==
-//! false`; `split_tone` (`color_grade`) and `grain` run either way, gated
+//! `nr_luminance` → `nr_color` → `agx` → `display_tone_curve` →
+//! `split_tone` → `grain`. `agx` (and the P3 display-primary conversion
+//! after it) run only when `skip_agx == false`; `display_tone_curve`
+//! (#2232), `split_tone` (`color_grade`) and `grain` run either way, gated
 //! only on their own sliders, matching the GPU live chain (#2478) — a
 //! non-RAW buffer is already display-referred by that point, so it's
 //! retagged rather than AgX-transformed.
@@ -161,8 +162,9 @@ pub fn apply_scene_linear_chain(
         iso,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, white_balance,
+        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -295,6 +297,12 @@ pub fn apply_scene_linear_chain(
         // already re-tags it as on the way to the canvas. #2478
         img.space = ColorSpace::DisplayLinearRec2020;
     }
+    // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) — the
+    // per-tick twin of `pipeline::render`'s post-AgX insertion. Runs either
+    // way (RAW or non-RAW), gated only on the four curves being non-identity.
+    stage("ffi_chain_display_tone_curve", || {
+        display_tone_curve::apply(&mut img, model)
+    });
     // Split toning (#1111) + film grain (#1110) — display-linear, running
     // in that order right after AgX (or the non-RAW retag above) and
     // before the optional display-primary conversion/encode below. Gated
@@ -382,8 +390,9 @@ pub fn apply_scene_linear_chain_f32(
         iso,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, white_balance,
+        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -489,6 +498,11 @@ pub fn apply_scene_linear_chain_f32(
         // Non-RAW retag — see the fp16 sibling for the full rationale. #2478
         img.space = ColorSpace::DisplayLinearRec2020;
     }
+    // Display-referred point curves (#2232) — see the fp16 sibling. Runs
+    // either way (RAW or non-RAW), gated only on the four curves.
+    stage("ffi_chain_display_tone_curve", || {
+        display_tone_curve::apply(&mut img, model)
+    });
     // Split toning (#1111) + film grain (#1110), gated only on their own
     // sliders for both RAW and non-RAW — see the fp16 sibling. #2478
     stage("ffi_chain_color_grade", || {

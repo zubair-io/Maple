@@ -11,8 +11,8 @@ use crate::{
     error::Result,
     image::{ColorSpace, Image},
     stages::{
-        clarity, color_grade, dehaze, grain, hsl, noise_reduction, saturation, scene_tone_controls,
-        sharpen, texture, vibrance, vignette,
+        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, vibrance, vignette,
     },
     view::{agx, encode},
     xmp::AdjustmentModel,
@@ -47,6 +47,12 @@ pub fn render_from_scene_linear(
     dump_after("00_synthetic_input", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Display-referred point curves (#2232) — same post-AgX position as the
+    // RAW path.
+    stage("synth_display_tone_curve", || {
+        display_tone_curve::apply(&mut scene, model)
+    });
+    dump_after("16a0_display_tone_curve", &scene);
     // Colour grading (#275) — same display-linear position as the RAW path.
     stage("synth_color_grade", || {
         color_grade::apply_model(&mut scene, model)
@@ -164,6 +170,12 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("15_nr_color", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Display-referred point curves (#2232) — same post-AgX position as the
+    // RAW path.
+    stage("synth_display_tone_curve", || {
+        display_tone_curve::apply(&mut scene, model)
+    });
+    dump_after("16a0_display_tone_curve", &scene);
     // Colour grading (#275) — same display-linear position as the RAW path.
     stage("synth_color_grade", || {
         color_grade::apply_model(&mut scene, model)

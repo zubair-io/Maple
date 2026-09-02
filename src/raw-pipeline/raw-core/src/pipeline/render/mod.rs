@@ -18,7 +18,7 @@ use crate::{
     error::Result,
     film,
     image::{Image, RawImage},
-    stages::{color_grade, film_look, grain},
+    stages::{color_grade, display_tone_curve, film_look, grain},
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
@@ -91,7 +91,8 @@ pub enum RawInput<'a> {
 ///   simplified NR (§ 3.11, L-blur + chroma-blur in Oklab).
 /// * Crop (§ 3.12) skipped — no slice-5 fixture exercises it; lands with
 ///   canonical XMP in slice 7.
-/// * Tone curves (§ 3.6 steps 6-7, § 3.6b DisplayReferredCurve) deferred to slice 7.
+/// * Tone curves (§ 3.6 steps 6-7) deferred to slice 7; § 3.6b's
+///   DisplayReferredCurve landed later as `stages::display_tone_curve` (#2232).
 /// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
     render_from_raw_with_quality_and_source(raw, model, RenderQuality::Full, None)
@@ -306,6 +307,15 @@ fn render_display_scene(
     // #2312 (superseded by Auto's per-image embedded-JPEG fit).
     stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) — run
+    // immediately after AgX, before color_grade, in the display-linear
+    // `[0, 1]` range AgX's own gamut compression guarantees. A DIFFERENT
+    // quantity from the pre-AgX `tone_curves` stage inside `develop` — see
+    // `stages::display_tone_curve`'s module docs.
+    stage("display_tone_curve", || {
+        display_tone_curve::apply(&mut scene, model)
+    });
+    dump_after("16a0_display_tone_curve", &scene);
     // Split toning (#1111, tone/zoom design § 10.3) — display-linear Oklab
     // a/b tint with a balance-shifted crossover; L untouched. Runs before
     // grain so the monochromatic noise lands on the graded image untinted.
