@@ -388,6 +388,7 @@ async function reindexRestoredInSearch(
           place: info.place,
           description: info.description,
           ocrText: info.ocr_text,
+          capturedMonth: info.exif?.captured_month,
         }),
       description: info.description,
       ocrText: info.ocr_text,
