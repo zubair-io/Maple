@@ -7,7 +7,9 @@ import UIKit
 /// warm-paper "prints laid out on a light table" scene — `PrintCard`s at
 /// scattered, gently-rotated positions, one gliding in from the right
 /// every few seconds while the oldest fades out (capped at
-/// `maxOnStage`). Cycles forever with no interaction required; the Siri
+/// `maxOnStage`). Positions come from a jittered grid of stage slots
+/// rather than pure randomness, so a stage this full spreads across the
+/// whole table instead of heaping in the middle. Cycles forever with no interaction required; the Siri
 /// Remote can still move focus onto any print, which raises it (scale +
 /// red focus ring) and surfaces a centered caption.
 ///
@@ -47,7 +49,8 @@ struct LightTableScreen: View {
     self.libraryID = libraryID
     _viewModel = State(initialValue: LightTableViewModel(
       libraryID: libraryID,
-      searchClient: session.searchClient
+      searchClient: session.searchClient,
+      generatedSearchClient: session.generatedSearchClient
     ))
   }
 
@@ -68,25 +71,68 @@ struct LightTableScreen: View {
     let fallX: Double
     let fallY: Double
     let fallZ: Double
+    /// Which stage slot this print occupies — see `slotPosition(_:)`. Held so
+    /// a new print can pick a slot nothing is currently sitting in.
+    let slot: Int
   }
 
   /// Ever-increasing stacking counter — see `StagePrint.z`.
   @State private var spawnSeq: Double = 0
 
   /// How often a new print glides in.
-  private static let spawnInterval: Duration = .seconds(3.5)
+  private static let spawnInterval: Duration = .seconds(2.5)
   /// How long a print lingers before it slides off. Longer than
-  /// `spawnInterval`, so several prints coexist (≈ lifetime / interval ≈ 4),
+  /// `spawnInterval`, so many prints coexist (≈ lifetime / interval ≈ 10),
   /// each on its own in → settle → out lifecycle.
-  private static let cardLifetime: Duration = .seconds(15)
+  private static let cardLifetime: Duration = .seconds(25)
   /// Safety cap so a burst can't overcrowd the stage (the lifetime already
-  /// self-regulates the steady-state count).
-  private static let maxOnStage = 6
+  /// self-regulates the steady-state count). One per slot.
+  private static let maxOnStage = slotColumns * slotRows
 
-  /// Random settle position, kept within a margin so the whole print is
-  /// on-screen (fully visible before it slides off).
-  private static func randomPosition() -> CGSize {
-    CGSize(width: .random(in: -480...480), height: .random(in: -230...230))
+  // MARK: - Stage slots
+
+  /// The stage is a coarse grid of slots, and a print settles into one of
+  /// them (jittered, so the grid never reads as a grid). Purely random
+  /// positions let prints pile on top of each other — with more prints on
+  /// stage that stops being an occasional charming overlap and becomes a
+  /// heap in the middle with bare corners. Choosing an unoccupied slot
+  /// spreads them over the whole table instead.
+  private static let slotColumns = 4
+  private static let slotRows = 3
+  /// Half-extent of the area slot centres are spread across. Kept inside the
+  /// screen by roughly half a print (plus its focus scale and shadow) so a
+  /// print in an edge slot is never clipped.
+  private static let stageHalfWidth: CGFloat = 660
+  private static let stageHalfHeight: CGFloat = 340
+  /// How far a print may sit from its slot centre. Well under the slot pitch,
+  /// so neighbouring prints overlap a little — they should still read as
+  /// prints casually laid on a table, not cells in a grid — without
+  /// collapsing into each other.
+  private static let slotJitter: CGFloat = 60
+
+  /// Centre of `slot`, plus a random jitter.
+  private static func slotPosition(_ slot: Int) -> CGSize {
+    let column = slot % slotColumns
+    let row = slot / slotColumns
+    // Spread column/row centres evenly across the stage: for N columns the
+    // centres sit at the midpoints of N equal bands, so the outermost are
+    // inset by half a band rather than pinned to the edge.
+    let columnFraction = (Double(column) + 0.5) / Double(slotColumns)
+    let rowFraction = (Double(row) + 0.5) / Double(slotRows)
+    let x = (columnFraction * 2 - 1) * stageHalfWidth
+    let y = (rowFraction * 2 - 1) * stageHalfHeight
+    return CGSize(
+      width: x + .random(in: -slotJitter...slotJitter),
+      height: y + .random(in: -slotJitter...slotJitter)
+    )
+  }
+
+  /// A slot no print currently occupies, chosen at random so the stage fills
+  /// in unpredictably rather than left-to-right. Returns nil when every slot
+  /// is taken — the caller then skips this spawn rather than doubling up.
+  private func freeSlot() -> Int? {
+    let taken = Set(stage.map(\.slot))
+    return (0..<Self.maxOnStage).filter { !taken.contains($0) }.randomElement()
   }
   private static func randomRotation() -> Angle {
     .degrees(.random(in: -8...8))
@@ -254,7 +300,7 @@ struct LightTableScreen: View {
   /// coupled add-one/remove-one pairs. A no-op when the pool is empty or the
   /// stage is already at its safety cap.
   private func spawnPrint() async {
-    guard stage.count < Self.maxOnStage, let asset = viewModel.next() else { return }
+    guard let slot = freeSlot(), let asset = viewModel.next() else { return }
     // Fully fetch + decode the thumbnail BEFORE the print appears, so it
     // glides in already-rendered instead of flickering from a loading tile
     // (holds the print "offscreen" — i.e. unspawned — until it's ready).
@@ -264,10 +310,14 @@ struct LightTableScreen: View {
     guard !Task.isCancelled else { return }
 
     spawnSeq += 1
+    // Re-check the slot: the fetch above suspends, and a print may have
+    // taken this slot while it was in flight.
+    guard !stage.contains(where: { $0.slot == slot }) else { return }
     let print = StagePrint(
-      asset: asset, position: Self.randomPosition(), rotation: Self.randomRotation(),
+      asset: asset, position: Self.slotPosition(slot), rotation: Self.randomRotation(),
       z: spawnSeq,
-      fallX: .random(in: -12...12), fallY: .random(in: -12...12), fallZ: .random(in: -6...6))
+      fallX: .random(in: -12...12), fallY: .random(in: -12...12), fallZ: .random(in: -6...6),
+      slot: slot)
     let id = print.id
     withAnimation(.easeOut(duration: 1.7)) {
       stage.append(print)
