@@ -1,0 +1,40 @@
+<mui-settings-row
+  [customSummary]="true"
+  label="Canvas colour space"
+  [open]="expanded()"
+  (openChange)="toggleExpanded()"
+  [showDivider]="false"
+  data-testid="canvas-color-space-row"
+>
+  <div class="wrow-summary set-wrow-summary" summary>
+    <span class="wrow-id set-wrow-id">
+      <maple-settings-icon name="image" [size]="14" [color]="'#a8a29e'" />
+      <span class="set-mono">canvas-color-space</span>
+    </span>
+    <span class="status-pill set-wrow-status-pill">
+      <span class="status-dot" [style.background]="statusColor()"></span>
+      <span class="status-label" data-testid="canvas-color-space-status">{{ statusLabel() }}</span>
+    </span>
+    <span class="wrow-readout set-wrow-readout" data-testid="canvas-color-space-summary">{{
+      summaryLine()
+    }}</span>
+    <span class="wrow-spacer set-wrow-spacer"></span>
+  </div>
+
+  <div class="flex flex-col gap-3.5 px-4 pt-1 pb-3">
+    <p class="m-0 text-[12.5px] leading-[1.5] text-[var(--s-text-muted)] max-w-[60ch]">
+      The colour space the GPU-live editor canvas requests from this browser. Display P3 shows
+      wider-gamut colour on a capable screen; sRGB matches the traditional web colour space. This is
+      a per-browser display preference, not saved to the server — it takes effect the next time you
+      open an image, not mid-edit.
+    </p>
+
+    <mui-segmented-toggle
+      [options]="options"
+      [value]="value()"
+      (valueChange)="onValueChange($event)"
+      ariaLabel="Canvas colour space"
+      data-testid="canvas-color-space-toggle"
+    />
+  </div>
+</mui-settings-row>

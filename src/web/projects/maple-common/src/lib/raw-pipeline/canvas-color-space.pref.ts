@@ -1,0 +1,78 @@
+// CanvasColorSpacePref — the web half of the #1338 sRGB / Display P3 canvas
+// toggle (#3191). Mirrors Apple's `CanvasColorSpace` (MapleCore) shape and
+// resolution order, but is a per-viewer DISPLAY preference stored purely in
+// `localStorage` — not a DB-backed operator setting (unlike
+// `GpuLiveRenderGate`, which combines a build-time token with a fetched
+// server config). CLAUDE.md's "configure via DB-backed settings" rule is
+// about app/runtime configuration an operator manages; this is closer to a
+// theme choice — which screen the browser is attached to is not something a
+// server-side setting could express, and every other viewer of the same
+// asset must be free to pick differently.
+//
+// Resolution order, matching `CanvasColorSpace.current` (Swift):
+//   1. The stored choice, once the user has touched the Settings picker.
+//   2. Default: `'display-p3'` when this browser's screen reports the P3
+//      gamut (`matchMedia('(color-gamut: p3)')` — the standard CSS Media
+//      Queries Level 4 feature every P3-aware engine implements), else
+//      `'srgb'`.
+//
+// Consumed by `RawPipelineService.openLiveSession`, which reads `current()`
+// at request time (same pattern as `GpuLiveRenderGate.enabled`) and threads
+// it into `WebLiveSession.open`'s `target_color_space` parameter — raw-wasm
+// always reports back the ACHIEVED tag, never assumes the request took, so
+// this preference can never desync the display-encode primaries from the
+// canvas tag (#1512) even if a browser silently declines the request.
+//
+// Fixed for a session's lifetime (same as the canvas dims): flipping the
+// picker takes effect on the NEXT session open (asset switch / reload), not
+// the next render tick — `WebPresentSurface` has no in-place reconfigure
+// path (see `raw-gpu/src/present_chain_web.rs`).
+
+import { Injectable, computed, signal } from '@angular/core';
+import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
+
+export type CanvasColorSpace = 'display-p3' | 'srgb';
+
+/** True iff `matchMedia`, `window`, and the P3 gamut are all available and
+ * this screen reports it. SSR-safe (falls back to `false`, same conservative
+ * default `CanvasColorSpace.current`'s Swift counterpart uses before its
+ * main-thread probe runs). */
+function screenSupportsP3(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  try {
+    return window.matchMedia('(color-gamut: p3)').matches;
+  } catch {
+    return false;
+  }
+}
+
+@Injectable({ providedIn: 'root' })
+export class CanvasColorSpacePref {
+  /** The stored choice, or `null` until this browser has ever touched the
+   * picker. Read synchronously in the field initializer (mirrors
+   * `GpuLiveRenderGate.operatorEnabled`) so `current()` is correct from the
+   * very first render, no async round-trip needed. */
+  private readonly stored = signal<CanvasColorSpace | null>(
+    TypedStorage.get<CanvasColorSpace>(STORAGE_KEYS.CANVAS_COLOR_SPACE),
+  );
+
+  /** The effective preference: the stored choice, else the gamut-probed
+   * default. Read per session-open request, so a mid-session Settings change
+   * takes effect on the next asset the user opens rather than needing a
+   * reload. */
+  readonly current = computed<CanvasColorSpace>(
+    () => this.stored() ?? (screenSupportsP3() ? 'display-p3' : 'srgb'),
+  );
+
+  /** Persist the user's choice and update the live signal immediately —
+   * mirrors `GpuLiveRenderGate.apply`'s idempotent no-op-on-same-value shape. */
+  set(value: CanvasColorSpace): void {
+    if (this.stored() === value) return;
+    this.stored.set(value);
+    TypedStorage.set(STORAGE_KEYS.CANVAS_COLOR_SPACE, value);
+  }
+
+  /** Whether the user has explicitly chosen a value (vs. riding the
+   * gamut-probed default) — the Settings row's provenance readout. */
+  readonly isExplicit = computed(() => this.stored() !== null);
+}

@@ -1,9 +1,10 @@
-//! `display-p3` canvas re-tag for the web present proof (epic #925 / P1c, #989).
+//! Canvas colour-space re-tag for the web present paths (epic #925 / P1c, #989;
+//! threaded per-session by #3191, P3 phase 2 web half).
 //!
-//! Re-tags the canvas's WebGPU context to `display-p3` *after* wgpu configures it,
-//! so the present matches the live web pipeline's `colorSpace: 'display-p3'`. See
-//! [`crate::present_web`] for the full rationale (wgpu-23 hardcodes `colorSpace`
-//! absent in its own `GPUCanvasContext.configure()` call → browser default `srgb`).
+//! Re-tags the canvas's WebGPU context to the caller's requested colour space
+//! *after* wgpu configures it. See [`crate::present_web`] for the full rationale
+//! (wgpu-23 hardcodes `colorSpace` absent in its own `GPUCanvasContext.configure()`
+//! call → browser default `srgb`).
 //!
 //! ## Why this is done entirely through `js_sys` (untyped), not typed `web-sys`
 //! wgpu-23 vendors its OWN private copy of the WebGPU bindings
@@ -34,33 +35,38 @@ fn call0(obj: &JsValue, name: &str) -> Option<JsValue> {
 }
 
 /// Re-tag an `HtmlCanvasElement`'s WebGPU context to `display-p3` (the P1c
-/// passthrough-present caller). Thin wrapper over [`retag_display_p3_context`]:
-/// fetches the `"webgpu"` context off the canvas and re-tags it.
+/// passthrough-present caller — a standalone plumbing proof, not the live
+/// editor path, so it keeps the historical hardcoded target). Thin wrapper
+/// over [`retag_color_space_context`]: fetches the `"webgpu"` context off the
+/// canvas and re-tags it.
 pub(crate) fn retag_display_p3(canvas: &HtmlCanvasElement) -> String {
     let ctx = match canvas.get_context("webgpu") {
         Ok(Some(obj)) => JsValue::from(obj),
         _ => return "unknown".to_string(),
     };
-    retag_display_p3_context(&ctx)
+    retag_color_space_context(&ctx, crate::present_web::TARGET_COLOR_SPACE)
 }
 
 /// Re-tag an already-fetched WebGPU canvas context (`GPUCanvasContext`, as an
-/// untyped [`JsValue`]) to `display-p3`, reusing wgpu's device + format, and
-/// return the colour-space tag the browser actually reports afterwards.
+/// untyped [`JsValue`]) to `target` (e.g. `"display-p3"` or `"srgb"`), reusing
+/// wgpu's device + format, and return the colour-space tag the browser
+/// actually reports afterwards.
 ///
 /// Generalised over the context value (not the canvas) so BOTH the
 /// `HtmlCanvasElement` present (P1c / #989) and the `OffscreenCanvas` chain
-/// present (P4b-web / #1029) can drive it — `OffscreenCanvas::get_context("webgpu")`
-/// returns the same untyped `js_sys::Object` an `HtmlCanvasElement` does, so the
-/// caller fetches the context and hands it here. Stays entirely on `js_sys`
-/// (Reflect/Object/Function) — never a typed `web_sys::Gpu*` value — to avoid the
-/// `duplicate string enums` collision with wgpu-23's vendored WebGPU bindings.
+/// present (P4b-web / #1029, threaded per-session by #3191) can drive it —
+/// `OffscreenCanvas::get_context("webgpu")` returns the same untyped
+/// `js_sys::Object` an `HtmlCanvasElement` does, so the caller fetches the
+/// context and hands it here. Stays entirely on `js_sys` (Reflect/Object/
+/// Function) — never a typed `web_sys::Gpu*` value — to avoid the `duplicate
+/// string enums` collision with wgpu-23's vendored WebGPU bindings.
 ///
-/// Returns the achieved tag (`"display-p3"`, `"srgb"`, or `"unknown"` if the
-/// context / read-back is unavailable). Never panics — any failure degrades to a
-/// best-effort read or `"unknown"`, because the present must still succeed even if
-/// the wide-gamut re-tag doesn't.
-pub(crate) fn retag_display_p3_context(ctx: &JsValue) -> String {
+/// Returns the achieved tag (`target`'s value on success, `"srgb"` if the
+/// browser doesn't support `target`, or `"unknown"` if the context / read-back
+/// is unavailable). Never panics — any failure degrades to a best-effort read
+/// or `"unknown"`, because the present must still succeed even if the re-tag
+/// doesn't.
+pub(crate) fn retag_color_space_context(ctx: &JsValue, target: &str) -> String {
     // The canvas's WebGPU context is a singleton per context-type, so this is the
     // SAME context wgpu configured — reconfiguring it re-tags wgpu's surface.
 
@@ -93,7 +99,7 @@ pub(crate) fn retag_display_p3_context(ctx: &JsValue) -> String {
             let _ = Reflect::set(
                 &new_cfg,
                 &JsValue::from_str("colorSpace"),
-                &JsValue::from_str(crate::present_web::TARGET_COLOR_SPACE),
+                &JsValue::from_str(target),
             );
             if let Ok(configure) = Reflect::get(ctx, &JsValue::from_str("configure")) {
                 if let Some(configure) = configure.dyn_ref::<Function>() {
