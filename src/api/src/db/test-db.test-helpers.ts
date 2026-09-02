@@ -127,11 +127,15 @@ export function withTestEnv(name: string, value: string): void {
 export function withTestDb(testDb: string): string {
   withTestEnv('MAPLE_MONGO_DB', testDb);
 
-  // Resolve the fallback here too, not just in `tryConnectTestMongo` — an
-  // unresolved `undefined` would make the `afterAll` below pass `undefined`
-  // to `tryConnectTestMongo`, which re-reads `process.env.MAPLE_MONGO_URI`
-  // for any falsy `uri` it's given, silently undoing the whole point of
-  // capturing it here.
+  // Resolve the fallback here too, not just in `tryConnectTestMongo` — were
+  // `capturedUri` left as `undefined` (say, `MAPLE_MONGO_URI` was unset when
+  // this `beforeAll` ran), passing that through to `tryConnectTestMongo`
+  // would hit its own `uri ?? process.env.MAPLE_MONGO_URI` fallback, which
+  // re-reads the env at `afterAll` time and silently undoes the whole point
+  // of capturing it here. Initializing to the resolved default (and always
+  // overwriting with a resolved value in the `beforeAll` below) keeps
+  // `capturedUri` a plain string end to end, so `tryConnectTestMongo` never
+  // sees `undefined` and never falls back to a fresh read.
   let capturedUri = 'mongodb://localhost:27017';
   beforeAll(() => {
     capturedUri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
