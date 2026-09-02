@@ -139,11 +139,14 @@ xcodebuild test \
   -project src/apple/Maple.xcodeproj \
   -scheme "Maple Exposure" \
   -destination 'platform=macOS' \
-  -only-testing:MapleUITests \
-  MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
+  -only-testing:MapleUITests
 ```
 
+No trailing `NAME=value` override needed (or wanted — see the #2366 note below): the scheme's own `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`/`TEST_RUNNER_MAPLE_UITEST_GOLDENS_ROOT` already default to the repo's `test-fixtures/raws/` and `src/apple/MapleUITests/Goldens/`.
+
 The harness launches Maple with `MAPLE_UITEST_FIXTURE=test_0017.dng` (resolved against `MAPLE_UITEST_FIXTURE_ROOT`), waits for the refine pass to publish a preview (`canvas-render-ready` accessibility identifier flips on), screenshots the canvas, and diffs against the committed PNG at `src/apple/MapleUITests/Goldens/test_0017-default.png`. Goldens are tiny (canvas-only crop — no chrome) and commit to the repo.
+
+**#2366 — env vars need the `TEST_RUNNER_` prefix, not a plain `NAME=value` xcodebuild arg.** `MapleAppDriver.fixtureRoot()`/`GoldenStore.goldensRoot()` run inside the XCUITest *runner* process (`MapleUITests-Runner.app`, distinct from the app under test), which only ever sees scheme-declared environment variables carrying the `TEST_RUNNER_` prefix (Xcode strips it before injecting them) — a plain `MAPLE_UITEST_FIXTURE_ROOT=...` trailing arg to `xcodebuild test` sets a *build setting*, not a process environment variable, so it never reaches either process. The scheme's `TestAction` (`shouldUseLaunchSchemeArgsEnv = "NO"`, its own `<EnvironmentVariables>` block) is the only place these belong; do not move them back into `LaunchAction` or drop the prefix. Located fixtures are then copied into a fresh tmp directory before the app launches — `Maple.entitlements`' sandbox has no grant for arbitrary repo paths, so pointing the app straight at `test-fixtures/raws/` loads an asset title with a permanently blank canvas (the read is silently denied); staging under `NSTemporaryDirectory()` is the same mechanism `SliderMatrixUITests`/`StagedFixture` already rely on.
 
 Re-record by deleting the PNG and re-running — the harness will write a new baseline and fail with a "baseline written" message. Open the file, eyeball it, then commit + re-run.
 

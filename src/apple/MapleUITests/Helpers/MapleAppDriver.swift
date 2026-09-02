@@ -18,14 +18,29 @@ import AppKit
 
 struct MapleAppDriver {
     let app: XCUIApplication
+    /// The tmp dir `launch(fixture:)` staged the fixture into, if any.
+    /// `defer { driver.cleanupStagedFixture() }` in the caller removes it.
+    private let stagedDirectory: URL?
 
     /// Launch Maple with the given fixture seeded into a single-asset
     /// library. Calls `XCTSkip` if the fixture is missing — mirrors the
     /// `test_color_pipeline.sh` "no fixtures, skipping" pattern (CLAUDE.md
     /// § Build & test — Apple). The fixture path is resolved against
-    /// `MAPLE_UITEST_FIXTURE_ROOT` (env var) → repo `test-fixtures/raws/`
-    /// (default) — callers should pass the basename ("test_0017.dng"),
-    /// not an absolute path.
+    /// `MAPLE_UITEST_FIXTURE_ROOT` (env var, TEST_RUNNER_-forwarded from
+    /// the scheme, #2366) → repo `test-fixtures/raws/` (default) — callers
+    /// should pass the basename ("test_0017.dng"), not an absolute path.
+    ///
+    /// The located fixture is COPIED into a fresh tmp directory before
+    /// launch (#2366 cause 2): `Maple.entitlements`' app sandbox has no
+    /// grant for arbitrary repo paths (only `files.user-selected.read-
+    /// write`, `application-groups`, network + keychain), so pointing the
+    /// app straight at the repo's `test-fixtures/raws/` loads an asset
+    /// title with a permanently blank canvas — the read is silently
+    /// denied. `NSTemporaryDirectory()` staging is the same mechanism
+    /// `SliderMatrixUITests`/`StagedFixture` already use successfully: the
+    /// XCUITest runner and the app it launches share access to paths under
+    /// the runner's own temp directory, which sits outside the app's own
+    /// sandbox but is still reachable by it for exactly this reason.
     static func launch(fixture: String,
                        file: StaticString = #file,
                        line: UInt = #line) throws -> MapleAppDriver {
@@ -38,20 +53,34 @@ struct MapleAppDriver {
                           file: file, line: line)
         }
 
+        let stagedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("maple-uitest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
+        let stagedFixtureURL = stagedDirectory.appendingPathComponent(fixture)
+        try FileManager.default.copyItem(at: fixtureURL, to: stagedFixtureURL)
+
         let app = XCUIApplication()
-        // Pass the basename (not the full path); MapleApp.init combines
-        // it with MAPLE_UITEST_FIXTURE_ROOT inside the running process so
-        // the same env-var contract works whether the fixture root sits
-        // inside or outside the sandboxed app's accessible filesystem.
+        // Pass the basename (not the full path); MapleApp.init combines it
+        // with MAPLE_UITEST_FIXTURE_ROOT inside the running process — here
+        // pointed at the STAGED copy, not the original repo path, so the
+        // sandboxed app can actually read it.
         app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = fixture
-        app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root
+        app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = stagedDirectory.path
         // Pin the CPU + Metal render path. This driver's only consumer is
         // the golden visual-regression gate, whose committed PNG is a CPU
         // render; the GPU live path is default-on since #1064, so disable
         // it here to keep the canvas byte-comparable to the goldens.
         app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
         app.launch()
-        return MapleAppDriver(app: app)
+        return MapleAppDriver(app: app, stagedDirectory: stagedDirectory)
+    }
+
+    /// Remove the tmp directory `launch(fixture:)` staged the fixture
+    /// into, if any. Best-effort — callers `defer` this; a leaked tmp dir
+    /// from a failed cleanup is harmless (the OS reclaims `/tmp` content).
+    func cleanupStagedFixture() {
+        guard let stagedDirectory else { return }
+        try? FileManager.default.removeItem(at: stagedDirectory)
     }
 
     /// Block until the canvas accessibility identifier flips to

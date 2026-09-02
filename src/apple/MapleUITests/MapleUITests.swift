@@ -36,6 +36,7 @@ final class MapleUITests: XCTestCase {
     /// drift, never to paper over a real regression.
     func testCanvasMatchesGolden() throws {
         let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
+        defer { driver.cleanupStagedFixture() }
         driver.waitForCanvasReady(timeout: 30)
         let png = driver.screenshotCanvas()
         if let outcome = MapleAppDriver.lastSpikeBOutcome {
