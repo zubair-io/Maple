@@ -55,4 +55,13 @@ enum EnrichmentSettingsVM {
     static func formatModelBytes(_ bytes: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
+
+    /// File detail suffix for the model-status banner — filename, size, and
+    /// path — or empty when the probe is unavailable (e.g. `face_models` is
+    /// absent from the response). The banner itself must still render in
+    /// that case (headline-only); this only covers the trailing detail.
+    static func faceModelDetailSuffix(fileLabel: String, probe: FaceModelsStatus.FileProbe?) -> String {
+        guard let probe else { return "" }
+        return " \(fileLabel) · \(formatModelBytes(probe.bytes)) · \(probe.path)"
+    }
 }
