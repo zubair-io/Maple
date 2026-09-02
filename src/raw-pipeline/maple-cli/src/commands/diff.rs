@@ -6,10 +6,13 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::types::PrimariesChoice;
+
 pub fn run(
     candidate: &Path,
     reference: &Path,
     budget: Option<f32>,
+    source_primaries: PrimariesChoice,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     if !candidate.is_file() {
         return Err(format!(
@@ -40,9 +43,18 @@ pub fn run(
         })
         .ok_or("src/scripts/compare_images.py not found in any parent directory")?;
 
+    // `--source-primaries` must land before the second `--` (the marker
+    // that tells compare_images.py's own argparse "everything after this
+    // is positional") or it would be swallowed as a positional itself.
+    let primaries_str = match source_primaries {
+        PrimariesChoice::Srgb => "srgb",
+        PrimariesChoice::P3 => "p3",
+    };
     let output = Command::new("python3")
         .arg("--")
         .arg(&script)
+        .arg("--source-primaries")
+        .arg(primaries_str)
         .arg("--")
         .arg(candidate)
         .arg(reference)

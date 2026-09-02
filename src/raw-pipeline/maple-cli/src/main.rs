@@ -12,7 +12,9 @@ use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use commands::types::{DemosaicChoice, OutputFormat, ProfileChoice, SyntheticKind};
+use commands::types::{
+    DemosaicChoice, OutputFormat, PrimariesChoice, ProfileChoice, SyntheticKind,
+};
 
 #[derive(Parser)]
 #[command(name = "maple-cli", about = "Maple raw-pipeline reference renderer")]
@@ -63,6 +65,13 @@ enum Cmd {
         /// without it rather than erroring.
         #[arg(long = "film-lut-dir")]
         film_lut_dir: Option<PathBuf>,
+        /// Output primaries (#1339, P3 phase 3). `srgb` (default) is the
+        /// historical byte-for-byte behaviour; `p3` renders true Display P3
+        /// (#1337) via the export entry. Pair with `compare_images.py
+        /// --source-primaries p3` / `maple-cli diff --source-primaries p3`
+        /// to diff a P3 candidate against the (always-sRGB) ACR reference.
+        #[arg(long = "target-primaries", value_enum, default_value_t = PrimariesChoice::Srgb)]
+        target_primaries: PrimariesChoice,
     },
     /// Panorama stitching (requires the `pano` build feature).
     #[cfg(feature = "pano")]
@@ -90,6 +99,9 @@ enum Cmd {
         /// Directory of `.mlut` film-look LUTs. See `Render`'s doc-comment.
         #[arg(long = "film-lut-dir")]
         film_lut_dir: Option<PathBuf>,
+        /// Output primaries for every case. See `Render`'s doc-comment.
+        #[arg(long = "target-primaries", value_enum, default_value_t = PrimariesChoice::Srgb)]
+        target_primaries: PrimariesChoice,
     },
     /// Compare two PNGs via compare_images.py; print JSON; exit non-zero if
     /// --budget is set and mean ΔE exceeds it.
@@ -98,6 +110,12 @@ enum Cmd {
         reference: PathBuf,
         #[arg(long)]
         budget: Option<f32>,
+        /// Primaries the candidate was rendered in (#1339). `srgb`
+        /// (default) is a no-op; `p3` rotates the candidate to sRGB
+        /// primaries before diffing against the (always-sRGB) reference —
+        /// see `compare_images.py --source-primaries`.
+        #[arg(long = "source-primaries", value_enum, default_value_t = PrimariesChoice::Srgb)]
+        source_primaries: PrimariesChoice,
     },
     /// Print parsed AdjustmentModel (for .xmp) or RAW metadata (for any RAW).
     Inspect { path: PathBuf },
@@ -331,6 +349,7 @@ fn main() -> ExitCode {
             demosaic,
             profile,
             film_lut_dir,
+            target_primaries,
         } => run_or_exit(commands::render::run(
             &raw,
             params.as_deref(),
@@ -340,6 +359,7 @@ fn main() -> ExitCode {
             demosaic,
             profile,
             film_lut_dir.as_deref(),
+            target_primaries,
         )),
         Cmd::Batch {
             manifest,
@@ -348,6 +368,7 @@ fn main() -> ExitCode {
             profile,
             demosaic,
             film_lut_dir,
+            target_primaries,
         } => run_or_exit(commands::batch::run(
             &manifest,
             &out_dir,
@@ -355,12 +376,19 @@ fn main() -> ExitCode {
             profile,
             demosaic,
             film_lut_dir.as_deref(),
+            target_primaries,
         )),
         Cmd::Diff {
             candidate,
             reference,
             budget,
-        } => run_or_exit(commands::diff::run(&candidate, &reference, budget)),
+            source_primaries,
+        } => run_or_exit(commands::diff::run(
+            &candidate,
+            &reference,
+            budget,
+            source_primaries,
+        )),
         Cmd::Inspect { path } => run_or_exit(commands::inspect::run(&path)),
         Cmd::Tile {
             raw,

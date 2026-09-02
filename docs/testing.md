@@ -144,6 +144,20 @@ A marker with no justification text after the second colon does not count — th
 
 `budget_init.py` parses both PASS and FAIL rows, so it is usable on the red run a re-baseline is captured from.
 
+### P3 primaries (#1339, P3 phase 3)
+
+ACR references are sRGB. Once `maple-cli render --target-primaries p3` renders true Display P3 (#1337), the harness can't diff that candidate against an sRGB reference directly — saturated colours would read as "out of budget" everywhere purely from the primaries mismatch, not a real pipeline error. The strategy: render in the target colourspace, **rotate the candidate back to sRGB before the diff**. Same references, same metric — no separate P3 reference set, since the rotation is exact linear-algebra (not a perceptual step), so nothing is lost going through it.
+
+The plumbing landed in this PR — `maple-cli render`/`batch --target-primaries {srgb,p3}` (default `srgb`, byte-identical to the historical behaviour) and `compare_images.py`'s `diff(..., source_primaries="srgb"|"p3")` / `--source-primaries` / `maple-cli diff --source-primaries` — but **no manifest cases or `budgets.json` entries were added**. `test-fixtures/BUDGETS_DRIFT.md` already carries fourteen cases held red pending #814's re-baseline; seeding P3 budgets before that lands would inherit the same unresolved baseline. Adding P3 cases to `test_color_pipeline.sh`'s manifest is a follow-up once #814 is closed, using the same [Adding a case](#adding-a-case) steps above with `--target-primaries p3` on the render side and `--source-primaries p3` on the diff side.
+
+The rotation itself: `pixels_srgb = M_P3→sRGB · pixels_p3`, applied in linear light (decode the shared sRGB OETF, rotate, re-encode) via `compare_images.py`'s `p3_to_srgb_primaries`, where `M_P3→sRGB = inv(M_SRGB_TO_P3)` and `M_SRGB_TO_P3` is copied verbatim from [`raw-core/src/color/matrices.rs::M_SRGB_TO_P3`](../src/raw-pipeline/raw-core/src/color/matrices.rs) — the same matrix `rec2020_to_display(TargetPrimaries::P3)` rotates through, not an independently-derived equivalent. Verify the rotation in isolation, no fixtures or references needed:
+
+```bash
+python3 src/scripts/compare_images.py --self-test
+```
+
+It checks: the two matrices are true inverses; white round-trips exactly (P3 and sRGB share the D65 white point); a synthetic in-gamut patch round-trips sRGB → P3 → sRGB within float rounding noise; an out-of-sRGB-gamut P3 primary clips into `[0,1]` without NaN; and — through the real `diff()` entry, with two temporary PNGs — a P3-rotated candidate against its own sRGB source reads near-zero ΔE while the same pair diffed *without* the rotation reads far worse, proving the flag is actually wired into the comparison, not just correct in isolation.
+
 ---
 
 ## Per-domain pipeline gates
