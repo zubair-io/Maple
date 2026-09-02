@@ -109,6 +109,34 @@ describe('MapleIconComponent', () => {
       expect(circle.getAttribute('fill')).not.toBe('none'); // filled: true
     });
 
+    // Review round (#956): the original inline SVGs for these three chip
+    // glyphs and photo-placeholder's frame set no stroke-linecap/linejoin
+    // (SVG defaults to butt/miter). MapleIconComponent forces round caps
+    // and joins onto every stroked shape UNLESS `sharp: true` — without it
+    // these would render with subtly different (rounded) corners than the
+    // markup they replaced.
+    it("search-chip-event, search-chip-person, search-chip-place, and photo-placeholder's frame stay sharp (butt/miter), not the component's round default", () => {
+      for (const name of [
+        'search-chip-event',
+        'search-chip-person',
+        'search-chip-place',
+      ] as const) {
+        for (const shape of ICON_SHAPES[name]) {
+          if (shape.filled) continue; // filled shapes have no stroke to cap/join
+          expect(shape.sharp, `${name} shape should be sharp`).toBe(true);
+        }
+      }
+      const framePath = ICON_SHAPES['photo-placeholder'][0];
+      expect(framePath.kind).toBe('path');
+      expect(framePath.filled).toBeFalsy();
+      expect(framePath.sharp).toBe(true);
+
+      const svg = render('search-chip-event');
+      const rect = svg.querySelector('rect')!;
+      expect(rect.getAttribute('stroke-linejoin')).toBeNull();
+      expect(rect.getAttribute('stroke-linecap')).toBeNull();
+    });
+
     it('search-close: reused verbatim by search-bar and search-filter-panel', () => {
       const svg = render('search-close');
       const path = svg.querySelector('path')!;

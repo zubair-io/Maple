@@ -27,13 +27,18 @@
             <span class="mui-chrome-option-avatar">{{ initial(row.value) }}</span>
           } @else {
             <span class="mui-chrome-option-avatar">
-              <maple-icon name="search-chip-place" [size]="13" />
+              <maple-icon name="search-chip-place" [size]="13" aria-hidden="true" />
             </span>
           }
           <span class="mui-chrome-option-name">{{ row.value }}</span>
           <span class="mui-chrome-option-count">{{ row.countLabel }}</span>
           @if (row.selected) {
-            <maple-icon name="search-check-circled" [size]="14" class="mui-chrome-option-check" />
+            <maple-icon
+              name="search-check-circled"
+              [size]="14"
+              class="mui-chrome-option-check"
+              aria-hidden="true"
+            />
           }
         </button>
       }

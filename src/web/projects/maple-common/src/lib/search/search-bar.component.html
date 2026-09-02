@@ -3,7 +3,7 @@
   (submit)="onSubmit($event)"
   role="search"
 >
-  <maple-icon name="search-glass" [size]="16" class="shrink-0 text-text-muted" />
+  <maple-icon name="search-glass" [size]="16" class="shrink-0 text-text-muted" aria-hidden="true" />
   @for (chip of chips(); track chip.kind + ':' + chip.label) {
     <span
       class="inline-flex h-6 max-w-[180px] shrink-0 items-center gap-[5px] rounded-full border border-border bg-surface-alt py-0 pr-1 pl-2 font-['Lato',sans-serif] text-[11px] leading-none font-semibold text-text-main"
@@ -12,7 +12,12 @@
       [attr.title]="chipTitle(chip)"
       data-testid="search-active-chip"
     >
-      <maple-icon [name]="chipIcon(chip)" [size]="12" class="shrink-0 text-text-muted" />
+      <maple-icon
+        [name]="chipIcon(chip)"
+        [size]="12"
+        class="shrink-0 text-text-muted"
+        aria-hidden="true"
+      />
       <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ chip.label }}</span>
       @if (chip.removable !== false) {
         <button
@@ -22,7 +27,7 @@
           [attr.data-testid]="'search-chip-remove-' + chip.label"
           (click)="chipRemove.emit(chip)"
         >
-          <maple-icon name="search-chip-remove" [size]="10" />
+          <maple-icon name="search-chip-remove" [size]="10" aria-hidden="true" />
         </button>
       }
     </span>
@@ -59,7 +64,7 @@
       data-testid="search-clear"
       (click)="onClearClick()"
     >
-      <maple-icon name="search-close" [size]="14" />
+      <maple-icon name="search-close" [size]="14" aria-hidden="true" />
     </button>
   }
   <button
@@ -69,7 +74,7 @@
     data-testid="search-filters"
     (click)="filtersTap.emit()"
   >
-    <maple-icon name="search-sliders" [size]="16" />
+    <maple-icon name="search-sliders" [size]="16" aria-hidden="true" />
     <span class="hidden md:inline">Filters</span>
     @if (filterCount() > 0) {
       <span
