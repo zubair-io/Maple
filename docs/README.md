@@ -32,6 +32,12 @@ Every document in this directory describes the code as it is in the tree today. 
 | [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                  |
 | [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                |
 
+## Strategy
+
+| Doc                                                                                          | Covers                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [strategy/milestones/m5-workflow-expansion.md](strategy/milestones/m5-workflow-expansion.md) | The decision framework for milestone 17 (#2447/#2442): how the next adjacent professional workflow gets chosen from evidence, not a feature checklist. |
+
 ## Design system
 
 | Doc                                                          | Covers                                                                                                                                                                        |
