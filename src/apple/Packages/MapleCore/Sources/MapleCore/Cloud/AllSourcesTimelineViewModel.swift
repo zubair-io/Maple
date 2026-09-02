@@ -339,10 +339,23 @@ public final class AllSourcesTimelineViewModel {
     // Seed PhotoKit- and Folder-local cells immediately, same rationale as
     // the single-library VM: paint local history before any network round
     // trip.
+    //
+    // Seeded via `MergedTimelineSource.merge(localStreams:cloudStreams:)`
+    // with an empty `cloudStreams`, not a flat `.localOnly` map over the
+    // flattened streams (Copilot review, PR #3187): flattening PhotoKit and
+    // Folder refs into one array before wrapping each as `.localOnly`
+    // bypasses `merge`'s cross-stream dedup (the same asset backed up
+    // locally via both PhotoKit and a saved Folder would render twice) and
+    // its capture-date-descending sort — a visible flicker when this seed
+    // is immediately replaced by the real merge once `freshResults`/cache
+    // land, since the two would reorder/dedupe differently. Passing the
+    // still-separate streams through the real merge function keeps the
+    // seed and the post-merge state identical in shape.
     if (photoKitMerge != nil || folderMerge != nil), g == generation {
-      let localRefs = localStreams(forMonthOf: key).flatMap { $0 }
-      if !localRefs.isEmpty, mergedPagesByBucket[key] == nil {
-        mergedPagesByBucket[key] = localRefs.map { .localOnly($0) }
+      let localStreamsForKey = localStreams(forMonthOf: key)
+      if localStreamsForKey.contains(where: { !$0.isEmpty }), mergedPagesByBucket[key] == nil {
+        mergedPagesByBucket[key] = MergedTimelineSource.merge(
+          localStreams: localStreamsForKey, cloudStreams: [])
       }
     }
 
