@@ -1,5 +1,6 @@
-// XMPSerialization+ToneCurves.swift — nested-element XMP I/O for the four
-// point tone curves (#365).
+// XMPSerialization+ToneCurves.swift — nested-element XMP I/O for the eight
+// point tone curves: the scene-linear family (#365) and the
+// display-referred family (#2232).
 //
 // Every other field in the sidecar is a flat attribute on `rdf:Description`,
 // which is why `_XMPParserDelegate` only ever looked at `attributeDict` (plus
@@ -14,19 +15,23 @@
 //     </rdf:Seq>
 //   </papp:SceneLinearToneCurve>
 //
-// Namespace: Maple's point curves are `papp:`, not Adobe's
-// `crs:ToneCurvePV2012*`. The two are different quantities — #273's pipeline
-// applies these pre-AgX in scene-linear light, while a PV2012 curve was
-// authored against Lightroom's own display transform and only means anything
-// after a view transform (`docs/xmp-canonical-format.md` § "Tone curves"). Reading a Lightroom
-// curve into these fields would apply a display-referred shape to
-// scene-linear data and render it visibly wrong, so the `crs:` keys are
-// deliberately not parsed here.
+// Two families, two namespaces: Maple's own point curves are `papp:`;
+// Adobe's are `crs:ToneCurvePV2012*`. Different quantities — #273's pipeline
+// applies the `papp:` curves pre-AgX in scene-linear light, while a PV2012
+// curve was authored against Lightroom's own display transform and only
+// means anything after a view transform (`docs/xmp-canonical-format.md` §
+// "Tone curves"). #2232 gives the `crs:` family its own pipeline slot
+// (post-AgX, display-linear) and its own model fields
+// (`displayToneCurve*`), so both round-trip structurally — reading a
+// Lightroom curve into the `papp:` fields would still apply a
+// display-referred shape to scene-linear data and render it visibly wrong,
+// which is why the two stay on separate elements/fields.
 //
 // Wire domain: control points are `[0, 1]` on the model and PV2012's
-// `[0, 255]` on the wire; the scale is applied at this boundary only, never
-// on `ToneCurve` itself. Identity (the empty point list) emits no element at
-// all — not an empty `rdf:Seq` — so unedited sidecars stay byte-clean.
+// `[0, 255]` on the wire for BOTH families; the scale is applied at this
+// boundary only, never on `ToneCurve` itself. Identity (the empty point
+// list) emits no element at all — not an empty `rdf:Seq` — so unedited
+// sidecars stay byte-clean.
 
 import Foundation
 
@@ -34,12 +39,18 @@ import Foundation
 
 /// Shared wire-format constants and codecs for the point tone curves.
 enum ToneCurveXMP {
-    /// The four curve parent elements, in canonical emit order.
+    /// The eight curve parent elements, in canonical emit order: the four
+    /// scene-linear `papp:` curves (#365) followed by the four
+    /// display-referred `crs:` curves (#2232).
     static let elements = [
         "papp:SceneLinearToneCurve",
         "papp:SceneLinearToneCurveRed",
         "papp:SceneLinearToneCurveGreen",
         "papp:SceneLinearToneCurveBlue",
+        "crs:ToneCurvePV2012",
+        "crs:ToneCurvePV2012Red",
+        "crs:ToneCurvePV2012Green",
+        "crs:ToneCurvePV2012Blue",
     ]
 
     /// PV2012's coordinate domain. Kept for familiarity and for
@@ -132,7 +143,11 @@ struct ToneCurveWalker {
         case 0: model.toneCurveLuma = curve
         case 1: model.toneCurveRed = curve
         case 2: model.toneCurveGreen = curve
-        default: model.toneCurveBlue = curve
+        case 3: model.toneCurveBlue = curve
+        case 4: model.displayToneCurveLuma = curve
+        case 5: model.displayToneCurveRed = curve
+        case 6: model.displayToneCurveGreen = curve
+        default: model.displayToneCurveBlue = curve
         }
         active = nil
         points = []
@@ -151,11 +166,13 @@ extension XMPSerializer {
     /// internal shape is identical everywhere, which is what the
     /// cross-language parity tests pin.
     ///
-    /// Returns the empty string when all four curves are identity, so an
-    /// unedited model adds nothing to the document.
+    /// Returns the empty string when all eight curves (both families) are
+    /// identity, so an unedited model adds nothing to the document.
     static func _buildToneCurvesBlock(model: AdjustmentModel, indent: String) -> String {
         let curves = [
             model.toneCurveLuma, model.toneCurveRed, model.toneCurveGreen, model.toneCurveBlue,
+            model.displayToneCurveLuma, model.displayToneCurveRed, model.displayToneCurveGreen,
+            model.displayToneCurveBlue,
         ]
         let blocks = zip(ToneCurveXMP.elements, curves).compactMap {
             (element, curve) -> String? in
