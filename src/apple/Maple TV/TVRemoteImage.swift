@@ -273,9 +273,9 @@ extension TVRemoteImage {
   static func loadPreview(server: URL, absPath: String, thumbClient: CloudThumbClient) async -> UIImage? {
     let key = decodedCacheKey(server: server, absPath: absPath, kind: .preview)
     if let cached = TVDecodedImageCache.shared.image(forKey: key) { return cached }
-    guard let data = try? await thumbClient.preview(absPath: absPath), !Task.isCancelled,
-          let cgImage = decode(data), !Task.isCancelled
+    guard let data = try? await thumbClient.preview(absPath: absPath), !Task.isCancelled
     else { return nil }
+    guard let cgImage = await decode(data), !Task.isCancelled else { return nil }
     let image = UIImage(cgImage: cgImage)
     TVDecodedImageCache.shared.setImage(image, forKey: key)
     return image
