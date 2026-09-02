@@ -2,7 +2,7 @@
   "schema_version": 1,
   "description": "Golden outcome-parity corpus for the file-management relocate primitive (#2633). Each case is `starting file tree -> operation -> expected resulting tree`, replayed independently against the TS relocate primitive (src/api/src/fs/relocate.ts), the Swift primitive (src/apple/Packages/MapleCore/Sources/MapleCore/FileOperations/LocalFileOperations.swift), and the C# primitive (src/windows/Maple.WinUI/Services/FileOperations/LocalFileOperations.cs) \u2014 proving identical OUTCOMES without shared code, the same philosophy as the XMP golden-file corpus. Every runner MUST assert `schema_version` equals the value below before running a single case; a mismatch is a hard failure, not a warning (unlike test-fixtures/filename-templates/cases.json's #2628 corpus, which shipped this field unasserted \u2014 flagged in #2633 review, not repeated here). A case whose `requires` capability the current platform/runtime doesn't have MUST be skipped with an explicit, printed message naming the case and the missing capability \u2014 a silently-omitted case is worse than no case at all.",
   "kinds": {
-    "relocate": "Exercise the asset-level relocate primitive directly: copy source (+ its .xmp sidecar, if any) to destDir/destBasename under the given mode + collision policy, then assert the exact resulting file tree relative to a fresh temp root. `fault`, if present, perturbs the filesystem AFTER `setup` but BEFORE the operation runs (e.g. making a directory read-only), to deterministically reproduce a failure window without a literal process kill.",
+    "relocate": "Exercise the asset-level relocate primitive directly: copy source (+ its .xmp sidecar, if any, and, when `operation.companions` is given, each listed non-sidecar companion \u2014 #2667's `extraCompanionAbsPaths`, e.g. a PhotoKit backup's apple_rendered_path) to destDir/destBasename under the given mode + collision policy, then assert the exact resulting file tree relative to a fresh temp root. `fault`, if present, perturbs the filesystem AFTER `setup` but BEFORE the operation runs (e.g. making a directory read-only), to deterministically reproduce a failure window without a literal process kill.",
     "folder-rename": "Exercise the folder-level rename/move primitive (createFolder/renameFolder in Swift+C#, POST /:id/move in the API) on a folder (not a single asset), asserting the resulting tree including the folder's own new name/casing.",
     "name-validation": "Exercise the platform's canonical single-component filename/foldername validator directly (TS: isSafeFilename in src/api/src/backup/path-formatter.ts; Swift: FilenameValidation.isValidPathComponent; C#: LocalFileOperations.ValidateBareFileName) \u2014 no filesystem I/O, a pure accept/reject check on one candidate name.",
     "selector": "Exercise the API-only multi-location/stale-entry selection logic (activeFileInfo in src/api/src/library/relocate-asset.ts) against a synthetic fileinfo array \u2014 no filesystem I/O. Apple/Windows have no equivalent (their local sources are single-location by construction), so every case of this kind is `requires: [\"multi-location-fileinfo\"]`, a capability only the API runner declares."
@@ -12,7 +12,8 @@
     "symlinks": "Runner can create a real symlink/junction pointing at a directory without elevated privileges. True for the API (Bun on macOS/Linux CI) and Apple (APFS). Windows local junctions need no elevation either, but the existing #2632 test suite doesn't exercise them yet \u2014 the Windows runner skips this capability until that lands, rather than adding untested junction-creation code as a one-off inside this harness.",
     "case-insensitive-fs": "The runner's temp filesystem folds case for lookups but preserves the written casing (APFS default, NTFS). Probed live by each runner (write `a`, check whether `A` resolves to it) rather than assumed from the OS, since CI can mount a case-sensitive volume on any platform.",
     "posix-permissions": "The runner can revoke write permission on a directory to block a subsequent unlink inside it, deterministically simulating 'copy succeeded, delete-of-original failed.' True for the API and Apple (POSIX chmod); Windows' ACL model doesn't map onto the same case-insensitive dir-write-blocks-unlink semantics, so the Windows runner skips this rather than emulating it dubiously.",
-    "multi-location-fileinfo": "The runner has a concept of one asset backed by multiple candidate file-system locations (the API's Mongo `fileinfo` array, for cloud + multi-root libraries). Apple and Windows local sources are single-location by construction and have no equivalent to select among."
+    "multi-location-fileinfo": "The runner has a concept of one asset backed by multiple candidate file-system locations (the API's Mongo `fileinfo` array, for cloud + multi-root libraries). Apple and Windows local sources are single-location by construction and have no equivalent to select among.",
+    "companion-file": "The runner's relocate primitive can carry an extra NON-SIDECAR companion file alongside the primary, base-swap renamed the same way a `.xmp` sidecar is (#2667's `extraCompanionAbsPaths` on the API's `fs/relocate.ts`, added to cover a PhotoKit backup's apple_rendered_path companion). Only the API declares this today \u2014 it is not yet wired into the Swift or Windows relocate primitives, so every case requiring it is API-only by construction (no `platforms` restriction is needed on top: the Swift/Windows runners simply don't recognize the capability and skip loudly, the same generic behavior any unrecognized `requires` entry gets)."
   },
   "cases": [
     {
@@ -663,6 +664,101 @@
       ],
       "expected": {
         "selectedIndex": 1
+      }
+    },
+    {
+      "name": "companion_follows_base_swap_rename_on_move",
+      "kind": "relocate",
+      "description": "A non-sidecar companion (e.g. apple_rendered_path) sharing the primary's base name travels alongside the primary on a move, base-swap renamed the same way a `.xmp` sidecar is, and is deleted from its original location (#2667).",
+      "requires": [
+        "companion-file"
+      ],
+      "setup": {
+        "files": [
+          {
+            "path": "IMG_8.dng",
+            "content": "pixels"
+          },
+          {
+            "path": "IMG_8.jpg",
+            "content": "apple-rendered-bytes"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_8.dng",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix",
+        "companions": [
+          "IMG_8.jpg"
+        ]
+      },
+      "expected": {
+        "outcome": "relocated",
+        "companionFollowed": true,
+        "tree": [
+          {
+            "path": "Album/IMG_8.dng",
+            "content": "pixels"
+          },
+          {
+            "path": "Album/IMG_8.jpg",
+            "content": "apple-rendered-bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "companion_follows_collision_auto_suffix_consistently_with_primary",
+      "kind": "relocate",
+      "description": "A collision that forces the primary to auto-suffix to a `.1` sibling renames the companion to the SAME suffixed base, consistent with how a sidecar follows (#2667).",
+      "requires": [
+        "companion-file"
+      ],
+      "setup": {
+        "files": [
+          {
+            "path": "Album/IMG_9.dng",
+            "content": "occupant-pixels"
+          },
+          {
+            "path": "IMG_9.dng",
+            "content": "source-pixels"
+          },
+          {
+            "path": "IMG_9.jpg",
+            "content": "apple-rendered-bytes"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_9.dng",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix",
+        "companions": [
+          "IMG_9.jpg"
+        ]
+      },
+      "expected": {
+        "outcome": "relocated",
+        "renamedOnCollision": true,
+        "companionFollowed": true,
+        "tree": [
+          {
+            "path": "Album/IMG_9.dng",
+            "content": "occupant-pixels"
+          },
+          {
+            "path": "Album/IMG_9.1.dng",
+            "content": "source-pixels"
+          },
+          {
+            "path": "Album/IMG_9.1.jpg",
+            "content": "apple-rendered-bytes"
+          }
+        ]
       }
     }
   ]
