@@ -14,6 +14,7 @@ const mockedToCanvas = vi.fn().mockResolvedValue(undefined);
 
 function render() {
   TestBed.configureTestingModule({
+    imports: [MuiPagePairingComponent],
     providers: [{ provide: QR_CODE_TO_CANVAS, useValue: mockedToCanvas }],
   });
   const fixture = TestBed.createComponent(MuiPagePairingComponent);
