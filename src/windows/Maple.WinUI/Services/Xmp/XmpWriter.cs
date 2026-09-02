@@ -186,7 +186,13 @@ namespace Maple.WinUI.Services.Xmp
             {
                 if (slot.ToneCurveTag is { } tag)
                 {
-                    recordedTags.Add(tag);
+                    // Same duplicate guard as the passthrough branch below:
+                    // HashSet.Add returns false for a tag already recorded,
+                    // so a stale/out-of-sync ChildOrder repeating the same
+                    // tone-curve tag doesn't emit that block twice — only
+                    // the first occurrence writes (Copilot review on
+                    // #3113).
+                    if (!recordedTags.Add(tag)) continue;
                     if (curveBlocks.TryGetValue(tag, out var block) && block is not null) blocks.Add(block);
                 }
                 else if (slot.PassthroughIndex >= 0 && slot.PassthroughIndex < doc.PassthroughNodes.Count)
