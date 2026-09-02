@@ -18,6 +18,7 @@ export * from './lib/raw-pipeline/raw-pipeline.service';
 export * from './lib/raw-pipeline/raw-pipeline.types';
 export * from './lib/raw-pipeline/gpu-live-render.token';
 export * from './lib/raw-pipeline/gpu-live-render.gate';
+export * from './lib/raw-pipeline/canvas-color-space.pref';
 export * from './lib/raw-pipeline/render-config.model';
 export * from './lib/raw-pipeline/render-config.service';
 export * from './lib/raw-pipeline/image-utils';

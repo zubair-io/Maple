@@ -54,6 +54,7 @@ import { MirrorSettingsComponent } from './mirror-settings.component';
 import { DerivativeAuditSettingsComponent } from './derivative-audit-settings.component';
 import { GeneratedSearchSettingsComponent } from './generated-search-settings.component';
 import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.component';
+import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
 import { DescribeServersComponent } from './describe-servers.component';
@@ -100,6 +101,7 @@ import {
     DerivativeAuditSettingsComponent,
     GeneratedSearchSettingsComponent,
     GpuLiveRenderSettingsComponent,
+    CanvasColorSpaceSettingsComponent,
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
     DescribeServersComponent,

@@ -41,18 +41,27 @@
 //! desync. [`WebPresentSurface::create`] sizes the surface to the image dims; the
 //! caller sizes the `OffscreenCanvas` to match (the present never rescales).
 //!
-//! ## Colour-space (`display-p3`)
+//! ## Colour-space (requested per session, #3191)
 //!
-//! The live web canvas in this project is tagged **`display-p3`**. As in P1c,
-//! wgpu-23 hardcodes `colorSpace` absent in its own `configure()` call (→ browser
-//! default `srgb`), so after wgpu configures the surface we re-`configure()` the
-//! SAME canvas context to `display-p3`, reusing wgpu's device/format read back via
-//! `getConfiguration()`. The dance runs through `js_sys` on untyped values (see
-//! [`crate::present_web_colorspace::retag_display_p3_context`]) — NOT typed
+//! The live web canvas is tagged to whatever colour space the CALLER requests
+//! (`target_color_space` on [`WebPresentSurface::create`] — the web half of the
+//! #1338 P3 toggle; `WebLiveSession::open` threads through the setting the editor
+//! reads). As in P1c, wgpu-23 hardcodes `colorSpace` absent in its own
+//! `configure()` call (→ browser default `srgb`), so after wgpu configures the
+//! surface we re-`configure()` the SAME canvas context to the requested tag,
+//! reusing wgpu's device/format read back via `getConfiguration()`. The dance runs
+//! through `js_sys` on untyped values (see
+//! [`crate::present_web_colorspace::retag_color_space_context`]) — NOT typed
 //! `web_sys::Gpu*` bindings, which would collide with wgpu-23's vendored WebGPU
 //! bindings (`duplicate string enums`). The retag is done ONCE in `create` (it
-//! survives to every present: `get_current_texture` never re-configures). A failed
-//! re-tag degrades to `srgb` and the present still succeeds.
+//! survives to every present: `get_current_texture` never re-configures) — a
+//! mid-session colour-space change needs a fresh `WebPresentSurface` (a whole new
+//! session open), same as a dims change. A failed or unsupported re-tag degrades
+//! to whatever the browser reports (typically `srgb`) and the present still
+//! succeeds — [`WebPresentSurface::color_space`] always reports the TRUTH, never
+//! the request, and the `raw-wasm` crate's `target_primaries_for_color_space`
+//! derives `target_primaries` from that achieved tag, not the request, so the
+//! display-encode primaries and the canvas tag can never drift apart (#1512).
 
 use crate::context::GpuContext;
 use crate::live_session::LiveSession;
@@ -63,7 +72,7 @@ use wasm_bindgen::JsValue;
 use web_sys::OffscreenCanvas;
 
 /// A persistent WebGPU present surface bound to one `OffscreenCanvas` at one set of
-/// image dims. Created ONCE (surface + configure + display-p3 retag + present
+/// image dims. Created ONCE (surface + configure + colour-space retag + present
 /// pipeline compile); every [`Self::present`] reuses all of it. The web sibling of
 /// the Apple `present_chain_to_surface` — but stateful, so the per-tick path
 /// recompiles nothing (the #1038 zero-recompile invariant).
@@ -80,7 +89,8 @@ pub struct WebPresentSurface {
     /// Image (= surface) dims. Pinned; the present asserts the session matches.
     width: u32,
     height: u32,
-    /// The colour-space tag the browser reported after the one-time retag
+    /// The colour-space tag the browser reported after the one-time retag to
+    /// the caller's requested `target_color_space`
     /// (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced for self-reporting.
     color_space: String,
     /// Cached present-pass uniform + bind group (#1930), keyed on the sampled
@@ -96,8 +106,11 @@ pub struct WebPresentSurface {
 impl WebPresentSurface {
     /// Create the persistent present surface for `canvas` at the `LiveSession`'s
     /// dims, on `ctx`'s EXISTING device (the f32 buffer lives there). Configures the
-    /// surface, re-tags it to `display-p3`, and compiles the present pipeline —
-    /// ALL ONCE. `canvas` must already be sized to `(width, height)` (asserted).
+    /// surface, re-tags it to `target_color_space` (e.g. `"display-p3"` or
+    /// `"srgb"` — the #3191 request parameter; the achieved tag, read back from
+    /// the browser, is what [`Self::color_space`] reports), and compiles the
+    /// present pipeline — ALL ONCE. `canvas` must already be sized to
+    /// `(width, height)` (asserted).
     ///
     /// Async (the surface-compatible-adapter confirmation is cheap; kept async for
     /// symmetry with the wasm present flow). Returns `Err(message)` describing the
@@ -107,6 +120,7 @@ impl WebPresentSurface {
         canvas: &OffscreenCanvas,
         width: u32,
         height: u32,
+        target_color_space: &str,
     ) -> Result<Self, String> {
         if width == 0 || height == 0 {
             return Err(format!(
@@ -161,14 +175,17 @@ impl WebPresentSurface {
             },
         );
 
-        // One-time display-p3 retag (gated; see module docs). `get_context("webgpu")`
-        // hands back the SAME singleton context wgpu configured; we re-tag it through
-        // untyped `js_sys`. Survives every subsequent present (`get_current_texture`
-        // never re-configures). A failure degrades to `srgb`.
+        // One-time retag to `target_color_space` (gated; see module docs).
+        // `get_context("webgpu")` hands back the SAME singleton context wgpu
+        // configured; we re-tag it through untyped `js_sys`. Survives every
+        // subsequent present (`get_current_texture` never re-configures). A
+        // failure or an unsupported target degrades to whatever the browser
+        // reports (typically `srgb`).
         let color_space = match canvas.get_context("webgpu") {
-            Ok(Some(obj)) => {
-                crate::present_web_colorspace::retag_display_p3_context(&JsValue::from(obj))
-            }
+            Ok(Some(obj)) => crate::present_web_colorspace::retag_color_space_context(
+                &JsValue::from(obj),
+                target_color_space,
+            ),
             _ => "unknown".to_string(),
         };
 
@@ -212,9 +229,12 @@ impl WebPresentSurface {
         // (#1930) — a same-identity re-present (the steady state while
         // dragging one slider) is zero-alloc; only an identity change (a
         // pass-count parity flip, or a re-open's fresh buffers) rebuilds.
-        let (_uniform, bind_group) =
-            self.present_cache
-                .get_or_build(ctx, &self.bind_group_layout, chain_buf, (self.width, self.height));
+        let (_uniform, bind_group) = self.present_cache.get_or_build(
+            ctx,
+            &self.bind_group_layout,
+            chain_buf,
+            (self.width, self.height),
+        );
         let frame = self
             .surface
             .get_current_texture()

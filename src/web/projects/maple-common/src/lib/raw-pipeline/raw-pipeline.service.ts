@@ -34,6 +34,7 @@ import {
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
+import { CanvasColorSpacePref } from './canvas-color-space.pref';
 import { isNonRawExtension } from '../state/raw-extensions';
 import type {
   OpenedLiveSession,
@@ -56,6 +57,11 @@ export class RawPipelineService implements OnDestroy {
   // an operator kill lands on the next decode / live-session open instead of
   // needing a reload.
   private readonly gate = inject(GpuLiveRenderGate);
+
+  // #3191: the requested GPU-live canvas colour space, read per session-open
+  // request (same pattern as `gate` above) so a Settings change lands on the
+  // next image open with no reload.
+  private readonly colorSpacePref = inject(CanvasColorSpacePref);
 
   private worker: Worker | null = null;
   private nextId = 1;
@@ -270,6 +276,7 @@ export class RawPipelineService implements OnDestroy {
       ext,
       xmp,
       maxLongEdge,
+      this.colorSpacePref.current(),
     );
   }
 

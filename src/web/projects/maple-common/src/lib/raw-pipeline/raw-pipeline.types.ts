@@ -143,6 +143,14 @@ export interface OpenSessionRequest {
    * WASM-side 2048 default cap (the downlevel WebGPU texture baseline).
    */
   maxLongEdge?: number;
+  /**
+   * Requested canvas colour space (#3191, the web half of the #1338 P3
+   * toggle) — `'display-p3'` or `'srgb'`, read from `CanvasColorSpacePref`.
+   * Absent ⇒ the WASM-side `'display-p3'` default (the pre-#3191 behaviour).
+   * A preference, not a guarantee: the WASM side always reports back the
+   * ACHIEVED tag in `OpenSessionSuccess.colorSpace`, never this request.
+   */
+  targetColorSpace?: string;
 }
 
 /** Re-render the open session for a new develop model (the #846 edit path). */
