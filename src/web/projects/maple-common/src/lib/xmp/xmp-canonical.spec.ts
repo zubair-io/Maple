@@ -12,9 +12,11 @@
 //
 // What the parity claim covers, precisely: the canonical document for a model
 // both writers emit the same field set for. It is not whole-document equality
-// for arbitrary round-tripped sidecars — this writer preserves unknown
-// attributes and nested nodes while Apple's has no passthrough at all (#2233),
-// so a document carrying foreign fields cannot be byte-equal across the two.
+// for arbitrary round-tripped sidecars — both writers preserve unknown
+// attributes and nested nodes (Apple via `XMPParser.parsePassthrough` /
+// `XMPSerializer.serialize(_:passthrough:)`, this one via `xmp-passthrough`),
+// but each re-emits foreign content in its own position and form, so a
+// document carrying foreign fields is not byte-equal across the two.
 // It also excludes `papp:Hidden` (no web writer) and default-valued
 // sliders (Apple authors them unconditionally, this writer omits them); the
 // fixture therefore sets every unconditionally-emitted field to a non-default
