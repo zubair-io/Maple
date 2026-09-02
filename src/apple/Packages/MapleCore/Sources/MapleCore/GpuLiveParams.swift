@@ -157,6 +157,13 @@ extension PipelineRenderer {
         p.parametric_darks = Float(model.parametricDarks)
         p.parametric_lights = Float(model.parametricLights)
         p.parametric_highlights = Float(model.parametricHighlights)
+        // Parametric split points (#3152) — ACR default 25/50/75. The FFI
+        // side treats an exact 0.0 as "host predates this field" and
+        // substitutes the canonical default per field, so this app always
+        // sends the model's real (non-zero-by-default) value.
+        p.parametric_shadow_split = Float(model.parametricShadowSplit)
+        p.parametric_midtone_split = Float(model.parametricMidtoneSplit)
+        p.parametric_highlight_split = Float(model.parametricHighlightSplit)
         // Same exhaustive-switch reasoning as `wb_method` above.
         switch model.toneCurveMode {
         case .perChannel:      p.tone_curve_mode = 0

@@ -87,27 +87,45 @@ const AXIS_UNITS_PER_STOP: f32 = 12.5;
 /// Top of the region axis.
 const AXIS_MAX: f32 = 100.0;
 
-/// ACR's `crs:ParametricShadowSplit` default. Not yet user-adjustable — the
-/// three `crs:Parametric*Split` keys now round-trip through the model and
-/// all three XMP layers (#2320), but this curve builder still uses these
-/// fixed constants rather than `model.parametric_shadow_split` etc.; wiring
-/// them in ripples through raw-gpu's CPU-side parity port and the
-/// GpuLiveParams FFI surface, tracked in #3152.
-const SPLIT_SHADOW: f32 = 25.0;
-/// ACR's `crs:ParametricMidtoneSplit` default. See #3152.
-const SPLIT_MIDTONE: f32 = AXIS_MIDTONE;
-/// ACR's `crs:ParametricHighlightSplit` default. See #3152.
-const SPLIT_HIGHLIGHT: f32 = 75.0;
+/// ACR's `crs:ParametricShadowSplit` default — `model.parametric_shadow_split`
+/// (#2320) now drives the curve builder for real (#3152); this literal
+/// survives as the documented default and as the fallback GPU/FFI hosts
+/// substitute when a stale binary leaves the field at zero (see
+/// `raw-ffi::gpu_live` and `raw_gpu::tone_curves::prep`).
+pub(super) const DEFAULT_SPLIT_SHADOW: f32 = 25.0;
+/// ACR's `crs:ParametricMidtoneSplit` default. See [`DEFAULT_SPLIT_SHADOW`].
+pub(super) const DEFAULT_SPLIT_MIDTONE: f32 = AXIS_MIDTONE;
+/// ACR's `crs:ParametricHighlightSplit` default. See [`DEFAULT_SPLIT_SHADOW`].
+pub(super) const DEFAULT_SPLIT_HIGHLIGHT: f32 = 75.0;
 
-/// Region centres — the midpoints of the split intervals, in axis units.
-/// Order matches the slider order used throughout: shadows, darks, lights,
+/// Clamp + order-repair for a (possibly hand-edited) sidecar's split points.
+/// `region_windows`'s non-negative-partition property (see the module docs)
+/// depends on `shadow <= midtone <= highlight` within `[0, AXIS_MAX]` — an
+/// inverted or out-of-range split would flip a `smoothstep` and push a
+/// window negative, breaking the monotonicity guarantee the whole module is
+/// built on. `midtone` is clamped first (it is the axis's natural pivot —
+/// default 50, the anchor `axis_to_authoring_x` already treats as midgrey)
+/// and the two flanks then clamp toward it, same convention
+/// `region_amplitude` uses for the sliders themselves.
+fn ordered_splits(split_shadow: f32, split_midtone: f32, split_highlight: f32) -> (f32, f32, f32) {
+    let midtone = split_midtone.clamp(0.0, AXIS_MAX);
+    let shadow = split_shadow.clamp(0.0, midtone);
+    let highlight = split_highlight.clamp(midtone, AXIS_MAX);
+    (shadow, midtone, highlight)
+}
+
+/// Region centres — the midpoints of the split intervals, in axis units, for
+/// the given (already-[`ordered_splits`]-repaired) split points. Order
+/// matches the slider order used throughout: shadows, darks, lights,
 /// highlights. With the default splits these are −3 / −1 / +1 / +3 stops.
-pub(super) const REGION_CENTRES: [f32; 4] = [
-    SPLIT_SHADOW * 0.5,
-    (SPLIT_SHADOW + SPLIT_MIDTONE) * 0.5,
-    (SPLIT_MIDTONE + SPLIT_HIGHLIGHT) * 0.5,
-    (SPLIT_HIGHLIGHT + AXIS_MAX) * 0.5,
-];
+fn region_centres(split_shadow: f32, split_midtone: f32, split_highlight: f32) -> [f32; 4] {
+    [
+        split_shadow * 0.5,
+        (split_shadow + split_midtone) * 0.5,
+        (split_midtone + split_highlight) * 0.5,
+        (split_highlight + AXIS_MAX) * 0.5,
+    ]
+}
 
 /// Axis coordinate of the top of the authoring domain (scene `REF_MAX`),
 /// i.e. `AXIS_MIDTONE + AXIS_UNITS_PER_STOP · log2(REF_MAX / MIDGREY)`.
@@ -123,24 +141,35 @@ const AXIS_TOP: f32 = 105.924_14;
 /// ACR.
 pub(super) const MAX_STOPS: f32 = 0.5;
 
-/// Axis coordinates of the sampled knots, low to high: the four region
-/// centres interleaved with the three split points (one knot per stop from
-/// −3 to +3), then the midpoint of the highlights fade-out. The `(0, 0)`
-/// and `(1, 1)` endpoints are added by [`build_parametric_curve`].
-const SAMPLE_AXIS: [f32; 8] = [
-    REGION_CENTRES[0],
-    SPLIT_SHADOW,
-    REGION_CENTRES[1],
-    SPLIT_MIDTONE,
-    REGION_CENTRES[2],
-    SPLIT_HIGHLIGHT,
-    REGION_CENTRES[3],
-    (REGION_CENTRES[3] + AXIS_TOP) * 0.5,
-];
+/// Axis coordinates of the sampled knots, low to high, for the given
+/// (already-ordered) split points and their [`region_centres`]: the four
+/// region centres interleaved with the three split points (one knot per
+/// stop from −3 to +3 at the default splits), then the midpoint of the
+/// highlights fade-out. The `(0, 0)` and `(1, 1)` endpoints are added by
+/// [`build_parametric_curve_from_sliders`].
+fn sample_axis(
+    centres: &[f32; 4],
+    split_shadow: f32,
+    split_midtone: f32,
+    split_highlight: f32,
+) -> [f32; 8] {
+    [
+        centres[0],
+        split_shadow,
+        centres[1],
+        split_midtone,
+        centres[2],
+        split_highlight,
+        centres[3],
+        (centres[3] + AXIS_TOP) * 0.5,
+    ]
+}
 
-/// Total knots in the synthesised curve: the two pinned endpoints plus
-/// [`SAMPLE_AXIS`]. Well inside the GPU slot's 32-knot cap.
-pub(super) const KNOT_COUNT: usize = SAMPLE_AXIS.len() + 2;
+/// Total knots in the synthesised curve: the two pinned endpoints plus the
+/// 8 entries [`sample_axis`] produces. The array length is fixed regardless
+/// of where the split points sit, so this stays a compile-time constant.
+/// Well inside the GPU slot's 32-knot cap.
+pub(super) const KNOT_COUNT: usize = 8 + 2;
 
 /// Region axis coordinate → authoring `x` in `[0, 1]`.
 pub(super) fn axis_to_authoring_x(p: f32) -> f32 {
@@ -167,16 +196,18 @@ fn smoothstep(a: f32, b: f32, p: f32) -> (f32, f32) {
     (value, slope)
 }
 
-/// The four region windows and their derivatives at axis coordinate `p`.
-/// Adjacent windows crossfade between region centres, so the windows sum
-/// to 1 up to the highlights centre and the highlights window then fades
-/// to 0 at [`AXIS_TOP`]. Every window is non-negative — that is what makes
-/// the direction property structural.
-fn region_windows(p: f32) -> ([f32; 4], [f32; 4]) {
-    let (s01, d01) = smoothstep(REGION_CENTRES[0], REGION_CENTRES[1], p);
-    let (s12, d12) = smoothstep(REGION_CENTRES[1], REGION_CENTRES[2], p);
-    let (s23, d23) = smoothstep(REGION_CENTRES[2], REGION_CENTRES[3], p);
-    let (s3t, d3t) = smoothstep(REGION_CENTRES[3], AXIS_TOP, p);
+/// The four region windows and their derivatives at axis coordinate `p`,
+/// for the given (already-ordered) region centres. Adjacent windows
+/// crossfade between region centres, so the windows sum to 1 up to the
+/// highlights centre and the highlights window then fades to 0 at
+/// [`AXIS_TOP`]. Every window is non-negative — that is what makes the
+/// direction property structural (see [`ordered_splits`] for why the
+/// centres must be monotonically increasing for this to hold).
+fn region_windows(p: f32, centres: &[f32; 4]) -> ([f32; 4], [f32; 4]) {
+    let (s01, d01) = smoothstep(centres[0], centres[1], p);
+    let (s12, d12) = smoothstep(centres[1], centres[2], p);
+    let (s23, d23) = smoothstep(centres[2], centres[3], p);
+    let (s3t, d3t) = smoothstep(centres[3], AXIS_TOP, p);
     (
         [1.0 - s01, s01 - s12, s12 - s23, s23 - s3t],
         [-d01, d01 - d12, d12 - d23, d23 - d3t],
@@ -199,15 +230,26 @@ pub(super) fn build_parametric_curve(model: &AdjustmentModel) -> PreparedCurve {
         model.parametric_darks,
         model.parametric_lights,
         model.parametric_highlights,
+        model.parametric_shadow_split,
+        model.parametric_midtone_split,
+        model.parametric_highlight_split,
     )
 }
 
-/// Slider-level entry point — the form the GPU port mirrors.
+/// Slider-level entry point — the form the GPU port mirrors. `split_shadow`
+/// / `split_midtone` / `split_highlight` are ACR's `crs:Parametric*Split`
+/// axis positions (documented default 25 / 50 / 75, `[0, 100]`); out-of-
+/// range or misordered values from a hand-edited sidecar are repaired by
+/// [`ordered_splits`] before they reach the window math.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_parametric_curve_from_sliders(
     shadows: f32,
     darks: f32,
     lights: f32,
     highlights: f32,
+    split_shadow: f32,
+    split_midtone: f32,
+    split_highlight: f32,
 ) -> PreparedCurve {
     let amps = [
         region_amplitude(shadows),
@@ -215,6 +257,11 @@ pub(super) fn build_parametric_curve_from_sliders(
         region_amplitude(lights),
         region_amplitude(highlights),
     ];
+
+    let (split_shadow, split_midtone, split_highlight) =
+        ordered_splits(split_shadow, split_midtone, split_highlight);
+    let centres = region_centres(split_shadow, split_midtone, split_highlight);
+    let sample_axis = sample_axis(&centres, split_shadow, split_midtone, split_highlight);
 
     let mut knots: Vec<ToneCurvePoint> = Vec::with_capacity(KNOT_COUNT);
     let mut tangents: Vec<f32> = Vec::with_capacity(KNOT_COUNT);
@@ -225,9 +272,9 @@ pub(super) fn build_parametric_curve_from_sliders(
     knots.push((0.0, 0.0));
     tangents.push(amps[0].exp2());
 
-    for &p in &SAMPLE_AXIS {
+    for &p in &sample_axis {
         let x = axis_to_authoring_x(p);
-        let (w, dw) = region_windows(p);
+        let (w, dw) = region_windows(p, &centres);
         let gain = dot4(&amps, &w).exp2();
         // dy/dx = 2^L · (1 + AXIS_UNITS_PER_STOP · dL/dp); the log-domain
         // axis contributes the `x` in `d(2^L)/dx = 2^L · ln2 · L' · dp/dx`.
@@ -246,6 +293,7 @@ pub(super) fn build_parametric_curve_from_sliders(
 
 #[cfg(test)]
 mod tests {
+    use super::super::evaluator::eval_curve_scene_linear;
     use super::*;
 
     #[test]
@@ -259,10 +307,20 @@ mod tests {
         assert!((axis_to_authoring_x(AXIS_TOP) - 1.0).abs() < 1e-6);
     }
 
+    /// The default splits' region centres, used by every test in this
+    /// module that isn't itself exercising non-default splits.
+    fn default_centres() -> [f32; 4] {
+        region_centres(
+            DEFAULT_SPLIT_SHADOW,
+            DEFAULT_SPLIT_MIDTONE,
+            DEFAULT_SPLIT_HIGHLIGHT,
+        )
+    }
+
     #[test]
     fn region_centres_sit_at_whole_stops_around_midgrey() {
         // shadows −3, darks −1, lights +1, highlights +3 stops re midgrey.
-        for (centre, expected_stops) in REGION_CENTRES.iter().zip([-3.0, -1.0, 1.0, 3.0]) {
+        for (centre, expected_stops) in default_centres().iter().zip([-3.0, -1.0, 1.0, 3.0]) {
             let scene = axis_to_authoring_x(*centre) * REF_MAX;
             let stops = (scene / MIDGREY).log2();
             assert!(
@@ -277,13 +335,14 @@ mod tests {
         // Non-negativity is what makes the direction property structural;
         // summing to 1 below the highlights centre is what keeps a
         // full-deflection setting from stacking two regions' gains.
+        let centres = default_centres();
         for i in 0..=2000 {
             let p = i as f32 * AXIS_TOP / 2000.0;
-            let (w, _) = region_windows(p);
+            let (w, _) = region_windows(p, &centres);
             for (k, &wk) in w.iter().enumerate() {
                 assert!(wk >= -1e-7, "window {k} negative at p={p}: {wk}");
             }
-            if p <= REGION_CENTRES[3] {
+            if p <= centres[3] {
                 let sum: f32 = w.iter().sum();
                 assert!((sum - 1.0).abs() < 1e-5, "windows sum to {sum} at p={p}");
             }
@@ -293,12 +352,13 @@ mod tests {
     #[test]
     fn window_derivatives_match_finite_differences() {
         // The analytic tangents are only as good as these derivatives.
+        let centres = default_centres();
         let h = 1e-3_f32;
         for i in 1..2000 {
             let p = i as f32 * AXIS_TOP / 2000.0;
-            let (_, dw) = region_windows(p);
-            let (w_lo, _) = region_windows(p - h);
-            let (w_hi, _) = region_windows(p + h);
+            let (_, dw) = region_windows(p, &centres);
+            let (w_lo, _) = region_windows(p - h, &centres);
+            let (w_hi, _) = region_windows(p + h, &centres);
             for k in 0..4 {
                 let fd = (w_hi[k] - w_lo[k]) / (2.0 * h);
                 assert!(
@@ -307,6 +367,52 @@ mod tests {
                     dw[k]
                 );
             }
+        }
+    }
+
+    #[test]
+    fn moving_a_split_point_changes_the_curve() {
+        // #3152: the whole point of wiring the split fields through is that
+        // moving one actually perturbs the rendered curve. Push the
+        // shadow/midtone split from its default 25 out to 40 (shadows=+100
+        // so the shadows window has something to move) and confirm the
+        // curve at the old vs a nearby-new split boundary differs.
+        let default_curve = build_parametric_curve_from_sliders(
+            100.0,
+            0.0,
+            0.0,
+            0.0,
+            DEFAULT_SPLIT_SHADOW,
+            DEFAULT_SPLIT_MIDTONE,
+            DEFAULT_SPLIT_HIGHLIGHT,
+        );
+        let moved_curve =
+            build_parametric_curve_from_sliders(100.0, 0.0, 0.0, 0.0, 40.0, 50.0, 75.0);
+
+        // Sample at the midpoint between the two shadow-split positions —
+        // inside the moved window but outside the default one, so a wired
+        // split point must change the sampled value.
+        let probe_axis = (DEFAULT_SPLIT_SHADOW + 40.0) * 0.5;
+        let probe_scene = axis_to_authoring_x(probe_axis) * REF_MAX;
+        let default_y = eval_curve_scene_linear(&default_curve, probe_scene);
+        let moved_y = eval_curve_scene_linear(&moved_curve, probe_scene);
+        assert!(
+            (default_y - moved_y).abs() > 1e-4,
+            "moving parametric_shadow_split from {DEFAULT_SPLIT_SHADOW} to 40 did not move the \
+             curve at axis {probe_axis}: default={default_y}, moved={moved_y}"
+        );
+    }
+
+    #[test]
+    fn misordered_splits_are_repaired_not_left_to_break_monotonicity() {
+        // A hand-edited sidecar could set shadow > highlight. `ordered_splits`
+        // must still hand `region_windows` a monotonically increasing centre
+        // sequence, or the non-negative-partition property breaks.
+        let (s, m, h) = ordered_splits(90.0, 50.0, 10.0);
+        assert!(s <= m && m <= h, "splits not ordered: {s} <= {m} <= {h}");
+        let centres = region_centres(s, m, h);
+        for w in centres.windows(2) {
+            assert!(w[1] >= w[0], "region centres not increasing: {centres:?}");
         }
     }
 }

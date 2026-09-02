@@ -40,6 +40,7 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
         tone: [0.0; 6],
         tone_curves: ToneCurveInputs {
             parametric: [0.0; 4],
+            parametric_split: [25.0, 50.0, 75.0],
             luma: vec![],
             red: vec![],
             green: vec![],

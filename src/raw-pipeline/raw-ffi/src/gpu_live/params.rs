@@ -32,6 +32,19 @@ unsafe fn read_floats(ptr: *const f32, len: usize) -> Vec<f32> {
     std::slice::from_raw_parts(ptr, len).to_vec()
 }
 
+/// `0.0` ⇒ absent (a stale host that predates the field's append, or a
+/// zero-initialized caller) ⇒ substitute ACR's documented default. See the
+/// `parametric_{shadow,midtone,highlight}_split` doc comment on
+/// [`MapleGpuLiveParams`] for why this trio, unlike most tail fields, can't
+/// use `0.0` as its own identity value.
+fn split_or_default(value: f32, default: f32) -> f32 {
+    if value == 0.0 {
+        default
+    } else {
+        value
+    }
+}
+
 /// Build the `raw_gpu::FullChainInputs` the live chain consumes from the C params,
 /// deriving the WB matrix from temp/tint the same way the CPU chain does. The
 /// curve/LUT/tone-curve arrays are copied out of the caller's buffers here, so the
@@ -204,6 +217,11 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
                 p.parametric_darks,
                 p.parametric_lights,
                 p.parametric_highlights,
+            ],
+            parametric_split: [
+                split_or_default(p.parametric_shadow_split, 25.0),
+                split_or_default(p.parametric_midtone_split, 50.0),
+                split_or_default(p.parametric_highlight_split, 75.0),
             ],
             luma: read_points(p.tone_curve_luma_ptr, p.tone_curve_luma_len),
             red: read_points(p.tone_curve_red_ptr, p.tone_curve_red_len),
@@ -421,4 +439,25 @@ unsafe fn residual_data_or_identity(ptr: *const f32, len: usize, size: usize) ->
         }
     }
     ColorLut::identity(2).data
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_or_default;
+
+    #[test]
+    fn zero_split_field_falls_back_to_the_canonical_default() {
+        // A stale host built before #3152 (or one that zero-initializes the
+        // struct) leaves the split fields at 0.0 — must read as "absent",
+        // not "split point at axis 0".
+        assert_eq!(split_or_default(0.0, 25.0), 25.0);
+        assert_eq!(split_or_default(0.0, 50.0), 50.0);
+        assert_eq!(split_or_default(0.0, 75.0), 75.0);
+    }
+
+    #[test]
+    fn nonzero_split_field_passes_through_unchanged() {
+        assert_eq!(split_or_default(15.0, 25.0), 15.0);
+        assert_eq!(split_or_default(90.0, 75.0), 90.0);
+    }
 }
