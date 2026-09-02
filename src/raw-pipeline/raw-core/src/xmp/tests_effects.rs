@@ -340,9 +340,21 @@ fn parametric_serialize_rounds_to_wire_codec() {
 /// values round-trip through serialize → parse.
 #[test]
 fn parametric_split_serialize_roundtrip_and_default_omission() {
+    // Named keys, not a bare "Split" substring — `crs:SplitToning*` (an
+    // unrelated field family, also serialized here) contains "Split" too
+    // (Copilot review).
     let m = AdjustmentModel::default();
+    let default_frag = serialize(&m);
     assert!(
-        !serialize(&m).contains("Split"),
+        !default_frag.contains("crs:ParametricShadowSplit"),
+        "default split points must not be serialized"
+    );
+    assert!(
+        !default_frag.contains("crs:ParametricMidtoneSplit"),
+        "default split points must not be serialized"
+    );
+    assert!(
+        !default_frag.contains("crs:ParametricHighlightSplit"),
         "default split points must not be serialized"
     );
 
@@ -384,7 +396,7 @@ fn parametric_split_serialize_rounds_to_wire_codec() {
     let mut m = AdjustmentModel::default();
     m.parametric_shadow_split = 25.004; // rounds to the 25.0 default
     assert!(
-        !serialize(&m).contains("Split"),
+        !serialize(&m).contains("crs:ParametricShadowSplit"),
         "a value that rounds to the default must be omitted, got: {}",
         serialize(&m)
     );
@@ -398,7 +410,7 @@ fn parametric_split_serialize_rounds_to_wire_codec() {
 
     m.parametric_shadow_split = f32::NAN;
     assert!(
-        !serialize(&m).contains("Split"),
+        !serialize(&m).contains("crs:ParametricShadowSplit"),
         "non-finite values must not reach the sidecar"
     );
 }
