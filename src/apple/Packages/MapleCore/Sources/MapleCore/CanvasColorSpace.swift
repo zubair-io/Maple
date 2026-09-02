@@ -14,12 +14,26 @@
 //   • `PipelineRenderer.makeParams` / `GpuLiveParams.makeGpuLiveParams` —
 //     `target_primaries` (0 = sRGB, 1 = P3) picks which primaries matrix the
 //     chain's `display_encode` stage bakes into the output pixels.
-//   • `GpuLiveCanvasController` — the `CAMetalLayer.colorspace` TAG must
-//     match what was just baked in, or CoreAnimation double-converts (tag
-//     P3 + sRGB-tagged bytes = washed out; tag sRGB + P3-tagged bytes =
+//   • `GpuLiveDriver.present` — the `CAMetalLayer.colorspace` TAG must match
+//     what was just baked in, or CoreAnimation double-converts (tag P3 +
+//     sRGB-tagged bytes = washed out; tag sRGB + P3-tagged bytes =
 //     over-saturated, the exact bug #1512 fixed for the old hardcoded-P3
-//     tag). `GpuLiveCanvasController.retagIfNeeded` is the single place
-//     that keeps the two in sync, called every present.
+//     tag). `GpuLiveDriver.retagLayerIfNeeded` is the single place that
+//     keeps the two in sync, called every present.
+//
+// THREAD SAFETY: `current` is read from `GpuLiveSession`, a plain (non-
+// MainActor) `actor` — off the main thread. `UIScreen.main`/`NSScreen.main`
+// are main-thread-only APIs (Apple's documented contract, not something the
+// Swift 5 language mode this package builds under catches at compile time —
+// see `Package.swift`'s `swiftLanguageModes: [.v5]`), so the P3-capability
+// probe below is resolved EXACTLY ONCE, on the main thread, into a `static
+// let` (review round on #3192: three independent passes flagged the
+// straight-line `UIScreen.main`/`NSScreen.main` read this replaced as a real
+// crash/Main-Thread-Checker risk). A screen swap after that first read
+// (an external monitor plugged in mid-session) is not re-probed — an
+// acceptable trade for a value that only ever seeds the UNSET-key default;
+// once the user touches the Settings picker, UserDefaults wins outright and
+// this path is never consulted again for them.
 
 import Foundation
 
@@ -63,10 +77,31 @@ public enum CanvasColorSpace: Int, CaseIterable, Sendable {
     /// `target_primaries` wire value for the FFI param structs.
     public var wireValue: UInt32 { UInt32(rawValue) }
 
-    /// Whether the CURRENT main display reports the Display P3 gamut.
-    /// Best-effort: a screen that can't be resolved (headless test host,
-    /// very early app launch) reads as non-P3 rather than crashing.
-    static var mainDisplaySupportsP3: Bool {
+    /// Whether the main display reports the Display P3 gamut, resolved ONCE
+    /// on the main thread and cached — see the file banner's THREAD SAFETY
+    /// note. `static let` initializers run exactly once, guarded by Swift's
+    /// own one-time-init lock, so this is safe to force from any thread; the
+    /// FIRST caller (whichever thread that is) pays a main-thread hop, every
+    /// later caller reads the cached `Bool` directly.
+    static let mainDisplaySupportsP3: Bool = {
+        if Thread.isMainThread {
+            return probeMainDisplaySupportsP3()
+        }
+        return DispatchQueue.main.sync { probeMainDisplaySupportsP3() }
+    }()
+
+    /// The actual `UIScreen`/`NSScreen` read — MUST only ever run on the
+    /// main thread (called only from `mainDisplaySupportsP3`'s init, which
+    /// guarantees that). Best-effort: a screen that can't be resolved
+    /// (headless test host, very early app launch) reads as non-P3 rather
+    /// than crashing.
+    ///
+    /// `UIScreen.main` is deprecated (iOS 16+) in favor of a window scene's
+    /// own screen, but this is a one-time, view-less capability probe with
+    /// no window/scene reference to read one from — accepted as-is (a NIT on
+    /// #3192's review) rather than threading a scene reference through the
+    /// whole call chain for a value resolved once and cached forever.
+    private static func probeMainDisplaySupportsP3() -> Bool {
         #if canImport(UIKit)
         return UIScreen.main.traitCollection.displayGamut == .P3
         #elseif canImport(AppKit)

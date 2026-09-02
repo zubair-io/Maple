@@ -191,9 +191,12 @@ public final class GpuLiveDriver {
         if layer !== self.layer {
             self.layer = layer
             surfaceGeneration &+= 1
-            // A newly-registered layer has whatever tag `GpuLiveCanvasController.
-            // init()` gave it — re-derive on the next present rather than
-            // trusting it matches THIS driver's most recent `taggedColorSpace`.
+            // A newly-registered layer has no colorspace tag applied yet
+            // (`GpuLiveCanvasController.init()` no longer sets one — the
+            // first `present()` below is now the sole tagger) — clear the
+            // cache so `retagLayerIfNeeded` doesn't skip tagging THIS layer
+            // just because it matches the PREVIOUS layer's last-applied
+            // value.
             taggedColorSpace = nil
         }
     }
