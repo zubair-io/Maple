@@ -25,12 +25,20 @@
 //! race into redundant concurrent decodes of the *same* frame before any
 //! of them finished inserting, each one transiently doubling or tripling
 //! peak RSS beyond what the capacity was supposed to bound — measured
-//! directly against this cache's whole reason for existing. Every caller
-//! only consults this cache a handful of times per band/tile/scan-pass
-//! (never per pixel — see the callers in `tile/sampling.rs`,
-//! `tile/masks.rs`, `tile/composite.rs`), so serializing the (comparatively
-//! rare) decodes trades a small, bounded amount of cross-thread overlap
-//! for peak RSS that actually stays at `capacity`.
+//! directly against this cache's whole reason for existing.
+//!
+//! Callers (`tile/sampling.rs`, `tile/masks.rs`, `tile/composite.rs`) do
+//! call `get()` per sample point / per tile, gated by the existing
+//! per-sample or per-tile bbox checks — an earlier version tried
+//! resolving a frame once and holding the `Arc` for the rest of a whole
+//! band/scan to cut lock overhead, but a locally-held `Arc` keeps a
+//! frame's pixels alive regardless of what this cache's own LRU does
+//! internally, silently defeating the capacity bound on a set where a
+//! scan's coverage reaches most/all frames (typical for a strip pano).
+//! A `get()` hit is cheap on its own (lock + short linear scan +
+//! `Arc::clone`), and decode-on-miss no longer races thanks to the
+//! whole-call lock above, so paying it per sample is the correct
+//! tradeoff, not a shortcut.
 //!
 //! For a strip capture (frames laid out along one axis, each overlapping
 //! only its near neighbours) the working set touched by any handful of
