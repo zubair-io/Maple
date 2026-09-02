@@ -57,6 +57,22 @@ export interface Render2dHost {
 }
 
 /**
+ * #3182 fallback defaults for a decode/session-open reply that predates the
+ * lens-correction fields (older worker builds, minimal test fakes): no known
+ * corrections ⇒ the panel reads as disabled, CA reads as inert. Shared by the
+ * 2D cold open below and the GPU live-session open (`image-canvas.gpu-present.ts`).
+ */
+export function lensCorrectionCapabilityFrom(reply: {
+  hasLensCorrections?: boolean;
+  lensCorrectionCaInert?: boolean;
+}): { hasLensCorrections: boolean; lensCorrectionCaInert: boolean } {
+  return {
+    hasLensCorrections: reply.hasLensCorrections ?? false,
+    lensCorrectionCaInert: reply.lensCorrectionCaInert ?? true,
+  };
+}
+
+/**
  * WASM-CPU cold open (#1101): decode at the fast-phase target, seed the asset
  * dims + As-Shot WB, open the cold-open gate, paint, and kick a refine if the
  * view is already zoomed past fit. Mirrors the inlined `loadReal` 2D tail.
@@ -89,6 +105,15 @@ export async function coldOpen2d(
     // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
     // what Rust used; guarded on "still default" so it never clobbers edits).
     host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
+    // #3182: record the decode-time lens-correction signal for the Lens
+    // Corrections panel. Absent (older stubs / non-updated fakes) reads as
+    // the fail-closed default (see `lensCorrectionCapabilityFrom` above).
+    const lensCorrections = lensCorrectionCapabilityFrom(decoded);
+    host.state.seedLensCorrections(
+      assetId,
+      lensCorrections.hasLensCorrections,
+      lensCorrections.lensCorrectionCaInert,
+    );
 
     // Open the gate + record what this no-XMP render reflects (the seed's effect
     // re-fire dedups against it). Guard on still-current asset.

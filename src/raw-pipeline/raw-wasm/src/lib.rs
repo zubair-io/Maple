@@ -71,6 +71,12 @@ pub mod preview;
 /// other render family in this crate. Split out of this file for the
 /// file-size budget (#2628); mirrors `raw-ffi`'s own `render.rs` grouping.
 pub mod render;
+/// `render_bytes_with_film` / `render_bytes_sized_with_film` — split out of
+/// `render.rs` (#3182, file-size budget). Not `pub`: wasm-bindgen exports
+/// its `#[wasm_bindgen]` functions to JS regardless of Rust-level module
+/// visibility (see `render.rs`'s own module doc); Rust callers reach it as
+/// `render_film::…` (`tests.rs`).
+mod render_film;
 /// Scene-linear fp16 RGBA render surface — `MapleSceneLinearRender`,
 /// `render_bytes_scene_linear`, `render_bytes_scene_linear_sized`. Split out
 /// of this file for the file-size budget (#2628); mirrors `raw-ffi`'s own

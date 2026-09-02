@@ -103,6 +103,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
+      seedLensCorrections: vi.fn(),
       updateAssetDimensions: updateDimsSpy,
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;
@@ -388,6 +389,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
+      seedLensCorrections: vi.fn(),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;

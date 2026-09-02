@@ -278,7 +278,7 @@ fn render_bytes_sized_with_film_empty_lut_matches_render_bytes_sized() {
     let cap = 768u32;
     let no_lut =
         render_bytes_sized(&bytes, "dng", None, false, cap).expect("plain sized render ok");
-    let empty_lut = render::render_bytes_sized_with_film(&bytes, "dng", None, false, cap, &[])
+    let empty_lut = render_film::render_bytes_sized_with_film(&bytes, "dng", None, false, cap, &[])
         .expect("sized+film render with empty lut ok");
     assert_eq!(no_lut.width(), empty_lut.width());
     assert_eq!(no_lut.height(), empty_lut.height());
@@ -307,7 +307,7 @@ fn render_bytes_sized_with_film_caps_long_edge_and_applies_the_look() {
     let lut_bytes = solid_red_mlut_bytes();
 
     let with_film =
-        render::render_bytes_sized_with_film(&bytes, "dng", None, false, cap, &lut_bytes)
+        render_film::render_bytes_sized_with_film(&bytes, "dng", None, false, cap, &lut_bytes)
             .expect("sized+film render ok");
     let (w, h) = (with_film.width(), with_film.height());
     assert!(

@@ -106,6 +106,9 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     nativeHeight: session.fullHeight,
     asShotTemperature: session.asShotTemperature,
     asShotTint: session.asShotTint,
+    // #3182 — decode-time facts, read off the session's retained RawImage.
+    hasLensCorrections: session.hasLensCorrections,
+    lensCorrectionCaInert: session.lensCorrectionCaInert,
     // The TRUTH the browser configured after the one-time display-p3 retag
     // `open` did (read back via `getConfiguration()`), never an assumption.
     colorSpace: session.colorSpace,
