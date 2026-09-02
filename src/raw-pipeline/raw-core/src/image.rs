@@ -311,6 +311,32 @@ impl RawImage {
             _ => true,
         })
     }
+
+    /// Whether the distortion slider (`lens_correction_distortion`) is
+    /// INERT on this RAW — true when there is no `WarpRectilinear` opcode
+    /// in `OpcodeList3` at all (#3189). A vignette-only source (only
+    /// `FixVignetteRadial`) is the common case: `has_lens_corrections()`
+    /// is `true` — there IS an opcode list — but there is nothing
+    /// `lens_correction_distortion` can scale.
+    ///
+    /// Unlike `lens_correction_ca_inert`, a SINGLE coefficient set is
+    /// enough for distortion to have a real geometric effect — CA needs
+    /// per-plane divergence to have anything to attenuate, but distortion
+    /// warps every plane identically under a single set, which is still a
+    /// real (if colour-neutral) correction. So this checks presence only,
+    /// not `planes.len()`. `true` (inert) is also the answer when there
+    /// are no lens corrections at all, matching
+    /// `has_lens_corrections() == false`.
+    pub fn lens_correction_distortion_inert(&self) -> bool {
+        use crate::pipeline::pano::opcodes::PanoOpcode;
+        let Some((list, _)) = &self.opcode_list3 else {
+            return true;
+        };
+        !list
+            .opcodes
+            .iter()
+            .any(|op| matches!(op, PanoOpcode::WarpRectilinear(_)))
+    }
 }
 
 /// DNG camera-recommended render rectangle in raw-sensor coordinates.
