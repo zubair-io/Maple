@@ -1,6 +1,6 @@
 // AutoCubeEncodeErrorPathTests.swift — #877 error-path invariant.
 //
-// The gamut-correct sRGB display encode (`encodeDisplaySRGBViaFFI`) and the
+// The gamut-correct sRGB display encode (`encodeDisplayViaFFI`) and the
 // sRGB-tagged Auto Profile cube MUST travel together. The original #871/#877
 // blowout was a color-space mismatch: an sRGB-tagged cube applied to a
 // Rec.2020-tagged buffer. The encode's error path could reintroduce exactly

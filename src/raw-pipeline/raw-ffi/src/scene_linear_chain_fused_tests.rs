@@ -3,14 +3,18 @@
 //!
 //! The load-bearing claim of #2092 is: the fused entry's output is
 //! EXACTLY what the two-step Swift path (`applySceneLinearChainViaFFI`
-//! then `encodeDisplaySRGBViaFFI`) already produces — it is the same two
+//! then `encodeDisplayViaFFI`) already produces — it is the same two
 //! Rust functions called back-to-back, just without the intervening
-//! Swift-side CIImage wrap/readback. These tests build a synthetic f32
-//! RGBA buffer, run BOTH the two-step sequence (calling
-//! `maple_apply_scene_linear_chain_f32` then `maple_encode_display_srgb_f32`
-//! directly, exactly as the fused entry does internally) and the fused
-//! entry, then assert bit-for-bit equality — no ΔE tolerance, no epsilon,
-//! since this is a call-ordering change, not a math change.
+//! Swift-side CIImage wrap/readback. `maple_apply_chain_and_encode_display_f32`
+//! internally calls `maple_encode_display_f32` with `target_primaries = 0`
+//! (#3190 — see `scene_linear_chain_fused.rs`'s `apply_chain_and_encode_inner`),
+//! so its two-step equivalent is `maple_apply_scene_linear_chain_f32` then
+//! `maple_encode_display_f32(.., 0, ..)` — `maple_encode_display_srgb_f32`
+//! is a thin, behavior-identical wrapper over that same call, kept only for
+//! external callers that predate #3190. These tests build a synthetic f32
+//! RGBA buffer, run BOTH the two-step sequence and the fused entry, then
+//! assert bit-for-bit equality — no ΔE tolerance, no epsilon, since this
+//! is a call-ordering change, not a math change.
 
 use crate::scene_linear_chain::{
     maple_apply_scene_linear_chain_f32, maple_encode_display_f32, maple_encode_display_srgb_f32,

@@ -1,7 +1,7 @@
 // FusedChainEncodeSliderTickPerfTests.swift — #2092 fused-path perf bench.
 //
 // Sibling of `SliderTickPerfTests` (exposure-drag baseline). #2092 fuses
-// `applySceneLinearChainViaFFI` + `encodeDisplaySRGBViaFFI` into a single
+// `applySceneLinearChainViaFFI` + `encodeDisplayViaFFI` into a single
 // FFI call (`maple_apply_chain_and_encode_display_f32`) whenever nothing
 // runs between them — see `ImageEditPipeline.applyChainAndEncodeViaFusedFFI`.
 // "Nothing runs between them" used to require `MetalKernels.applySceneSharpen`
@@ -133,7 +133,7 @@ final class FusedChainEncodeSliderTickPerfTests: XCTestCase {
         // Two arms, SAME build + SAME machine, measured back to back: the
         // #2095 fused chain+encode path ON (production default, one FFI
         // round trip per tick) and OFF (the exact pre-#2095 two-step path,
-        // `applySceneLinearChainViaFFI` + `encodeDisplaySRGBViaFFI`). The
+        // `applySceneLinearChainViaFFI` + `encodeDisplayViaFFI`). The
         // `_testSetFusedChainEncodeEnabled` hook overrides the init-time env
         // kill-switch at runtime so both arms run in ONE process. sharpen /
         // nr_color stay pinned at zero so the fusion gate holds throughout
