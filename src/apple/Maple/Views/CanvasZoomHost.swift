@@ -5,22 +5,20 @@
 // double-tap, Cmd+scroll-wheel zoom, wheel pan, and the always-visible zoom badge. Both the legacy
 // full-image surface and the S5 `EditorView` embed this host; the S4 loupe adopts it under #577.
 //
-// The host owns the viewport: it reports the live size into the `CanvasZoomController` (which
-// pushes `previewSize`/`pixelScale`/the visible tile rect into the `EditSession`), frames the
-// consumer's canvas leaf at the resolved display frame, and clips overflow so a zoomed-in canvas
-// pans inside a fixed window.
+// The host owns the viewport: it reports the live size into the `CanvasZoomController` (which pushes
+// `previewSize`/`pixelScale`/the visible tile rect into the `EditSession`), frames the consumer's
+// canvas leaf at the resolved display frame, and clips overflow so a zoomed-in canvas pans inside a
+// fixed window.
 //
 // Gesture arbitration (spec §5.0 — the editor's editing gestures keep working):
 //
 //   • Pinch                → zoom, anchored at the gesture location.
-//   • Drag                 → pan when zoomed; INERT at fit (belongs to the editing
-//                            surface/system gestures — via simultaneousGesture so
-//                            nothing else is starved).
-//   • Plain wheel (macOS)  → pan when zoomed; at fit routes to `onWheelEditing`
-//                            (armed-tool nudge) or passes through when nil (legacy).
+//   • Drag                 → pan when zoomed; INERT at fit (belongs to the editing surface/system
+//                            gestures — via simultaneousGesture so nothing else is starved).
+//   • Plain wheel (macOS)  → pan when zoomed; at fit routes to `onWheelEditing` (armed-tool
+//                            nudge) or passes through when nil (legacy).
 //   • Cmd+wheel (macOS)    → zoom anchored at the cursor.
-//   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to fit; editor:
-//                            toggle fit ↔ 100%).
+//   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to fit; editor: toggle fit ↔ 100%).
 //
 // Keyboard shortcuts stay with the consumers (legacy toolbar ⌘0/⌘1/⌘=/⌘-, editor toolbar ⌘0/⌘1) —
 // they call the controller's command methods.
@@ -43,12 +41,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// Double-tap routing — `.resetToFit` (legacy) or
     /// `.toggleFitAnd100` (editor, spec §5.0).
     var doubleTapBehavior: CanvasZoomModel.DoubleTapBehavior = .resetToFit
-    /// At-fit plain-wheel hook (macOS): the editor routes detents into
-    /// the armed tool (steps, unit-per-step). `nil` (legacy) lets the
-    /// event pass through unhandled.
+    /// At-fit plain-wheel hook (macOS): the editor routes detents into the armed tool
+    /// (steps, unit-per-step). `nil` (legacy) lets the event pass through unhandled.
     var onWheelEditing: ((Int, Double) -> Void)? = nil
-    /// True when the consumer has pixels to show — the leaf renders
-    /// framed + gestured; otherwise the fallback shows.
+    /// True when the consumer has pixels to show — the leaf renders framed + gestured; otherwise the fallback shows.
     let canvasReady: Bool
     /// Frame (host-local coordinate space) of a floating chrome panel
     /// covering part of the canvas — e.g. `FlyoutSliderPanel`'s film
@@ -60,11 +56,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// in:active:)`) for the currently-armed tool — every tool but Film
     /// keeps the plain-wheel nudge on `onWheelEditing` above.
     var wheelExcludedFrame: CGRect? = nil
-    /// The canvas leaf (CIImage raster / GPU layer). The host frames it
-    /// to the resolved display frame; the leaf fills that proposal.
+    /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
     @ViewBuilder let canvasLeaf: () -> CanvasLeaf
-    /// Shown while no frame can resolve (no preview yet / no native
-    /// size). Receives the viewport's full size.
+    /// Shown while no frame can resolve (no preview yet / no native size). Gets the viewport's full size.
     @ViewBuilder let fallback: () -> Fallback
 
     @Environment(\.displayScale) private var displayScale
@@ -72,32 +66,41 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
     #endif
     #if os(iOS)
-    // Live pinch is rendered as a compositor `.scaleEffect` about the viewport
-    // CENTRE — `pixelScale` is left untouched until release, so the frame never
-    // grows mid-gesture and the canvas never re-decodes per frame (#1493). The
-    // focal-anchoring lives entirely in `gestureCommittedPan` (the would-be
-    // committed pan), so the live visual equals the committed geometry exactly.
-    // At rest `gestureZoom == 1`, so the modifier chain is inert.
+    // Live pinch renders as a compositor `.scaleEffect` about the viewport CENTRE — `pixelScale`
+    // stays untouched until release, so the frame never grows mid-gesture and never re-decodes
+    // per frame (#1493). Focal-anchoring lives entirely in `gestureCommittedPan` (the would-be
+    // committed pan), so the live visual equals the committed geometry. At rest `gestureZoom ==
+    // 1`, so the modifier chain is inert.
     @State private var gestureZoom: CGFloat = 1
     @State private var gestureCommittedPan: CGSize = .zero
     @State private var pinchActive = false
     @State private var pinchLastCentroid: CGPoint = .zero
-    // Magnification of the LAST rendered frame. The commit uses this (not the
-    // gesture-end recognizer scale, which differs as the fingers lift) so the
-    // committed scale/pan exactly matches the last frame shown — no snap.
+    // Magnification of the LAST rendered frame — the commit uses this (not the gesture-end
+    // recognizer scale, which differs as fingers lift), so committed scale/pan exactly matches.
     @State private var pinchLastMag: CGFloat = 1
-    // Live effective scale shown in the zoom badge during a pinch. `pixelScale`
-    // is frozen mid-gesture (the zoom is a compositor transform), so the badge
-    // would otherwise read the pre-pinch value — drive it from the live factor.
-    // nil → not pinching → badge reads the committed `effectivePixelScale`.
+    // Live effective scale shown in the zoom badge during a pinch — `pixelScale` is frozen
+    // mid-gesture (a compositor transform), so the badge would otherwise read the pre-pinch
+    // value. nil → not pinching → badge reads the committed `effectivePixelScale`.
     @State private var liveZoomScale: CGFloat?
-    // When a pinch was released. Two fingers never lift in the same instant, so the
-    // lingering finger fires a one-finger drag the moment the pinch ends —
-    // which would pan/jump the just-committed canvas. We ignore drag-pans for a
-    // short window after release (absorbing the movement into the baseline so a
-    // deliberate continued pan resumes smoothly). Time-based → self-clearing.
+    // When a pinch was released. Two fingers never lift in the same instant, so the lingering
+    // finger fires a one-finger drag the moment the pinch ends, which would pan/jump the
+    // just-committed canvas — ignore drag-pans for a short window after release (absorbing the
+    // movement into the baseline so a deliberate continued pan resumes smoothly). Self-clearing.
     @State private var lastPinchEnd: Date?
     #endif
+
+    /// The pan offset the leaf is ACTUALLY laid out with — `gestureCommittedPan`
+    /// mid-pinch on iOS, else `controller.panOffset`. Single source for both the
+    /// leaf's own `.offset()` and the `canvas-image-rect` marker (#2288 review
+    /// on #3194 — two separately-computed expressions let the marker diverge
+    /// from the leaf's real position mid-pinch).
+    private var effectivePanOffset: CGSize {
+        #if os(iOS)
+        pinchActive ? gestureCommittedPan : controller.panOffset
+        #else
+        controller.panOffset
+        #endif
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -106,25 +109,21 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
                     canvasLeaf()
                         .frame(width: frame.width, height: frame.height)
                         #if os(iOS)
-                        // Live pinch: scale the frozen frame about its centre in
-                        // the compositor (cheap, no re-decode), positioned by the
-                        // would-be committed pan (which carries the focal anchor).
-                        // `.scaleEffect(1)` is identity at rest. On release the
-                        // frame grows to `frame×zoom` with `panOffset ==
-                        // gestureCommittedPan`, which is geometrically identical —
-                        // no jump.
+                        // Live pinch: scale the frozen frame about its centre in the
+                        // compositor (cheap, no re-decode); `effectivePanOffset` is the
+                        // would-be committed pan (the focal anchor). `.scaleEffect(1)` is
+                        // identity at rest — on release `panOffset == gestureCommittedPan`,
+                        // geometrically identical, so there's no jump.
                         .scaleEffect(gestureZoom, anchor: .center)
-                        .offset(pinchActive ? gestureCommittedPan : controller.panOffset)
-                        #else
-                        .offset(controller.panOffset)
                         #endif
+                        .offset(effectivePanOffset)
                     // #2288 — 0×0 marker carrying the photo's rect as text; see imageRectAccessibilityValue's doc.
                     Color.clear.frame(width: 0, height: 0)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Editor canvas image rect")
                         .accessibilityIdentifier("canvas-image-rect")
                         .accessibilityValue(FullImageViewVM.imageRectAccessibilityValue(
-                            containerSize: geo.size, imageSize: frame, panOffset: controller.panOffset))
+                            containerSize: geo.size, imageSize: frame, panOffset: effectivePanOffset))
                 } else {
                     fallback()
                 }
