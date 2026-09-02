@@ -35,7 +35,12 @@ import {
   peopleRowHeight,
 } from './people.vm';
 
-class PeopleGridLayout {
+/** Exported (in addition to being embedded in {@link PeopleGridHost}) so a
+ * component that owns its own virtual-scroll viewport — but shares its
+ * cover-thumb cache with a parent, e.g. `PeopleListComponent` — can hold an
+ * independent grid-geometry + ResizeObserver instance without pulling in a
+ * second `ThumbBlobCache`. */
+export class PeopleGridLayout {
   /** Measured inner width of the viewport. Seeded until the ResizeObserver
    * reports the real width. */
   private readonly containerWidth = signal<number>(900);

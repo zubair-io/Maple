@@ -9,24 +9,22 @@
 //
 // What remains is `::ng-deep` residue: every one of these classes reaches
 // into a mounted child component's internal DOM (`<mui-button>`'s own
-// `button.mui-button`, or in `.card-delete`/`.card-restore`'s case, chrome
-// also relied on by restorable-people.component.html) — encapsulated
-// styles a template utility class cannot reach.
+// `button.mui-button`) — encapsulated styles a template utility class
+// cannot reach. `.card-delete`'s own copy moved to
+// `people-list.component.scss` with the list-card markup it styles
+// (#2140) — this file (via `styleUrl`) still backs
+// restorable-people.component.html, so `.card-restore` stays here.
 
-// `.card-delete` / `.card-restore` are the class on the `<mui-button>` host
-// now — the real button is inside its own template, hence `::ng-deep`.
-// Restore uses a positive (accent) hover instead of the destructive red.
-// `.card-restore` is also consumed by restorable-people.component.html.
-.card-delete ::ng-deep button.mui-button,
+// `.card-restore` is the class on the `<mui-button>` host in
+// restorable-people.component.html now — the real button is inside its own
+// template, hence `::ng-deep`. Positive (accent) hover, unlike the
+// destructive-red `.card-delete` this used to share a base rule with.
 .card-restore ::ng-deep button.mui-button {
   background: transparent;
   border: none;
   font-size: 11px;
   color: var(--s-text-dim);
   padding: 0;
-}
-.card-delete ::ng-deep button.mui-button:hover {
-  color: var(--s-err);
 }
 .card-restore ::ng-deep button.mui-button:hover {
   color: var(--s-accent, var(--s-text));
@@ -161,6 +159,10 @@
 // render identically, so the shared declarations stay together here rather
 // than splitting the label's styling out to template utilities while the
 // mui-button instances keep `::ng-deep` — that would let the two drift.
+// This file's copy now styles only the detail view's per-face bulk
+// toolbar (#2140 moved the list view's toolbar to
+// `people-list.component.scss`, which needs its own identical copy for
+// the same style-encapsulation reason as `.card-delete`/`.card-restore` above).
 .bulk-btn {
   position: relative; // anchor for the overlay <select>
   display: inline-flex;
