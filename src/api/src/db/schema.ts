@@ -1634,6 +1634,40 @@ export interface AssetChangeDoc {
 
 export type AssetChangeWithId = WithId<AssetChangeDoc>;
 
+// ---------------------------------------------------------------------------
+// APNs device tokens (#1025 — File Provider push-to-signal)
+// ---------------------------------------------------------------------------
+
+/** Which APNs environment a device token was minted against. A debug/
+ * simulator or TestFlight-via-Xcode build registers against `sandbox`;
+ * a TestFlight-via-App-Store-Connect or App Store build registers
+ * against `production`. Sending to the wrong host for a given token is
+ * always rejected by Apple, so this must travel with the token. */
+export type ApnsEnvironment = 'sandbox' | 'production';
+
+/**
+ * One row per (user, device) the device wants push-to-signal wake-ups
+ * for. NOT per library: a File Provider domain covers a whole connected
+ * server (`FileProviderDomainController.domainIdentifier(for:)` keys on
+ * scheme+host+port only), with every library on that server surfacing as
+ * a sub-tree inside that one domain — so a device registers exactly one
+ * push token per server, and a re-registration of the same
+ * (user, device_token) pair upserts rather than duplicating — see
+ * `apns/apns-devices.repo.ts`.
+ */
+export interface ApnsDeviceTokenDoc {
+  user_id: ObjectId;
+  /** Hex-encoded APNs device token, as reported by
+   * `PKPushRegistry.pushRegistry(_:didUpdate:for:)`. */
+  device_token: string;
+  platform: 'ios' | 'macos';
+  environment: ApnsEnvironment;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type ApnsDeviceTokenWithId = WithId<ApnsDeviceTokenDoc>;
+
 /**
  * A small key/value collection for server-wide singletons. Rows:
  *   - `_id: "asset_changes_cursor"` — holds the next cursor value to allocate
