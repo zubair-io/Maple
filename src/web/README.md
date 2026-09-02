@@ -79,7 +79,7 @@ cd src/web
 bun install                        # the workspace is bun-locked (bun.lock); there is no npm lockfile
 bun run start:syrup                # maple-syrup at http://localhost:4200/
 bun run start:maple                # maple at http://localhost:4201/
-# For backwards compatibility, `bun start` aliases start:syrup.
+# For backwards compatibility, `bun start` aliases start:maple.
 ```
 
 `start` and `build` re-run the two commands above automatically, via
