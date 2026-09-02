@@ -45,8 +45,13 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     public let scopeParentURL: URL?
 
     /// Capture date when known by the source. PhotoKit and CloudSource (via
-    /// AssetDoc.exif.captured_at) provide this; filesystem/SMB do not until
-    /// indexed. Used by the merged timeline (Phase 3 Task 3.6) to sort cells
+    /// AssetDoc.exif.captured_at) provide this; `FilesystemSource` provides
+    /// it too (#2274) from the EXIF `DateTimeOriginal` string
+    /// `LibraryIndex.LibraryEntry.dateTimeOriginal` already caches for
+    /// external-rename detection (#2656) — `nil` only until that cache
+    /// warms for a given file (see `ExternalRenameReconciler
+    /// .syncFingerprintCache`'s per-scan warm-up cap). SMB does not provide
+    /// it yet. Used by the merged timeline (Phase 3 Task 3.6) to sort cells
     /// chronologically across sources.
     public let captureDate: Date?
 

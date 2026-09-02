@@ -58,6 +58,68 @@ final class AllSourcesTimelineViewModelTests: XCTestCase {
     XCTAssertTrue(AllSourcesTimelineViewModel.unionBuckets(perSourceCounts: [], localBuckets: []).isEmpty)
   }
 
+  // MARK: - PhotoKit + Folders combine into the "local" side (#2274)
+
+  /// PhotoKit and local Folders are disjoint on-disk populations, so their
+  /// bucket counts SUM into the combined "local" figure `recomputeBuckets`
+  /// then folds against the cloud sum via `unionBuckets`'s existing max —
+  /// distinct from how `unionBuckets` folds PhotoKit-vs-cloud (max, because
+  /// THAT pair can genuinely overlap via sync). No cloud sources here, so
+  /// the whole result IS the combined-local figure.
+  func test_recomputeBuckets_sumsPhotoKitAndFolderCounts() async throws {
+    let julKey = PhotoKitMergeAdapter.BucketKey(year: 2024, month: 7)
+    let photoKitURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AllSourcesTimelineVMTests-photokit-\(UUID()).json")
+    addTeardownBlock { try? FileManager.default.removeItem(at: photoKitURL) }
+    let photoKitRef = ImageRef(id: "p1", displayName: "p1", url: nil,
+                               captureDate: Self.utcDate(year: 2024, month: 7, day: 10))
+    try PhotoKitMergeAdapter.encodeBuckets([julKey: [photoKitRef]]).write(to: photoKitURL)
+    let photoKitMerge = PhotoKitMergeAdapter(diskCacheURL: photoKitURL)
+
+    let suiteName = "AllSourcesTimelineVMTests-\(UUID().uuidString)"
+    let folderDefaults = UserDefaults(suiteName: suiteName)!
+    addTeardownBlock { folderDefaults.removePersistentDomain(forName: suiteName) }
+    let folderURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AllSourcesTimelineVMTests-folder-\(UUID())")
+    try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: folderURL) }
+    let fileURL = folderURL.appendingPathComponent("IMG_1.dng")
+    try Data("pixels".utf8).write(to: fileURL)
+    let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+    try await LibraryIndexStore(folderURL: folderURL).updateFingerprints([
+      LibraryIndexStore.FingerprintUpdate(
+        name: "IMG_1.dng", size: (attrs[.size] as? NSNumber)?.int64Value,
+        mtime: attrs[.modificationDate] as? Date,
+        dateTimeOriginal: "2024:07:11 09:00:00", cameraSerial: nil),
+    ])
+    let bookmark = try folderURL.bookmarkData(
+      options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+    SavedFolderStore.upsert(
+      SavedFolder(path: folderURL.path, displayName: "A", bookmark: bookmark, lastOpened: Date()),
+      into: folderDefaults)
+    let folderMerge = FolderMergeAdapter(defaults: folderDefaults)
+    await folderMerge.warmUp()
+
+    // Both adapters already have fresh data by construction time — PhotoKit
+    // loads its disk cache synchronously in `init`, and `folderMerge
+    // .warmUp()` was awaited above — so the VM's own `init` (which calls
+    // `recomputeBuckets()` once either adapter is non-nil) already reflects
+    // both without needing a warm-up round trip after construction.
+    let vm = AllSourcesTimelineViewModel(
+      sources: [], photoKitMerge: photoKitMerge, folderMerge: folderMerge)
+
+    let july = try XCTUnwrap(vm.buckets.first { $0.year == 2024 && $0.month == 7 })
+    XCTAssertEqual(july.count, 2, "1 (PhotoKit) + 1 (folder) = 2 — disjoint populations sum")
+  }
+
+  private static func utcDate(year: Int, month: Int, day: Int) -> Date {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    var comps = DateComponents()
+    comps.year = year; comps.month = month; comps.day = day
+    return cal.date(from: comps)!
+  }
+
   // MARK: - Fan-out across servers
 
   /// `loadBuckets()` fans `/api/search/buckets` out to every (server,
