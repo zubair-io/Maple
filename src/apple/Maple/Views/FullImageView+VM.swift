@@ -85,7 +85,13 @@ enum FullImageViewVM {
         let y = (containerSize.height - imageSize.height) / 2 + panOffset.height
         // 2 decimal places: enough precision for a point-space crop, far
         // short of floating-point noise turning into a visible parse diff.
-        return String(format: "%.2f,%.2f,%.2f,%.2f", x, y, imageSize.width, imageSize.height)
+        // Locale pinned to en_US_POSIX (Jules review on #3194): the default
+        // `String(format:)` uses the CURRENT locale, and a comma-decimal
+        // locale (e.g. de_DE) would emit "40,00" — indistinguishable from
+        // the "," field delimiter `CanvasCapture.parseImageRect` splits on.
+        return String(
+            format: "%.2f,%.2f,%.2f,%.2f", locale: Locale(identifier: "en_US_POSIX"),
+            x, y, imageSize.width, imageSize.height)
     }
 
     // MARK: - Canvas path selection (GPU live vs CPU)

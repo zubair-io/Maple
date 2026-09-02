@@ -140,14 +140,24 @@ enum CanvasCapture {
         guard imageRectMarker.exists,
               let imageRect = parseImageRect(imageRectMarker.value as? String),
               let containerPNG = canvasPNG(canvas, frame: containerFrame),
-              let containerImage = NSImage(data: containerPNG)
+              let bitmap = NSBitmapImageRep(data: containerPNG)
         else { return nil }
-        // Points → pixels: the captured PNG's actual size vs. the point
-        // frame it was captured at (2x on Retina, 1x otherwise).
-        let scale = containerImage.size.width / containerFrame.width
+        // Points → pixels via the RAW bitmap's pixel dimensions (Jules
+        // review on #3194), not `NSImage(data:).size`: if the PNG carries
+        // DPI metadata, `NSImage`'s own size is POINT-scaled, which would
+        // silently report a 1.0x scale on a Retina capture and corrupt
+        // this crop. `pixelsWide`/`pixelsHigh` are unambiguous.
+        let scale = CGFloat(bitmap.pixelsWide) / containerFrame.width
         let pixelRect = CGRect(
             x: imageRect.minX * scale, y: imageRect.minY * scale,
             width: imageRect.width * scale, height: imageRect.height * scale)
+        // Rebuild the NSImage with its `.size` EXPLICITLY pinned to the
+        // bitmap's pixel dimensions, so `crop`'s own `image.size`-relative
+        // draw call operates in the same pixel space `pixelRect` was
+        // computed in — sidesteps the DPI ambiguity above entirely rather
+        // than trusting whatever `NSImage(data:)` would have inferred.
+        let containerImage = NSImage(size: NSSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh))
+        containerImage.addRepresentation(bitmap)
         return crop(containerImage, to: pixelRect).tiffRepresentation
             .flatMap { NSBitmapImageRep(data: $0) }
             .flatMap { $0.representation(using: .png, properties: [:]) }
