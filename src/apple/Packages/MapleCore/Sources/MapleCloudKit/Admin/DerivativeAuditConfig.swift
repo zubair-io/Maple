@@ -84,9 +84,9 @@ public struct DerivativeAuditConfigPatch: Encodable, Sendable, Equatable {
     case deepR2Enabled = "deep_r2_enabled"
   }
 
-  /// Omits every unset field rather than nulling it — the server's `t
-  /// .Optional(t.Boolean())` etc. mean "omitted" leaves the DB value alone;
-  /// there is no clear-to-default affordance on this document.
+  /// Omits every unset field rather than nulling it — the server's schema
+  /// marks each field `t.Optional(...)`, meaning "omitted" leaves the DB
+  /// value alone; there is no clear-to-default affordance on this document.
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeIfPresent(enabled, forKey: .enabled)
