@@ -39,6 +39,23 @@
 //! It is NEVER required for selection and NEVER overrides the
 //! content-based vote.
 //!
+//! A second, distinct gimbal signal is the attitude **spread** across
+//! the set (`gimbal_rotation_spread_deg`): when readings vary by
+//! [`GIMBAL_SWEEP_DEG`] or more — the camera measurably pivoted between
+//! frames, as opposed to holding one attitude — that is affirmative
+//! evidence for a rotation-modeled capture, not mere corroboration of
+//! an already-identical attitude. It still never *decides* on its own:
+//! an edge with no similarity fit still votes rotation, and an
+//! explicit `--strategy tile` still wins outright regardless of
+//! gimbal readings. What it does is raise the bar the content vote
+//! must clear to select tile, from a bare majority to
+//! [`TILE_SUPERMAJORITY_WITH_GIMBAL_SWEEP`], because a knife-edge vote
+//! plus independent evidence of a rotation sweep is exactly the
+//! failure mode in #3087: small angular steps between frames let a 2D
+//! similarity fit adjacent pairs almost as well as the rotation model,
+//! producing a near-tie vote share (39–36 on the `pano_01` acceptance
+//! set) that the content evidence alone cannot resolve reliably.
+//!
 //! # Notice policy
 //!
 //! When auto selects `tile` on a set that looks like an intended pano
@@ -110,6 +127,11 @@ pub struct StrategyEvidence {
     /// Whether gimbal metadata indicated identical attitudes (corroborates
     /// the content vote but never overrides it).
     pub gimbal_corroboration: bool,
+    /// Maximum pairwise gimbal attitude difference across the set, in
+    /// degrees (`None` when fewer than two frames carry gimbal metadata).
+    /// A large spread is affirmative evidence of a rotation sweep — see
+    /// the module docs' "Metadata corroboration" section.
+    pub gimbal_rotation_spread_deg: Option<f64>,
     /// Mean rotation-model RMS across all edges, px.
     pub mean_rotation_rms_px: f64,
     /// Mean similarity-model RMS across all edges with a similarity fit, px.
@@ -134,11 +156,23 @@ const TILE_WIN_FACTOR: f64 = 0.85;
 /// (degrees, per axis).
 const GIMBAL_IDENTITY_DEG: f64 = 0.5;
 
+/// A gimbal attitude spread at or above this (degrees, max pairwise
+/// difference on any axis) is affirmative evidence the camera pivoted
+/// between frames — a tens-of-degrees sweep, not attitude-hold jitter.
+const GIMBAL_SWEEP_DEG: f64 = 10.0;
+
+/// When [`GIMBAL_SWEEP_DEG`] evidence is present, tile must clear this
+/// share of the vote (instead of a bare majority) to be selected. Set
+/// comfortably above the 39/75 ≈ 0.52 knife-edge vote share recorded on
+/// the `pano_01` acceptance set (#3087).
+const TILE_SUPERMAJORITY_WITH_GIMBAL_SWEEP: f64 = 0.65;
+
 /// Select the stitching strategy.
 ///
-/// `priors` is index-aligned with the input frame list (used only for
-/// gimbal corroboration). `mean_focal_px` is the mean focal length across
-/// the set (for converting angular residuals to pixels).
+/// `priors` is index-aligned with the input frame list (used for gimbal
+/// corroboration and sweep-spread evidence). `mean_focal_px` is the mean
+/// focal length across the set (for converting angular residuals to
+/// pixels).
 pub fn select_strategy(
     request: StrategyRequest,
     graph: &MatchGraph,
@@ -147,19 +181,7 @@ pub fn select_strategy(
     seed: u64,
 ) -> StrategyReport {
     let evidence = build_evidence(graph, priors, mean_focal_px, seed);
-
-    let selected = match request {
-        StrategyRequest::Rotation => Strategy::Rotation,
-        StrategyRequest::Tile => Strategy::Tile,
-        StrategyRequest::Auto => {
-            // Conservative: rotation wins on tie or majority.
-            if evidence.tile_votes > evidence.rotation_votes {
-                Strategy::Tile
-            } else {
-                Strategy::Rotation
-            }
-        }
-    };
+    let selected = decide(request, &evidence);
 
     // Warn when auto selects tile (not when the user explicitly
     // requested it — that is operator intent).
@@ -174,6 +196,38 @@ pub fn select_strategy(
         selected,
         evidence,
         warning,
+    }
+}
+
+/// Decide the strategy from already-built evidence. Split out from
+/// [`select_strategy`] so the vote-arbitration logic is unit-testable
+/// directly on recorded vote/prior numbers, without needing real match
+/// geometry to reproduce a specific vote split.
+fn decide(request: StrategyRequest, evidence: &StrategyEvidence) -> Strategy {
+    match request {
+        StrategyRequest::Rotation => Strategy::Rotation,
+        StrategyRequest::Tile => Strategy::Tile,
+        StrategyRequest::Auto => {
+            let total = evidence.tile_votes + evidence.rotation_votes;
+            let tile_share = if total == 0 {
+                0.0
+            } else {
+                evidence.tile_votes as f64 / total as f64
+            };
+            let strong_gimbal_rotation_evidence = evidence
+                .gimbal_rotation_spread_deg
+                .is_some_and(|spread| spread >= GIMBAL_SWEEP_DEG);
+            let tile_threshold = if strong_gimbal_rotation_evidence {
+                TILE_SUPERMAJORITY_WITH_GIMBAL_SWEEP
+            } else {
+                0.5 // conservative: rotation wins on tie or bare majority.
+            };
+            if tile_share > tile_threshold {
+                Strategy::Tile
+            } else {
+                Strategy::Rotation
+            }
+        }
     }
 }
 
@@ -231,12 +285,14 @@ fn build_evidence(
     };
 
     let gimbal_corroboration = check_gimbal_identity(priors);
+    let gimbal_rotation_spread_deg = gimbal_rotation_spread(priors);
 
     StrategyEvidence {
         per_edge,
         tile_votes,
         rotation_votes,
         gimbal_corroboration,
+        gimbal_rotation_spread_deg,
         mean_rotation_rms_px,
         mean_planar_rms_px,
     }
@@ -257,143 +313,43 @@ fn check_gimbal_identity(priors: &[FramePriors]) -> bool {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::graph::{MatchGraph, VerifiedEdge};
-    use crate::ingest::FramePriors;
-    use crate::math::Mat3;
-    use crate::twoview::PixelCorrespondence;
-
-    fn dummy_edge(a: usize, b: usize, mean_residual_rad: f64) -> VerifiedEdge {
-        VerifiedEdge {
-            a,
-            b,
-            rotation: Mat3::identity(),
-            inlier_count: 30,
-            mean_residual_rad,
-            inlier_matches: Vec::new(),
-        }
+/// Maximum pairwise gimbal attitude difference across the set, in degrees
+/// — the largest wrap-aware difference found on any single axis (yaw,
+/// pitch, or roll) between any two frames. `None` when fewer than two
+/// frames carry gimbal metadata, matching [`check_gimbal_identity`]'s
+/// "can't tell" convention.
+fn gimbal_rotation_spread(priors: &[FramePriors]) -> Option<f64> {
+    let gimbals: Vec<_> = priors.iter().filter_map(|p| p.gimbal.as_ref()).collect();
+    if gimbals.len() < 2 {
+        return None;
     }
-
-    fn dummy_graph(edges: Vec<VerifiedEdge>, n: usize) -> MatchGraph {
-        MatchGraph {
-            image_count: n,
-            edges,
-            rejected: vec![],
-            components: vec![(0..n).collect()],
-            orphans: vec![],
-        }
-    }
-
-    fn dummy_priors(n: usize) -> Vec<FramePriors> {
-        (0..n)
-            .map(|_| FramePriors {
-                focal_mm: None,
-                focal_35mm_equiv: None,
-                focal_px: None,
-                gimbal: None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn explicit_rotation_always_selects_rotation() {
-        let graph = dummy_graph(vec![dummy_edge(0, 1, 0.001)], 2);
-        let priors = dummy_priors(2);
-        let report = select_strategy(StrategyRequest::Rotation, &graph, &priors, 1000.0, 0);
-        assert_eq!(report.selected, Strategy::Rotation);
-        assert!(report.warning.is_none());
-    }
-
-    #[test]
-    fn explicit_tile_always_selects_tile_no_warning() {
-        let graph = dummy_graph(vec![dummy_edge(0, 1, 0.001)], 2);
-        let priors = dummy_priors(2);
-        let report = select_strategy(StrategyRequest::Tile, &graph, &priors, 1000.0, 0);
-        assert_eq!(report.selected, Strategy::Tile);
-        assert!(report.warning.is_none()); // no warning for explicit
-    }
-
-    #[test]
-    fn auto_with_no_edges_defaults_to_rotation() {
-        let graph = dummy_graph(vec![], 1);
-        let priors = dummy_priors(1);
-        let report = select_strategy(StrategyRequest::Auto, &graph, &priors, 1000.0, 0);
-        assert_eq!(report.selected, Strategy::Rotation); // no votes → rotation wins
-    }
-
-    #[test]
-    fn auto_warns_when_tile_selected() {
-        // Create a graph with a pure-translation edge.
-        // We'll use a translation-generating match set.
-        use crate::similarity::Similarity2d;
-        use crate::twoview::PixelCorrespondence;
-
-        let sim_gt = Similarity2d {
-            scale: 1.0,
-            theta: 0.0,
-            tx: 500.0,
-            ty: 0.0,
-        };
-        let matches: Vec<PixelCorrespondence> = (0..80)
-            .map(|i| {
-                let ax = (i as f64) * 4.0 + 50.0;
-                let ay = ((i as f64) * 2.1).sin() * 100.0 + 200.0;
-                let (bx, by) = sim_gt.apply(ax, ay);
-                PixelCorrespondence {
-                    a: (ax, ay),
-                    b: (bx, by),
-                }
-            })
-            .collect();
-
-        // Make the rotation model look very poor (5 px residual), similarity excellent.
-        let mut edge = dummy_edge(0, 1, 0.005); // 5mrad ≈ 5px at f=1000
-        edge.inlier_matches = matches;
-        let graph = dummy_graph(vec![edge], 2);
-        let priors = dummy_priors(2);
-        let report = select_strategy(StrategyRequest::Auto, &graph, &priors, 1000.0, 42);
-
-        // Evidence: planar_rms should be near 0, rotation_rms ~5px → votes tile.
-        if report.selected == Strategy::Tile {
-            assert!(report.warning.is_some(), "auto tile must warn");
-        }
-    }
-
-    #[test]
-    fn gimbal_identity_detected() {
-        use crate::ingest::GimbalPrior;
-        let priors: Vec<FramePriors> = (0..3)
-            .map(|_| FramePriors {
-                focal_mm: None,
-                focal_35mm_equiv: None,
-                focal_px: Some(1000.0),
-                gimbal: Some(GimbalPrior {
-                    yaw_deg: 125.0,
-                    pitch_deg: -90.0,
-                    roll_deg: 0.0,
-                }),
-            })
-            .collect();
-        assert!(check_gimbal_identity(&priors));
-    }
-
-    #[test]
-    fn gimbal_rotation_not_identical() {
-        use crate::ingest::GimbalPrior;
-        let priors: Vec<FramePriors> = (0..3)
-            .map(|i| FramePriors {
-                focal_mm: None,
-                focal_35mm_equiv: None,
-                focal_px: Some(1000.0),
-                gimbal: Some(GimbalPrior {
-                    yaw_deg: (i as f64) * 15.0,
-                    pitch_deg: -45.0,
-                    roll_deg: 0.0,
-                }),
-            })
-            .collect();
-        assert!(!check_gimbal_identity(&priors));
-    }
+    let yaw: Vec<f64> = gimbals.iter().map(|g| g.yaw_deg).collect();
+    let pitch: Vec<f64> = gimbals.iter().map(|g| g.pitch_deg).collect();
+    let roll: Vec<f64> = gimbals.iter().map(|g| g.roll_deg).collect();
+    Some(
+        max_pairwise_spread_deg(&yaw)
+            .max(max_pairwise_spread_deg(&pitch))
+            .max(max_pairwise_spread_deg(&roll)),
+    )
 }
+
+/// Largest wrap-aware pairwise difference within a set of degree values
+/// on a ±180° circular axis (DJI yaw is signed ±180°; pitch/roll don't
+/// wrap in practice, but the circular distance is exact for them too).
+fn max_pairwise_spread_deg(vals: &[f64]) -> f64 {
+    let circular_diff = |a: f64, b: f64| -> f64 {
+        let raw = (a - b).rem_euclid(360.0);
+        if raw > 180.0 {
+            360.0 - raw
+        } else {
+            raw
+        }
+    };
+    vals.iter()
+        .enumerate()
+        .flat_map(|(i, &a)| vals[i + 1..].iter().map(move |&b| circular_diff(a, b)))
+        .fold(0.0_f64, f64::max)
+}
+#[cfg(test)]
+#[path = "strategy_tests.rs"]
+mod tests;

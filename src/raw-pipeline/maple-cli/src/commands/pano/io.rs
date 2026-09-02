@@ -282,6 +282,7 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
                 "mean_rotation_rms_px": strat.evidence.mean_rotation_rms_px,
                 "mean_planar_rms_px": strat.evidence.mean_planar_rms_px,
                 "gimbal_corroboration": strat.evidence.gimbal_corroboration,
+                "gimbal_rotation_spread_deg": strat.evidence.gimbal_rotation_spread_deg,
                 "per_edge": edge_evidence,
             },
         },
