@@ -28,3 +28,21 @@ public func mergeDeduped(_ lists: [SearchAsset]...) -> [SearchAsset] {
   var seenIDs = Set<String>()
   return lists.flatMap { $0 }.filter { seenIDs.insert($0.id).inserted }
 }
+
+/// Round-robin flatten: one from each list, then the next from each, until
+/// every list is spent. Empty and short lists are simply skipped once
+/// exhausted, so lists of wildly different lengths are handled without
+/// padding.
+///
+/// The Light Table uses this on the day's Memories, where each list is one
+/// memory's photos. Concatenating instead would put every photo of the
+/// largest memory ahead of every photo of the others, and since the pool is
+/// later truncated by nothing but a shuffle, a lopsided day would still bias
+/// which memories are represented at all. Round-robin gives each memory an
+/// even footing before the shuffle.
+public func interleaved(_ lists: [[SearchAsset]]) -> [SearchAsset] {
+  let longest = lists.map(\.count).max() ?? 0
+  return (0..<longest).flatMap { index in
+    lists.compactMap { index < $0.count ? $0[index] : nil }
+  }
+}

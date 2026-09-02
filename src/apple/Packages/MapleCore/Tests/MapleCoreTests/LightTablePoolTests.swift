@@ -63,6 +63,45 @@ final class LightTablePoolTests: XCTestCase {
     XCTAssertTrue(mergeDeduped().isEmpty)
   }
 
+  // MARK: - interleaved
+
+  func test_interleaved_takesOneFromEachListInTurn() {
+    let result = interleaved([
+      [makeAsset(id: "a1"), makeAsset(id: "a2")],
+      [makeAsset(id: "b1"), makeAsset(id: "b2")],
+    ])
+
+    XCTAssertEqual(result.map(\.id), ["a1", "b1", "a2", "b2"],
+      "round-robin, not concatenation")
+  }
+
+  func test_interleaved_keepsGoingAfterShorterListsAreSpent() {
+    // The real case: the day's memories are wildly different sizes. A big
+    // memory must not be truncated to the length of the smallest one, and a
+    // small one must not be padded.
+    let result = interleaved([
+      [makeAsset(id: "big1"), makeAsset(id: "big2"), makeAsset(id: "big3")],
+      [makeAsset(id: "small1")],
+    ])
+
+    XCTAssertEqual(result.map(\.id), ["big1", "small1", "big2", "big3"])
+  }
+
+  func test_interleaved_skipsEmptyListsAndHandlesNoListsAtAll() {
+    // A memory whose asset fetch failed contributes an empty list; it must
+    // not shift or drop anything from the memories that did load.
+    let result = interleaved([
+      [],
+      [makeAsset(id: "a")],
+      [],
+      [makeAsset(id: "b")],
+    ])
+
+    XCTAssertEqual(result.map(\.id), ["a", "b"])
+    XCTAssertTrue(interleaved([]).isEmpty)
+    XCTAssertTrue(interleaved([[], []]).isEmpty)
+  }
+
   // MARK: - Fixtures
 
   private func makeAsset(id: String, filename: String? = nil) -> SearchAsset {

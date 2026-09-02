@@ -1,9 +1,19 @@
 // src/apple/Maple TV/LightTableViewModel.swift
 //
 // Drives the Maple TV Light Table's ambient source pool (#2121 F2): a
-// shuffled mix of `flag=pick` and `rating>=4` assets, falling back to
-// recent (`captured_desc`) assets when that primary pool is too thin to
-// sustain a long-running ambient cycle without repeating quickly.
+// shuffled mix of the day's Memories, `flag=pick` and `rating>=4` assets,
+// and recent photos with faces — falling back to plain recent
+// (`captured_desc`) assets when that primary pool is too thin to sustain a
+// long-running ambient cycle without repeating quickly.
+//
+// Memories are in the mix because they are the one source here that is
+// actively curated rather than filtered: the generated-search worker picks
+// a theme for the day and gathers photos around it, which is exactly the
+// kind of set an ambient display wants. They come from
+// `/api/generated-searches`, never from a locally-composed search — the
+// server applies `excludeHiddenPeople` and the screenshot exclusion when IT
+// runs the stored query, and this screen in particular runs unattended in a
+// living room.
 //
 // `SearchParams`' fields all AND together server-side (see that struct's
 // `baseItems()`) — there is no way to express "flag=pick OR rating>=4" as
@@ -45,6 +55,7 @@ final class LightTableViewModel {
 
   let libraryID: String
   private let searchClient: CloudSearchClient
+  private let generatedSearchClient: GeneratedSearchClient
 
   /// Below this many candidates, `picks ∪ highRated` alone is judged too
   /// thin to sustain a long ambient cycle without repeating quickly — a
@@ -74,9 +85,19 @@ final class LightTableViewModel {
   /// so a reopen also re-renders without re-decoding.)
   private static var cachedPools: [String: [SearchAsset]] = [:]
 
-  init(libraryID: String, searchClient: CloudSearchClient) {
+  /// Per-memory asset cap. The pool feeds a slowly-cycling ambient display,
+  /// so a handful from each of the day's memories gives more variety than a
+  /// deep dive into one of them.
+  private static let perMemoryLimit = 12
+
+  init(
+    libraryID: String,
+    searchClient: CloudSearchClient,
+    generatedSearchClient: GeneratedSearchClient
+  ) {
     self.libraryID = libraryID
     self.searchClient = searchClient
+    self.generatedSearchClient = generatedSearchClient
   }
 
   // MARK: - Loading
@@ -152,16 +173,20 @@ final class LightTableViewModel {
       return params
     }()
 
+    async let memoriesResult = fetchMemories()
     async let picksResult = fetchOrEmpty(picksParams)
     async let highRatedResult = fetchOrEmpty(highRatedParams)
     async let peopleResult = fetchOrEmpty(peopleParams)
 
+    let memories = await memoriesResult
     let (picks, picksError) = await picksResult
     let (highRated, highRatedError) = await highRatedResult
     let (people, peopleError) = await peopleResult
     guard g == generation else { return }
 
-    var merged = mergeDeduped(mergeDeduped(picks, highRated), people)
+    // Memories first in the dedup order, so a photo that is both a pick and
+    // part of today's memory is sourced once, from the memory.
+    var merged = mergeDeduped(mergeDeduped(mergeDeduped(memories, picks), highRated), people)
     var recentError: Error?
 
     if merged.count < Self.minimumPoolSize {
@@ -184,6 +209,33 @@ final class LightTableViewModel {
     }
     pool = merged.shuffled()
     cursor = 0
+  }
+
+  /// Photos from today's memories — a few from each of the day's
+  /// collections, concurrently. Failures are swallowed rather than surfaced:
+  /// memories are one source among several, and the ambient display should
+  /// keep running on picks and recents if the generated-search worker is
+  /// paused, unconfigured, or simply had nothing for today. That is also why
+  /// this returns no error alongside its assets, unlike `fetchOrEmpty`.
+  private func fetchMemories() async -> [SearchAsset] {
+    guard let collections = try? await generatedSearchClient.collections(libraryID: libraryID),
+          !collections.isEmpty
+    else { return [] }
+
+    return await withTaskGroup(of: [SearchAsset].self) { group in
+      for collection in collections {
+        group.addTask { [generatedSearchClient] in
+          let page = try? await generatedSearchClient.assets(
+            collectionID: collection.id,
+            limit: Self.perMemoryLimit
+          )
+          return page?.results ?? []
+        }
+      }
+      // Interleaved rather than concatenated, so one large memory can't crowd
+      // the others out of the front of the pool before the shuffle.
+      return interleaved(await group.reduce(into: [[SearchAsset]]()) { $0.append($1) })
+    }
   }
 
   private func fetchOrEmpty(_ params: SearchParams) async -> (assets: [SearchAsset], error: Error?) {
