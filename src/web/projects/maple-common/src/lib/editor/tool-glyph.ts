@@ -32,6 +32,7 @@ const TOOL_TO_ICON: Record<ToolId, MapleIconName> = {
   sharpen: 'tool-sharpen',
   noise: 'tool-noise',
   colorNR: 'tool-color-nr',
+  lensCorrections: 'tool-lens',
   crop: 'tool-crop',
   presets: 'tool-presets',
 };

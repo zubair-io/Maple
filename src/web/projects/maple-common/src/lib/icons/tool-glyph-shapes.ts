@@ -46,6 +46,7 @@ export type ToolIconName =
   | 'tool-sharpen'
   | 'tool-noise'
   | 'tool-color-nr'
+  | 'tool-lens'
   | 'tool-crop'
   | 'tool-presets';
 
@@ -210,6 +211,9 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
   // disorder is discrete specks rather than a continuous jag — chroma noise.
   // The dots sit on Noise's own vertices so the pair reads as one idea.
   'tool-color-nr': [dot(2.8, 8.4), dot(4.4, 5.8), dot(6, 10.6), p('M7.8 8.4H13.4')],
+  // Concentric rings — a lens element viewed head-on. Mirrored verbatim to
+  // Apple's `ToolGlyphShapes.swift` (`case .lensCorrections`, #2231).
+  'tool-lens': [c(8, 8, 4.8), c(8, 8, 2.2)],
 
   // ── Standalone ──────────────────────────────────────────────────────────
   // Two crop rails crossing — the classic corner-bracket pair.

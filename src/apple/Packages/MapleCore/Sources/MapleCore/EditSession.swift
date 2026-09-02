@@ -1,20 +1,15 @@
-// EditSession.swift — per-image transient editing state (spec § 01).
+// EditSession.swift — per-image transient editing state (spec § 01). Holds
+// the current `AdjustmentModel`, undo/redo stacks, culling state, and the
+// storage the render layer mutates. Observable for SwiftUI.
 //
-// Holds the current `AdjustmentModel`, undo/redo stacks, culling state,
-// and the storage that the render layer mutates. Observable for SwiftUI.
-//
-// This file owns ONLY the type declaration + stored state + `init`.
-// The behaviour layers live in sibling files:
-//
-//   • EditSession+Render.swift    — two-phase scheduler, decode lifecycle,
-//                                   visible-region refine, export render
-//   • EditSession+Hydration.swift — cold-open path, sidecar load, preview
-//                                   seeds, native-size discovery
-//   • EditSession+DeepZoom.swift  — tile-manager wiring, visible-region API
-//   • EditSession+UndoRedo.swift  — the bounded undo/redo ring + reset
-//
-// Public API of `EditSession` (the symbols imported by callers) is
-// unchanged across the split — see issue #120 for the three-layer cut.
+// This file owns ONLY the type declaration + stored state + `init`. The
+// behaviour layers live in sibling files: EditSession+Render.swift (two-phase
+// scheduler, decode lifecycle, visible-region refine, export render),
+// EditSession+Hydration.swift (cold-open path, sidecar load, preview seeds,
+// native-size discovery), EditSession+DeepZoom.swift (tile-manager wiring,
+// visible-region API), EditSession+UndoRedo.swift (the bounded undo/redo ring
+// + reset). Public API of `EditSession` is unchanged across the split — see
+// issue #120 for the three-layer cut.
 
 import Foundation
 import CoreImage
@@ -155,17 +150,15 @@ public final class EditSession {
     public internal(set) var wbSliderFrame: WbSliderFrame?
 
     /// Whether this asset's RAW carries lens-correction opcodes at all
-    /// (#2231) — updated from every decode snapshot (`decodeAndRender`),
-    /// same lifecycle as `wbSliderFrame`. `false` until a decode lands, or
-    /// forever for non-RAW / seeded-preview-only assets. The Lens
-    /// Corrections inspector panel binds to this to disable/hide itself.
+    /// (#2231) — same decode-snapshot lifecycle as `wbSliderFrame`: `false`
+    /// until a decode lands, or forever for non-RAW/preview-only assets.
+    /// The Lens Corrections panel binds to this to disable/hide itself.
     public internal(set) var hasLensCorrections: Bool = false
 
-    /// Whether the chromatic-aberration slider (`lensCorrectionCa`) is
-    /// INERT for this asset (#2231) — no per-plane divergence in the
-    /// DNG's `WarpRectilinear` opcode, so the slider changes nothing. The
-    /// panel greys the CA slider (rather than hiding it) when this is
-    /// `true`, so a hand-edited sidecar value is still visible.
+    /// Whether the CA slider (`lensCorrectionCa`) is INERT for this asset
+    /// (#2231) — no per-plane divergence in the DNG's `WarpRectilinear`
+    /// opcode. The panel greys (not hides) the slider when `true`, so a
+    /// hand-edited sidecar value stays visible.
     public internal(set) var lensCorrectionCaInert: Bool = true
 
     /// The WB delta anchor: the WB actually baked into the buffer. The

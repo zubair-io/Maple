@@ -1,20 +1,14 @@
 //! Scene-linear Rec.2020 f32 RGBA render entries (#482).
 //!
-//! f32 sibling of `scene_linear.rs`. Mirrors the four fp16 entries
-//! (file/bytes × full/sized) returning `MapleSceneLinearBufferF32` so
-//! consumers can hold the scene-linear buffer at full f32 precision
-//! end-to-end (#416). The fp16 entries are kept intact — Apple still
-//! consumes them today; the per-tick FFI chain is fp16 in/out, so
-//! migrating Apple's render path alone would silently round-trip back
-//! to fp16 every slider tick. Apple migration is tracked as a separate
-//! ticket once `maple_apply_scene_linear_chain` grows an f32 sibling.
-//! Web consumes f32 directly (RGBA32F FBOs).
+//! f32 sibling of `scene_linear.rs`. Mirrors the four fp16 entries (file/bytes × full/sized)
+//! returning `MapleSceneLinearBufferF32` so consumers can hold the scene-linear buffer at full
+//! f32 precision end-to-end (#416). The fp16 entries stay intact for Apple's still-fp16 per-tick
+//! chain; Apple's own f32 migration is a separate ticket once `maple_apply_scene_linear_chain`
+//! grows an f32 sibling. Web consumes f32 directly (RGBA32F FBOs).
 //!
-//! Split out of `scene_linear.rs` so each file stays under the 600-LOC
-//! budget. The strip / dehaze-guard / Auto-Profile-AE contracts documented
-//! in `scene_linear.rs` apply here too — in particular, post-#927 these
-//! buffers are AE-off for every preview-bearing RAW under `Profile::Auto`,
-//! and are only display-faithful with the fitted tail applied (#1174).
+//! Split out of `scene_linear.rs` to stay under the 600-LOC budget; the strip / dehaze-guard /
+//! Auto-Profile-AE contracts there apply here too — post-#927 these buffers are AE-off for every
+//! preview-bearing RAW under `Profile::Auto`, display-faithful only with the fitted tail (#1174).
 
 use crate::buffers::MapleSceneLinearBufferF32;
 use crate::cancel::{token_from_ptr, MapleCancelFlag, SendCancelPtr};
@@ -29,26 +23,18 @@ use raw_core::error::Error as CoreError;
 use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
 
-/// Return code for a render the host cancelled mid-flight (#951). Distinct
-/// from every other rc in this module (1/2/3 = arg errors, 6/7/8 = read /
-/// decode / render failures, 9 = bad size) so the Swift caller can map it onto
-/// the silent "dropped" path instead of surfacing a render error. Only ever
-/// returned when a non-null cancel flag was passed AND the host set it.
+/// Return code for a render the host cancelled mid-flight (#951). Distinct from
+/// every other rc here (1/2/3 = arg errors, 6/7/8 = read/decode/render
+/// failures, 9 = bad size) so Swift maps it to the silent "dropped" path
+/// instead of a render error — only when a non-null cancel flag was set.
 const RC_CANCELLED: i32 = 4;
 
-// The module-level doc-comment above captures the rationale; the
-// detailed prose that lived here in the pre-split file has been folded
-// into it to avoid duplication.
-
-/// f32 sibling of [`maple_render_file_scene_linear`]. Identical inputs
-/// and error codes; the output buffer is [`MapleSceneLinearBufferF32`]
-/// (16 bytes per pixel) instead of the fp16 surface.
-///
-/// `cancel` (#951) is an optional host-owned [`MapleCancelFlag`] (from
-/// [`crate::cancel::maple_cancel_flag_new`]). Pass null for the legacy
-/// never-cancel behaviour (bit-identical to before). When non-null and the
-/// host sets it mid-render, the develop chain unwinds and this returns
-/// [`RC_CANCELLED`].
+/// f32 sibling of [`maple_render_file_scene_linear`]. Identical inputs and
+/// error codes; the output buffer is [`MapleSceneLinearBufferF32`] (16
+/// bytes/pixel) instead of the fp16 surface. `cancel` (#951) is an optional
+/// host-owned [`MapleCancelFlag`]; null means the legacy never-cancel
+/// behaviour (bit-identical to before). Non-null + host-set mid-render
+/// unwinds the develop chain and returns [`RC_CANCELLED`].
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
     raw_path: *const c_char,
@@ -252,10 +238,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
     })
 }
 
-/// f32 sibling of [`maple_render_file_scene_linear_sized`]. `cancel` is the
-/// optional #951 cancel flag — see [`maple_render_file_scene_linear_f32`].
-/// This is the fast-phase RAW-open entry, so it's the one the editor actually
-/// interrupts on a slider tick during a cold open.
+/// f32 sibling of [`maple_render_file_scene_linear_sized`] — the fast-phase
+/// RAW-open entry the editor interrupts on a slider tick during a cold open.
+/// `cancel` is the optional #951 cancel flag, see [`maple_render_file_scene_linear_f32`].
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
     raw_path: *const c_char,
@@ -459,14 +444,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
 /// Decode a RAW file through the decoded-`RawImage` cache (#949), keyed on
 /// `(canonical path, mtime)`. On a cache hit this skips the ~1.8s decode; the
 /// back-to-back Auto-Profile fit FFI builds the same path key and hits.
-///
-/// `key` is a pre-computed [`CacheKey`] obtained by calling
-/// `CacheKey::from_path` BEFORE `std::fs::read` at the call site — computing
-/// it after the read would risk caching `T0`-content under a `T1`-mtime key if
-/// the file is replaced between read and stat (TOCTOU stale-hit). Callers pass
-/// `None` when `from_path` returned `None` (un-stattable path), and this helper
-/// falls back to a plain uncached `decode_bytes` — behaviour is never worse than
-/// before the cache.
+/// `key` must be computed via `CacheKey::from_path` BEFORE `std::fs::read` at
+/// the call site — computing it after risks caching `T0`-content under a
+/// `T1`-mtime key if the file is replaced between read and stat (a race:
+/// TOCTOU stale-hit). `None` (un-stattable path) falls back to a plain
+/// uncached `decode_bytes` — never worse than before the cache.
 fn decode_file_cached(
     key: Option<&CacheKey>,
     raw_bytes: &[u8],
@@ -479,16 +461,12 @@ fn decode_file_cached(
 }
 
 /// Resolve the WB slider-frame export for a decoded RAW (#1781): the
-/// `wb_camera::SliderFrame` data + the in-frame as-shot `(scene_cct, tint)`
-/// estimate, carried on [`MapleSceneLinearBufferF32`] so the host can derive
-/// per-tick WB deltas in the SAME calibration frame the develop chain used.
-///
-/// Gated on EXACTLY the tiers the develop chain gates `wb_camera` on
-/// (`pipeline::develop`): a real calibration (`!RawlerFallback`) and a
-/// pre-gained Bayer/full-LinearRaw source (not the 8-bit lossy LinearRaw
-/// escape hatch). Everything else exports `SliderFrameExport::ABSENT`
-/// (all-zero) — the host then keeps its legacy generic-CAT16 behaviour,
-/// matching the develop chain's own post-DCP CAT16 fallback for those tiers.
+/// `wb_camera::SliderFrame` data + in-frame as-shot `(scene_cct, tint)`, so
+/// the host can derive per-tick WB deltas in the develop chain's own
+/// calibration frame. Gated on EXACTLY the tiers `pipeline::develop` gates
+/// `wb_camera` on (real calibration, pre-gained Bayer/full-LinearRaw source);
+/// everything else exports `SliderFrameExport::ABSENT`, matching the develop
+/// chain's own post-DCP CAT16 fallback.
 pub(crate) fn wb_frame_export(
     raw: &raw_core::RawImage,
 ) -> raw_core::stages::wb_camera::SliderFrameExport {
@@ -518,14 +496,10 @@ pub(crate) fn flatten_matrix(m: raw_core::math::Matrix3) -> [f32; 9] {
 
 /// f32 counterpart to [`write_scene_linear_buf`]. Boxes the `Vec<f32>` and
 /// hands the raw parts to the caller in a [`MapleSceneLinearBufferF32`].
-///
-/// `noise_profile` is the optional per-camera noise profile from
-/// `RawImage::noise_profile`, and `iso` is `RawImage::iso`. Both are forwarded
-/// into the buffer so the per-tick FFI chain (`maple_apply_scene_linear_chain_f32`)
-/// can use them for profile-aware NR (PR #1709 review fix).
-///
-/// `ae_gain` (#1167) is the scalar auto-exposure anchor gain the develop
-/// chain's `auto_exposure` stage applied to `f32_rgba` (`1.0` when
+/// `noise_profile`/`iso` are forwarded so the per-tick FFI chain
+/// (`maple_apply_scene_linear_chain_f32`) can use them for profile-aware NR
+/// (PR #1709 review fix). `ae_gain` (#1167) is the scalar auto-exposure
+/// anchor gain `auto_exposure` applied to `f32_rgba` (`1.0` when
 /// `papp:AutoExposure="Off"`) — see `MapleSceneLinearBufferF32::ae_gain`'s
 /// doc for how the host uses it.
 pub(crate) fn write_scene_linear_buf_f32(

@@ -2,18 +2,16 @@
 // coalescers for the per-image render pipeline (slice 2 of issue #194).
 //
 // Split out of `RenderActor.swift` to keep that file under the file-size
-// budget (#785 CI gate). These methods are an `extension RenderActor`, so
-// they remain actor-isolated and mutate the stored cache properties
-// declared in the main actor body (`decodedImage`, `decodeTask`,
-// `refineDecodeTasks`, …) — those are `internal` (not `private`) precisely
-// so this extension can reach them across files within the module.
+// budget (#785 CI gate). These methods are an `extension RenderActor`, so they
+// remain actor-isolated and mutate the stored cache properties declared in
+// the main actor body (`decodedImage`, `decodeTask`, `refineDecodeTasks`, …)
+// — those are `internal` (not `private`) precisely so this extension can
+// reach them across files within the module.
 //
-// This file owns:
-//   • `sharedDecode(asset:target:normalize:)`        — single-flight decode
-//   • `coalescedRefineDecode(asset:target:decode:)`  — refine coalescer
-//   • `invalidate()`                                  — cache teardown
-//   • `snapshot(forAsset:)`                           — cache read
-//   • `seed(...)` / `seedIfUnpopulated(...)`          — cache priming
+// This file owns: `sharedDecode(asset:target:normalize:)` (single-flight
+// decode), `coalescedRefineDecode(asset:target:decode:)` (refine coalescer),
+// `invalidate()` (cache teardown), `snapshot(forAsset:)` (cache read), and
+// `seed(...)`/`seedIfUnpopulated(...)` (cache priming).
 //
 // `target` drives the fast-phase downsample (#785): a sized decode never
 // poisons the full-resolution refine cache, and a refine (full) caller
@@ -222,8 +220,7 @@ extension RenderActor {
                 return (
                     sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
                     sizedResult.wbFrame, sizedResult.aeGain,
-                    sizedResult.hasLensCorrections, sizedResult.lensCorrectionCaInert
-                )
+                    sizedResult.hasLensCorrections, sizedResult.lensCorrectionCaInert)
             }
             // #940 — legacy full-resolution branch: `target == nil` no
             // longer occurs from any production call site (see above), but
@@ -242,8 +239,7 @@ extension RenderActor {
             return (
                 refineResult.image, refineResult.noiseProfile, refineResult.iso,
                 refineResult.wbFrame, refineResult.aeGain,
-                refineResult.hasLensCorrections, refineResult.lensCorrectionCaInert
-            )
+                refineResult.hasLensCorrections, refineResult.lensCorrectionCaInert)
         }
         decodeTask = task
         decodeTaskAssetID = asset.id
@@ -348,8 +344,7 @@ extension RenderActor {
             // `NativeDetailRenderer` needs the gain of the buffer actually
             // on screen, not a stale one from a superseded decode.
             decodedAeGain = decodeAeGain
-            // #2231: the lens-correction signal rides the same write gate —
-            // it describes the buffer just decoded, not the model.
+            // #2231: lens-correction signal rides the same write gate (describes the decoded buffer).
             decodedHasLensCorrections = decodeHasLensCorrections
             decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
             // #2049: identity bump — any real write means the uploaded GPU
