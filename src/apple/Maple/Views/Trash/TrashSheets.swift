@@ -16,8 +16,14 @@ extension View {
         onRestore: @escaping (TrashBrowserRow) async -> TrashRowActionOutcome,
         onPermanentlyDelete: @escaping (TrashBrowserRow) async -> TrashRowActionOutcome,
         onDismissBrowser: @escaping () -> Void,
-        /// Folder-level restore (#2751) — Cloud only. `nil` suppresses the
-        /// browser's "Restore Folder" affordance for non-Cloud contexts.
+        /// Folder-level restore (#2751) — Cloud only. Passed unconditionally
+        /// by every call site (simpler wiring); THIS function is the single
+        /// place that gates it to `nil` for a non-Cloud `context` below
+        /// (Copilot review, PR #3178: gating at each `AppShell` call site
+        /// individually risked one of the two — Mac/iPad, iPhone — drifting
+        /// out of sync and leaking the "Restore Folder" affordance into
+        /// Local/SMB, which have no server-side batch-restore-by-folder
+        /// route for it to call).
         onRestoreFolder: ((String) async -> TrashRowActionOutcome)? = nil
     ) -> some View {
         self
@@ -34,7 +40,10 @@ extension View {
                     onRestore: onRestore,
                     onPermanentlyDelete: onPermanentlyDelete,
                     onDismiss: { trashBrowserContext.wrappedValue = nil },
-                    onRestoreFolder: onRestoreFolder
+                    onRestoreFolder: {
+                        if case .cloud = context { return onRestoreFolder }
+                        return nil
+                    }()
                 )
             }
     }
