@@ -5,6 +5,7 @@
 
 use clap::ValueEnum;
 use raw_core::pipeline::RenderQuality;
+use raw_core::view::encode::TargetPrimaries;
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
 pub enum OutputFormat {
@@ -47,6 +48,26 @@ impl From<DemosaicChoice> for RenderQuality {
             DemosaicChoice::Preview => RenderQuality::Preview,
             DemosaicChoice::Full => RenderQuality::Full,
             DemosaicChoice::Amaze => RenderQuality::Amaze,
+        }
+    }
+}
+
+/// Output primaries exposed by `maple-cli render` / `batch` (#1339, P3
+/// phase 3). `Srgb` (default) is the historical behaviour, routed through
+/// the same display entry the parity harnesses depend on for byte-for-byte
+/// identity; `P3` routes through the export entry so `target_primaries`
+/// actually reaches `rec2020_to_display` (#1337).
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimariesChoice {
+    Srgb,
+    P3,
+}
+
+impl From<PrimariesChoice> for TargetPrimaries {
+    fn from(c: PrimariesChoice) -> Self {
+        match c {
+            PrimariesChoice::Srgb => TargetPrimaries::Srgb,
+            PrimariesChoice::P3 => TargetPrimaries::P3,
         }
     }
 }
