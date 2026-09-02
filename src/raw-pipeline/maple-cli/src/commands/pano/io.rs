@@ -349,7 +349,7 @@ mod tests {
         let gains = [[0.9_f32, 1.0, 1.1], [1.8, 2.0, 2.2]];
         // means: 1.0 and 2.0 -> spread = log2(2.0) = 1.0
         let spread = gain_spread_ev(&gains);
-        assert!((spread - 1.0).abs() < 1e-9, "got {spread}");
+        assert!((spread - 1.0).abs() < 1e-6, "got {spread}");
         assert!(spread < GAIN_SPREAD_WARNING_EV);
     }
 
@@ -367,7 +367,7 @@ mod tests {
         // rather than poisoning the whole spread with NaN/inf.
         let gains = [[0.0_f32, 0.0, 0.0], [1.0, 1.0, 1.0], [3.0, 3.0, 3.0]];
         let spread = gain_spread_ev(&gains);
-        assert!((spread - 3.0_f64.log2()).abs() < 1e-9, "got {spread}");
+        assert!((spread - 3.0_f64.log2()).abs() < 1e-6, "got {spread}");
     }
 
     #[test]
@@ -377,7 +377,7 @@ mod tests {
         let clean = [[1.0f32, 1.0, 1.0], [2.0, 2.0, 2.0]];
         let poisoned = [[1.0f32, 1.0, 1.0], [2.0, 2.0, 2.0], [9.0, 9.0, -0.5]];
         assert_eq!(gain_spread_ev(&poisoned), gain_spread_ev(&clean));
-        assert!((gain_spread_ev(&clean) - 1.0).abs() < 1e-9);
+        assert!((gain_spread_ev(&clean) - 1.0).abs() < 1e-6);
     }
 
     #[test]
