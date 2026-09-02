@@ -24,12 +24,12 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
     let linear: Vec<&LocalAdjustment> = model
         .local_adjustments
         .iter()
-        .filter(|l| matches!(l.mask, Mask::Linear { .. }))
+        .filter(|l| matches!(&l.mask, Mask::Linear { .. }))
         .collect();
     let radial: Vec<&LocalAdjustment> = model
         .local_adjustments
         .iter()
-        .filter(|l| matches!(l.mask, Mask::Radial { .. }))
+        .filter(|l| matches!(&l.mask, Mask::Radial { .. }))
         .collect();
 
     let mut out = String::new();
