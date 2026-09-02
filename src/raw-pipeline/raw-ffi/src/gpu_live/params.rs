@@ -32,16 +32,23 @@ unsafe fn read_floats(ptr: *const f32, len: usize) -> Vec<f32> {
     std::slice::from_raw_parts(ptr, len).to_vec()
 }
 
-/// `0.0` ⇒ absent (a stale host that predates the field's append, or a
-/// zero-initialized caller) ⇒ substitute ACR's documented default. See the
+/// The three split fields read as a group: ALL THREE exactly `0.0` ⇒ absent
+/// (a stale host that predates the fields' append, or a zero-initialized
+/// caller, always leaves every one of them at the struct's zero default) ⇒
+/// substitute ACR's documented 25/50/75. Otherwise every field passes
+/// through UNCHANGED, including a genuine `0.0` in one of the three — `0.0`
+/// is an in-range axis position (the documented range is `[0, 100]`), so
+/// gating per-field would make it impossible for a live host to ever set
+/// `parametric_shadow_split` to exactly 0 (Copilot review on #3219: gating
+/// each field independently did exactly that). See the
 /// `parametric_{shadow,midtone,highlight}_split` doc comment on
 /// [`MapleGpuLiveParams`] for why this trio, unlike most tail fields, can't
-/// use `0.0` as its own identity value.
-fn split_or_default(value: f32, default: f32) -> f32 {
-    if value == 0.0 {
-        default
+/// use `0.0` as its own per-field identity value.
+fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f32; 3] {
+    if shadow == 0.0 && midtone == 0.0 && highlight == 0.0 {
+        [25.0, 50.0, 75.0]
     } else {
-        value
+        [shadow, midtone, highlight]
     }
 }
 
@@ -218,11 +225,11 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
                 p.parametric_lights,
                 p.parametric_highlights,
             ],
-            parametric_split: [
-                split_or_default(p.parametric_shadow_split, 25.0),
-                split_or_default(p.parametric_midtone_split, 50.0),
-                split_or_default(p.parametric_highlight_split, 75.0),
-            ],
+            parametric_split: parametric_split_or_defaults(
+                p.parametric_shadow_split,
+                p.parametric_midtone_split,
+                p.parametric_highlight_split,
+            ),
             luma: read_points(p.tone_curve_luma_ptr, p.tone_curve_luma_len),
             red: read_points(p.tone_curve_red_ptr, p.tone_curve_red_len),
             green: read_points(p.tone_curve_green_ptr, p.tone_curve_green_len),
@@ -443,21 +450,45 @@ unsafe fn residual_data_or_identity(ptr: *const f32, len: usize, size: usize) ->
 
 #[cfg(test)]
 mod tests {
-    use super::split_or_default;
+    use super::parametric_split_or_defaults;
 
     #[test]
-    fn zero_split_field_falls_back_to_the_canonical_default() {
+    fn all_zero_triple_falls_back_to_the_canonical_defaults() {
         // A stale host built before #3152 (or one that zero-initializes the
-        // struct) leaves the split fields at 0.0 — must read as "absent",
-        // not "split point at axis 0".
-        assert_eq!(split_or_default(0.0, 25.0), 25.0);
-        assert_eq!(split_or_default(0.0, 50.0), 50.0);
-        assert_eq!(split_or_default(0.0, 75.0), 75.0);
+        // struct) leaves EVERY split field at 0.0 — must read as "absent",
+        // not "every split point at axis 0".
+        assert_eq!(
+            parametric_split_or_defaults(0.0, 0.0, 0.0),
+            [25.0, 50.0, 75.0]
+        );
     }
 
     #[test]
-    fn nonzero_split_field_passes_through_unchanged() {
-        assert_eq!(split_or_default(15.0, 25.0), 15.0);
-        assert_eq!(split_or_default(90.0, 75.0), 90.0);
+    fn nonzero_triple_passes_through_unchanged() {
+        assert_eq!(
+            parametric_split_or_defaults(15.0, 55.0, 82.0),
+            [15.0, 55.0, 82.0]
+        );
+    }
+
+    #[test]
+    fn a_genuine_zero_in_an_otherwise_nonzero_triple_is_honored() {
+        // Copilot review on #3219: gating each field independently made it
+        // impossible for a live host to ever set `parametric_shadow_split`
+        // to exactly 0, which is a normal in-range axis position per the
+        // documented `[0, 100]` contract. Only an ALL-zero triple is
+        // "absent" — a partial zero must pass through.
+        assert_eq!(
+            parametric_split_or_defaults(0.0, 55.0, 82.0),
+            [0.0, 55.0, 82.0]
+        );
+        assert_eq!(
+            parametric_split_or_defaults(15.0, 0.0, 82.0),
+            [15.0, 0.0, 82.0]
+        );
+        assert_eq!(
+            parametric_split_or_defaults(15.0, 55.0, 0.0),
+            [15.0, 55.0, 0.0]
+        );
     }
 }
