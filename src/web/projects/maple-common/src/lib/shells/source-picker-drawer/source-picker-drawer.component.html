@@ -38,7 +38,7 @@
           data-testid="source-picker-drawer-close"
           (click)="onClose()"
         >
-          <maple-icon name="drawer-close" [size]="16" />
+          <maple-icon name="drawer-close" [size]="16" aria-hidden="true" />
         </button>
       </div>
 
@@ -51,7 +51,12 @@
           <!-- Chevron is a stub for v0.1 — Maple-instance switcher is out
                of scope. Rendered to match the HTML mockup so the visual is
                complete; tap is a no-op. -->
-          <maple-icon name="drawer-chevron-stub" [size]="11" class="shrink-0 text-text-muted" />
+          <maple-icon
+            name="drawer-chevron-stub"
+            [size]="11"
+            class="shrink-0 text-text-muted"
+            aria-hidden="true"
+          />
         </div>
       }
 
@@ -74,7 +79,7 @@
       [hidden]="!showSearch()"
       (click)="onSearchPillTap()"
     >
-      <maple-icon name="drawer-search" [size]="14" class="shrink-0" />
+      <maple-icon name="drawer-search" [size]="14" class="shrink-0" aria-hidden="true" />
       <span>Search photos</span>
     </button>
 
