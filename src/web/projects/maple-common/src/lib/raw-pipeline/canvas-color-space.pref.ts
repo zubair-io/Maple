@@ -77,12 +77,18 @@ export class CanvasColorSpacePref {
   private readonly stored = signal<CanvasColorSpace | null>(loadStored());
 
   /** The effective preference: the stored choice, else the gamut-probed
-   * default. Read per session-open request, so a mid-session Settings change
-   * takes effect on the next asset the user opens rather than needing a
-   * reload. */
-  readonly current = computed<CanvasColorSpace>(
-    () => this.stored() ?? (screenSupportsP3() ? 'display-p3' : 'srgb'),
-  );
+   * default. A plain METHOD, not a `computed()` (Copilot review on #3224):
+   * `screenSupportsP3()` reads `window.matchMedia`, which is not a reactive
+   * Angular dependency, so a `computed` would memoize the FIRST gamut probe
+   * forever and never re-check it — stale if the browser's reported gamut
+   * changes later (e.g. the window moves to a different-capability display).
+   * Every caller (`RawPipelineService.openLiveSession`, the Settings row)
+   * already reads this imperatively per session-open / on init, not through
+   * a template binding that needs change-detection tracking, so a method
+   * that re-probes on every call is strictly more correct with no downside. */
+  current(): CanvasColorSpace {
+    return this.stored() ?? (screenSupportsP3() ? 'display-p3' : 'srgb');
+  }
 
   /** Persist the user's choice and update the live signal immediately —
    * mirrors `GpuLiveRenderGate.apply`'s idempotent no-op-on-same-value shape. */
