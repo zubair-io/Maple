@@ -6,7 +6,6 @@ use crate::error::PanoError;
 use crate::gain::GainOptions;
 use crate::ingest::PlanarImage;
 
-use super::frame_cache::TileFrameCache;
 use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
 use super::photometry::{solve_photometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
@@ -107,39 +106,31 @@ pub struct TileCompositeReport {
 /// explicitly reduces the halo below `halo_for_levels(levels)`, which the
 /// public API does not expose.
 ///
-/// # Frame access contract (#3090)
+/// # Frame / pose alignment contract
 ///
-/// `cache` decodes frames on demand, keyed by `poses[i].frame_idx` — the
-/// *original* input frame index, not a position in `poses`. `full_dims`
-/// is indexed the same way (one entry per original input frame) and
-/// gives pixel dimensions without paying for a decode; `tile_edges` is
-/// filtered to the reachable component (same contract as before).
-/// Peak resident frames is bounded by `cache`'s capacity, not by the
-/// total input frame count — see `TileFrameCache` docs.
-///
-/// `pub(crate)`, not `pub`: `TileFrameCache` itself is crate-internal
-/// (#3090), so this can't be called from outside the crate either — the
-/// only caller is `stitch::tile_stitch`.
-pub(crate) fn composite_tile(
-    cache: &TileFrameCache,
-    full_dims: &[(u32, u32)],
+/// Same contract as the former `composite_tile`:
+/// `frames` must be the filtered frame list (same order as `poses`),
+/// `tile_edges` filtered to the reachable component.
+pub fn composite_tile(
+    frames: &[PlanarImage],
+    _frame_count: usize,
     tile_edges: &[TileEdge],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
 ) -> Result<(PlanarImage, TileCompositeReport), PanoError> {
-    if poses.is_empty() {
+    if frames.len() != poses.len() {
+        return Err(PanoError::InvalidOptions(format!(
+            "composite_tile: {} frames vs {} poses",
+            frames.len(),
+            poses.len()
+        )));
+    }
+    if frames.is_empty() {
         return Err(PanoError::InvalidOptions(
             "composite_tile: no frames".into(),
         ));
-    }
-    if let Some(pose) = poses.iter().find(|p| p.frame_idx >= full_dims.len()) {
-        return Err(PanoError::InvalidOptions(format!(
-            "composite_tile: pose frame_idx {} out of range for {} full_dims entries",
-            pose.frame_idx,
-            full_dims.len()
-        )));
     }
 
     // ── planar residuals ─────────────────────────────────────────────────────
@@ -177,20 +168,15 @@ pub(crate) fn composite_tile(
     };
 
     // ── photometric solve: gains + shared ramp + residual fields (#350) ──────
-    let (photometry, phot_summary) = solve_photometry(
-        cache,
-        full_dims,
-        poses,
-        canvas,
-        &PhotometryOptions::from_gain(gain_opts),
-    )?;
+    let (photometry, phot_summary) =
+        solve_photometry(frames, poses, canvas, &PhotometryOptions::from_gain(gain_opts))?;
     let gains: Vec<[f32; 3]> = photometry.iter().map(|p| p.gain).collect();
 
     // ── determine pyramid level count ────────────────────────────────────────
     // We need the min overlap width for level selection. Compute cheaply via
     // a canvas-space scan at a coarse stride (same approach as voronoi_masks_tile
     // but just for overlap width stats, no actual masking needed here).
-    let min_overlap = estimate_min_overlap_width(cache, full_dims, poses, canvas)?;
+    let min_overlap = estimate_min_overlap_width(frames, poses, canvas);
     let levels = levels_override
         .unwrap_or_else(|| levels_for_overlap_width(min_overlap))
         .clamp(1, MAX_LEVELS);
@@ -210,12 +196,11 @@ pub(crate) fn composite_tile(
     // corner bbox is exact; frames whose bbox misses a haloed region can
     // only produce an all-invalid layer there — zero-weight in both the
     // Voronoi masks and the multiband blend — and are skipped outright.
-    // Dims only — no decode needed for a bbox.
-    let frame_bboxes: Vec<(f64, f64, f64, f64)> = poses
+    let frame_bboxes: Vec<(f64, f64, f64, f64)> = frames
         .iter()
-        .map(|pose| {
-            let (fw, fh) = full_dims[pose.frame_idx];
-            let (fw, fh) = (fw as f64, fh as f64);
+        .zip(poses)
+        .map(|(f, pose)| {
+            let (fw, fh) = (f.width() as f64, f.height() as f64);
             let corners = [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)];
             let mapped = corners
                 .iter()
@@ -250,10 +235,7 @@ pub(crate) fn composite_tile(
             // Cull frames whose canvas bbox misses the haloed region, then
             // warp only the survivors (#3086). The 1 px pad absorbs the
             // +0.5 pixel-center sampling and float slop at the boundary.
-            // #3090: this culling is also what keeps the on-demand decode
-            // cache's working set small — a tile typically activates only
-            // the ~2-3 frames whose bbox actually reaches it.
-            let active: Vec<usize> = (0..poses.len())
+            let active: Vec<usize> = (0..frames.len())
                 .filter(|&i| {
                     let (bx0, by0, bx1, by1) = frame_bboxes[i];
                     bx1 >= hx0 as f64 - 1.0
@@ -268,10 +250,9 @@ pub(crate) fn composite_tile(
             }
             let haloed_layers: Vec<PlanarImage> = active
                 .iter()
-                .map(|&i| -> Result<PlanarImage, PanoError> {
-                    let frame = cache.get(poses[i].frame_idx)?;
-                    Ok(warp_to_tile_region(
-                        &frame,
+                .map(|&i| {
+                    warp_to_tile_region(
+                        &frames[i],
                         &poses[i],
                         canvas,
                         &photometry[i],
@@ -279,9 +260,9 @@ pub(crate) fn composite_tile(
                         hy0,
                         hx1,
                         hy1,
-                    ))
+                    )
                 })
-                .collect::<Result<Vec<_>, PanoError>>()?;
+                .collect();
 
             // Skip tile if no frame covers any pixel in the haloed region.
             let any_valid = haloed_layers.iter().any(|l| l.validity.any_valid());
@@ -295,7 +276,7 @@ pub(crate) fn composite_tile(
             let active_poses: Vec<TilePose> = active.iter().map(|&i| poses[i].clone()).collect();
             let active_dims: Vec<(u32, u32)> = active
                 .iter()
-                .map(|&i| full_dims[poses[i].frame_idx])
+                .map(|&i| (frames[i].width(), frames[i].height()))
                 .collect();
             let (masks, _) = voronoi_masks_region(
                 &haloed_layers,

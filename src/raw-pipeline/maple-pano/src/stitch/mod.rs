@@ -346,13 +346,6 @@ pub fn stitch(
                 inputs,
                 opts,
                 raw_matches_cache,
-                // #3090: already computed in stage 0 (decode + downscale to
-                // proxy already ran; the full-res buffer itself was dropped
-                // immediately by `ingest_file_proxy`) — free to reuse.
-                full_dims: metas
-                    .iter()
-                    .map(|m| (m.full_width, m.full_height))
-                    .collect(),
                 proxy_dims,
                 feature_sets,
                 strategy_report,
