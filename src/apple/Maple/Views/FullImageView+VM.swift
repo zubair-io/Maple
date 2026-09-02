@@ -62,6 +62,32 @@ enum FullImageViewVM {
         (!isRendering && hasPreview) ? "canvas-render-ready" : "canvas-rendering"
     }
 
+    /// Accessibility VALUE for the `canvas-image-rect` marker (#2288): the
+    /// rendered PHOTO's own rect within the canvas container, as
+    /// `"x,y,width,height"` in points relative to the container's own
+    /// origin — the same space `canvas-render-ready`'s captured screenshot
+    /// is in. `canvas-render-ready` itself spans the whole LETTERBOXED
+    /// container (its own `.frame` as XCUITest reports it does not track
+    /// the fitted image), so a UITest harness that diffs the canvas against
+    /// an externally-rendered reference (a different aspect than the
+    /// container) needs this to crop down to just the photo first.
+    ///
+    /// `imageSize` is `CanvasZoomController.displayFrameInPoints` — the
+    /// already-correct fit-to-viewport size the leaf is laid out at;
+    /// `containerSize`/`panOffset` place it within the container the same
+    /// way the ZStack's default center alignment + `.offset(panOffset)`
+    /// do. At the default "fit" zoom with no pan, this is simply the
+    /// centered sub-rect.
+    static func imageRectAccessibilityValue(
+        containerSize: CGSize, imageSize: CGSize, panOffset: CGSize
+    ) -> String {
+        let x = (containerSize.width - imageSize.width) / 2 + panOffset.width
+        let y = (containerSize.height - imageSize.height) / 2 + panOffset.height
+        // 2 decimal places: enough precision for a point-space crop, far
+        // short of floating-point noise turning into a visible parse diff.
+        return String(format: "%.2f,%.2f,%.2f,%.2f", x, y, imageSize.width, imageSize.height)
+    }
+
     // MARK: - Canvas path selection (GPU live vs CPU)
 
     /// True when the canvas should present via the wgpu live path

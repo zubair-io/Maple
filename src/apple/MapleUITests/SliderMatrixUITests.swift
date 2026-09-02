@@ -275,16 +275,25 @@ final class SliderMatrixUITests: XCTestCase {
         }
 
         // `frame` came back from `waitForSettledCanvas`, read there while the
-        // element was known up; `CanvasCapture.canvasPNG` is the only thing
-        // that touches `canvas` afterwards, behind its own `exists` guard.
-        let candidatePNG: Data? = CanvasCapture.canvasPNG(canvas, frame: frame)
+        // element was known up; `CanvasCapture.imagePNG` is the only thing
+        // that touches `canvas`/the marker afterwards, behind its own
+        // `exists` guards. #2288: crop to the rendered PHOTO's own rect
+        // (the `canvas-image-rect` marker), not the letterboxed container
+        // `frame` — the reference PNG is the image's own aspect, and a
+        // container-sized candidate can never match it.
+        let candidatePNG: Data? = CanvasCapture.imagePNG(
+            canvas, containerFrame: frame,
+            imageRectMarker: app.otherElements["canvas-image-rect"])
 
         guard let candidatePNG else {
             return CaseResult(
                 stem: stem,
                 caseName: caseName,
                 metrics: nil,
-                failureReasons: ["canvas screenshot unavailable (sentinel flipped mid-capture)"]
+                failureReasons: [
+                    "canvas screenshot unavailable (sentinel flipped mid-capture, or "
+                        + "canvas-image-rect marker missing/malformed)"
+                ]
             )
         }
 
