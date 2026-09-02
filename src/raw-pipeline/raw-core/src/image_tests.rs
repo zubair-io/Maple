@@ -185,6 +185,7 @@ fn no_opcode_list3_has_no_corrections_and_ca_is_inert() {
     let raw = fake_raw_with_opcodes(None);
     assert!(!raw.has_lens_corrections());
     assert!(raw.lens_correction_ca_inert());
+    assert!(raw.lens_correction_distortion_inert());
 }
 
 #[test]
@@ -201,6 +202,10 @@ fn single_coefficient_warp_has_corrections_but_ca_is_inert() {
     assert!(
         raw.lens_correction_ca_inert(),
         "a single coefficient set has no per-plane divergence"
+    );
+    assert!(
+        !raw.lens_correction_distortion_inert(),
+        "a single coefficient set is still a real geometric correction"
     );
 }
 
@@ -219,6 +224,7 @@ fn multi_plane_warp_has_corrections_and_ca_is_live() {
         !raw.lens_correction_ca_inert(),
         "3 coefficient sets diverge per plane — CA is live"
     );
+    assert!(!raw.lens_correction_distortion_inert());
 }
 
 #[test]
@@ -238,5 +244,27 @@ fn vignette_only_has_corrections_and_ca_is_inert() {
     assert!(
         raw.lens_correction_ca_inert(),
         "no WarpRectilinear opcode at all — CA has nothing to do"
+    );
+    assert!(
+        raw.lens_correction_distortion_inert(),
+        "#3189: no WarpRectilinear opcode at all — distortion has nothing to do"
+    );
+}
+
+#[test]
+fn warp_and_vignette_together_distortion_is_live() {
+    // The distortion signal must key off WarpRectilinear's PRESENCE among
+    // possibly-multiple opcodes, not assume it's the only one in the list.
+    use crate::pipeline::pano::opcodes::OpcodeList3;
+    let raw = fake_raw_with_opcodes(Some((
+        OpcodeList3 {
+            opcodes: vec![vignette_only(), warp(1)],
+            skipped_unknown: 0,
+        },
+        active_area(),
+    )));
+    assert!(
+        !raw.lens_correction_distortion_inert(),
+        "a WarpRectilinear opcode alongside FixVignetteRadial still makes distortion live"
     );
 }
