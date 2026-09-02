@@ -59,9 +59,11 @@ describe('adjustment-fields golden gate (vs generated web module)', () => {
 
   // Preset `fields` maps are flat scalar maps on both sides of the wire
   // (`PresetFields = Record<string, number | string | boolean>`), so the
-  // structured point-curve fields (#366) are deliberately outside the
-  // validation surface — the clients never capture them. Pinned here so a
-  // NEW structured field can't slip past the assertion above unnoticed.
+  // structured point-curve fields — both the scene-linear family (#366)
+  // and the display-referred family (#2232) — are deliberately outside
+  // the validation surface — the clients never capture them. Pinned here
+  // so a NEW structured field can't slip past the assertion above
+  // unnoticed.
   it('the only generated fields outside the validator are the point curves', () => {
     const defaults = defaultGeneratedAdjustmentModel() as unknown as Record<string, unknown>;
     const structured = Object.keys(defaults)
@@ -69,6 +71,10 @@ describe('adjustment-fields golden gate (vs generated web module)', () => {
       .map(camelToSnake)
       .sort();
     expect(structured).toEqual([
+      'display_tone_curve_blue',
+      'display_tone_curve_green',
+      'display_tone_curve_luma',
+      'display_tone_curve_red',
       'tone_curve_blue',
       'tone_curve_green',
       'tone_curve_luma',
