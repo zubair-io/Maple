@@ -73,6 +73,8 @@ namespace Maple.WinUI.Services
             m.ParametricDarks = 0; m.ParametricShadows = 0;
             m.ToneCurveLuma.Clear(); m.ToneCurveRed.Clear();
             m.ToneCurveGreen.Clear(); m.ToneCurveBlue.Clear();
+            m.DisplayToneCurveLuma.Clear(); m.DisplayToneCurveRed.Clear();
+            m.DisplayToneCurveGreen.Clear(); m.DisplayToneCurveBlue.Clear();
             m.Crop = Models.CropState.Identity;   // display-side (#2582), never baked at decode
             m.Vibrance = 0; m.Saturation = 0; m.Clarity = 0; m.Texture = 0; m.Dehaze = 0;
             m.HueAdjustmentRed = 0; m.HueAdjustmentOrange = 0; m.HueAdjustmentYellow = 0;
@@ -198,6 +200,14 @@ namespace Maple.WinUI.Services
             var curveRed = FlattenCurve(model.ToneCurveRed);
             var curveGreen = FlattenCurve(model.ToneCurveGreen);
             var curveBlue = FlattenCurve(model.ToneCurveBlue);
+            // Display-referred point curves (#2232) — same flat wire shape,
+            // riding the same sibling struct's appended tail fields. This
+            // fused CPU entry has no GPU live session on Windows, so it is
+            // where the per-tick chain picks up the new stage.
+            var displayCurveLuma = FlattenCurve(model.DisplayToneCurveLuma);
+            var displayCurveRed = FlattenCurve(model.DisplayToneCurveRed);
+            var displayCurveGreen = FlattenCurve(model.DisplayToneCurveGreen);
+            var displayCurveBlue = FlattenCurve(model.DisplayToneCurveBlue);
 
             fixed (float* inPtr = image.Pixels)
             fixed (float* outPtr = chainScratch)
@@ -206,6 +216,10 @@ namespace Maple.WinUI.Services
             fixed (float* redPtr = curveRed)
             fixed (float* greenPtr = curveGreen)
             fixed (float* bluePtr = curveBlue)
+            fixed (float* displayLumaPtr = displayCurveLuma)
+            fixed (float* displayRedPtr = displayCurveRed)
+            fixed (float* displayGreenPtr = displayCurveGreen)
+            fixed (float* displayBluePtr = displayCurveBlue)
             {
                 if (image.NoiseProfile.Length > 0)
                 {
@@ -223,6 +237,14 @@ namespace Maple.WinUI.Services
                     blue_ptr = bluePtr,
                     blue_len = (nuint)curveBlue.Length,
                     mode = model.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
+                    display_luma_ptr = displayLumaPtr,
+                    display_luma_len = (nuint)displayCurveLuma.Length,
+                    display_red_ptr = displayRedPtr,
+                    display_red_len = (nuint)displayCurveRed.Length,
+                    display_green_ptr = displayGreenPtr,
+                    display_green_len = (nuint)displayCurveGreen.Length,
+                    display_blue_ptr = displayBluePtr,
+                    display_blue_len = (nuint)displayCurveBlue.Length,
                 };
                 var rc = RawFfi.maple_apply_chain_and_encode_display_curves_f32(
                     inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr);

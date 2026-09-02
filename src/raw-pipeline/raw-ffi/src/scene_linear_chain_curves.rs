@@ -13,6 +13,12 @@
 //!
 //! A null / empty `curves` pointer makes this entry behave exactly like
 //! `maple_apply_chain_and_encode_display_f32`.
+//!
+//! `MapleToneCurves` also carries the display-referred `display_*` curves
+//! (#2232, `crs:ToneCurvePV2012*`) — Windows' `RenderEngine.RenderTick` is
+//! this entry's one production caller and has no GPU live session, so this
+//! CPU fused entry is where its per-tick chain picks up the new stage.
+//! Appended at the struct tail per the offset-stable ABI convention.
 
 use crate::error::set_last_error;
 use crate::scene_linear_chain::chain_inputs_from_params;
@@ -35,6 +41,20 @@ pub struct MapleToneCurves {
     pub blue_len: usize,
     /// 0 = PerChannel, 1 = RatioPreserving.
     pub mode: u32,
+    // --- display-referred (post-AgX) tone curves (#2232) —
+    //     `crs:ToneCurvePV2012*`. Same flat `(x, y)` pair wire shape as the
+    //     scene-linear fields above. Appended at the struct tail per the
+    //     offset-stable ABI convention: a stale host leaves every pointer
+    //     null / len 0 ⇒ identity curves ⇒ the pass is a no-op, bit-identical
+    //     to pre-#2232 output. ---
+    pub display_luma_ptr: *const f32,
+    pub display_luma_len: usize,
+    pub display_red_ptr: *const f32,
+    pub display_red_len: usize,
+    pub display_green_ptr: *const f32,
+    pub display_green_len: usize,
+    pub display_blue_ptr: *const f32,
+    pub display_blue_len: usize,
 }
 
 /// # Safety
@@ -105,6 +125,12 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
             1 => ToneCurveMode::RatioPreserving,
             _ => ToneCurveMode::PerChannel,
         };
+        ci.model.display_tone_curve_luma = curve_from_flat(c.display_luma_ptr, c.display_luma_len);
+        ci.model.display_tone_curve_red = curve_from_flat(c.display_red_ptr, c.display_red_len);
+        ci.model.display_tone_curve_green =
+            curve_from_flat(c.display_green_ptr, c.display_green_len);
+        ci.model.display_tone_curve_blue =
+            curve_from_flat(c.display_blue_ptr, c.display_blue_len);
     }
     let opts = ci.options(p.skip_agx != 0);
 

@@ -116,6 +116,14 @@ namespace Maple.WinUI.Models
         public List<CurvePoint> ToneCurveBlue = new();
         public ToneCurveMode ToneCurveMode = ToneCurveMode.PerChannel;
 
+        // --- Display-referred tone curves (#2232, Adobe's crs:ToneCurvePV2012*).
+        //     Applied post-AgX, independently per R/G/B channel — a different
+        //     quantity from the scene-linear curves above. Identity = empty. ---
+        public List<CurvePoint> DisplayToneCurveLuma = new();
+        public List<CurvePoint> DisplayToneCurveRed = new();
+        public List<CurvePoint> DisplayToneCurveGreen = new();
+        public List<CurvePoint> DisplayToneCurveBlue = new();
+
         // --- Render / recovery enums ---
         public HighlightRecoveryMode HighlightRecovery = HighlightRecoveryMode.ChromaticAdaptation;
         public ToggleMode AutoExposure = ToggleMode.On;
@@ -138,6 +146,10 @@ namespace Maple.WinUI.Models
             c.ToneCurveRed = new List<CurvePoint>(ToneCurveRed);
             c.ToneCurveGreen = new List<CurvePoint>(ToneCurveGreen);
             c.ToneCurveBlue = new List<CurvePoint>(ToneCurveBlue);
+            c.DisplayToneCurveLuma = new List<CurvePoint>(DisplayToneCurveLuma);
+            c.DisplayToneCurveRed = new List<CurvePoint>(DisplayToneCurveRed);
+            c.DisplayToneCurveGreen = new List<CurvePoint>(DisplayToneCurveGreen);
+            c.DisplayToneCurveBlue = new List<CurvePoint>(DisplayToneCurveBlue);
             return c;
         }
     }
