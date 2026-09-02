@@ -130,7 +130,15 @@ public enum CanvasColorSpace: Int, CaseIterable, Sendable {
         // cached forever.
         cachedMainDisplaySupportsP3 = UIScreen.main.traitCollection.displayGamut == .P3
         #elseif canImport(AppKit)
-        cachedMainDisplaySupportsP3 = NSScreen.main?.colorSpace == NSColorSpace.displayP3
+        // NOT `screen.colorSpace == NSColorSpace.displayP3` (review round on
+        // #3192, jules): `NSScreen.colorSpace` reports the display's
+        // CURRENTLY ACTIVE ICC profile (e.g. "Color LCD", "Apple XDR
+        // Display"), which is essentially never identical to the generic
+        // `NSColorSpace.displayP3` instance even on a P3-capable panel — the
+        // comparison silently evaluates false and every P3 Mac falls back to
+        // sRGB. `canRepresent(.p3)` asks the gamut question directly,
+        // independent of which profile happens to be active.
+        cachedMainDisplaySupportsP3 = NSScreen.main?.canRepresent(.p3) == true
         #endif
     }
 
