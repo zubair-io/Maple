@@ -297,8 +297,8 @@ pub fn stitch(
     // replace it with the real self-calibrated focal and rebuild once more,
     // which is what every downstream stage reads `full_images`/`proxy_images`/
     // `graph` from. A live-matcher failure on a candidate the bootstrap never
-    // requested is a real match failure, not silently swallowed (review:
-    // Copilot) — `refine_if_needed` reports it back for us to propagate.
+    // requested is a real match failure, not silently swallowed —
+    // `refine_if_needed` reports it back for us to propagate.
     let refine_failures = focal_bootstrap::refine_if_needed(
         &mut focal_seed,
         &metas,
