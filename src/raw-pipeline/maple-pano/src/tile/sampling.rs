@@ -137,22 +137,16 @@ pub(super) fn sample_pairs(
 /// Accumulate one row-band's per-pair log-ratio statistics. Split out of
 /// `sample_pairs` so `bands.par_iter()` there can call it directly.
 ///
-/// Calls `cache.get()` fresh at point of use (inside the per-sample,
-/// per-frame loop below), gated by the existing per-sample 2D bbox
-/// check — not pre-resolved and held for the whole band. An earlier
-/// version pre-fetched every frame whose bbox *Y-range* reached the
-/// band and held an `Arc` for each for the band's whole duration, to
-/// cut lock overhead; but a locally-held `Arc` keeps a frame's pixels
-/// alive regardless of what the shared cache's own LRU does
-/// internally, and for a typical strip pano (all frames sharing
-/// similar vertical extent) that pre-fetch touched — and kept alive —
-/// close to every frame per band, reintroducing the peak-RSS problem
-/// this PR exists to eliminate (Copilot review on #3146). Calling
-/// `cache.get()` per sample instead is a cheap hit (lock + short
-/// linear scan + `Arc::clone`) after the decode-on-miss
-/// lock-serialization fix elsewhere in this PR, and is *more*
-/// selective than the Y-only pre-filter was (the 2D bbox check below
-/// only calls it for a frame that actually covers this exact sample).
+/// Resolves each relevant frame through `cache` **once per band**, not
+/// once per sample: `TileFrameCache::get` takes a lock even on a hit, and
+/// calling it inside the per-pixel loop (as an earlier version of this
+/// fix did) measured a ~25% wall-clock regression versus plain slice
+/// indexing — on `pano_00`, which has too few frames for the cache to
+/// ever evict anything, so that cost bought no memory benefit at all.
+/// "Relevant" is a coarse Y-only bbox pre-filter (a band spans one fixed
+/// row range but many columns); the existing per-sample 2D bbox check
+/// below is unchanged and still decides which samples actually use a
+/// resolved frame.
 #[allow(clippy::too_many_arguments)]
 fn sample_band(
     band: &[usize],
@@ -169,6 +163,21 @@ fn sample_band(
     let mut map = PairMap::new();
     let mut hits: Vec<(usize, f64, [f64; 3], f64, f64)> = Vec::with_capacity(k);
 
+    let Some((&y0, &y1)) = band.iter().min().zip(band.iter().max()) else {
+        return Ok(map);
+    };
+    let (band_y0, band_y1) = (y0 as f64, y1 as f64 + 1.0);
+    let mut band_frames: Vec<Option<std::sync::Arc<crate::ingest::PlanarImage>>> =
+        Vec::with_capacity(k);
+    for i in 0..k {
+        let (_, by0, _, by1) = bboxes[i];
+        if by1 < band_y0 || by0 > band_y1 {
+            band_frames.push(None);
+        } else {
+            band_frames.push(Some(cache.get(poses[i].frame_idx)?));
+        }
+    }
+
     for &ry in band.iter() {
         let cy = ry as f64 + 0.5;
         for rx in (0..cw).step_by(opts.stride) {
@@ -179,13 +188,15 @@ fn sample_band(
                 if cx < bx0 || cx > bx1 || cy < by0 || cy > by1 {
                     continue;
                 }
+                let Some(frame) = &band_frames[i] else {
+                    continue;
+                };
                 let (fw, fh) = frame_dims[i];
                 let (fx, fy) = inv_sims[i].apply(cx, cy);
                 if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
                     continue;
                 }
-                let frame = cache.get(poses[i].frame_idx)?;
-                let Some(v) = sample_bicubic(&frame, fx - 0.5, fy - 0.5) else {
+                let Some(v) = sample_bicubic(frame, fx - 0.5, fy - 0.5) else {
                     continue;
                 };
                 let rgb = [
