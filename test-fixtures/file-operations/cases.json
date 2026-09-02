@@ -5,7 +5,8 @@
     "relocate": "Exercise the asset-level relocate primitive directly: copy source (+ its .xmp sidecar, if any, and, when `operation.companions` is given, each listed non-sidecar companion \u2014 #2667's `extraCompanionAbsPaths`, e.g. a PhotoKit backup's apple_rendered_path) to destDir/destBasename under the given mode + collision policy, then assert the exact resulting file tree relative to a fresh temp root. `fault`, if present, perturbs the filesystem AFTER `setup` but BEFORE the operation runs (e.g. making a directory read-only), to deterministically reproduce a failure window without a literal process kill.",
     "folder-rename": "Exercise the folder-level rename/move primitive (createFolder/renameFolder in Swift+C#, POST /:id/move in the API) on a folder (not a single asset), asserting the resulting tree including the folder's own new name/casing.",
     "name-validation": "Exercise the platform's canonical single-component filename/foldername validator directly (TS: isSafeFilename in src/api/src/backup/path-formatter.ts; Swift: FilenameValidation.isValidPathComponent; C#: LocalFileOperations.ValidateBareFileName) \u2014 no filesystem I/O, a pure accept/reject check on one candidate name.",
-    "selector": "Exercise the API-only multi-location/stale-entry selection logic (activeFileInfo in src/api/src/library/relocate-asset.ts) against a synthetic fileinfo array \u2014 no filesystem I/O. Apple/Windows have no equivalent (their local sources are single-location by construction), so every case of this kind is `requires: [\"multi-location-fileinfo\"]`, a capability only the API runner declares."
+    "selector": "Exercise the API-only multi-location/stale-entry selection logic (activeFileInfo in src/api/src/library/relocate-asset.ts) against a synthetic fileinfo array \u2014 no filesystem I/O. Apple/Windows have no equivalent (their local sources are single-location by construction), so every case of this kind is `requires: [\"multi-location-fileinfo\"]`, a capability only the API runner declares.",
+    "rename-reconcile": "Exercise each platform's PURE external-rename fingerprint matcher directly, no filesystem I/O: TS matchExternalRenameFingerprints in src/api/src/workers/discover/rename-reconcile.ts (built on the same groupByFingerprint/resolvableBucketPairs bucketing the production sweeper reconciliation uses); Swift ExternalRenameMatcher.match in src/apple/Packages/MapleCore/Sources/MapleCore/FileOperations/ExternalRenameMatcher.swift; C# RenameReconciliationLogic.ReconcileFingerprints in src/windows/Maple.WinUI/Services/FileOperations/RenameReconciliationLogic.cs. Each `missing` candidate is matched against each `new` candidate by a (size, dateTimeOriginal, cameraSerial) fingerprint \u2014 a match fires only when exactly one candidate on each side shares a fingerprint; every other shape (present on only one side, or shared by more than one candidate on either side) declines. A `null` dateTimeOriginal means that candidate's own EXIF capture time could not be read \u2014 it never enters the fingerprint pool at all (mirrors each platform's real \"unreadable EXIF\" provider, which excludes the file from matching entirely rather than falling back to a weaker, size-only fingerprint) \u2014 and a `null` cameraSerial means the camera serial was absent, which is compared for EQUALITY like any other field (mutual absence matches; present on only one side does not)."
   },
   "notes": "A case with no `platforms` field is attempted by all three runners (api, apple, windows). A case WITH a `platforms` field restricts it to only the listed runners \u2014 used for a case that targets a primitive one surface genuinely doesn't have (e.g. `folder-rename`'s API exclusion below), never as a substitute for a `requires` capability skip. `requires` capabilities that a listed runner's platform/runtime doesn't have at run time (probed live, not assumed) must still produce a loud, per-case skip message \u2014 see `capabilities` below. A resulting tree comparison excludes anything under a top-level .maple/ directory (Apple-only LibraryIndex cache side effect of a relocate, not part of the relocate CONTRACT \u2014 docs/caching.md is explicit the cache is derived and disposable) and any leaked *.tmp.* publish artifact (its own distinct bug class from what this harness targets).",
   "capabilities": {
@@ -759,6 +760,152 @@
             "content": "apple-rendered-bytes"
           }
         ]
+      }
+    },
+    {
+      "name": "rename_reconcile_size_alone_never_merges_two_different_photos",
+      "kind": "rename-reconcile",
+      "description": "Two photos sharing only a file size, with different capture dates, must never merge \u2014 size is necessary but never sufficient on its own (#2845's exact false-positive scenario).",
+      "requires": [],
+      "reconcile": {
+        "missing": [
+          {
+            "filename": "IMG_1.CR3",
+            "size": 5000000,
+            "dateTimeOriginal": "2024-06-15T10:30:00",
+            "cameraSerial": "SN1"
+          }
+        ],
+        "new": [
+          {
+            "filename": "IMG_2.CR3",
+            "size": 5000000,
+            "dateTimeOriginal": "2024-07-20T14:00:00",
+            "cameraSerial": "SN1"
+          }
+        ]
+      },
+      "expected": {
+        "matches": []
+      }
+    },
+    {
+      "name": "rename_reconcile_date_present_on_one_side_only_declines",
+      "kind": "rename-reconcile",
+      "description": "The new-side candidate's capture date could not be read (null) even though its size matches a missing candidate \u2014 it never enters the fingerprint pool, so there is nothing to match against.",
+      "requires": [],
+      "reconcile": {
+        "missing": [
+          {
+            "filename": "IMG_3.CR3",
+            "size": 4200000,
+            "dateTimeOriginal": "2024-06-15T10:30:00",
+            "cameraSerial": "SN2"
+          }
+        ],
+        "new": [
+          {
+            "filename": "IMG_4.CR3",
+            "size": 4200000,
+            "dateTimeOriginal": null,
+            "cameraSerial": "SN2"
+          }
+        ]
+      },
+      "expected": {
+        "matches": []
+      }
+    },
+    {
+      "name": "rename_reconcile_unreadable_date_excludes_the_candidate_entirely",
+      "kind": "rename-reconcile",
+      "description": "The MISSING-side candidate's own capture date is unreadable (null) \u2014 it is excluded from the fingerprint pool entirely, not merely declined for this one comparison, even though a plausible same-size, same-serial new candidate exists.",
+      "requires": [],
+      "reconcile": {
+        "missing": [
+          {
+            "filename": "IMG_5.CR3",
+            "size": 3000000,
+            "dateTimeOriginal": null,
+            "cameraSerial": "SN3"
+          }
+        ],
+        "new": [
+          {
+            "filename": "IMG_6.CR3",
+            "size": 3000000,
+            "dateTimeOriginal": "2024-01-01T00:00:00",
+            "cameraSerial": "SN3"
+          }
+        ]
+      },
+      "expected": {
+        "matches": []
+      }
+    },
+    {
+      "name": "rename_reconcile_both_serials_absent_but_dates_equal_still_matches",
+      "kind": "rename-reconcile",
+      "description": "Neither candidate carries a camera serial (many cameras never surface one), but size and capture date agree exactly \u2014 mutual absence of the serial is not a disagreement, so this reconciles.",
+      "requires": [],
+      "reconcile": {
+        "missing": [
+          {
+            "filename": "IMG_7.CR3",
+            "size": 2000000,
+            "dateTimeOriginal": "2024-03-10T08:00:00",
+            "cameraSerial": null
+          }
+        ],
+        "new": [
+          {
+            "filename": "IMG_8.CR3",
+            "size": 2000000,
+            "dateTimeOriginal": "2024-03-10T08:00:00",
+            "cameraSerial": null
+          }
+        ]
+      },
+      "expected": {
+        "matches": [
+          {
+            "missing": "IMG_7.CR3",
+            "new": "IMG_8.CR3"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rename_reconcile_two_same_fingerprint_candidates_decline_as_ambiguous",
+      "kind": "rename-reconcile",
+      "description": "Two DIFFERENT missing candidates share the identical (size, date, serial) fingerprint and both plausibly match the one new candidate \u2014 the bucket is ambiguous, so every candidate in it declines rather than guessing which one actually renamed.",
+      "requires": [],
+      "reconcile": {
+        "missing": [
+          {
+            "filename": "IMG_9.CR3",
+            "size": 1000000,
+            "dateTimeOriginal": "2024-05-05T05:05:00",
+            "cameraSerial": "SN4"
+          },
+          {
+            "filename": "IMG_10.CR3",
+            "size": 1000000,
+            "dateTimeOriginal": "2024-05-05T05:05:00",
+            "cameraSerial": "SN4"
+          }
+        ],
+        "new": [
+          {
+            "filename": "IMG_11.CR3",
+            "size": 1000000,
+            "dateTimeOriginal": "2024-05-05T05:05:00",
+            "cameraSerial": "SN4"
+          }
+        ]
+      },
+      "expected": {
+        "matches": []
       }
     }
   ]
