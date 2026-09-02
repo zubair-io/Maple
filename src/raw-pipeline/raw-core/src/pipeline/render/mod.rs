@@ -44,7 +44,9 @@ mod finish;
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
-pub use export::{render_export_from_raw, render_export_from_raw_with_film, ExportDepth, ExportPixels};
+pub use export::{
+    render_export_from_raw, render_export_from_raw_with_film, ExportDepth, ExportPixels,
+};
 
 // Synthetic-input render entries — the view transform applied to an already
 // scene-linear buffer (#943 size-budget split); re-exported so `pipeline::{…}`
@@ -178,7 +180,7 @@ fn render_display_from_raw(
         encode::dither_and_quantize(&mut scene)
     });
     Ok(finish::apply_geometry(
-        &bytes,
+        bytes,
         w,
         h,
         raw.orientation,
