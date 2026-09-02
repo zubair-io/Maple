@@ -4,7 +4,7 @@
 // Sibling of `point-tone-curve.spec.ts` (the scene-linear `papp:` family).
 // `CANONICAL_BLOCK` here is this ticket's own cross-language parity artifact
 // — the same literal must appear in `tests_display_tone_curves.rs` and
-// `ToneCurveXMPTests.swift`.
+// `DisplayToneCurveXMPTests.swift`.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
