@@ -98,30 +98,40 @@ struct MemoryDetailScreen: View {
         horizontalInset: Self.horizontalInset
       )
       ScrollView {
-        LazyVGrid(columns: layout.gridItems, alignment: .center, spacing: Self.rowSpacing) {
-          let assets = viewModel.assets
-          // Index-as-identity, matching the Timeline: a memory's pages only
-          // ever append, so no cell's identity shifts under it, and focus
-          // keys on `asset.id` below regardless.
-          ForEach(assets.indices, id: \.self) { index in
-            let asset = assets[index]
-            TimelineCell(
-              asset: asset,
-              server: session.server,
-              thumbClient: session.thumbClient,
-              thumbCache: session.thumbCache,
-              identifier: "memory-cell-\(asset.id)",
-              size: layout.cellWidth,
-              onSelect: { selectedAsset = asset }
-            )
-            .focused($focusedCellID, equals: asset.id)
-            .onAppear {
-              guard viewModel.canLoadMore, index >= assets.count - Self.pageAheadThreshold else { return }
-              Task { await viewModel.loadMore() }
+        VStack(spacing: 0) {
+          LazyVGrid(columns: layout.gridItems, alignment: .center, spacing: Self.rowSpacing) {
+            let assets = viewModel.assets
+            // Index-as-identity, matching the Timeline: a memory's pages only
+            // ever append, so no cell's identity shifts under it, and focus
+            // keys on `asset.id` below regardless.
+            ForEach(assets.indices, id: \.self) { index in
+              let asset = assets[index]
+              TimelineCell(
+                asset: asset,
+                server: session.server,
+                thumbClient: session.thumbClient,
+                thumbCache: session.thumbCache,
+                identifier: "memory-cell-\(asset.id)",
+                size: layout.cellWidth,
+                onSelect: { selectedAsset = asset }
+              )
+              .focused($focusedCellID, equals: asset.id)
+              .onAppear {
+                guard viewModel.canLoadMore, index >= assets.count - Self.pageAheadThreshold else { return }
+                Task { await viewModel.loadMore() }
+              }
             }
           }
+          .padding(.horizontal, Self.horizontalInset)
+
+          if viewModel.stoppedShort {
+            Text("Showing \(viewModel.assets.count) of \(viewModel.collectionTotal) photos")
+              .font(.system(size: 18))
+              .foregroundStyle(MapleTVTheme.textMuted)
+              .frame(maxWidth: .infinity)
+              .padding(.top, 36)
+          }
         }
-        .padding(.horizontal, Self.horizontalInset)
         // Room for the focused cell's 1.09 scale to grow into at the top row
         // rather than clipping against the scroll view's edge.
         .padding(.top, 24)
