@@ -214,14 +214,23 @@ public final class GpuLiveDriver {
     /// read back `pixels` from — stored so a later `isOpen(coveringWidth:
     /// height:identity:)` can tell a genuine reuse apart from a same-dims
     /// present of DIFFERENT pixels (a baked-field re-decode or a crop change).
+    ///
+    /// `noiseProfile`/`iso` (#2342, finishes #1714 on Apple) describe THIS
+    /// decode's pixels — `RenderActor+DecodedCache`'s
+    /// `sizedResult.noiseProfile`/`sizedResult.iso`, the same values
+    /// `ImageEditPipeline` already forwards to the CPU chain — and are
+    /// forwarded straight to the new `GpuLiveSession`, which binds them on
+    /// every subsequent tick. `nil`/`0` (non-RAW, or a RAW with no embedded
+    /// NoiseProfile tag) keeps the WGSL kernel's flat, non-modulated filter.
     public func open(
         pixels: [Float], width: Int, height: Int, inputShape: UInt32 = 0,
-        identity: GpuUploadIdentity
+        identity: GpuUploadIdentity, noiseProfile: [Float]? = nil, iso: UInt32 = 0
     ) async throws {
         if let old = session {
             await old.close()
         }
-        let s = try GpuLiveSession(pixels: pixels, width: width, height: height)
+        let s = try GpuLiveSession(
+            pixels: pixels, width: width, height: height, noiseProfile: noiseProfile, iso: iso)
         self.session = s
         self.sessionDims = (width, height)
         self.uploadedIdentity = identity
