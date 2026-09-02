@@ -130,16 +130,28 @@ async function checkRealMissingAssetIsA404() {
 	}
 }
 
+const CHECKS = [
+	['wasm', checkWasm],
+	['png', checkPng],
+	['woff2', checkWoff2],
+	['headers', checkHeaders],
+	['spa-fallback', checkDeepLinkSpaFallback],
+	['real-404', checkRealMissingAssetIsA404],
+];
+
 async function main() {
 	console.log(`Hosted SSR smoke check against ${baseUrl}`);
-	await Promise.all([
-		checkWasm(),
-		checkPng(),
-		checkWoff2(),
-		checkHeaders(),
-		checkDeepLinkSpaFallback(),
-		checkRealMissingAssetIsA404(),
-	]);
+	// allSettled, not all: a thrown network error (DNS failure, connection
+	// refused, ...) from one check must not abort the rest — every check
+	// should get a chance to run and report, same as an ordinary assertion
+	// failure recorded via fail() above.
+	const results = await Promise.allSettled(CHECKS.map(([, check]) => check()));
+	results.forEach((result, index) => {
+		if (result.status === 'rejected') {
+			const [label] = CHECKS[index];
+			fail(label, `threw: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+		}
+	});
 
 	if (failures.length > 0) {
 		console.error(`\n${failures.length} check(s) failed:`);

@@ -15,11 +15,22 @@
  * COOP/COEP).
  *
  * Flow:
- *   1. Fetch the requested path from the origin. Never call `.text()` or
- *      otherwise decode the body — proxy the `ReadableStream` straight
- *      through.
+ *   1. Fetch the requested path from the origin, cloning the incoming
+ *      request's method/headers/body via `new Request(target, request)`
+ *      (same pattern as the sibling thumbnail-cache Worker) rather than
+ *      hand-picking a subset of request init — never call `.text()` or
+ *      otherwise decode the body, proxy the `ReadableStream` straight
+ *      through. Query strings are intentionally dropped: Azure Blob
+ *      Storage's REST API treats certain query keys (`sig`, `comp`, ...) as
+ *      commands, so an innocuous tracking parameter that collides with one
+ *      could turn a should-be-404 into a 400/403 that never reaches the SPA
+ *      fallback below. The served content is a static build with no
+ *      per-query variation, so nothing is lost by not forwarding it —
+ *      Angular's router still sees the full URL client-side.
  *   2. Origin 404 + the request is an HTML navigation -> SPA fallback:
- *      re-fetch `/index.html` from the origin and serve it with status 200.
+ *      re-fetch `/index.html` from the origin with a fresh, header-free
+ *      request (deliberately not the original request's headers — see
+ *      `spaFallback`'s doc comment for why) and serve it with status 200.
  *   3. Origin 404 + not a navigation (a missing JS chunk, a stale asset
  *      path, ...) -> pass the real 404 through untouched.
  *   4. Any other status -> pass it through untouched, with the origin's own
@@ -41,24 +52,21 @@ function isNavigationRequest(request: Request): boolean {
 	return accept.includes('text/html');
 }
 
-function originTarget(originBaseUrl: string, pathname: string, search = ''): URL {
+function originTarget(originBaseUrl: string, pathname: string): URL {
 	const base = new URL(originBaseUrl);
 	// Azure's container path (e.g. "/mapleaperture") is the base URL's own
 	// pathname — append the requested path onto it rather than replacing it.
 	const basePath = base.pathname.endsWith('/') ? base.pathname.slice(0, -1) : base.pathname;
 	base.pathname = `${basePath}${pathname}`;
-	base.search = search;
 	return base;
 }
 
-async function fetchOrigin(
-	originBaseUrl: string,
-	request: Request,
-	pathname: string,
-	search: string,
-) {
-	const target = originTarget(originBaseUrl, pathname, search);
-	return fetch(target.toString(), { method: request.method, headers: request.headers });
+/** Fetches `pathname` from the origin, cloning the incoming request's
+ * method, headers and body onto the new URL — full request semantics
+ * preserved, not a hand-picked subset. */
+async function fetchOrigin(originBaseUrl: string, request: Request, pathname: string) {
+	const target = originTarget(originBaseUrl, pathname);
+	return fetch(new Request(target.toString(), request));
 }
 
 function withWasmContentType(headers: Headers, pathname: string): Headers {
@@ -66,9 +74,39 @@ function withWasmContentType(headers: Headers, pathname: string): Headers {
 	return headers;
 }
 
-async function spaFallback(originBaseUrl: string, request: Request): Promise<Response> {
-	const indexResponse = await fetchOrigin(originBaseUrl, request, '/index.html', '');
+/**
+ * SPA fallback: re-fetch `/index.html` from the origin and serve it in
+ * place of the 404 the requested path produced.
+ *
+ * Deliberately issues a plain, header-free `fetch()` rather than cloning
+ * the original request (unlike `fetchOrigin`): the original request's
+ * conditional-cache headers (`If-None-Match` / `If-Modified-Since`), if
+ * present, describe the client's cached copy of the *requested deep-link
+ * URL* — a previous fallback response for that same URL, built from this
+ * same `index.html` object and carrying its ETag. Forwarding them onto a
+ * *fresh* `/index.html` fetch asks Azure to compare against that ETag, and
+ * since the object hasn't changed it correctly answers `304 Not Modified`
+ * with an empty body — which this function would otherwise wrap in a
+ * `200 OK`, serving a blank page to a returning visitor.
+ *
+ * Guards on the fetch's own status: if `/index.html` itself is unavailable
+ * (a misconfigured container, a missing object, an Azure outage), the real
+ * status passes through rather than being masked as a successful
+ * navigation.
+ */
+async function spaFallback(originBaseUrl: string): Promise<Response> {
+	const target = originTarget(originBaseUrl, '/index.html');
+	const indexResponse = await fetch(target.toString());
 	const headers = buildResponseHeaders(indexResponse.headers);
+
+	if (indexResponse.status !== 200) {
+		return new Response(indexResponse.body, {
+			status: indexResponse.status,
+			statusText: indexResponse.statusText,
+			headers,
+		});
+	}
+
 	headers.set('Content-Type', 'text/html; charset=utf-8');
 	// index.html names the current build's hashed bundles, so a cached copy
 	// would strand a returning client on a stale deploy — never cache it,
@@ -80,15 +118,14 @@ async function spaFallback(originBaseUrl: string, request: Request): Promise<Res
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
-		const originResponse = await fetchOrigin(
-			env.ORIGIN_BASE_URL,
-			request,
-			url.pathname,
-			url.search,
-		);
+		const originResponse = await fetchOrigin(env.ORIGIN_BASE_URL, request, url.pathname);
 
 		if (originResponse.status === 404 && isNavigationRequest(request)) {
-			return spaFallback(env.ORIGIN_BASE_URL, request);
+			// The 404 body is discarded in favor of the fallback response —
+			// cancel it rather than let it dangle, so the Worker isn't holding
+			// an open connection to the origin for a response nobody reads.
+			originResponse.body?.cancel();
+			return spaFallback(env.ORIGIN_BASE_URL);
 		}
 
 		const headers = withWasmContentType(buildResponseHeaders(originResponse.headers), url.pathname);
