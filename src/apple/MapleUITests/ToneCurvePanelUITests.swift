@@ -148,5 +148,37 @@ final class ToneCurvePanelUITests: XCTestCase {
         // Reset is disabled on an identity curve — it has nothing to undo.
         XCTAssertFalse(app.buttons["editor-tone-curve-reset"].isEnabled)
     }
+
+    /// The Display family (#2232) exposes its own four channel chips and
+    /// hides the parametric region sliders, which have no display-referred
+    /// equivalent on the model.
+    func testDisplayFamilySwapsChannelsAndHidesParametricSliders() throws {
+        let app = try launchWithCurveArmed()
+        XCTAssertTrue(app.groups["editor-tone-curve-plot"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["editor-tone-curve-family-sceneLinear"].exists)
+        XCTAssertTrue(app.buttons["editor-tone-curve-family-display"].exists)
+
+        app.buttons["editor-tone-curve-family-display"].tap()
+
+        // Same four channel ids, now targeting the display-referred fields
+        // — "Master" replaces "Luma" as the label, matching PV2012's own
+        // point-curve editor terminology.
+        for channel in ["luma", "r", "g", "b"] {
+            XCTAssertTrue(
+                app.buttons["editor-tone-curve-channel-\(channel)"].exists,
+                "display-family channel chip \(channel) missing"
+            )
+        }
+        for region in ["highlights", "lights", "darks", "shadows"] {
+            XCTAssertFalse(
+                app.otherElements["editor-tone-curve-\(region)"].exists,
+                "region slider \(region) should be hidden for the Display family"
+            )
+        }
+
+        // Switching back to Scene restores the parametric sliders.
+        app.buttons["editor-tone-curve-family-sceneLinear"].tap()
+        XCTAssertTrue(app.otherElements["editor-tone-curve-highlights"].waitForExistence(timeout: 5))
+    }
 }
 #endif // os(macOS)
