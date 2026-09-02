@@ -95,16 +95,24 @@ impl CandidateProvider for DescriptorTopKProvider<'_> {
         }
 
         let pooled: Vec<Vec<f32>> = self.feature_sets.iter().map(pooled_descriptor).collect();
+        // A frame with no descriptor signal (zero keypoints) has no
+        // meaningful direction to rank neighbors by, and is an equally
+        // meaningless match target for everyone else — excluded from
+        // both directions below, rather than let index-order
+        // tie-breaking nominate it/for it anyway (review: Copilot).
+        let has_signal: Vec<bool> = pooled.iter().map(|p| p.iter().any(|&v| v != 0.0)).collect();
 
         let mut out = Vec::with_capacity(n * self.k.min(n - 1));
         for i in 0..n {
+            if !has_signal[i] {
+                continue;
+            }
             // Deterministic: descending similarity, ties broken by
             // ascending index, so the ranking never depends on sort
             // stability or float-comparison edge cases beyond `NaN`
-            // (which `pooled_descriptor`'s zero-vector guard prevents
-            // for any frame with at least one keypoint).
+            // (which the `has_signal` filter above already excludes).
             let mut ranked: Vec<(usize, f32)> = (0..n)
-                .filter(|&j| j != i)
+                .filter(|&j| j != i && has_signal[j])
                 .map(|j| (j, cosine(&pooled[i], &pooled[j])))
                 .collect();
             ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));

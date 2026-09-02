@@ -161,6 +161,35 @@ fn candidates_empty_on_degenerate_input() {
     .is_empty());
 }
 
+/// A zero-keypoint frame pools to the zero vector, which ties every
+/// other frame at cosine similarity 0.0 — without an explicit filter,
+/// ascending-index tie-breaking would still nominate it (and nominate
+/// *for* it) k candidates regardless of relevance. Review finding
+/// (Copilot): it must nominate nothing, and receive no nominations.
+#[test]
+fn zero_keypoint_frame_nominates_and_receives_nothing() {
+    let blank = FeatureSet {
+        keypoints: vec![],
+        descriptors: vec![],
+        descriptor_dim: 2,
+        norm_keypoints: vec![],
+    };
+    let sets = vec![
+        blank,
+        feature_set_with_descriptor(vec![1.0, 0.0], 2),
+        feature_set_with_descriptor(vec![0.0, 1.0], 2),
+    ];
+    let pairs = DescriptorTopKProvider {
+        feature_sets: &sets,
+        k: 6,
+    }
+    .candidates(&dummy_images(3));
+    assert!(
+        pairs.iter().all(|&(a, b)| a != 0 && b != 0),
+        "blank frame 0 must be nominated neither as source nor target: {pairs:?}"
+    );
+}
+
 /// Synthesize a plausible per-frame descriptor set whose pooled vector
 /// encodes grid position `(row, col)` — a stand-in for what real ALIKED
 /// descriptors do for genuinely overlapping content, without needing
