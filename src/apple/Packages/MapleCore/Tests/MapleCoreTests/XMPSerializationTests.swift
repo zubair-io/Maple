@@ -508,7 +508,13 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertEqual(m2.parametricHighlightSplit, 90)
 
         let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
-        XCTAssertFalse(defaultXml.contains("Split"),
+        // Named keys, not a bare "Split" substring — `crs:SplitToning*`
+        // (an unrelated field family) also contains "Split" (Copilot review).
+        XCTAssertFalse(defaultXml.contains("crs:ParametricShadowSplit"),
+                       "default split points must not be serialized")
+        XCTAssertFalse(defaultXml.contains("crs:ParametricMidtoneSplit"),
+                       "default split points must not be serialized")
+        XCTAssertFalse(defaultXml.contains("crs:ParametricHighlightSplit"),
                        "default split points must not be serialized")
     }
 
@@ -519,7 +525,8 @@ final class XMPSerializationTests: XCTestCase {
         var m = AdjustmentModel()
         m.parametricShadowSplit = 25.004 // rounds to the 25 default
         let xml = XMPSerializer.serialize(model: m, culling: CullingState())
-        XCTAssertFalse(xml.contains("Split"),
+        // Named key, not a bare "Split" substring (Copilot review — see above).
+        XCTAssertFalse(xml.contains("crs:ParametricShadowSplit"),
                        "a value that rounds to the default must be omitted, got: \(xml)")
     }
 
