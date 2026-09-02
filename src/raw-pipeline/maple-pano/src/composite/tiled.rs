@@ -1,9 +1,20 @@
 //! Memory-bounded tiled composite functions (M6-D, #1248).
 //!
 //! [`composite_tiled`] and [`composite_tiled_frames`] implement strip-by-strip
-//! Voronoi compositing that decodes (or re-uses) source frames one at a time,
+//! compositing that decodes (or re-uses) source frames one at a time,
 //! keeping at most one full-resolution frame resident per tile pass. See the
 //! parent module doc for the measured memory reality and the #1254 deferral.
+//!
+//! Both dispatch on [`SeamStrategy`] (#1179): the default Voronoi path
+//! below is unchanged from M6-D — hard per-pixel ownership computed from
+//! camera geometry alone. `GraphCut` delegates to [`graph_cut`], which
+//! precomputes a cheap downsampled seam ([`crate::seam::masks::build_from_paths`])
+//! once before the tile loop and then does a weighted accumulation per
+//! strip instead of a hard-ownership copy — see that module's doc for why
+//! the split (keeping this file's Voronoi path byte-for-byte unchanged
+//! keeps every existing `pano-budgets.json` ratchet meaningful).
+
+mod graph_cut;
 
 use rayon::prelude::*;
 
@@ -12,6 +23,7 @@ use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
 use crate::ingest::{ingest_file, PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
+use crate::seam::SeamStrategy;
 use crate::warp::warp_to_canvas_strip;
 
 use super::CompositeReport;
@@ -191,17 +203,43 @@ fn build_validity_mask(out_valid: &[bool], canvas_width: u32, canvas_height: u32
 /// by the caller (from the full-res frames before they were freed).
 ///
 /// The canvas is assembled strip-by-strip into a final [`PlanarImage`].
-/// Per-pixel Voronoi ownership is computed from camera geometry alone
-/// (no pixels needed).
-///
-/// **Blend algorithm**: linear Voronoi (each pixel is filled by exactly
-/// one frame — the owner). This is identical to `blend_multiband(..., 1)`
-/// when the Voronoi mask assigns exclusive ownership, which it always does.
+/// Dispatches on `seam_strategy` (#1179): [`SeamStrategy::Voronoi`]
+/// (default) computes per-pixel ownership from camera geometry alone (no
+/// pixels needed) via [`composite_tiled_voronoi`]; [`SeamStrategy::GraphCut`]
+/// delegates to [`graph_cut::composite_tiled_graph_cut`].
 ///
 /// # Errors
 /// Returns `PanoError` if any frame fails to decode or if camera/path
 /// slices are inconsistent.
+#[allow(clippy::too_many_arguments)]
 pub fn composite_tiled(
+    paths: &[std::path::PathBuf],
+    cameras: &[Camera],
+    gains: &[[f32; 3]],
+    local_corrections: &[Option<LocalCorrection>],
+    canvas: &CanvasSpec,
+    tile_rows: u32,
+    seam_strategy: SeamStrategy,
+) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    match seam_strategy {
+        SeamStrategy::Voronoi => {
+            composite_tiled_voronoi(paths, cameras, gains, local_corrections, canvas, tile_rows)
+        }
+        SeamStrategy::GraphCut => graph_cut::composite_tiled_graph_cut(
+            paths,
+            cameras,
+            gains,
+            local_corrections,
+            canvas,
+            tile_rows,
+        ),
+    }
+}
+
+/// **Blend algorithm**: linear Voronoi (each pixel is filled by exactly
+/// one frame — the owner). This is identical to `blend_multiband(..., 1)`
+/// when the Voronoi mask assigns exclusive ownership, which it always does.
+fn composite_tiled_voronoi(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
     gains: &[[f32; 3]],
@@ -299,6 +337,7 @@ pub fn composite_tiled(
         gains: gains.to_vec(),
         blend_levels: 1,
         min_overlap_width_px: min_overlap_width(k, &overlap_count, &overlap_rows),
+        seam_strategy: SeamStrategy::Voronoi,
     };
     Ok((blended, report))
 }
@@ -309,9 +348,40 @@ pub fn composite_tiled(
 /// Same tiling logic as [`composite_tiled`] but takes `&[PlanarImage]`
 /// instead of file paths — no I/O, no decode.  Useful for unit tests
 /// and for callers that decoded frames for another purpose and kept them.
+/// Dispatches on `seam_strategy` the same way [`composite_tiled`] does.
 ///
 /// See [`composite_tiled`] for the memory model and blend contract.
+#[allow(clippy::too_many_arguments)]
 pub fn composite_tiled_frames(
+    frames: &[PlanarImage],
+    cameras: &[Camera],
+    gains: &[[f32; 3]],
+    local_corrections: &[Option<LocalCorrection>],
+    canvas: &CanvasSpec,
+    tile_rows: u32,
+    seam_strategy: SeamStrategy,
+) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    match seam_strategy {
+        SeamStrategy::Voronoi => composite_tiled_frames_voronoi(
+            frames,
+            cameras,
+            gains,
+            local_corrections,
+            canvas,
+            tile_rows,
+        ),
+        SeamStrategy::GraphCut => graph_cut::composite_tiled_frames_graph_cut(
+            frames,
+            cameras,
+            gains,
+            local_corrections,
+            canvas,
+            tile_rows,
+        ),
+    }
+}
+
+fn composite_tiled_frames_voronoi(
     frames: &[PlanarImage],
     cameras: &[Camera],
     gains: &[[f32; 3]],
@@ -405,6 +475,7 @@ pub fn composite_tiled_frames(
         gains: gains.to_vec(),
         blend_levels: 1,
         min_overlap_width_px: min_overlap_width(k, &overlap_count, &overlap_rows),
+        seam_strategy: SeamStrategy::Voronoi,
     };
     Ok((blended, report))
 }
