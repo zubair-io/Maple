@@ -162,6 +162,21 @@ pub struct BaSolution {
     /// [`Self::motion_affected`] (parallel vector; a pair touching two
     /// motion-affected frames counts toward both).
     pub motion_pruned_matches: Vec<usize>,
+    /// Spec §8 low-texture failure mode: frames with **zero verified
+    /// edges to any neighbor** (e.g. sky-only content) that were placed
+    /// from their gimbal-prior rotation instead of reported as
+    /// [`DropReason::Disconnected`]. Sorted global frame indices; always
+    /// a subset of the solved (non-dropped) frames — `cameras[i]` is
+    /// `Some` for every entry, same invariant as a normally-solved
+    /// frame, but the pose is the gauge-aligned advisory prior verbatim
+    /// (never refined — there is no correspondence data to refine it
+    /// against) at the shared solved focal/k1/k2. Never populated for a
+    /// frame that had ANY verified edge, even one to a disconnected
+    /// sub-component: that is a real geometry/motion signal
+    /// ([`DropReason::Disconnected`] or [`DropReason::HighResidual`])
+    /// this fallback must not paper over. Non-empty ⇒ the product
+    /// surfaces the §8 "placed using the drone's camera data" notice.
+    pub placed_by_prior: Vec<usize>,
     /// Per-frame local alignment corrections (#1218, spec §8): the
     /// stage-F bilinear mesh fields applied at composite time to absorb
     /// the parallax floor. Indexed by global frame index; `None` for
