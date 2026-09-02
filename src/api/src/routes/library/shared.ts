@@ -356,14 +356,18 @@ export function parseWildcardSegments(wildcard: string): string[] {
  *
  * Every one of those routes used to declare the wildcard explicitly —
  * `t.Object({ slug: ..., '*': t.Optional(t.String()) })` — which triggered
- * Elysia's "Failed to create exactMirror" warning on every route
- * registration and matching request. `exact-mirror`'s codegen emits a
- * literal, UNQUOTED property key for any name it doesn't recognise as
- * needing quoting (`exact-mirror/dist/index.mjs`'s `isSpecialProperty`
- * regex has no `*` in it) — so it generated `{slug:v.slug,*:v["*"]}`, which
- * is not valid JavaScript (`*` isn't a legal bare object-literal key), the
- * `Function(...)` compile throws, and Elysia catches that and falls back to
- * a slower cleaner while logging the warning.
+ * Elysia's "Failed to create exactMirror" warning. Elysia compiles a
+ * route's params validator lazily, on its first matching request (verified
+ * directly: constructing the route emits nothing, the warning only appears
+ * once `.handle()` is actually called), and memoizes the compiled result —
+ * a second matching request neither recompiles nor re-warns. `exact-mirror`'s
+ * codegen emits a literal, UNQUOTED property key for any name it doesn't
+ * recognise as needing quoting (`exact-mirror/dist/index.mjs`'s
+ * `isSpecialProperty` regex has no `*` in it) — so it generated
+ * `{slug:v.slug,*:v["*"]}`, which is not valid JavaScript (`*` isn't a
+ * legal bare object-literal key), the `Function(...)` compile threw, and
+ * Elysia caught that and fell back to a slower cleaner while logging the
+ * warning once per route.
  *
  * The fix is to not declare `'*'` as a schema property at all — Elysia's
  * router populates `params['*']` from the URL's wildcard segment
