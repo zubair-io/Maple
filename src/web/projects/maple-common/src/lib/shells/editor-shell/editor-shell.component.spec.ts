@@ -261,9 +261,7 @@ function renderShell(opts: {
     bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
     seedAsShotWhiteBalance: vi.fn(),
     seedLensCorrections: vi.fn(),
-    lensCorrectionsFor: vi.fn(() =>
-      signal({ hasLensCorrections: true, lensCorrectionCaInert: false }),
-    ),
+    lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
     updateAssetDimensions: vi.fn(),
     openDownloadProgress: signal(null),
     flushPendingXmpWrites: vi.fn(),

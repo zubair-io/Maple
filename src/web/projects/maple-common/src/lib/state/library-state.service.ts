@@ -20,6 +20,7 @@ import { AdjustmentModel } from '../models/adjustment-model';
 import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { LibraryStore } from './library-store.service';
+import type { LensCorrectionCapability } from './library-store-lens-corrections';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
 import { LibraryFetch } from './library-fetch.service';
@@ -266,9 +267,10 @@ export class LibraryStateService {
     this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert);
   }
 
-  /** Reactive per-asset lens-correction capability (#3182); the fail-closed
-   *  default when `id` hasn't decoded yet. */
-  lensCorrectionsFor(id: AssetId) {
+  /** Per-asset lens-correction capability (#3182); the fail-closed default
+   *  when `id` hasn't decoded yet. Read from inside a `computed()` (see
+   *  `LensCorrectionsPanelComponent`) to stay reactive. */
+  lensCorrectionsFor(id: AssetId): LensCorrectionCapability {
     return this.store.lensCorrections.for(id);
   }
 

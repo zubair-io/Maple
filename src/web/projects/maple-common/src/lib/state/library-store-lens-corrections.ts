@@ -16,7 +16,7 @@
 // fail-closed default and never update once the decode that resolves the
 // real capability lands after the panel has already painted.
 
-import { computed, signal, Signal, WritableSignal } from '@angular/core';
+import { signal, WritableSignal } from '@angular/core';
 import { AssetId } from '../models/asset';
 
 export interface LensCorrectionCapability {
@@ -52,9 +52,16 @@ export class LensCorrectionCapabilities {
     });
   }
 
-  /** Reactive per-asset accessor — absent (no decode yet) reads as the
-   *  fail-closed default. */
-  for(id: AssetId): Signal<LensCorrectionCapability> {
-    return computed(() => this.byAsset().get(id) ?? DEFAULT_LENS_CORRECTION_CAPABILITY);
+  /**
+   * Per-asset accessor — absent (no decode yet) reads as the fail-closed
+   * default. Returns the raw value rather than wrapping it in a `computed()`
+   * (Jules review on #3231): callers already read this from inside their OWN
+   * `computed()` (`LensCorrectionsPanelComponent`'s `capabilities`), and
+   * `this.byAsset()` is read synchronously here, so Angular's reactive graph
+   * tracks the dependency on the outer computed without a second signal node
+   * being allocated on every call.
+   */
+  for(id: AssetId): LensCorrectionCapability {
+    return this.byAsset().get(id) ?? DEFAULT_LENS_CORRECTION_CAPABILITY;
   }
 }

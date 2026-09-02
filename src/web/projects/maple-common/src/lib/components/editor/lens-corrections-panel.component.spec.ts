@@ -56,7 +56,7 @@ class FakeLibraryStateService {
     this.modelFor(id).update((m) => ({ ...m, ...patch }));
   });
 
-  lensCorrectionsFor = vi.fn((id: string) => this.capsFor(id));
+  lensCorrectionsFor = vi.fn((id: string) => this.capsFor(id)());
 
   seedLensCorrections = vi.fn((id: string, hasLensCorrections: boolean, caInert: boolean) => {
     this.capsFor(id).set({ hasLensCorrections, lensCorrectionCaInert: caInert });
