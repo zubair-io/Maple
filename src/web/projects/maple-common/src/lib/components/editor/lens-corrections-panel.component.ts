@@ -72,7 +72,7 @@ export class LensCorrectionsPanelComponent {
    *  fail-closed default (panel disabled) when nothing has decoded yet. */
   private readonly capabilities = computed(() => {
     const id = this.library.focusedAssetId();
-    return id ? this.library.lensCorrectionsFor(id)() : DEFAULT_LENS_CORRECTION_CAPABILITY;
+    return id ? this.library.lensCorrectionsFor(id) : DEFAULT_LENS_CORRECTION_CAPABILITY;
   });
   /** Whole panel: toggle + all three sliders. */
   readonly panelDisabled = computed<boolean>(() => !this.capabilities().hasLensCorrections);

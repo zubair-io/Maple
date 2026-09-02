@@ -118,9 +118,7 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
       selectAsset: vi.fn(),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
-      lensCorrectionsFor: vi.fn(() =>
-        signal({ hasLensCorrections: true, lensCorrectionCaInert: false }),
-      ),
+      lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
       flushPendingXmpWrites: vi.fn(() => Promise.resolve()),

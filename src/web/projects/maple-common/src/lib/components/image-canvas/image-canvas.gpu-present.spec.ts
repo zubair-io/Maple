@@ -100,9 +100,7 @@ function makeHost(
     updateAssetDimensions: vi.fn(),
     seedAsShotWhiteBalance: vi.fn(),
     seedLensCorrections: vi.fn(),
-    lensCorrectionsFor: vi.fn(() =>
-      signal({ hasLensCorrections: true, lensCorrectionCaInert: false }),
-    ),
+    lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
     adjustmentFor: vi.fn(() => signal(model)),
   } as unknown as GpuPresentHost['state'];
 

@@ -53,9 +53,10 @@ describe('ImageCanvasRawOpen', () => {
         updateAssetDimensions: vi.fn(),
         seedAsShotWhiteBalance: vi.fn(),
         seedLensCorrections: vi.fn(),
-        lensCorrectionsFor: vi.fn(() =>
-          signal({ hasLensCorrections: true, lensCorrectionCaInert: false }),
-        ),
+        lensCorrectionsFor: vi.fn(() => ({
+          hasLensCorrections: true,
+          lensCorrectionCaInert: false,
+        })),
         adjustmentFor: () => signal(defaultAdjustmentModel()),
       },
       canvasSvc: { currentPixels: pixels },
