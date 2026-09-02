@@ -298,10 +298,12 @@ impl SyntheticGreyDng {
         }
 
         if let Some(blob) = &self.opcode_list3 {
-            // UNDEFINED per DNG spec, but `read_opcode_list3` also accepts
-            // BYTE (rawler's `Value::Byte`) — same type this writer already
-            // uses for `TAG_DNG_VERSION` / `TAG_CFA_PATTERN`.
-            ifd.add_bytes(TAG_OPCODE_LIST_3, blob.clone());
+            // UNDEFINED per DNG spec — `read_opcode_list3` also accepts
+            // BYTE (rawler's `Value::Byte`), but real camera DNGs write
+            // UNDEFINED, so this fixture should too: exercising the
+            // `Value::Undefined` branch is what makes the end-to-end test
+            // representative of a real file (Copilot review on #3133).
+            ifd.add_undefined(TAG_OPCODE_LIST_3, blob.clone());
         }
 
         ifd
@@ -367,6 +369,7 @@ const TYPE_ASCII: u16 = 2;
 const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
 const TYPE_RATIONAL: u16 = 5;
+const TYPE_UNDEFINED: u16 = 7;
 const TYPE_SRATIONAL: u16 = 10;
 const TYPE_FLOAT: u16 = 11;
 
@@ -397,6 +400,7 @@ pub(crate) enum IfdEntry {
     Shorts(u16, Vec<u16>),            // tag, values
     Long(u16, u32),                   // tag, value (single)
     Bytes(u16, Vec<u8>),              // tag, values (count = len)
+    Undefined(u16, Vec<u8>),          // tag, values (count = len) — TIFF type UNDEFINED (7)
     Ascii(u16, String),               // tag, NUL-terminated ASCII
     Rationals(u16, Vec<(u32, u32)>),  // tag, num/den pairs
     SRationals(u16, Vec<(i32, i32)>), // tag, signed num/den
@@ -410,6 +414,7 @@ impl IfdEntry {
             Self::Shorts(t, _) => *t,
             Self::Long(t, _) => *t,
             Self::Bytes(t, _) => *t,
+            Self::Undefined(t, _) => *t,
             Self::Ascii(t, _) => *t,
             Self::Rationals(t, _) => *t,
             Self::SRationals(t, _) => *t,
@@ -422,6 +427,7 @@ impl IfdEntry {
             Self::Short(_, _) | Self::Shorts(_, _) => TYPE_SHORT,
             Self::Long(_, _) => TYPE_LONG,
             Self::Bytes(_, _) => TYPE_BYTE,
+            Self::Undefined(_, _) => TYPE_UNDEFINED,
             Self::Ascii(_, _) => TYPE_ASCII,
             Self::Rationals(_, _) => TYPE_RATIONAL,
             Self::SRationals(_, _) => TYPE_SRATIONAL,
@@ -435,6 +441,7 @@ impl IfdEntry {
             Self::Shorts(_, v) => v.len() as u32,
             Self::Long(_, _) => 1,
             Self::Bytes(_, v) => v.len() as u32,
+            Self::Undefined(_, v) => v.len() as u32,
             Self::Ascii(_, s) => s.len() as u32 + 1, // includes NUL
             Self::Rationals(_, v) => v.len() as u32,
             Self::SRationals(_, v) => v.len() as u32,
@@ -456,6 +463,7 @@ impl IfdEntry {
             }
             Self::Long(_, v) => write_u32_le(&mut buf, *v),
             Self::Bytes(_, v) => buf.extend_from_slice(v),
+            Self::Undefined(_, v) => buf.extend_from_slice(v),
             Self::Ascii(_, s) => {
                 buf.extend_from_slice(s.as_bytes());
                 buf.push(0); // NUL
@@ -498,6 +506,13 @@ impl Ifd {
     }
     pub(crate) fn add_bytes(&mut self, tag: u16, values: Vec<u8>) {
         self.entries.push(IfdEntry::Bytes(tag, values));
+    }
+    /// TIFF type UNDEFINED (7) — what real camera DNGs typically write
+    /// for `OpcodeList3` (DNG spec), exercising `Value::Undefined` in
+    /// `read_opcode_list3` rather than the `Value::Byte` fallback branch
+    /// (Copilot review on #3133).
+    pub(crate) fn add_undefined(&mut self, tag: u16, values: Vec<u8>) {
+        self.entries.push(IfdEntry::Undefined(tag, values));
     }
     pub(crate) fn add_ascii(&mut self, tag: u16, s: &str) {
         self.entries.push(IfdEntry::Ascii(tag, s.to_string()));
