@@ -12,7 +12,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { API_BASE_URL, type NetworkConfigResponse } from '@maple-common';
+import { API_BASE_URL, type ApnsConfigResponse, type NetworkConfigResponse } from '@maple-common';
 import { NetworkSettingsComponent } from './network-settings.component';
 
 describe('NetworkSettingsComponent', () => {
@@ -32,6 +32,8 @@ describe('NetworkSettingsComponent', () => {
     local_port: 8080,
     source: { local_ip: 'db_override', local_port: 'db_override' },
   };
+
+  const APNS_OFF: ApnsConfigResponse = { enabled: false, credentials_configured: false };
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -69,10 +71,14 @@ describe('NetworkSettingsComponent', () => {
     btn.click();
   }
 
-  /** Drive past ngOnInit's GET. */
+  /** Drive past ngOnInit's two GETs (LAN-address config + APNs config —
+   * independent load paths, see the component's ngOnInit). `apnsCfg`
+   * defaults to push-off / no-credentials since most tests only care
+   * about the LAN-address form. */
   async function loadWith(
     cfg: NetworkConfigResponse | { error: string },
     status = 200,
+    apnsCfg: ApnsConfigResponse = APNS_OFF,
   ): Promise<void> {
     fixture.detectChanges();
     const req = http.expectOne('/api/network/config');
@@ -81,6 +87,7 @@ describe('NetworkSettingsComponent', () => {
     } else {
       req.flush(cfg, { status, statusText: 'Error' });
     }
+    http.expectOne('/api/apns/config').flush(apnsCfg);
     await Promise.resolve();
     fixture.detectChanges();
   }
@@ -90,6 +97,7 @@ describe('NetworkSettingsComponent', () => {
     const req = http.expectOne('/api/network/config');
     expect(req.request.method).toBe('GET');
     req.flush(AUTO_DETECTED);
+    http.expectOne('/api/apns/config').flush(APNS_OFF);
     await Promise.resolve();
     fixture.detectChanges();
 
@@ -193,5 +201,87 @@ describe('NetworkSettingsComponent', () => {
     fixture.detectChanges();
 
     expect(el().textContent).toContain('nope');
+  });
+
+  // ── APNs push-to-signal (#1025) — independent load/save ─────────────────
+
+  function apnsCheckbox(): HTMLInputElement {
+    const boxes = Array.from(
+      el().querySelectorAll<HTMLInputElement>('mui-checkbox input[type="checkbox"]'),
+    );
+    const found = boxes.find((b) =>
+      b.closest('mui-checkbox')?.textContent?.includes('push notifications'),
+    );
+    if (!found) throw new Error('missing APNs push checkbox');
+    return found;
+  }
+
+  it('GETs /api/apns/config on init and reflects the loaded toggle state', async () => {
+    await loadWith(AUTO_DETECTED, 200, { enabled: true, credentials_configured: true });
+
+    expect(apnsCheckbox().checked).toBe(true);
+    expect(el().textContent).not.toContain('no Apple push credentials configured');
+  });
+
+  it('warns when push is enabled but the server has no APNs credentials', async () => {
+    await loadWith(AUTO_DETECTED, 200, { enabled: true, credentials_configured: false });
+
+    expect(el().textContent).toContain('no Apple push credentials configured');
+  });
+
+  it('does NOT warn about missing credentials while the toggle is off (Copilot review #3214)', async () => {
+    await loadWith(AUTO_DETECTED, 200, { enabled: false, credentials_configured: false });
+
+    expect(el().textContent).not.toContain('no Apple push credentials configured');
+  });
+
+  it('shows the APNs load-error message when its GET fails', async () => {
+    fixture.detectChanges();
+    http.expectOne('/api/network/config').flush(AUTO_DETECTED);
+    http
+      .expectOne('/api/apns/config')
+      .flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(el().textContent).toContain('Failed to load config');
+  });
+
+  it('PUTs the toggle and shows Saved when the checkbox is flipped', async () => {
+    await loadWith(AUTO_DETECTED, 200, APNS_OFF);
+
+    apnsCheckbox().checked = true;
+    apnsCheckbox().dispatchEvent(new Event('change'));
+
+    const req = http.expectOne('/api/apns/config');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ enabled: true });
+    req.flush({ enabled: true, credentials_configured: false });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(el().textContent).toContain('Saved.');
+  });
+
+  it('shows the APNs save-error message AND reverts the checkbox when the PUT fails (Copilot review #3214)', async () => {
+    await loadWith(AUTO_DETECTED, 200, APNS_OFF);
+
+    apnsCheckbox().checked = true;
+    apnsCheckbox().dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    // Optimistic flip — the checkbox shows the new state immediately,
+    // before the PUT resolves.
+    expect(apnsCheckbox().checked).toBe(true);
+
+    http
+      .expectOne('/api/apns/config')
+      .flush({ error: 'apns nope' }, { status: 500, statusText: 'Server Error' });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(el().textContent).toContain('apns nope');
+    // The PUT never persisted — the checkbox must revert to what the
+    // server actually has, not stay stuck on the optimistic value.
+    expect(apnsCheckbox().checked).toBe(false);
   });
 });
