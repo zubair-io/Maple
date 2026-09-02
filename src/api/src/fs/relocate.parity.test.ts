@@ -354,6 +354,15 @@ function toCandidate(f: CorpusFingerprint): ExternalRenameCandidate {
   };
 }
 
+/** Ordinal (byte/code-unit) comparison, not `localeCompare` — matches the
+ * Swift runner's `<` and the C# runner's `StringComparer.Ordinal` (review on
+ * #2934), so all three runners sort a `matches` set the same way regardless
+ * of the machine's locale or any filename containing characters where
+ * locale-aware and ordinal collation disagree. */
+function byMissingOrdinal(a: { missing: string }, b: { missing: string }): number {
+  return a.missing < b.missing ? -1 : a.missing > b.missing ? 1 : 0;
+}
+
 /** No filesystem I/O — a pure decision-function replay, unlike every other
  * kind in this corpus. Matches are compared as a SET (sorted by missing
  * filename), not a sequence: `matchExternalRenameFingerprints` already
@@ -366,10 +375,8 @@ function runRenameReconcileCase(c: CorpusCase): void {
   const { missing, new: fresh } = c.reconcile;
   const actual = matchExternalRenameFingerprints(missing.map(toCandidate), fresh.map(toCandidate))
     .map((m) => ({ missing: m.missingFilename, new: m.newFilename }))
-    .sort((a, b) => a.missing.localeCompare(b.missing));
-  const expected = [...(c.expected.matches ?? [])].sort((a, b) =>
-    a.missing.localeCompare(b.missing),
-  );
+    .sort(byMissingOrdinal);
+  const expected = [...(c.expected.matches ?? [])].sort(byMissingOrdinal);
   expect(actual, `${c.name}: matches`).toEqual(expected);
 }
 
