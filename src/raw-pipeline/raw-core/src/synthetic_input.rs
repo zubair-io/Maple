@@ -228,6 +228,8 @@ pub enum RampHue {
     /// Caucasian mid-tone skin (linearized sRGB ~[0.62, 0.42, 0.32] →
     /// Oklab hue ≈ 53°, L ≈ 0.77).
     Skin,
+    /// Saturated red-orange (linear sRGB ~[1.0, 0.15, 0.0] → hue ≈45°, L ≈0.70).
+    Orange,
 }
 
 impl RampHue {
@@ -238,6 +240,7 @@ impl RampHue {
             RampHue::Blue => (264.1, 0.452),
             RampHue::Magenta => (328.4, 0.702),
             RampHue::Skin => (53.1, 0.773),
+            RampHue::Orange => (45.4, 0.704),
         }
     }
 
@@ -248,6 +251,7 @@ impl RampHue {
             RampHue::Blue => "blue",
             RampHue::Magenta => "magenta",
             RampHue::Skin => "skin",
+            RampHue::Orange => "orange",
         }
     }
 
@@ -257,6 +261,7 @@ impl RampHue {
             "blue" => Some(RampHue::Blue),
             "magenta" => Some(RampHue::Magenta),
             "skin" => Some(RampHue::Skin),
+            "orange" => Some(RampHue::Orange),
             _ => None,
         }
     }
@@ -497,6 +502,7 @@ mod tests {
             RampHue::Blue,
             RampHue::Magenta,
             RampHue::Skin,
+            RampHue::Orange,
         ] {
             assert_eq!(RampHue::from_slug(h.slug()), Some(h));
         }
@@ -546,6 +552,7 @@ mod tests {
             RampHue::Blue,
             RampHue::Magenta,
             RampHue::Skin,
+            RampHue::Orange,
         ] {
             let img = chroma_ramp(hue, 32, 1);
             for p in &img.pixels {
@@ -554,8 +561,7 @@ mod tests {
                 }
             }
             assert_ne!(
-                img.pixels[0],
-                img.pixels[31],
+                img.pixels[0], img.pixels[31],
                 "{:?}: ramp did not vary",
                 hue
             );
