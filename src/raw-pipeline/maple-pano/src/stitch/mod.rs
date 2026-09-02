@@ -227,6 +227,7 @@ pub fn stitch(
         feature_sets.push(fs);
         progress(1, (i + 1) as f32 / metas.len() as f32);
     }
+    drop(detector); // #3197: ALIKED done — free its ONNX session before stages 3–5
     let t_features = t1.elapsed().as_secs_f64();
 
     // Per-frame x and y proxy→full-res scale factors (stored in FrameMeta).
@@ -308,6 +309,8 @@ pub fn stitch(
                 .map_err(|e| e.to_string())
         },
     )?;
+    drop(matcher); // #3197: LightGlue done too — same reasoning as above
+    drop(models);
     // Timed after refinement, not just the bootstrap build, so the stage
     // duration covers any fallback rebuild work too.
     let t_graph = t2.elapsed().as_secs_f64();
@@ -346,6 +349,10 @@ pub fn stitch(
                 inputs,
                 opts,
                 raw_matches_cache,
+                full_dims: metas
+                    .iter()
+                    .map(|m| (m.full_width, m.full_height))
+                    .collect(), // #3197: free reuse
                 proxy_dims,
                 feature_sets,
                 strategy_report,
