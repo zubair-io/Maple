@@ -117,7 +117,7 @@ fn finish_eight(
 ) -> (u32, u32, ExportPixels) {
     let (width, height) = (scene.width, scene.height);
     let samples = stage("dither_and_quantize", || encode::dither_and_quantize(scene));
-    let (w, h, out) = finish::apply_geometry(&samples, width, height, orientation, crop);
+    let (w, h, out) = finish::apply_geometry(samples, width, height, orientation, crop);
     (w, h, ExportPixels::Eight(out))
 }
 
@@ -129,6 +129,6 @@ fn finish_sixteen(
 ) -> (u32, u32, ExportPixels) {
     let (width, height) = (scene.width, scene.height);
     let samples = stage("dither_and_quantize_u16", || dither_and_quantize_u16(scene));
-    let (w, h, out) = finish::apply_geometry(&samples, width, height, orientation, crop);
+    let (w, h, out) = finish::apply_geometry(samples, width, height, orientation, crop);
     (w, h, ExportPixels::Sixteen(out))
 }
