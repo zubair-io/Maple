@@ -213,17 +213,6 @@ pub(super) fn solve_photometry(
             "solve_photometry: stride and field_cell_px must be positive".into(),
         ));
     }
-    // #3090 review (Copilot): sample_pairs / exposure_field::solve_fields
-    // index full_dims[pose.frame_idx] without their own bounds check —
-    // validate once, here, so a mismatched full_dims/poses pair surfaces
-    // as a typed error instead of a panic deep in a rayon worker thread.
-    if let Some(pose) = poses.iter().find(|p| p.frame_idx >= full_dims.len()) {
-        return Err(PanoError::InvalidOptions(format!(
-            "solve_photometry: pose frame_idx {} out of range for {} full_dims entries",
-            pose.frame_idx,
-            full_dims.len()
-        )));
-    }
 
     let pairs = sample_pairs(cache, full_dims, poses, canvas, opts)?;
 
