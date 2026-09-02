@@ -46,6 +46,7 @@ import type {
   MirrorQueueDoc,
   PresetDoc,
   ServiceApiKeyDoc,
+  ApnsDeviceTokenDoc,
 } from './schema.ts';
 import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
@@ -251,6 +252,10 @@ export async function serverStateCollection(): Promise<Collection<ServerStateDoc
 
 export async function mirrorQueueCollection(): Promise<Collection<MirrorQueueDoc>> {
   return (await getDb()).collection<MirrorQueueDoc>('mirror_queue');
+}
+
+export async function apnsDeviceTokensCollection(): Promise<Collection<ApnsDeviceTokenDoc>> {
+  return (await getDb()).collection<ApnsDeviceTokenDoc>('apns_device_tokens');
 }
 
 /** Stage names whose claim-query indexes are created at startup.
@@ -1604,6 +1609,24 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('asset_changes')
     .createIndex({ folder_id: 1, cursor: 1 }, { name: 'asset_changes_folder_cursor' });
+
+  // apns_device_tokens (#1025 — File Provider push-to-signal). Natural key
+  // is (user, device) — NOT per library, since one File Provider domain
+  // (and one push registration) covers a whole server. A re-registration
+  // upserts rather than duplicating.
+  await db
+    .collection('apns_device_tokens')
+    .createIndex(
+      { user_id: 1, device_token: 1 },
+      { unique: true, name: 'apns_device_tokens_natural_key' },
+    );
+  // `pruneDeviceTokens()` deletes by `device_token` alone (APNs reports a
+  // dead token with no user context) — that filter doesn't hit the
+  // leading edge of the compound index above, so it would collection-scan
+  // without its own index.
+  await db
+    .collection('apns_device_tokens')
+    .createIndex({ device_token: 1 }, { name: 'apns_device_tokens_token' });
 
   // mirror_queue: pending file copies to a backup/mirror root. `mirror_path` is
   // the natural key (one pending copy per destination) so re-detection and

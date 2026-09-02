@@ -55,6 +55,7 @@ import { assetsListRoutes } from './assets-list.ts';
 import { photosRoutes } from './photos.ts';
 import { displayRoutes } from './display.ts';
 import { renderConfigRoutes } from './render-config.ts';
+import { apnsConfigRoutes } from './apns-config.ts';
 import { workerRoutes } from '../workers/routes.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
 import { libraryRoutes } from './library/index.ts';
@@ -114,6 +115,9 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   // Render runtime config (#1062) — the web GPU live-render ramp/kill
   // switch. Read by every signed-in client at startup and on a poll.
   .use(renderConfigRoutes)
+  // APNs push-to-signal on/off switch (#1025) — Settings → Network. Library-
+  // wide config, no per-user scoping, same tier as renderConfigRoutes above.
+  .use(apnsConfigRoutes)
   .use(panoRoutes)
   .use(mapConfigRoutes)
   .use(changesRoutes)
