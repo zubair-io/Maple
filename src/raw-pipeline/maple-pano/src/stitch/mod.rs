@@ -72,12 +72,14 @@
 //! The <4 GB target is an iOS-only goal (tracked: #1274) that requires
 //! ORT model pruning or on-demand ORT teardown.
 
+mod focal_bootstrap;
 mod frame_cache;
 mod io;
 mod tile_standalone;
 mod tile_stitch;
 mod types;
 
+pub use focal_bootstrap::FocalSeedSource;
 pub use io::{develop_for_display, interleave_planar, quantize_to_u16, write_display_sidecars};
 pub use tile_standalone::stitch_tile;
 pub use types::{StitchError, StitchOptions, StitchOutcome, StitchSuccess, TileStitchOutcome};
@@ -227,43 +229,21 @@ pub fn stitch(
     }
     let t_features = t1.elapsed().as_secs_f64();
 
-    // Camera seeds (full resolution, EXIF focal in native pixels).
-    let full_images: Vec<GraphImage> = metas
-        .iter()
-        .zip(inputs)
-        .map(|(m, path)| {
-            let focal_px = m
-                .priors
-                .focal_px
-                .ok_or_else(|| StitchError::NoFocal { path: path.clone() })?;
-            Ok(GraphImage {
-                camera: Camera::new([0.0; 3], focal_px, 0.0, 0.0, m.full_width, m.full_height),
-                prior_rotation: m.priors.gimbal.as_ref().map(ba::init::rotation_from_gimbal),
-            })
-        })
-        .collect::<Result<_, StitchError>>()?;
-
     // Per-frame x and y proxy→full-res scale factors (stored in FrameMeta).
     let proxy_scale: Vec<(f64, f64)> = metas
         .iter()
         .map(|m| (m.proxy_scale_x, m.proxy_scale_y))
         .collect();
 
-    let proxy_images: Vec<GraphImage> = full_images
-        .iter()
-        .enumerate()
-        .map(|(i, img)| GraphImage {
-            camera: Camera::new(
-                [0.0; 3],
-                img.camera.focal_px / proxy_scale[i].0,
-                0.0,
-                0.0,
-                proxy_dims[i].0,
-                proxy_dims[i].1,
-            ),
-            prior_rotation: img.prior_rotation,
-        })
-        .collect();
+    // Camera seeds (spec §5.3): EXIF focal when present (the shared
+    // median substitutes for any frame lacking its own), or — when NOT
+    // ONE frame in the set carries a usable EXIF focal — an assumed-FOV
+    // bootstrap (#1214) just accurate enough to verify a match graph.
+    // The bootstrap is corrected below, once that graph has verified
+    // pairs to self-calibrate a real focal from.
+    let mut focal_seed = focal_bootstrap::seed_from_priors(&metas);
+    let (mut full_images, mut proxy_images) =
+        focal_bootstrap::build_graph_images(&metas, &focal_seed.full_px, &proxy_dims, &proxy_scale);
 
     // ── stage 2: match graph ──────────────────────────────────────────────
     //
@@ -313,6 +293,32 @@ pub fn stitch(
     let t_graph = t2.elapsed().as_secs_f64();
     progress(2, 1.0);
 
+    // ── homography-fallback refinement (#1214) ──────────────────────────────
+    //
+    // The bootstrap graph above verified pairs against an assumed-FOV guess.
+    // Replace it with the real self-calibrated focal and rebuild once more —
+    // cheap (CPU-only RANSAC re-verification), and it's what every downstream
+    // stage (strategy selection, BA's starting point, the tile branch) reads
+    // `full_images`/`proxy_images`/`graph` from. A candidate the bootstrap
+    // pass never requested falls back to a live matcher call (only possible
+    // when `GimbalPriorProvider`'s FOV-based nomination shifts between the
+    // bootstrap and refined focal).
+    focal_bootstrap::refine_if_needed(
+        &mut focal_seed,
+        &metas,
+        &proxy_dims,
+        &proxy_scale,
+        &mut graph,
+        &mut full_images,
+        &mut proxy_images,
+        &mut raw_matches_cache,
+        |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
+            Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
+            Err(_) => Vec::new(),
+        },
+    )
+    .ok_or(StitchError::NoFocalSeed)?;
+
     // ── strategy selection (runs on proxy graph, before full-res reverify) ─
     let mean_focal_px = {
         let vals: Vec<f64> = full_images.iter().map(|img| img.camera.focal_px).collect();
@@ -356,6 +362,7 @@ pub fn stitch(
                 proxy_dims,
                 feature_sets,
                 strategy_report,
+                focal_seed_source: focal_seed.source,
                 stage_timings_012: [t_decode, t_features, t_graph],
                 applied_opcodes,
                 priors,
@@ -548,6 +555,7 @@ pub fn stitch(
         solution,
         local_corrections,
         strategy_report,
+        focal_seed_source: focal_seed.source,
         applied_opcodes,
         priors,
         refined_matches,

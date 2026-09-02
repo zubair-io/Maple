@@ -21,10 +21,13 @@
 //!   the leveling stage and human-readable diagnostics want.
 //! - **Focal seed**: [`focal_seed_px`] reduces per-frame EXIF-derived
 //!   priors ([`crate::ingest::FramePriors::focal_px`]) to one shared
-//!   seed (median — robust to a stray wrong EXIF entry). The
-//!   pairwise-homography fallback for EXIF-less input is a later
-//!   milestone (spec §5.3); callers without any prior pass an assumed
-//!   FOV through [`crate::camera::focal_px_for_hfov`].
+//!   seed (median — robust to a stray wrong EXIF entry). When no frame
+//!   in the set carries one, [`crate::ba::focal::homography_focal_seed_px`]
+//!   is the fallback (spec §5.3, ticket #1214): [`stitch`](crate::stitch::stitch)
+//!   bootstraps cameras from an assumed FOV through
+//!   [`crate::camera::focal_px_for_hfov`] just far enough to verify a
+//!   match graph, then re-seeds and re-verifies with the
+//!   homography-decomposition estimate.
 //!
 //! # DJI gimbal → world frame mapping
 //!

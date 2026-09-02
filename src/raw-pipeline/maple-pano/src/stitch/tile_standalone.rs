@@ -210,6 +210,10 @@ pub fn stitch_tile(
             _feature_sets: feature_sets,
             graph,
             strategy_report,
+            // This standalone entry point never resolves EXIF/homography
+            // focal — it always uses unit focal (see the comment above
+            // `proxy_images`), so there is no seed source to report.
+            focal_seed_source: None,
             stage_timings_012: [decode_s, features_s, graph_s],
             inputs,
         },
