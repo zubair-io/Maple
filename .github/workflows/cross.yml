@@ -255,7 +255,16 @@ jobs:
           # violator let in).
 
           # Non-comment, non-blank lines with the inline `# comment` and
-          # trailing whitespace stripped, so what's left is the bare path.
+          # leading/trailing whitespace stripped, so what's left is the
+          # bare path — matching the normalization
+          # `tools/check-file-budget.sh` / `check-budget-headroom.sh`
+          # already apply to each allowlist line. Stripping only trailing
+          # whitespace here would leave an indented entry's leading spaces
+          # in the extracted path; if `budget-allowlist.txt` ever gains an
+          # indented line (or someone reformats one), this job would then
+          # see it as a *different* string than the same entry at the
+          # merge base and misreport an existing entry as newly added
+          # (Copilot review on #2747/#3123).
           # `[[:space:]]`, not `\s`: the latter is a GNU regex extension,
           # not a POSIX ERE class, so it's not something to rely on in a
           # script whose whole point is a portable text-processing pattern.
@@ -268,7 +277,7 @@ jobs:
           # `check-budget-headroom.sh` already warns about for
           # `is_allowlisted ... && continue`.
           extract_paths() {
-            grep -Ev '^[[:space:]]*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' || true
+            grep -Ev '^[[:space:]]*(#|$)' "$1" | sed -E 's/[[:space:]]*#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//' || true
           }
 
           # check-file-budget.sh AT THE MERGE BASE, fetched once into a real
