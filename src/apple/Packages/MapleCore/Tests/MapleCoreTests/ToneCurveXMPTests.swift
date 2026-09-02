@@ -171,10 +171,12 @@ final class ToneCurveXMPTests: XCTestCase {
 
     // MARK: - Namespace decision
 
-    /// Lightroom's display-referred curves are a different quantity (post-AgX)
+    /// Lightroom's display-referred curve is a different quantity (post-AgX)
     /// and must NOT land in the scene-linear fields — applying a
     /// display-referred shape to scene-linear light renders the image visibly
-    /// wrong. See `docs/xmp-canonical-format.md` § "Tone curves".
+    /// wrong. See `docs/xmp-canonical-format.md` § "Tone curves". (It DOES
+    /// parse — into `displayToneCurveLuma`, #2232 — see
+    /// `DisplayToneCurveXMPTests.swift` for the structural round-trip.)
     func testCrsToneCurvePV2012IsNotParsedIntoSceneLinearFields() throws {
         let block = """
               <crs:ToneCurvePV2012>

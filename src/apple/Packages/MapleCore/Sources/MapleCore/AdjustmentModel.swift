@@ -14,26 +14,12 @@
 // `internal`, so `Maple`, a separate module, could no longer construct
 // `AdjustmentModel` at all. The explicit `public init` is load-bearing.)
 //
-// The pipeline-shaping enums it carries as fields (`HighlightRecoveryMode`,
-// `Look`, `Profile`, `HotPixelSuppressionMode`, `LensProfileEnable`,
-// `AutoExposureMode`) moved to `AdjustmentModel+Enums.swift` in #376, when
-// the lens-correction fields pushed this file past the budget again.
-//
-// `CullingState`, `CullFlag`, and `ColorLabel` (culling + IPTC keywords)
-// moved to `CullingState.swift` in #1656, when the new `colorLabel` field
-// would have pushed this file past `CONTRIBUTING.md`'s 600-line hard
-// budget.
-//
-// `BlackWhiteMode` lives in `AdjustmentModel+BlackWhite.swift` for the same
-// budget reason (#276).
-//
-// The nested value types the model carries live in their own files:
-// `Crop.swift` and `ToneCurve.swift` (both split off in #366, when the
-// point-curve fields pushed this file back against the budget).
-//
-// The XMP read/write surface lives next door in `XMPSerialization.swift`
-// (`XMPParser` + `XMPSerializer`); the split happened during #632 once the
-// extra `dc:subject` handling pushed this file past that same budget.
+// Everything else has already been split out for the same budget reason:
+// the pipeline-shaping enums into `AdjustmentModel+Enums.swift` (#376);
+// culling + IPTC keywords into `CullingState.swift` (#1656);
+// `BlackWhiteMode` into `AdjustmentModel+BlackWhite.swift` (#276); the
+// nested value types `Crop` and `ToneCurve` into their own files (#366);
+// and the XMP read/write surface into `XMPSerialization.swift` (#632).
 
 import Foundation
 
@@ -251,18 +237,23 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 
     // Per-channel point curves (#273 slice 1; schema/codegen in #366).
     // Each is a `ToneCurve` of `(x, y)` control points in `[0, 1]`
-    // authoring space, identity when empty — so a default model renders
-    // bit-identically to the pre-tone-curve pipeline. `toneCurveLuma`
-    // applies channels-uniformly via the Rec.2020 luma weights; the R/G/B
-    // curves apply per the core's tone-curve mode. Sidecar round-trip
-    // landed in #365 (nested `papp:SceneLinearToneCurve*` elements —
-    // `XMPSerialization+ToneCurves.swift`) and the curve editor is #367.
-    // Field order mirrors
-    // `raw_core::types::AdjustmentModel`.
+    // authoring space, identity when empty. `toneCurveLuma` applies
+    // channels-uniformly via Rec.2020 luma; R/G/B apply per
+    // `toneCurveMode`. Sidecar round-trip: #365, nested
+    // `papp:SceneLinearToneCurve*` — `XMPSerialization+ToneCurves.swift`.
     public var toneCurveLuma: ToneCurve  // default .identity (empty)
     public var toneCurveRed: ToneCurve  // default .identity (empty)
     public var toneCurveGreen: ToneCurve  // default .identity (empty)
     public var toneCurveBlue: ToneCurve  // default .identity (empty)
+
+    // Display-referred point curves (#2232) — Adobe's `crs:ToneCurvePV2012*`.
+    // Applied POST-AgX in display-linear [0,1], per-channel independently
+    // (NOT luma-coupled, unlike `toneCurveLuma`) — a different quantity
+    // from the scene-linear family above; both may be authored at once.
+    public var displayToneCurveLuma: ToneCurve  // default .identity (empty)
+    public var displayToneCurveRed: ToneCurve  // default .identity (empty)
+    public var displayToneCurveGreen: ToneCurve  // default .identity (empty)
+    public var displayToneCurveBlue: ToneCurve  // default .identity (empty)
 
     /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
     /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
@@ -420,6 +411,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         toneCurveRed: ToneCurve = .identity,
         toneCurveGreen: ToneCurve = .identity,
         toneCurveBlue: ToneCurve = .identity,
+        displayToneCurveLuma: ToneCurve = .identity,
+        displayToneCurveRed: ToneCurve = .identity,
+        displayToneCurveGreen: ToneCurve = .identity,
+        displayToneCurveBlue: ToneCurve = .identity,
         chromaPrefilter: Double = 0,
         hotPixelSuppression: HotPixelSuppressionMode = .off,
         deepDenoise: Double = 0,
@@ -522,6 +517,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.toneCurveRed = toneCurveRed
         self.toneCurveGreen = toneCurveGreen
         self.toneCurveBlue = toneCurveBlue
+        self.displayToneCurveLuma = displayToneCurveLuma
+        self.displayToneCurveRed = displayToneCurveRed
+        self.displayToneCurveGreen = displayToneCurveGreen
+        self.displayToneCurveBlue = displayToneCurveBlue
         self.chromaPrefilter = chromaPrefilter
         self.hotPixelSuppression = hotPixelSuppression
         self.deepDenoise = deepDenoise

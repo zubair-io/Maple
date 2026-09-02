@@ -256,8 +256,8 @@ Two independent mechanisms, both PV2012-shaped.
 
 **Point curves** are the one part of the schema that is not a flat attribute, and there are two independent FAMILIES of them — both structurally modelled, both PV2012-shaped, applied at different points in the pipeline. Eight parent elements in canonical emit order, each wrapping an `rdf:Seq` of `rdf:li` leaves holding `"x, y"` text:
 
-- Scene-linear (`#365`, `#273`): `papp:SceneLinearToneCurve` (luma), `…Red`, `…Green`, `…Blue`. Applied *pre-view-transform*, in scene-linear light, luma-coupled for the luma curve (hue-preserving).
-- Display-referred (`#2232`): `crs:ToneCurvePV2012` (master), `…Red`, `…Green`, `…Blue`. Applied *post-AgX*, in display-linear `[0, 1]`, evaluated independently per R/G/B channel — matching Adobe Camera Raw's own point-curve behaviour, not luma-coupled.
+- Scene-linear (`#365`, `#273`): `papp:SceneLinearToneCurve` (luma), `…Red`, `…Green`, `…Blue`. Applied _pre-view-transform_, in scene-linear light, luma-coupled for the luma curve (hue-preserving).
+- Display-referred (`#2232`): `crs:ToneCurvePV2012` (master), `…Red`, `…Green`, `…Blue`. Applied _post-AgX_, in display-linear `[0, 1]`, evaluated independently per R/G/B channel — matching Adobe Camera Raw's own point-curve behaviour, not luma-coupled.
 
 ```xml
       <papp:SceneLinearToneCurve>
