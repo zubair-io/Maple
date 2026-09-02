@@ -85,13 +85,13 @@ private struct FilmLookCard: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(minWidth: 64)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.md, style: .continuous))
             .background(
                 isSelected ? ProTokens.accent(0x28) : ProTokens.panel,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                in: RoundedRectangle(cornerRadius: MapleTokens.Radius.md, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: MapleTokens.Radius.md, style: .continuous)
                     .stroke(isSelected ? ProTokens.accent : ProTokens.border, lineWidth: 0.5)
             )
         }

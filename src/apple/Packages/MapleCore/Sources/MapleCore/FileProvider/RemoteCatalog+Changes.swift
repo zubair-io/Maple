@@ -21,6 +21,17 @@ public struct StaleCursorError: Error, Sendable, Equatable {
 }
 
 extension RemoteCatalog {
+    /// Cached formatter for the `captured_after` query param below (#959:
+    /// was a fresh `ISO8601DateFormatter()` allocated on every
+    /// `listAssets` call). `ISO8601DateFormatter` is safe to share — it
+    /// has no mutable per-call state beyond its `formatOptions`, set once
+    /// here.
+    private static let capturedAfterFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     /// GET /api/changes?since=N&limit=M — polling form. Returns a page
     /// of changes strictly after `since`, in cursor order, capped at
     /// `limit`.
@@ -113,9 +124,7 @@ extension RemoteCatalog {
         if hasXMP == true { items.append(.init(name: "has_xmp", value: "1")) }
         if let r = ratingGTE { items.append(.init(name: "rating_gte", value: String(r))) }
         if let d = capturedAfter {
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime]
-            items.append(.init(name: "captured_after", value: iso.string(from: d)))
+            items.append(.init(name: "captured_after", value: Self.capturedAfterFormatter.string(from: d)))
         }
         items.append(.init(name: "limit", value: String(limit)))
         comps.queryItems = items

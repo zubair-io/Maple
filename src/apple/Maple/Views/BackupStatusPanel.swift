@@ -60,7 +60,7 @@ struct BackupStatusPanel: View {
           .font(.callout)
           .foregroundStyle(.red)
           .padding(8)
-          .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+          .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
           .accessibilityIdentifier("backup.status.startError")
       }
 
@@ -271,12 +271,12 @@ private struct ThumbnailTile: View {
           .resizable()
           .aspectRatio(contentMode: .fill)
       } else {
-        RoundedRectangle(cornerRadius: 6)
+        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
           .fill(.quaternary)
       }
     }
     .frame(width: size, height: size)
-    .clipShape(RoundedRectangle(cornerRadius: 6))
+    .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
     .task(id: localIdentifier) {
       await loadThumbnail()
     }

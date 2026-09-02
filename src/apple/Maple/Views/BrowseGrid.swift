@@ -607,10 +607,10 @@ private struct ErrorBanner: View {
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
                 .fill(MapleTokens.errorBg)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
                         .stroke(MapleTokens.errorText.opacity(0.4), lineWidth: 0.5)
                 )
         )

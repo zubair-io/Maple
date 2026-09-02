@@ -382,7 +382,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
+            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.xs))
             .padding(8)
             .accessibilityLabel(FullImageViewVM.zoomAccessibilityLabel(for: scale))
             .accessibilityIdentifier("canvas-zoom-indicator")

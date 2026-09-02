@@ -188,7 +188,7 @@ struct PresetsPanel: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(MapleTokens.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.md))
     }
 
     private func iconButton(

@@ -161,7 +161,7 @@ struct CloudFolderTreeRow: View {
       // background, which would hide a background-layer drop highlight when
       // the drop target is also the selected row.
       .overlay(
-        RoundedRectangle(cornerRadius: 6)
+        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
           .fill(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
           .allowsHitTesting(false)
       )

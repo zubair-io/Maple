@@ -71,7 +71,7 @@ struct ValueChipOverlay: View {
                 // "+0" value readout for it (the TOOL chip still shows "CROP").
                 if state.armedTool != .crop {
                     Text(formattedValue)
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .font(MapleTokens.Typography.valueChip)
                         .monospacedDigit()
                         .foregroundStyle(MapleTokens.primary)
                 }

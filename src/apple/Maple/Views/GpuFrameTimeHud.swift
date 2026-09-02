@@ -59,9 +59,9 @@ struct GpuFrameTimeHud: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 6))
+        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
                 .strokeBorder(budgetColor.opacity(0.5), lineWidth: 1)
         )
         .padding(.top, 12)

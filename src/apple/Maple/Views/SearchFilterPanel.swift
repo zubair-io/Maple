@@ -233,7 +233,7 @@ struct SearchFilterPanel: View {
     }
     .buttonStyle(.plain)
     .background(isSelected ? MapleTokens.surfaceAlt : .clear,
-                in: RoundedRectangle(cornerRadius: 6))
+                in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
     .accessibilityLabel(row.value)
     .accessibilityAddTraits(isSelected ? [.isSelected] : [])
   }

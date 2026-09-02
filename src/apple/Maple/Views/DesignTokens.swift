@@ -135,6 +135,23 @@ public struct MapleTokens {
         static let sectionHeaderHeight: CGFloat = 30
     }
 
+    // MARK: - Radius
+    //
+    // Ticket #959: ~30 call sites hardcoded `cornerRadius:` literals instead
+    // of a shared token, and the value `18` was independently redefined in
+    // two places (`BottomSheet.swift`, `AppShellIPhoneDrawerGeometry.swift`).
+    // Sourced from `raw_core::ui_tokens::RADIUS_TOKENS` via
+    // `MapleUITokens`, same as every other category on this page.
+    enum Radius {
+        static let xs: CGFloat  = MapleUITokens.radiusXs
+        static let sm: CGFloat  = MapleUITokens.radiusSm
+        static let md: CGFloat  = MapleUITokens.radiusMd
+        static let lg: CGFloat  = MapleUITokens.radiusLg
+        static let xl: CGFloat  = MapleUITokens.radiusXl
+        static let xxl: CGFloat = MapleUITokens.radiusXxl
+        static let full: CGFloat = MapleUITokens.radiusFull
+    }
+
     // MARK: - Motion
     //
     // Responsive-program S0a (#581). Duration + easing tokens for shell

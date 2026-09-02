@@ -61,11 +61,11 @@ struct CropToolbar: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
                         .fill(selected ? MapleTokens.primary.opacity(0.15) : MapleTokens.surfaceAlt)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
                         .stroke(selected ? MapleTokens.primary : MapleTokens.border, lineWidth: 0.5)
                 )
                 .contentShape(Rectangle())

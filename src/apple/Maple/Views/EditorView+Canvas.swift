@@ -165,7 +165,7 @@ extension EditorView {
     }
 
     var canvasPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 4)
+        RoundedRectangle(cornerRadius: MapleTokens.Radius.xs)
             .fill(MapleTokens.surfaceAlt)
             .aspectRatio(3.0 / 2.0, contentMode: .fit)
             .overlay { downloadOverlay }
