@@ -191,6 +191,8 @@
         "src/thumbs/validate-avif.ts",
         "src/thumbs/video-poster.ts",
         "src/thumbs/video-poster.test.ts",
+        "src/video/frame-extract.ts",
+        "src/video/frame-extract.test.ts",
         "src/workers/cache-gc.pano-preseed.test.ts",
         "src/workers/cache-gc.sidecars.test.ts",
         "src/workers/cache-gc.test.ts",

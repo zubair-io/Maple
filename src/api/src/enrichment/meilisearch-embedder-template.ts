@@ -45,8 +45,16 @@ import { createHash } from 'node:crypto';
 
 /** Bump whenever the fields written into `MeilisearchAssetDoc` change — this
  * drives the meili stage's re-upsert `targetVersion`. See the module doc
- * comment above for how this differs from `EMBEDDER_TEMPLATE_SHAPE_VERSION`. */
-export const ASSET_DOC_SHAPE_VERSION = 9;
+ * comment above for how this differs from `EMBEDDER_TEMPLATE_SHAPE_VERSION`.
+ *
+ * v10 (#2158): `search_blob` folds in the `video-describe` stage's summary
+ * and per-scene caption/visible-text tokens (`composeSearchBlob`'s new
+ * `videoSummary`/`videoSceneCaptions`/`videoSceneTextVisible` inputs, see
+ * `search-blob.ts`). This is a re-UPSERT-only change — `searchBlob` is
+ * deliberately excluded from `EMBEDDER_DOCUMENT_TEMPLATE`, so it does NOT
+ * touch `EMBEDDER_TEMPLATE_SHAPE_VERSION` and triggers no GPU re-embed,
+ * same reasoning as the v9 season-token bump. */
+export const ASSET_DOC_SHAPE_VERSION = 10;
 
 /** Bump ONLY when `EMBEDDER_DOCUMENT_TEMPLATE` starts/stops dereferencing a
  * field (or a referenced field's meaning changes enough to make a stale

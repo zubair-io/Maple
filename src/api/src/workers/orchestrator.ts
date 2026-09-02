@@ -32,6 +32,7 @@ import { startMeiliStage } from './stages/meili.ts';
 import { startSidecarMetadataIndexStage } from './stages/sidecar-metadata-index.ts';
 import { startCfThumbSyncStage } from './stages/cf-thumb-sync.ts';
 import { startTranscribeStage } from './stages/transcribe.ts';
+import { startVideoDescribeStage } from './stages/video-describe.ts';
 
 const log = childLogger('workers:orchestrator');
 
@@ -47,6 +48,7 @@ const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHand
   ['sidecar-metadata-index', startSidecarMetadataIndexStage],
   ['cf-thumb-sync', startCfThumbSyncStage],
   ['transcribe', startTranscribeStage],
+  ['video-describe', startVideoDescribeStage],
 ];
 
 const handles = new Map<string, RunStageHandle>();

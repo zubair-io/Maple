@@ -140,7 +140,11 @@ function nullIfMissing<T>(value: T | null | undefined): T | null {
   return value === undefined ? null : value;
 }
 
+// Wide passthrough into composeSearchBlob's optional fields, not branching
+// logic — each `?.`/`??` is one more source, not one more decision.
+// fallow-ignore-next-line complexity
 function searchBlobFor(image: SearchableImage, vision: VisionDoc | null, people: string[]): string {
+  const video = image.video_description;
   return composeSearchBlob({
     place: image.place,
     description: image.description,
@@ -153,6 +157,12 @@ function searchBlobFor(image: SearchableImage, vision: VisionDoc | null, people:
     visionTags: nullIfMissing(vision?.tags),
     people,
     capturedMonth: nullIfMissing(image.exif?.captured_month),
+    // video-describe (#2158) — null on a non-video asset or a video the
+    // stage hasn't run on yet.
+    videoSummary: nullIfMissing(video?.summary),
+    videoSceneCaptions: video?.scenes.map((s) => s.caption) ?? null,
+    videoSceneTextVisible:
+      video?.scenes.map((s) => s.text_visible).filter((t) => t !== null) ?? null,
   });
 }
 
@@ -307,6 +317,12 @@ const meiliStage = defineStage({
   // is now keyed on instead of this one, decoupled for exactly this reason
   // (see that file's doc comment). No GPU re-embed is triggered by this
   // bump.
+  //
+  // v10 (#2158): `search_blob` folds in the `video-describe` stage's
+  // clip summary plus each unique scene caption and visible-text value.
+  // Bumping re-indexes every video row so a description generated before
+  // this change becomes searchable. Also a re-UPSERT-only change for the
+  // same reason as v9 — `searchBlob` stays outside the embedder template.
   targetVersion: ASSET_DOC_SHAPE_VERSION,
   // Only depends on always-on stages so search is available early. Optional
   // semantic sources explicitly invalidate this stage when their output

@@ -92,6 +92,17 @@ export const STAGE_META: Record<string, StageMeta> = {
     enrichment: 'transcribe',
     description: 'Transcribes speech in video and audio files with whisper.cpp on the CPU.',
   },
+  'video-describe': {
+    id: 'video-describe',
+    group: 'Enrich',
+    icon: 'sparkle',
+    // No dedicated config panel: it reuses the same locked model and the
+    // same describe-server list as `describe` (edited from that row), and
+    // its sampling bounds are code constants, not operator settings.
+    enrichment: null,
+    description:
+      'Samples several frames across a video’s whole duration and sends them to the vision model in one request for a clip-level summary and scene list, instead of only the poster frame.',
+  },
   geocode: {
     id: 'geocode',
     group: 'Enrich',

@@ -304,6 +304,78 @@ export interface TranscriptDoc {
 }
 
 /**
+ * One scene identified by the `video-describe` stage within a sampled
+ * frame's chronological position. `timestamp_ms` is sampler-owned — the
+ * model returns a `frame_index` into the ordered frames it was sent, and
+ * the stage maps that back to the real duration position; it is never
+ * taken from the model's own text, so a hallucinated timestamp can't reach
+ * storage (see `docs/superpowers` video-describe design, #2158).
+ */
+export interface VideoDescriptionScene {
+  timestamp_ms: number;
+  caption: string;
+  /** Verbatim on-screen text at this moment, or `null` when none is legible. */
+  text_visible: string | null;
+}
+
+/**
+ * Multi-frame visual description of a video's whole duration, produced by
+ * the `video-describe` stage (#2158) from a bounded set of chronologically
+ * ordered, deduplicated frames sent to the vision model in one request.
+ * Derived data only — stored in Mongo, never written to XMP. Distinct from
+ * `vision`/`description`, which remain the single poster-frame caption from
+ * the `describe` stage.
+ */
+export interface VideoDescriptionDoc {
+  /** One paragraph summarising the whole clip. */
+  summary: string;
+  /** Chronologically ordered, one entry per frame the model commented on.
+   * May be shorter than the frames sent — the model is not required to
+   * emit an entry for every frame. */
+  scenes: VideoDescriptionScene[];
+}
+
+/** Provenance + cost/perf diagnostics for `video_description`. Mirrors
+ * `VisionMeta`'s role for `vision`, plus the sampling-specific fields an
+ * operator needs to triage a GPU-bound, cost-multiplying stage. */
+export interface VideoDescriptionMeta {
+  provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
+  /** Which configured server answered — meaningful when more than one is
+   * configured (see `describe-server-pool.ts`). Mirrors `VisionMeta`'s
+   * sibling field on the `describe` stage. */
+  server_url: string;
+  /** Concrete model tag. Same locked model as the `describe` stage. */
+  model: string;
+  /** Bumped whenever `VIDEO_DESCRIBE_PROMPT_VERSION` changes. */
+  prompt_version: number;
+  generated_at: string;
+  /** Codec I-frames the sampler inspected before deduplication. */
+  candidate_count: number;
+  /** Frames actually sent to the model in the request that produced this
+   * result (reflects `fallback_level` — fewer than the sampler selected
+   * when the provider rejected the fuller request). */
+  frame_count: number;
+  /** Total bytes of the JPEG frames sent in the request that produced this
+   * result. */
+  encoded_bytes: number;
+  /** Bytes of the raw model response, post-fence-strip. Mirrors
+   * `VisionMeta.raw_response_size` — helps spot truncation when triaging a
+   * dead-lettered row. */
+  raw_response_size: number;
+  /** Wall-clock milliseconds spent probing + selecting + encoding frames. */
+  sampling_ms: number;
+  /** Wall-clock milliseconds spent in the model request(s), summed across
+   * every fallback attempt. */
+  inference_ms: number;
+  /** Which rung of the degradation ladder produced this result. `'full'`
+   * is every frame the sampler selected; `'reduced'` is every other frame,
+   * after the provider rejected the full set; `'poster-only'` is the
+   * single first frame. */
+  fallback_level: 'full' | 'reduced' | 'poster-only';
+  cost_usd: number;
+}
+
+/**
  * One known on-disk location for an asset. An asset may appear in multiple
  * places (same content backed up from two devices, or a copy under a
  * different folder); each location is one entry here.
@@ -488,6 +560,13 @@ export interface AssetDoc {
   ocr_text?: string | null;
   /** Derived speech-to-text data. Stored in Mongo only, never XMP. */
   transcript?: TranscriptDoc;
+  /** Multi-frame visual description of a video's whole duration, from the
+   * `video-describe` stage. `null`/absent until the stage has run, or for
+   * every non-video asset (the stage's claim filter never claims one).
+   * Stored in Mongo only, never XMP — see `VideoDescriptionDoc`. */
+  video_description?: VideoDescriptionDoc | null;
+  /** Provenance of `video_description`. See `VideoDescriptionMeta`. */
+  video_description_meta?: VideoDescriptionMeta | null;
   /** Provenance of the OCR mirror. The describe stage is the sole writer
    * and always stamps `engine: "qwen2.5-vl"`. The `"tesseract"` literal
    * remains in the union because production installs that were indexed

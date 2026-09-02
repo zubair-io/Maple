@@ -61,8 +61,10 @@ export class VisionParseError extends Error {
 /** Byte-aware truncation. `String.slice` cuts UTF-16 code units, so a
  * multi-byte character near the boundary would let the result exceed
  * `maxBytes` — important because the snippet caps Mongo last_error +
- * dead-letter doc growth, not a character count. */
-function truncateBytes(s: string, maxBytes: number): string {
+ * dead-letter doc growth, not a character count. Exported so
+ * `parse-video-json.ts`'s `VideoParseError` can share it rather than
+ * reimplementing the same byte-boundary logic. */
+export function truncateBytes(s: string, maxBytes: number): string {
   const buf = Buffer.from(s, 'utf8');
   if (buf.byteLength <= maxBytes) return s;
   // toString on an arbitrary byte boundary may leave a half-character at

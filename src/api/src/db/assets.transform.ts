@@ -32,6 +32,8 @@ import {
   type FileInfo,
   type Place,
   type TranscriptDoc,
+  type VideoDescriptionDoc,
+  type VideoDescriptionMeta,
   type VisionDoc,
   type VisionMeta,
 } from './schema.ts';
@@ -119,6 +121,11 @@ export interface AssetDetailDto {
    * renders `text` as a plain block; `null` until the transcribe stage
    * has run (or the asset carries no audio track). */
   transcript: TranscriptDto | null;
+  /** Multi-frame visual description from the `video-describe` stage
+   * (#2158). `null` until the stage has run, or for any non-video asset. */
+  video_description: VideoDescriptionDoc | null;
+  /** Provenance of `video_description`. */
+  video_description_meta: VideoDescriptionMeta | null;
   hidden?: boolean;
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
@@ -257,6 +264,8 @@ export function toDetailDto(
     vision_meta: doc.vision_meta ?? null,
     is_screenshot: doc.is_screenshot ?? null,
     transcript: doc.transcript ? toTranscriptDto(doc.transcript) : null,
+    video_description: doc.video_description ?? null,
+    video_description_meta: doc.video_description_meta ?? null,
     hidden: doc.hidden,
     hidden_reason: doc.hidden_reason,
     hidden_ack: doc.hidden_ack,

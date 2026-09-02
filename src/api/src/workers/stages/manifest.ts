@@ -21,6 +21,7 @@ import meiliStage from './meili.ts';
 import sidecarMetadataIndexStage from './sidecar-metadata-index.ts';
 import cfThumbSyncStage from './cf-thumb-sync.ts';
 import transcribeStage from './transcribe.ts';
+import videoDescribeStage from './video-describe.ts';
 
 export const stageManifest = [
   exifStage,
@@ -34,6 +35,7 @@ export const stageManifest = [
   sidecarMetadataIndexStage,
   cfThumbSyncStage,
   transcribeStage,
+  videoDescribeStage,
 ];
 
 export const ALL_STAGE_NAMES = [
@@ -48,6 +50,7 @@ export const ALL_STAGE_NAMES = [
   'sidecar-metadata-index',
   'cf-thumb-sync',
   'transcribe',
+  'video-describe',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];
