@@ -44,7 +44,16 @@ struct AppShellSidebar: View {
     var photosAuthGeneration: Int = 0
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
-    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void
+    /// (share, parentPath, name) — `parentPath` is share-relative, `"/"`
+    /// for the share root or a subfolder path from the tree (#2697).
+    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void
+    /// (share, path, newName) — subfolder rows only (#2697).
+    var onRenameSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void = { _, _, _ in }
+    /// (share, path) — subfolder rows only (#2697).
+    var onTrashSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void = { _, _ in }
+    /// Lazy-fetch a non-recursive subfolder listing for the SMB sidebar
+    /// tree (#2697). Returns nil on auth/network failure.
+    var onListSMBDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]? = { _, _ in nil }
     let onAddCloudServer: () -> Void
     let onPickCloudLibrary: (URL, String, String) -> Void
     let onListCloudDir: (URL, String) async -> FsDirListing?
@@ -86,6 +95,9 @@ struct AppShellSidebar: View {
             onAddSMB: onAddSMB,
             onPickSMB: onPickSMB,
             onCreateSMBFolder: onCreateSMBFolder,
+            onRenameSMBFolder: onRenameSMBFolder,
+            onTrashSMBFolder: onTrashSMBFolder,
+            onListSMBDir: onListSMBDir,
             onDropAssetsSMB: onDropAssetsSMB,
             onAddCloudServer: onAddCloudServer,
             onPickCloudLibrary: onPickCloudLibrary,
