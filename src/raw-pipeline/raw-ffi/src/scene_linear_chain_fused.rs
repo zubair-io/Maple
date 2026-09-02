@@ -3,8 +3,10 @@
 //! `ImageEditPipeline.processSceneLinear` (Apple, per slider tick) makes
 //! TWO separate FFI round trips back to back: `applySceneLinearChainViaFFI`
 //! (→ `maple_apply_scene_linear_chain_f32`) followed by
-//! `encodeDisplaySRGBViaFFI` (→ `maple_encode_display_srgb_f32`). Between
-//! the two Swift wraps the chain's output bytes into a `CIImage` and then
+//! `encodeDisplayViaFFI` (→ `maple_encode_display_srgb_f32` at this file's
+//! original scope, `maple_encode_display_f32` since #3190 — see below).
+//! Between the two Swift wraps the chain's output bytes into a `CIImage`
+//! and then
 //! immediately renders that SAME CIImage back to bytes for the encode call
 //! — a GPU wrap + CPU readback that exists only to cross the Swift/CoreImage
 //! boundary twice for what is, from Rust's perspective, one straight-line
