@@ -148,6 +148,12 @@ pub struct GpuContext {
     /// storage + the prepared-curve-slots storage buffer). Built on first use via
     /// [`GpuContext::tone_curves_pipeline`].
     pub(crate) tone_curves_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled display-referred tone-curves compute pipeline (#2232,
+    /// `display_tone_curve.wgsl`). Same fixed-stride prepared-curve-slot
+    /// storage-buffer shape as `tone_curves_pipeline` (4 slots — master, R,
+    /// G, B — instead of 5, and no `REF_MAX` rescale). Built on first use via
+    /// [`GpuContext::display_tone_curve_pipeline`].
+    pub(crate) display_tone_curve_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled separable box-blur compute pipeline (`box_blur.wgsl`). The
     /// P2 wave-3b SPATIAL primitive (#990): a one-axis-per-dispatch box blur of a
     /// scalar f32 plane, mirroring `raw_core::stages::blur::box_blur_channel`'s
@@ -385,6 +391,7 @@ impl GpuContext {
             residual_lut_pipeline: OnceCell::new(),
             film_lut_pipeline: OnceCell::new(),
             tone_curves_pipeline: OnceCell::new(),
+            display_tone_curve_pipeline: OnceCell::new(),
             box_blur_pipeline: OnceCell::new(),
             guided_luma_pipeline: OnceCell::new(),
             guided_ab_pipeline: OnceCell::new(),
