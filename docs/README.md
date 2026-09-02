@@ -34,9 +34,16 @@ Every document in this directory describes the code as it is in the tree today. 
 
 ## Strategy
 
-| Doc                                                                                          | Covers                                                                                                                                                 |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [strategy/milestones/m5-workflow-expansion.md](strategy/milestones/m5-workflow-expansion.md) | The decision framework for milestone 17 (#2447/#2442): how the next adjacent professional workflow gets chosen from evidence, not a feature checklist. |
+`docs/strategy/milestones/` is the one deliberate exception to "no plans, tickets, or status" below: forward-looking milestone design specs that a GitHub epic and its sub-issues cite by path, describing intended work rather than the code as it stands today.
+
+| Doc                                                                                                    | Covers                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [strategy/milestones/m1-release-contract.md](strategy/milestones/m1-release-contract.md)               | Milestone 13 · Release Contract & Qualification: per-ticket scope, sequencing, and open decisions.                                                                                     |
+| [strategy/milestones/m2-global-workflow.md](strategy/milestones/m2-global-workflow.md)                 | Milestone 14 · Complete Global Editing Workflow (epic #2444): sampled/preset white balance, the lens resolver, batch sync, variants/snapshots/history, and export recipes.             |
+| [strategy/milestones/m3-local-adjustments.md](strategy/milestones/m3-local-adjustments.md)             | Milestone 15 · Local Adjustments & Repair: the masking cluster and the Local AI Inpainting epic, sequencing, and open decisions.                                                       |
+| [strategy/milestones/m4-color-output.md](strategy/milestones/m4-color-output.md)                       | Milestone 16 · Color & Output Qualification: the C0–C5 evidence suite, the camera/lens support-tier registry, and the Neutral/Camera Match/Auto Tone/Auto Look rendering modes.        |
+| [strategy/milestones/m5-workflow-expansion.md](strategy/milestones/m5-workflow-expansion.md)           | Milestone 17 · Professional Workflow Expansion (epic #2447/#2442): the decision framework for choosing the next adjacent professional workflow from evidence.                          |
+| [strategy/milestones/m6-native-to-web-editor-ui.md](strategy/milestones/m6-native-to-web-editor-ui.md) | Milestone 18 design spec: the editor surface/interaction parity manifest, the IA port, the command router, and the acceptance gates that bring the web editor to native-editor parity. |
 
 ## Design system
 
