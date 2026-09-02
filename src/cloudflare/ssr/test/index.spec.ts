@@ -279,4 +279,37 @@ describe('Hosted SSR Worker', () => {
 
 		expect(response.status).toBe(200);
 	});
+
+	it('strips Cookie and client-identifying headers before forwarding to the origin', async () => {
+		// The interceptor's `headers` predicate makes the mock fail to match
+		// (and this test fail with a pending-interceptor error) if the Worker
+		// still forwards any of these — none of them belong on a request to a
+		// static, unauthenticated Azure Blob Storage origin.
+		fetchMock
+			.get('https://origin.test')
+			.intercept({
+				path: '/mapleaperture/assets/icon.png',
+				method: 'GET',
+				headers: (headers) =>
+					!('cookie' in headers) &&
+					!('authorization' in headers) &&
+					!('x-forwarded-for' in headers) &&
+					!('cf-connecting-ip' in headers),
+			})
+			.reply(200, PNG_MAGIC, { headers: { 'content-type': 'image/png' } });
+
+		const request = new IncomingRequest('https://mapleaperture.com/assets/icon.png', {
+			headers: {
+				cookie: 'session=super-secret',
+				authorization: 'Bearer super-secret',
+				'x-forwarded-for': '203.0.113.7',
+				'cf-connecting-ip': '203.0.113.7',
+			},
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+	});
 });
