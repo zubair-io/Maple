@@ -69,7 +69,18 @@ namespace Maple.WinUI.Tests
         bool? SidecarFollowed,
         List<CorpusFile>? Tree,
         bool? Valid,
-        int? SelectedIndex);
+        int? SelectedIndex,
+        // `rename-reconcile` kind only (#2934) — the resolved (missing, new)
+        // pairs, compared as a set.
+        List<CorpusMatch>? Matches);
+
+    // `rename-reconcile` kind only (#2934).
+    public sealed record CorpusFingerprint(
+        string Filename, long Size, string? DateTimeOriginal, string? CameraSerial);
+
+    public sealed record CorpusReconcile(List<CorpusFingerprint> Missing, List<CorpusFingerprint> New);
+
+    public sealed record CorpusMatch(string Missing, string New);
 
     public sealed record CorpusCase(
         string Name,
@@ -79,6 +90,7 @@ namespace Maple.WinUI.Tests
         List<string> Requires,
         CorpusSetup? Setup,
         CorpusOperation? Operation,
+        CorpusReconcile? Reconcile,
         CorpusExpected Expected);
 
     public sealed record Corpus(
@@ -139,7 +151,8 @@ namespace Maple.WinUI.Tests
             Requires: new List<string>(),
             Setup: null,
             Operation: null,
-            Expected: new CorpusExpected(null, null, null, null, null, null));
+            Reconcile: null,
+            Expected: new CorpusExpected(null, null, null, null, null, null, null));
 
         public static IEnumerable<object[]> Cases()
         {
@@ -389,6 +402,53 @@ namespace Maple.WinUI.Tests
             }
         }
 
+        /// <summary>No filesystem I/O — a pure decision-function replay
+        /// against <see cref="RenameReconciliationLogic.ReconcileFingerprints"/>,
+        /// exactly like the TS and Swift runners (#2934). A `null`
+        /// <c>DateTimeOriginal</c> means that candidate's own capture time
+        /// couldn't be read, so it is simply left OUT of the dictionary
+        /// built for it — the same exclusion the corpus's other runners
+        /// express by never fingerprinting it in the first place, not a
+        /// distinct code path this runner would need to keep in sync
+        /// (`Matches`' own null-check would decline it anyway, but omitting
+        /// it here keeps the three runners' TREATMENT of an unreadable date
+        /// identical, not merely their end RESULT).</summary>
+        private static void RunRenameReconcileCase(CorpusCase c)
+        {
+            if (c.Reconcile is null)
+            {
+                throw new InvalidOperationException($"{c.Name}: rename-reconcile case has no reconcile block");
+            }
+
+            static Dictionary<string, RenameReconciliationLogic.Fingerprint> ToDictionary(
+                List<CorpusFingerprint> fps)
+            {
+                var dict = new Dictionary<string, RenameReconciliationLogic.Fingerprint>(StringComparer.OrdinalIgnoreCase);
+                foreach (var fp in fps)
+                {
+                    if (fp.DateTimeOriginal is null) continue;
+                    dict[fp.Filename] = new RenameReconciliationLogic.Fingerprint(
+                        fp.Size,
+                        DateTime.Parse(fp.DateTimeOriginal, null, System.Globalization.DateTimeStyles.RoundtripKind),
+                        fp.CameraSerial);
+                }
+                return dict;
+            }
+
+            var missing = ToDictionary(c.Reconcile.Missing);
+            var newFiles = ToDictionary(c.Reconcile.New);
+            var result = RenameReconciliationLogic.ReconcileFingerprints(missing, newFiles);
+
+            var actual = result
+                .Select(r => new CorpusMatch(r.MissingFileName, r.NewFileName))
+                .OrderBy(m => m.Missing, StringComparer.Ordinal)
+                .ToList();
+            var expected = (c.Expected.Matches ?? new List<CorpusMatch>())
+                .OrderBy(m => m.Missing, StringComparer.Ordinal)
+                .ToList();
+            Assert.Equal(expected, actual);
+        }
+
         // MARK: - Driver
 
         [Theory]
@@ -435,6 +495,9 @@ namespace Maple.WinUI.Tests
                     return;
                 case "selector":
                     Console.WriteLine($"SKIP {c.Name}: kind \"selector\" is API-only (multi-location-fileinfo)");
+                    return;
+                case "rename-reconcile":
+                    RunRenameReconcileCase(c);
                     return;
                 default:
                     throw new InvalidOperationException($"{c.Name}: unknown corpus case kind \"{c.Kind}\"");
