@@ -13,9 +13,12 @@
 //! since this is a call-ordering change, not a math change.
 
 use crate::scene_linear_chain::{
-    maple_apply_scene_linear_chain_f32, maple_encode_display_srgb_f32, MapleAdjustmentParams,
+    maple_apply_scene_linear_chain_f32, maple_encode_display_f32, maple_encode_display_srgb_f32,
+    MapleAdjustmentParams,
 };
-use crate::scene_linear_chain_fused::maple_apply_chain_and_encode_display_f32;
+use crate::scene_linear_chain_fused::{
+    maple_apply_chain_and_encode_display_f32, maple_apply_chain_and_encode_display_target_f32,
+};
 
 /// Same field set as `scene_linear_chain_tests::default_params` (this crate
 /// doesn't expose that helper across the test-module boundary) — a fully
@@ -296,4 +299,107 @@ fn fused_rejects_null_pointers() {
         maple_apply_chain_and_encode_display_f32(std::ptr::null(), 2, 2, &params, out.as_mut_ptr())
     };
     assert_eq!(rc, 1);
+}
+
+/// #3190: the P3-target fused entry, at `target_primaries: 0`, must be
+/// byte-identical to the pre-#3190 `maple_apply_chain_and_encode_display_f32`
+/// — the new `target_primaries` param defaulting to sRGB is a pure
+/// generalization, not a behavior change for existing callers.
+#[test]
+fn fused_target_at_srgb_matches_legacy_fused_entry() {
+    let (width, height) = (4u32, 3u32);
+    let input = synthetic_input(width as usize, height as usize);
+    let params = default_params();
+
+    let legacy = run_fused(&input, width, height, &params);
+
+    let lanes = input.len();
+    let mut targeted = vec![0f32; lanes];
+    let rc = unsafe {
+        maple_apply_chain_and_encode_display_target_f32(
+            input.as_ptr(),
+            width,
+            height,
+            &params,
+            0, // sRGB
+            targeted.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0, "targeted fused call failed");
+    assert_eq!(
+        targeted, legacy,
+        "target_primaries=0 must byte-match the legacy sRGB-only fused entry"
+    );
+}
+
+/// #3190: the P3-target fused entry must byte-match running the two-step
+/// sequence with `maple_encode_display_f32(.., target_primaries: 1, ..)` for
+/// stage 2 — same "no re-implementation" byte-identity contract the sRGB
+/// tests above prove, extended to the P3 target — and the two targets must
+/// actually differ on a saturated wide-gamut input.
+#[test]
+fn fused_target_p3_matches_two_step_p3_and_differs_from_srgb() {
+    let (width, height) = (4u32, 3u32);
+    // Saturated wide-gamut-leaning input (unlike synthetic_input's soft
+    // ramp) so the P3 vs sRGB gamut-compress hulls actually diverge.
+    let mut input = Vec::with_capacity(width as usize * height as usize * 4);
+    for _ in 0..(width * height) {
+        input.extend_from_slice(&[0.1, 1.4, 0.1, 1.0]);
+    }
+    let params = default_params();
+    let lanes = input.len();
+
+    // Two-step P3 reference: chain (Srgb, so it stops at Rec2020) then the
+    // P3-target encode entry directly.
+    let mut chained = vec![0f32; lanes];
+    let rc1 = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            width,
+            height,
+            &params,
+            chained.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc1, 0);
+    let mut two_step_p3 = vec![0f32; lanes];
+    let rc2 = unsafe {
+        maple_encode_display_f32(
+            chained.as_ptr(),
+            width,
+            height,
+            1, // P3
+            two_step_p3.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc2, 0);
+
+    let mut fused_p3 = vec![0f32; lanes];
+    let rc3 = unsafe {
+        maple_apply_chain_and_encode_display_target_f32(
+            input.as_ptr(),
+            width,
+            height,
+            &params,
+            1, // P3
+            fused_p3.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc3, 0, "fused P3-target call failed");
+    assert_eq!(
+        fused_p3, two_step_p3,
+        "fused P3-target entry must byte-match the two-step P3 sequence"
+    );
+
+    let fused_srgb = run_fused(&input, width, height, &params);
+    let diff = fused_p3
+        .iter()
+        .zip(&fused_srgb)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        diff > 1e-3,
+        "P3-target and sRGB-target fused outputs are near-identical ({diff}) on a \
+         saturated wide-gamut input — target_primaries looks inert"
+    );
 }
