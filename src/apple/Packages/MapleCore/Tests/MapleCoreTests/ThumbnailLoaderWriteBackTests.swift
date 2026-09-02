@@ -71,6 +71,7 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
         let canned = Data([0xAA, 0xBB])
         let source = RecordingSource(canned: canned)
         let stableID = "maple:onshare0001-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: stableID) }
         let asset = AssetRef(
             displayName: "IMG_1.dng",
             hintExtension: "dng",
@@ -133,9 +134,11 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
 
         let canned = Data([0x01, 0x02, 0x03])
         let source = DefaultWriteThumbSource(canned: canned)
+        let stableID = "maple:defaultwritethumb-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: stableID) }
         let asset = AssetRef(
             displayName: "IMG_3.dng", hintExtension: "dng",
-            stableID: "maple:defaultwritethumb-\(UUID().uuidString)", bytesProvider: { Data() })
+            stableID: stableID, bytesProvider: { Data() })
 
         let loader = ThumbnailLoader()
         let got = await loader.load(for: asset, from: source)
@@ -191,6 +194,7 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
     func testPersistFallbackRenderReturnsBeforeTheWriteBackCompletes() async throws {
         let source = GatedWriteBackSource()
         let key = "maple:gated0001-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: key) }
         let ref = ImageRef(id: key, displayName: "IMG_1.dng")
         let localData = Data([0x01, 0x02])
         let onShareData = Data([0x11, 0x22, 0x33])
@@ -245,6 +249,7 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
     func testPersistFallbackRenderSkipsWriteBackWhenThereIsNoOnShareCandidate() async throws {
         let source = RecordingSource(canned: nil)
         let key = "maple:noonshare0001-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: key) }
         let ref = ImageRef(id: key, displayName: "IMG_2.dng")
         let localData = Data([0x09])
 
