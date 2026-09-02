@@ -69,3 +69,51 @@ describe('XMP numeric round-trip', () => {
     expect(xml).not.toContain('crs:SharpenRadius=');
   });
 });
+
+// #3186: Rust (`raw-core`) and Swift both reject a non-finite numeric value
+// before it can reach a sidecar; the TS mirror didn't. `Number(...)` accepts
+// the literal strings "Infinity"/"-Infinity" and the write-omit gate never
+// checked finiteness at all, so a corrupted model (or a hand-edited sidecar)
+// could round-trip and re-emit invalid XMP like
+// `crs:ParametricShadowSplit="Infinity"`.
+describe('XMP non-finite numeric guard (#3186)', () => {
+  it.each([
+    ['NaN', NaN],
+    ['+Infinity', Infinity],
+    ['-Infinity', -Infinity],
+  ])('never writes a %s model value for a numeric field', (_label, badValue) => {
+    const model = defaultAdjustmentModel();
+    model.exposure = badValue;
+    model.parametricShadowSplit = badValue;
+    const xml = serializer.serialize(model);
+    expect(xml).not.toContain('crs:Exposure2012=');
+    expect(xml).not.toContain('crs:ParametricShadowSplit=');
+  });
+
+  it('round-trips a non-finite model value back to the field default rather than propagating it', () => {
+    const model = defaultAdjustmentModel();
+    model.exposure = Infinity;
+    model.contrast = 10; // untouched sibling — proves the guard doesn't over-reject
+    const out = roundTrip(model);
+    expect(out.exposure).toBe(defaultAdjustmentModel().exposure);
+    expect(out.contrast).toBe(10);
+  });
+
+  it.each(['NaN', 'Infinity', '-Infinity'])(
+    'falls back to the field default when a sidecar attribute reads "%s"',
+    (badLiteral) => {
+      const model = defaultAdjustmentModel();
+      model.exposure = 2.5;
+      model.contrast = 10;
+      const xml = serializer.serialize(model);
+      const corrupted = xml.replace(/crs:Exposure2012="[^"]*"/, `crs:Exposure2012="${badLiteral}"`);
+      expect(corrupted).toContain(`crs:Exposure2012="${badLiteral}"`);
+      const out = { ...defaultAdjustmentModel(), ...parser.parseAdjustmentModel(corrupted).model };
+      expect(out.exposure).toBe(defaultAdjustmentModel().exposure);
+      // A sibling field elsewhere in the same corrupted document still
+      // parses normally — the guard is scoped to the one bad attribute.
+      expect(out.contrast).toBe(10);
+      expect(Number.isFinite(out.exposure)).toBe(true);
+    },
+  );
+});

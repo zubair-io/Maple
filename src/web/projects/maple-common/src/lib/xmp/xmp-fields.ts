@@ -41,7 +41,22 @@ export const numericSerializer = (v: number): string => {
   return rounded.toString();
 };
 
-const numericParser = (s: string): number => Number(s);
+// `Number(s)` accepts the literal strings "Infinity"/"-Infinity" and only
+// rejects genuinely non-numeric text (returning `NaN`) — it does not reject
+// non-finite results. Every call site in this codebase already treats a
+// `NaN` parse as "field absent / fall back to the model default" (the same
+// path a missing attribute takes — see `walkAdjustmentAttributes` and
+// `applyLegacyAliases` in `xmp-adjustment-walk.ts`), so folding
+// `Infinity`/`-Infinity` into that same `NaN` sentinel here is what makes a
+// hand-edited or corrupted sidecar attribute like `crs:Exposure2012="Infinity"`
+// fall back to the default instead of poisoning the model with a
+// non-finite value. Mirrors `raw-core`'s and Swift's rejection of
+// non-finite numeric XMP values (docs/xmp-canonical-format.md § "The four
+// readers deliberately disagree on unknown values", #3186).
+const numericParser = (s: string): number => {
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+};
 
 // Canonical defaults, read once. The write-omit sentinel for every numeric
 // field is its model default — sourcing it here rather than hand-typing each
