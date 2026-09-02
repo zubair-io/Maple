@@ -16,6 +16,7 @@ import type { DownloadProgress } from './filesystem-browse.service';
 // here for the method signatures below.
 import type { ObservabilityConfigResponse } from '../observability/observability-config.model';
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
+import type { ApnsConfigPatch, ApnsConfigResponse } from '../network/apns-config.model';
 import type { RenderConfigPatch, RenderConfigResponse } from '../raw-pipeline/render-config.model';
 import type {
   ApiFolder,
@@ -524,6 +525,20 @@ export class BunApiBackendService {
    * override back to auto-detection / the server's listen port. */
   saveNetworkConfig(body: NetworkConfigPatch): Observable<NetworkConfigResponse> {
     return this.http.put<NetworkConfigResponse>(`${this.base}/network/config`, body);
+  }
+
+  // --- APNs push-to-signal (#1025) -------------------------------------------
+
+  /** Current effective APNs on/off switch + whether the server process has
+   * MAPLE_APNS_* credentials configured. Powers the Settings → Network
+   * page's push-notification section. */
+  getApnsConfig(): Observable<ApnsConfigResponse> {
+    return this.http.get<ApnsConfigResponse>(`${this.base}/apns/config`);
+  }
+
+  /** Save the APNs on/off switch and get the re-resolved view back. */
+  saveApnsConfig(body: ApnsConfigPatch): Observable<ApnsConfigResponse> {
+    return this.http.put<ApnsConfigResponse>(`${this.base}/apns/config`, body);
   }
 
   // --- Render runtime config (GPU live-render ramp/kill, #1062) -------------

@@ -76,6 +76,7 @@ export * from './lib/observability/maple-error-handler';
 // LAN origin gets its own session via a one-time code instead of silently
 // swapping the API base URL underneath the page).
 export * from './lib/network/network-config.model';
+export * from './lib/network/apns-config.model';
 export * from './lib/network/local-address-report.model';
 export * from './lib/network/lan-switch.service';
 export * from './lib/network/lan-switch-banner.component';
