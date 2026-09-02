@@ -15,6 +15,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { SearchFacetSectionComponent } from './search-facet-section.component';
+import { MapleIconComponent } from '../icons/maple-icon.component';
 import {
   DATE_PRESETS,
   SearchFilters,
@@ -32,7 +33,7 @@ export interface FacetOption {
 @Component({
   selector: 'app-search-filter-panel',
   standalone: true,
-  imports: [SearchFacetSectionComponent],
+  imports: [SearchFacetSectionComponent, MapleIconComponent],
   templateUrl: './search-filter-panel.component.html',
   host: { class: 'block h-full min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,

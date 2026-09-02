@@ -19,35 +19,13 @@
             <span class="mui-chrome-option-avatar">{{ initial(r.value) }}</span>
           } @else {
             <span class="mui-chrome-option-avatar">
-              <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true">
-                <path
-                  d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
-                  fill="none"
-                  stroke="currentColor"
-                />
-                <circle cx="6" cy="4.6" r="1.2" fill="currentColor" />
-              </svg>
+              <maple-icon name="search-chip-place" [size]="13" />
             </span>
           }
           <span class="mui-chrome-option-name">{{ r.value }}</span>
           <span class="mui-chrome-option-count">{{ r.count }}</span>
           @if (r.selected) {
-            <svg
-              class="mui-chrome-option-check"
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              aria-hidden="true"
-            >
-              <path
-                d="M2.5 7.5l3 3 6-7"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+            <maple-icon name="search-check" [size]="14" class="mui-chrome-option-check" />
           }
         </button>
       </li>
