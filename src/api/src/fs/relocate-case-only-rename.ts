@@ -110,7 +110,8 @@ export async function classifySameFile(
 
 type SidecarRename = { from: string; to: string };
 type PrimaryRenameResult =
-  { ok: true; renamedSidecars: SidecarRename[] } | { ok: false; error: string };
+  | { ok: true; renamedSidecars: SidecarRename[] }
+  | { ok: false; error: string };
 
 /** Renames the primary file directly (`fs.rename`, no staged copy), then
  * best-effort renames every paired sidecar alongside — matching
@@ -192,15 +193,26 @@ async function revertCaseOnlyRename(
  * a repoint failure reverts them (`revertCaseOnlyRename`) before returning
  * the error. */
 export async function performCaseOnlyRename(req: RelocateRequest): Promise<RelocateOutcome> {
+  // #2667: case-only rename has no companion-carry implementation — unlike
+  // the copy-verify-delete path above, `renamePrimaryAndSidecars` below only
+  // knows about sidecars. Silently reporting `companionPaths: []` would drop
+  // a REQUESTED companion on the floor (never renamed, never deleted) while
+  // still letting `onVerified` repoint DB identity as if it had (found in
+  // review). No known caller combines the two today — the geo-relocate
+  // route always moves BETWEEN directories, so this branch is unreachable
+  // for it — but fail loudly rather than silently for whichever caller hits
+  // this first, per CLAUDE.md's "no placeholder shortcuts" rule. Checked
+  // before any rename runs, so the primary + sidecars are left untouched.
+  if (req.extraCompanionAbsPaths && req.extraCompanionAbsPaths.length > 0) {
+    return {
+      kind: 'error',
+      error: 'relocate: case-only rename does not support extraCompanionAbsPaths — not implemented',
+    };
+  }
+
   const renamed = await renamePrimaryAndSidecars(req);
   if (!renamed.ok) return { kind: 'error', error: renamed.error };
 
-  // #2667: no known caller combines a case-only rename (source/dest share a
-  // directory) with `extraCompanionAbsPaths` — the geo-relocate route always
-  // moves BETWEEN directories, so this branch is unreachable for it. Left
-  // empty rather than silently dropping a real companion, so a future
-  // caller that DOES combine the two gets a clearly-empty result instead of
-  // a plausible-looking wrong one.
   if (req.onVerified) {
     try {
       await req.onVerified({
