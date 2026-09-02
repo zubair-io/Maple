@@ -26,8 +26,8 @@
 // a FRESH GPU canvas element (a new asset = a new session at possibly new dims); the
 // previous element is removed.
 
-import { signal } from '@angular/core';
-import type { ElementRef, WritableSignal } from '@angular/core';
+import { effect, signal, untracked } from '@angular/core';
+import type { ElementRef, Injector, WritableSignal } from '@angular/core';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
@@ -38,6 +38,7 @@ import type {
   GpuFallbackNoticeService,
   GpuFallbackReason,
 } from '../gpu-fallback-notice/gpu-fallback-notice.service';
+import { coldOpen2d, type Render2dHost } from './image-canvas.render2d';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -453,4 +454,58 @@ export class ImageCanvasGpuPresent {
     this.canvasEl?.remove();
     this.canvasEl = null;
   }
+}
+
+/**
+ * The extra state `wireGpuKillSwitchEffect` needs beyond `Render2dHost` — the
+ * retained bytes/ext for the currently open asset, so it can reopen through
+ * `coldOpen2d` without re-reading or re-converting anything.
+ */
+export interface GpuKillSwitchHost extends Render2dHost {
+  readonly currentBytes: Uint8Array | null;
+  readonly currentExt: string;
+}
+
+/**
+ * Reacts to the operator kill switch (`GpuLiveRenderGate`, via
+ * `gpuPresent.enabled`) flipping off while a GPU live session is presenting
+ * the currently open image (#2340). The gate is otherwise read per render
+ * request — a flip lands on the next decode / session open on its own — but
+ * an already-open session keeps presenting until now, which defeats the one
+ * case the switch exists for: getting off a wedged or corrupting GPU path
+ * without waiting on the user to reload.
+ *
+ * Tears the session down and reopens the SAME bytes/ext through `coldOpen2d`
+ * — the identical 2D cold-open route `ImageCanvasRawOpen.load` already falls
+ * back to when a GPU session fails to open, so there is exactly one 2D
+ * reopen path, not two. No-ops whenever the guard fails: gate on, no session
+ * active, or (a fast asset switch raced the flip) the retained bytes no
+ * longer belong to the focused asset.
+ *
+ * Registered once per component lifetime; inert until a session is
+ * genuinely active, so it is safe to wire up before any asset has opened.
+ * `injector` ties the effect's cleanup to the caller's lifecycle (component
+ * destroy) — callers don't need to hold onto the returned handle unless they
+ * want to unregister early.
+ */
+export function wireGpuKillSwitchEffect(
+  host: GpuKillSwitchHost,
+  gpuPresent: ImageCanvasGpuPresent,
+  injector: Injector,
+): () => void {
+  const ref = effect(
+    () => {
+      const killSwitchOff = !gpuPresent.enabled;
+      if (!killSwitchOff || !gpuPresent.active()) return;
+      untracked(() => {
+        gpuPresent.teardown();
+        const assetId = host.currentAssetId;
+        const asset = host.state.focusedAsset();
+        if (!assetId || !asset || asset.id !== assetId || !host.currentBytes) return;
+        void coldOpen2d(host, assetId, asset.filename, host.currentExt, host.currentBytes);
+      });
+    },
+    { injector },
+  );
+  return () => ref.destroy();
 }
