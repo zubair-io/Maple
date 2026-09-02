@@ -73,4 +73,19 @@ final class SMBFileOperationsListingTests: XCTestCase {
 
     XCTAssertEqual(entries.first?.path, "/2024")
   }
+
+  /// Copilot review, #2697: `localizedStandardCompare` alone answers
+  /// `.orderedSame` for names differing only by case, which isn't a
+  /// strict ordering on its own — pins that the comparator breaks that
+  /// tie deterministically (on `path`) instead of leaving relative order
+  /// to depend on whatever order the transport happened to return them in.
+  func testBreaksCaseInsensitiveTiesDeterministicallyByPath() async throws {
+    let t = FakeSMBTransport()
+    await t.seed("a", at: "/Album/IMG_1.dng")
+    await t.seed("b", at: "/album/IMG_2.dng")
+
+    let entries = try await SMBFileOperations.listSubdirectories(at: "/", transport: t)
+
+    XCTAssertEqual(entries.map(\.path), ["/album", "/Album"], "Swift's String < ranks lowercase before uppercase")
+  }
 }
