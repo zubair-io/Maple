@@ -12,8 +12,9 @@ import { metadataAttrParts } from './xmp-metadata';
 
 /**
  * Minimal XML text-content escaping for `rdf:li` content (not attribute
- * content — attributes use `escapeXmpAttr` because `"` and `'` matter
- * there). Only `&`, `<`, `>` are strictly required between tags.
+ * content — attributes use `escapeXmpAttr` because every emitted attribute
+ * is double-quoted, so `"` also matters there). Only `&`, `<`, `>` are
+ * strictly required between tags.
  */
 export function escapeXmpText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
