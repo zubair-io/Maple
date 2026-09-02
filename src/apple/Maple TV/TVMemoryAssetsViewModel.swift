@@ -63,6 +63,17 @@ final class TVMemoryAssetsViewModel {
 
   var canLoadMore: Bool { !exhausted && assets.count < total }
 
+  /// The collection's full size, for callers that want to say how much of it
+  /// is on screen.
+  var collectionTotal: Int { total }
+
+  /// True when paging stopped before reaching `total` — the grid holds less
+  /// than the whole collection and asking again won't help. Worth SAYING
+  /// rather than leaving the wall to just end: a viewer who counted the
+  /// header's total and scrolled to the bottom deserves to know the
+  /// difference is the server's, not a miscount.
+  var stoppedShort: Bool { exhausted && assets.count < total }
+
   /// Fetch the next page. A no-op when everything is loaded or a page is
   /// already in flight — the grid calls this from `onAppear` on several cells
   /// at once as a row scrolls into view.
