@@ -36,4 +36,23 @@ enum EnrichmentSettingsVM {
     static func meilisearchAPIKeyPlaceholder(apiKeyIsSet: Bool) -> String {
         apiKeyIsSet ? "••••••••  (unchanged — leave blank to keep)" : ""
     }
+
+    /// Headline for the face model-status banner (T5b, #2772). "Loaded" is
+    /// the only state that reads as ready; every other loader state
+    /// (idle/downloading/error) is a variant of "not ready yet", matching the
+    /// web panel's binary loaded/not-loaded banner text.
+    static func faceModelStatusHeadline(_ status: FaceModelsStatus?) -> String {
+        guard let status else { return "Model status unknown." }
+        switch status.status {
+        case .loaded: return "Models loaded."
+        case .downloading: return "Downloading models…"
+        case .error: return "Model load failed: \(status.errorDetail ?? "unknown error")."
+        case .idle: return "Models not yet loaded."
+        }
+    }
+
+    /// Human-readable byte count for a model file, e.g. "15.9 MB".
+    static func formatModelBytes(_ bytes: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
 }
