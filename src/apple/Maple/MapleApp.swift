@@ -33,6 +33,13 @@ struct MapleApp: App {
         Self.registerBundledFonts()
         Self.installMemoryPressureObserver()
         BGTaskRegistration.register()
+        // #1338 — MUST run on the main thread, before any GpuLiveSession
+        // actor could read CanvasColorSpace.current: this is the one-time
+        // UIScreen/NSScreen probe that seeds the P3-vs-sRGB default for an
+        // unset Settings key. See CanvasColorSpace's file banner for why
+        // this can't just be resolved lazily on first (possibly background-
+        // thread) read.
+        CanvasColorSpace.primeMainDisplayCapability()
         // #1740 M2 escape hatch — must run BEFORE the first Auto-Profile fit
         // (cold-open develop), so the Rust FFI's `MAPLE_AUTO1` env read sees
         // whichever of the two toggles (env var already present, or the

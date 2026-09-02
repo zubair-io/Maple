@@ -3,13 +3,20 @@
 // Save/restore pattern for `UserDefaults.standard` mirrors
 // `RenderActorTests.testAmazeFlagDefaultsToEnabled` (AmazeFlag's own
 // precedent) — the key is process-global, so every test that touches it
-// must leave it exactly as found.
+// must leave it exactly as found. `stateLock` additionally serializes the
+// whole save/mutate/restore section against other tests in this file (jules
+// review on #3192: an unserialized process-global mutation is a real
+// flakiness risk if the runner ever executes tests in parallel).
 
 import XCTest
 @testable import MapleCore
 
 final class CanvasColorSpaceTests: XCTestCase {
+    private static let stateLock = NSLock()
+
     private func withCleanDefaults(_ body: () -> Void) {
+        Self.stateLock.lock()
+        defer { Self.stateLock.unlock() }
         let saved = UserDefaults.standard.object(forKey: CanvasColorSpace.defaultsKey)
         UserDefaults.standard.removeObject(forKey: CanvasColorSpace.defaultsKey)
         defer {
@@ -31,17 +38,18 @@ final class CanvasColorSpaceTests: XCTestCase {
         XCTAssertEqual(CanvasColorSpace.displayP3.wireValue, 1)
     }
 
-    /// With no UserDefaults key written, `current` falls back to the
-    /// display-capability default rather than crashing or silently
-    /// picking a fixed value — exercised for both outcomes by overriding
-    /// what `mainDisplaySupportsP3` reports isn't possible from a unit
-    /// test (it reads the real screen), so this asserts the resolvable
-    /// invariant instead: the result is always one of the two cases, and
-    /// it agrees with a direct call to the same capability check.
+    /// With no UserDefaults key written, `current` falls back to the cached
+    /// display-capability flag — exercised deterministically in BOTH
+    /// directions via the `setMainDisplaySupportsP3ForTests` seam rather
+    /// than depending on (or being flaky against) whatever the test host's
+    /// real screen reports.
     func testUnsetKeyFallsBackToDisplayCapabilityDefault() {
         withCleanDefaults {
-            let expected: CanvasColorSpace = CanvasColorSpace.mainDisplaySupportsP3 ? .displayP3 : .srgb
-            XCTAssertEqual(CanvasColorSpace.current, expected)
+            CanvasColorSpace.setMainDisplaySupportsP3ForTests(true)
+            XCTAssertEqual(CanvasColorSpace.current, .displayP3)
+
+            CanvasColorSpace.setMainDisplaySupportsP3ForTests(false)
+            XCTAssertEqual(CanvasColorSpace.current, .srgb)
         }
     }
 
@@ -51,9 +59,11 @@ final class CanvasColorSpaceTests: XCTestCase {
     /// explicit P3 on a non-P3 display: both are legitimate user choices).
     func testExplicitUserDefaultsValueWinsOverCapabilityDefault() {
         withCleanDefaults {
+            CanvasColorSpace.setMainDisplaySupportsP3ForTests(true)
             UserDefaults.standard.set(CanvasColorSpace.srgb.rawValue, forKey: CanvasColorSpace.defaultsKey)
             XCTAssertEqual(CanvasColorSpace.current, .srgb)
 
+            CanvasColorSpace.setMainDisplaySupportsP3ForTests(false)
             UserDefaults.standard.set(CanvasColorSpace.displayP3.rawValue, forKey: CanvasColorSpace.defaultsKey)
             XCTAssertEqual(CanvasColorSpace.current, .displayP3)
         }
@@ -79,9 +89,9 @@ final class CanvasColorSpaceTests: XCTestCase {
     /// the display-capability default rather than trapping.
     func testOutOfRangeStoredValueFallsBackSafely() {
         withCleanDefaults {
+            CanvasColorSpace.setMainDisplaySupportsP3ForTests(true)
             UserDefaults.standard.set(99, forKey: CanvasColorSpace.defaultsKey)
-            let expected: CanvasColorSpace = CanvasColorSpace.mainDisplaySupportsP3 ? .displayP3 : .srgb
-            XCTAssertEqual(CanvasColorSpace.current, expected)
+            XCTAssertEqual(CanvasColorSpace.current, .displayP3)
         }
     }
 
@@ -89,17 +99,21 @@ final class CanvasColorSpaceTests: XCTestCase {
     /// `actor` — on every render tick (#1338 review round on #3192: three
     /// independent passes flagged the pre-fix `UIScreen.main`/`NSScreen.main`
     /// straight-line read as a Main-Thread-Checker crash risk from exactly
-    /// this call pattern). Exercise the SAME shape here: call `current` from
-    /// a detached, definitely-off-main `Task` and from a background
-    /// `DispatchQueue`, both live (not merely "doesn't throw") — a crash or
-    /// hang would fail the test outright rather than assert false.
+    /// this call pattern; a follow-up pass then caught the FIRST fix's own
+    /// `DispatchQueue.main.sync`-inside-a-lazy-static-let as a deadlock
+    /// risk). Exercise the SAME call shape here — a background `Task
+    /// .detached` and a background `DispatchQueue` — as a live smoke test
+    /// (crash/hang fails outright) now that `current` never touches
+    /// `UIScreen`/`NSScreen` or any lock on its read path at all.
+    ///
+    /// Does NOT assert `Thread.isMainThread` inside the detached task —
+    /// `Task.detached` is documented as not inheriting the caller's actor,
+    /// which is NOT a guarantee it runs off the main thread (Copilot review
+    /// on #3192); the `DispatchQueue.global` half below is the one that's
+    /// unconditionally off-main.
     func testCurrentIsSafeToReadFromABackgroundThread() async {
-        withCleanDefaults {
-            _ = CanvasColorSpace.current // warm `mainDisplaySupportsP3` before spawning off-main
-        }
         let fromTask = await Task.detached { () -> CanvasColorSpace in
-            XCTAssertFalse(Thread.isMainThread, "Task.detached must not land on the main thread")
-            return CanvasColorSpace.current
+            CanvasColorSpace.current
         }.value
         XCTAssertTrue(CanvasColorSpace.allCases.contains(fromTask))
 

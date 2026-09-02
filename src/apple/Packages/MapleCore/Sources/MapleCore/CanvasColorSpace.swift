@@ -25,15 +25,29 @@
 // MainActor) `actor` — off the main thread. `UIScreen.main`/`NSScreen.main`
 // are main-thread-only APIs (Apple's documented contract, not something the
 // Swift 5 language mode this package builds under catches at compile time —
-// see `Package.swift`'s `swiftLanguageModes: [.v5]`), so the P3-capability
-// probe below is resolved EXACTLY ONCE, on the main thread, into a `static
-// let` (review round on #3192: three independent passes flagged the
-// straight-line `UIScreen.main`/`NSScreen.main` read this replaced as a real
-// crash/Main-Thread-Checker risk). A screen swap after that first read
-// (an external monitor plugged in mid-session) is not re-probed — an
-// acceptable trade for a value that only ever seeds the UNSET-key default;
-// once the user touches the Settings picker, UserDefaults wins outright and
-// this path is never consulted again for them.
+// see `Package.swift`'s `swiftLanguageModes: [.v5]`), so a straight-line read
+// of either from `current`'s fallback path is unsafe (review round on
+// #3192: three independent passes flagged it as a real crash/Main-Thread-
+// Checker risk).
+//
+// Fix, and why it's shaped this way: `primeMainDisplayCapability()` MUST be
+// called once, early, from the main thread (`MapleApp.init()` does this) and
+// stores the probed value into a plain `nonisolated(unsafe) static var` —
+// the SAME "process-wide, read-mostly config flag" pattern
+// `EditSession.deepZoomEnabled` already uses in this codebase. A first
+// attempt at this cached-once value used a `static let` whose initializer
+// hopped to the main thread via `DispatchQueue.main.sync` when triggered
+// off-main — jules' review caught that this DEADLOCKS: Swift's one-time
+// static-init lock can be held by a background thread blocked inside that
+// `.sync` call while the main thread separately blocks trying to acquire
+// the SAME lock to read the same `static let`, so the main run loop never
+// pumps the dispatched block that would let the background thread finish
+// initializing and release the lock. A plain `var`, primed exactly once
+// from a MainActor context that is guaranteed to run before any render
+// actor spins up, sidesteps that entirely: no lock is ever taken on the
+// read path, so there's nothing to deadlock. Before priming (or in a
+// headless test host that never calls it), the cached value is the
+// conservative `false` (sRGB) default — never a crash, never a hang.
 
 import Foundation
 
@@ -77,38 +91,55 @@ public enum CanvasColorSpace: Int, CaseIterable, Sendable {
     /// `target_primaries` wire value for the FFI param structs.
     public var wireValue: UInt32 { UInt32(rawValue) }
 
-    /// Whether the main display reports the Display P3 gamut, resolved ONCE
-    /// on the main thread and cached — see the file banner's THREAD SAFETY
-    /// note. `static let` initializers run exactly once, guarded by Swift's
-    /// own one-time-init lock, so this is safe to force from any thread; the
-    /// FIRST caller (whichever thread that is) pays a main-thread hop, every
-    /// later caller reads the cached `Bool` directly.
-    static let mainDisplaySupportsP3: Bool = {
-        if Thread.isMainThread {
-            return probeMainDisplaySupportsP3()
-        }
-        return DispatchQueue.main.sync { probeMainDisplaySupportsP3() }
-    }()
+    /// Whether the main display reports the Display P3 gamut — a cached,
+    /// process-wide, read-mostly flag (same shape as
+    /// `EditSession.deepZoomEnabled`). `false` (conservative: sRGB) until
+    /// `primeMainDisplayCapability()` runs; see the file banner's THREAD
+    /// SAFETY note for why this is a plain var and not a lazily-computed
+    /// `static let`.
+    nonisolated(unsafe) private static var cachedMainDisplaySupportsP3 = false
 
-    /// The actual `UIScreen`/`NSScreen` read — MUST only ever run on the
-    /// main thread (called only from `mainDisplaySupportsP3`'s init, which
-    /// guarantees that). Best-effort: a screen that can't be resolved
-    /// (headless test host, very early app launch) reads as non-P3 rather
-    /// than crashing.
-    ///
-    /// `UIScreen.main` is deprecated (iOS 16+) in favor of a window scene's
-    /// own screen, but this is a one-time, view-less capability probe with
-    /// no window/scene reference to read one from — accepted as-is (a NIT on
-    /// #3192's review) rather than threading a scene reference through the
-    /// whole call chain for a value resolved once and cached forever.
-    private static func probeMainDisplaySupportsP3() -> Bool {
+    /// Guards `primeMainDisplayCapability()` so only the FIRST call (per
+    /// process) actually probes the screen; later calls are no-ops. Not a
+    /// correctness requirement (re-probing would just re-derive the same
+    /// answer) — purely to avoid redundant `UIScreen`/`NSScreen` reads if
+    /// something calls it more than once.
+    nonisolated(unsafe) private static var didPrimeMainDisplayCapability = false
+
+    static var mainDisplaySupportsP3: Bool { cachedMainDisplaySupportsP3 }
+
+    /// Probe the main display's gamut and cache the result — MUST be called
+    /// from the main thread, exactly once, early in app startup (before any
+    /// background actor could read `CanvasColorSpace.current`). `MapleApp
+    /// .init()` is that call site; see the file banner for the deadlock this
+    /// replaces. A caller that reads `current` before priming (or a headless
+    /// test host that never primes at all) gets the conservative `false`
+    /// default rather than a crash or a hang — never wrong in a way that
+    /// corrupts pixels, only in a way that under-picks P3 until the real
+    /// value lands.
+    @MainActor
+    public static func primeMainDisplayCapability() {
+        guard !didPrimeMainDisplayCapability else { return }
+        didPrimeMainDisplayCapability = true
         #if canImport(UIKit)
-        return UIScreen.main.traitCollection.displayGamut == .P3
+        // `UIScreen.main` is deprecated (iOS 16+) in favor of a window
+        // scene's own screen, but this is a one-time, view-less capability
+        // probe with no window/scene reference to read one from — accepted
+        // as-is (a NIT on #3192's review) rather than threading a scene
+        // reference through app startup for a value resolved once and
+        // cached forever.
+        cachedMainDisplaySupportsP3 = UIScreen.main.traitCollection.displayGamut == .P3
         #elseif canImport(AppKit)
-        guard let screen = NSScreen.main else { return false }
-        return screen.colorSpace == NSColorSpace.displayP3
-        #else
-        return false
+        cachedMainDisplaySupportsP3 = NSScreen.main?.colorSpace == NSColorSpace.displayP3
         #endif
+    }
+
+    /// Test seam: force the cached capability value directly, bypassing the
+    /// main-thread probe — lets a test exercise both the P3-available and
+    /// not-available branches of `current`'s fallback without depending on
+    /// (or being flaky against) whatever screen the test host actually has.
+    static func setMainDisplaySupportsP3ForTests(_ value: Bool) {
+        didPrimeMainDisplayCapability = true
+        cachedMainDisplaySupportsP3 = value
     }
 }
