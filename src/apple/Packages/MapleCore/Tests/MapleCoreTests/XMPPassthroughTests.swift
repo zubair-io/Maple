@@ -79,10 +79,21 @@ final class XMPPassthroughTests: XCTestCase {
     <?xpacket end="w"?>
     """
 
-    /// The four unknown child elements above, exactly as written. Each must
-    /// appear verbatim in anything Maple writes back.
+    /// The four child elements above, in document order. `crs:ToneCurvePV2012`
+    /// is no longer "unknown" (#2232 gives it a structural model field,
+    /// `displayToneCurveLuma`), so it re-serializes canonically rather than
+    /// verbatim — the other three stay true passthrough and must appear
+    /// byte-for-byte in anything Maple writes back.
     static let lightroomNodeNames = [
         "crs:ToneCurvePV2012",
+        "crs:MaskGroupBasedCorrections",
+        "crs:Snapshots",
+        "xmpMM:History",
+    ]
+
+    /// The subset of `lightroomNodeNames` that are STILL genuinely unknown
+    /// after #2232 — everything except the now-structural PV2012 curve.
+    static let lightroomPassthroughNodeNames = [
         "crs:MaskGroupBasedCorrections",
         "crs:Snapshots",
         "xmpMM:History",
@@ -149,13 +160,19 @@ final class XMPPassthroughTests: XCTestCase {
         let written = try String(contentsOf: sidecarURL, encoding: .utf8)
         XCTAssertTrue(written.contains("crs:Exposure2012=\"1.25\""), "the edit must land")
 
-        // Every unknown child element survives byte-for-byte.
+        // Every genuinely-unknown child element survives byte-for-byte.
         let sourceNodes = XMPChildElementScanner.descriptionChildren(in: Self.lightroomSidecar)
         XCTAssertEqual(sourceNodes.map(\.qName), Self.lightroomNodeNames)
-        for node in sourceNodes {
+        for node in sourceNodes where node.qName != "crs:ToneCurvePV2012" {
             XCTAssertTrue(written.contains(node.source),
                           "\(node.qName) must be re-emitted verbatim")
         }
+        // The PV2012 curve (#2232) is now a MODELED field — it round-trips
+        // through the structural writer, canonically re-formatted, not
+        // verbatim. Its VALUES must still survive.
+        XCTAssertEqual(edited.displayToneCurveLuma.points.count, 3)
+        XCTAssertTrue(written.contains("<crs:ToneCurvePV2012>"),
+                      "the curve's structural block must still be present")
 
         // …and so do the unknown attributes, including the namespace
         // declarations the preserved subtrees depend on.
@@ -175,11 +192,13 @@ final class XMPPassthroughTests: XCTestCase {
     /// snapshots are ordered stacks, so a re-ordering is a corruption.
     func testUnknownNodeOrderIsPreserved() {
         let passthrough = XMPParser.parsePassthrough(Self.lightroomSidecar)
-        XCTAssertEqual(passthrough.unknownNodes.count, 4)
+        // 3, not 4 — `crs:ToneCurvePV2012` moved off this bucket in #2232
+        // (see `lightroomPassthroughNodeNames`).
+        XCTAssertEqual(passthrough.unknownNodes.count, 3)
         let written = XMPSerializer.serialize(
             model: .default, culling: CullingState(), passthrough: passthrough)
         let positions = passthrough.unknownNodes.compactMap { written.range(of: $0)?.lowerBound }
-        XCTAssertEqual(positions.count, 4, "every node must appear in the output")
+        XCTAssertEqual(positions.count, 3, "every node must appear in the output")
         XCTAssertEqual(positions, positions.sorted(), "node order must match the source")
     }
 
@@ -212,9 +231,10 @@ final class XMPPassthroughTests: XCTestCase {
     // MARK: - No double emission
 
     /// Children the serializer builds from the model must not ALSO ride the
-    /// passthrough pipe. The keyword bag, the four scene-linear curves and the
-    /// metadata blocks are the managed set; Adobe's display-referred
-    /// `crs:ToneCurvePV2012` deliberately is not.
+    /// passthrough pipe. The keyword bag, all eight point curves (the four
+    /// scene-linear ones and, since #2232, the four display-referred
+    /// `crs:ToneCurvePV2012*` ones) and the metadata blocks are the managed
+    /// set.
     func testManagedChildrenAreNotDuplicated() {
         let source = XMPSerializer.serialize(
             model: XMPCanonicalFormatTests.canonicalFixtureModel(),
@@ -305,9 +325,10 @@ final class XMPPassthroughTests: XCTestCase {
 
     // MARK: - Cross-platform
 
-    /// A sidecar written by the web serializer — canonical envelope, unknown
-    /// nodes already at the six-space child indent — keeps exactly what the web
-    /// preserved when Apple re-saves it.
+    /// A sidecar written by the web serializer — canonical envelope, a
+    /// `crs:ToneCurvePV2012` curve already at the six-space child indent —
+    /// round-trips through Apple's structural PV2012 parser (#2232) with the
+    /// SAME bytes, because the curve was already canonically formatted.
     func testWebWrittenSidecarKeepsWhatWebPreserved() throws {
         let webAuthored = """
         <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
@@ -343,13 +364,15 @@ final class XMPPassthroughTests: XCTestCase {
         let rewritten = XMPSerializer.serialize(
             model: model, culling: culling, passthrough: passthrough)
 
-        XCTAssertEqual(passthrough.unknownNodes.count, 1)
-        XCTAssertTrue(rewritten.contains(passthrough.unknownNodes[0]),
-                      "the web-preserved PV2012 curve must survive Apple's re-save")
+        // The curve is no longer unknown (#2232) — nothing left in the bucket.
+        XCTAssertTrue(passthrough.unknownNodes.isEmpty)
+        XCTAssertEqual(model.displayToneCurveLuma.points.count, 2)
         XCTAssertTrue(rewritten.contains("crs:RawFileName=\"DSCF1234.RAF\""))
-        // The node came in already sitting on the canonical ladder, so the
-        // re-emitted block is identical to the source block, indent included.
+        // The source curve was already at the canonical six-space child
+        // indent, so the structurally-re-serialized block is byte-identical
+        // to what the web writer produced.
         XCTAssertTrue(rewritten.contains("      <crs:ToneCurvePV2012>\n        <rdf:Seq>"))
+        XCTAssertTrue(rewritten.contains("<rdf:li>128, 140</rdf:li>"))
     }
 
     // MARK: - Scanner edge cases
