@@ -38,8 +38,8 @@ use crate::camera::Camera;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
-    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage, MatchGraph,
-    ReverifySummary,
+    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
+    GraphImage, MatchGraph, ReverifySummary,
 };
 use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame, PlanarImage};
 use crate::matching::{LightGlueMatcher, MatcherOptions};
@@ -159,9 +159,20 @@ pub(super) fn run_tile_branch(
     let match_cache_map: HashMap<(usize, usize), Vec<PixelCorrespondence>> =
         raw_matches_cache.into_iter().collect();
     let mut tile_match_failures: Vec<String> = Vec::new();
+    // #1215: descriptor top-k is focal-independent (reads only
+    // `feature_sets`, never the camera), so it nominates the exact same
+    // pairs here as it did in the rotation-graph build above — every one
+    // of those pairs is already in `match_cache_map`, so including it
+    // here costs no new cache misses while keeping the tile path's
+    // candidate topology consistent with the rotation path's.
+    let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
     let tile_graph = build_match_graph(
         &unit_proxy_images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        &[
+            &CaptureOrderProvider,
+            &GimbalPriorProvider::default(),
+            &descriptor_topk,
+        ],
         |a, b| -> Vec<PixelCorrespondence> {
             match match_cache_map.get(&(a, b)) {
                 Some(cached) => cached.clone(),

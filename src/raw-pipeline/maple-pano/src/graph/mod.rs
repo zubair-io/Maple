@@ -8,7 +8,7 @@
 //! `DropReason::Disconnected` ("stitch the largest component and report
 //! the orphans — never silently drop or force-align").
 //!
-//! Providers shipping now, per ticket #1138:
+//! Providers:
 //!
 //! - [`CaptureOrderProvider`] — §5.2(a), consecutive frames in capture
 //!   order (the input order of the image list).
@@ -17,13 +17,12 @@
 //!   PR #17's `overlap_graph`/`gimbal_filter` angular-proximity logic;
 //!   the prior is advisory — it nominates candidates, verification
 //!   decides).
-//!
-//! Staged work (#1139): the third §5.2 provider — descriptor top-k
-//! retrieval for unordered input ("top-k retrieval by mean descriptor
-//! similarity") — plugs in here as another [`CandidateProvider`] impl
-//! once the ML-stack port lands keypoint/descriptor types. This crate
-//! must not define those types (ticket #1138 boundary); that provider
-//! plus the feature-to-geometry glue land with/after #1139.
+//! - [`descriptor_topk::DescriptorTopKProvider`] — §5.2(c), top-k
+//!   retrieval by mean-descriptor similarity, for unordered /
+//!   metadata-free input (film scans, mixed-shoot DSLR bursts) where
+//!   neither capture order nor gimbal priors give a signal (ticket
+//!   #1215). See that module for the similarity choice, its cost, and
+//!   why it's a struct field rather than a trait-signature change.
 //!
 //! # Determinism
 //!
@@ -33,6 +32,8 @@
 //! graph is bit-identical across runs regardless of provider order, and
 //! adding a provider does not perturb the seeds of unrelated pairs.
 
+pub mod descriptor_topk;
+
 use std::collections::BTreeSet;
 
 use crate::camera::Camera;
@@ -40,6 +41,8 @@ use crate::math::{Mat3, Vec3};
 use crate::prng::SplitMix64;
 use crate::robust::{verify_pair, RobustOptions, VerifyFailure};
 use crate::twoview::PixelCorrespondence;
+
+pub use descriptor_topk::DescriptorTopKProvider;
 
 /// One image entering the graph build.
 ///
