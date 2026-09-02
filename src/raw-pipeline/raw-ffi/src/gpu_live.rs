@@ -369,9 +369,13 @@ pub struct MapleGpuLiveParams {
     //     default 25/50/75. Appended at the tail per the offset-stable ABI
     //     convention. UNLIKE most tail fields, `0.0` is NOT identity here (0
     //     is an in-range axis position, and the default is 25/50/75, not
-    //     0/0/0) — `inputs_from_params` treats a zeroed field as "stale
-    //     host" and substitutes the canonical default per field, the same
-    //     fallback convention `noise_profile`/`iso` established in #2342. ---
+    //     0/0/0) — `inputs_from_params` treats the WHOLE TRIPLE being 0.0 as
+    //     "stale host" and substitutes the canonical defaults (a stale host
+    //     always leaves every one of the three at the struct's zero
+    //     default), the same fallback convention `noise_profile`/`iso`
+    //     established in #2342. A live host that wants exactly
+    //     `parametric_shadow_split == 0` can still express it, as long as
+    //     the other two fields aren't also 0. ---
     pub parametric_shadow_split: f32,
     pub parametric_midtone_split: f32,
     pub parametric_highlight_split: f32,

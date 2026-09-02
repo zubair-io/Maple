@@ -98,19 +98,33 @@ pub(super) const DEFAULT_SPLIT_MIDTONE: f32 = AXIS_MIDTONE;
 /// ACR's `crs:ParametricHighlightSplit` default. See [`DEFAULT_SPLIT_SHADOW`].
 pub(super) const DEFAULT_SPLIT_HIGHLIGHT: f32 = 75.0;
 
-/// Clamp + order-repair for a (possibly hand-edited) sidecar's split points.
-/// `region_windows`'s non-negative-partition property (see the module docs)
-/// depends on `shadow <= midtone <= highlight` within `[0, AXIS_MAX]` — an
-/// inverted or out-of-range split would flip a `smoothstep` and push a
-/// window negative, breaking the monotonicity guarantee the whole module is
-/// built on. `midtone` is clamped first (it is the axis's natural pivot —
-/// default 50, the anchor `axis_to_authoring_x` already treats as midgrey)
-/// and the two flanks then clamp toward it, same convention
-/// `region_amplitude` uses for the sliders themselves.
+/// Minimum axis-unit gap [`ordered_splits`] enforces between adjacent
+/// repaired split points (and between the outer two and the axis bounds).
+/// Not just `shadow < midtone < highlight` — STRICT, with margin: an
+/// equal or merely-non-decreasing pair (e.g. a sidecar with
+/// `shadow = midtone = highlight = 50`, which a naive
+/// `shadow.clamp(0, midtone)` / `highlight.clamp(midtone, 100)` repair
+/// happily produces) collapses two of the four [`region_centres`] onto the
+/// same axis coordinate. `region_windows` then calls `smoothstep(a, b, p)`
+/// with `a == b`, dividing by zero, and the synthesised curve gets two
+/// knots at the same authoring `x` — `segment_slopes` divides by that
+/// knots' `dx`, so the prepared curve carries a NaN/Inf tangent instead of
+/// merely a suboptimal shape. One axis unit is visually meaningless (a
+/// twentieth of the 25-unit region width) but comfortably survives f32
+/// rounding.
+const MIN_SPLIT_GAP: f32 = 1.0;
+
+/// Clamp + order-repair for a (possibly hand-edited) sidecar's split
+/// points, guaranteeing `0 < shadow < midtone < highlight < AXIS_MAX` with
+/// at least [`MIN_SPLIT_GAP`] between every adjacent pair (see its doc for
+/// why "ordered" alone isn't enough). `midtone` is clamped first — it is
+/// the axis's natural pivot, default 50, the anchor `axis_to_authoring_x`
+/// already treats as midgrey — and the two flanks then clamp toward it,
+/// same convention `region_amplitude` uses for the sliders themselves.
 fn ordered_splits(split_shadow: f32, split_midtone: f32, split_highlight: f32) -> (f32, f32, f32) {
-    let midtone = split_midtone.clamp(0.0, AXIS_MAX);
-    let shadow = split_shadow.clamp(0.0, midtone);
-    let highlight = split_highlight.clamp(midtone, AXIS_MAX);
+    let midtone = split_midtone.clamp(2.0 * MIN_SPLIT_GAP, AXIS_MAX - 2.0 * MIN_SPLIT_GAP);
+    let shadow = split_shadow.clamp(MIN_SPLIT_GAP, midtone - MIN_SPLIT_GAP);
+    let highlight = split_highlight.clamp(midtone + MIN_SPLIT_GAP, AXIS_MAX - MIN_SPLIT_GAP);
     (shadow, midtone, highlight)
 }
 
@@ -406,13 +420,75 @@ mod tests {
     #[test]
     fn misordered_splits_are_repaired_not_left_to_break_monotonicity() {
         // A hand-edited sidecar could set shadow > highlight. `ordered_splits`
-        // must still hand `region_windows` a monotonically increasing centre
-        // sequence, or the non-negative-partition property breaks.
+        // must still hand `region_windows` a STRICTLY increasing centre
+        // sequence (not just non-decreasing — `smoothstep(a, b, p)` divides
+        // by `b - a`), or the non-negative-partition property breaks.
         let (s, m, h) = ordered_splits(90.0, 50.0, 10.0);
-        assert!(s <= m && m <= h, "splits not ordered: {s} <= {m} <= {h}");
+        assert!(
+            s < m && m < h,
+            "splits not strictly ordered: {s} < {m} < {h}"
+        );
         let centres = region_centres(s, m, h);
         for w in centres.windows(2) {
-            assert!(w[1] >= w[0], "region centres not increasing: {centres:?}");
+            assert!(
+                w[1] > w[0],
+                "region centres not strictly increasing: {centres:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn degenerate_splits_do_not_collapse_region_centres_or_produce_nan() {
+        // Copilot review on #3219: a naive `shadow.clamp(0, midtone)` /
+        // `highlight.clamp(midtone, 100)` repair (the pre-fix
+        // `ordered_splits`) lets a pathological sidecar collapse ALL THREE
+        // splits onto the midtone value — e.g. shadow=999, highlight=-999
+        // both clamp straight onto midtone=50, giving centres [25, 50, 50,
+        // 75]. `region_windows`'s `smoothstep(50, 50, p)` then divides by
+        // zero, and the synthesised curve carries two knots at the same
+        // authoring x, poisoning `segment_slopes` with a zero `dx`.
+        let (s, m, h) = ordered_splits(999.0, 50.0, -999.0);
+        assert!(
+            s < m && m < h,
+            "degenerate input not repaired: {s} < {m} < {h}"
+        );
+        let centres = region_centres(s, m, h);
+        for w in centres.windows(2) {
+            assert!(w[1] - w[0] > 0.0, "region centres collapsed: {centres:?}");
+        }
+
+        // End to end: the whole curve-building path must stay finite and
+        // strictly monotonic even from this pathological input.
+        let curve =
+            build_parametric_curve_from_sliders(100.0, -100.0, 100.0, -100.0, 999.0, 50.0, -999.0);
+        for &(x, y) in &curve.knots {
+            assert!(x.is_finite() && y.is_finite(), "non-finite knot ({x}, {y})");
+        }
+        for &t in &curve.tangents {
+            assert!(t.is_finite(), "non-finite tangent {t}");
+        }
+        for w in curve.knots.windows(2) {
+            assert!(
+                w[1].0 > w[0].0,
+                "duplicate/non-increasing knot x: {:?} -> {:?}",
+                w[0],
+                w[1]
+            );
+        }
+    }
+
+    #[test]
+    fn all_three_splits_pinned_to_the_same_value_still_synthesises_a_valid_curve() {
+        // The most extreme degenerate case: every split field set to the
+        // same value. `ordered_splits` must still separate them.
+        let (s, m, h) = ordered_splits(50.0, 50.0, 50.0);
+        assert!(
+            s < m && m < h,
+            "identical inputs not separated: {s} < {m} < {h}"
+        );
+        let curve = build_parametric_curve_from_sliders(50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0);
+        for &(x, y) in &curve.knots {
+            assert!(x.is_finite() && y.is_finite(), "non-finite knot ({x}, {y})");
         }
     }
 }
