@@ -103,13 +103,16 @@ final class CanvasColorSpaceTests: XCTestCase {
         }.value
         XCTAssertTrue(CanvasColorSpace.allCases.contains(fromTask))
 
-        let expectation = expectation(description: "background queue read")
-        var fromQueue: CanvasColorSpace?
-        DispatchQueue.global(qos: .userInitiated).async {
-            fromQueue = CanvasColorSpace.current
-            expectation.fulfill()
+        // A checked continuation (not a shared `var` + XCTestExpectation) so
+        // the background write and the `await`ed read have no unsynchronized
+        // shared mutable state for the compiler to flag as a race (Copilot
+        // review on #3192) — the value crosses threads through the
+        // continuation's own internal synchronization instead.
+        let fromQueue: CanvasColorSpace = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: CanvasColorSpace.current)
+            }
         }
-        await fulfillment(of: [expectation], timeout: 2)
-        XCTAssertNotNil(fromQueue)
+        XCTAssertTrue(CanvasColorSpace.allCases.contains(fromQueue))
     }
 }
