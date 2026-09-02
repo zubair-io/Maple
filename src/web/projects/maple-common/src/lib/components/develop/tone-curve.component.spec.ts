@@ -268,4 +268,65 @@ describe('ToneCurveComponent (#367)', () => {
     panel.onParametricReset({ field: 'parametricDarks', label: 'Darks' });
     expect(lib.model().parametricDarks).toBe(0);
   });
+
+  // ── Display-referred family (#2232) ─────────────────────────────────────
+
+  it('retargets writes to the display-referred fields when the Display tab is selected', () => {
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-family-display"]').click();
+    fixture.detectChanges();
+
+    plot().dispatchEvent(pointer('pointerdown', 0.5, 0.5));
+    flushFrame();
+    window.dispatchEvent(pointer('pointermove', 0.5, 0.8));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+
+    const points = lib.model().displayToneCurveLuma.points;
+    expect(points.length).toBe(3);
+    expect(points[1][1]).toBeCloseTo(0.8, 6);
+    // The scene-linear family is untouched.
+    expect(lib.model().toneCurveLuma.points).toEqual([]);
+  });
+
+  it('the display family exposes the same four channels, targeting displayToneCurve* fields', () => {
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-family-display"]').click();
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-channel-g"]').click();
+    fixture.detectChanges();
+
+    plot().dispatchEvent(pointer('pointerdown', 0.3, 0.3));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+
+    expect(lib.model().displayToneCurveGreen.points.length).toBe(3);
+    expect(lib.model().displayToneCurveLuma.points).toEqual([]);
+    expect(lib.model().toneCurveGreen.points).toEqual([]);
+  });
+
+  it('hides the parametric sliders (no display-referred equivalent) when Display is active', () => {
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="tone-curve-parametric"]'),
+    ).toBeTruthy();
+
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-family-display"]').click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-testid="tone-curve-parametric"]')).toBeNull();
+  });
+
+  it('switching back to Scene restores the scene-linear channels and the parametric sliders', () => {
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-family-display"]').click();
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-family-sceneLinear"]').click();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="tone-curve-parametric"]'),
+    ).toBeTruthy();
+
+    plot().dispatchEvent(pointer('pointerdown', 0.5, 0.5));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    expect(lib.model().toneCurveLuma.points.length).toBe(3);
+  });
 });

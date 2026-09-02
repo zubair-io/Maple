@@ -1,8 +1,27 @@
-<!-- ToneCurveComponent — point curves + parametric regions (#367) -->
+<!-- ToneCurveComponent — point curves + parametric regions (#367, #2232) -->
 <div class="flex flex-col gap-1.5 px-2.5 pt-2 pb-2.5" data-testid="tone-curve-panel">
+  <!-- Family selector: scene-linear (pre-AgX, #365) vs display-referred
+       (post-AgX, #2232 — Adobe's crs:ToneCurvePV2012*). -->
+  <div class="flex gap-1" role="tablist" aria-label="Tone curve family">
+    @for (tab of vm.familyTabs; track tab.id) {
+      <button
+        type="button"
+        class="flex-1 cursor-pointer appearance-none rounded-md border-[0.5px] py-[3px] text-[10px] outline-none transition-[background,color,border-color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--pro-accent)]"
+        [class]="channelTabClass(isActiveFamily(tab.id))"
+        role="tab"
+        [attr.aria-selected]="isActiveFamily(tab.id)"
+        [attr.aria-label]="tab.label + ' tone curve family'"
+        [attr.data-testid]="'tone-curve-family-' + tab.id"
+        (click)="selectFamily(tab)"
+      >
+        {{ tab.label }}
+      </button>
+    }
+  </div>
+
   <!-- Channel selector -->
   <div class="flex gap-1" role="tablist" aria-label="Tone curve channel">
-    @for (tab of vm.tabs; track tab.id) {
+    @for (tab of vm.tabs(); track tab.id) {
       <button
         type="button"
         class="flex-1 cursor-pointer appearance-none rounded-md border-[0.5px] py-[3px] text-[10px] outline-none transition-[background,color,border-color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--pro-accent)]"
@@ -100,19 +119,23 @@
     >
   </div>
 
-  <!-- Parametric region sliders -->
-  <div class="flex flex-col gap-2 pt-1" data-testid="tone-curve-parametric">
-    @for (slider of vm.sliders; track slider.field) {
-      <mui-living-slider
-        [attr.data-testid]="'tone-curve-' + slider.field"
-        [label]="slider.label"
-        [value]="parametricValue(slider)"
-        [min]="vm.parametricMin"
-        [max]="vm.parametricMax"
-        [bipolar]="true"
-        (valueChange)="onParametricChange(slider, $event)"
-        (resetRequest)="onParametricReset(slider)"
-      />
-    }
-  </div>
+  <!-- Parametric region sliders — scene-linear only (#2232): PV2012's
+       basic-panel curve has no region-slider decomposition on the model,
+       only the point curve, so this section hides for the display family. -->
+  @if (vm.showParametric()) {
+    <div class="flex flex-col gap-2 pt-1" data-testid="tone-curve-parametric">
+      @for (slider of vm.sliders; track slider.field) {
+        <mui-living-slider
+          [attr.data-testid]="'tone-curve-' + slider.field"
+          [label]="slider.label"
+          [value]="parametricValue(slider)"
+          [min]="vm.parametricMin"
+          [max]="vm.parametricMax"
+          [bipolar]="true"
+          (valueChange)="onParametricChange(slider, $event)"
+          (resetRequest)="onParametricReset(slider)"
+        />
+      }
+    </div>
+  }
 </div>
