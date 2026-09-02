@@ -68,17 +68,18 @@ pub(super) fn set_field(
         "crs:Blacks2012" => m.blacks = v()?,
         // Parametric tone-curve region sliders (PV2012 four-region model;
         // prerequisite for #368). These map onto the four parametric region
-        // scalars consumed by `stages::tone_curves::parametric`. ACR's
-        // parametric split-point keys (ParametricShadowSplit/MidtoneSplit/
-        // HighlightSplit, defaults 25/50/75) are NOT mapped: the model has
-        // no split-point fields, so there is nowhere to store them. The
-        // curve builder already parameterises the region axis on those
-        // three split points (#2318 put them there as constants); turning
-        // the constants into round-tripped model fields is #2320.
+        // scalars consumed by `stages::tone_curves::parametric`.
         "crs:ParametricHighlights" => m.parametric_highlights = v()?,
         "crs:ParametricLights" => m.parametric_lights = v()?,
         "crs:ParametricDarks" => m.parametric_darks = v()?,
         "crs:ParametricShadows" => m.parametric_shadows = v()?,
+        // ACR's parametric split-point keys (defaults 25/50/75, #2320).
+        // The curve builder does not yet consume these fields (#3152) —
+        // they are round-tripped here so a Lightroom/ACR sidecar with
+        // moved split points no longer silently loses them on save.
+        "crs:ParametricShadowSplit" => m.parametric_shadow_split = v()?,
+        "crs:ParametricMidtoneSplit" => m.parametric_midtone_split = v()?,
+        "crs:ParametricHighlightSplit" => m.parametric_highlight_split = v()?,
         "crs:Vibrance" => m.vibrance = v()?,
         "crs:Saturation" => m.saturation = v()?,
         "crs:Clarity2012" => m.clarity = v()?,

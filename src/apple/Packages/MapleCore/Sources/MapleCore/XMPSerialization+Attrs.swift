@@ -157,6 +157,21 @@ extension XMPSerializer {
                 attrs.append((key, fmtNum(value)))
             }
         }
+        // ACR's parametric split points (#2320) — same Lightroom-compatible
+        // `crs:` keys and omit-on-default convention as the region sliders
+        // above, but each has its own non-zero default (25/50/75), so the
+        // per-field default is compared rather than a shared `!= 0` gate.
+        let parametricSplitAttrs = [
+            ("crs:ParametricShadowSplit", model.parametricShadowSplit, 25.0),
+            ("crs:ParametricMidtoneSplit", model.parametricMidtoneSplit, 50.0),
+            ("crs:ParametricHighlightSplit", model.parametricHighlightSplit, 75.0),
+        ]
+        for (key, value, defaultValue) in parametricSplitAttrs {
+            let rounded = (value * 100).rounded() / 100
+            if rounded.isFinite && rounded != defaultValue {
+                attrs.append((key, fmtNum(value)))
+            }
+        }
         // S5 effects fields (#643) — emit only when non-default so sidecars
         // produced before this PR remain byte-identical for users who never
         // touch the vignette / grain / split-tone tools. Defaults are:
