@@ -197,7 +197,7 @@ pub(super) fn set_field(
         // Local adjustments (ticket #280). Slice 1's wire format — compact
         // JSON in a single attribute — is superseded by the canonical
         // `crs:GradientBasedCorrections` / `crs:CircularGradientBasedCorrections`
-        // nested-RDF form (#358, `xmp/local_adjustments.rs`). This arm is now
+        // nested-RDF form (#358, `xmp/local_adjustments/`). This arm is now
         // migration-only: a sidecar still carrying the legacy attribute (a
         // hand-authored pre-#358 fixture; no writer emits it anymore) still
         // loads, but `super::parse` overwrites `model.local_adjustments` with
@@ -353,12 +353,10 @@ pub(super) fn set_field(
         // (enabled, all three at 100), which is exactly ACR's behaviour for a
         // DNG that carries a profile and a no-op for one that does not.
         "crs:LensProfileEnable" => {
-            m.lens_profile_enable = match value {
-                "1" | "true" | "True" | "on" | "On" => LensProfileEnable::On,
-                "0" | "false" | "False" | "off" | "Off" => LensProfileEnable::Off,
-                other => {
-                    return Err(Error::Xmp(format!("unknown LensProfileEnable: {}", other)))
-                }
+            m.lens_profile_enable = match super::parse_xmp_bool(value) {
+                Some(true) => LensProfileEnable::On,
+                Some(false) => LensProfileEnable::Off,
+                None => return Err(Error::Xmp(format!("unknown LensProfileEnable: {}", value))),
             };
         }
         "crs:LensProfileDistortionScale" => m.lens_correction_distortion = v()?,

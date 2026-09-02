@@ -260,6 +260,38 @@ fn inactive_correction_is_dropped() {
     assert!(model.local_adjustments.is_empty());
 }
 
+/// `crs:CorrectionActive` and `crs:Flipped` accept the same case-insensitive
+/// `on`/`off` spelling set as every other boolean-like field in the schema
+/// (`crs:LensProfileEnable`), not just the exact-cased `"True"`/`"False"`
+/// pair Maple's own writer emits — a third-party sidecar may spell these
+/// lowercase (Copilot review on #3212).
+#[test]
+fn correction_active_and_flipped_accept_case_insensitive_on_off() {
+    let children = r#"      <crs:CircularGradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionActive="on" crs:LocalExposure2012="1">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:Top="0" crs:Left="0" crs:Bottom="1" crs:Right="1" crs:Flipped="ON"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:CircularGradientBasedCorrections>"#;
+    let model = parse(&sidecar(children)).expect("parse");
+    assert_eq!(
+        model.local_adjustments.len(),
+        1,
+        "CorrectionActive=\"on\" must keep the layer"
+    );
+    match &model.local_adjustments[0].mask {
+        Mask::Radial { invert, .. } => assert!(invert, "Flipped=\"ON\" must set invert"),
+        other => panic!("expected radial mask, got {other:?}"),
+    }
+}
+
 /// `crs:CorrectionAmount` (Adobe's 0-1 overall-strength dial) scales every
 /// wired slider by that amount at parse time (Copilot review on #3212).
 #[test]
