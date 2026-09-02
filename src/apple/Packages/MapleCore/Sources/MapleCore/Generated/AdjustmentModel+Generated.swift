@@ -111,6 +111,10 @@ extension AdjustmentModel {
         case toneCurveRed = "tone_curve_red"
         case toneCurveGreen = "tone_curve_green"
         case toneCurveBlue = "tone_curve_blue"
+        case displayToneCurveLuma = "display_tone_curve_luma"
+        case displayToneCurveRed = "display_tone_curve_red"
+        case displayToneCurveGreen = "display_tone_curve_green"
+        case displayToneCurveBlue = "display_tone_curve_blue"
         case chromaPrefilter = "chroma_prefilter"
         case hotPixelSuppression = "hot_pixel_suppression"
         case deepDenoise = "deep_denoise"
@@ -371,6 +375,10 @@ extension AdjustmentGroup {
                 "tone_curve_red",
                 "tone_curve_green",
                 "tone_curve_blue",
+                "display_tone_curve_luma",
+                "display_tone_curve_red",
+                "display_tone_curve_green",
+                "display_tone_curve_blue",
             ]
         case .color:
             return [
