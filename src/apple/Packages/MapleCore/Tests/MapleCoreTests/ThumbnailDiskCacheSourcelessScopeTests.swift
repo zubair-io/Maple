@@ -44,6 +44,7 @@ final class ThumbnailDiskCacheSourcelessScopeTests: XCTestCase {
         await cache.configure(folderURL: folderA)
 
         let key = "maple:stable-id-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: key) }
         let payload = Data([0x01, 0x02, 0x03])
         await cache.storeThumbnailData(payload, forKey: key)
 
@@ -67,6 +68,7 @@ final class ThumbnailDiskCacheSourcelessScopeTests: XCTestCase {
         let writer = ThumbnailDiskCache()
         await writer.configure(folderURL: folderA)
         let key = "maple:stable-id-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: key) }
         let payload = Data([0xAA, 0xBB, 0xCC, 0xDD])
         await writer.storeThumbnailData(payload, forKey: key)
 
@@ -91,6 +93,7 @@ final class ThumbnailDiskCacheSourcelessScopeTests: XCTestCase {
     func testRoundTripsWithoutEverCallingConfigure() async {
         let writer = ThumbnailDiskCache()
         let key = "maple:stable-id-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: key) }
         let payload = Data([0x10, 0x20, 0x30])
         await writer.storeThumbnailData(payload, forKey: key)
 

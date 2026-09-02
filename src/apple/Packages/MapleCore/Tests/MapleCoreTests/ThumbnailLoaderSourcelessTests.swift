@@ -60,6 +60,7 @@ final class ThumbnailLoaderSourcelessTests: XCTestCase {
         // machine and start this test from an already-warm cache, hiding
         // whether `source.thumb(for:)` genuinely fires on a real miss.
         let stableID = "maple:abcdef0123456789-\(UUID().uuidString)"
+        defer { removeSourcelessThumbCacheFile(forKey: stableID) }
         let asset = AssetRef(
             displayName: "IMG_42.dng",
             hintExtension: "dng",
