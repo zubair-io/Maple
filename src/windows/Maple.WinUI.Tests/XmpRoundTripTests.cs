@@ -117,5 +117,56 @@ namespace Maple.WinUI.Tests
             Assert.DoesNotContain("rdf:Seq", xml);
             Assert.DoesNotContain("SceneLinearToneCurve", xml);
         }
+
+        /// <summary>
+        /// Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
+        /// same wire-domain round-trip contract as the scene-linear family
+        /// above, on the sibling `crs:` element.
+        /// </summary>
+        [Fact]
+        public void DisplayToneCurvePointsRoundTripInWireDomain()
+        {
+            var doc = new XmpSidecarDocument();
+            doc.Adjustments.DisplayToneCurveLuma.Add(new CurvePoint(0, 0));
+            doc.Adjustments.DisplayToneCurveLuma.Add(new CurvePoint(128, 150));
+            doc.Adjustments.DisplayToneCurveLuma.Add(new CurvePoint(255, 255));
+
+            var xml = XmpWriter.Serialize(doc);
+            Assert.Contains("<crs:ToneCurvePV2012>", xml);
+            Assert.Contains("<rdf:li>128, 150</rdf:li>", xml);
+
+            var parsed = XmpParser.Parse(xml);
+            Assert.NotNull(parsed);
+            Assert.Equal(3, parsed!.Adjustments.DisplayToneCurveLuma.Count);
+            Assert.Equal(new CurvePoint(128, 150), parsed.Adjustments.DisplayToneCurveLuma[1]);
+        }
+
+        [Fact]
+        public void BothToneCurveFamiliesCoexistAndEmitInCanonicalOrder()
+        {
+            var doc = new XmpSidecarDocument();
+            doc.Adjustments.ToneCurveLuma.Add(new CurvePoint(0, 0));
+            doc.Adjustments.ToneCurveLuma.Add(new CurvePoint(255, 255));
+            doc.Adjustments.DisplayToneCurveLuma.Add(new CurvePoint(0, 0));
+            doc.Adjustments.DisplayToneCurveLuma.Add(new CurvePoint(255, 255));
+
+            var xml = XmpWriter.Serialize(doc);
+            var sceneLinearIndex = xml.IndexOf("<papp:SceneLinearToneCurve>", System.StringComparison.Ordinal);
+            var displayIndex = xml.IndexOf("<crs:ToneCurvePV2012>", System.StringComparison.Ordinal);
+            Assert.True(sceneLinearIndex >= 0 && displayIndex >= 0);
+            Assert.True(sceneLinearIndex < displayIndex, "scene-linear block must precede the display-referred block");
+
+            var parsed = XmpParser.Parse(xml);
+            Assert.NotNull(parsed);
+            Assert.Equal(2, parsed!.Adjustments.ToneCurveLuma.Count);
+            Assert.Equal(2, parsed.Adjustments.DisplayToneCurveLuma.Count);
+        }
+
+        [Fact]
+        public void IdentityDisplayToneCurveEmitsNoElementAtAll()
+        {
+            var xml = XmpWriter.Serialize(new XmpSidecarDocument());
+            Assert.DoesNotContain("ToneCurvePV2012", xml);
+        }
     }
 }
