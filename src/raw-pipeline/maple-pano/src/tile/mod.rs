@@ -102,6 +102,14 @@ use crate::graph::MatchGraph;
 use crate::similarity::{estimate_similarity, SimilarityEstimate, SimilarityOptions};
 use crate::twoview::PixelCorrespondence;
 
+/// Spatial unit size (canvas pixels per side), shared by `composite.rs`'s
+/// per-output-tile chunking and `frame_window.rs`'s per-cache-pin cell
+/// size (#3197 review: these used to be two separately hard-coded 1024s
+/// that could silently drift apart). Both exist for the same underlying
+/// reason — bound how many frames a spatial unit of work can touch — so
+/// there is no reason for the two to disagree.
+pub(super) const TILE_PX: usize = 1024;
+
 /// Per-edge similarity estimate — the payload the tile pipeline carries
 /// forward (analogous to [`crate::graph::VerifiedEdge::rotation`]).
 #[derive(Debug, Clone)]
