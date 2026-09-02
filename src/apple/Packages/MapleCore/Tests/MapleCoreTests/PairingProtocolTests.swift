@@ -1,3 +1,4 @@
+import CoreImage
 import CryptoKit
 import XCTest
 
@@ -56,11 +57,185 @@ final class PairingProtocolTests: XCTestCase {
     XCTAssertNil(PairingQRPayload.parse(truncated))
   }
 
-  func test_qrPayload_parse_rejectsWrongVersion() throws {
+  /// A v1-envelope-shaped payload (JSON + base64url) whose *inner* `v` field
+  /// claims `2` is still not a real v2 code (real v2 is the binary + base32
+  /// format from `qrStringV2()`, an entirely different envelope) — `parse`
+  /// must reject it rather than trust the inner marker.
+  func test_qrPayload_parse_rejectsV2VersionMarkerInsideV1Envelope() throws {
     let payload = PairingQRPayload(v: 2, ip: "10.0.0.1", port: 80, token: "t", tvPublicKey: Data([9]))
     let encoded = try payload.qrString()
 
     XCTAssertNil(PairingQRPayload.parse(encoded))
+  }
+
+  /// A genuinely unknown future version (3) inside a v1 envelope must also
+  /// be rejected, same as today's v1-only gate was rejecting anything but 1.
+  func test_qrPayload_parse_rejectsUnknownVersion() throws {
+    let payload = PairingQRPayload(v: 3, ip: "10.0.0.1", port: 80, token: "t", tvPublicKey: Data([9]))
+    let encoded = try payload.qrString()
+
+    XCTAssertNil(PairingQRPayload.parse(encoded))
+  }
+
+  // MARK: 1b. PairingQRPayload v2 codec (#2137)
+
+  func test_qrPayloadV2_qrStringV2_parse_roundTripsEveryField() throws {
+    let payload = PairingQRPayload(
+      v: 2,
+      ip: "192.168.1.50",
+      port: 8443,
+      token: Data(repeating: 0xAB, count: 32).base64URLEncodedString(),
+      tvPublicKey: Data(repeating: 0xCD, count: 32)
+    )
+
+    let encoded = try payload.qrStringV2()
+    let parsed = try XCTUnwrap(PairingQRPayload.parse(encoded))
+
+    XCTAssertEqual(parsed, payload)
+    XCTAssertEqual(parsed.v, 2)
+    XCTAssertEqual(parsed.ip, "192.168.1.50")
+    XCTAssertEqual(parsed.port, 8443)
+    XCTAssertEqual(parsed.token, Data(repeating: 0xAB, count: 32).base64URLEncodedString())
+    XCTAssertEqual(parsed.tvPublicKey, Data(repeating: 0xCD, count: 32))
+  }
+
+  /// Edge-case IPv4 octets — 0 and 255 both round-trip through the raw byte
+  /// packing without the string-parsing edge cases a naive implementation
+  /// (e.g. treating a leading zero as invalid) might introduce.
+  func test_qrPayloadV2_roundTrips_edgeIPOctets() throws {
+    let payload = PairingQRPayload(
+      v: 2,
+      ip: "0.255.0.255",
+      port: 1,
+      token: Data(repeating: 0x11, count: 32).base64URLEncodedString(),
+      tvPublicKey: Data(repeating: 0x22, count: 32)
+    )
+
+    let encoded = try payload.qrStringV2()
+    let parsed = try XCTUnwrap(PairingQRPayload.parse(encoded))
+
+    XCTAssertEqual(parsed.ip, "0.255.0.255")
+    XCTAssertEqual(parsed.port, 1)
+  }
+
+  func test_qrPayloadV2_qrStringV2_throwsOnInvalidIP() {
+    let payload = PairingQRPayload(
+      v: 2,
+      ip: "not-an-ip",
+      port: 80,
+      token: Data(repeating: 0xAB, count: 32).base64URLEncodedString(),
+      tvPublicKey: Data(repeating: 0xCD, count: 32)
+    )
+
+    XCTAssertThrowsError(try payload.qrStringV2()) { error in
+      XCTAssertEqual(error as? PairingPayloadV2EncodingError, .invalidIPv4Address)
+    }
+  }
+
+  func test_qrPayloadV2_qrStringV2_throwsOnWrongKeyLength() {
+    let payload = PairingQRPayload(
+      v: 2,
+      ip: "10.0.0.1",
+      port: 80,
+      token: Data(repeating: 0xAB, count: 32).base64URLEncodedString(),
+      tvPublicKey: Data([0x01, 0x02])  // not 32 bytes
+    )
+
+    XCTAssertThrowsError(try payload.qrStringV2()) { error in
+      XCTAssertEqual(error as? PairingPayloadV2EncodingError, .invalidPublicKeyLength)
+    }
+  }
+
+  func test_qrPayloadV2_parse_rejectsGarbageAndTruncation() throws {
+    XCTAssertNil(PairingQRPayload.parse("not valid base32 at all!!!"))
+
+    let payload = PairingQRPayload(
+      v: 2, ip: "10.0.0.1", port: 80,
+      token: Data(repeating: 0xAB, count: 32).base64URLEncodedString(),
+      tvPublicKey: Data(repeating: 0xCD, count: 32)
+    )
+    let encoded = try payload.qrStringV2()
+    let truncated = String(encoded.prefix(encoded.count / 2))
+
+    XCTAssertNil(PairingQRPayload.parse(truncated))
+  }
+
+  /// A phone that already accepts both versions must still pair with a TV
+  /// that hasn't flipped to v2 yet — this is the whole point of the
+  /// two-version window the sequencing note describes.
+  func test_parse_acceptsBothV1AndV2() throws {
+    let v1 = PairingQRPayload(v: 1, ip: "10.0.0.1", port: 80, token: "tok", tvPublicKey: Data([1, 2, 3]))
+    let v2 = PairingQRPayload(
+      v: 2, ip: "10.0.0.2", port: 81,
+      token: Data(repeating: 0xEF, count: 32).base64URLEncodedString(),
+      tvPublicKey: Data(repeating: 0x99, count: 32)
+    )
+
+    XCTAssertEqual(PairingQRPayload.parse(try v1.qrString()), v1)
+    XCTAssertEqual(PairingQRPayload.parse(try v2.qrStringV2()), v2)
+  }
+
+  /// The actual deliverable: a real `TVPairingSession`'s v2 QR string
+  /// renders to a meaningfully smaller symbol than the old v1 JSON +
+  /// base64url string did, at the same error-correction level the TV uses.
+  /// `CIQRCodeGenerator` outputs one pixel per module with no quiet zone, so
+  /// the rendered image's pixel width *is* the module count.
+  func test_qrPayloadV2_rendersSmallerQRSymbolThanV1() throws {
+    let session = TVPairingSession(ip: "192.168.1.50", port: 54321)
+    let v1Legacy = PairingQRPayload(
+      v: 1, ip: "192.168.1.50", port: 54321,
+      token: session.qrPayload.token, tvPublicKey: session.qrPayload.tvPublicKey
+    )
+
+    let v1String = try v1Legacy.qrString()
+    let v2String = try session.qrPayload.qrStringV2()
+
+    let v1Modules = try XCTUnwrap(Self.qrModuleCount(for: v1String))
+    let v2Modules = try XCTUnwrap(Self.qrModuleCount(for: v2String))
+
+    print("#2137: v1 QR is \(v1String.count) chars -> \(v1Modules)x\(v1Modules) modules; "
+      + "v2 QR is \(v2String.count) chars -> \(v2Modules)x\(v2Modules) modules")
+
+    XCTAssertLessThan(v2String.count, v1String.count)
+    XCTAssertLessThan(v2Modules, v1Modules)
+  }
+
+  /// Renders `string` through the same `CIQRCodeGenerator` + level-M
+  /// correction the TV's `QRCodeView` uses, and returns the module count
+  /// (the generator emits one pixel per module, unscaled, no quiet zone).
+  private static func qrModuleCount(for string: String) throws -> Int? {
+    let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator"))
+    filter.setValue(Data(string.utf8), forKey: "inputMessage")
+    filter.setValue("M", forKey: "inputCorrectionLevel")
+    guard let output = filter.outputImage else { return nil }
+    return Int(output.extent.width)
+  }
+
+  // MARK: 1c. Base32 (#2137)
+
+  func test_base32_encode_decode_roundTripsArbitraryBytes() {
+    let samples: [Data] = [
+      Data(),
+      Data([0x00]),
+      Data([0xFF]),
+      Data((0...70).map { UInt8($0 & 0xFF) }),
+      Data(repeating: 0xAB, count: 71),
+    ]
+    for sample in samples {
+      let encoded = Base32.encode(sample)
+      XCTAssertEqual(Base32.decode(encoded), sample, "round-trip failed for \(sample.count) bytes")
+    }
+  }
+
+  func test_base32_encode_usesOnlyUppercaseAlphabet() {
+    let encoded = Base32.encode(Data((0...255).map { UInt8($0) }))
+    XCTAssertTrue(encoded.allSatisfy { "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".contains($0) })
+  }
+
+  func test_base32_decode_rejectsLowercaseAndInvalidCharacters() {
+    XCTAssertNil(Base32.decode("abcdefgh"))  // lowercase — a v1 base64url string will hit this
+    XCTAssertNil(Base32.decode("AAAAAAA1"))  // '1' isn't in the RFC 4648 base32 alphabet
+    XCTAssertNil(Base32.decode("AAAAAAA-"))  // base64url's separator, not base32's
   }
 
   // MARK: 2-5. PairingCrypto seal/open
@@ -193,7 +368,9 @@ final class PairingProtocolTests: XCTestCase {
 
     XCTAssertNotEqual(a.qrPayload.token, b.qrPayload.token)
     XCTAssertNotEqual(a.qrPayload.tvPublicKey, b.qrPayload.tvPublicKey)
-    XCTAssertEqual(a.qrPayload.v, 1)
-    XCTAssertEqual(b.qrPayload.v, 1)
+    // #2137: TVPairingSession emits v2 (the compact binary + base32 QR
+    // format) now that the phone-side parser accepts it.
+    XCTAssertEqual(a.qrPayload.v, 2)
+    XCTAssertEqual(b.qrPayload.v, 2)
   }
 }
