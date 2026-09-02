@@ -153,13 +153,18 @@ final class GpuLiveNoiseProfileTests: XCTestCase {
     /// sides of this comparison are built from the SAME decoded buffer at
     /// the SAME target size.
     private func rgbBytes(from image: CIImage, context: CIContext) -> (pixels: [UInt8], width: Int, height: Int) {
-        let w = Int(image.extent.width.rounded())
-        let h = Int(image.extent.height.rounded())
+        // `.integral`, not a reconstructed zero-origin rect (Copilot review):
+        // a CIImage's extent can carry a non-zero origin or fractional edges
+        // after a filter chain, and rendering against a zero-origin bounds
+        // would silently sample the wrong region in that case.
+        let bounds = image.extent.integral
+        let w = Int(bounds.width)
+        let h = Int(bounds.height)
         var rgba = [UInt8](repeating: 0, count: w * h * 4)
         let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
         rgba.withUnsafeMutableBytes { buf in
             context.render(image, toBitmap: buf.baseAddress!, rowBytes: w * 4,
-                            bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                            bounds: bounds,
                             format: .RGBA8, colorSpace: srgb)
         }
         var rgb = [UInt8](repeating: 0, count: w * h * 3)
