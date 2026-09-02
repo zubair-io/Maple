@@ -323,6 +323,7 @@ fn stitch_set(
                 gate_budgets,
                 retention: args.retention.label(),
                 local_align: args.local_align.label(),
+                focal_seed_source: outcome.focal_seed_source.as_str(),
                 comp_report: &outcome.comp_report,
                 timings_s: [
                     ("decode", decode_s),

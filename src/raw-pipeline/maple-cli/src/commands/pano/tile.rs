@@ -124,6 +124,7 @@ pub(super) fn run_tile_from_outcome(
         reverify: &outcome.reverify,
         tile_report: &outcome.tile_report,
         tile_orphans: &outcome.orphans,
+        focal_seed_source: outcome.focal_seed_source.map(|s| s.as_str()),
         timings_s: [
             ("decode", decode_s),
             ("features", features_s),
