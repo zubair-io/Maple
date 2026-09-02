@@ -2,7 +2,6 @@
 //! invariant, seam placement, and the canvas pixel cap (#3086).
 //! Kept in a separate file for the file-size budget.
 
-use super::frame_cache::TileFrameCache;
 use super::masks::voronoi_masks_region;
 use super::photometry;
 use super::*;
@@ -86,9 +85,16 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
     );
 
     let frame_dims = [(w, h); 3];
-    let (masks_all, _) = voronoi_masks_region(&layers, &poses, &frame_dims, &canvas, 0, 0);
-    let (masks_two, _) =
-        voronoi_masks_region(&layers[..2], &poses[..2], &frame_dims[..2], &canvas, 0, 0);
+    let (masks_all, _) =
+        voronoi_masks_region(&layers, &poses, &frame_dims, &canvas, 0, 0);
+    let (masks_two, _) = voronoi_masks_region(
+        &layers[..2],
+        &poses[..2],
+        &frame_dims[..2],
+        &canvas,
+        0,
+        0,
+    );
     assert!(
         masks_all[2].iter().all(|&m| m == 0.0),
         "all-invalid layer must own no pixels"
@@ -110,10 +116,7 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
 #[test]
 fn voronoi_seam_sits_mid_overlap() {
     let (w, h) = (64u32, 48u32);
-    let poses = [
-        translation_pose(0, 0.0, 0.0),
-        translation_pose(1, 40.0, 0.0),
-    ];
+    let poses = [translation_pose(0, 0.0, 0.0), translation_pose(1, 40.0, 0.0)];
     let canvas = TileCanvasSpec {
         width: 104,
         height: h,
@@ -175,14 +178,9 @@ fn composite_with_far_frame_places_all_content() {
         offset_x: 8.0,
         offset_y: 8.0,
     };
-    // #3090: composite_tile decodes on demand through a cache instead of
-    // taking a pre-decoded frame slice — TileFrameCache::from_frames
-    // (test-only) seeds it with these synthetic frames.
-    let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
-    let cache = TileFrameCache::from_frames(frames);
     let (out, _report) = composite_tile(
-        &cache,
-        &full_dims,
+        &frames,
+        3,
         &[],
         &poses,
         &canvas,
