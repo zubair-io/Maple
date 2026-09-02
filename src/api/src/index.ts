@@ -60,6 +60,7 @@ import {
 import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
 import { accountRoutes } from './routes/auth-account.ts';
 import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
+import { apnsDeviceRoutes } from './routes/apns-devices.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { usersRoutes } from './routes/users.ts';
 import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
@@ -80,6 +81,7 @@ import {
 } from './observability/observability-config.repo.ts';
 import { initOtel, shutdownOtel } from './otel.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
+import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
 import {
   ChildProcessWorker,
@@ -185,6 +187,19 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // `requireAuth` scoped-derive stays contained — same isolation as
     // authedAccount / authedNativeCode above.
     .use(new Elysia({ name: 'authedDeviceSessions' }).use(authDeviceSessionRoutes))
+
+    // APNs device-token registration (#1025) — self-gates with its own
+    // `requireAuth` + `requireFileAccessBeforeHandle` (it scopes every
+    // route to `auth.user.sub`), so it sits outside `authedApi` the same
+    // way authDeviceSessionRoutes above does. Wrapped in its own named
+    // sub-app so its scoped hooks stay contained — mounted bare, the
+    // `onBeforeHandle` leaked forward onto every route registered after it
+    // in this same chain (including the unauthenticated `/openapi.json`
+    // and the static-UI catch-all below), same isolation reasoning as
+    // authedDeviceSessions above. The config on/off switch (library-wide,
+    // no per-user scoping) is `apnsConfigRoutes`, mounted inside
+    // `authedApi` instead.
+    .use(new Elysia({ name: 'authedApnsDevices' }).use(apnsDeviceRoutes))
 
     // OpenAPI spec + Scalar docs UI. Source-of-truth for HTTP DTOs that
     // web + apple clients codegen from (issue #131). Mounted outside the
@@ -317,6 +332,17 @@ async function start(): Promise<void> {
       log.error({ err }, 'change feed tailer failed to start');
     }
 
+    try {
+      // APNs push-to-signal (#1025) — subscribes to the same bus the SSE
+      // route reads from and coalesces bursts into wake pushes for
+      // registered File Provider devices. A no-op per burst unless the
+      // operator has both turned the DB setting on AND supplied
+      // MAPLE_APNS_* credentials; SSE keeps working unmodified either way.
+      getApnsPushTrigger().start();
+    } catch (err) {
+      log.error({ err }, 'APNs push trigger failed to start');
+    }
+
     // Worker tier — spawned as a niced child process so the HTTP event loop can
     // never be starved or crashed by indexer/enrichment load. The child runs
     // `startWorkers()` which owns stages, discover, FFI pool, enrichment, job
@@ -438,6 +464,12 @@ async function shutdown(signal: string): Promise<void> {
     getChangeFeedTailer().stop();
   } catch (e) {
     log.warn({ err: e }, 'error stopping change feed tailer');
+  }
+  // Same reasoning for the APNs push trigger's coalescing timers.
+  try {
+    getApnsPushTrigger().stop();
+  } catch (e) {
+    log.warn({ err: e }, 'error stopping APNs push trigger');
   }
   // Terminate the worker child process. Its own SIGTERM handler drains all
   // stages, discover, enrichment workers, job/import runners, and FFI pool
