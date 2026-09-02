@@ -1,12 +1,12 @@
 // AppShell+FolderContextMenu.swift — New Folder / Rename / Move to Trash
 // action methods behind the source-tree right-click context menu (#2645).
 //
-// Wires the sidebar's local (`FolderTreeRow`), SMB (share row), and Cloud
-// (`CloudFolderTreeRow`) context-menu actions to the already-merged
-// `MapleCore` folder-CRUD engines (`LocalFileOperations+Folders`,
-// `+Trash`, `SMBFileOperations+Folders`) and to `RemoteCatalog`'s
-// `makeDir`/`moveFolder` (Cloud). This file is UI wiring only — every
-// actual filesystem/network operation lives in `MapleCore` or
+// Wires the sidebar's local (`FolderTreeRow`), SMB (`SMBFolderTreeRow`),
+// and Cloud (`CloudFolderTreeRow`) context-menu actions to the
+// already-merged `MapleCore` folder-CRUD engines (`LocalFileOperations
+// +Folders`, `+Trash`, `SMBFileOperations+Folders`, `+Listing`) and to
+// `RemoteCatalog`'s `makeDir`/`moveFolder` (Cloud). This file is UI wiring
+// only — every actual filesystem/network operation lives in `MapleCore` or
 // `MapleCloudKit`, per the ticket's scope note.
 //
 // Cloud folder TRASH (#2696) — `POST /api/folders/:id/trash-folder`
@@ -14,12 +14,12 @@
 // `trashCloudFolder` below wires `CloudFolderTreeRow`'s "Move to Trash"
 // item to it via `RemoteCatalog.trashFolder`.
 //
-// SMB folder Rename/Trash are also not wired: `SMBSource` enumerates the
-// whole share recursively (`images()`) rather than exposing a per-directory
-// listing, so the sidebar has no SMB subfolder tree to attach a row-level
-// Rename/Trash action to — only the share-root "New Folder" action has a
-// target. #2697 tracks building that subfolder tree (SMB directory
-// browsing), which is its own ticket, not a context-menu wiring change.
+// SMB folder Rename/Trash (#2697) — `SMBSource.renameFolder`/`trashFolder`
+// (throwaway-connection statics, mirroring the pre-existing
+// `createFolderAtShareRoot`) route `SMBFolderTreeRow`'s subfolder-row
+// context-menu items to `SMBFileOperations+Folders`'s `renameFolder`/
+// `deleteFolder`. Reachable on any saved share, not only the currently
+// open one — same reasoning `createSMBFolder` below already documents.
 
 import SwiftUI
 import MapleCore
@@ -151,10 +151,9 @@ extension AppShell {
 
     // MARK: - SMB
 
-    /// New Folder at the connected share's root. The sidebar's SMB rows are
-    /// flat (no subfolder tree, see file header), so this is the only SMB
-    /// folder action with a target today.
-    func createSMBFolder(name: String, share: SMBCredentialStore.SavedShare) {
+    /// New Folder inside `parentPath` (share-relative — `"/"` for the share
+    /// root, or a subfolder path from the tree, #2697).
+    func createSMBFolder(name: String, share: SMBCredentialStore.SavedShare, parentPath: String = "/") {
         Task { @MainActor in
             guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
                 browseVM.loadError = FileOperationError.sourceMissing(
@@ -162,7 +161,7 @@ extension AppShell {
                 return
             }
             do {
-                _ = try await SMBSource.createFolderAtShareRoot(name: name, credentials: creds)
+                _ = try await SMBSource.createFolder(named: name, in: parentPath, credentials: creds)
                 folderRefreshGeneration += 1
                 // If this share is the one currently open, refresh the grid
                 // so the new folder is visible without a manual reconnect —
@@ -174,6 +173,63 @@ extension AppShell {
                 browseVM.loadError = error
             }
         }
+    }
+
+    /// Rename an SMB subfolder in place (#2697).
+    func renameSMBFolder(_ path: String, to newName: String, share: SMBCredentialStore.SavedShare) {
+        guard FilenameValidation.isValidPathComponent(newName) else {
+            browseVM.loadError = FileOperationError.invalidName(newName)
+            return
+        }
+        Task { @MainActor in
+            guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
+                browseVM.loadError = FileOperationError.sourceMissing(
+                    "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
+                return
+            }
+            do {
+                _ = try await SMBSource.renameFolder(path, to: newName, credentials: creds)
+                folderRefreshGeneration += 1
+                if case .smbShare(let current) = librarySelection, current == share {
+                    connectSavedSMB(share)
+                }
+            } catch {
+                browseVM.loadError = error
+            }
+        }
+    }
+
+    /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
+    func trashSMBFolder(_ path: String, share: SMBCredentialStore.SavedShare) {
+        Task { @MainActor in
+            guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
+                browseVM.loadError = FileOperationError.sourceMissing(
+                    "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
+                return
+            }
+            do {
+                _ = try await SMBSource.trashFolder(path, credentials: creds)
+                folderRefreshGeneration += 1
+                if case .smbShare(let current) = librarySelection, current == share {
+                    connectSavedSMB(share)
+                }
+            } catch {
+                browseVM.loadError = error
+            }
+        }
+    }
+
+    /// Lazy-load one SMB tree row's subfolder children (#2697), for a
+    /// share the app may not currently have open — backs
+    /// `SMBFolderTreeRow`'s `onListDir`. Returns `nil` (rather than
+    /// throwing) on any failure so the row shows its "couldn't load"
+    /// state instead of crashing, mirroring `CloudFolderTreeRow`'s
+    /// `onListDir` contract.
+    func listSMBSubdirectories(
+        share: SMBCredentialStore.SavedShare, path: String
+    ) async -> [SMBFileOperations.DirEntry]? {
+        guard let creds = await SMBCredentialStore.shared.credentials(for: share) else { return nil }
+        return try? await SMBSource.listSubdirectories(at: path, credentials: creds)
     }
 
     // MARK: - Cloud

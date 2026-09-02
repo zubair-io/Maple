@@ -72,14 +72,24 @@ struct LibrarySidebar: View {
     var photosAuthGeneration: Int = 0
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
-    /// Source-tree context menu (#2645) — New Folder at the connected
-    /// share's root. SMB has no subfolder tree in the sidebar (see
-    /// `AppShell+FolderContextMenu`'s file header), so this is the only
-    /// SMB folder action with a target today — #2697 tracks building that
-    /// tree, which unlocks Rename/Trash for SMB subfolder rows.
-    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void
+    /// Source-tree context menu (#2645) — New Folder inside `parentPath`
+    /// (share-relative, `"/"` for the share root or a subfolder path from
+    /// the tree). SMB's sidebar tree (`SMBFolderTreeRow`, #2697) mirrors
+    /// the local/Cloud trees' shape.
+    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void
+    /// Rename an SMB subfolder in place (#2697). Subfolder rows only —
+    /// see `SMBFolderTreeRow`'s doc comment for why the share root itself
+    /// doesn't offer Rename.
+    var onRenameSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void = { _, _, _ in }
+    /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
+    /// Subfolder rows only, same reasoning as Rename.
+    var onTrashSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void = { _, _ in }
+    /// Lazy-fetch a non-recursive subfolder listing for the SMB sidebar
+    /// tree drill-down (#2697). Returns nil on auth/network failure.
+    var onListSMBDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]? = { _, _ in nil }
     /// Drag-onto-source-tree (#2646) onto the connected SMB share's root —
-    /// the only SMB drop target today (see `SMBShareRow`'s doc comment).
+    /// the only SMB drop target today (`AssetDropDestination.smb` carries
+    /// only a `SavedShare`, no path — see `AssetDropTypes.swift`).
     /// Same `ids == nil` ⇒ "use the current grid selection" contract as
     /// `onDropAssets` above.
     var onDropAssetsSMB: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _ in }
@@ -146,7 +156,7 @@ struct LibrarySidebar: View {
     let onSelectMap: () -> Void
     /// OS file/folder drop-to-mount (#2649). Every row below that already
     /// installs a `.dropDestination(for: DraggedAssetPayload.self, …)`
-    /// (`FolderTreeRow`, `SMBShareRow`, `CloudFolderTreeRow`) ALSO installs
+    /// (`FolderTreeRow`, `SMBFolderTreeRow`, `CloudFolderTreeRow`) ALSO installs
     /// this as a second, same-view `.dropDestination(for: URL.self, …)` —
     /// SwiftUI does not fall a non-matching drop through to an ANCESTOR
     /// view's differently-typed `dropDestination` (a nested typed drop
@@ -429,17 +439,21 @@ struct LibrarySidebar: View {
                     onAdd: onAddSMB
                 ) {
                     ForEach(savedShares, id: \.self) { share in
-                        SMBShareRow(
+                        SMBShareSection(
                             share: share,
                             isSelected: selection == .smbShare(share),
                             onPick: {
                                 selection = .smbShare(share)
                                 onPickSMB(share)
                             },
-                            onCreateFolder: { name in onCreateSMBFolder(share, name) },
+                            onListDir: onListSMBDir,
+                            onCreateFolder: { path, name in onCreateSMBFolder(share, path, name) },
+                            onRenameFolder: { path, newName in onRenameSMBFolder(share, path, newName) },
+                            onTrashFolder: { path in onTrashSMBFolder(share, path) },
                             onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
                             onDropURLs: onDropURLs,
                             selectedAssetCount: selectedAssetCount,
+                            refreshGeneration: folderRefreshGeneration,
                             onShowTrash: onShowSMBTrash.map { callback in { callback(share) } }
                         )
                     }
@@ -797,96 +811,56 @@ private struct NavItem: View {
     }
 }
 
-// MARK: - SMBShareRow
+// MARK: - SMBShareSection
 
-/// A saved SMB share row (source-tree context menu, #2645). SMB has no
-/// subfolder tree in the sidebar (see `AppShell+FolderContextMenu`'s file
-/// header for why), so "New Folder" — targeting the share root — is the
-/// only file-op the connections list offers.
-private struct SMBShareRow: View {
+/// A saved SMB share, rendered as a lazy-expanding subfolder tree
+/// (`SMBFolderTreeRow`, #2697) rather than the flat single leaf it used to
+/// be. Owns the per-share tree state (`listingCache`/`expanded`) so
+/// disclosure state and fetched listings survive sibling re-renders —
+/// same reasoning as `CloudServerSection`'s identical pair of `@State`.
+private struct SMBShareSection: View {
     let share: SMBCredentialStore.SavedShare
     let isSelected: Bool
     let onPick: () -> Void
-    let onCreateFolder: (String) -> Void
+    let onListDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]?
+    let onCreateFolder: (String, String) -> Void
+    let onRenameFolder: (String, String) -> Void
+    let onTrashFolder: (String) -> Void
     /// Drag-onto-source-tree (#2646), onto the share ROOT — SMB has no
-    /// subfolder tree in the sidebar (see `AppShell+FolderContextMenu`'s
-    /// file header), so this row is the only SMB drop target today.
+    /// per-subfolder drop target yet (`AssetDropDestination.smb` carries
+    /// only a `SavedShare`, no path; see `AssetDropTypes.swift`).
     var onDropAssets: (Set<AssetRef.ID>?, Bool) -> Void = { _, _ in }
     /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`.
     var onDropURLs: ([URL]) -> Bool = { _ in false }
     var selectedAssetCount: Int = 0
+    var refreshGeneration: Int = 0
     /// "Show Trash…" (#2653) — SMB always uses `.maple/trash` (no OS
     /// recycle bin over a network share). `nil` suppresses the menu item.
     var onShowTrash: (() -> Void)? = nil
 
-    @State private var showNewFolderAlert = false
-    @State private var newFolderDraft = ""
-    @State private var isDropTargeted = false
-
-    private var newFolderDraftIsValid: Bool {
-        FilenameValidation.isValidPathComponent(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
+    @State private var listingCache: [String: [SMBFileOperations.DirEntry]] = [:]
+    @State private var expanded: Set<String> = []
 
     var body: some View {
-        NavItem(
-            icon: "externaldrive.connected.to.line.below",
-            label: "\(share.host) / \(share.share)",
+        SMBFolderTreeRow(
+            share: share,
+            path: "/",
+            displayName: "\(share.host) / \(share.share)",
+            depth: 0,
+            onListDir: onListDir,
+            onPick: { _ in onPick() },
             isSelected: isSelected,
-            indent: 32,
-            action: onPick
+            listingCache: $listingCache,
+            expanded: $expanded,
+            refreshGeneration: refreshGeneration,
+            onCreateFolder: { _, path, name in onCreateFolder(path, name) },
+            onRenameFolder: { _, path, newName in onRenameFolder(path, newName) },
+            onTrashFolder: { _, path in onTrashFolder(path) },
+            onShowTrash: onShowTrash.map { callback in { _ in callback() } },
+            onDropAssets: { _, ids, isCopy in onDropAssets(ids, isCopy) },
+            onDropURLs: onDropURLs,
+            selectedAssetCount: selectedAssetCount
         )
-        .background(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
-        .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
-            guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-            onDropAssets(Set(payload.ids), MapleDragModifier.isCopyRequested())
-            return true
-        }, isTargeted: { targeted in isDropTargeted = targeted })
-        // Second, same-view drop target for OS file/folder drops (#2649).
-        .urlDropDestination(perform: onDropURLs)
-        .contextMenu {
-            if selectedAssetCount > 0 {
-                Button {
-                    onDropAssets(nil, false)
-                } label: {
-                    Label("Move Selected Here", systemImage: "arrow.right.doc.on.clipboard")
-                }
-                .accessibilityIdentifier("smbShare.moveSelectedHere.\(share.host).\(share.share)")
-                Button {
-                    onDropAssets(nil, true)
-                } label: {
-                    Label("Copy Selected Here", systemImage: "doc.on.doc")
-                }
-                .accessibilityIdentifier("smbShare.copySelectedHere.\(share.host).\(share.share)")
-                Divider()
-            }
-            Button {
-                newFolderDraft = ""
-                showNewFolderAlert = true
-            } label: {
-                Label("New Folder", systemImage: "folder.badge.plus")
-            }
-            .accessibilityIdentifier("smbShare.newFolder.\(share.host).\(share.share)")
-            if let onShowTrash {
-                Button(action: onShowTrash) {
-                    Label("Show Trash…", systemImage: "trash.circle")
-                }
-                .accessibilityIdentifier("smbShare.showTrash.\(share.host).\(share.share)")
-            }
-        }
-        .alert("New Folder", isPresented: $showNewFolderAlert) {
-            TextField("Name", text: $newFolderDraft)
-            Button("Create") {
-                let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard FilenameValidation.isValidPathComponent(name) else { return }
-                onCreateFolder(name)
-            }
-            .disabled(!newFolderDraftIsValid)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(newFolderDraftIsValid
-                ? "Creates a new folder at the root of \(share.host) / \(share.share)."
-                : FilenameValidation.invalidNameMessage)
-        }
     }
 }
 
@@ -1066,7 +1040,7 @@ private struct _LibrarySidebarPreviewWrapper: View {
       onRequestPhotosAccess: {},
       onAddSMB: {},
       onPickSMB: { _ in },
-      onCreateSMBFolder: { _, _ in },
+      onCreateSMBFolder: { _, _, _ in },
       onAddCloudServer: {},
       onPickCloudLibrary: { _, _, _ in },
       onListCloudDir: { _, _ in nil },
