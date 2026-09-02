@@ -18,7 +18,17 @@ extension RenderActor {
     public func renderForExport(
         asset: AssetRef,
         model: AdjustmentModel,
-        asShot: ImageEditPipeline.AsShotWB?
+        asShot: ImageEditPipeline.AsShotWB?,
+        // #3190 review follow-up: `EditSession.renderForExport()` composites
+        // an sRGB-baked `FilmLookCube` on this function's NON-RAW result
+        // when the asset has a resolvable look — the caller passes `.srgb`
+        // in that case so the encode doesn't hand the cube P3-gamma bytes.
+        // The RAW branch below never needs this: a RAW export with a
+        // resolved look takes the bit-exact `maple_render_file_with_film`
+        // path instead and never reaches here (see
+        // `EditSession.renderForExport()`'s doc comment), so film is
+        // guaranteed inactive whenever the RAW branch runs.
+        targetPrimariesOverride: CanvasColorSpace? = nil
     ) async throws -> CIImage {
         let pipeline = self.pipeline
         let m = model
@@ -31,7 +41,8 @@ extension RenderActor {
             }
             return await Task.detached(priority: .userInitiated) {
                 pipeline.processSceneLinearNonRaw(
-                    decoded: decoded, model: m, targetSize: nil
+                    decoded: decoded, model: m, targetSize: nil,
+                    targetPrimariesOverride: targetPrimariesOverride
                 )
             }.value
         }
