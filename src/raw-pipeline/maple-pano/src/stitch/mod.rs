@@ -290,20 +290,16 @@ pub fn stitch(
     if !match_failures.is_empty() {
         return Err(StitchError::MatchFailed(match_failures));
     }
-    let t_graph = t2.elapsed().as_secs_f64();
-    progress(2, 1.0);
 
     // ── homography-fallback refinement (#1214) ──────────────────────────────
     //
-    // The bootstrap graph above verified pairs against an assumed-FOV guess.
-    // Replace it with the real self-calibrated focal and rebuild once more —
-    // cheap (CPU-only RANSAC re-verification), and it's what every downstream
-    // stage (strategy selection, BA's starting point, the tile branch) reads
-    // `full_images`/`proxy_images`/`graph` from. A candidate the bootstrap
-    // pass never requested falls back to a live matcher call (only possible
-    // when `GimbalPriorProvider`'s FOV-based nomination shifts between the
-    // bootstrap and refined focal).
-    focal_bootstrap::refine_if_needed(
+    // The bootstrap graph above verified pairs against an assumed-FOV guess;
+    // replace it with the real self-calibrated focal and rebuild once more,
+    // which is what every downstream stage reads `full_images`/`proxy_images`/
+    // `graph` from. A live-matcher failure on a candidate the bootstrap never
+    // requested is a real match failure, not silently swallowed (review:
+    // Copilot) — `refine_if_needed` reports it back for us to propagate.
+    let refine_failures = focal_bootstrap::refine_if_needed(
         &mut focal_seed,
         &metas,
         &proxy_dims,
@@ -312,12 +308,21 @@ pub fn stitch(
         &mut full_images,
         &mut proxy_images,
         &mut raw_matches_cache,
-        |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-            Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
-            Err(_) => Vec::new(),
+        |a, b| {
+            matcher
+                .match_features(&feature_sets[a], &feature_sets[b])
+                .map(|ml| ml_matches_to_correspondences(&ml, DEFAULT_MIN_SCORE))
+                .map_err(|e| e.to_string())
         },
     )
     .ok_or(StitchError::NoFocalSeed)?;
+    if !refine_failures.is_empty() {
+        return Err(StitchError::MatchFailed(refine_failures));
+    }
+    // Timed after refinement, not just the bootstrap build, so the stage
+    // duration covers any fallback rebuild work too (review: Jules).
+    let t_graph = t2.elapsed().as_secs_f64();
+    progress(2, 1.0);
 
     // ── strategy selection (runs on proxy graph, before full-res reverify) ─
     let mean_focal_px = {
