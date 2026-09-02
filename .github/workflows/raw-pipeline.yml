@@ -305,6 +305,66 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo test -p raw-wasm --features gpu
 
+  # Metal-backend parity gate (#2315). `raw-gpu` above proves raw-core↔WGSL
+  # agreement through naga's SPIR-V output on lavapipe — it says nothing about
+  # naga's *MSL* output or an Apple GPU driver, which is the actual code path
+  # every Apple build ships (macOS, iOS, iPadOS all run Metal). Before this
+  # job, that surface was covered only by a human remembering to run
+  # `cargo test -p raw-gpu` locally on Metal, or by the Apple `MapleUITests`
+  # visual harness — both opt-in, neither in CI.
+  #
+  # GitHub-hosted `macos-latest` runners expose a real Metal adapter to
+  # headless wgpu (Apple Silicon, Metal available through the runner's own
+  # virtualization layer — no `CAMetalLayer`/window needed for compute, which
+  # is all `raw-gpu`'s tests do). This job is the empirical proof of that
+  # premise as much as it is the gate: `raw-gpu`'s tests hard-`.expect()` a
+  # `GpuContext`, so if a Metal adapter were NOT available here the job would
+  # fail loudly on its very first test, not soft-pass.
+  #
+  # Deliberately minimal — this job's only reason to exist is the ONE thing
+  # the Linux `raw-gpu` job structurally cannot cover (a different naga
+  # backend, a different driver). The compile gates (`raw-ffi --features gpu`,
+  # `raw-wasm --all-features`) and the WGSL naga-frontend validation are
+  # backend-independent and already run on Linux; duplicating them here would
+  # cost CI minutes for zero additional signal.
+  #
+  # Non-required for now (#2315): new coverage, no history yet of its own
+  # flake rate on a real (rather than software) adapter. Once it has run
+  # clean for a while, promote it to the same standing as `raw-gpu` by
+  # dropping `continue-on-error`. See docs/testing.md § GPU parity.
+  # `continue-on-error` is the honest mechanism for that — this repo has no
+  # server-side required-checks config to exempt a job from (docs/testing.md:
+  # "required" is a project convention, not a server-side rule), so this is
+  # what actually keeps a red run here from reading as a blocking failure
+  # while the job is unproven.
+  raw-gpu-metal:
+    name: raw-gpu-metal (raw-core↔WGSL parity on Metal, macOS)
+    runs-on: macos-latest
+    continue-on-error: true
+    env:
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: raw-gpu-metal-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      # The parity gate proper, on the real backend. No lavapipe install, no
+      # Vulkan probe — `macos-latest` carries Metal natively, and wgpu's
+      # Metal backend needs no software ICD. Not serialised with
+      # --test-threads=1 (#2336 is specific to lavapipe/llvmpipe's software
+      # rasterizer under concurrent context churn); Metal is a real,
+      # concurrency-validated driver, so the default parallel run is the
+      # cheaper choice unless this job's own history says otherwise.
+      - name: cargo test -p raw-gpu (raw-core↔WGSL parity, Metal)
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-gpu
+
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
   # Everything here runs on a stock Linux runner with no fixtures:
