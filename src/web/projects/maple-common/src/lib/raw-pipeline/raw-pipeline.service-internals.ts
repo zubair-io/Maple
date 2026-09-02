@@ -31,6 +31,15 @@ export interface OpenedLiveSession {
   nativeHeight?: number;
   asShotTemperature: number;
   asShotTint: number;
+  /**
+   * See `DecodeSuccess.hasLensCorrections`/`lensCorrectionCaInert` (#3182).
+   * Optional for the same back-compat reason as `nativeWidth` above — a
+   * stub/producer that omits them is read as "no lens-correction signal",
+   * which `LibraryStateService`'s accessor already treats as the
+   * fail-closed default (panel disabled).
+   */
+  hasLensCorrections?: boolean;
+  lensCorrectionCaInert?: boolean;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).

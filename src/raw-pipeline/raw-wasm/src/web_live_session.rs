@@ -421,6 +421,24 @@ impl WebLiveSession {
         self.full_height
     }
 
+    /// Whether this RAW carries a DNG `OpcodeList3` (#3182 — mirrors Apple's
+    /// `EditSession.hasLensCorrections`). Read straight off the retained
+    /// `raw_img` rather than a cached field — a decode-time fact that never
+    /// changes across the session's re-develops. Disables the web Lens
+    /// Corrections panel when `false`.
+    #[wasm_bindgen(getter, js_name = hasLensCorrections)]
+    pub fn has_lens_corrections(&self) -> bool {
+        self.raw_img.has_lens_corrections()
+    }
+
+    /// Whether the CA slider is a structural no-op for this RAW (#3182 —
+    /// mirrors Apple's `EditSession.lensCorrectionCaInert`). See
+    /// [`crate::render::MapleRender::lens_correction_ca_inert`] for the exact rule.
+    #[wasm_bindgen(getter, js_name = lensCorrectionCaInert)]
+    pub fn lens_correction_ca_inert(&self) -> bool {
+        self.raw_img.lens_correction_ca_inert()
+    }
+
     /// The achieved canvas colour-space tag from the one-time retag to `open`'s
     /// `target_color_space` (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced
     /// so the worker reports the TRUTH the browser configured, never the request.

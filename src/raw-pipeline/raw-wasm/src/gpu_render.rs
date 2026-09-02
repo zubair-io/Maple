@@ -510,6 +510,8 @@ pub async fn render_bytes_gpu(
     // CPU path's: display-only estimate, fresh open renders at the default
     // model (identity WB matrix over the as-shot-balanced prefix buffer).
     let (as_shot_temperature, as_shot_tint) = crate::as_shot_wb(&raw_img);
+    let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
+    let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
     let model = match &xmp {
         Some(x) => raw_core::xmp::parse(x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -533,6 +535,8 @@ pub async fn render_bytes_gpu(
         oriented,
         as_shot_temperature,
         as_shot_tint,
+        has_lens_corrections,
+        lens_correction_ca_inert,
     ))
 }
 

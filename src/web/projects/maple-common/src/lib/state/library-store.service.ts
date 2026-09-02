@@ -52,6 +52,7 @@ import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 import { rekeyAssetId } from './library-store-rename';
 import { AssetDimensionBatcher } from './library-store-dimensions';
+import { LensCorrectionCapabilities } from './library-store-lens-corrections';
 import { parseAddress } from '../addressing/maple-address';
 import type { XmpCulling } from '../xmp/xmp.types';
 
@@ -194,6 +195,9 @@ export class LibraryStore {
    */
   private readonly asShotWb = new Map<AssetId, { temperature: number; tint: number }>();
 
+  /** Per-asset decode-derived lens-correction capability (#3182). */
+  readonly lensCorrections = new LensCorrectionCapabilities();
+
   /** The in-memory .maple/index.json mirror for the current folder. */
   folderIndex: MapleIndex | null = null;
 
@@ -221,6 +225,7 @@ export class LibraryStore {
         apiAssetIds: this.apiAssetIds,
         assetAbsPaths: this.assetAbsPaths,
         asShotWb: this.asShotWb,
+        lensCorrections: this.lensCorrections.byAsset,
         sessionEdited: this._sessionEdited,
         sessionCullingPatches: this._sessionCullingPatches,
       },

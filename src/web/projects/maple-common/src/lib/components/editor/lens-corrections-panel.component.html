@@ -1,11 +1,22 @@
 <!-- LensCorrectionsPanelComponent — master toggle + three DNG-correction
-     sliders (#2231). Structural twin of Apple's LensCorrectionsSection. -->
-<div class="flex min-h-0 flex-col gap-2.5 p-2.5" data-testid="lens-corrections-panel">
+     sliders (#2231). Structural twin of Apple's LensCorrectionsSection.
+     #3182: the whole panel dims + disables when the open RAW carries no
+     OpcodeList3 (panelDisabled()); the CA slider ALSO dims on its own
+     (caInertOnly()) when the panel is active but its WarpRectilinear opcode
+     has no per-plane divergence — see the .ts file banner for why the two
+     dims don't compound. -->
+<div
+  class="flex min-h-0 flex-col gap-2.5 p-2.5"
+  [class]="panelDisabled() ? 'opacity-[0.45]' : ''"
+  data-testid="lens-corrections-panel"
+>
   <button
     type="button"
-    class="group flex w-full cursor-pointer items-center gap-2.5 border-none bg-none px-0 font-[inherit] text-[color:var(--pro-text)]"
+    class="group flex w-full items-center gap-2.5 border-none bg-none px-0 font-[inherit] text-[color:var(--pro-text)] enabled:cursor-pointer disabled:cursor-default"
     role="switch"
     [attr.aria-checked]="enabled()"
+    [attr.aria-disabled]="panelDisabled() ? true : null"
+    [disabled]="panelDisabled()"
     aria-label="Lens Profile Corrections"
     data-testid="lens-corrections-toggle"
     (click)="toggleEnabled()"
@@ -26,24 +37,29 @@
       [value]="distortion()"
       [min]="distortionMin"
       [max]="distortionMax"
+      [disabled]="panelDisabled()"
       (valueChange)="onDistortionChange($event)"
       (dragEnd)="onDistortionDragEnd()"
       (resetRequest)="onDistortionReset()"
     />
-    <mui-living-slider
-      label="Chromatic Aberration"
-      [value]="ca()"
-      [min]="caMin"
-      [max]="caMax"
-      (valueChange)="onCaChange($event)"
-      (dragEnd)="onCaDragEnd()"
-      (resetRequest)="onCaReset()"
-    />
+    <div [class]="caInertOnly() ? 'opacity-[0.45]' : ''" data-testid="lens-corrections-ca-wrap">
+      <mui-living-slider
+        label="Chromatic Aberration"
+        [value]="ca()"
+        [min]="caMin"
+        [max]="caMax"
+        [disabled]="caDisabled()"
+        (valueChange)="onCaChange($event)"
+        (dragEnd)="onCaDragEnd()"
+        (resetRequest)="onCaReset()"
+      />
+    </div>
     <mui-living-slider
       label="Vignetting"
       [value]="vignetting()"
       [min]="vignettingMin"
       [max]="vignettingMax"
+      [disabled]="panelDisabled()"
       (valueChange)="onVignettingChange($event)"
       (dragEnd)="onVignettingDragEnd()"
       (resetRequest)="onVignettingReset()"

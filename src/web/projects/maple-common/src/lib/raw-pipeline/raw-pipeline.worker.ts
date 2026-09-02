@@ -249,6 +249,8 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const nativeHeight = result.full_height;
   const asShotTemperature = result.as_shot_temperature;
   const asShotTint = result.as_shot_tint;
+  const hasLensCorrections = result.has_lens_corrections; // #3182
+  const lensCorrectionCaInert = result.lens_correction_ca_inert;
   const rgb = result.take_rgb();
   result.free();
   const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
@@ -262,6 +264,8 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
     rgb: buffer,
     asShotTemperature,
     asShotTint,
+    hasLensCorrections,
+    lensCorrectionCaInert,
   };
   (self as unknown as Worker).postMessage(response, [buffer]);
 }

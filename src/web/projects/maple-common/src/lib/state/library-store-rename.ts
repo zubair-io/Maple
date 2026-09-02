@@ -12,17 +12,20 @@ import { WritableSignal } from '@angular/core';
 import { Asset, AssetId } from '../models/asset';
 import { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling } from '../xmp/xmp.types';
+import type { LensCorrectionCapability } from './library-store-lens-corrections';
 
 /** The subset of `LibraryStore`'s id-keyed state a rename has to repoint.
- * Passed by reference — the Maps/Sets are mutated in place; `assets` and
- * `adjustmentModels` go through their signal's `update()` since they're
- * read reactively elsewhere. */
+ * Passed by reference — the Maps/Sets are mutated in place; `assets`,
+ * `adjustmentModels`, and `lensCorrections` go through their signal's
+ * `update()` since they're read reactively elsewhere. */
 export interface RenameRekeyDeps {
   assets: WritableSignal<Asset[]>;
   adjustmentModels: WritableSignal<Map<AssetId, AdjustmentModel>>;
   apiAssetIds: Map<AssetId, string>;
   assetAbsPaths: Map<AssetId, string>;
   asShotWb: Map<AssetId, { temperature: number; tint: number }>;
+  /** #3182 — see `library-store-lens-corrections.ts`. */
+  lensCorrections: WritableSignal<Map<AssetId, LensCorrectionCapability>>;
   sessionEdited: Set<AssetId>;
   sessionCullingPatches: Map<AssetId, Partial<XmpCulling>>;
 }
@@ -61,6 +64,11 @@ export function rekeyAssetId(
   rekeyMap(deps.apiAssetIds);
   rekeyMap(deps.assetAbsPaths);
   rekeyMap(deps.asShotWb);
+  deps.lensCorrections.update((map) => {
+    const next = new Map(map);
+    rekeyMap(next);
+    return next;
+  });
   if (deps.sessionEdited.has(oldId)) {
     deps.sessionEdited.delete(oldId);
     deps.sessionEdited.add(newId);
