@@ -76,10 +76,10 @@ Then start the dev server:
 
 ```bash
 cd src/web
-npm install                              # or: bun install
-npm run start:syrup                     # maple-syrup at http://localhost:4200/
-npm run start:maple                # maple at http://localhost:4201/
-# For backwards compatibility, `npm start` aliases start:syrup.
+bun install                        # the workspace is bun-locked (bun.lock); there is no npm lockfile
+bun run start:syrup                # maple-syrup at http://localhost:4200/
+bun run start:maple                # maple at http://localhost:4201/
+# For backwards compatibility, `bun start` aliases start:syrup.
 ```
 
 `start` and `build` re-run the two commands above automatically, via

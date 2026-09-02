@@ -56,8 +56,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---------------------------------------------------------------------------
 # Stage 1: build the Angular UI bundle.
 #
-# Uses bun (not npm) — the workspace is a bun-locked workspace; the stale
-# package-lock.json is a leftover. bun runs @angular/cli without issue.
+# Uses bun (not npm) — the workspace is bun-locked (bun.lock) and carries no
+# npm lockfile. bun runs @angular/cli without issue.
 # ---------------------------------------------------------------------------
 FROM oven/bun:1.3-slim AS ui-builder
 
