@@ -19,7 +19,7 @@ Writes are atomic — temp file then rename — so a partial write is never visi
 
 | Language   | Reads | Writes        | Entry points                                                                                                                                                                              |
 | ---------- | ----- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust       | yes   | fragment only | `src/raw-pipeline/raw-core/src/xmp/mod.rs` (`parse`), `fields.rs` (the attribute→field match), `tone_curves.rs`, `black_white.rs`                                                         |
+| Rust       | yes   | fragment only | `src/raw-pipeline/raw-core/src/xmp/mod.rs` (`parse`), `fields.rs` (the attribute→field match), `tone_curves.rs`, `local_adjustments.rs`, `black_white.rs`                                 |
 | Swift      | yes   | yes           | `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift` plus its `+Attrs`, `+Canonical`, `+Helpers`, `+ParseAttrs`, `+ToneCurves`, `+Metadata`, `+Passthrough` extensions |
 | TypeScript | yes   | yes           | `src/web/projects/maple-common/src/lib/xmp/xmp-parser.service.ts`, `xmp-serializer.service.ts`, `xmp-canonical.ts`, `xmp-fields.ts`                                                       |
 | C#         | yes   | yes           | `src/windows/Maple.WinUI/Services/Xmp/XmpParser.cs`, `XmpWriter.cs`, `XmpSidecarDocument.cs`                                                                                              |
@@ -190,9 +190,9 @@ The schema's single source of truth is `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/
 | `crs:LensProfileChromaticAberrationScale` | `lensCorrectionCa`                   | 0 – 100                           | 100                   |
 | `crs:LensProfileVignettingScale`          | `lensCorrectionVignetting`           | 0 – 100                           | 100                   |
 
-Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, `Magenta` for all four eight-band groups. Crop, culling, metadata and the point tone curves have their own sections below.
+Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, `Magenta` for all four eight-band groups. Crop, culling, metadata, the point tone curves and local adjustments have their own sections below.
 
-Two `papp:` keys are read by `raw-core` alone and are unmodelled everywhere else, so they survive a Swift/TypeScript/C# read-modify-write through passthrough rather than through the model: `papp:LocalAdjustments` (an array of `{mask, adjustments}` objects as compact JSON — linear and radial mask shapes, normalized `[0,1]` coordinates; `raw-core/src/types/local_adjustment/wire.rs`) and `papp:InpaintRemovals` (an array of baked-removal records — region, patch content hash, model id, bake grade; the patch pixels live out of band in `.maple/inpaint/`; `raw-core/src/types/inpaint.rs`). Both use _tolerant_ readers: an element this build does not recognise is skipped so a sidecar from a newer build still opens, while a recognised shape with a corrupt field fails loudly.
+One `papp:` key is read by `raw-core` alone and is unmodelled everywhere else, so it survives a Swift/TypeScript/C# read-modify-write through passthrough rather than through the model: `papp:InpaintRemovals` (an array of baked-removal records — region, patch content hash, model id, bake grade; the patch pixels live out of band in `.maple/inpaint/`; `raw-core/src/types/inpaint.rs`). It uses a _tolerant_ reader: an element this build does not recognise is skipped so a sidecar from a newer build still opens, while a recognised shape with a corrupt field fails loudly. Local adjustments used to be the second member of this pair (`papp:LocalAdjustments`, a compact-JSON attribute); #358 moved it onto a canonical, nested-element wire form — see "Local adjustments" below.
 
 ## Enum fields and parse strictness
 
@@ -269,6 +269,54 @@ Two independent mechanisms, both PV2012-shaped.
 Coordinates are stored on the model in `[0, 1]` and written in PV2012's `[0, 255]` wire domain, rescaled at the serializer boundary and passed through the same two-decimal number codec. (Windows is the exception: `AdjustmentState` stores curve points already in the wire domain, so its writer skips the rescale.) **Identity is silence** — an identity curve is the empty point list and emits no element at all, not an empty `rdf:Seq`, so an unedited sidecar keeps the bytes it had before point curves existed. A malformed `rdf:li` is dropped rather than failing the parse. Readers match `rdf:li` on its local name so a sidecar that binds RDF to a different prefix still parses.
 
 Maple's curves are `papp:`, **not** Adobe's `crs:ToneCurvePV2012*`, because they are different quantities: Maple applies these pre-view-transform in scene-linear light, while a PV2012 curve was authored against Lightroom's display transform and only means anything after one. Reading a Lightroom curve into these fields would apply a display-referred shape to scene-linear data. `crs:ToneCurvePV2012*` is therefore deliberately never parsed — it rides the passthrough bucket and re-emits verbatim.
+
+## Local adjustments
+
+Masked, per-region edits (linear "gradient" and radial "circular gradient" masks; #280/#358) are the one field the schema table above deliberately excludes — `local_adjustments` is a `Vec<LocalAdjustment>` with its own nested shape, not a flat attribute, and the schema-drift test in `types/adjustment/schema/tests.rs` allow-lists it for exactly that reason.
+
+**Wire form is the canonical Adobe Camera Raw shape**, not a Maple-private one, so a Maple-authored sidecar opens with its masked edits intact in Lightroom/ACR and vice versa: `crs:GradientBasedCorrections` (linear) and `crs:CircularGradientBasedCorrections` (radial), each an `rdf:Seq` of `rdf:li` → `rdf:Description` "corrections" carrying the slider values, with one nested `crs:CorrectionMasks > rdf:Seq > rdf:li` holding the mask geometry:
+
+```xml
+<crs:GradientBasedCorrections>
+  <rdf:Seq>
+    <rdf:li>
+      <rdf:Description
+        crs:What="Correction"
+        crs:CorrectionAmount="1"
+        crs:CorrectionActive="True"
+        crs:LocalExposure2012="0.5"
+        crs:LocalContrast2012="10">
+        <crs:CorrectionMasks>
+          <rdf:Seq>
+            <rdf:li
+              crs:What="Mask/Gradient"
+              crs:MaskValue="1"
+              crs:ZeroX="0.2" crs:ZeroY="0.3"
+              crs:FullX="0.8" crs:FullY="0.7"
+              papp:LocalFeather="0.5"/>
+          </rdf:Seq>
+        </crs:CorrectionMasks>
+      </rdf:Description>
+    </rdf:li>
+  </rdf:Seq>
+</crs:GradientBasedCorrections>
+```
+
+`crs:What="Correction"`, `crs:CorrectionAmount="1"` and `crs:CorrectionActive="True"` are Adobe bookkeeping attributes, written unconditionally and ignored on read (same role as the top-level `crs:Version`/`crs:HasSettings` trio).
+
+**Slider mapping.** Every `PartialAdjustments` field has a direct Adobe key (`crs:Local{Exposure,Contrast,Highlights,Shadows,Whites,Blacks}2012`, `crs:LocalSaturation`, `crs:Local{Temperature,Tint}`) except `vibrance`: Adobe's local-correction struct has no vibrance control, only saturation, so it rides Maple's own `papp:LocalVibrance` — the same "papp: for what Adobe has no equivalent for" rule the top-level schema follows. Only fields actually set (`Some`) are written; an absent key reads back as `None`, not zero.
+
+**Mask geometry.** A linear mask's `start`/`end` map directly onto Adobe's `ZeroX/ZeroY` (0%-effect line) → `FullX/FullY` (100%-effect line). Adobe's linear mask carries no separate feather magnitude — the Zero→Full distance _is_ its transition — so Maple's `feather` (independent of the endpoints) rides `papp:LocalFeather`; a foreign gradient without that attribute defaults to `0.5`. A radial mask maps onto Adobe's bounding-box form: `crs:Top/Left/Bottom/Right` = `center ± radii`, `crs:Angle` in degrees, `crs:Feather` 0–100, `crs:Flipped` = `invert`. Adobe's `crs:Roundness` (ellipse-vs-rounded-rect blend) and `crs:Midpoint` (where the falloff begins) have no Maple equivalent: the writer fixes them at `"0"` (pure ellipse) and `"50"` (Adobe's own default) and the reader ignores both — a foreign radial mask with non-zero roundness imports as the nearest ellipse. `crs:MaskValue="1"` and `crs:What` (`Mask/Gradient` or `Mask/CircularGradient`) are the other Adobe bookkeeping attributes on the mask `rdf:li`.
+
+**Cross-type order.** Adobe's schema keeps linear and radial corrections in two separate top-level arrays, so a document with layers interleaved in the model (linear, radial, linear, …) round-trips through the wire form as two contiguous runs — all `GradientBasedCorrections` layers, then all `CircularGradientBasedCorrections` — rather than preserving the original interleaving. No UI writes this format yet, so nothing observes the reordering today.
+
+**Tolerant reader**, matching the JSON-era contract this format replaces: a `crs:CorrectionMasks` entry whose `crs:What` isn't `Mask/Gradient` or `Mask/CircularGradient` (a brush, range, or AI mask — none of which Maple models) drops that one correction rather than failing the whole subtree or the parse. A _recognized_ mask or correction with a non-numeric value on a known attribute is a hard parse error, matching every other numeric key in the schema.
+
+**Migration.** Slice 1 of #280 shipped a stop-gap wire format: a single `papp:LocalAdjustments` attribute holding compact JSON (`raw-core/src/types/local_adjustment/wire.rs`). #358 replaced the write side with the canonical nested form above; the JSON attribute is still _read_ — so a hand-authored pre-#358 fixture still loads — but no writer emits it anymore. If a document somehow carries both (a hand-edited fixture; never Maple's own output), **the canonical nested form wins**: `raw_core::xmp::parse` applies the legacy attribute first, wherever it appears in document order, then overwrites `model.local_adjustments` with whatever the canonical-form walker collected, provided that walker found at least one layer.
+
+**Modeled only in Rust, today.** Like `papp:InpaintRemovals`, no UI exists yet on Apple or Web for local adjustments, so `XMPSerializer` (Swift) and `XmpSerializerService` (TypeScript) do not model `crs:GradientBasedCorrections`/`crs:CircularGradientBasedCorrections` as first-class fields — they carry the whole subtree through the generic unknown-child-element passthrough (§ "Passthrough", bucket 2) unchanged, the same mechanism that already preserves Lightroom's `crs:MaskGroupBasedCorrections`. `raw_core::xmp::parse` is the only reader that turns the elements into a model, because it's the only consumer that needs to (rendering the masked pixels). C# does not model it either, for the same reason.
+
+Implementation: `raw-core/src/xmp/local_adjustments.rs` (`LocalAdjustmentsWalker`, `serialize_local_adjustments`).
 
 ## Crop fields
 
@@ -350,7 +398,7 @@ Windows is held to a weaker but honest bar: `AdjustmentState` is a structural su
 
 | Platform   | Test files                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Rust       | `src/raw-pipeline/raw-core/src/xmp/tests.rs`, `tests_detail.rs`, `tests_effects.rs`, `tests_lens.rs`, `tests_metadata.rs`, `tests_modes.rs`, `tests_payloads.rs`, `tests_profile.rs`, `tests_tone_curves.rs`, `tests_wb_scale.rs`; schema drift in `types/adjustment/schema/tests.rs`                                                                                                                                                      |
+| Rust       | `src/raw-pipeline/raw-core/src/xmp/tests.rs`, `tests_detail.rs`, `tests_effects.rs`, `tests_lens.rs`, `tests_local_adjustments.rs`, `tests_metadata.rs`, `tests_modes.rs`, `tests_payloads.rs`, `tests_profile.rs`, `tests_tone_curves.rs`, `tests_wb_scale.rs`; schema drift in `types/adjustment/schema/tests.rs`                                                                                                                                                      |
 | Swift      | `XMPCanonicalFormatTests.swift`, `XMPPassthroughTests.swift`, `XMPSerializationTests.swift`, `ToneCurveXMPTests.swift`, `XMPCullFlagTests.swift`, `XMPMetadataTests.swift`, `XMPSerializationBlackWhiteTests.swift`, `XMPSerializationAutoExposureTests.swift`, `XMPSerializationStageKnobTests.swift`, `ColorGradingXMPTests.swift`, `FilmLookXMPTests.swift`, plus the adapter contract suite seeded from `SidecarContractSupport.swift` |
 | TypeScript | `xmp-canonical.spec.ts`, `xmp-fields.spec.ts`, `point-tone-curve.spec.ts`, `parametric-tone-curve.spec.ts`, `enum-modes.spec.ts`, `wb-scale-version.spec.ts`, `wb-dng-temperature.spec.ts`, `wb-as-shot-gate.spec.ts`, `black-white.spec.ts`, `color-grading.spec.ts`, `film-look.spec.ts`, `lens-correction.spec.ts`, `s5-effects.spec.ts`, `keywords.spec.ts`, `xmp-metadata*.spec.ts`, `sidecar.store.spec.ts`                          |
 | C#         | `XmpCanonicalEnvelopeTests.cs`, `XmpNumberFormatTests.cs`, `XmpRoundTripTests.cs`, `XmpPassthroughTests.cs`, `XmpParserLegacyLayoutTests.cs`, `XmpWbScaleVersionTests.cs`, `SidecarStoreRoundTripTests.cs`, `SidecarCorpusRoundTripTests.cs`                                                                                                                                                                                               |
