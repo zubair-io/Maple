@@ -59,7 +59,9 @@ afterEach(() => {
  * a route's own logic (there is none in these five, but belt-and-suspenders)
  * doesn't produce a false pass. */
 function warnedAboutExactMirror(): boolean {
-  return warnCalls.some((args) => args.some((a) => String(a).includes('exactMirror')));
+  return warnCalls.some((args) =>
+    args.some((a) => String(a).toLowerCase().includes('exactmirror')),
+  );
 }
 
 // A minimal stand-in route exercising ONLY the schema, not the real
