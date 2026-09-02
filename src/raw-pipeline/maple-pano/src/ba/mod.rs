@@ -529,34 +529,39 @@ fn place_low_texture_orphans(
         .collect();
     let gauge_rotation = init::align_gauge_to_priors(&mut solved_rotations, priors);
 
+    // `align_gauge_to_priors` returns `g` such that `g · solved ≈ prior`
+    // (it fits and left-multiplies the SOLVED rotations to match the
+    // priors). Placing an orphan needs the inverse map — prior frame
+    // into the solve's world frame — which for a rotation matrix is the
+    // transpose. Matched once, outside the loop: "every orphan placed"
+    // vs "every orphan still dropped" is a single gauge-wide decision,
+    // not a per-frame one.
+    let Some(g) = gauge_rotation else {
+        dropped.extend(orphans_with_prior.iter().map(|&index| DroppedFrame {
+            index,
+            reason: DropReason::Disconnected,
+        }));
+        return;
+    };
     for &index in orphans_with_prior {
         let prior = images[index]
             .prior_rotation
             .expect("orphans_with_prior is pre-filtered to Some(prior_rotation)");
-        match gauge_rotation {
-            Some(g) => {
-                // `align_gauge_to_priors` returns `g` such that
-                // `g · solved ≈ prior` (it fits and left-multiplies the
-                // SOLVED rotations to match the priors). Placing an
-                // orphan needs the inverse map — prior frame into the
-                // solve's world frame — which for a rotation matrix is
-                // the transpose (Copilot review).
-                let world_rotation = g.transpose().mul_mat(&prior);
-                let img = &images[index].camera;
-                solution.cameras[index] = Some(Camera::new(
-                    matrix_to_axis_angle(&world_rotation),
-                    solution.shared_focal_px,
-                    solution.k1,
-                    solution.k2,
-                    img.width,
-                    img.height,
-                ));
-                solution.placed_by_prior.push(index);
-            }
-            None => dropped.push(DroppedFrame {
-                index,
-                reason: DropReason::Disconnected,
-            }),
-        }
+        let world_rotation = g.transpose().mul_mat(&prior);
+        let img = &images[index].camera;
+        solution.cameras[index] = Some(Camera::new(
+            matrix_to_axis_angle(&world_rotation),
+            solution.shared_focal_px,
+            solution.k1,
+            solution.k2,
+            img.width,
+            img.height,
+        ));
+        solution.placed_by_prior.push(index);
     }
+    // `orphans_with_prior` is a subset of `graph.orphans`, which is
+    // built ascending — preserved through `.partition()` — but sort
+    // explicitly rather than lean on that upstream ordering, matching
+    // the doc'd "sorted global frame indices" invariant.
+    solution.placed_by_prior.sort_unstable();
 }
