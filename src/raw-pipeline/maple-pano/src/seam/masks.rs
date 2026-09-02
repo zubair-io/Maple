@@ -141,6 +141,14 @@ pub fn build_from_paths(
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
 ) -> Result<SeamMasks, PanoError> {
+    if paths.len() != cameras.len() || paths.len() != gains.len() {
+        return Err(PanoError::InvalidOptions(format!(
+            "seam::masks::build_from_paths: {} paths, {} cameras, {} gains",
+            paths.len(),
+            cameras.len(),
+            gains.len(),
+        )));
+    }
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let mut layers = Vec::with_capacity(paths.len());
     for (i, (path, cam)) in paths.iter().zip(cameras).enumerate() {
@@ -163,6 +171,16 @@ pub fn build_from_frames(
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
 ) -> SeamMasks {
+    assert_eq!(
+        frames.len(),
+        cameras.len(),
+        "seam::masks::build_from_frames: frame/camera count mismatch"
+    );
+    assert_eq!(
+        frames.len(),
+        gains.len(),
+        "seam::masks::build_from_frames: frame/gain count mismatch"
+    );
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let layers: Vec<PlanarImage> = frames
         .iter()
