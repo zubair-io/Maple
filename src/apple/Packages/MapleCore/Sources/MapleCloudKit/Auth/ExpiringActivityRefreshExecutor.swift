@@ -108,19 +108,41 @@ final class ExpiringActivityResultBox: @unchecked Sendable {
   private let lock = NSLock()
   private var continuation: CheckedContinuation<AuthTokens, Error>?
   private var task: Task<Void, Never>?
+  /// Set once `resolve` has consumed the continuation. Guards `adopt`
+  /// against the race where `handleExpired()` (from a same-lifecycle,
+  /// different-thread "expired" invocation) resolves as declined BEFORE
+  /// the non-expired invocation reaches `adopt(_:)` — without this, the
+  /// late-arriving task would be stored and left running uncancelled, its
+  /// own eventual `resolve` silently swallowed as a no-op, which is exactly
+  /// the "operation keeps running without being cancellable" failure this
+  /// whole type exists to prevent (Copilot review, #3226). Mirrors
+  /// `BackgroundExecutionLease.adopt(_:)`'s identical guard.
+  private var settled = false
 
   init(continuation: CheckedContinuation<AuthTokens, Error>) {
     self.continuation = continuation
   }
 
+  /// Adopting after the box has already settled must not happen — cancel
+  /// immediately rather than storing a task nothing will ever cancel again.
   func adopt(_ task: Task<Void, Never>) {
     lock.lock()
+    guard !settled else {
+      lock.unlock()
+      task.cancel()
+      return
+    }
     self.task = task
     lock.unlock()
   }
 
   func resolve(_ result: Result<AuthTokens, Error>) {
     lock.lock()
+    guard !settled else {
+      lock.unlock()
+      return
+    }
+    settled = true
     let pending = continuation
     continuation = nil
     lock.unlock()
