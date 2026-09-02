@@ -131,9 +131,21 @@ extension AppShell {
     /// `isSearchActive` flip) to `activateSearch(server:libraryID:params:)`
     /// (#2886) — this function's only job is resolving the map's own
     /// account-wide (no libraryID) server and seeding the params.
+    ///
+    /// On iPhone this seeds the production Search tab instead (#3163) —
+    /// same reasoning as the widget deep link
+    /// (`AppShell+DeepLink.swift.navigateToSearch`): the mac/iPad overlay
+    /// this function otherwise activates is a second, duplicated search UI
+    /// on the phone, which already has `PhoneSearchTab`.
     func selectMapPlace(_ target: MapPlaceSearchTarget) {
         guard let mapVM else { return }
         let params = target.searchParams(seededFrom: mapVM.filter)
+        #if os(iOS)
+        if MapleShellKind.current == .phoneTab {
+            switchToPhoneSearchTab(seeding: params, libraryID: nil)
+            return
+        }
+        #endif
         activateSearch(server: mapVM.server, libraryID: nil, params: params)
         Task { await searchVM?.submit() }
     }

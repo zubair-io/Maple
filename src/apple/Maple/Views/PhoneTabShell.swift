@@ -105,10 +105,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// account / sign-in required / connecting) instead of falling through
     /// to the shared `browseVM`'s grid.
     let mapUnavailableReason: MapUnavailableReason?
-    let isSearchActive: Bool
-    let searchVM: SearchViewModel?
-    let searchThumbClient: CloudThumbClient?
-    let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
@@ -119,10 +115,18 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     var sessionFor: @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver
 
     /// iPhone Search tab (S7): resolved-account key, session factory, and
-    /// result-tap resolver. Distinct from the desktop overlay's `searchVM`.
+    /// result-tap resolver. This tab owns its own `SearchViewModel`
+    /// (`PhoneSearchSession.vm`) — there is no separate desktop-style
+    /// overlay VM on iPhone (#3163).
     let phoneSearchServerKey: String?
     let makePhoneSearchSession: () async -> PhoneSearchSession?
     let resolveSearchAsset: (SearchAsset, URL) -> ResolvedCloudAsset
+    /// A widget/URL deep-link or Map pin tap's `SearchParams`, waiting to be
+    /// applied to the Search tab's account-wide session (#3163). Owned by
+    /// `AppShell` (`switchToPhoneSearchTab(seeding:)` sets it AND flips
+    /// `activeTab` via `UserDefaults`); forwarded to `PhoneSearchTab`, which
+    /// applies it once its session is ready and clears it after submitting.
+    @Binding var pendingSearchSeed: SearchParams?
 
     let sidebar: () -> SidebarContent
     let toolbarContent: () -> ToolbarContentT
@@ -141,7 +145,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// Forwarded to the Library tab's `AppShellCenterColumn` call site
     /// (#2886) — mirrors `AppShellMacLayout`'s identically-named property.
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
-    let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> AssetRef?
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -211,10 +214,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     mapThumbClient: mapThumbClient,
                     mapThumbCache: mapThumbCache,
                     mapUnavailableReason: mapUnavailableReason,
-                    isSearchActive: isSearchActive,
-                    searchVM: searchVM,
-                    searchThumbClient: searchThumbClient,
-                    searchThumbCache: searchThumbCache,
                     browseDisplayMode: $browseDisplayMode,
                     browseVM: browseVM,
                     sessions: $sessions,
@@ -240,7 +239,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     },
                     cloudPreviewSource: cloudPreviewSource,
                     onSelectMapPlace: onSelectMapPlace,
-                    onCloseSearch: onCloseSearch,
                     // Merged-PhotoKit (local-only) timeline cells: same S5
                     // push as cloud assets (#809).
                     onSelectLocalAsset: { ref in
@@ -279,6 +277,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                 PhoneSearchTab(
                     sessions: $sessions,
                     query: $searchQuery,
+                    pendingSeed: $pendingSearchSeed,
                     serverKey: phoneSearchServerKey,
                     makeSession: makePhoneSearchSession,
                     resolveAsset: resolveSearchAsset

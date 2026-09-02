@@ -70,10 +70,6 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// to `AppShellCenterColumn`'s `MapEmptyState`. `nil` whenever `mapVM`
     /// is set or `.map` isn't selected; see `AppShell.mapUnavailableReason`.
     let mapUnavailableReason: MapUnavailableReason?
-    let isSearchActive: Bool
-    let searchVM: SearchViewModel?
-    let searchThumbClient: CloudThumbClient?
-    let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
@@ -86,10 +82,10 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     // Center-column callbacks — all forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
     /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
-    /// the resolved target (a place name, or the has-GPS scope fallback).
+    /// the resolved target (a place name, or the has-GPS scope fallback);
+    /// on iPhone this seeds the Search tab rather than the mac/iPad overlay
+    /// (#3163) — see `AppShell+Map.swift.selectMapPlace`.
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
-    /// Dismiss the cloud search UI.
-    let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -136,17 +132,23 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
             mapUnavailableReason: mapUnavailableReason,
-            isSearchActive: isSearchActive,
-            searchVM: searchVM,
-            searchThumbClient: searchThumbClient,
-            searchThumbCache: searchThumbCache,
+            // The iPhone shell never shows the mac/iPad search overlay
+            // (#3163) — its search surface is the Search tab
+            // (`PhoneSearchTab`, wired one level up in `PhoneTabShell`).
+            isSearchActive: false,
+            searchVM: nil,
+            searchThumbClient: nil,
+            searchThumbCache: nil,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
             previewTransitionNamespace: previewTransitionNamespace,
             onSelectCloudAsset: onSelectCloudAsset,
             onSelectMapPlace: onSelectMapPlace,
-            onCloseSearch: onCloseSearch,
+            // `isSearchActive` is always false above, so `CloudSearchView`
+            // never mounts here and never calls this — required by
+            // `AppShellCenterColumn`'s init but otherwise dead on iPhone.
+            onCloseSearch: {},
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,
