@@ -28,9 +28,12 @@ import Observation
 final class TVMemoryAssetsViewModel {
   private(set) var assets: [SearchAsset]
   private(set) var isLoadingMore: Bool = false
-  /// Set when the server returns an empty page before `total` is reached —
-  /// see `loadMore()`. Stops the grid asking again.
+  /// Set when a page adds nothing new — see `loadMore()`. Stops the grid
+  /// asking again.
   private var exhausted: Bool = false
+  /// Ids already held, so a page that re-sends rows we have can be recognised
+  /// and dropped. See `loadMore()` for why that happens at all.
+  private var seenIDs: Set<String>
 
   /// Size of the whole collection, from the server. `assets.count` catches up
   /// to it one page at a time.
@@ -49,6 +52,7 @@ final class TVMemoryAssetsViewModel {
   ) {
     self.collectionID = collectionID
     self.assets = firstPage
+    self.seenIDs = Set(firstPage.map(\.id))
     // A server that reported fewer rows than it actually sent would otherwise
     // leave `canLoadMore` permanently false-negative; trust the larger of the
     // two so the grid never claims to hold more than it shows.
@@ -76,14 +80,23 @@ final class TVMemoryAssetsViewModel {
       offset: offset
     ) else { return }
     guard g == generation else { return }
-    // An empty page means the collection shrank under us (the query is
-    // re-derived server-side on every call). Appending nothing and leaving
-    // `canLoadMore` true would spin `onAppear` forever, so clamp the target
-    // to what we actually hold.
-    guard !page.results.isEmpty else {
+    // Drop anything already held, then stop if that leaves nothing.
+    //
+    // Two different situations land here. The collection can genuinely shrink
+    // under us — the stored query is re-derived server-side on every call —
+    // which returns a short or empty page. And a server predating this
+    // endpoint's `offset` support ignores the parameter and answers every
+    // request with the same first page; without this guard the grid would
+    // append that page over and over, showing the same photos repeating for
+    // as long as you scrolled. Either way the honest response is to stop
+    // rather than to keep asking, so `exhausted` ends the paging and the grid
+    // holds what it actually has.
+    let fresh = page.results.filter { !seenIDs.contains($0.id) }
+    guard !fresh.isEmpty else {
       exhausted = true
       return
     }
-    assets.append(contentsOf: page.results)
+    seenIDs.formUnion(fresh.map(\.id))
+    assets.append(contentsOf: fresh)
   }
 }
