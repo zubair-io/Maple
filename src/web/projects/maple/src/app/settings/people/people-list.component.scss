@@ -1,0 +1,70 @@
+// `::ng-deep` residue moved out of `people.component.scss` (#2140): both
+// rules below style elements that live only in this component's own
+// template now, and Angular's per-component style encapsulation scopes
+// `::ng-deep` to the component that owns the stylesheet — a rule declared
+// in the parent's file would no longer match these elements once they
+// moved here.
+
+// `.card-delete` is the class on the list card's "Hide" `<mui-button>` host
+// now — the real button is inside its own template, hence `::ng-deep`.
+.card-delete ::ng-deep button.mui-button {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  color: var(--s-text-dim);
+  padding: 0;
+}
+.card-delete ::ng-deep button.mui-button:hover {
+  color: var(--s-err);
+}
+
+// `.bulk-btn` is applied both to a `<label>` (the "Merge into…"
+// overlay-select trigger — unaffected by the mui migration) and to
+// `<mui-button class="bulk-btn">` (the other toolbar action). Both must
+// render identically, so the shared declarations stay together. This is
+// the SAME rule as `people.component.scss`'s copy — that one still styles
+// the detail view's per-face bulk toolbar, which uses the identical class
+// name; Angular's style encapsulation means each component needs its own
+// copy rather than one shared source.
+.bulk-btn {
+  position: relative; // anchor for the overlay <select>
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: transparent;
+  border: none;
+  color: var(--s-text);
+  font-family: var(--s-font);
+  font-size: 12.5px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--s-surface2);
+  }
+  &.mute {
+    color: var(--s-text-muted);
+  }
+
+  ::ng-deep button.mui-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 5px;
+    background: transparent;
+    border: none;
+    color: var(--s-text);
+    font-family: var(--s-font);
+    font-size: 12.5px;
+
+    &:hover:not(:disabled) {
+      background: var(--s-surface2);
+    }
+  }
+
+  &.mute ::ng-deep button.mui-button {
+    color: var(--s-text-muted);
+  }
+}

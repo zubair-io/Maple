@@ -1,0 +1,273 @@
+<!-- Flex column so the header stays fixed and the virtual-scroll
+     viewport owns the remaining height (and its own scroll). -->
+<div class="people-list-view flex flex-col h-full min-h-0">
+  <header class="set-page-header">
+    <div class="titles">
+      <h1>People</h1>
+      <p>
+        Face clusters from the face worker. Name a cluster to merge new faces into it automatically;
+        un-named clusters keep accreting until you do.
+      </p>
+    </div>
+    <div class="actions">
+      @if (bulk().selectMode()) {
+        <mui-button
+          variant="ghost"
+          size="sm"
+          (pressed)="bulk().exitSelectMode()"
+          ariaLabel="Exit selection mode"
+        >
+          Done
+        </mui-button>
+      } @else {
+        <mui-button
+          variant="ghost"
+          size="sm"
+          (pressed)="bulk().enterSelectMode()"
+          ariaLabel="Select people for bulk actions"
+        >
+          Select
+        </mui-button>
+      }
+      <a
+        class="nav-link set-ghost-pill no-underline hover:bg-white/[0.03]"
+        routerLink="/settings/people/hidden"
+        >Hidden</a
+      >
+      <a
+        class="nav-link set-ghost-pill no-underline hover:bg-white/[0.03]"
+        routerLink="/settings/people/excluded"
+        >Excluded</a
+      >
+      <a
+        class="nav-link set-ghost-pill no-underline hover:bg-white/[0.03]"
+        routerLink="/settings/workers"
+        >Worker settings</a
+      >
+      <mui-button
+        variant="primary"
+        size="sm"
+        [loading]="clusteringBusy()"
+        (pressed)="runClustering.emit()"
+      >
+        <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
+        Run clustering
+      </mui-button>
+    </div>
+  </header>
+
+  <div class="people-body py-6 px-9 flex-1 min-h-0 flex flex-col max-[767px]:p-4">
+    @if (hasPeople()) {
+      <div
+        class="stats-line font-[var(--s-mono)] text-[11px] text-[var(--s-text-muted)] mb-4.5 tracking-[0.1px] flex items-center justify-between gap-3 flex-wrap"
+      >
+        <span>
+          {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
+          {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
+        </span>
+        <span class="small-cluster-toggle flex items-center gap-1.5">
+          <mui-checkbox
+            [checked]="hideSmallClusters()"
+            (checkedChange)="hideSmallClusters.set($event)"
+            [label]="'Hide clusters under ' + smallClusterMin + ' faces'"
+          />
+          @if (hideSmallClusters() && hiddenSmallCount() > 0) {
+            <span class="small-cluster-count text-[var(--s-text-dim)]"
+              >{{ hiddenSmallCount() | number }} hidden</span
+            >
+          }
+        </span>
+      </div>
+    }
+
+    @if (!hasPeople()) {
+      <div
+        class="empty-card border border-dashed border-[var(--s-border)] bg-[var(--s-surface)] rounded-lg p-9 text-center [&>h3]:m-0 [&>h3]:mb-2 [&>h3]:text-[15px] [&>h3]:font-semibold [&>h3]:text-[var(--s-text)] [&>p]:m-0 [&>p]:text-[13px] [&>p]:text-[var(--s-text-muted)] [&_a]:text-[var(--s-accent)] [&_a]:no-underline [&_a:hover]:underline"
+      >
+        <h3>No people yet.</h3>
+        <p>
+          Run clustering to group detected faces. Faces come from the face worker — make sure it's
+          enabled under
+          <a routerLink="/settings/workers">Worker settings</a>.
+        </p>
+      </div>
+    } @else if (visiblePeople().length === 0) {
+      <!-- Every cluster fell under the toggle's floor. Say so instead of
+           rendering an empty grid with no explanation. -->
+      <div
+        class="empty-card border border-dashed border-[var(--s-border)] bg-[var(--s-surface)] rounded-lg p-9 text-center [&>h3]:m-0 [&>h3]:mb-2 [&>h3]:text-[15px] [&>h3]:font-semibold [&>h3]:text-[var(--s-text)] [&>p]:m-0 [&>p]:text-[13px] [&>p]:text-[var(--s-text-muted)] [&_a]:text-[var(--s-accent)] [&_a]:no-underline [&_a:hover]:underline"
+      >
+        <h3>
+          All {{ hiddenSmallCount() | number }} clusters are under {{ smallClusterMin }} faces.
+        </h3>
+        <p>Untick “Hide clusters under {{ smallClusterMin }} faces” above to see them.</p>
+      </div>
+    } @else {
+      <!-- Virtual-scroll list: only the visible rows are in the DOM. Sorted
+         people are packed into fixed-height rows of `gridColumns()` cards;
+         the viewport windows the rows by the computed `rowHeight()`. The
+         (mapleVisibleOnce) cover-lazy-load fires per card as rows mount. -->
+      <cdk-virtual-scroll-viewport
+        #peopleScrollContent
+        class="people-viewport flex-1 min-h-0 w-full"
+        [itemSize]="rowHeight()"
+        minBufferPx="600"
+        maxBufferPx="1200"
+      >
+        <div
+          *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
+          class="people-row flex items-stretch"
+          [style.gap.px]="gridGap"
+          [style.margin-bottom.px]="gridGap"
+        >
+          @for (p of row; track p.id) {
+            <article
+              class="person-card bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] rounded-md overflow-hidden cursor-pointer transition-[border-color,transform] duration-[120ms] no-underline hover:border-[var(--s-border-hi)] hover:outline-none focus-visible:border-[var(--s-border-hi)] focus-visible:outline-none [&.is-selected]:outline-2 [&.is-selected]:outline-[var(--s-accent)] [&.is-selected]:outline-offset-2 [&.is-selected]:rounded-lg"
+              [class.is-selected]="bulk().selectMode() && bulk().isPersonSelected(p.id)"
+              [style.width.px]="cardWidth()"
+              (click)="
+                bulk().selectMode() ? bulk().togglePersonSelection(p.id) : selectPerson.emit(p.id)
+              "
+              (mapleVisibleOnce)="ensureCoverThumb()(p)"
+              tabindex="0"
+              role="button"
+              [attr.aria-pressed]="bulk().selectMode() ? bulk().isPersonSelected(p.id) : null"
+              [attr.aria-label]="bulk().selectMode() ? 'Select ' + p.name : null"
+              (keydown.enter)="
+                bulk().selectMode() ? bulk().togglePersonSelection(p.id) : selectPerson.emit(p.id);
+                $event.preventDefault()
+              "
+              (keydown.space)="
+                bulk().selectMode() ? bulk().togglePersonSelection(p.id) : selectPerson.emit(p.id);
+                $event.preventDefault()
+              "
+            >
+              <div
+                class="person-thumb relative aspect-square bg-[var(--s-surface2)] flex items-center justify-center overflow-hidden [&>img]:absolute [&>img]:left-0 [&>img]:top-0 [&>img]:w-full [&>img]:h-full [&>img]:object-cover [&>img]:block [&_.cover-fill]:inset-0"
+              >
+                @if (bulk().selectMode()) {
+                  <span
+                    class="select-check absolute w-5 h-5 rounded-full bg-[rgba(13,12,11,0.55)] border-[1.5px] border-white flex items-center justify-center backdrop-blur-[4px] top-1.5 left-1.5 [&.is-selected]:bg-[var(--s-accent)] [&.is-selected]:border-[var(--s-accent)]"
+                    [class.is-selected]="bulk().isPersonSelected(p.id)"
+                  >
+                    @if (bulk().isPersonSelected(p.id)) {
+                      <maple-settings-icon
+                        name="check"
+                        [size]="12"
+                        color="#ffffff"
+                        [stroke]="2.4"
+                      />
+                    }
+                  </span>
+                }
+                @if (p.hasMergeSuggestion) {
+                  <span
+                    class="merge-suggestion-badge absolute w-5 h-5 rounded-full bg-[rgba(13,12,11,0.55)] border-[1.5px] border-white flex items-center justify-center backdrop-blur-[4px] top-1.5 right-1.5"
+                    role="img"
+                    title="Possible duplicate"
+                    aria-label="Possible duplicate"
+                  >
+                    <maple-settings-icon name="merge" [size]="11" color="#ffffff" />
+                  </span>
+                }
+                @if (coverThumbUrl()(p); as url) {
+                  @if (p.coverBbox; as bbox) {
+                    <img
+                      [src]="url"
+                      [style.transform]="crop().transform(bbox, url)"
+                      style="transform-origin: 0 0"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      (load)="crop().onImgLoad(url, $event)"
+                    />
+                  } @else {
+                    <img class="cover-fill" [src]="url" alt="" loading="lazy" decoding="async" />
+                  }
+                } @else {
+                  <span class="person-thumb-fallback text-[28px] text-[var(--s-text-dim)]">{{
+                    p.name.slice(0, 1).toUpperCase()
+                  }}</span>
+                }
+              </div>
+              <div class="person-meta py-2.5 px-3">
+                <div
+                  class="person-name text-[13px] font-medium text-[var(--s-text)] overflow-hidden text-ellipsis whitespace-nowrap [&.is-auto-named]:text-[var(--s-text-mid)] [&.is-auto-named]:font-normal"
+                  [class.is-auto-named]="isAutoName(p.name)"
+                >
+                  {{ p.name }}
+                </div>
+                <div class="person-stats flex justify-between items-center mt-1">
+                  <span
+                    class="person-faces font-[var(--s-mono)] text-[11px] text-[var(--s-text-muted)]"
+                    >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
+                  >
+                  @if (!bulk().selectMode()) {
+                    <mui-button
+                      variant="ghost"
+                      class="card-delete"
+                      [title]="'Hide ' + p.name"
+                      (pressed)="$event.stopPropagation(); hidePersonRequested.emit(p)"
+                    >
+                      Hide
+                    </mui-button>
+                  }
+                </div>
+              </div>
+            </article>
+          }
+        </div>
+      </cdk-virtual-scroll-viewport>
+    }
+  </div>
+
+  @if (bulk().selectMode() && bulk().selectedPeople().size > 0) {
+    <div
+      class="bulk-toolbar-wrap fixed left-[var(--s-sidebar-width)] right-0 bottom-6 flex justify-center pointer-events-none z-10 max-[767px]:bottom-[calc(12px+var(--safe-area-inset-bottom,0px))]"
+    >
+      <div
+        class="bulk-toolbar pointer-events-auto flex items-center gap-1 py-2 px-2.5 bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border-hi)] rounded-[10px] shadow-[0_12px_32px_rgba(0,0,0,0.5)] max-w-[calc(100%-24px)] flex-wrap"
+      >
+        <span
+          class="bulk-count font-[var(--s-font)] text-[12.5px] text-[var(--s-text)] font-medium pr-2.5 pl-1.5 whitespace-nowrap"
+          >{{ bulk().selectedPeople().size }} selected</span
+        >
+        <div class="bulk-sep w-[0.5px] h-4.5 bg-[var(--s-border)]"></div>
+
+        <label class="bulk-btn">
+          <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
+          <span>Merge into…</span>
+          <select
+            class="bulk-select absolute inset-0 w-full h-full opacity-0 cursor-pointer font-[inherit] text-[inherit]"
+            [disabled]="bulk().peopleBulkBusy() > 0 || bulk().mergeTargetsList().length === 0"
+            aria-label="Merge selected people into"
+            (change)="
+              bulk().mergeSelectedInto($any($event.target).value); $any($event.target).value = ''
+            "
+          >
+            <option value="">…</option>
+            @for (t of bulk().mergeTargetsList(); track t.id) {
+              <option [value]="t.id">{{ t.name }}</option>
+            }
+          </select>
+        </label>
+
+        <mui-button
+          variant="ghost"
+          class="bulk-btn"
+          [disabled]="bulk().peopleBulkBusy() > 0"
+          ariaLabel="Hide selected people"
+          (pressed)="bulk().hideSelectedPeople()"
+        >
+          <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
+          Hide
+        </mui-button>
+        <div class="bulk-sep w-[0.5px] h-4.5 bg-[var(--s-border)]"></div>
+        <mui-button variant="ghost" class="bulk-btn mute" (pressed)="bulk().exitSelectMode()">
+          <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
+          Cancel
+        </mui-button>
+      </div>
+    </div>
+  }
+</div>
