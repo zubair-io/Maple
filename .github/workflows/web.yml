@@ -304,9 +304,16 @@ jobs:
   #     `MAPLE_PERF=1` un-skips it below.
   # Both specs already skip-pass on their own (existsSync fixture guard, in
   # the same style as the shell harnesses) rather than needing a probe step
-  # here — `test-fixtures/raws/test_0006.DNG` is gitignored, so this job is a
-  # clean no-op on a stock runner until fixtures are provisioned, same as
-  # raw-pipeline.yml's color-pipeline job.
+  # here — `test-fixtures/raws/test_0006.DNG` is gitignored, so on a stock
+  # runner the two SPECS report skipped. Unlike raw-pipeline.yml's
+  # color-pipeline job, which probes for fixtures before provisioning any
+  # toolchain and exits in seconds on a miss, this job pays the full setup
+  # cost (Rust/wasm-pack, the raw-wasm build, the Chromium install) every
+  # run regardless of fixtures — the skip only saves the e2e run itself. That
+  # is the deliberate trade for reusing the existing dev-server specs as-is
+  # rather than adding a fixture-probe step ahead of the WASM toolchain this
+  # job needs either way (web-build/web-test/web-test-common already pay the
+  # same cost unconditionally).
   #
   # Non-required for now (see raw-pipeline.yml's raw-gpu-metal job for the
   # same reasoning) — `continue-on-error` is the mechanism, since this repo
@@ -315,7 +322,11 @@ jobs:
     name: web-webgpu-smoke (raw-open + slider-tick-render in headless Chrome)
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 15
+    # At least as generous as web-test/web-test-common (20m), which pay the
+    # same toolchain + WASM-build cost this job does, plus this job's own
+    # Chromium install + e2e run on top — 15m under-budgeted that (Copilot
+    # review on this PR).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
