@@ -1119,8 +1119,17 @@ struct AppShell: View {
             photosAuthGeneration: photosAuthGeneration,
             onAddSMB: { showSMBSheet = true },
             onPickSMB: { share in connectSavedSMB(share) },
-            onCreateSMBFolder: { share, name in
-                createSMBFolder(name: name, share: share)
+            onCreateSMBFolder: { share, parentPath, name in
+                createSMBFolder(name: name, share: share, parentPath: parentPath)
+            },
+            onRenameSMBFolder: { share, path, newName in
+                renameSMBFolder(path, to: newName, share: share)
+            },
+            onTrashSMBFolder: { share, path in
+                trashSMBFolder(path, share: share)
+            },
+            onListSMBDir: { share, path in
+                await listSMBSubdirectories(share: share, path: path)
             },
             onAddCloudServer: { addCloudSheetTarget = .fresh },
             onPickCloudLibrary: { serverID, folderID, libraryPath in
