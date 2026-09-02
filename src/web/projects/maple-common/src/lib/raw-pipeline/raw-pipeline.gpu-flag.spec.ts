@@ -54,6 +54,8 @@ function replyOnePixel(stub: WorkerStub, id: number): void {
     rgb: rgb.buffer,
     asShotTemperature: 5500,
     asShotTint: 0,
+    hasLensCorrections: false,
+    lensCorrectionCaInert: true,
   } satisfies DecodeSuccess);
 }
 

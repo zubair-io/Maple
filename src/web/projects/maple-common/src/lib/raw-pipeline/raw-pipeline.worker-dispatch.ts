@@ -55,6 +55,8 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       rgb: new Uint8Array(msg.rgb),
       asShotTemperature: msg.asShotTemperature,
       asShotTint: msg.asShotTint,
+      hasLensCorrections: msg.hasLensCorrections, // #3182
+      lensCorrectionCaInert: msg.lensCorrectionCaInert,
     });
     return true;
   }
@@ -94,6 +96,8 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       nativeHeight: msg.nativeHeight,
       asShotTemperature: msg.asShotTemperature,
       asShotTint: msg.asShotTint,
+      hasLensCorrections: msg.hasLensCorrections, // #3182
+      lensCorrectionCaInert: msg.lensCorrectionCaInert,
       colorSpace: msg.colorSpace,
       scopePixels: scopeToDecoded(msg.scope),
     });

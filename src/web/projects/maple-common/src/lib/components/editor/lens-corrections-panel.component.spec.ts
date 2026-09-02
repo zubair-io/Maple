@@ -15,12 +15,21 @@ import { signal } from '@angular/core';
 import { LensCorrectionsPanelComponent } from './lens-corrections-panel.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import type { LensCorrectionCapability } from '../../state/library-store-lens-corrections';
 
 const ASSET_ID = 'local-asset-1';
 
 class FakeLibraryStateService {
   focusedAssetId = signal<string | undefined>(ASSET_ID);
   private readonly models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
+  // #3182 — default every asset to "capable" (has corrections, CA live) so
+  // every test written before this ticket keeps exercising the sliders
+  // exactly as before; the dedicated describe block below overrides this
+  // per-asset via `seedLensCorrections` to exercise the disabled states.
+  private readonly capabilities = new Map<
+    string,
+    ReturnType<typeof signal<LensCorrectionCapability>>
+  >();
 
   private modelFor(id: string) {
     const existing = this.models.get(id);
@@ -30,10 +39,27 @@ class FakeLibraryStateService {
     return created;
   }
 
+  private capsFor(id: string) {
+    const existing = this.capabilities.get(id);
+    if (existing) return existing;
+    const created = signal<LensCorrectionCapability>({
+      hasLensCorrections: true,
+      lensCorrectionCaInert: false,
+    });
+    this.capabilities.set(id, created);
+    return created;
+  }
+
   adjustmentFor = vi.fn((id: string) => this.modelFor(id));
 
   updateAdjustment = vi.fn((id: string, patch: Partial<AdjustmentModel>) => {
     this.modelFor(id).update((m) => ({ ...m, ...patch }));
+  });
+
+  lensCorrectionsFor = vi.fn((id: string) => this.capsFor(id));
+
+  seedLensCorrections = vi.fn((id: string, hasLensCorrections: boolean, caInert: boolean) => {
+    this.capsFor(id).set({ hasLensCorrections, lensCorrectionCaInert: caInert });
   });
 }
 
@@ -111,5 +137,84 @@ describe('LensCorrectionsPanelComponent', () => {
     const { component, library } = makeFixture();
     component.onCaReset();
     expect(library.updateAdjustment).toHaveBeenCalledWith(ASSET_ID, { lensCorrectionCa: 100 });
+  });
+});
+
+// #3182 — mirrors Apple's LensCorrectionsSection gate: the whole panel
+// disables when the RAW has no OpcodeList3 at all; the CA slider ALSO
+// disables on its own, independent of the whole-panel gate, when the RAW
+// has corrections but its WarpRectilinear opcode has no per-plane CA data.
+describe('LensCorrectionsPanelComponent — lens-correction capability gate (#3182)', () => {
+  it('disables the whole panel (toggle + all three sliders) when the RAW has no OpcodeList3', () => {
+    const { fixture, component, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, false, true);
+    fixture.detectChanges();
+
+    expect(component.panelDisabled()).toBe(true);
+    expect(component.caDisabled()).toBe(true);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="lens-corrections-toggle"]')).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(el.querySelector('[data-testid="lens-corrections-panel"]')?.className).toContain(
+      'opacity-[0.45]',
+    );
+  });
+
+  it('toggleEnabled is a no-op while the panel is disabled', () => {
+    const { component, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, false, true);
+    component.toggleEnabled();
+    expect(library.updateAdjustment).not.toHaveBeenCalled();
+  });
+
+  it('greys ONLY the CA slider when corrections exist but the CA scale is inert', () => {
+    const { fixture, component, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, true, true);
+    fixture.detectChanges();
+
+    expect(component.panelDisabled()).toBe(false);
+    expect(component.caInertOnly()).toBe(true);
+    expect(component.caDisabled()).toBe(true);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="lens-corrections-toggle"]')).toHaveProperty(
+      'disabled',
+      false,
+    );
+    expect(el.querySelector('[data-testid="lens-corrections-ca-wrap"]')?.className).toContain(
+      'opacity-[0.45]',
+    );
+  });
+
+  it('leaves everything interactive when corrections exist and CA is live', () => {
+    const { fixture, component, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, true, false);
+    fixture.detectChanges();
+
+    expect(component.panelDisabled()).toBe(false);
+    expect(component.caDisabled()).toBe(false);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="lens-corrections-panel"]')?.className).not.toContain(
+      'opacity-[0.45]',
+    );
+    expect(el.querySelector('[data-testid="lens-corrections-ca-wrap"]')?.className).not.toContain(
+      'opacity-[0.45]',
+    );
+  });
+
+  it('does not double-dim the CA slider when the whole panel is already disabled', () => {
+    // hasLensCorrections: false already implies lensCorrectionCaInert: true
+    // (see raw-core's own contract) — the CA wrap must NOT ALSO apply its
+    // own opacity class in that case, since the panel-level opacity already
+    // covers it (multiplying two 0.45 opacities would over-dim).
+    const { fixture, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, false, true);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="lens-corrections-ca-wrap"]')?.className).not.toContain(
+      'opacity-[0.45]',
+    );
   });
 });

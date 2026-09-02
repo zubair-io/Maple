@@ -69,6 +69,8 @@ describe('RawPipelineService — performance-mark deadlock guard (#1123)', () =>
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
 
     // Before the fix, this hangs forever — the throw inside the un-guarded
@@ -99,6 +101,8 @@ describe('RawPipelineService — performance-mark deadlock guard (#1123)', () =>
       rgb: new Uint8Array(3).fill(0x11).buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await p1;
 
@@ -116,6 +120,8 @@ describe('RawPipelineService — performance-mark deadlock guard (#1123)', () =>
       rgb: new Uint8Array(3).fill(0x22).buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await p2;
   });

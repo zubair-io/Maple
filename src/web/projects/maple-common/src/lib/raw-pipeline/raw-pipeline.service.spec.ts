@@ -67,6 +67,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     };
     workerStub.reply(reply);
 
@@ -101,6 +103,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await promise;
   });
@@ -124,6 +128,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await promise;
   });
@@ -167,6 +173,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await promise;
   });
@@ -190,6 +198,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await promise;
   });
@@ -218,6 +228,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await promise;
 
@@ -250,6 +262,8 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       rgb: new Uint8Array(3).fill(0x50).buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
     await secondPromise;
   });
@@ -373,6 +387,8 @@ describe('RawPipelineService — non-RAW browser-native decode (#784, #3039)', (
       rgb: rgb.buffer,
       asShotTemperature: 6500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     };
     workerStub.reply(reply);
 
@@ -406,6 +422,8 @@ describe('RawPipelineService — non-RAW browser-native decode (#784, #3039)', (
       rgb: rgb.buffer,
       asShotTemperature: 6500,
       asShotTint: 0,
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
     } satisfies DecodeSuccess);
 
     const decoded = await promise;

@@ -85,6 +85,21 @@ export interface DecodeSuccess {
   asShotTemperature: number;
   /** Camera "As Shot" tint in slider units (-150..150 — ACR's crs:Tint span, #1870). */
   asShotTint: number;
+  /**
+   * Whether this RAW carries a DNG `OpcodeList3` (#3182 — mirrors Apple's
+   * `EditSession.hasLensCorrections`/`MapleRender.has_lens_corrections`).
+   * `false` for every non-DNG RAW and for a `develop-non-raw` reply.
+   * Disables the Lens Corrections panel when `false`.
+   */
+  hasLensCorrections: boolean;
+  /**
+   * Whether the CA slider is a structural no-op for this RAW — `true` when
+   * there's no `WarpRectilinear` opcode, or every one carries a single
+   * (not per-plane) coefficient set. Mirrors Apple's
+   * `EditSession.lensCorrectionCaInert`. Meaningless (defaults `true`)
+   * whenever `hasLensCorrections` is `false`.
+   */
+  lensCorrectionCaInert: boolean;
 }
 
 export interface DecodeError {
@@ -235,6 +250,12 @@ export interface OpenSessionSuccess {
   nativeHeight: number;
   asShotTemperature: number;
   asShotTint: number;
+  /** See `DecodeSuccess.hasLensCorrections` (#3182) — same decode-time fact,
+   *  read off the session's retained `RawImage` (never changes across
+   *  re-develops within the session's lifetime). */
+  hasLensCorrections: boolean;
+  /** See `DecodeSuccess.lensCorrectionCaInert` (#3182). */
+  lensCorrectionCaInert: boolean;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
   /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
@@ -463,6 +484,12 @@ export interface DecodedImage {
    */
   nativeWidth?: number;
   nativeHeight?: number;
+  /**
+   * See `DecodeSuccess.hasLensCorrections`/`lensCorrectionCaInert` (#3182).
+   * Optional for the same back-compat reason as `nativeWidth` above.
+   */
+  hasLensCorrections?: boolean;
+  lensCorrectionCaInert?: boolean;
 }
 
 export interface DecodeSceneLinearRequest {
