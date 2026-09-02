@@ -191,6 +191,47 @@ jobs:
   # (naga's MSL output, Apple driver rounding) or a browser's real WebGPU
   # implementation. Those keep running on real hardware — Metal locally and via
   # the Apple UITest harness. Tracked in #2315.
+  #
+  # #2336 root cause and fix: `cargo test -p raw-gpu` intermittently SIGSEGV'd
+  # the WHOLE test binary (not a single test failure) on this lavapipe adapter.
+  # Investigation of 7 real CI failures (all on `main`, 2026-09-02) found every
+  # one identical: same crash signature, same test-binary hash across different
+  # commits (proving the source diff under test is not the cause — see #2336's
+  # own #2484 control), and the SAME three tests always mid-flight
+  # ("has been running for over 60 seconds") at the moment of the crash:
+  # `present_chain::tests::offscreen_present_matches_cpu_render_within_1_lsb`,
+  # `present_chain::tests::offscreen_present_row_alignment_misaligned_width`,
+  # `present_chain::tests::present_paints_the_image_not_the_clear_color`
+  # (src/raw-pipeline/raw-gpu/src/present_chain/tests.rs).
+  #
+  # `present_chain.rs` is the ONLY file in this crate that creates a
+  # `wgpu::Texture` and does `copy_texture_to_buffer` (every other one of the
+  # ~200 `raw-gpu` tests is compute-only: a storage buffer in, a storage buffer
+  # read back, no render-target texture, no format-conversion blit). Under
+  # `cargo test`'s default parallelism (one thread per logical CPU — 4 on a
+  # `ubuntu-latest` runner), those texture-creating tests run concurrently with
+  # every other test's own from-scratch `GpuContext::new_blocking()` (a fresh
+  # wgpu Instance+Adapter+Device per test — 190+ of them across the binary).
+  # llvmpipe/lavapipe's software rasterizer is not validated for concurrent
+  # multi-context creation/teardown from independent OS threads in one process;
+  # the texture render-target + row-padded readback path is measurably heavier
+  # than a plain buffer dispatch, which is exactly why these three tests are
+  # consistently still running when a sibling thread's context churn corrupts
+  # process state — a race in Mesa's shared software-rasterizer state, not a
+  # defect in the WGSL kernels or the Rust bounds/stride math (reviewed: the
+  # readback unpad loop is bounds-safe, `padded_bpr` always rounds `width*4` up
+  # to `COPY_BYTES_PER_ROW_ALIGNMENT` before the buffer is sized).
+  #
+  # The fix: serialise this binary's tests (`--test-threads=1`) so no two
+  # `GpuContext`s are ever alive-and-churning on the software rasterizer at
+  # once. This keeps every test and every assertion running (no coverage lost,
+  # unlike skipping the three tests) and removes the concurrency dimension the
+  # crash requires. Homebrew's macOS `mesa` formula does not build the Vulkan
+  # `lvp`/swrast driver lavapipe needs (Linux-only in Mesa's own build matrix;
+  # verified via `brew cat mesa` — no vulkan/lvp/swrast driver entries, and
+  # there is no separate `mesa-vulkan-drivers` formula), so this could not be
+  # reproduced locally on this Mac; the diagnosis above is from the CI log
+  # evidence and a source review of `present_chain.rs`, not a local repro.
   raw-gpu:
     name: raw-gpu (gpu build + WGSL validate + raw-core↔GPU parity)
     runs-on: ubuntu-latest
@@ -252,9 +293,14 @@ jobs:
       # 4. The parity gate proper. raw-gpu first: its ~180 tests hard-`.expect()`
       #    a context, so if the adapter ever disappears this step is the loud
       #    failure that stops the job before anything downstream can soft-pass.
+      # --test-threads=1 (#2336): serialised, not a retry band-aid — see the
+      # job-level comment above for the root-cause evidence. Concurrent
+      # GpuContext creation/teardown across this binary's 190+ tests is what
+      # crashes lavapipe; running them one at a time removes that dimension
+      # while keeping every test (and its assertions) in the gate.
       - name: cargo test -p raw-gpu (raw-core↔WGSL parity)
         working-directory: src/raw-pipeline
-        run: cargo test -p raw-gpu
+        run: cargo test -p raw-gpu -- --test-threads=1
       - name: cargo test -p raw-wasm --features gpu (render_bytes_gpu↔CPU parity)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-wasm --features gpu
