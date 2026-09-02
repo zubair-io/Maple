@@ -103,6 +103,13 @@ pub(super) fn stripped_prefix_model(
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        // Display-referred point curves (#2232) — display-tail like grain /
+        // color_grade, entirely inside the GPU chain (post-AgX); pin so
+        // dragging a display-curve control can't spuriously re-develop.
+        display_tone_curve_luma: Default::default(),
+        display_tone_curve_red: Default::default(),
+        display_tone_curve_green: Default::default(),
+        display_tone_curve_blue: Default::default(),
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.
@@ -304,5 +311,13 @@ pub(super) fn build_full_chain_inputs(
         film_lut_size: film_lut.map(|l| l.size as u32).unwrap_or(0),
         film_lut_key: if film_lut.is_some() { film_lut_key } else { 0 },
         film_lut_data: film_lut.map(|l| l.data.clone()).unwrap_or_default(),
+        // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
+        // same flat-point shape as `tone_curves` above.
+        display_tone_curves: raw_gpu::DisplayToneCurveInputs {
+            master: model.display_tone_curve_luma.points.clone(),
+            red: model.display_tone_curve_red.points.clone(),
+            green: model.display_tone_curve_green.points.clone(),
+            blue: model.display_tone_curve_blue.points.clone(),
+        },
     }
 }
