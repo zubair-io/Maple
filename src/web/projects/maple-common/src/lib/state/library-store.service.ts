@@ -51,6 +51,7 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 import { rekeyAssetId } from './library-store-rename';
+import { AssetDimensionBatcher } from './library-store-dimensions';
 import { parseAddress } from '../addressing/maple-address';
 import type { XmpCulling } from '../xmp/xmp.types';
 
@@ -198,10 +199,13 @@ export class LibraryStore {
 
   // ── Asset mutations ────────────────────────────────────────────────────────
 
+  /** Coalesced behind one `assets.update()` per animation frame — see
+   * `library-store-dimensions.ts` for why (#2521: the Hosted browse grid
+   * decodes N thumbnails and was re-packing every row N times). */
+  private readonly dimensionBatcher = new AssetDimensionBatcher(this.assets);
+
   updateAssetDimensions(id: AssetId, width: number, height: number): void {
-    this.assets.update((list) =>
-      list.map((a) => (a.id === id ? { ...a, width, height, aspectRatio: width / height } : a)),
-    );
+    this.dimensionBatcher.update(id, width, height);
   }
 
   /** Repoint an asset from `oldId` to `newId` after a successful rename
