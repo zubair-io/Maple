@@ -1418,8 +1418,22 @@ extension PipelineRenderer {
         params.bw_mix_blue     = Float(model.grayMixerBlue)
         params.bw_mix_purple   = Float(model.grayMixerPurple)
         params.bw_mix_magenta  = Float(model.grayMixerMagenta)
-        // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
-        // Phase 2 (#1338) will set this from the user-facing settings toggle.
+        // Target display primaries (#1337): stays hardcoded sRGB (0) on the
+        // CPU chain — DELIBERATELY not wired to `CanvasColorSpace` (#1338).
+        // `apply_scene_linear_chain` only runs `display_encode` inline when
+        // target_primaries != Srgb; at Srgb it stops at DisplayLinearRec2020
+        // and leaves the encode to the SEPARATE `encodeDisplaySRGBViaFFI` /
+        // `PipelineRenderer.encodeDisplaySRGB` call below, which always
+        // treats its input as Rec2020 and always produces an sRGB output —
+        // it has no target_primaries parameter of its own. Flipping this
+        // field to P3 would make THIS call already primaries-convert to P3,
+        // and the sibling call would then wrongly re-interpret that P3
+        // buffer as Rec2020 and re-convert it — a double-transform, not a
+        // toggle. Wiring the CPU path (`CanvasImageView`'s backdrop/fallback
+        // render) needs a P3-aware sibling for `encodeDisplaySRGBViaFFI`
+        // first; out of scope here — the GPU-live path (default-on,
+        // `GpuLiveParams.makeGpuLiveParams`) is the one #1338 wires. Tracked
+        // as a follow-up: #3190.
         params.target_primaries = 0
         // Input shape (#1331): the CPU chain (MapleAdjustmentParams) uses `input_shape`
         // only for the WB-identity collapse; the AgX skip is `skip_agx`, not this field.
