@@ -60,6 +60,7 @@
 //! [`DropReason::Disconnected`] (consuming [`MatchGraph::orphans`] —
 //! "stitch the largest component and report the orphans").
 
+pub mod focal;
 pub mod init;
 pub mod linalg;
 

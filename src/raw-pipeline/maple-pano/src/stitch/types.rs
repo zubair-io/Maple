@@ -13,6 +13,8 @@ use crate::ingest::{FramePriors, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::strategy::StrategyReport;
 
+use super::focal_bootstrap::FocalSeedSource;
+
 // ─── Input options ───────────────────────────────────────────────────────────
 
 /// All tunable parameters for a single stitch run. Callers construct this
@@ -107,6 +109,9 @@ pub struct StitchOutcome {
     pub local_corrections: Vec<Option<LocalCorrection>>,
     /// Strategy-selection outcome (evidence + selection + optional warning).
     pub strategy_report: StrategyReport,
+    /// Which source produced the shared camera focal seed — EXIF, or the
+    /// homography self-calibration fallback (spec §5.3, ticket #1214).
+    pub focal_seed_source: FocalSeedSource,
     /// Decoded input frames (applied_opcodes survives frame consumption).
     pub applied_opcodes: Vec<Vec<String>>,
     /// Per-frame EXIF/gimbal priors (needed for CLI report).
@@ -140,6 +145,11 @@ pub struct TileStitchOutcome {
     pub tile_report: crate::tile::TileCompositeReport,
     /// Strategy-selection outcome (evidence + selection + optional warning).
     pub strategy_report: StrategyReport,
+    /// Which source produced the shared camera focal seed — EXIF, or the
+    /// homography self-calibration fallback (spec §5.3, ticket #1214).
+    /// `None` only for the standalone [`super::stitch_tile`] entry point,
+    /// which never resolves a real per-frame focal (always unit-focal).
+    pub focal_seed_source: Option<FocalSeedSource>,
     /// Per-frame opcode lists (needed for CLI report).
     pub applied_opcodes: Vec<Vec<String>>,
     /// Per-frame EXIF/gimbal priors (needed for CLI report).
@@ -217,8 +227,11 @@ pub enum StitchError {
         survived: usize,
         dropped: Vec<ba::DroppedFrame>,
     },
-    /// No EXIF 35mm focal length available for seeding the camera model.
-    NoFocal { path: PathBuf },
+    /// Neither EXIF nor the homography self-calibration fallback could
+    /// seed a shared camera focal length: no frame carried a usable
+    /// EXIF value, and the assumed-FOV bootstrap match graph produced
+    /// no usable homography focal estimate (spec §5.3, ticket #1214).
+    NoFocalSeed,
     /// The BA solution produced a degenerate geometry that would require an
     /// impossibly large canvas to represent (e.g. near-parallel / translational
     /// camera set forced through the rotation path). The guard fires before any
@@ -257,10 +270,10 @@ impl std::fmt::Display for StitchError {
                 f,
                 "only {survived} frame(s) survived BA (drops: {dropped:?})"
             ),
-            Self::NoFocal { path } => write!(
+            Self::NoFocalSeed => write!(
                 f,
-                "{}: no EXIF 35mm focal length — cannot seed camera model",
-                path.display()
+                "no EXIF focal length on any frame, and the assumed-FOV bootstrap match \
+                 graph produced no usable homography focal estimate — cannot seed camera model"
             ),
             Self::DegenerateGeometry(msg) => {
                 write!(f, "degenerate rotation geometry: {msg}")

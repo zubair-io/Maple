@@ -29,6 +29,9 @@ pub(super) struct ReportContext<'a> {
     /// (CLI `--retention` / `--local-align`), for report auditability.
     pub retention: &'static str,
     pub local_align: &'static str,
+    /// Which source produced the shared camera focal seed — EXIF, or
+    /// the homography self-calibration fallback (spec §5.3, #1214).
+    pub focal_seed_source: &'static str,
     pub comp_report: &'a CompositeReport,
     /// Stage timings, serialized in array order.
     pub timings_s: [(&'static str, f64); 8],
@@ -92,6 +95,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "retention": ctx.retention,
         "local_align": ctx.local_align,
+        "focal_seed_source": ctx.focal_seed_source,
         "applied_opcodes": ctx.applied_opcodes,
         "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
             "axis_angle": c.axis_angle,
@@ -202,6 +206,11 @@ pub(super) struct TileReportContext<'a> {
     /// Parallel to the rotation path's `dropped_images`; empty on a
     /// fully-connected tile set.
     pub tile_orphans: &'a [usize],
+    /// Which source produced the shared camera focal seed — EXIF, or
+    /// the homography self-calibration fallback (spec §5.3, #1214).
+    /// `None` only when the outcome came from the standalone
+    /// `stitch_tile` entry point, which never resolves one (unit focal).
+    pub focal_seed_source: Option<&'static str>,
     /// Stage timings, serialized in array order.
     pub timings_s: [(&'static str, f64); 8],
 }
@@ -269,6 +278,7 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "applied_opcodes": ctx.applied_opcodes,
+        "focal_seed_source": ctx.focal_seed_source,
         // Tile strategy orphans — frames disconnected from the anchor
         // component. Empty for a fully-connected set (the normal case).
         // The harness gates dropped_frames=0 via this field.

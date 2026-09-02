@@ -74,6 +74,11 @@ pub(super) struct TileEarlyState<'a> {
     pub graph: MatchGraph,
     /// Strategy-selection report (evidence + selected strategy + warning).
     pub strategy_report: StrategyReport,
+    /// Which source produced the shared camera focal seed. `None` only
+    /// for the standalone [`stitch_tile`] entry point, which never
+    /// resolves a real per-frame focal (always unit-focal — see
+    /// `run_tile_branch`'s doc comment).
+    pub focal_seed_source: Option<super::FocalSeedSource>,
     /// Wall-clock times for stages 0, 1, 2 (seconds).
     pub stage_timings_012: [f64; 3],
     /// Path list parallel to `frames` (for the stitch report).
@@ -100,6 +105,11 @@ pub(super) struct TileBranchInput<'a> {
     pub feature_sets: Vec<FeatureSet>,
     /// Strategy report (evidence + selected strategy + warning).
     pub strategy_report: StrategyReport,
+    /// Which source produced the shared camera focal seed — EXIF, or the
+    /// homography self-calibration fallback (spec §5.3, ticket #1214).
+    /// Computed in `stitch()` before strategy selection, so it's known
+    /// regardless of which strategy ultimately ran.
+    pub focal_seed_source: super::FocalSeedSource,
     /// Stage 0–2 wall-clock timings (decode, features, match_graph).
     pub stage_timings_012: [f64; 3],
     /// Per-frame opcode lists from stage 0.
@@ -129,6 +139,7 @@ pub(super) fn run_tile_branch(
         proxy_dims,
         feature_sets,
         strategy_report,
+        focal_seed_source,
         stage_timings_012,
         applied_opcodes,
         priors,
@@ -228,6 +239,7 @@ pub(super) fn run_tile_branch(
             _feature_sets: feature_sets,
             graph: tile_graph,
             strategy_report,
+            focal_seed_source: Some(focal_seed_source),
             stage_timings_012,
             _inputs: inputs,
         },
@@ -265,6 +277,7 @@ pub(super) fn tile_tail(
         _feature_sets: _,
         mut graph,
         strategy_report,
+        focal_seed_source,
         stage_timings_012: [decode_s, features_s, graph_s],
         _inputs: _,
     } = state;
@@ -401,6 +414,7 @@ pub(super) fn tile_tail(
         image,
         tile_report,
         strategy_report,
+        focal_seed_source,
         applied_opcodes,
         priors,
         refined_matches,
