@@ -300,12 +300,16 @@ fn gpu_live_matches_cpu_scene_linear_chain_across_models() {
 fn nonraw_shape_gpu_live_matches_cpu_chain_with_skip_agx() {
     let (w, h) = DIMS;
     let input = scene_linear_rgba(w as usize, h as usize);
-    // Colour-grade / grain are LEFT OUT deliberately: for a non-RAW shape the
-    // GPU chain still runs them (they are gated only on their own sliders,
-    // not on `is_raw_shape`) while the CPU chain skips them with AgX, because
-    // `grain::apply` / `color_grade::apply` assert a DisplayLinearRec2020
-    // buffer the skip_agx path never produces. That asymmetry is a stage
-    // colour-space contract, not the tail switch this gate is about; #2478.
+    // Colour-grade / grain are now INCLUDED (#2478 fixed the gap this test
+    // used to pin): for a non-RAW shape the GPU chain always ran them
+    // (gated only on their own sliders, never on `is_raw_shape`), while the
+    // CPU chain used to skip them with AgX because `grain::apply` /
+    // `color_grade::apply` assert a `DisplayLinearRec2020` buffer the
+    // skip_agx path never produced. `apply_scene_linear_chain[_f32]` now
+    // retags the buffer `DisplayLinearRec2020` where AgX would have (no
+    // pixel touched) and runs both stages unconditionally, matching the
+    // GPU. This model exercises that class so a regression back to the old
+    // gating shows up here, not just as a live-vs-refine bug report.
     let model = AdjustmentModel {
         exposure: 0.4,
         brightness: 15.0,
@@ -313,6 +317,9 @@ fn nonraw_shape_gpu_live_matches_cpu_chain_with_skip_agx() {
         vibrance: 35.0,
         saturation: -20.0,
         hue_adjustment_orange: 15.0,
+        color_grade_global_saturation: 25.0,
+        color_grade_global_hue: 200.0,
+        grain_amount: 30.0,
         ..base_model()
     };
 

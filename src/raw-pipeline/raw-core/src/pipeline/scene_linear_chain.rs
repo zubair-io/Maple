@@ -10,8 +10,12 @@
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
 //! `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
-//! `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain` (the AgX
-//! + display tail runs when `skip_agx == false`).
+//! `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain`. `agx` (and
+//! the P3 display-primary conversion after it) run only when `skip_agx ==
+//! false`; `split_tone` (`color_grade`) and `grain` run either way, gated
+//! only on their own sliders, matching the GPU live chain (#2478) — a
+//! non-RAW buffer is already display-referred by that point, so it's
+//! retagged rather than AgX-transformed.
 //!
 //! `sharpen` and `nr_color` were omitted here for as long as the Apple
 //! shell re-applied them post-AgX through its own Metal kernels. Those
@@ -25,7 +29,9 @@ mod composite;
 mod endcaps;
 
 use super::stage;
-use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
+use crate::{
+    error::Result, image::ColorSpace, view::encode::TargetPrimaries, xmp::AdjustmentModel,
+};
 
 /// Per-render options for [`apply_scene_linear_chain`] /
 /// [`apply_scene_linear_chain_f32`] (and their `_with_patches` wrappers) —
@@ -92,8 +98,9 @@ impl Default for ChainOptions<'_> {
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 /// → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
 /// `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
-/// `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain` (AgX + the
-/// display-linear stages skipped together on the non-RAW path).
+/// `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain`. Only `agx`
+/// is skipped on the non-RAW path (see [`ChainOptions::skip_agx`]);
+/// `split_tone` (`color_grade`) and `grain` run either way — #2478.
 ///
 /// `sharpen` and `nr_color` (#1043) are the two spatial stages that used to
 /// be omitted here, because the Apple shell re-applied them post-AgX with
@@ -275,24 +282,38 @@ pub fn apply_scene_linear_chain(
     });
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
-        // Split toning (#1111) — display-linear Oklab tint, post-AgX,
-        // before grain (the canonical render-tail order). Skipped with
-        // AgX on the non-RAW path, like every display-domain stage.
-        stage("ffi_chain_color_grade", || {
-            color_grade::apply_model(&mut img, model)
-        });
-        // Film grain (#1110) — display-linear, post-AgX (same position as
-        // the canonical render tail). Skipped with AgX on the non-RAW path:
-        // the display-domain effects ride the view transform, and the
-        // skip_agx buffer never enters DisplayLinearRec2020.
-        stage("ffi_chain_grain", || {
-            grain::apply(
-                &mut img,
-                model.grain_amount,
-                model.grain_size,
-                model.grain_roughness,
-            )
-        });
+    } else {
+        // Non-RAW input (skip_agx) is already display-referred — a JPEG /
+        // HEIF / pano frame that baked its own tone curve at capture, per
+        // `ChainOptions::skip_agx`'s doc. AgX itself is what normally
+        // retags the buffer `DisplayLinearRec2020` at the end of `apply`;
+        // with AgX skipped, retag it here instead so `color_grade` /
+        // `grain` below see the space their `assert_space` expects. No
+        // pixel touched — this mirrors what the GPU live chain already
+        // treats this buffer as (`raw_gpu::live_chain::build_live_split`'s
+        // comment on `is_raw_shape`) and what `encode_display_srgb_f32`
+        // already re-tags it as on the way to the canvas. #2478
+        img.space = ColorSpace::DisplayLinearRec2020;
+    }
+    // Split toning (#1111) + film grain (#1110) — display-linear, post-AgX
+    // (or post-retag for non-RAW), before grain. Gated ONLY on their own
+    // sliders (each `apply`/`apply_model` short-circuits at its own no-op
+    // threshold), matching the GPU live chain's `ColorGradePass` /
+    // `GrainPass`, which were never gated on `is_raw_shape` either — #2478
+    // closed the resulting live-vs-refine pop where a non-RAW colour grade
+    // or grain slider moved live and vanished on the next CPU refine.
+    stage("ffi_chain_color_grade", || {
+        color_grade::apply_model(&mut img, model)
+    });
+    stage("ffi_chain_grain", || {
+        grain::apply(
+            &mut img,
+            model.grain_amount,
+            model.grain_size,
+            model.grain_roughness,
+        )
+    });
+    if !skip_agx {
         // Display-primary conversion (#1337). Mirrors the GPU chain's
         // `DisplayEncodePass` position (after grain, before sRGB gamma).
         // For `Srgb` (value 0 / the zero-init default) this branch is a
@@ -310,8 +331,12 @@ pub fn apply_scene_linear_chain(
         }
     }
 
-    // Pack the result back to fp16 RGBA. Tag notes:
-    // • skip_agx=true  → SceneLinearRec2020 (unbounded, no display encode)
+    // Pack the result back to fp16 RGBA. Tag notes (the tag itself is
+    // internal bookkeeping for `assert_space` — `pack_fp16` doesn't read
+    // it, so none of this changes the bytes written):
+    // • skip_agx=true  → retagged DisplayLinearRec2020 above; no display
+    //   encode runs (the caller's own encode step re-tags and encodes, see
+    //   `encode_display_srgb_f32`) regardless of `target_primaries`
     // • skip_agx=false, Srgb → DisplayLinearRec2020 (caller handles encode)
     // • skip_agx=false, P3  → DisplayLinearP3 (display encode applied above)
     let fp16 = stage("ffi_chain_pack_fp16", || endcaps::pack_fp16(&img.pixels));
@@ -458,18 +483,24 @@ pub fn apply_scene_linear_chain_f32(
     });
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
-        // Split toning (#1111) + film grain (#1110) — see the fp16 sibling.
-        stage("ffi_chain_color_grade", || {
-            color_grade::apply_model(&mut img, model)
-        });
-        stage("ffi_chain_grain", || {
-            grain::apply(
-                &mut img,
-                model.grain_amount,
-                model.grain_size,
-                model.grain_roughness,
-            )
-        });
+    } else {
+        // Non-RAW retag — see the fp16 sibling for the full rationale. #2478
+        img.space = ColorSpace::DisplayLinearRec2020;
+    }
+    // Split toning (#1111) + film grain (#1110), gated only on their own
+    // sliders for both RAW and non-RAW — see the fp16 sibling. #2478
+    stage("ffi_chain_color_grade", || {
+        color_grade::apply_model(&mut img, model)
+    });
+    stage("ffi_chain_grain", || {
+        grain::apply(
+            &mut img,
+            model.grain_amount,
+            model.grain_size,
+            model.grain_roughness,
+        )
+    });
+    if !skip_agx {
         // Display-primary conversion (#1337) — see the fp16 sibling for the
         // full rationale. `Srgb` is a no-op; `P3` applies rec2020_to_display.
         if target_primaries != TargetPrimaries::Srgb {
