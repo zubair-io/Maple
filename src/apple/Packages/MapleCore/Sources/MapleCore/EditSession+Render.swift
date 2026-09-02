@@ -236,7 +236,8 @@ extension EditSession {
                 let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
                 if await presentViaGpuLive(
                     decoded: gpuCached, targetSize: gpuTarget, gen: gen,
-                    decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop
+                    decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
+                    noiseProfile: cachedNoiseProfile, iso: cachedISO
                 ) {
                     isRendering = false
                     return
@@ -348,16 +349,20 @@ extension EditSession {
                 // #1617: crop the decoded buffer before the GPU readback (as the
                 // cached branch) so cropped frames present on the GPU too.
                 let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded, nativeSize: cropNativeSize) : decoded
+                // Read early (before the GPU present attempt below, #2342) —
+                // both branches need the pair, and `presentViaGpuLive`
+                // forwards it to `driver.open` on an actual (re-)open.
+                let freshNoiseProfile = freshSnapshot.noiseProfile
+                let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
                 if await presentViaGpuLive(
                     decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
-                    decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop
+                    decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
+                    noiseProfile: freshNoiseProfile, iso: freshISO
                 ) {
                     isRendering = false
                     return
                 }
                 let freshDecodedAtModel = freshSnapshot.decodedAtModel
-                let freshNoiseProfile = freshSnapshot.noiseProfile
-                let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
                 let freshAsShot = wbDeltaAnchor
                 // GPU present declined the frame — fetch (and cache) the CPU-path
                 // Auto Profile LUT now, immediately before the fallback filter
