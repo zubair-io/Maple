@@ -3,16 +3,7 @@
   (submit)="onSubmit($event)"
   role="search"
 >
-  <svg
-    class="shrink-0 text-text-muted"
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    aria-hidden="true"
-  >
-    <circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6" />
-    <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-  </svg>
+  <maple-icon name="search-glass" [size]="16" class="shrink-0 text-text-muted" />
   @for (chip of chips(); track chip.kind + ':' + chip.label) {
     <span
       class="inline-flex h-6 max-w-[180px] shrink-0 items-center gap-[5px] rounded-full border border-border bg-surface-alt py-0 pr-1 pl-2 font-['Lato',sans-serif] text-[11px] leading-none font-semibold text-text-main"
@@ -21,36 +12,7 @@
       [attr.title]="chipTitle(chip)"
       data-testid="search-active-chip"
     >
-      <svg
-        class="shrink-0 text-text-muted"
-        width="12"
-        height="12"
-        viewBox="0 0 12 12"
-        aria-hidden="true"
-      >
-        @switch (chipIcon(chip)) {
-          @case ('event') {
-            <rect x="1.5" y="2" width="9" height="8.5" rx="1" fill="none" stroke="currentColor" />
-            <path d="M1.5 4.5h9M4 1v2M8 1v2" stroke="currentColor" />
-          }
-          @case ('person') {
-            <circle cx="6" cy="4" r="2.2" fill="none" stroke="currentColor" />
-            <path
-              d="M1.8 10.5c.6-2.2 2.3-3.2 4.2-3.2s3.6 1 4.2 3.2"
-              fill="none"
-              stroke="currentColor"
-            />
-          }
-          @case ('place') {
-            <path
-              d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
-              fill="none"
-              stroke="currentColor"
-            />
-            <circle cx="6" cy="4.6" r="1.2" fill="currentColor" />
-          }
-        }
-      </svg>
+      <maple-icon [name]="chipIcon(chip)" [size]="12" class="shrink-0 text-text-muted" />
       <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ chip.label }}</span>
       @if (chip.removable !== false) {
         <button
@@ -60,14 +22,7 @@
           [attr.data-testid]="'search-chip-remove-' + chip.label"
           (click)="chipRemove.emit(chip)"
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <path
-              d="M2.5 2.5l5 5M7.5 2.5l-5 5"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
+          <maple-icon name="search-chip-remove" [size]="10" />
         </button>
       }
     </span>
@@ -104,14 +59,7 @@
       data-testid="search-clear"
       (click)="onClearClick()"
     >
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-        <path
-          d="M3.5 3.5l7 7M10.5 3.5l-7 7"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-      </svg>
+      <maple-icon name="search-close" [size]="14" />
     </button>
   }
   <button
@@ -121,14 +69,7 @@
     data-testid="search-filters"
     (click)="filtersTap.emit()"
   >
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M2 4.5h12M4.5 8h7M6.5 11.5h3"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-      />
-    </svg>
+    <maple-icon name="search-sliders" [size]="16" />
     <span class="hidden md:inline">Filters</span>
     @if (filterCount() > 0) {
       <span

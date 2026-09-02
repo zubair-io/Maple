@@ -38,15 +38,7 @@
           data-testid="source-picker-drawer-close"
           (click)="onClose()"
         >
-          <!-- Inline X glyph; no icon dep needed for a single button. -->
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <path
-              d="M3 3l10 10M13 3L3 13"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-            />
-          </svg>
+          <maple-icon name="drawer-close" [size]="16" />
         </button>
       </div>
 
@@ -59,21 +51,7 @@
           <!-- Chevron is a stub for v0.1 — Maple-instance switcher is out
                of scope. Rendered to match the HTML mockup so the visual is
                complete; tap is a no-op. -->
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 11 11"
-            class="shrink-0 text-text-muted"
-            aria-hidden="true"
-          >
-            <path
-              d="M2 4l3.5 3.5L9 4"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              fill="none"
-            />
-          </svg>
+          <maple-icon name="drawer-chevron-stub" [size]="11" class="shrink-0 text-text-muted" />
         </div>
       }
 
@@ -96,15 +74,7 @@
       [hidden]="!showSearch()"
       (click)="onSearchPillTap()"
     >
-      <svg width="14" height="14" viewBox="0 0 14 14" class="shrink-0" aria-hidden="true">
-        <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" fill="none" />
-        <path
-          d="M9.5 9.5L12.5 12.5"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-        />
-      </svg>
+      <maple-icon name="drawer-search" [size]="14" class="shrink-0" />
       <span>Search photos</span>
     </button>
 

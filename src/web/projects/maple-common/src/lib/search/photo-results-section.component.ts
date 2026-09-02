@@ -23,10 +23,12 @@ import {
   output,
 } from '@angular/core';
 import { SearchResult } from '../api/search.service';
+import { MapleIconComponent } from '../icons/maple-icon.component';
 
 @Component({
   selector: 'app-photo-results-section',
   standalone: true,
+  imports: [MapleIconComponent],
   templateUrl: './photo-results-section.component.html',
   host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,

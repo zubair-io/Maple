@@ -36,11 +36,12 @@ import {
 } from '@angular/core';
 
 import { SidebarEntry } from '../../models/folder';
+import { MapleIconComponent } from '../../icons/maple-icon.component';
 
 @Component({
   selector: 'app-source-picker-drawer',
   standalone: true,
-  imports: [],
+  imports: [MapleIconComponent],
   templateUrl: './source-picker-drawer.component.html',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
