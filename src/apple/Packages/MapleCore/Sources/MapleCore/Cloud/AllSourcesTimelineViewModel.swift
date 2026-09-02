@@ -89,6 +89,9 @@ public final class AllSourcesTimelineViewModel {
   /// library PhotoKit backs up TO, which has no meaning for a view that
   /// already spans every library.
   private let photoKitMerge: PhotoKitMergeAdapter?
+  /// Local saved-Folders half of the merge (#2274, Phase 2 of #2270) — the
+  /// Folders sibling of `photoKitMerge`, same treatment throughout this VM.
+  private let folderMerge: FolderMergeAdapter?
   private let semaphore: BoundedAsyncSemaphore
 
   private var generation: Int = 0
@@ -119,11 +122,13 @@ public final class AllSourcesTimelineViewModel {
               bucketsCache: CloudBucketsCache = CloudBucketsCache(),
               pagesCache: CloudPagesCache = CloudPagesCache(),
               maxConcurrentPageFetches: Int = 2,
-              photoKitMerge: PhotoKitMergeAdapter? = nil) {
+              photoKitMerge: PhotoKitMergeAdapter? = nil,
+              folderMerge: FolderMergeAdapter? = nil) {
     self.sources = sources
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
     self.photoKitMerge = photoKitMerge
+    self.folderMerge = folderMerge
     self.semaphore = BoundedAsyncSemaphore(value: maxConcurrentPageFetches)
 
     var clientsByHost: [String: CloudThumbClient] = [:]
@@ -140,8 +145,17 @@ public final class AllSourcesTimelineViewModel {
       _ = photoKitMerge.addOnWarmedUp { [weak self] in
         self?.remergeLoadedBuckets()
       }
-      // Seed from PhotoKit's own disk cache synchronously — same
-      // instant-local-history rationale as `CloudTimelineViewModel.init`.
+    }
+    if let folderMerge {
+      _ = folderMerge.addOnWarmedUp { [weak self] in
+        self?.remergeLoadedBuckets()
+      }
+    }
+    if photoKitMerge != nil || folderMerge != nil {
+      // Seed from whatever's already resident (PhotoKit's own disk cache;
+      // a folder's `FilesystemSource`/`LibraryIndex` isn't warmed yet at
+      // this point) synchronously — same instant-local-history rationale
+      // as `CloudTimelineViewModel.init`.
       recomputeBuckets()
     }
   }
@@ -176,16 +190,29 @@ public final class AllSourcesTimelineViewModel {
   // MARK: - Buckets
 
   private func recomputeBuckets() {
-    // `PhotoKitMergeAdapter.localBuckets()` returns its OWN nested
-    // `BucketKey` type (year/month, structurally identical to this VM's)
-    // — remap rather than share the type, since the two adapters have no
-    // dependency on each other.
-    let localBuckets = (photoKitMerge?.localBuckets() ?? []).map {
+    // `PhotoKitMergeAdapter`/`FolderMergeAdapter.localBuckets()` each
+    // return their OWN nested `BucketKey` type (year/month, structurally
+    // identical to this VM's) — remap rather than share the type, since
+    // neither adapter has a dependency on the other or on this VM.
+    let photoKitBuckets = (photoKitMerge?.localBuckets() ?? []).map {
       (key: BucketKey(year: $0.key.year, month: $0.key.month), count: $0.count)
     }
+    let folderBuckets = (folderMerge?.localBuckets() ?? []).map {
+      (key: BucketKey(year: $0.key.year, month: $0.key.month), count: $0.count)
+    }
+    // PhotoKit and local Folders are disjoint on-disk populations — a
+    // PHAsset and a file inside a Finder-picked folder are never the same
+    // underlying storage location — so their counts SUM cleanly, unlike
+    // the fold against cloud below (`unionBuckets` uses `max` there
+    // specifically because a PhotoKit OR Folder asset can genuinely be the
+    // same photo as one already counted in a synced/mirrored cloud
+    // library, and double-counting that overlap would be wrong).
+    var combinedLocal: [BucketKey: Int] = [:]
+    for b in photoKitBuckets { combinedLocal[b.key, default: 0] += b.count }
+    for b in folderBuckets { combinedLocal[b.key, default: 0] += b.count }
     buckets = Self.unionBuckets(
       perSourceCounts: Array(bucketCountsBySource.values),
-      localBuckets: localBuckets)
+      localBuckets: combinedLocal.map { (key: $0.key, count: $0.value) })
   }
 
   /// Pure union: SUMS every distinct (server, library)'s bucket counts
@@ -217,13 +244,23 @@ public final class AllSourcesTimelineViewModel {
   }
 
   private func remergeLoadedBuckets() {
-    guard let merge = photoKitMerge else { return }
+    guard photoKitMerge != nil || folderMerge != nil else { return }
     recomputeBuckets()
     for (key, cloudStreams) in cloudStreamsByBucket {
-      let localRefs = merge.assetsForMonth(year: key.year, month: key.month)
       mergedPagesByBucket[key] = MergedTimelineSource.merge(
-        localStreams: [localRefs], cloudStreams: cloudStreams)
+        localStreams: localStreams(forMonthOf: key), cloudStreams: cloudStreams)
     }
+  }
+
+  /// PhotoKit's and every saved Folder's `ImageRef`s for one month, as
+  /// SEPARATE streams — `MergedTimelineSource.merge` only dedups *across*
+  /// distinct streams (see its own doc comment), so collapsing PhotoKit and
+  /// Folders into one flat array here would silently stop deduping an
+  /// asset that happens to appear in both.
+  private func localStreams(forMonthOf key: BucketKey) -> [[ImageRef]] {
+    let photoKitRefs = photoKitMerge?.assetsForMonth(year: key.year, month: key.month) ?? []
+    let folderRefs = folderMerge?.assetsForMonth(year: key.year, month: key.month) ?? []
+    return [photoKitRefs, folderRefs]
   }
 
   /// Stale-while-revalidate across every (server, library): seed from each
@@ -299,10 +336,11 @@ public final class AllSourcesTimelineViewModel {
     inFlight.insert(key)
     defer { inFlight.remove(key) }
 
-    // Seed PhotoKit-local cells immediately, same rationale as the
-    // single-library VM: paint local history before any network round trip.
-    if let merge = photoKitMerge, g == generation {
-      let localRefs = merge.assetsForMonth(year: year, month: month)
+    // Seed PhotoKit- and Folder-local cells immediately, same rationale as
+    // the single-library VM: paint local history before any network round
+    // trip.
+    if (photoKitMerge != nil || folderMerge != nil), g == generation {
+      let localRefs = localStreams(forMonthOf: key).flatMap { $0 }
       if !localRefs.isEmpty, mergedPagesByBucket[key] == nil {
         mergedPagesByBucket[key] = localRefs.map { .localOnly($0) }
       }
@@ -399,8 +437,8 @@ public final class AllSourcesTimelineViewModel {
     }
     pagesByBucket[key] = allAssets
     cloudStreamsByBucket[key] = cloudStreams
-    let localRefs = photoKitMerge?.assetsForMonth(year: key.year, month: key.month) ?? []
-    mergedPagesByBucket[key] = MergedTimelineSource.merge(localStreams: [localRefs], cloudStreams: cloudStreams)
+    mergedPagesByBucket[key] = MergedTimelineSource.merge(
+      localStreams: localStreams(forMonthOf: key), cloudStreams: cloudStreams)
   }
 
   // MARK: - Helpers
