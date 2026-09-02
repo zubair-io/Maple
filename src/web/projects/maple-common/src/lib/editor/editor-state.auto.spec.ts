@@ -13,6 +13,7 @@ import { makeLibraryStub, type LibraryStub } from './editor-state.test-helpers';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
+import { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
 
 // Fake RawPipelineService — returns a configurable auto-adjust patch.
 class PipelineStub {
@@ -112,15 +113,19 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
     const ok = await svc.applyAuto(ID);
     expect(ok).toBe(true);
     const adj = lib.adjustmentFor(ID)();
-    expect(adj.exposure).toBeCloseTo(4, 9); // exposureRange upper bound
-    expect(adj.contrast).toBeCloseTo(100, 9);
-    expect(adj.highlights).toBeCloseTo(-100, 9);
-    expect(adj.shadows).toBeCloseTo(100, 9);
-    expect(adj.whites).toBeCloseTo(-100, 9);
-    expect(adj.blacks).toBeCloseTo(100, 9);
+    // Bounds come from the generated raw-core ranges, not literals, so a
+    // range tweak in codegen cannot silently desynchronise this spec.
+    expect(adj.exposure).toBeCloseTo(ADJUSTMENT_RANGES.exposure[1], 9);
+    expect(adj.contrast).toBeCloseTo(ADJUSTMENT_RANGES.contrast[1], 9);
+    expect(adj.highlights).toBeCloseTo(ADJUSTMENT_RANGES.highlights[0], 9);
+    expect(adj.shadows).toBeCloseTo(ADJUSTMENT_RANGES.shadows[1], 9);
+    expect(adj.whites).toBeCloseTo(ADJUSTMENT_RANGES.whites[0], 9);
+    expect(adj.blacks).toBeCloseTo(ADJUSTMENT_RANGES.blacks[1], 9);
     // The feedback message reports the CLAMPED exposure that was actually
     // written, not the raw out-of-range recommendation (#3130 review).
-    expect(svc.autoResult()).toBe('Auto applied · Exposure +4.00 EV');
+    expect(svc.autoResult()).toBe(
+      `Auto applied · Exposure +${ADJUSTMENT_RANGES.exposure[1].toFixed(2)} EV`,
+    );
   });
 
   it('creates ONE undo entry that restores the pre-AUTO tone sliders too', async () => {
