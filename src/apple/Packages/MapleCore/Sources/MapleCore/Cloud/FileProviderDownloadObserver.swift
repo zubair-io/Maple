@@ -49,6 +49,15 @@ public final class FileProviderDownloadObserver {
     /// (#1385) — the preferred path whenever a domain-specific manager is
     /// available. Invalidated by deallocation or an explicit `stop()`.
     private var progressObservation: NSKeyValueObservation?
+    /// The observed `NSProgress` itself (jules review, PR #3185): its own
+    /// doc comment requires it to be "retained by the caller" — without a
+    /// strong reference here, the local `global` binding inside
+    /// `observeGlobalProgress` would deallocate the instant that method
+    /// returns, silently killing KVO delivery even though
+    /// `progressObservation` (the observation TOKEN, not the observed
+    /// object) is still alive. Cleared alongside `progressObservation` in
+    /// `stop()`.
+    private var globalProgress: Progress?
     /// Weak reference to the sink so `stop()` can call `finish()` without
     /// keeping the progress alive past the editor session.
     private weak var progressSink: DownloadProgress?
@@ -132,7 +141,7 @@ public final class FileProviderDownloadObserver {
         // domain — the pre-existing degraded case) keeps the polling
         // fallback, unchanged from before this fix.
         if let manager {
-            observeGlobalProgress(manager: manager, progress: progress)
+            observeGlobalProgress(manager: manager)
         } else {
             startPolling(url: url, progress: progress)
         }
@@ -151,6 +160,7 @@ public final class FileProviderDownloadObserver {
         pollTask = nil
         progressObservation?.invalidate()
         progressObservation = nil
+        globalProgress = nil
         progressSink?.finish()
         progressSink = nil
     }
@@ -165,8 +175,14 @@ public final class FileProviderDownloadObserver {
 
     #if canImport(FileProvider)
     @available(macOS 13.0, iOS 16.0, *)
-    private func observeGlobalProgress(manager: NSFileProviderManager, progress: DownloadProgress) {
+    private func observeGlobalProgress(manager: NSFileProviderManager) {
         let global = manager.globalProgress(for: .downloading)
+        // Retain the observed NSProgress itself, not just the observation
+        // token — its own doc comment requires this ("retained by the
+        // caller"); without it `global` would deallocate the instant this
+        // method returns, silently killing KVO delivery (jules review,
+        // PR #3185).
+        globalProgress = global
         // `.initial` fires the handler once synchronously with the CURRENT
         // values, so a download that's already partway in by the time we
         // start observing (another tab/window kicked it earlier) doesn't
@@ -179,8 +195,16 @@ public final class FileProviderDownloadObserver {
             // hops explicitly rather than assuming — `report`/`finish`
             // mutate MainActor-isolated state and must not race a
             // differently-scheduled notification.
+            //
+            // Reads `self.progressSink` (weak) rather than capturing the
+            // `progress` parameter directly (jules review, PR #3185): a
+            // captured strong `progress` would chain
+            // self -> progressObservation -> closure -> progress,
+            // defeating `progressSink`'s whole point — letting the editor
+            // session's `DownloadProgress` die on its own schedule instead
+            // of being kept alive by this observer.
             Task { @MainActor in
-                guard self.progressSink === progress else { return }
+                guard let progress = self.progressSink else { return }
                 let total = observed.totalUnitCount > 0 ? observed.totalUnitCount : nil
                 if let total { self.lastExpectedBytes = total }
                 progress.report(received: observed.completedUnitCount, total: self.lastExpectedBytes)
@@ -214,13 +238,13 @@ public final class FileProviderDownloadObserver {
                 guard let progress else { break }
 
                 let snap = Self.snapshot(url: url)
-                let expected = await MainActor.run { () -> Int64? in
-                    guard let self else { return nil }
-                    if let total = snap.total, total > 0 { self.lastExpectedBytes = total }
-                    return self.lastExpectedBytes
-                }
+                // Single hop (jules review, PR #3185 NIT): reading/updating
+                // `self.lastExpectedBytes` and reporting/finishing
+                // `progress` are both MainActor-isolated work for the same
+                // tick — no reason to pay two context switches for it.
                 await MainActor.run {
-                    progress.report(received: snap.received, total: expected)
+                    if let total = snap.total, total > 0 { self?.lastExpectedBytes = total }
+                    progress.report(received: snap.received, total: self?.lastExpectedBytes)
                     if snap.isDone { progress.finish() }
                 }
                 if snap.isDone { break }
