@@ -207,6 +207,7 @@ mod tests {
             motion_pruned_matches: Vec::new(),
             local_corrections: vec![None; rotations.len()],
             local_correction_rms: vec![0.0; rotations.len()],
+            placed_by_prior: Vec::new(),
         }
     }
 

@@ -47,6 +47,20 @@ const GAIN_SPREAD_WARNING_EV: f64 = 2.0;
 const GAIN_SPREAD_WARNING_TEXT: &str =
     "Exposure varied widely between shots; brightness was equalized";
 
+/// Plain-language notice for the §8 low-texture failure mode (product
+/// spec §8.3 table: "1 photo had too little detail to match and was
+/// placed using the drone's camera data"), pluralized for `n` frames.
+fn low_texture_warning(n: usize) -> String {
+    let (noun, verb) = if n == 1 {
+        ("photo", "was")
+    } else {
+        ("photos", "were")
+    };
+    format!(
+        "{n} {noun} had too little detail to match and {verb} placed using the drone's camera data"
+    )
+}
+
 /// EV spread of the per-frame gains `solve_gains` produced, after its
 /// gauge normalization (spec §8). Each frame's `[r, g, b]` gain
 /// collapses to its mean (scalar-mode gains store the same value three
@@ -91,6 +105,9 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
     if gain_spread > GAIN_SPREAD_WARNING_EV {
         warnings.push(GAIN_SPREAD_WARNING_TEXT.to_string());
     }
+    if !solution.placed_by_prior.is_empty() {
+        warnings.push(low_texture_warning(solution.placed_by_prior.len()));
+    }
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "retention": ctx.retention,
@@ -125,6 +142,11 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         // below.
         "motion_affected": solution.motion_affected,
         "motion_pruned_matches": solution.motion_pruned_matches,
+        // Spec §8 low-texture handling (ticket #1191): zero-verified-edge
+        // frames (e.g. sky-only content) placed from their gimbal prior
+        // instead of dropped. Non-empty ⇒ the §8 "placed using the
+        // drone's camera data" notice below.
+        "placed_by_prior": solution.placed_by_prior,
         // Plain-language actionable notices (spec §6/§9.4 StitchReport
         // contract): the §8 movement warning and the §8 mixed-exposure
         // gain-spread warning.
@@ -221,8 +243,9 @@ pub(super) struct TileReportContext<'a> {
 /// `max_reproj_error_px`, `mean_reproj_before_local_px`,
 /// `max_reproj_before_local_px`, `local_correction_rms_px`,
 /// `shared_focal_px`, `k1`, `k2`, `dropped_images`, `pruned_matches`,
-/// `motion_affected`, `motion_pruned_matches`, `leveled`, `horizon_tilt_deg`,
-/// `gate_mean_budget_px`, `gate_max_budget_px`, `projection`.
+/// `motion_affected`, `motion_pruned_matches`, `placed_by_prior`, `leveled`,
+/// `horizon_tilt_deg`, `gate_mean_budget_px`, `gate_max_budget_px`,
+/// `projection`.
 ///
 /// Present keys unique to tile: `strategy` block, `tile_placement`,
 /// `mean_planar_residual_px`, `max_planar_residual_px`.

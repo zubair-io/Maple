@@ -301,6 +301,13 @@ fn stitch_set(
                     outcome.solution.motion_affected, outcome.solution.motion_pruned_matches
                 );
             }
+            if !outcome.solution.placed_by_prior.is_empty() {
+                eprintln!(
+                    "pano: low-texture — frame(s) {:?} had too little detail to match and \
+                     were placed using the drone's camera data (spec §8)",
+                    outcome.solution.placed_by_prior
+                );
+            }
             eprintln!(
                 "pano: wrote {} ({}x{}) in {:.1}s",
                 outs.linear.display(),

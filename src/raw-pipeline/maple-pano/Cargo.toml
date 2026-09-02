@@ -133,6 +133,13 @@ name = "ba_gates"
 path = "tests/ba_gates.rs"
 required-features = ["testkit"]
 
+# Spec §8 low-texture / gimbal-prior placement gate (#1191). Split from
+# ba_gates.rs for the file-size budget.
+[[test]]
+name = "low_texture_gates"
+path = "tests/low_texture_gates.rs"
+required-features = ["testkit"]
+
 # Stage F local alignment integration tests (#1218).
 [[test]]
 name = "local_align_gates"
