@@ -54,7 +54,7 @@ describe('MuiQrCodeComponent', () => {
   });
 
   it('renders the payload to the canvas with a quiet zone and high-contrast colors', async () => {
-    mockedToCanvas.mockResolvedValue(undefined as never);
+    mockedToCanvas.mockResolvedValue(undefined);
     const fixture = render();
     await flushRender(fixture);
 
@@ -74,7 +74,7 @@ describe('MuiQrCodeComponent', () => {
   });
 
   it('maps size to a pixel width passed to the renderer', async () => {
-    mockedToCanvas.mockResolvedValue(undefined as never);
+    mockedToCanvas.mockResolvedValue(undefined);
     const fixture = render();
     fixture.componentRef.setInput('size', 'lg');
     fixture.detectChanges();
@@ -92,7 +92,7 @@ describe('MuiQrCodeComponent', () => {
   });
 
   it('exposes an accessible label derived from the payload by default', async () => {
-    mockedToCanvas.mockResolvedValue(undefined as never);
+    mockedToCanvas.mockResolvedValue(undefined);
     const fixture = render();
     await flushRender(fixture);
     const canvas = fixture.nativeElement.querySelector('canvas') as HTMLCanvasElement;
@@ -107,7 +107,7 @@ describe('MuiQrCodeComponent', () => {
   // queue ahead of the test's own `detectChanges()` and asserts the render
   // still lands exactly once with no error.
   it('still renders when effects are flushed before the first detectChanges', async () => {
-    mockedToCanvas.mockResolvedValue(undefined as never);
+    mockedToCanvas.mockResolvedValue(undefined);
     TestBed.configureTestingModule({
       imports: [MuiQrCodeComponent],
       providers: [{ provide: QR_CODE_TO_CANVAS, useValue: mockedToCanvas }],
