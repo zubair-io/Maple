@@ -42,19 +42,10 @@
  * surface controls it. Started from `workers/maintenance.ts`.
  */
 
-import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
-// Mirror-aware drop-in: cache unlinks replicate to the library's backup root(s).
-// `readdir` / `stat` pass through to `node:fs/promises`.
-import * as fs from '../fs/mirrored.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import {
-  isLiveFileInfo,
-  assetPrimaryFileInfo,
-  liveAwareDuplicatePredicate,
-  updateLiveLocationCount,
-} from '../indexer/images.repo.ts';
+import { isLiveFileInfo, liveAwareDuplicatePredicate } from '../indexer/images.repo.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
@@ -62,18 +53,15 @@ import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { makePausedPoller } from './paused-poller.ts';
-import { libraryRootAvailable, statKind } from './missing-reaper.helpers.ts';
-import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
-import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
 import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
+import { emptySummary, type DeDuplicateSummary } from './dedupe.helpers.ts';
 import {
-  emptySummary,
-  folderKey,
-  reArmCacheStages,
-  sameEntry,
-  selectKeeper,
-  type DeDuplicateSummary,
-} from './dedupe.helpers.ts';
+  resolveOnDiskEntries,
+  resolveKeepersAndRemovals,
+  resolveKeeperContext,
+  moveEntriesToDuplicates,
+  pullMovedEntriesFromFileinfo,
+} from './dedupe.process-asset.ts';
 
 const log = childLogger('deduplicate');
 
@@ -169,7 +157,17 @@ export async function runDeDuplicateOnce(
   return summary;
 }
 
-/** Collapse one asset's live duplicate locations down to the kept copy. */
+/**
+ * Collapse one asset's live duplicate locations down to the kept copy.
+ *
+ * An orchestrator over the phases in `dedupe.process-asset.ts` (#1988,
+ * fallow CRITICAL complexity before this split): stat the live entries on
+ * disk, validate + tag any absent ones, require ≥2 real on-disk copies
+ * before touching anything, resolve which copies survive (`.keep` pins or
+ * the `selectKeeper` ranking), relocate the rest into `_duplicates/`, then
+ * pull the moved entries from `fileinfo` and publish the change. Each phase
+ * function's own doc explains why it exists and what it guards against.
+ */
 async function processAsset(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
   doc: DedupeCandidate,
@@ -181,147 +179,18 @@ async function processAsset(
   const liveEntries = fileinfo.filter((e) => isLiveFileInfo(e));
   if (liveEntries.length < 2) return; // not a live duplicate set
 
-  // Identify which copies ACTUALLY EXIST ON DISK before choosing anything to
-  // move. A user moving a file makes discover record the new path before its
-  // `removed` handler tombstones the old one, so for a window an asset has two
-  // "live" entries but only ONE physical file. We must never pick a stale entry
-  // as the keeper nor move the last real file — so we drive everything off the
-  // on-disk set and require ≥2 real copies before moving anything.
-  const onDisk: FileInfo[] = [];
-  const absentEntries: FileInfo[] = [];
-  for (const entry of liveEntries) {
-    const root = libs.get(entry.library_id.toHexString());
-    if (!root) {
-      // Unresolvable library — can't verify the full picture; skip the asset.
-      summary.skippedOffline++;
-      return;
-    }
-    const segments = entry.path === '' ? [] : entry.path.split('/');
-    const kind = await statKind(path.join(root, ...segments, entry.filename));
-    if (kind === 'present') {
-      onDisk.push(entry);
-    } else if (kind === 'absent') {
-      absentEntries.push(entry);
-    } else {
-      // 'error' (EACCES/EIO/offline mount) — a sibling we can't verify. Don't
-      // act on a partial picture; skip the whole asset this pass.
-      summary.skippedOffline++;
-      return;
-    }
-  }
-
-  // An absent entry is only trustworthy when its library ROOT is available
-  // (#2171): an unmounted mount is a present-but-empty dir under which every
-  // stat ENOENTs, which must read as "volume gone", not "files deleted". Any
-  // unavailable root ⇒ skip the whole asset this pass, tagging nothing.
-  if (absentEntries.length > 0) {
-    const absentRoots = [
-      ...new Set(absentEntries.map((e) => libs.get(e.library_id.toHexString())!)),
-    ];
-    for (const root of absentRoots) {
-      if (!(await libraryRootAvailable(root))) {
-        summary.skippedOffline++;
-        return;
-      }
-    }
-  }
-
-  // Tag any absent entries so the missing-reaper can prune them after the
-  // cooldown period. Only stamp entries that are NOT already tagged —
-  // resetting `missing_since` on every pass would restart the reaper's
-  // cooldown clock, preventing stale entries from ever aging out.
-  if (absentEntries.length > 0 && !dryRun) {
-    const now = new Date().toISOString();
-    const tagged = await coll
-      .updateOne(
-        { _id: doc._id },
-        {
-          $set: {
-            'fileinfo.$[e].missing_since': now,
-            'fileinfo.$[e].missing_reason': 'dedupe-absent',
-          },
-        },
-        {
-          arrayFilters: [
-            {
-              $and: [
-                {
-                  $or: [{ 'e.missing_since': { $exists: false } }, { 'e.missing_since': null }],
-                },
-                {
-                  $or: absentEntries.map((e) => ({
-                    'e.library_id': e.library_id,
-                    'e.path': e.path,
-                    'e.filename': e.filename,
-                  })),
-                },
-              ],
-            },
-          ],
-        },
-      )
-      .then(() => true)
-      .catch((err) => {
-        log.warn(
-          {
-            _id: String(doc._id),
-            err: err instanceof Error ? err.message : err,
-          },
-          'deduplicate: failed to tag absent entries',
-        );
-        return false;
-      });
-    if (tagged) {
-      // Recompute live count after tagging absent entries missing_since.
-      await updateLiveLocationCount(coll, doc._id).catch((err) => {
-        log.warn(
-          {
-            _id: String(doc._id),
-            err: err instanceof Error ? err.message : err,
-          },
-          'deduplicate: failed to recompute live_location_count after tagging',
-        );
-      });
-    }
-  }
-
-  // Fewer than two copies on disk → not a real duplicate set right now (the
-  // extra entries are stale and will be reconciled away by discover / the
-  // missing-reaper). This return is THE guard against "no file left on disk":
-  // we never move when only one physical copy exists.
-  if (onDisk.length < 2) {
-    if (absentEntries.length > 0) summary.skippedMissingFile++;
+  // Stat + validate + tag every live entry, bailing when fewer than two
+  // copies are actually on disk right now — see `resolveOnDiskEntries`'s doc
+  // for what each of the bundled phases guards against.
+  const resolved = await resolveOnDiskEntries(coll, doc._id, liveEntries, libs, dryRun);
+  if ('skip' in resolved) {
+    if (resolved.skip === 'offline') summary.skippedOffline++;
+    else if (resolved.skip === 'missingFile') summary.skippedMissingFile++;
     return;
   }
+  const { onDisk } = resolved;
 
-  // `.keep` override: any on-disk copy whose folder holds a `.keep` marker is
-  // PINNED and must survive. Re-confirmed on disk here (authoritative) rather
-  // than trusting the stored `fileinfo.keep` flag, which can go stale if the
-  // marker was added or removed after the file was first indexed. Folders are
-  // cached so a folder shared by several copies is stat'd once.
-  const keepByFolder = new Map<string, boolean>();
-  const pinned: FileInfo[] = [];
-  for (const entry of onDisk) {
-    const key = folderKey(entry);
-    let isKept = keepByFolder.get(key);
-    if (isKept === undefined) {
-      const root = libs.get(entry.library_id.toHexString())!;
-      const segments = entry.path === '' ? [] : entry.path.split('/');
-      isKept = await directoryHasKeepFile(path.join(root, ...segments));
-      keepByFolder.set(key, isKept);
-    }
-    if (isKept) pinned.push(entry);
-  }
-
-  // When at least one copy is pinned, keep EVERY pinned copy and move the rest.
-  // With no marker, fall back to the single-copy keeper ranking. Keepers are
-  // guaranteed on-disk; the copies we move are the OTHER on-disk ones (all
-  // confirmed present). They share this asset's `maple_id`, so they are
-  // byte-identical — collapsing loses no content. Stale (absent) entries are
-  // left for the reconciler.
-  const keepers = pinned.length > 0 ? pinned : [selectKeeper(onDisk)];
-  const keeperKeys = new Set(keepers.map(folderKey));
-  const removeEntries = onDisk.filter((e) => !keepers.some((k) => sameEntry(e, k)));
+  const { keepers, removeEntries } = await resolveKeepersAndRemovals(onDisk, libs);
 
   // Every on-disk copy is pinned by a `.keep` marker — nothing un-pinned to
   // collapse. Leave the asset exactly as it is (this is the whole point of the
@@ -331,57 +200,20 @@ async function processAsset(
     return;
   }
 
-  // Representative surviving copy (earliest in fileinfo order) for change-publish
-  // + cache-anchor math. With multiple keepers this is the one that becomes (or
-  // stays nearest) the cache anchor.
-  const primaryKeeper = keepers[0]!;
-  const keeperRoot = libs.get(primaryKeeper.library_id.toHexString())!;
-  const keeperSegments = primaryKeeper.path === '' ? [] : primaryKeeper.path.split('/');
-  const keeperAbs = path.join(keeperRoot, ...keeperSegments, primaryKeeper.filename);
+  const { primaryKeeper, keeperAbs, keeperKeys, anchorMoves } = resolveKeeperContext(
+    doc as Pick<AssetDoc, 'fileinfo'>,
+    keepers,
+    libs,
+  );
 
-  // The current cache anchor = first live entry (which may be a stale/absent
-  // one). If no surviving keeper shares its folder, re-arm the location-keyed
-  // cache stages so a kept copy regenerates its thumb/preview at its folder.
-  const oldPrimary = assetPrimaryFileInfo(doc as Pick<AssetDoc, 'fileinfo'>)!;
-  const anchorMoves = !keeperKeys.has(folderKey(oldPrimary));
-
-  const moved: FileInfo[] = [];
-  for (const entry of removeEntries) {
-    const root = libs.get(entry.library_id.toHexString())!;
-    const segments = entry.path === '' ? [] : entry.path.split('/');
-    const abs = path.join(root, ...segments, entry.filename);
-
-    if (dryRun) {
-      log.info({ _id: String(doc._id), from: abs }, 'deduplicate dry-run: would move duplicate');
-      moved.push(entry);
-      continue;
-    }
-
-    // `moveToDuplicates` returns an error (never throws) if the source vanished
-    // in the small window since we stat'd it — counted and skipped, not fatal.
-    const res = await moveToDuplicates(abs, root);
-    if (res.kind === 'error') {
-      summary.errors++;
-      log.warn({ _id: String(doc._id), abs, err: res.error }, 'deduplicate: move failed');
-      continue;
-    }
-    summary.movedFiles++;
-    log.info(
-      { _id: String(doc._id), from: abs, to: res.newAbsPath },
-      'deduplicate: moved duplicate to _duplicates/',
-    );
-
-    // Previews are path-keyed, not shared across locations — always clean
-    // the moved copy's previews at its old location. Thumbs ARE shared
-    // (maple_id-keyed), so only clean those when no surviving keeper is in
-    // this folder (else it would delete the kept copy's live thumb).
-    await cleanPreviewsCacheForLocation(root!, entry).catch(() => {});
-    if (doc.maple_id && !keeperKeys.has(folderKey(entry))) {
-      await cleanThumbCache(path.dirname(abs), doc.maple_id);
-    }
-    moved.push(entry);
-  }
-
+  const moved = await moveEntriesToDuplicates(
+    doc,
+    removeEntries,
+    libs,
+    keeperKeys,
+    dryRun,
+    summary,
+  );
   if (moved.length === 0) return; // nothing actually moved (all missing / errored)
 
   if (dryRun) {
@@ -389,32 +221,7 @@ async function processAsset(
     return; // no Mongo mutation in dry-run
   }
 
-  // Pull the moved entries from `fileinfo` one at a time.
-  //
-  // MongoDB does NOT support `$or` inside a `$pull` filter expression — it is
-  // silently ignored and the update modifies 0 documents (the file gets moved
-  // but the DB entry stays, so the asset keeps showing as a duplicate).
-  // The correct approach for compound-key matches is one `$pull` per entry.
-  //
-  // The cache-stage re-arm (`$set`) is fused into the first pull so it lands
-  // atomically with the first fileinfo removal. Subsequent pulls are pure
-  // `$pull` calls (one round-trip each; typically only one or two entries).
-  for (let i = 0; i < moved.length; i++) {
-    const m = moved[i];
-    const pullUpdate: Record<string, unknown> = {
-      $pull: {
-        fileinfo: {
-          library_id: m.library_id,
-          path: m.path,
-          filename: m.filename,
-        },
-      },
-    };
-    if (i === 0 && anchorMoves) pullUpdate['$set'] = reArmCacheStages();
-    await coll.updateOne({ _id: doc._id }, pullUpdate as never);
-  }
-  // Recompute live count after pulling moved entries from fileinfo.
-  await updateLiveLocationCount(coll, doc._id);
+  await pullMovedEntriesFromFileinfo(coll, doc._id, moved, anchorMoves);
   summary.deduped++;
 
   // Publish an update keyed by the surviving primary so clients + search refresh.
@@ -424,21 +231,6 @@ async function processAsset(
     folder_id: primaryKeeper.library_id,
     abs_path: keeperAbs,
   });
-}
-
-/**
- * Delete the `maple_id`-keyed thumb in one folder's `.maple/thumbs` cache.
- * Called for a moved copy's folder ONLY when no surviving live entry shares
- * it, so the kept copy's thumb is never touched. Best-effort — derived data
- * regenerates. (Previews are handled separately by
- * `cleanPreviewsCacheForLocation` — they're path-keyed, not shared across
- * locations, so they're always cleaned regardless of where the keeper is.)
- */
-async function cleanThumbCache(folderAbs: string, mapleId: string): Promise<void> {
-  await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.avif`)).catch(() => {});
-  // Legacy JPEG thumb from the pre-v3 (JPEG) thumbnail pipeline — may not
-  // exist for assets thumbnailed after the AVIF migration, hence best-effort.
-  await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.jpg`)).catch(() => {});
 }
 
 export interface DeDuplicateHandle {
