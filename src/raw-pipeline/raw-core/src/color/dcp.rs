@@ -2490,9 +2490,15 @@ mod tests {
             std::collections::HashMap::new(),
             hsm_data,
         );
+        let bundled = crate::color::profile_loader::lookup_profile(&raw)
+            .expect("test prerequisite: 'Canon EOS 5D Mark IV' must be bundled.");
+        // Prove the FALLBACK is actually what's under test, not a bundle HSM
+        // that happens to agree: the bundle entry itself must carry none.
         assert!(
-            crate::color::profile_loader::lookup_profile(&raw).is_some(),
-            "test prerequisite: 'Canon EOS 5D Mark IV' must be bundled."
+            bundled.hsm1.is_none() && bundled.hsm2.is_none(),
+            "test prerequisite: the bundle's own Canon EOS 5D Mark IV entry \
+             must have no HSM (matrices-only bundle) — otherwise this test \
+             can't tell the fallback path from the bundle path."
         );
 
         let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
@@ -2503,11 +2509,36 @@ mod tests {
              BundleConfident (the FM gate disqualifies EmbeddedFull). Got {:?}",
             source
         );
-        assert!(
-            profile.hsm.is_some(),
+        let resolved_hsm = profile.hsm.as_ref().expect(
             "BundleConfident must not discard the source DNG's own HSM when \
              the bundle entry itself has none — this is the #825 regression \
-             this test guards."
+             this test guards.",
+        );
+        // Prove the resolved table is the EXACT reciprocal-CCT lerp of the
+        // two SOURCE-DNG tables above (hueDelta 5.0 at StdA, -3.0 at D65) —
+        // not a copy of either endpoint, an identity/default table, or data
+        // from anywhere else — by independently re-deriving the same `t`
+        // `interpolated_profile` uses (`compute_as_shot_cct` + reciprocal
+        // lerp, same as `interpolate_cm`) and checking the resolved
+        // hueDelta against the predicted lerp to float precision.
+        let cct = compute_as_shot_cct(
+            raw.as_shot_neutral,
+            cm_stda,
+            Illuminant::StdA.cct(),
+            cm_d65,
+            Illuminant::D65.cct(),
+        );
+        let t = ((1.0 / cct - 1.0 / Illuminant::StdA.cct())
+            / (1.0 / Illuminant::D65.cct() - 1.0 / Illuminant::StdA.cct()))
+        .clamp(0.0, 1.0);
+        let expected_hue_delta = (1.0 - t) * 5.0 + t * (-3.0);
+        let got = resolved_hsm.data[0];
+        assert!(
+            (got - expected_hue_delta).abs() < 1e-3,
+            "resolved hueDelta {got} != the predicted reciprocal-CCT lerp \
+             {expected_hue_delta} (t={t}) of the source DNG's own StdA (5.0) \
+             / D65 (-3.0) HSM tables — the fallback did not pick up \
+             raw.hsm_data as expected"
         );
     }
 
