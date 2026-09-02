@@ -124,6 +124,27 @@ fn gimbal_identity_detected() {
 }
 
 #[test]
+fn gimbal_identity_is_wrap_aware_across_the_yaw_seam() {
+    use crate::ingest::GimbalPrior;
+    // -179.9 and +179.9 straddle the ±180 seam: 0.2 deg apart on the
+    // circle, so the set is identical, not 359.8 deg apart.
+    let priors: Vec<FramePriors> = vec![-179.9, 179.9, 179.95]
+        .into_iter()
+        .map(|yaw_deg| FramePriors {
+            focal_mm: None,
+            focal_35mm_equiv: None,
+            focal_px: Some(1000.0),
+            gimbal: Some(GimbalPrior {
+                yaw_deg,
+                pitch_deg: -90.0,
+                roll_deg: 0.0,
+            }),
+        })
+        .collect();
+    assert!(check_gimbal_identity(&priors));
+}
+
+#[test]
 fn gimbal_rotation_not_identical() {
     use crate::ingest::GimbalPrior;
     let priors: Vec<FramePriors> = (0..3)
