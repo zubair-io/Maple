@@ -73,6 +73,10 @@ pub(super) struct OwnedArrays {
     red: Vec<f32>,
     green: Vec<f32>,
     blue: Vec<f32>,
+    display_luma: Vec<f32>,
+    display_red: Vec<f32>,
+    display_green: Vec<f32>,
+    display_blue: Vec<f32>,
     profile: Vec<f32>,
     residual: Vec<f32>,
     local: Vec<f32>,
@@ -97,6 +101,10 @@ pub(super) fn owned_arrays(
         red: flat_points(&model.tone_curve_red),
         green: flat_points(&model.tone_curve_green),
         blue: flat_points(&model.tone_curve_blue),
+        display_luma: flat_points(&model.display_tone_curve_luma),
+        display_red: flat_points(&model.display_tone_curve_red),
+        display_green: flat_points(&model.display_tone_curve_green),
+        display_blue: flat_points(&model.display_tone_curve_blue),
         profile: curve.to_flat(),
         residual: lut.data.clone(),
         local: raw_core::types::layers_to_flat(&model.local_adjustments),
@@ -263,5 +271,15 @@ pub(super) fn make_params(
         film_lut_key: 0,
         film_lut_ptr: std::ptr::null(),
         film_lut_len: 0,
+        // Display-referred point curves (#2232) — pass through from the
+        // model, same flat-pair shape as `tone_curve_*` above.
+        display_tone_curve_luma_ptr: arr.display_luma.as_ptr(),
+        display_tone_curve_luma_len: arr.display_luma.len(),
+        display_tone_curve_red_ptr: arr.display_red.as_ptr(),
+        display_tone_curve_red_len: arr.display_red.len(),
+        display_tone_curve_green_ptr: arr.display_green.as_ptr(),
+        display_tone_curve_green_len: arr.display_green.len(),
+        display_tone_curve_blue_ptr: arr.display_blue.as_ptr(),
+        display_tone_curve_blue_len: arr.display_blue.len(),
     }
 }
