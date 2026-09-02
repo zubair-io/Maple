@@ -57,4 +57,3 @@ src/api/tests/backup-ingest.test.ts                                             
 # went unmeasured).
 src/windows/Maple.WinUI/MainWindow.xaml.cs                                        # 839  — window shell; split tracked in #3118
 src/windows/Maple.WinUI/Services/Cloud/CloudClient.cs                             # 631  — Maple Cloud HTTP client; split tracked in #3119
-src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.Library.cs                # 605  — library/folder-tree/thumbnails partial; split tracked in #3120
