@@ -25,6 +25,7 @@
 //! - [`max_abs_diff`] / [`moved`] — the diff metrics both gates report.
 
 use crate::capture_sharpening::CaptureSharpeningParams;
+use crate::display_tone_curve::DisplayToneCurveInputs;
 use crate::tone_curves::{CurveMode, ToneCurveInputs};
 use crate::FullChainInputs;
 
@@ -266,6 +267,12 @@ impl Case {
                 .as_ref()
                 .map(|l| l.data.clone())
                 .unwrap_or_default(),
+            display_tone_curves: DisplayToneCurveInputs {
+                master: self.model.display_tone_curve_luma.points.clone(),
+                red: self.model.display_tone_curve_red.points.clone(),
+                green: self.model.display_tone_curve_green.points.clone(),
+                blue: self.model.display_tone_curve_blue.points.clone(),
+            },
         }
     }
 }
@@ -337,6 +344,9 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     //     runs on both sides — even a neutral image must go through the view
     //     transform to become a display image. ---
     raw_core::view::agx::apply(&mut img, case.model.contrast);
+    // Display-referred point curves (#2232) — post-AgX, before color_grade,
+    // matching the GPU suffix's `DisplayToneCurvePass` position exactly.
+    raw_core::stages::display_tone_curve::apply(&mut img, &case.model);
     raw_core::stages::color_grade::apply_model(&mut img, &case.model);
     // Film look (epic #2683, Task 7) — display-linear, between color_grade
     // and grain (raw-core's `render` position; see `stages::film_look`'s

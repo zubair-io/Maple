@@ -42,6 +42,8 @@
 //!   {highlights,shadows,whites,blacks}.abs() < 1e-3` (raw-core `mod.rs:22-28`).
 //! - `tone_curves`: omit only if no parametric field `≥ 1e-3` AND every point
 //!   curve is identity (raw-core `mod.rs:82-102`).
+//! - `display_tone_curve` (#2232): omit only if all four
+//!   `display_tone_curve_*` curves are identity.
 //! - `sharpen`: `amount.abs() < 1e-3` → omit. `nr_luminance` / `nr_color`:
 //!   `< 1e-3` → omit.
 //! - `local_adjustments` (#1698): omit unless some layer in the flat stack sets
@@ -58,6 +60,7 @@ use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::display_tone_curve::{display_tone_curve_is_identity, DisplayToneCurvePass};
 use crate::film_lut::FilmLutPass;
 use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
@@ -279,6 +282,18 @@ pub fn build_live_split(
             contrast: inputs.contrast,
         }));
     }
+    // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
+    // post-AgX, before color_grade. GATED on all four curves being
+    // identity (mirrors `stages::display_tone_curve::apply`'s own
+    // early-return). Runs for non-RAW shapes too — the same buffer
+    // `color_grade` / `grain` already treat as display-linear regardless of
+    // `is_raw_shape` (#2478's precedent, applied here since #2232 lands
+    // after it).
+    if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
+        suffix.push(Box::new(DisplayToneCurvePass {
+            inputs: inputs.display_tone_curves.clone(),
+        }));
+    }
     // Colour grading (#275) — display-linear, post-AgX; GATED on every
     // wheel's saturation and luminance (all-default is a true no-op
     // regardless of hues / balance, exactly raw-core's `apply`
@@ -435,6 +450,13 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     // `build_live_split` gate (loaded LUT + engaged strength).
     if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
         m |= 1 << 17;
+    }
+    // Bit 18: display-referred tone curves (#2232) — same predicate as the
+    // `build_live_split` gate above. Fixed-stride pooled buffer (NUM_SLOTS ×
+    // SLOT_STRIDE, like `tone_curves`'), so no extra content-hash fold is
+    // needed below — only presence changes the dispatch/bind-group shape.
+    if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
+        m |= 1 << 18;
     }
     m
 }

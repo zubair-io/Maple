@@ -102,6 +102,7 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
         film_lut_size: 0,
         film_lut_key: 0,
         film_lut_data: Vec::new(),
+        display_tone_curves: crate::display_tone_curve::DisplayToneCurveInputs::default(),
     }
 }
 

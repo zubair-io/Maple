@@ -35,6 +35,23 @@ impl GpuContext {
         })
     }
 
+    /// The cached display-referred tone-curves compute pipeline (#2232).
+    ///
+    /// Same shape as [`Self::tone_curves_pipeline`] one line up — a fixed
+    /// 4-binding standalone kernel with the prepared curve slots riding a
+    /// storage buffer — just 4 slots (master/R/G/B) instead of 5, and no
+    /// `REF_MAX` scene-linear rescale (this stage runs post-AgX on a buffer
+    /// already bounded to `[0, 1]`).
+    pub fn display_tone_curve_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.display_tone_curve_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "display-tone-curve",
+                include_str!("display_tone_curve.wgsl"),
+            )
+        })
+    }
+
     /// The cached separable box-blur compute pipeline (epic #925 P2 wave 3b /
     /// #990). The spatial primitive: `box_blur.wgsl` runs one axis (horizontal or
     /// vertical) per dispatch over a scalar f32 plane, with the same
