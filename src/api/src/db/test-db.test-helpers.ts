@@ -127,9 +127,14 @@ export function withTestEnv(name: string, value: string): void {
 export function withTestDb(testDb: string): string {
   withTestEnv('MAPLE_MONGO_DB', testDb);
 
-  let capturedUri: string | undefined;
+  // Resolve the fallback here too, not just in `tryConnectTestMongo` — an
+  // unresolved `undefined` would make the `afterAll` below pass `undefined`
+  // to `tryConnectTestMongo`, which re-reads `process.env.MAPLE_MONGO_URI`
+  // for any falsy `uri` it's given, silently undoing the whole point of
+  // capturing it here.
+  let capturedUri = 'mongodb://localhost:27017';
   beforeAll(() => {
-    capturedUri = process.env.MAPLE_MONGO_URI;
+    capturedUri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
   });
 
   afterAll(async () => {
