@@ -5,7 +5,9 @@
 // `selected()` is the URL-driven detail state — when set, the page renders
 // a full-width detail view (header + filter bar + face grid + floating
 // selection toolbar) that replaces the list view entirely. When null, the
-// list view (page header + stats line + card grid) renders.
+// list view renders as `<maple-people-list>` (page header, stats line +
+// small-cluster toggle, empty states, virtual-scroll card grid — see
+// `people-list.component.ts`, split out in #2140).
 //
 // The route `/settings/people/:id` deep-links into the detail view. URL
 // is the single source of truth: a `selectedRouteId` computed signal
@@ -18,65 +20,54 @@
 // "Merged into {name}" toast.
 //
 // List-view bulk people selection / merge / hide lives in
-// {@link PeopleBulkController} (co-located). Bearer-gated thumb loading
-// lives in {@link ThumbBlobCache}. Pure derivation lives in `./people.vm.ts`.
-// This file owns DI, signal wiring, and side effects.
+// {@link PeopleBulkController} (co-located, shared with `PeopleListComponent`
+// as the SAME instance). Bearer-gated thumb loading lives in
+// {@link ThumbBlobCache}. Pure derivation lives in `./people.vm.ts`. This
+// file owns DI, signal wiring, and side effects.
 
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
-  OnDestroy,
   computed,
   effect,
   inject,
   signal,
-  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
-import { ScrollingModule } from '@angular/cdk/scrolling';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   ApiMergeSuggestion,
   ApiPerson,
   ApiPersonDetail,
   ApiPersonFace,
+  ApiRenameResult,
   BunApiBackendService,
   FilesystemBrowseService,
   LIBRARY_SOURCE,
   type LibrarySource,
   PeopleStore,
   MuiButtonComponent,
-  MuiCheckboxComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MapleVisibleOnceDirective } from './visible-once.directive';
 import { ThumbBlobCache } from './thumb-blob-cache';
-import { PeopleGridHost, bindGridViewport, createToast } from './people-grid-layout';
+import { PeopleGridHost, createToast } from './people-grid-layout';
 import { FaceThumbCrop } from './face-thumb-crop';
+import { PeopleListComponent } from './people-list.component';
 import {
   TOAST_TTL_MS,
   Toast,
   Tone,
   averageConfidence,
-  chunkPeopleRows,
   clusteringSummary,
   errorMessage,
   faceKey,
   filterNamed,
   hiddenFaceCount,
   isAutoNamed,
-  PEOPLE_GRID,
-  peopleCardWidth,
-  peopleGridColumns,
-  peopleRowHeight,
-  peopleRowKey,
-  peopleStats,
   sortPeople,
-  SMALL_CLUSTER_MIN_FACES,
-  filterSmallClusters,
   visibleFaces,
 } from './people.vm';
 import { PeopleBulkController } from './people-bulk.controller';
@@ -88,13 +79,11 @@ import { PeopleFaceBulkController } from './people-face-bulk.controller';
   selector: 'maple-people',
   imports: [
     DecimalPipe,
-    RouterLink,
-    ScrollingModule,
     SettingsShellComponent,
     SettingsIconComponent,
     MapleVisibleOnceDirective,
     MuiButtonComponent,
-    MuiCheckboxComponent,
+    PeopleListComponent,
   ],
   templateUrl: './people.component.html',
   styleUrl: './people.component.scss',
@@ -157,40 +146,15 @@ export class PeopleComponent extends PeopleGridHost {
    * toolbar disables its buttons to prevent overlapping batches. */
   readonly bulkBusy = signal<number>(0);
 
-  readonly hasPeople = computed(() => this.people().length > 0);
-
-  readonly peopleStats = computed(() => peopleStats(this.people()));
-
   readonly sortedPeople = computed(() => sortPeople(this.people()));
 
   readonly namedPeople = computed(() => filterNamed(this.sortedPeople()));
 
-  /** "Hide small clusters" toggle — on by default so the long tail of tiny
-   * stray-detection clusters doesn't bury the real identities. */
-  readonly hideSmallClusters = signal<boolean>(true);
-
-  /** Template re-exposure of the face-count floor for the toggle's label. */
-  protected readonly smallClusterMin = SMALL_CLUSTER_MIN_FACES;
-
-  /** The rows the GRID renders. `namedPeople` (merge targets) and
-   * `peopleStats` deliberately stay on the unfiltered list — hiding a
-   * cluster from the grid must not make it un-mergeable or change the
-   * whole-library summary. */
-  readonly visiblePeople = computed(() =>
-    this.hideSmallClusters()
-      ? filterSmallClusters(this.sortedPeople(), SMALL_CLUSTER_MIN_FACES)
-      : this.sortedPeople(),
-  );
-
-  /** How many rows the toggle is currently hiding — surfaced next to it so
-   * nothing disappears silently. */
-  readonly hiddenSmallCount = computed(
-    () => this.sortedPeople().length - this.visiblePeople().length,
-  );
-
   /** Bulk list-selection / merge / hide controller. Declared after `store`,
    * `router`, `people`, `namedPeople`, and `selected` so field initializers
-   * that reference those are already resolved. */
+   * that reference those are already resolved. Shared with
+   * `PeopleListComponent` (bound via `[bulk]`) — the SAME instance, so its
+   * detail-view merge picker and the list view's selection stay coherent. */
   readonly bulk = new PeopleBulkController({
     store: this.store,
     router: this.router,
@@ -199,23 +163,6 @@ export class PeopleComponent extends PeopleGridHost {
     selected: this.selected,
     toast: (text, tone) => this.showToast(text, tone),
   });
-
-  // ── List-view virtual scroll ────────────────────────────────────────────
-  // The list grid is windowed by `cdk-virtual-scroll-viewport`: sorted people
-  // are packed into fixed-height rows of `gridColumns()` cards (see the
-  // row-packing helpers in people.vm.ts) and the ROWS are virtualised. The
-  // `(mapleVisibleOnce)` cover-lazy-load still fires per card as rows mount.
-
-  /** Virtual-scroll viewport host. Signal query (not a static ViewChild)
-   * because it lives in conditional template blocks — only present in the
-   * populated list view, and re-appears on back-navigation. */
-  private readonly peopleScrollContent = viewChild('peopleScrollContent', { read: ElementRef });
-
-  /** Sorted people packed into fixed-width rows for the virtual viewport. */
-  readonly peopleRows = computed(() => chunkPeopleRows(this.visiblePeople(), this.gridColumns()));
-
-  /** Track-by for virtualised rows (see `peopleRowKey`). */
-  trackRow = peopleRowKey;
 
   readonly visibleFaces = computed(() => {
     const detail = this.selected();
@@ -241,13 +188,18 @@ export class PeopleComponent extends PeopleGridHost {
     return detail ? isAutoNamed(detail.name) : false;
   });
 
-  /** Template re-exposure of the auto-name predicate so the list-view
-   * card can use the same `^Person N$` rule. */
-  protected readonly isAutoName = isAutoNamed;
-
   /** Face-thumbnail crop-transform state (natural-dims capture + transform).
-   * Shared by the list cover thumbs and the detail face grid. */
+   * Shared by `PeopleListComponent`'s cover thumbs (bound via `[crop]`) and
+   * the detail face grid — one cache for both views. */
   protected readonly crop = new FaceThumbCrop();
+
+  /** Bound wrappers for the inherited `PeopleGridHost` methods, passed down
+   * to `PeopleListComponent` as plain functions so it shares this
+   * component's single `ThumbBlobCache` rather than owning its own. Arrow
+   * functions capture `this` lexically, so the binding survives being
+   * passed as a value across the component boundary. */
+  protected readonly coverThumbUrlFn = (p: ApiPerson): string | null => this.coverThumbUrl(p);
+  protected readonly ensureCoverThumbFn = (p: ApiPerson): void => this.ensureCoverThumb(p);
 
   /** Detail-view per-face selection + bulk move/unassign/hide. Declared
    * before {@link detailCtl}, which reads its `selectedFaces` signal. */
@@ -319,8 +271,6 @@ export class PeopleComponent extends PeopleGridHost {
     effect(() => {
       this.detailCtl.prefetchDetailThumbs();
     });
-
-    bindGridViewport(this.layout, this.peopleScrollContent);
   }
 
   /** Re-fetch the people list. Routes through the store's `invalidate()` so
@@ -383,10 +333,6 @@ export class PeopleComponent extends PeopleGridHost {
       return;
     }
     this.api.renamePerson(personId, next).subscribe({
-      // Pre-existing complexity inherited from main; suppressing the worst
-      // method also hides the component rollup that pairs it with the
-      // template. See the template's ignore note.
-      // fallow-ignore-next-line complexity
       next: (result) => {
         this.editingId.set(null);
         this.draftName.set('');
@@ -394,15 +340,24 @@ export class PeopleComponent extends PeopleGridHost {
           this.showToast(`Merged into ${result.name}`, 'success');
         }
         this.refresh();
-        const open = this.selected();
-        if (open && (open.id === personId || open.id === result.mergedFrom)) {
-          this.refetchDetail(result.id);
-        }
+        this.refetchDetailIfOpen(personId, result);
       },
       error: (err) => {
         this.showToast(errorMessage(err), 'error');
       },
     });
+  }
+
+  /** Re-fetch the open detail panel after a rename/merge, but only if the
+   * open person is the one that just changed — either the renamed person
+   * itself, or (on a server-side merge) the person it got merged away from.
+   * Split out of {@link commitEdit}'s response handler purely to keep that
+   * handler's own branch count low. */
+  private refetchDetailIfOpen(personId: string, result: ApiRenameResult): void {
+    const open = this.selected();
+    if (!open) return;
+    if (open.id !== personId && open.id !== result.mergedFrom) return;
+    this.refetchDetail(result.id);
   }
 
   runClustering(): void {
