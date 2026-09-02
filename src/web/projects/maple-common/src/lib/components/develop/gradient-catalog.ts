@@ -59,6 +59,9 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   sharpen: 'linear-gradient(90deg, #4a443b 0%, #f2efe9 100%)',
   noise: 'linear-gradient(90deg, #4a443b 0%, #f2efe9 100%)',
   colorNR: 'linear-gradient(90deg, #4a443b 0%, #4a9fc4 100%)',
+  // Lens Corrections (#2231) — field-less tool (toggle + three sliders,
+  // no single drag-bar field), same shape as filmLook/colorGrade/hsl.
+  lensCorrections: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
 
   // Non-slider tools — these appear as group chips or special controls;
   // they get a neutral gradient as a safety fallback.

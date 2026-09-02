@@ -57,6 +57,10 @@
   <film-panel />
 </ng-template>
 
+<ng-template #cardBodyLensTpl>
+  <lens-corrections-panel />
+</ng-template>
+
 <div
   class="relative h-full w-full touch-none bg-[color:var(--pro-canvas)]"
   [class.shell--desktop]="isDesktop()"
@@ -331,6 +335,15 @@
             <div cardBodyFilm>
               <ng-container *ngTemplateOutlet="cardBodyFilmTpl" />
             </div>
+
+            <!-- Lens Corrections body (#2231) — master toggle + distortion/
+                 CA/vignetting sliders. Projected into the control card's
+                 `cardBodyLens` slot, shown whenever `activeTool()` is
+                 'lensCorrections'. Body authored once in `cardBodyLensTpl`
+                 above (shared with the phone card). -->
+            <div cardBodyLens>
+              <ng-container *ngTemplateOutlet="cardBodyLensTpl" />
+            </div>
           </pro-control-card>
         </div>
       }
@@ -384,6 +397,13 @@
                  above. -->
             <div cardBodyFilm>
               <ng-container *ngTemplateOutlet="cardBodyFilmTpl" />
+            </div>
+
+            <!-- Lens Corrections body (#2231) — same content as
+                 tablet/desktop's `cardBodyLens` slot, authored once in
+                 `cardBodyLensTpl` above. -->
+            <div cardBodyLens>
+              <ng-container *ngTemplateOutlet="cardBodyLensTpl" />
             </div>
           </pro-control-card>
         </div>
