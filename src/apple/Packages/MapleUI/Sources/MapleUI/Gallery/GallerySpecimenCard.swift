@@ -16,10 +16,27 @@ struct GallerySpecimenCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
-            content
-                .padding(MuiTokens.spacingMd)
-                .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
-                .background(MuiTokens.imageCanvas, in: RoundedRectangle(cornerRadius: MuiTokens.radiusMd, style: .continuous))
+            // Some specimens (dense multi-column grids, or a populated demo
+            // sitting beside fixed-width state boxes) are naturally wider
+            // than a phone-width card (#3062: the Organisms tab's Filmstrip
+            // and Search Results specimens rendered past the screen edges
+            // on iPhone). `ViewThatFits` renders `content` exactly as before
+            // — centered, no scroll chrome — whenever it fits the proposed
+            // width, and falls back to the horizontally scrolling copy only
+            // when it doesn't, so specimens that already fit (every atom,
+            // and most molecules/organisms) are visually unchanged.
+            ViewThatFits(in: .horizontal) {
+                content
+                    .padding(MuiTokens.spacingMd)
+                    .frame(minHeight: 72, alignment: .center)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    content
+                        .padding(MuiTokens.spacingMd)
+                        .frame(minHeight: 72, alignment: .center)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .background(MuiTokens.imageCanvas, in: RoundedRectangle(cornerRadius: MuiTokens.radiusMd, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(MuiTokens.TypeScale.font(.rowLabel))

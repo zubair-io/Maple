@@ -68,11 +68,22 @@ struct OrganismsCollectionsGallery: View {
         }
     }
 
+    // The demo and its Loading/Empty states used to sit side by side in an
+    // HStack with the states pinned to a fixed 160pt width (#3062) — on an
+    // iPhone-width card that was wide enough on its own to force
+    // `GallerySpecimenCard`'s new scroll fallback (see that file), and the
+    // states' fixed 80pt height was too short for their header text plus
+    // body content, so the Loading and Empty labels overlapped. Stacking
+    // the demo above a states row that — like the shared
+    // `OrganismStatesRow` every other card in this file uses — sizes each
+    // box with `maxWidth: .infinity` and a taller minimum height fixes the
+    // overlap and, as a bonus, comfortably fits without needing the scroll
+    // fallback at all.
     private var searchResultsCard: some View {
         GallerySpecimenCard(name: "Search Results", purpose: "Paginated result grid with states", builtFrom: "Collection Grid, Empty State, Progress") {
-            HStack(alignment: .top, spacing: MuiTokens.spacingSm) {
+            VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
                 SearchResultsDemo()
-                VStack(alignment: .leading, spacing: MuiTokens.spacingXs) {
+                HStack(alignment: .top, spacing: MuiTokens.spacingSm) {
                     stateBox("Loading") { MuiSearchResults(items: [], loading: true, query: "iceland") }
                     stateBox("Empty") { MuiSearchResults(items: [], query: "zzzz") }
                 }
@@ -84,9 +95,10 @@ struct OrganismsCollectionsGallery: View {
         VStack(alignment: .leading, spacing: 2) {
             MuiText(label, variant: .toolLabel, color: .muted)
             content()
-                .frame(width: 160, height: 80)
+                .frame(maxWidth: .infinity, minHeight: 120, alignment: .top)
                 .background(MuiTokens.imageCanvas, in: RoundedRectangle(cornerRadius: MuiTokens.radiusSm, style: .continuous))
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
