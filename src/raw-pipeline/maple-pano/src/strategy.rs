@@ -217,12 +217,15 @@ fn decide(request: StrategyRequest, evidence: &StrategyEvidence) -> Strategy {
             let strong_gimbal_rotation_evidence = evidence
                 .gimbal_rotation_spread_deg
                 .is_some_and(|spread| spread >= GIMBAL_SWEEP_DEG);
-            let tile_threshold = if strong_gimbal_rotation_evidence {
-                TILE_SUPERMAJORITY_WITH_GIMBAL_SWEEP
+            // With a real gimbal sweep tile must reach the supermajority bar
+            // (inclusive: 65% *is* the bar); without one the strict-majority
+            // rule stands — rotation wins on a tie or a bare majority.
+            let tile_wins = if strong_gimbal_rotation_evidence {
+                tile_share >= TILE_SUPERMAJORITY_WITH_GIMBAL_SWEEP
             } else {
-                0.5 // conservative: rotation wins on tie or bare majority.
+                tile_share > 0.5
             };
-            if tile_share > tile_threshold {
+            if tile_wins {
                 Strategy::Tile
             } else {
                 Strategy::Rotation

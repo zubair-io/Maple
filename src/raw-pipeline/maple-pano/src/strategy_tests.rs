@@ -97,9 +97,12 @@ fn auto_warns_when_tile_selected() {
     let report = select_strategy(StrategyRequest::Auto, &graph, &priors, 1000.0, 42);
 
     // Evidence: planar_rms should be near 0, rotation_rms ~5px → votes tile.
-    if report.selected == Strategy::Tile {
-        assert!(report.warning.is_some(), "auto tile must warn");
-    }
+    assert_eq!(
+        report.selected,
+        Strategy::Tile,
+        "setup must produce a tile vote"
+    );
+    assert!(report.warning.is_some(), "auto tile must warn");
 }
 
 #[test]
