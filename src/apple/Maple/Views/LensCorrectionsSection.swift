@@ -38,6 +38,13 @@
 //     is a structural no-op even though distortion/vignetting still work.
 //     A hand-edited sidecar value stays visibly greyed rather than hidden,
 //     so the user can see it round-trips even though it does nothing here.
+//   * The Distortion slider ALONE greys out when
+//     `session.lensCorrectionDistortionInert == true` (#3189) — the DNG
+//     carries no `WarpRectilinear` opcode at all (e.g. a vignette-only RAW
+//     whose only opcode is `FixVignetteRadial`), so there is nothing for
+//     the distortion scale to warp even though `hasLensCorrections` is
+//     still `true` (a vignette IS a lens correction). Same
+//     greys-not-hides treatment as CA.
 
 import MapleCore
 import MapleUI
@@ -76,7 +83,19 @@ struct LensCorrectionsSection: View {
             .accessibilityIdentifier("editor-lens-corrections-toggle")
 
             slider(Self.distortionSub)
+                .disabled(!session.hasLensCorrections || session.lensCorrectionDistortionInert)
+                // Same opacity-multiplication reasoning as the CA slider below:
+                // only gate the distortion-alone-inert case here.
+                .opacity(
+                    (session.hasLensCorrections && session.lensCorrectionDistortionInert)
+                        ? Self.disabledOpacity : 1
+                )
                 .accessibilityIdentifier("slider-lens-distortion")
+                .accessibilityHint(
+                    session.lensCorrectionDistortionInert
+                        ? "This RAW's lens profile carries no distortion data"
+                        : ""
+                )
             slider(Self.caSub)
                 .disabled(!session.hasLensCorrections || session.lensCorrectionCaInert)
                 // Opacity gates ONLY the CA-alone-inert case: the whole-section

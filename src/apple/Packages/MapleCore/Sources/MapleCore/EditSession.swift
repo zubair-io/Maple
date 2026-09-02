@@ -155,11 +155,12 @@ public final class EditSession {
     /// The Lens Corrections panel binds to this to disable/hide itself.
     public internal(set) var hasLensCorrections: Bool = false
 
-    /// Whether the CA slider (`lensCorrectionCa`) is INERT for this asset
-    /// (#2231) — no per-plane divergence in the DNG's `WarpRectilinear`
-    /// opcode. The panel greys (not hides) the slider when `true`, so a
-    /// hand-edited sidecar value stays visible.
+    /// Whether the CA slider (`lensCorrectionCa`) is INERT for this asset (#2231) — no per-plane
+    /// divergence in the DNG's `WarpRectilinear` opcode. The panel greys (not hides) the slider
+    /// when `true`, so a hand-edited sidecar value stays visible.
     public internal(set) var lensCorrectionCaInert: Bool = true
+    /// Distortion counterpart of `lensCorrectionCaInert` (#3189): no `WarpRectilinear` opcode at all.
+    public internal(set) var lensCorrectionDistortionInert: Bool = true
 
     /// The WB delta anchor: the WB actually baked into the buffer. The
     /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own

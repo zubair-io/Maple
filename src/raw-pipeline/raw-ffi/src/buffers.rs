@@ -192,6 +192,13 @@ pub struct MapleSceneLinearBufferF32 {
     /// (`RawImage::lens_correction_ca_inert`, #2231). `0` = false
     /// (CA is live), non-zero = true (CA does nothing).
     pub lens_correction_ca_inert: u32,
+    /// Whether the distortion slider (`lens_correction_distortion`) is
+    /// INERT on this RAW — no `WarpRectilinear` opcode at all, e.g. a
+    /// vignette-only source (`RawImage::lens_correction_distortion_inert`,
+    /// #3189). `0` = false (distortion is live), non-zero = true
+    /// (distortion does nothing). Appended at the struct tail per the
+    /// offset-stable ABI convention.
+    pub lens_correction_distortion_inert: u32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -225,6 +232,7 @@ impl MapleSceneLinearBufferF32 {
             ae_gain: 1.0,
             has_lens_corrections: 0,
             lens_correction_ca_inert: 1,
+            lens_correction_distortion_inert: 1,
         }
     }
 }

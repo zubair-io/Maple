@@ -91,6 +91,7 @@ extension EditSession {
         // currently cached, not a per-tick recomputation.
         hasLensCorrections = snapshot.hasLensCorrections
         lensCorrectionCaInert = snapshot.lensCorrectionCaInert
+        lensCorrectionDistortionInert = snapshot.lensCorrectionDistortionInert
         let m = model
         let pipeline = self.pipeline
         // Crop + straighten (#638). Applied as a CoreImage geometry op on the
@@ -338,6 +339,7 @@ extension EditSession {
                 // #2231: same lifecycle as the WB frame above.
                 hasLensCorrections = freshSnapshot.hasLensCorrections
                 lensCorrectionCaInert = freshSnapshot.lensCorrectionCaInert
+                lensCorrectionDistortionInert = freshSnapshot.lensCorrectionDistortionInert
                 // #2143: same delivered-extent caps as the cached branch,
                 // from THIS decode's recorded extent
                 // (`freshSnapshot.rawResolution` — pre-canvas-scaling,

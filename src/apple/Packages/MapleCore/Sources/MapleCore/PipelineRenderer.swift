@@ -119,6 +119,12 @@ public struct MapleSceneLinearImageData: Sendable {
     /// `hasLensCorrections == false` there implying every scale is a
     /// no-op.
     public let lensCorrectionCaInert: Bool
+    /// Whether the distortion slider (`lensCorrectionDistortion`) is
+    /// INERT on this RAW — no `WarpRectilinear` opcode at all, e.g. a
+    /// vignette-only source (`RawImage::lens_correction_distortion_inert`,
+    /// #3189). `true` (inert) is also the default for the fp16 tile
+    /// paths (no export) — matching `hasLensCorrections == false` there.
+    public let lensCorrectionDistortionInert: Bool
 
     public var pixelCount: Int { width * height }
 
@@ -133,7 +139,8 @@ public struct MapleSceneLinearImageData: Sendable {
         wbFrame: WbSliderFrame? = nil,
         aeGain: Float = 1.0,
         hasLensCorrections: Bool = false,
-        lensCorrectionCaInert: Bool = true
+        lensCorrectionCaInert: Bool = true,
+        lensCorrectionDistortionInert: Bool = true
     ) {
         self.width = width
         self.height = height
@@ -146,6 +153,7 @@ public struct MapleSceneLinearImageData: Sendable {
         self.aeGain = aeGain
         self.hasLensCorrections = hasLensCorrections
         self.lensCorrectionCaInert = lensCorrectionCaInert
+        self.lensCorrectionDistortionInert = lensCorrectionDistortionInert
     }
 }
 
@@ -646,7 +654,8 @@ public struct PipelineRenderer: Sendable {
             wbFrame: WbSliderFrame(buffer: buf),
             aeGain: buf.ae_gain,
             hasLensCorrections: buf.has_lens_corrections != 0,
-            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
+            lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0
         )
     }
 
@@ -695,7 +704,8 @@ public struct PipelineRenderer: Sendable {
             wbFrame: WbSliderFrame(buffer: buf),
             aeGain: buf.ae_gain,
             hasLensCorrections: buf.has_lens_corrections != 0,
-            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
+            lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0
         )
     }
 
@@ -744,7 +754,8 @@ public struct PipelineRenderer: Sendable {
             wbFrame: WbSliderFrame(buffer: buf),
             aeGain: buf.ae_gain,
             hasLensCorrections: buf.has_lens_corrections != 0,
-            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
+            lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0
         )
     }
 
@@ -796,7 +807,8 @@ public struct PipelineRenderer: Sendable {
             wbFrame: WbSliderFrame(buffer: buf),
             aeGain: buf.ae_gain,
             hasLensCorrections: buf.has_lens_corrections != 0,
-            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
+            lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0
         )
     }
 
