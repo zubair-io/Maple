@@ -10,60 +10,20 @@
 
 import { Injectable } from '@angular/core';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
-import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
-import type {
-  AutoExposureMode,
-  BlackWhiteMode,
-  HighlightRecoveryMode,
-  HotPixelSuppressionMode,
-  LensProfileEnable,
-  Look,
-  Profile,
-  ToneCurveMode,
-  WbMethod,
-} from '../generated/adjustment-model.generated';
-import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
+import type { AdjustmentModel } from '../models/adjustment-model';
 import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
 import { parseMetadataBlock } from './xmp-metadata';
 import { parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
+import { finalizeCrop } from './xmp-crop';
+import { walkAdjustmentAttributes, applyLegacyAliases } from './xmp-adjustment-walk';
 import {
   attrOf,
   hasXmlParseError,
-  managedXmpName,
   mergedXmpDescription,
-  PAPP_NAMESPACES,
   primaryXmpDescription,
+  sawMapleAuthorshipMarker,
 } from './xmp-dom-utils';
-
-/**
- * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
- * passes in `parseAdjustmentModel()` to replace per-attribute `Array.some` /
- * `Array.find` scans with O(1) `Map.get`. Sidecars routinely carry 30+
- * attributes so the constant factor matters even at the current 1-entry
- * alias table.
- */
-const LEGACY_READ_ALIASES_MAP = new Map(LEGACY_READ_ALIASES.map((a) => [a.xmpKey, a]));
-
-/**
- * Wire variants for `papp:HighlightRecoveryMode` (#2214). The list must stay
- * exhaustive against the generated union — the `satisfies` record makes a
- * missing variant a compile error when codegen adds one, so the TS parser
- * can't silently lag raw-core's `xmp/mod.rs` match arms.
- */
-const HIGHLIGHT_RECOVERY_MODES = Object.keys({
-  Off: true,
-  Blend: true,
-  Luminance: true,
-  ChromaticAdaptation: true,
-  OklabChromaReduction: true,
-} satisfies Record<HighlightRecoveryMode, true>) as readonly HighlightRecoveryMode[];
-
-/** Case-insensitive wire → canonical variant match, or undefined if unknown. */
-const matchVariant = <T extends string>(variants: readonly T[], raw: string): T | undefined => {
-  const lower = raw.toLowerCase();
-  return variants.find((v) => v.toLowerCase() === lower);
-};
 
 @Injectable({ providedIn: 'root' })
 export class XmpParserService {
@@ -120,13 +80,15 @@ export class XmpParserService {
    * Parse a sidecar and return the develop adjustment fields plus a passthrough
    * bucket containing any attributes / elements that Maple does not model.
    * The returned `model` is a Partial — callers should merge over defaultAdjustmentModel().
+   *
+   * The XML → `rdf:Description` bootstrap is `_parseAdjustmentDocument`
+   * below; the attribute walk (canonical fields + per-group dispatch +
+   * legacy aliases) is `walkAdjustmentAttributes` / `applyLegacyAliases` in
+   * `xmp-adjustment-walk.ts` (#1840), which in turn delegates to
+   * `xmp-look-profile.ts` / `xmp-enum-attrs.ts` / `xmp-crop.ts` for the
+   * individual field groups. This method owns the WB-scale and crop
+   * bootstrapping those need, and the post-walk normalization passes.
    */
-  // Pre-existing complexity, unmodified by #2215's file-budget split — this
-  // change only removes `parseCulling`/`parseMetadata`'s bodies (relocated
-  // to `xmp-culling.ts` / `xmp-metadata.ts`) above this method, which shifts
-  // its line number and drops fallow's positional inherited-finding match.
-  // No branches here changed. Tracked for a real decomposition separately.
-  // fallow-ignore-next-line complexity
   parseAdjustmentModel(xml: string): {
     model: Partial<AdjustmentModel>;
     passthrough: PassthroughBucket;
@@ -136,303 +98,24 @@ export class XmpParserService {
       passthrough: { unknownAttributes: [], unknownNodes: [] } as PassthroughBucket,
     };
 
-    let desc: Element | null = null;
-    let sourceDescription: Element | null = null;
-    let document: Document | null = null;
-    let sawPappAnywhere = false;
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xml, 'text/xml');
-      document = doc;
+    const parsed = this._parseAdjustmentDocument(xml);
+    if (!parsed) return emptyResult;
+    const { desc, sourceDescription, document, sawPappAnywhere } = parsed;
 
-      // Guard against parse errors.
-      if (hasXmlParseError(doc)) {
-        console.warn('XmpParserService.parseAdjustmentModel: malformed XML');
-        return emptyResult;
-      }
-
-      sourceDescription = primaryXmpDescription(doc);
-      desc = mergedXmpDescription(doc);
-
-      if (!desc) return emptyResult;
-
-      // Maple-authorship marker (#1780): detect either recognized Maple URI
-      // from any declaration, element, or attribute in the document. A writer
-      // may declare it on xmpmeta rather than rdf:Description.
-      sawPappAnywhere = Array.from(doc.getElementsByTagName('*')).some(
-        (el) =>
-          PAPP_NAMESPACES.includes(el.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
-          Array.from(el.attributes).some(
-            (attr) =>
-              PAPP_NAMESPACES.includes(attr.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
-              (attr.namespaceURI === 'http://www.w3.org/2000/xmlns/' &&
-                PAPP_NAMESPACES.includes(attr.value as (typeof PAPP_NAMESPACES)[number])),
-          ),
-      );
-    } catch {
-      return emptyResult;
-    }
-
-    const model: Partial<AdjustmentModel> = {};
-    // Tracks model keys already populated from a canonical
-    // `ADJUSTMENT_FIELDS` entry so a `LEGACY_READ_ALIASES` mapping never
-    // overwrites them. Matches raw-core's `sigma_seen` precedence (#463):
-    // when both `papp:CaptureSharpeningSigma` and the legacy
-    // `papp:CaptureSharpeningRadius` are present, sigma always wins.
-    const canonicallyApplied = new Set<keyof AdjustmentModel>();
-
-    // Auto Profile (#536): the new `papp:Profile` wins over the legacy
-    // `papp:Look` migration when both appear on the same element, regardless
-    // of document order. Mirrors raw-core's `profile_seen` flag pattern in
-    // `xmp/mod.rs` — Profile always overwrites when seen; the flag blocks a
-    // later Look from clobbering an earlier Profile.
-    let profileSeen = false;
-
-    // Crop gating (#277): crs:HasCrop must be discovered before applying the
-    // rect fields — mirrors the two-pass approach in raw-core's xmp/mod.rs.
-    // crs:CropAngle is independent of HasCrop (pure straighten; spec § 01
-    // invariant 3). Missing or "False" → leave crop at identity default.
+    // Crop gating (#277) — see `xmp-crop.ts`. `crs:HasCrop` must be known
+    // before the rect fields are applied, so it's read up front here.
     const hasCropAttr = attrOf(desc, ['crs:HasCrop']);
     const hasCrop = hasCropAttr === 'True' || hasCropAttr === 'true';
-    let cropTop: number | undefined;
-    let cropLeft: number | undefined;
-    let cropBottom: number | undefined;
-    let cropRight: number | undefined;
-    let cropAngle: number | undefined;
 
     // WB scale versioning (#1780/#1875/#1894) — rationale in `xmp-wb-scale.ts`.
     const wbScale = resolveWbScaleVersion(desc, sawPappAnywhere);
+
+    const { model, canonicallyApplied, legacyDeferred, cropAcc } = walkAdjustmentAttributes(
+      desc,
+      hasCrop,
+    );
     model.wbScaleVersion = wbScale.modelVersion;
-
-    // Pass 1: walk attributes, applying canonical fields and remembering
-    // legacy-aliased attributes for a second pass.
-    const legacyDeferred: Array<{ name: string; value: string }> = [];
-    for (let i = 0; i < desc.attributes.length; i++) {
-      const attr = desc.attributes[i];
-      const name = managedXmpName(attr);
-      if (!name) continue;
-
-      const mapping = ADJUSTMENT_FIELDS.find((f) => f.xmpKey === name);
-      if (mapping) {
-        const parsed = mapping.parse(attr.value);
-        if (!Number.isNaN(parsed)) {
-          // Narrowed: every ADJUSTMENT_FIELDS entry is keyed on a numeric
-          // AdjustmentModel field, so `parsed` is assignable to model[modelKey].
-          model[mapping.modelKey] = parsed;
-          canonicallyApplied.add(mapping.modelKey);
-        }
-        continue;
-      }
-
-      if (LEGACY_READ_ALIASES_MAP.has(name)) {
-        legacyDeferred.push({ name, value: attr.value });
-        continue;
-      }
-
-      if (name === WB_PRESET_FIELD.xmpKey) {
-        model.whiteBalancePreset = attr.value as WhiteBalancePreset;
-        continue;
-      }
-
-      // DisplayLookCurve (#371; retired in #443). Case-insensitive parse
-      // matches the Apple + Rust parsers. Unknown variants are silently
-      // dropped so older sidecars never block sidecar load — the field
-      // then takes its default ('Default'). The field is a no-op at the
-      // pipeline level post-#443; parsed purely for sidecar back-compat.
-      //
-      // Auto Profile (#536): when `papp:Profile` has not yet been seen on
-      // this element, `papp:Look` also migrates into the new `profile`
-      // field — Default/Auto → 'Auto', Neutral → 'Neutral'. The migration
-      // reads `attr.value` (not `parsed`) because `Look="Auto"` is a valid
-      // legacy value that doesn't have a TS Look variant; we still want
-      // it to migrate. Mirrors raw-core's `xmp/mod.rs` Look→Profile arm.
-      if (name === 'papp:Look') {
-        const v = attr.value.toLowerCase();
-        const parsed: Look | undefined =
-          v === 'neutral' ? 'Neutral' : v === 'default' ? 'Default' : undefined;
-        if (parsed !== undefined) {
-          model.look = parsed;
-        }
-        if (!profileSeen) {
-          if (v === 'default' || v === 'auto') {
-            model.profile = 'Auto';
-          } else if (v === 'neutral') {
-            model.profile = 'Neutral';
-          }
-        }
-        continue;
-      }
-
-      // Auto Profile (Phase 1, #536). Canonical render-shaping profile.
-      // Case-insensitive parse matches raw-core. Unknown values fall back
-      // to 'Auto' so a forward-compat sidecar from a newer build doesn't
-      // block sidecar load. Setting `profileSeen` blocks the legacy
-      // `papp:Look` migration from clobbering this value if Look appears
-      // later in the same attribute set.
-      if (name === 'papp:Profile') {
-        profileSeen = true;
-        const v = attr.value.toLowerCase();
-        const parsed: Profile = v === 'neutral' ? 'Neutral' : 'Auto';
-        model.profile = parsed;
-        continue;
-      }
-
-      // Film emulation (epic #2683). `filmLook` is a free-form film-catalog
-      // id, not a fixed enum — parsed VERBATIM (no case-folding, no
-      // known-variant allowlist) so a sidecar referencing a look from a
-      // newer catalog build still round-trips instead of being dropped to
-      // the '' default. An empty attribute is treated the same as absent.
-      if (name === 'papp:FilmLook') {
-        if (attr.value.length > 0) {
-          model.filmLook = attr.value;
-        }
-        continue;
-      }
-
-      // Hot/dead-pixel suppression (#1106). Case-insensitive parse,
-      // mirroring the Rust (`xmp/mod.rs`) and Swift parsers; unknown
-      // values are dropped so the field takes its default ('Off').
-      if (name === 'papp:HotPixelSuppression') {
-        const v = attr.value.toLowerCase();
-        const parsed: HotPixelSuppressionMode | undefined =
-          v === 'on' ? 'On' : v === 'off' ? 'Off' : undefined;
-        if (parsed !== undefined) {
-          model.hotPixelSuppression = parsed;
-        }
-        continue;
-      }
-
-      // DNG lens corrections master switch (#376). ACR writes "1"/"0";
-      // the True/False spelling other XMP writers use for boolean `crs:`
-      // markers is accepted too, mirroring the Rust and Swift parsers.
-      // Unknown values are dropped so the field takes its default ('On')
-      // rather than blocking sidecar load.
-      if (name === 'crs:LensProfileEnable') {
-        const v = attr.value.toLowerCase();
-        const parsed: LensProfileEnable | undefined =
-          v === '1' || v === 'true' || v === 'on'
-            ? 'On'
-            : v === '0' || v === 'false' || v === 'off'
-              ? 'Off'
-              : undefined;
-        if (parsed !== undefined) {
-          model.lensProfileEnable = parsed;
-        }
-        continue;
-      }
-
-      // Highlight recovery (#2214; raw-core spec § 3.3a). Case-insensitive
-      // parse mirrors raw-core's `xmp/mod.rs` match arms and the Swift
-      // parser; unknown values are dropped so the field takes its default
-      // ('ChromaticAdaptation') instead of blocking sidecar load. The
-      // variant list is compile-time-exhaustive against the generated union.
-      if (name === 'papp:HighlightRecoveryMode') {
-        const parsed = matchVariant(HIGHLIGHT_RECOVERY_MODES, attr.value);
-        if (parsed !== undefined) {
-          model.highlightRecovery = parsed;
-        }
-        continue;
-      }
-
-      // Per-image auto-exposure (#429; TS wiring #2214, web half of #1387).
-      // Case-insensitive, unknown values dropped → default ('On'). Mirrors
-      // the Swift parser added in PR #2205 and raw-core's `xmp/mod.rs`.
-      if (name === 'papp:AutoExposure') {
-        const v = attr.value.toLowerCase();
-        const parsed: AutoExposureMode | undefined =
-          v === 'on' ? 'On' : v === 'off' ? 'Off' : undefined;
-        if (parsed !== undefined) {
-          model.autoExposure = parsed;
-        }
-        continue;
-      }
-
-      // User white-balance method (#431; TS wiring #2214). Lowercasing
-      // covers all spellings raw-core accepts ("cat16" | "Cat16" | "CAT16");
-      // unknown values dropped → default ('Cat16').
-      if (name === 'papp:WbMethod') {
-        const v = attr.value.toLowerCase();
-        const parsed: WbMethod | undefined =
-          v === 'cat16' ? 'Cat16' : v === 'diagonalrec2020' ? 'DiagonalRec2020' : undefined;
-        if (parsed !== undefined) {
-          model.wbMethod = parsed;
-        }
-        continue;
-      }
-
-      // Tone-curve application mode (#436; TS wiring #2214). Case-insensitive,
-      // unknown values dropped → default ('PerChannel').
-      if (name === 'papp:ToneCurveMode') {
-        const v = attr.value.toLowerCase();
-        const parsed: ToneCurveMode | undefined =
-          v === 'perchannel'
-            ? 'PerChannel'
-            : v === 'ratiopreserving'
-              ? 'RatioPreserving'
-              : undefined;
-        if (parsed !== undefined) {
-          model.toneCurveMode = parsed;
-        }
-        continue;
-      }
-
-      // Black & white toggle (#276). Case-insensitive, unknown values
-      // dropped → default ('Off'). Mirrors raw-core's `xmp/mod.rs` and the
-      // Swift parser. The 8 gray-mixer weights parse via the canonical
-      // `ADJUSTMENT_FIELDS` numeric-field path above.
-      if (name === 'crs:ConvertToGrayscale') {
-        const v = attr.value.toLowerCase();
-        const parsed: BlackWhiteMode | undefined =
-          v === 'true' || v === '1' ? 'On' : v === 'false' || v === '0' ? 'Off' : undefined;
-        if (parsed !== undefined) {
-          model.blackWhite = parsed;
-        }
-        continue;
-      }
-
-      // Crop / straighten (#277). Rect fields gated by hasCrop (above);
-      // CropAngle is always parsed. HasCrop and CropConstrainToWarp are
-      // in KNOWN_ATTRIBUTES so they don't fall into the passthrough bucket.
-      if (hasCrop && name === 'crs:CropTop') {
-        const n = parseFloat(attr.value);
-        if (!Number.isNaN(n)) cropTop = n;
-        continue;
-      }
-      if (hasCrop && name === 'crs:CropLeft') {
-        const n = parseFloat(attr.value);
-        if (!Number.isNaN(n)) cropLeft = n;
-        continue;
-      }
-      if (hasCrop && name === 'crs:CropBottom') {
-        const n = parseFloat(attr.value);
-        if (!Number.isNaN(n)) cropBottom = n;
-        continue;
-      }
-      if (hasCrop && name === 'crs:CropRight') {
-        const n = parseFloat(attr.value);
-        if (!Number.isNaN(n)) cropRight = n;
-        continue;
-      }
-      if (name === 'crs:CropAngle') {
-        const n = parseFloat(attr.value);
-        if (!Number.isNaN(n)) cropAngle = n;
-        continue;
-      }
-    }
-
-    // Pass 2: apply legacy aliases only where the canonical key didn't
-    // already populate the field. DOMParser preserves source order, but
-    // this two-pass design makes the sigma-wins contract source-order
-    // independent.
-    for (const { name, value } of legacyDeferred) {
-      const alias = LEGACY_READ_ALIASES_MAP.get(name);
-      if (!alias) continue;
-      if (canonicallyApplied.has(alias.modelKey)) continue;
-      const parsed = alias.parse(value);
-      if (!Number.isNaN(parsed)) {
-        model[alias.modelKey] = parsed;
-      }
-    }
+    applyLegacyAliases(model, legacyDeferred, canonicallyApplied);
 
     // Post-walk WB load-normalization + Custom-preset inference — see
     // `normalizeParsedWb`'s doc in `xmp-wb-scale.ts` for the full
@@ -443,26 +126,47 @@ export class XmpParserService {
 
     // Emit `crop` only when any field came through; angle alone is enough
     // (pure straighten). Identity default is applied for absent fields.
-    if (
-      cropTop !== undefined ||
-      cropLeft !== undefined ||
-      cropBottom !== undefined ||
-      cropRight !== undefined ||
-      cropAngle !== undefined
-    ) {
-      const crop: Crop = {
-        top: cropTop ?? 0,
-        left: cropLeft ?? 0,
-        bottom: cropBottom ?? 1,
-        right: cropRight ?? 1,
-        angle: cropAngle ?? 0,
-      };
+    const crop = finalizeCrop(cropAcc);
+    if (crop) {
       model.crop = crop;
     }
 
     return {
       model,
-      passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document ?? undefined),
+      passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document),
     };
+  }
+
+  /**
+   * Parses `xml`, guards against malformed documents, and resolves the
+   * merged `rdf:Description` plus the Maple-authorship marker
+   * `resolveWbScaleVersion` needs. Returns `null` on any parse failure —
+   * the caller falls back to its `emptyResult`.
+   */
+  private _parseAdjustmentDocument(xml: string): {
+    desc: Element;
+    sourceDescription: Element | null;
+    document: Document;
+    sawPappAnywhere: boolean;
+  } | null {
+    try {
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      if (hasXmlParseError(doc)) {
+        console.warn('XmpParserService.parseAdjustmentModel: malformed XML');
+        return null;
+      }
+
+      const desc = mergedXmpDescription(doc);
+      if (!desc) return null;
+
+      return {
+        desc,
+        sourceDescription: primaryXmpDescription(doc),
+        document: doc,
+        sawPappAnywhere: sawMapleAuthorshipMarker(doc),
+      };
+    } catch {
+      return null;
+    }
   }
 }
