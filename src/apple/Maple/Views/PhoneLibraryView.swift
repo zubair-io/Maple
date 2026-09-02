@@ -48,10 +48,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     /// Why `.map` has no `mapVM` yet (#2848) — forwarded straight through
     /// to `AppShellCenterColumn`'s `MapEmptyState`.
     let mapUnavailableReason: MapUnavailableReason?
-    let isSearchActive: Bool
-    let searchVM: SearchViewModel?
-    let searchThumbClient: CloudThumbClient?
-    let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
@@ -70,7 +66,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
     /// the resolved target (a place name, or the has-GPS scope fallback).
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
-    let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -111,10 +106,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
             mapUnavailableReason: mapUnavailableReason,
-            isSearchActive: isSearchActive,
-            searchVM: searchVM,
-            searchThumbClient: searchThumbClient,
-            searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
@@ -122,7 +113,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             toolbarContent: toolbarContent,
             onSelectCloudAsset: onSelectCloudAsset,
             onSelectMapPlace: onSelectMapPlace,
-            onCloseSearch: onCloseSearch,
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,

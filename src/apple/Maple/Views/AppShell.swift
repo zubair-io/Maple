@@ -320,6 +320,15 @@ struct AppShell: View {
     /// rationale as the timeline thumb client).
     @State var searchThumbClient: CloudThumbClient?
     @State var searchThumbCache: CloudThumbCache?
+    #if os(iOS)
+    /// A widget/URL deep-link or Map pin tap's `SearchParams`, waiting to be
+    /// applied to the iPhone Search tab's account-wide session (#3163).
+    /// `switchToPhoneSearchTab(seeding:)` (AppShell+CloudActions.swift) sets
+    /// this AND flips `cm.tab.shell` to `"search"`; `PhoneSearchTab` applies
+    /// it once its session is ready and clears it after submitting. iPhone
+    /// only — mac/iPad seed `searchVM` directly via `activateSearch`.
+    @State var pendingPhoneSearchSeed: SearchParams?
+    #endif
 
     /// Search is only available against a Maple Cloud library — local /
     /// PhotoKit / SMB sources have no server-side index to query.
@@ -1244,10 +1253,6 @@ struct AppShell: View {
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
             mapUnavailableReason: mapUnavailableReason,
-            isSearchActive: isSearchActive,
-            searchVM: searchVM,
-            searchThumbClient: searchThumbClient,
-            searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
@@ -1256,6 +1261,7 @@ struct AppShell: View {
             phoneSearchServerKey: phoneSearchServerKey,
             makePhoneSearchSession: { await makePhoneSearchSession() },
             resolveSearchAsset: { asset, server in prepareCloudSession(asset, server: server) },
+            pendingSearchSeed: $pendingPhoneSearchSeed,
             sidebar: { sharedSidebar },
             toolbarContent: { browseToolbarContent },
             // iPhone (#809): resolve the cloud / merged-PhotoKit asset's
@@ -1267,7 +1273,6 @@ struct AppShell: View {
             // client) is identical — only the navigation target differs.
             onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
             onSelectMapPlace: { target in selectMapPlace(target) },
-            onCloseSearch: { deactivateSearch() },
             onSelectLocalAsset: { ref in
                 // Mirror the legacy `openLocalPhotoKitAsset` error handling
                 // (AppShell+PhotoKitActions.swift): a `PhotoKitSource` init

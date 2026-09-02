@@ -285,3 +285,54 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     return String(value)
   }
 }
+
+// MARK: - Deep-link seeding (#3163)
+
+extension SearchParams {
+  /// Builds `SearchParams` from a `maple://search?…` deep link's raw query
+  /// pairs (`DeepLinkDestination.search(query:)` in MapleCore) — the
+  /// generated-collection widget tap. A WHITELISTED subset only:
+  /// placeQuery / from / to / month / sceneType / people. Junk keys/values
+  /// degrade to an unseeded search rather than a parse failure, mirroring
+  /// the web page's `parseDeepLinkFilters`. `libraryId` is deliberately not
+  /// read here — the caller resolves and forces it (server-scoped fallback
+  /// chain differs between the phone Search tab and the mac/iPad overlay),
+  /// same shape as `MapPlaceSearchTarget.searchParams(seededFrom:)`.
+  ///
+  /// Pulled out of the app-target `AppShell+DeepLink.swift` so it's
+  /// exercisable by a plain `MapleCoreTests` unit test instead of only
+  /// end-to-end through the app target.
+  public static func fromDeepLinkQuery(_ rawQuery: [String: String]) -> SearchParams {
+    var params = SearchParams()
+    params.placeQuery = rawQuery["placeQuery"] ?? ""
+    params.from = rawQuery["from"].flatMap(bareDate)
+    params.to = rawQuery["to"].flatMap(bareDate)
+    if let month = rawQuery["month"].flatMap(Int.init), (1...12).contains(month) {
+      params.month = month
+    }
+    if let scene = rawQuery["sceneType"].flatMap(SearchSceneType.init(rawValue:)) {
+      params.sceneType = scene
+    }
+    if let people = rawQuery["people"] {
+      params.people = people.split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+    }
+    return params
+  }
+
+  /// `YYYY-MM-DD` shape check — a deep link's `from`/`to` must match this
+  /// exactly or it's dropped rather than sent to the server malformed. A
+  /// plain byte scan rather than a `Regex` literal: this package builds via
+  /// plain `swift build` (no Xcode project build settings), which doesn't
+  /// enable the bare-slash-regex-literal upcoming feature the app target does.
+  private static func bareDate(_ raw: String) -> String? {
+    let bytes = Array(raw.utf8)
+    guard bytes.count == 10 else { return nil }
+    let digits: ClosedRange<UInt8> = UInt8(ascii: "0")...UInt8(ascii: "9")
+    let isDateShaped = bytes.enumerated().allSatisfy { index, byte in
+      (index == 4 || index == 7) ? byte == UInt8(ascii: "-") : digits.contains(byte)
+    }
+    return isDateShaped ? raw : nil
+  }
+}

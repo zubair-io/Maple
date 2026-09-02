@@ -1,12 +1,12 @@
-// PhoneSearchStub.swift — iPhone Search tab host (responsive-program S7).
+// PhoneSearchTab.swift — iPhone Search tab host (responsive-program S7).
 //
-// The file name is retained for git/Xcode-group continuity (a later PR
-// renames it). `PhoneSearchTab` is the production view: it owns the
-// account-wide `SearchViewModel`, its own NavigationStack, and the open
-// route for tapped results. The search FIELD and the bottom nav are
-// the native system tab bar — this tab lives inside a `Tab(role: .search)`
-// in `PhoneTabShell` and carries the `.searchable` field whose text is bound
-// here as `query`.
+// `PhoneSearchTab` is the production view — the ONLY search surface on
+// iPhone (#3163; the mac/iPad three-column shell's `CloudSearchView`
+// overlay never renders here). It owns the account-wide `SearchViewModel`,
+// its own NavigationStack, and the open route for tapped results. The
+// search FIELD and the bottom nav are the native system tab bar — this tab
+// lives inside a `Tab(role: .search)` in `PhoneTabShell` and carries the
+// `.searchable` field whose text is bound here as `query`.
 //
 // Open presentation (#2371): a tapped result pushes `.preview` onto this
 // tab's own `[LibraryDestination]` stack, exactly as `PhoneLibraryView`
@@ -17,6 +17,12 @@
 // This replaced the search-only `HeroZoomEditorOverlay` presentation
 // (#1489), which zoomed a tapped tile straight into the editor and so was
 // the one surface in the app that skipped Preview.
+//
+// Deep-link / Map pin-tap seeding (#3163): the widget's `maple://search?…`
+// tap and a Map pin/cluster tap both switch to this tab and hand it a
+// `SearchParams` via `pendingSeed` (set by `AppShell.switchToPhoneSearchTab
+// (seeding:)`) instead of opening the mac/iPad overlay. See
+// `applySeedIfNeeded()`.
 
 #if os(iOS)
 
@@ -28,6 +34,11 @@ struct PhoneSearchTab: View {
     @Binding var sessions: [AssetRef.ID: EditSession]
     /// Live query text, bound to the host's `.searchable` search field.
     @Binding var query: String
+    /// A widget deep-link or Map pin tap's `SearchParams`, waiting to be
+    /// applied to `session.vm.params` and submitted (#3163). Set by
+    /// `AppShell.switchToPhoneSearchTab(seeding:)`; cleared here once
+    /// applied so a later tab re-appearance doesn't replay it.
+    @Binding var pendingSeed: SearchParams?
     /// Stable id for the resolved cloud account; nil → no account → empty state.
     let serverKey: String?
     /// Builds the account-wide search session for the resolved server.
@@ -115,6 +126,7 @@ struct PhoneSearchTab: View {
             // Same account as the current session — keep it (and its results).
             if session?.server.absoluteString == key {
                 didLoad = true
+                applySeedIfNeeded()
                 return
             }
             // Account changed: clear the stale session so the loading state
@@ -128,7 +140,43 @@ struct PhoneSearchTab: View {
             guard !Task.isCancelled else { return }
             session = newSession
             didLoad = true
+            applySeedIfNeeded()
         }
+        // Covers the already-mounted case: the session exists (built by the
+        // `.task` above on an earlier appearance) and a NEW seed arrives
+        // while this tab is already alive — `.task(id:)` won't re-run since
+        // `serverKey` hasn't changed.
+        .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
+    }
+
+    /// Apply a pending deep-link/Map-pin seed (#3163). Two halves, split
+    /// because they have different readiness requirements:
+    ///
+    ///  1. The visible query TEXT updates unconditionally, the moment a
+    ///     seed arrives — no session needed, mirroring `PhoneTabShell
+    ///     .searchFor(_:)`'s unconditional `searchQuery = text` for the
+    ///     face-chip case. A widget tap while signed out still shows the
+    ///     intended query rather than an unexplained blank field.
+    ///  2. Actually RUNNING the search (seeding `session.vm.params` and
+    ///     submitting) needs the account-wide session, which may not exist
+    ///     yet (no cloud account) or not be ready yet (cold-start widget tap
+    ///     races the session build against `AppShell` setting the seed).
+    ///     The seed stays pending — re-applying step 1 harmlessly each call
+    ///     — until a session shows up; only then does it clear. Called from
+    ///     both the `.task` above and `.onChange(of: pendingSeed)` so
+    ///     whichever side (seed arrival, session readiness) resolves second
+    ///     is the one that completes it.
+    private func applySeedIfNeeded() {
+        guard let seed = pendingSeed else { return }
+        query = seed.placeQuery
+        guard let session else { return }
+        pendingSeed = nil
+        // Pop any pushed Preview/editor so the user lands on the fresh
+        // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
+        // for the face-chip text-seed case.
+        path = []
+        session.vm.params = seed
+        Task { await session.vm.submit() }
     }
 
     @ViewBuilder
