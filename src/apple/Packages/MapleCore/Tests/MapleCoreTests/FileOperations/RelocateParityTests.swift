@@ -56,6 +56,24 @@ private struct CorpusExpected: Codable {
     let tree: [CorpusFile]?
     let valid: Bool?
     let selectedIndex: Int?
+    /// `rename-reconcile` kind only (#2934) — the resolved (missing, new)
+    /// pairs, compared as a set.
+    let matches: [CorpusMatch]?
+}
+/// `rename-reconcile` kind only (#2934).
+private struct CorpusFingerprint: Codable {
+    let filename: String
+    let size: Int64
+    let dateTimeOriginal: String?
+    let cameraSerial: String?
+}
+private struct CorpusReconcile: Codable {
+    let missing: [CorpusFingerprint]
+    let new: [CorpusFingerprint]
+}
+private struct CorpusMatch: Codable, Equatable {
+    let missing: String
+    let new: String
 }
 private struct CorpusCase: Codable {
     let name: String
@@ -65,6 +83,7 @@ private struct CorpusCase: Codable {
     let requires: [String]
     let setup: CorpusSetup?
     let operation: CorpusOperation?
+    let reconcile: CorpusReconcile?
     let expected: CorpusExpected
 }
 private struct Corpus: Codable {
@@ -317,6 +336,35 @@ final class RelocateParityTests: XCTestCase {
         assertTree(try readTree(root), c.expected.tree, c.name)
     }
 
+    /// No filesystem I/O — a pure decision-function replay against
+    /// `ExternalRenameMatcher.match`, exactly like the TS runner's
+    /// `runRenameReconcileCase` (#2934). A `nil` `dateTimeOriginal` means
+    /// that candidate never becomes a fingerprint at all, so it's simply
+    /// omitted from the `[Candidate]` arrays fed to `match` — the SAME
+    /// exclusion the corpus's other runners express by never fingerprinting
+    /// it, not a distinct code path this runner would need to keep in sync.
+    private func runRenameReconcileCase(_ c: CorpusCase) {
+        guard let reconcile = c.reconcile else {
+            XCTFail("\(c.name): rename-reconcile case has no reconcile block")
+            return
+        }
+        func candidates(_ fps: [CorpusFingerprint]) -> [ExternalRenameMatcher.Candidate] {
+            fps.compactMap { fp in
+                guard let date = fp.dateTimeOriginal else { return nil }
+                return ExternalRenameMatcher.Candidate(
+                    path: fp.filename,
+                    fingerprint: ExternalRenameFingerprint(
+                        size: fp.size, dateTimeOriginal: date, cameraSerial: fp.cameraSerial))
+            }
+        }
+        let matches = ExternalRenameMatcher.match(
+            missing: candidates(reconcile.missing), new: candidates(reconcile.new))
+        let actual = matches.map { CorpusMatch(missing: $0.oldPath, new: $0.newPath) }
+            .sorted { $0.missing < $1.missing }
+        let expected = (c.expected.matches ?? []).sorted { $0.missing < $1.missing }
+        XCTAssertEqual(actual, expected, "\(c.name): matches")
+    }
+
     // MARK: - Driver
 
     func testCorpusParity() async throws {
@@ -348,6 +396,8 @@ final class RelocateParityTests: XCTestCase {
                     try runFolderRenameCase(c)
                 case "selector":
                     stderrLine("SKIP \(c.name): kind \"selector\" is API-only (multi-location-fileinfo)")
+                case "rename-reconcile":
+                    runRenameReconcileCase(c)
                 default:
                     XCTFail("\(c.name): unknown corpus case kind \"\(c.kind)\"")
                 }

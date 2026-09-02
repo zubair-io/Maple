@@ -27,6 +27,10 @@ import { ObjectId } from 'mongodb';
 import { relocateFile, type CollisionPolicy, type RelocateMode } from './relocate.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { activeFileInfo } from '../library/relocate-asset.ts';
+import {
+  matchExternalRenameFingerprints,
+  type ExternalRenameCandidate,
+} from '../workers/discover/rename-reconcile.ts';
 import type { FileInfo } from '../db/schema.ts';
 
 // ---------------------------------------------------------------------------
@@ -40,9 +44,15 @@ interface CorpusFile {
   path: string;
   content: string;
 }
+interface CorpusFingerprint {
+  filename: string;
+  size: number;
+  dateTimeOriginal: string | null;
+  cameraSerial: string | null;
+}
 interface CorpusCase {
   name: string;
-  kind: 'relocate' | 'folder-rename' | 'name-validation' | 'selector';
+  kind: 'relocate' | 'folder-rename' | 'name-validation' | 'selector' | 'rename-reconcile';
   description: string;
   platforms?: string[];
   requires: string[];
@@ -68,6 +78,12 @@ interface CorpusCase {
     deleted_at: string | null;
     missing_since: string | null;
   }[];
+  /** `rename-reconcile` kind only (#2934) — the missing/new candidate pools
+   * fed straight to `matchExternalRenameFingerprints`, no filesystem I/O. */
+  reconcile?: {
+    missing: CorpusFingerprint[];
+    new: CorpusFingerprint[];
+  };
   expected: {
     outcome?: 'relocated' | 'skipped' | 'error';
     renamedOnCollision?: boolean;
@@ -78,6 +94,9 @@ interface CorpusCase {
     tree?: CorpusFile[];
     valid?: boolean;
     selectedIndex?: number;
+    /** `rename-reconcile` kind only — the resolved (missing, new) pairs,
+     * in any order (compared as a set, not a sequence). */
+    matches?: { missing: string; new: string }[];
   };
 }
 interface Corpus {
@@ -324,6 +343,31 @@ function entryIdentity(e: { path: string; filename: string } | null | undefined)
   return e ? { path: e.path, filename: e.filename } : { path: null, filename: null };
 }
 
+function toCandidate(f: CorpusFingerprint): ExternalRenameCandidate {
+  return {
+    filename: f.filename,
+    fingerprint: {
+      size: f.size,
+      dateTimeOriginal: f.dateTimeOriginal,
+      cameraSerial: f.cameraSerial,
+    },
+  };
+}
+
+/** No filesystem I/O — a pure decision-function replay, unlike every other
+ * kind in this corpus. Matches are compared as a SET (sorted by missing
+ * filename), not a sequence: `matchExternalRenameFingerprints` already
+ * documents deterministic output order, but the corpus format doesn't need
+ * to assume that of every future runner. */
+function runRenameReconcileCase(c: CorpusCase): void {
+  const { missing, new: fresh } = c.reconcile!;
+  const actual = matchExternalRenameFingerprints(missing.map(toCandidate), fresh.map(toCandidate))
+    .map((m) => ({ missing: m.missingFilename, new: m.newFilename }))
+    .sort((a, b) => a.missing.localeCompare(b.missing));
+  const expected = [...c.expected.matches!].sort((a, b) => a.missing.localeCompare(b.missing));
+  expect(actual, `${c.name}: matches`).toEqual(expected);
+}
+
 // ---------------------------------------------------------------------------
 // Known TS-only divergences — confirmed bugs the corpus caught, filed and
 // left failing per CLAUDE.md's "expect to find bugs" directive rather than
@@ -386,6 +430,9 @@ describe('cross-surface file-operation outcome parity (#2633)', () => {
           return;
         case 'selector':
           runSelectorCase(c);
+          return;
+        case 'rename-reconcile':
+          runRenameReconcileCase(c);
           return;
         case 'folder-rename':
           // Every corpus 'folder-rename' case today restricts `platforms`
