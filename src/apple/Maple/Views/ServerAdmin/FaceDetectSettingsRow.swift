@@ -101,16 +101,19 @@ struct FaceDetectSettingsRow: View {
         .listRowBackground(MapleTokens.surface)
     }
 
+    // Always renders — even when `snapshot.faceModels` is absent, so the
+    // operator sees "Model status unknown" rather than no banner at all,
+    // which would read as "everything's fine" (Copilot review on #3215).
     @ViewBuilder
     private var modelStatusBanner: some View {
         let headline = EnrichmentSettingsVM.faceModelStatusHeadline(snapshot.faceModels)
-        if let detector = snapshot.faceModels?.detector {
-            MuiBanner(
-                variant: snapshot.faceModels?.status == .loaded ? .success : .warning,
-                message: "\(headline) scrfd_10g.onnx · \(EnrichmentSettingsVM.formatModelBytes(detector.bytes)) · \(detector.path)"
-            )
-            .accessibilityIdentifier("enrichment.faceDetect.statusBanner")
-        }
+        let detail = EnrichmentSettingsVM.faceModelDetailSuffix(
+            fileLabel: "scrfd_10g.onnx", probe: snapshot.faceModels?.detector)
+        MuiBanner(
+            variant: snapshot.faceModels?.status == .loaded ? .success : .warning,
+            message: "\(headline)\(detail)"
+        )
+        .accessibilityIdentifier("enrichment.faceDetect.statusBanner")
     }
 
     // @MainActor because a SwiftUI View is not globally actor-isolated in
