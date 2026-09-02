@@ -91,9 +91,16 @@ struct SelfHostedSettingsTab: View {
             Group {
                 let label = Text("Maple Cloud Servers").font(.headline)
                 if isPhoneShell {
+                    // Padding insets the text FIRST, then the frame
+                    // stretches that already-padded content to the full
+                    // available width — reversing this order (frame, then
+                    // padding) would add padding OUTSIDE an already
+                    // full-width view instead of inside it, growing the
+                    // card past its container (review on #1954).
                     label
+                        .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+                        .padding(.vertical, MapleTokens.Spacing.rowVertical)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(MapleTokens.Spacing.rowHorizontal)
                         .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleUITokens.radiusMd, style: .continuous))
                 } else {
                     label
