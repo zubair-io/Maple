@@ -5,7 +5,7 @@
 //! split out rather than appended so neither file grows past the 600-LOC
 //! hard cap. `CANONICAL_BLOCK` here is this ticket's own cross-language
 //! parity artifact — the same literal must appear in
-//! `ToneCurveXMPTests.swift` and `point-tone-curve.spec.ts`.
+//! `DisplayToneCurveXMPTests.swift` and `display-tone-curve.spec.ts`.
 
 use super::*;
 use crate::types::adjustment::ToneCurve;
