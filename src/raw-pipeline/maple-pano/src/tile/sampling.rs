@@ -29,24 +29,21 @@ use super::warp::{inverse_similarity_with_offset, sample_bicubic};
 ///
 /// # Why a flat parallel pass is fine here (#3090)
 ///
-/// `sample_band` below calls `cache.get()` **per sample point**, gated
-/// by the existing per-sample bbox check — not resolved once and held
-/// for the band (an earlier version did that to cut lock overhead, but
-/// a locally-held `Arc` keeps a frame's pixels alive regardless of what
-/// `cache`'s own LRU does internally, silently defeating the capacity
-/// bound on a set where a band's coverage reaches most/all frames —
-/// typical for a strip pano; see `TileFrameCache` docs). A separate,
-/// earlier attempt at this fix instead restricted parallelism to small
+/// An earlier version of this fix restricted parallelism to small
 /// sequential groups of bands, reasoning that a flat `bands.par_iter()`
 /// over the whole canvas would spread concurrently-active scan positions
-/// (and the frames they need) across the entire canvas; that grouping
-/// threw away most of the machine's cores for no real memory benefit —
-/// measured as a large wall-clock regression on `pano_00` — and is not
-/// needed once `TileFrameCache::get`'s decode-on-miss is serialized
-/// (see its docs): a hit is cheap (lock + short linear scan +
-/// `Arc::clone`), so a flat parallel pass here is fine; peak resident
-/// frames is still bounded by `cache`'s capacity because nothing here
-/// holds a frame alive past the sample that needed it.
+/// across the entire canvas — each needing a different couple of frames,
+/// for a combined working set that could exceed the cache capacity and
+/// thrash. That reasoning targeted the wrong cost: `sample_band` below
+/// resolves each relevant frame through `cache` **once per band**, not
+/// once per pixel sample, so the number of cache accesses is already
+/// tiny (bands × relevant-frames-per-band, not canvas-pixels ×
+/// relevant-frames), and restricting parallelism on top of that only
+/// threw away most of the machine's cores for no memory benefit —
+/// measured as a large wall-clock regression on `pano_00` (too few
+/// frames for the cache to ever evict anything, so the grouping bought
+/// nothing there either). Left as a flat parallel pass; peak resident
+/// frames is still bounded by `cache`'s capacity.
 pub(super) fn sample_pairs(
     cache: &TileFrameCache,
     full_dims: &[(u32, u32)],
