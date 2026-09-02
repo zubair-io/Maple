@@ -1503,16 +1503,30 @@ public actor RemoteCatalog {
         return try decoder.decode(FolderTrashSummary.self, from: data)
     }
 
-    // NOTE: `POST /api/folders/<id>/restore-folder` (the inverse of
-    // `trashFolder`, restoring every trashed asset whose original location
-    // was under a subfolder) is intentionally NOT wired as a client method
-    // here. #2696 scoped this PR to Cloud folder Move-to-Trash only, and an
-    // unreachable `restoreFolder` method (no caller anywhere in the app,
-    // review finding) is dead code, not a completed feature — there's no
-    // browsable "trashed folder tree" surface today for it to serve; the
-    // Trash browser lists individual trashed ASSETS. Folder-level restore
-    // is a real follow-up (new ticket), not a few pre-written unreachable
-    // lines masquerading as "already done."
+    /// POST /api/folders/<id>/restore-folder — the inverse of `trashFolder`:
+    /// restore every trashed asset whose original location was under a
+    /// subfolder (#2751). Same request/response shape as `trashFolder` —
+    /// same `X-Maple-Target-Path` header/validation, same
+    /// `FolderTrashSummary` decode (the server's `restoreFolderRecursive`
+    /// and `trashFolderRecursive` both produce the identical
+    /// `{total, succeeded, failed, items}` shape via one shared
+    /// `summarize` helper — see `library/folder-trash.ts`).
+    ///
+    /// #2696 deliberately left this unwired: an unreachable method with no
+    /// caller is dead code, not a completed feature, and there was no
+    /// browsable "trashed folder" surface for it to serve — the Trash
+    /// browser (`TrashBrowserSheet`) only listed individual trashed assets.
+    /// #2751 adds that surface (grouping the flat asset list by each row's
+    /// `originalRelativePath` directory) and wires this method to its
+    /// per-group "Restore Folder" action.
+    public func restoreFolder(folderID: String, relativePath: String) async throws -> FolderTrashSummary {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/restore-folder"))
+        req.httpMethod = "POST"
+        req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp, data: data, url: req.url)
+        return try decoder.decode(FolderTrashSummary.self, from: data)
+    }
 
     /// GET /api/folders/<id>/trash. `cursor` and `limit` are optional.
     public func listTrash(folderID: String, limit: Int? = nil, cursor: String? = nil) async throws -> TrashListResponse {

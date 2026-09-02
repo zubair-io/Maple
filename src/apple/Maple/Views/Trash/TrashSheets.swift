@@ -15,7 +15,10 @@ extension View {
         onLoad: @escaping () async -> [TrashBrowserRow],
         onRestore: @escaping (TrashBrowserRow) async -> TrashRowActionOutcome,
         onPermanentlyDelete: @escaping (TrashBrowserRow) async -> TrashRowActionOutcome,
-        onDismissBrowser: @escaping () -> Void
+        onDismissBrowser: @escaping () -> Void,
+        /// Folder-level restore (#2751) — Cloud only. `nil` suppresses the
+        /// browser's "Restore Folder" affordance for non-Cloud contexts.
+        onRestoreFolder: ((String) async -> TrashRowActionOutcome)? = nil
     ) -> some View {
         self
             .sheet(isPresented: Binding(
@@ -30,7 +33,8 @@ extension View {
                     onLoad: onLoad,
                     onRestore: onRestore,
                     onPermanentlyDelete: onPermanentlyDelete,
-                    onDismiss: { trashBrowserContext.wrappedValue = nil }
+                    onDismiss: { trashBrowserContext.wrappedValue = nil },
+                    onRestoreFolder: onRestoreFolder
                 )
             }
     }

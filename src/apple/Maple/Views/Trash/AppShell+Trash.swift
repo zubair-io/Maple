@@ -233,6 +233,31 @@ extension AppShell {
         }
     }
 
+    /// Backs `TrashBrowserSheet.onRestoreFolder` — folder-level restore for
+    /// Cloud trash only (#2751). `relativePath` is a directory grouping key
+    /// the sheet derived from its rows' `originalRelativePath` (never a
+    /// per-asset id), so this has no Local/SMB counterpart to dispatch to —
+    /// those sources' trash is a flat `.maple/trash/<rel>` directory with no
+    /// server-side batch-restore-by-folder route to call. `nil` for
+    /// `trashBrowserContext` (a `.local`/`.smb` browser has no such button
+    /// to press) is defensive; the sheet only ever calls this from the
+    /// Cloud context that constructs the closure in the first place.
+    func restoreTrashBrowserFolder(_ relativePath: String) async -> TrashRowActionOutcome {
+        guard case .cloud(let server, let libraryFolderID, _) = trashBrowserContext else {
+            return .failed("")
+        }
+        let remote = makeCloudCatalog(server: server)
+        do {
+            let summary = try await remote.restoreFolder(folderID: libraryFolderID, relativePath: relativePath)
+            if summary.failed > 0 {
+                return .failed("\(summary.failed) of \(summary.total) items in this folder could not be restored")
+            }
+            return .succeeded
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
     /// Backs `TrashBrowserSheet.onPermanentlyDelete`.
     func permanentlyDeleteTrashBrowserRow(_ row: TrashBrowserRow) async -> TrashRowActionOutcome {
         guard let trashBrowserContext else { return .failed("") }
