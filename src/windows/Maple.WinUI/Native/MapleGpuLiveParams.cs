@@ -155,6 +155,22 @@ namespace Maple.WinUI.Native
         public float parametric_shadow_split;
         public float parametric_midtone_split;
         public float parametric_highlight_split;
+        // Display-referred (post-AgX) tone curves (#2232) — crs:ToneCurvePV2012*.
+        // Left null/0 below, same convention as tone_curve_*_ptr above and
+        // parametric_shadow_split's comment: raw-ffi reads a null pointer /
+        // zero len as "identity curve" (no pass), so leaving these unset here
+        // is the correct legacy-equivalent behavior on this struct until the
+        // fast-preview GPU path wires real curve pointers through (tracked
+        // with the same pre-existing gap as tone_curve_luma_ptr et al., not
+        // introduced by this field addition).
+        public float* display_tone_curve_luma_ptr;
+        public nuint display_tone_curve_luma_len;
+        public float* display_tone_curve_red_ptr;
+        public nuint display_tone_curve_red_len;
+        public float* display_tone_curve_green_ptr;
+        public nuint display_tone_curve_green_len;
+        public float* display_tone_curve_blue_ptr;
+        public nuint display_tone_curve_blue_len;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
