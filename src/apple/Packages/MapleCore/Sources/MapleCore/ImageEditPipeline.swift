@@ -1344,7 +1344,12 @@ public actor ImageEditPipeline {
         decoded: CIImage,
         model: AdjustmentModel,
         targetSize: CGSize? = nil,
-        assetID: UUID? = nil
+        assetID: UUID? = nil,
+        // Same #3190 review follow-up as `processSceneLinear`'s parameter of
+        // the same name: a caller compositing a film-look cube (sRGB-baked)
+        // on this function's output must pass `.srgb` here whenever its
+        // lattice is active, so the encode doesn't hand it P3-encoded bytes.
+        targetPrimariesOverride: CanvasColorSpace? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -1392,9 +1397,12 @@ public actor ImageEditPipeline {
                        decodedTemperature: 6500.0, decodedTint: 0.0,
                        skipAgX: true,
                        decodedSource: decoded,
-                       // No Auto Profile cube on the non-RAW path — always
-                       // safe to honor the canvas setting directly (#3190).
-                       targetPrimaries: CanvasColorSpace.current
+                       // No Auto Profile cube on the non-RAW path, so this
+                       // is always safe to honor the canvas setting directly
+                       // (#3190) UNLESS the caller is about to composite an
+                       // sRGB-baked film-look cube (`targetPrimariesOverride`,
+                       // review follow-up).
+                       targetPrimaries: targetPrimariesOverride ?? CanvasColorSpace.current
                    ) {
                     return fusedEncoded
                 }
@@ -1430,7 +1438,9 @@ public actor ImageEditPipeline {
         // encode failure fall back to the Rec.2020 buffer (no cube on this
         // path) — CoreImage then does its own coherent Rec.2020→canvas
         // conversion.
-        return encodeDisplayViaFFI(chained, targetPrimaries: CanvasColorSpace.current) ?? chained
+        return encodeDisplayViaFFI(
+            chained, targetPrimaries: targetPrimariesOverride ?? CanvasColorSpace.current
+        ) ?? chained
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -1481,7 +1491,18 @@ public actor ImageEditPipeline {
         assetID: UUID? = nil,
         noiseProfile: [Float]? = nil,
         iso: UInt32 = 0,
-        wbFrame: WbSliderFrame? = nil
+        wbFrame: WbSliderFrame? = nil,
+        // #3190 review follow-up: `FilmLookCube.apply` (baked/fit in sRGB,
+        // same as the Auto Profile cube) runs on THIS function's output at
+        // every call site that has a film look active. When nil (every
+        // pre-existing call site), the encode's target is derived as usual
+        // (`profileLUT != nil ? .srgb : CanvasColorSpace.current`). A
+        // caller that is about to composite a film-look cube on the result
+        // MUST pass `.srgb` here whenever its lattice is active — same
+        // "sRGB-baked lattice pins the encode to sRGB regardless of canvas"
+        // rule already applied to the Auto Profile cube below, extended to
+        // the second sRGB-baked lattice in this pipeline.
+        targetPrimariesOverride: CanvasColorSpace? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -1575,11 +1596,13 @@ public actor ImageEditPipeline {
                        // applying it to a P3-encoded buffer would be a
                        // color-space mismatch (the cube's LUT domain no
                        // longer matches the pixel values it's applied to).
-                       // Pin the encode to sRGB whenever a cube is present;
-                       // only a Neutral-profile render (profileLUT == nil,
-                       // AutoProfileLUT.apply is then a passthrough) honors
-                       // the user's canvas setting.
-                       targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current
+                       // Pin the encode to sRGB whenever a cube is present OR
+                       // the caller is about to composite an sRGB-baked film
+                       // look cube (`targetPrimariesOverride`, review
+                       // follow-up); only a Neutral-profile, no-film render
+                       // honors the user's canvas setting.
+                       targetPrimaries: targetPrimariesOverride
+                           ?? (profileLUT != nil ? .srgb : CanvasColorSpace.current)
                    ) {
                     return AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
                 }
@@ -1635,14 +1658,17 @@ public actor ImageEditPipeline {
         //     (no clamp inside the cube's color management) — the cube is
         //     fit in sRGB, so `targetPrimaries` is pinned to `.srgb`
         //     whenever `profileLUT` is present, same reasoning as the fused
-        //     path above.
+        //     path above. A caller compositing a film-look cube afterward
+        //     (also sRGB-baked) pins the same way via
+        //     `targetPrimariesOverride`.
         //   * the canvas raster (`createCGImage(displayP3)`) converts
         //     the tagged buffer → P3 with all values in-gamut — nothing
         //     clips, whether the buffer was already P3 (a no-op convert) or
         //     still sRGB.
         let encoded = encodeDisplayViaFFI(
             chained,
-            targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current
+            targetPrimaries: targetPrimariesOverride
+                ?? (profileLUT != nil ? .srgb : CanvasColorSpace.current)
         )
         // Auto Profile (#812) — the LAST display-space op, matching the CPU
         // path's `auto_profile` → quantize order. `profileLUT` is a
@@ -1699,23 +1725,36 @@ public actor ImageEditPipeline {
     /// shared context (avoids spinning up a sibling Metal command queue
     /// per slider tick).
     ///
-    /// Output format is `RGBAf` + **sRGB** (#877). The `processSceneLinear`
-    /// output is now sRGB-gamma-encoded sRGB-primary (the gamut-correct
-    /// `encodeDisplayViaFFI` is the final develop-chain op — see #877),
-    /// tagged `sRGB`. Materialising in the same `sRGB` space keeps the refine
-    /// path byte-consistent with the live `CIImageView` path: both hand
-    /// CoreImage an sRGB image and let it convert sRGB → the canvas's P3 at
-    /// raster, with every value in-gamut so nothing clips. (Pre-#877 this
-    /// materialised to extended-linear Rec.2020 because the chain output was
-    /// still display-linear Rec.2020 and CoreImage did the Rec.2020→sRGB
+    /// Output format is `RGBAf`, tagged `colorSpace` — **must match** the
+    /// primaries `image`'s bytes are actually gamma-encoded in, or this is a
+    /// silent mistag, not a real conversion. `processSceneLinear`'s output
+    /// is `encodeDisplayViaFFI`'s result (#877, P3-aware since #3190):
+    /// sRGB-gamma-encoded sRGB-primary whenever an Auto Profile cube is in
+    /// play (the cube is fit/baked in sRGB) or the canvas is set to sRGB,
+    /// and Display-P3-gamma-encoded P3-primary when `Profile::Neutral` and
+    /// the canvas is set to Display P3 — see `processSceneLinear`'s
+    /// `targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current`
+    /// for the exact rule callers must mirror when choosing `colorSpace`
+    /// here (jules review on #3239: this used to be hardcoded to
+    /// `displayEncodedColorSpace`/sRGB regardless of what `image` actually
+    /// carried, causing an unintended P3→sRGB conversion at materialization
+    /// whenever the canvas was P3). Defaults to `displayEncodedColorSpace`
+    /// so a caller that hasn't been updated for #3190 keeps its prior,
+    /// still-correct-for-sRGB-canvas behavior. Materialising in the SAME
+    /// space `image` is tagged keeps this path byte-consistent with the
+    /// live `CIImageView` path: both hand CoreImage an already-in-gamut
+    /// image and let it convert (a no-op when the tag already matches the
+    /// canvas) rather than clamp. (Pre-#877 this materialised to
+    /// extended-linear Rec.2020 because the chain output was still
+    /// display-linear Rec.2020 and CoreImage did the Rec.2020→sRGB
     /// per-channel-clamp encode at `createCGImage` — that clamp was the
     /// wide-gamut-green blowout the encode now fixes upstream.)
     nonisolated public func materializeRegion(
         _ image: CIImage,
-        rect: CGRect
+        rect: CGRect,
+        colorSpace: CGColorSpace = ImageEditPipeline.displayEncodedColorSpace
     ) -> CGImage? {
-        let cs = Self.displayEncodedColorSpace
-        return context.createCGImage(image, from: rect, format: .RGBAf, colorSpace: cs)
+        return context.createCGImage(image, from: rect, format: .RGBAf, colorSpace: colorSpace)
     }
 
     // MARK: Prescale helper (tiling-friendly)
