@@ -164,6 +164,14 @@ public final class FolderMergeAdapter {
 
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        // Captured ONCE for this whole rebuild, not re-read per ref
+        // (Copilot review, PR #3187): re-calling `Date()` inside the loop
+        // let two refs with no cached captureDate land in DIFFERENT month
+        // buckets whenever a rebuild's wall-clock time happened to straddle
+        // a month boundary while scanning — a real possibility across many
+        // folders/files, not just a theoretical race. Every no-date ref in
+        // this rebuild now falls back to the SAME instant.
+        let fallbackNow = Date()
 
         for folder in saved {
             // Cancellation check per folder (Copilot review, PR #3187):
@@ -186,7 +194,7 @@ public final class FolderMergeAdapter {
 
             guard let refs = try? await source.images() else { continue }
             for ref in refs {
-                let date = ref.captureDate ?? Date()
+                let date = ref.captureDate ?? fallbackNow
                 let comps = cal.dateComponents([.year, .month], from: date)
                 guard let y = comps.year, let m = comps.month else { continue }
                 buckets[BucketKey(year: y, month: m), default: []].append(ref)
