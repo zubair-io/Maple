@@ -124,7 +124,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             urlSession: session,
             tokensProvider: { try? TokenStore.load(server: cfg.serverURL) },
             onTokensRefreshed: { try TokenStore.save($0, server: cfg.serverURL) },
-            onSignOut: { TokenStore.clear(server: cfg.serverURL) }
+            onSignOut: { TokenStore.clear(server: cfg.serverURL) },
+            // #2472 — this extension holds the App Group `flock` across the
+            // refresh's `URLSession.data(for:)` exactly like the app did
+            // before #2455/#2471; `ExpiringActivityRefreshExecutor` is the
+            // extension-process counterpart to the app's `BackgroundExecution`.
+            refreshExecutor: ExpiringActivityRefreshExecutor()
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
         let resolvedWorkingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)

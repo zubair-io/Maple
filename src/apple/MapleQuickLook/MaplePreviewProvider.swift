@@ -93,7 +93,9 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
             urlSession: urlSession,
             tokensProvider: { try? TokenStore.load(server: cfg.serverURL) },
             onTokensRefreshed: { try TokenStore.save($0, server: cfg.serverURL) },
-            onSignOut: { TokenStore.clear(server: cfg.serverURL) }
+            onSignOut: { TokenStore.clear(server: cfg.serverURL) },
+            // #2472 — see FileProviderExtensionCore.swift's identical note.
+            refreshExecutor: ExpiringActivityRefreshExecutor()
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
 
