@@ -281,7 +281,12 @@ function assertRelocateOutcome(
     );
   }
   if (c.expected.companionFollowed !== undefined) {
-    expect(outcome.companionPaths.length > 0, `${c.name}: companionFollowed`).toBe(
+    // "Followed" means EVERY listed `operation.companions` entry copied
+    // successfully, not merely "at least one did" — a case with more than
+    // one companion could otherwise report `companionFollowed: true` when
+    // only some of them actually made it (found in review).
+    const requested = c.operation?.companions?.length ?? 0;
+    expect(outcome.companionPaths.length === requested, `${c.name}: companionFollowed`).toBe(
       c.expected.companionFollowed,
     );
   }
