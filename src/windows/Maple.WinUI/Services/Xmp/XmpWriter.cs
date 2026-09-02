@@ -191,7 +191,12 @@ namespace Maple.WinUI.Services.Xmp
                 }
                 else if (slot.PassthroughIndex >= 0 && slot.PassthroughIndex < doc.PassthroughNodes.Count)
                 {
-                    visitedPassthroughIndexes.Add(slot.PassthroughIndex);
+                    // HashSet.Add returns false for an index already seen —
+                    // a stale/out-of-sync ChildOrder that repeats the same
+                    // PassthroughIndex must not duplicate that node in the
+                    // output; only the first occurrence emits (Copilot
+                    // review on #3113).
+                    if (!visitedPassthroughIndexes.Add(slot.PassthroughIndex)) continue;
                     // Preserved unknown node: first line re-indented onto
                     // the canonical ladder, interior whitespace kept as
                     // authored.
