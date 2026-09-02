@@ -57,8 +57,8 @@ pub use downsample::downsample_image_area;
 pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use render::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_profile_curve_from_raw,
-    native_render_dims, render_export_from_raw, render_from_raw, render_from_raw_with_quality,
-    render_export_from_raw_with_film, render_from_raw_with_quality_and_source,
+    native_render_dims, render_export_from_raw, render_export_from_raw_with_film, render_from_raw,
+    render_from_raw_with_quality, render_from_raw_with_quality_and_source,
     render_from_raw_with_quality_source_and_film, render_from_scene_linear,
     render_from_scene_linear_with_chain, render_scene_linear_from_raw_with_quality,
     render_scene_linear_from_raw_with_quality_f32,
@@ -74,7 +74,7 @@ pub use render::{
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32,
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
-    encode_display_srgb_f32, ChainOptions,
+    encode_display_f32, encode_display_srgb_f32, ChainOptions,
 };
 pub use tile::{
     render_scene_linear_tile_from_raw_with_quality,

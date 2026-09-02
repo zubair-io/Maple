@@ -1073,7 +1073,8 @@ public actor ImageEditPipeline {
         skipAgX: Bool,
         noiseProfile: [Float]? = nil,
         iso: UInt32 = 0,
-        decodedSource: CIImage?
+        decodedSource: CIImage?,
+        targetPrimaries: CanvasColorSpace = .srgb
     ) -> CIImage? {
         let extent = scaled.extent
         let w = Int(extent.width.rounded())
@@ -1135,8 +1136,9 @@ public actor ImageEditPipeline {
             let outputBytes: Data
             do {
                 outputBytes = try mapleStage("fused chain+encode") {
-                    try PipelineRenderer.applyChainAndEncodeDisplay(
+                    try PipelineRenderer.applyChainAndEncodeDisplayTarget(
                         inputBytes: inputBytes, width: w, height: h, params: params,
+                        targetPrimaries: targetPrimaries.wireValue,
                         noiseProfile: noiseProfile
                     )
                 }
@@ -1145,15 +1147,18 @@ public actor ImageEditPipeline {
                 return nil
             }
 
-            // Output is sRGB-gamma-encoded sRGB-primary f32 RGBA — same
-            // tagging as `encodeDisplaySRGBViaFFI`'s successful result.
+            // Output is gamma-encoded in `targetPrimaries`' primaries — tag
+            // the CIImage to MATCH (#3190), same rule as
+            // `encodeDisplaySRGBViaFFI`'s successful result.
+            let tag = targetPrimaries == .displayP3
+                ? Self.displayEncodedColorSpaceP3 : Self.displayEncodedColorSpace
             return mapleStage("fused chain+encode CIImage build") {
                 CIImage(
                     bitmapData: outputBytes,
                     bytesPerRow: rowBytes,
                     size: CGSize(width: w, height: h),
                     format: .RGBAf,
-                    colorSpace: Self.displayEncodedColorSpace
+                    colorSpace: tag
                 )
             }
         }
@@ -1169,6 +1174,15 @@ public actor ImageEditPipeline {
     /// raw-core's hue-preserving Oklab compression.
     nonisolated public static let displayEncodedColorSpace =
         CGColorSpace(name: CGColorSpace.sRGB)!
+
+    /// Display P3 counterpart of `displayEncodedColorSpace` (#3190) — the
+    /// tag for a buffer `encodeDisplaySRGBViaFFI` encoded at
+    /// `CanvasColorSpace.displayP3`. Using this (not the sRGB tag above) on
+    /// a P3-gamma-encoded buffer is what makes the P3 canvas toggle
+    /// actually change the rendered bytes' color management instead of
+    /// silently re-tagging a still-sRGB buffer.
+    nonisolated public static let displayEncodedColorSpaceP3 =
+        CGColorSpace(name: CGColorSpace.displayP3)!
 
     /// Apply raw-core's canonical display encode (#877) to a post-AgX
     /// **display-linear Rec.2020** CIImage: materialise it to f32 RGBA, hand
@@ -1193,7 +1207,18 @@ public actor ImageEditPipeline {
     /// Rec.2020 buffer with NO cube (behaving like `Profile::Neutral`), so
     /// CoreImage's own Rec.2020→canvas conversion runs coherently. See
     /// `applyAutoCubeIfEncoded`.
-    nonisolated private func encodeDisplaySRGBViaFFI(_ input: CIImage) -> CIImage? {
+    ///
+    /// `targetPrimaries` (#3190, default `.srgb` — every pre-existing call
+    /// site keeps its old behavior unchanged) selects which primaries' hull
+    /// the Oklab gamut compression targets AND which colorspace the result
+    /// is tagged: `CanvasImageView` (the GPU-live loading-gap backdrop /
+    /// the CPU-only fallback path) honors `CanvasColorSpace.current` this
+    /// way instead of always encoding sRGB regardless of the user's canvas
+    /// setting.
+    nonisolated private func encodeDisplaySRGBViaFFI(
+        _ input: CIImage,
+        targetPrimaries: CanvasColorSpace = .srgb
+    ) -> CIImage? {
         let extent = input.extent
         let w = Int(extent.width.rounded())
         let h = Int(extent.height.rounded())
@@ -1239,9 +1264,10 @@ public actor ImageEditPipeline {
 
             let outputBytes: Data
             do {
-                outputBytes = try mapleStage("encode display sRGB (Oklab gamut)") {
-                    try PipelineRenderer.encodeDisplaySRGB(
-                        inputBytes: inputBytes, width: w, height: h
+                outputBytes = try mapleStage("encode display (Oklab gamut)") {
+                    try PipelineRenderer.encodeDisplay(
+                        inputBytes: inputBytes, width: w, height: h,
+                        targetPrimaries: targetPrimaries.wireValue
                     )
                 }
             } catch {
@@ -1252,15 +1278,19 @@ public actor ImageEditPipeline {
             // autoreleasepool boundary), not merely "whenever ARC gets
             // around to it" — see the comment on the sibling round trip.
 
-            // The bytes are now sRGB-gamma-encoded sRGB-primary f32 RGBA —
-            // tag the CIImage sRGB so CoreImage does no further gamut clamp.
-            return mapleStage("display sRGB CIImage build") {
+            // The bytes are now gamma-encoded in `targetPrimaries`' primaries
+            // — tag the CIImage to MATCH (#3190: sRGB tag for a still-sRGB
+            // buffer, P3 tag for a P3-encoded one) so CoreImage does no
+            // further gamut clamp/re-interpretation.
+            let tag = targetPrimaries == .displayP3
+                ? Self.displayEncodedColorSpaceP3 : Self.displayEncodedColorSpace
+            return mapleStage("display CIImage build") {
                 CIImage(
                     bitmapData: outputBytes,
                     bytesPerRow: rowBytes,
                     size: CGSize(width: w, height: h),
                     format: .RGBAf,
-                    colorSpace: Self.displayEncodedColorSpace
+                    colorSpace: tag
                 )
             }
         }
@@ -1360,7 +1390,10 @@ public actor ImageEditPipeline {
                        scaled, model: model,
                        decodedTemperature: 6500.0, decodedTint: 0.0,
                        skipAgX: true,
-                       decodedSource: decoded
+                       decodedSource: decoded,
+                       // No Auto Profile cube on the non-RAW path — always
+                       // safe to honor the canvas setting directly (#3190).
+                       targetPrimaries: CanvasColorSpace.current
                    ) {
                     return fusedEncoded
                 }
@@ -1386,15 +1419,17 @@ public actor ImageEditPipeline {
         // Sharpen + nr_color now run INSIDE `chained` — the per-tick Rust
         // chain applies them at their canonical scene-linear positions
         // (#1043 retired the post-AgX Metal kernels that used to sit here).
-        // Display encode (#877) — same gamut-correct Rec.2020→sRGB (Oklab) +
-        // gamma the RAW path uses, replacing CoreImage's implicit per-channel
-        // clamp at the canvas boundary. Non-RAW input is already sRGB-gamut
-        // content promoted into the Rec.2020 working space, so this is the
-        // matching encode and keeps the non-RAW canvas consistent with the
-        // RAW canvas (both tag the result `sRGB`). On encode failure fall back
-        // to the Rec.2020 buffer (no cube on this path) — CoreImage then does
-        // its own coherent Rec.2020→canvas conversion.
-        return encodeDisplaySRGBViaFFI(chained) ?? chained
+        // Display encode (#877, P3-aware since #3190) — same gamut-correct
+        // Oklab compression + gamma the RAW path uses, replacing CoreImage's
+        // implicit per-channel clamp at the canvas boundary. Non-RAW input is
+        // already sRGB-gamut content promoted into the Rec.2020 working
+        // space, so this is the matching encode and keeps the non-RAW canvas
+        // consistent with the RAW canvas (both honor the same
+        // `CanvasColorSpace.current` target and tag the result to match). On
+        // encode failure fall back to the Rec.2020 buffer (no cube on this
+        // path) — CoreImage then does its own coherent Rec.2020→canvas
+        // conversion.
+        return encodeDisplaySRGBViaFFI(chained, targetPrimaries: CanvasColorSpace.current) ?? chained
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -1534,7 +1569,16 @@ public actor ImageEditPipeline {
                        skipAgX: false,
                        noiseProfile: noiseProfile,
                        iso: iso,
-                       decodedSource: decoded
+                       decodedSource: decoded,
+                       // #3190: an Auto Profile cube is fit/baked in sRGB —
+                       // applying it to a P3-encoded buffer would be a
+                       // color-space mismatch (the cube's LUT domain no
+                       // longer matches the pixel values it's applied to).
+                       // Pin the encode to sRGB whenever a cube is present;
+                       // only a Neutral-profile render (profileLUT == nil,
+                       // AutoProfileLUT.apply is then a passthrough) honors
+                       // the user's canvas setting.
+                       targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current
                    ) {
                     return AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
                 }
@@ -1576,19 +1620,29 @@ public actor ImageEditPipeline {
         // fallback; the GPU path is the one held to 16 ms.
         // Display encode (#877) — the EXACT raw-core view-encode the CPU/CLI
         // reference runs between AgX and the Auto Profile cube:
-        // `rec2020_to_srgb` (hue-preserving Oklab gamut compression, #438) +
-        // `srgb_gamma_encode`. Runs for BOTH profiles. This replaces the
-        // implicit, per-channel-CLAMPED Rec.2020→sRGB conversion CoreImage
-        // used to do at the `createCGImage` boundary — that clamp drove
-        // saturated wide-gamut greens up / blue to zero and diverged from the
-        // reference (#871's `_MG_3620` blowout). After this op the buffer is
-        // sRGB-gamma-encoded sRGB-primary [0,1], tagged `sRGB`, so:
-        //   * Neutral is gamut-correct (no green clip), matching the CLI.
+        // `rec2020_to_display` (hue-preserving Oklab gamut compression, #438 /
+        // P3-aware since #3190) + `srgb_gamma_encode`. Runs for BOTH profiles.
+        // This replaces the implicit, per-channel-CLAMPED Rec.2020→sRGB
+        // conversion CoreImage used to do at the `createCGImage` boundary —
+        // that clamp drove saturated wide-gamut greens up / blue to zero and
+        // diverged from the reference (#871's `_MG_3620` blowout). After this
+        // op the buffer is gamma-encoded [0,1] in `targetPrimaries`, tagged
+        // to match, so:
+        //   * Neutral is gamut-correct (no green clip), matching the CLI, and
+        //     honors `CanvasColorSpace.current` (P3 target when selected).
         //   * the Auto cube below applies on its matching sRGB-encoded domain
-        //     (no clamp inside the cube's color management).
+        //     (no clamp inside the cube's color management) — the cube is
+        //     fit in sRGB, so `targetPrimaries` is pinned to `.srgb`
+        //     whenever `profileLUT` is present, same reasoning as the fused
+        //     path above.
         //   * the canvas raster (`createCGImage(displayP3)`) converts
-        //     sRGB → P3 with all values in-gamut — nothing clips.
-        let encoded = encodeDisplaySRGBViaFFI(chained)
+        //     the tagged buffer → P3 with all values in-gamut — nothing
+        //     clips, whether the buffer was already P3 (a no-op convert) or
+        //     still sRGB.
+        let encoded = encodeDisplaySRGBViaFFI(
+            chained,
+            targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current
+        )
         // Auto Profile (#812) — the LAST display-space op, matching the CPU
         // path's `auto_profile` → quantize order. `profileLUT` is a
         // CIColorCubeWithColorSpace tagged sRGB; on a successful encode its
