@@ -309,11 +309,24 @@ fn check_gimbal_identity(priors: &[FramePriors]) -> bool {
         return false; // can't tell — not enough metadata
     }
     let first = gimbals[0];
+    // Wrap-aware on every axis: DJI yaw is a signed ±180° circular value,
+    // so -179.9° and +179.9° are the same attitude, not 359.8° apart.
     gimbals.iter().all(|g| {
-        (g.yaw_deg - first.yaw_deg).abs() < GIMBAL_IDENTITY_DEG
-            && (g.pitch_deg - first.pitch_deg).abs() < GIMBAL_IDENTITY_DEG
-            && (g.roll_deg - first.roll_deg).abs() < GIMBAL_IDENTITY_DEG
+        circular_diff_deg(g.yaw_deg, first.yaw_deg) < GIMBAL_IDENTITY_DEG
+            && circular_diff_deg(g.pitch_deg, first.pitch_deg) < GIMBAL_IDENTITY_DEG
+            && circular_diff_deg(g.roll_deg, first.roll_deg) < GIMBAL_IDENTITY_DEG
     })
+}
+
+/// Shortest angular distance between two degree values on a ±180°
+/// circular axis.
+fn circular_diff_deg(a: f64, b: f64) -> f64 {
+    let raw = (a - b).rem_euclid(360.0);
+    if raw > 180.0 {
+        360.0 - raw
+    } else {
+        raw
+    }
 }
 
 /// Maximum pairwise gimbal attitude difference across the set, in degrees
@@ -340,17 +353,9 @@ fn gimbal_rotation_spread(priors: &[FramePriors]) -> Option<f64> {
 /// on a ±180° circular axis (DJI yaw is signed ±180°; pitch/roll don't
 /// wrap in practice, but the circular distance is exact for them too).
 fn max_pairwise_spread_deg(vals: &[f64]) -> f64 {
-    let circular_diff = |a: f64, b: f64| -> f64 {
-        let raw = (a - b).rem_euclid(360.0);
-        if raw > 180.0 {
-            360.0 - raw
-        } else {
-            raw
-        }
-    };
     vals.iter()
         .enumerate()
-        .flat_map(|(i, &a)| vals[i + 1..].iter().map(move |&b| circular_diff(a, b)))
+        .flat_map(|(i, &a)| vals[i + 1..].iter().map(move |&b| circular_diff_deg(a, b)))
         .fold(0.0_f64, f64::max)
 }
 #[cfg(test)]
