@@ -197,6 +197,12 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             film_lut_size: 0,
             film_lut_key: 0,
             film_lut_data: Vec::new(),
+            display_tone_curves: raw_gpu::DisplayToneCurveInputs {
+                master: model.display_tone_curve_luma.points.clone(),
+                red: model.display_tone_curve_red.points.clone(),
+                green: model.display_tone_curve_green.points.clone(),
+                blue: model.display_tone_curve_blue.points.clone(),
+            },
         };
         let ctx = GpuContext::new_blocking().expect("gpu context");
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");

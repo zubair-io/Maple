@@ -379,6 +379,23 @@ pub struct MapleGpuLiveParams {
     pub parametric_shadow_split: f32,
     pub parametric_midtone_split: f32,
     pub parametric_highlight_split: f32,
+    // --- display-referred (post-AgX) tone curves (#2232) —
+    //     `crs:ToneCurvePV2012*`. Runs immediately after AgX, before
+    //     color_grade, evaluating each channel independently in
+    //     display-linear [0, 1] (no luma coupling — matches Lightroom's own
+    //     per-channel point-curve application). Same flat `(x, y)` pair
+    //     wire shape as `tone_curve_*_ptr` above. Appended at the struct
+    //     tail per the offset-stable ABI convention: a stale host leaves
+    //     every pointer null / len 0 ⇒ identity curves ⇒ the pass is
+    //     omitted, bit-identical to pre-#2232 output. ---
+    pub display_tone_curve_luma_ptr: *const f32,
+    pub display_tone_curve_luma_len: usize,
+    pub display_tone_curve_red_ptr: *const f32,
+    pub display_tone_curve_red_len: usize,
+    pub display_tone_curve_green_ptr: *const f32,
+    pub display_tone_curve_green_len: usize,
+    pub display_tone_curve_blue_ptr: *const f32,
+    pub display_tone_curve_blue_len: usize,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.
