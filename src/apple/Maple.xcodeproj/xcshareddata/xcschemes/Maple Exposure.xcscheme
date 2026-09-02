@@ -10,8 +10,8 @@
          <ExecutionAction
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
-               title = "Check RawPipeline.xcframework freshness"
-               scriptText = "&quot;${SRCROOT}/scripts/build-xcframework.sh&quot; --check-only&#10;">
+               title = "Build RawPipeline.xcframework if stale"
+               scriptText = "# #2375 / #3195: MapleCore (a package dependency) compiles BEFORE the app&#10;# target&apos;s &quot;Build Rust xcframework&quot; phase, so a stale xcframework has to be&#10;# repaired here, ahead of the build, not merely detected. Fast hash no-op when&#10;# the stamp matches; same profile rule as the build phase. Failing here surfaces&#10;# the script&apos;s own error instead of a confusing MapleCore compile error.&#10;if &quot;${SRCROOT}/scripts/build-xcframework.sh&quot; --check-only; then exit 0; fi&#10;if [ &quot;${CONFIGURATION:-}&quot; = &quot;Release&quot; ]; then&#10;  bash &quot;${SRCROOT}/scripts/build-xcframework.sh&quot; --release&#10;else&#10;  bash &quot;${SRCROOT}/scripts/build-xcframework.sh&quot; --debug&#10;fi&#10;">
                <EnvironmentBuildable>
                   <BuildableReference
                      BuildableIdentifier = "primary"
