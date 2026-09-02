@@ -160,6 +160,20 @@ impl WebLiveSession {
     /// texture baseline) so the no-target path can't configure an over-limit
     /// surface; explicit values are clamped to the device's actual texture cap.
     ///
+    /// `target_color_space` (#3191, the web half of the #1338 P3 toggle) is the
+    /// canvas colour space the caller wants — `"display-p3"` or `"srgb"`, mirroring
+    /// Apple's `CanvasColorSpace` wire strings. ADDITIVE: omitting it
+    /// (`undefined`/`null` — the pre-#3191 call shape) preserves the historical
+    /// always-P3 behaviour. The request is a preference, not a guarantee: an
+    /// unsupported target degrades to whatever the browser reports (typically
+    /// `srgb`) — [`WebLiveSession::color_space`] always surfaces the ACHIEVED tag,
+    /// and [`crate::gpu_render::target_primaries_for_color_space`] derives the
+    /// display-encode `target_primaries` from that same achieved tag every tick, so
+    /// the two can never drift apart (#1512) regardless of what was requested. Fixed
+    /// for the session's lifetime, same as the canvas dims — switching the setting
+    /// takes effect on the NEXT session open (asset switch / reload), not the next
+    /// render tick.
+    ///
     /// Async (WebGPU adapter/device request + present are async). Returns the
     /// opened handle; subsequent edits drive [`WebLiveSession::render`].
     #[wasm_bindgen]
@@ -169,6 +183,7 @@ impl WebLiveSession {
         xmp: Option<String>,
         canvas: OffscreenCanvas,
         max_long_edge: Option<u32>,
+        target_color_space: Option<String>,
     ) -> Result<WebLiveSession, JsError> {
         let raw_img =
             raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
@@ -206,12 +221,15 @@ impl WebLiveSession {
         // surface-dims == image-dims invariant holds (the FS recovers each pixel
         // from the fragment position; a mismatch desyncs the dither cell). CSS
         // scales the element to the layout box on the main thread. Then build the
-        // persistent present surface ONCE (surface + configure + display-p3 retag
-        // + present-pipeline compile) — every tick reuses it.
+        // persistent present surface ONCE (surface + configure + colour-space
+        // retag + present-pipeline compile) — every tick reuses it. `None` (the
+        // pre-#3191 call shape) preserves the historical always-P3 request.
         canvas.set_width(width);
         canvas.set_height(height);
-        let present = WebPresentSurface::create(&ctx, &canvas, width, height)
-            .map_err(|e| JsError::new(&e))?;
+        let requested_color_space = target_color_space.as_deref().unwrap_or("display-p3");
+        let present =
+            WebPresentSurface::create(&ctx, &canvas, width, height, requested_color_space)
+                .map_err(|e| JsError::new(&e))?;
 
         let handle = WebLiveSession {
             ctx,
@@ -402,9 +420,9 @@ impl WebLiveSession {
         self.full_height
     }
 
-    /// The achieved canvas colour-space tag from the one-time display-p3 retag
-    /// (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced so the worker reports
-    /// the TRUTH the browser configured after `open`, never an assumption.
+    /// The achieved canvas colour-space tag from the one-time retag to `open`'s
+    /// `target_color_space` (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced
+    /// so the worker reports the TRUTH the browser configured, never the request.
     #[wasm_bindgen(getter, js_name = colorSpace)]
     pub fn color_space(&self) -> String {
         self.present.color_space().to_string()
@@ -424,12 +442,14 @@ impl WebLiveSession {
             self.film_lut.as_ref(),
             self.film_lut_key,
         );
-        // #1913: the display-encode primaries MUST match the canvas colour-space
-        // tag the present surface achieved. `chain_inputs_for_model` defaults to
-        // sRGB (correct for the one-shot u8-readback path), but this live present
-        // targets a display-p3-tagged canvas — so encode P3 when that's what the
-        // browser actually configured, else the pixels are reinterpreted in the
-        // wider P3 gamut and oversaturate.
+        // #1913 (generalised by #3191): the display-encode primaries MUST match
+        // the canvas colour-space tag the present surface ACHIEVED — not the
+        // `target_color_space` `open` was asked for, which the browser may not
+        // have granted. `chain_inputs_for_model` defaults to sRGB (correct for
+        // the one-shot u8-readback path), so encode P3 only when the browser
+        // actually configured a display-p3-tagged canvas, else the pixels are
+        // reinterpreted in the wrong-width gamut (oversaturated if P3-encoded
+        // bytes land on an sRGB tag, washed out the other way around).
         inputs.target_primaries =
             crate::gpu_render::target_primaries_for_color_space(self.present.color_space());
         let final_idx = self

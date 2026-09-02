@@ -105,6 +105,9 @@ export interface WebLiveSessionCtor {
     // image to this long edge and sizes the canvas to the developed dims.
     // undefined => the WASM-side 2048 default cap.
     maxLongEdge?: number,
+    // Requested canvas colour space (#3191) — 'display-p3' | 'srgb'.
+    // undefined => the WASM-side 'display-p3' default.
+    targetColorSpace?: string,
   ): Promise<WebLiveSessionInstance>;
 }
 

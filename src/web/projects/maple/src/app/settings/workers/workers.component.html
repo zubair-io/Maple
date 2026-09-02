@@ -966,14 +966,16 @@
     <maple-generated-search-settings />
 
     <!-- Rendering — runtime knobs for what the web editor does on the client,
-         as opposed to the server-side stages above. Today: the GPU live-render
-         ramp/kill switch (#1062). -->
+         as opposed to the server-side stages above: the GPU live-render
+         ramp/kill switch (#1062, DB-backed operator setting) and the canvas
+         colour-space preference (#3191, per-browser localStorage). -->
     <div
       class="group-label py-3.5 px-4.5 pb-1.5 text-[10px] font-semibold text-[var(--s-text-dim)] tracking-[0.18em] uppercase max-[1023px]:pt-4 max-[1023px]:px-0.5 max-[1023px]:pb-2"
     >
       Rendering
     </div>
     <maple-gpu-live-render-settings />
+    <maple-canvas-color-space-settings />
 
     <!-- Import — its own pipeline group, rendered last (ticket #755). Rows
          expand in place to show src → library + the per-file list. -->

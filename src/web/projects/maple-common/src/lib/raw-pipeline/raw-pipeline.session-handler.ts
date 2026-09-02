@@ -143,6 +143,9 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
       // Viewport target (#1080): the develop + canvas are fit to it, so the
       // session never configures an over-texture-cap (full-sensor-res) surface.
       req.maxLongEdge,
+      // Requested canvas colour space (#3191) — `undefined` preserves the
+      // WASM-side `'display-p3'` default.
+      req.targetColorSpace,
     );
     markEnd(sessionOpenStartMark, `maple:session-open:${req.id}:end`, 'maple:session-open');
     liveSession = session;

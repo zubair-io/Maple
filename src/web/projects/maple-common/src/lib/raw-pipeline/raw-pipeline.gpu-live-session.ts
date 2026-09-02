@@ -36,6 +36,9 @@ import type { RegisterPending } from './raw-pipeline.export-request';
  *   Absent ⇒ the WASM-side 2048 default cap (the downlevel WebGPU texture
  *   baseline). The reply carries the NATIVE oriented dims in
  *   `nativeWidth`/`nativeHeight`.
+ * @param targetColorSpace Requested canvas colour space (#3191) —
+ *   `'display-p3'` or `'srgb'`. Absent ⇒ the WASM-side `'display-p3'`
+ *   default. The reply's `colorSpace` is the ACHIEVED tag, not this request.
  */
 export function openLiveSessionRequest(
   worker: Worker,
@@ -46,6 +49,7 @@ export function openLiveSessionRequest(
   ext: string,
   xmp: string | undefined,
   maxLongEdge: number | undefined,
+  targetColorSpace: string | undefined,
 ): Promise<OpenedLiveSession> {
   // Copy the bytes off the caller's view before transferring (the view stays
   // usable for a later 2D fallback / re-open), mirroring `decodeOnce`.
@@ -61,6 +65,7 @@ export function openLiveSessionRequest(
     xmp,
     canvas,
     maxLongEdge,
+    targetColorSpace,
   };
   // Transfer BOTH the byte buffer and the OffscreenCanvas to the worker.
   return dispatchWithMark<OpenedLiveSession>(
