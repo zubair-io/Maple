@@ -51,6 +51,22 @@ extension SMBFileOperations {
             let relative = fullPath.hasPrefix(prefix) ? String(fullPath.dropFirst(prefix.count)) : name
             guard !relative.contains("/") else { return nil }
             return DirEntry(name: name, path: fullPath)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        }.sorted { lhs, rhs in
+            // `localizedStandardCompare` alone isn't a strict ordering
+            // (Copilot review, #2697): two distinct names differing only by
+            // case or diacritics compare `.orderedSame`, so the plain
+            // `== .orderedAscending` closure would answer `false` in BOTH
+            // directions for that pair. `sorted(by:)` requires a strict
+            // weak ordering, and while Swift's sort is stable (falling back
+            // to input order for a tie), the INPUT order here comes
+            // straight from the transport's directory-listing response,
+            // which a live SMB server has no obligation to return in a
+            // consistent order across calls — an untied comparator could
+            // let two same-named-but-cased folders swap positions between
+            // sidebar refreshes. Breaking ties on `path` makes the order
+            // fully deterministic regardless of transport ordering.
+            let cmp = lhs.name.localizedStandardCompare(rhs.name)
+            return cmp == .orderedSame ? lhs.path < rhs.path : cmp == .orderedAscending
+        }
     }
 }
