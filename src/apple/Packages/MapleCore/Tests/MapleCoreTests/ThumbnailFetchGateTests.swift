@@ -88,27 +88,45 @@ final class ThumbnailFetchGateTests: XCTestCase {
 
   // MARK: - Coalescing
 
+  /// No blind sleeps. `first`'s `work` closure signals `started` the
+  /// moment it runs, which can only happen AFTER `fetch` has already
+  /// registered its task in `inFlight` (registration happens synchronously,
+  /// immediately after the detached task is created — see `fetch`'s body
+  /// — well before `work` itself ever starts). That registration then
+  /// stays in place until `first`'s `work` returns, which is gated behind
+  /// `releaseFirst` below and under this test's control — so `second`'s
+  /// coalescing check is guaranteed to see the entry no matter how the
+  /// scheduler interleaves the two tasks from here, PROVIDED `second`'s
+  /// own actor hop has run by the time we call `releaseFirst.signal()`.
+  /// The `Task.yield()` gives it that chance — same defensive-margin
+  /// pattern `BoundedAsyncSemaphoreTests.test_cancelledWhileQueued_...`
+  /// uses for an equivalent ordering (not load-bearing there; here it
+  /// meaningfully reduces — though can't mathematically eliminate — the
+  /// chance of the scheduler starving `second` past the release signal).
   func test_duplicateKeyCoalescesIntoOneFetch() async {
     let gate = ThumbnailFetchGate(maxConcurrent: 1)
     let tracker = ConcurrencyTracker()
     let expectedBytes = Data("shared".utf8)
+    let started = ResumeGate()
+    let releaseFirst = ResumeGate()
 
     async let first = gate.fetch(key: "same-key") {
       await tracker.enter()
-      // Wide enough that the second caller below is guaranteed to observe
-      // this fetch already in flight before it completes.
-      try? await Task.sleep(for: .milliseconds(50))
+      await started.signal()
+      await releaseFirst.wait()
       await tracker.exit()
       return expectedBytes
     }
-    // Give `first` a chance to register in `inFlight` before firing the
-    // second call for the same key.
-    try? await Task.sleep(for: .milliseconds(5))
+    await started.wait()
+
     async let second = gate.fetch(key: "same-key") {
       await tracker.enter()  // Must NOT be reached — this is the point.
       await tracker.exit()
       return Data("must-not-run".utf8)
     }
+    await Task.yield()
+    await Task.yield()
+    await releaseFirst.signal()
 
     let (firstResult, secondResult) = await (first, second)
 
@@ -145,5 +163,95 @@ final class ThumbnailFetchGateTests: XCTestCase {
     let gate = ThumbnailFetchGate(maxConcurrent: 2)
     let result = await gate.fetch(key: "failing") { nil }
     XCTAssertNil(result)
+  }
+
+  // MARK: - Cancellation propagation (jules review, PR #3159)
+
+  /// A caller cancelled WHILE QUEUED behind the cap must free its slot for
+  /// the next waiter — proving cancellation propagates from the awaiting
+  /// caller into the detached fetch task, and from there into
+  /// `BoundedAsyncSemaphore.acquire()`'s own cancellation handling.
+  /// Before this fix, `Task.detached` never observed the awaiting
+  /// caller's cancellation: a cancelled off-screen grid cell's fetch
+  /// (SwiftUI cancels a cell's `.task` the moment it scrolls out of view)
+  /// stayed queued forever, permanently occupying a gate slot and
+  /// starving every cell scrolled INTO view after it — the exact
+  /// thundering-herd/starvation failure this gate exists to prevent.
+  func test_cancellingAQueuedCallerFreesItsSlotForTheNextWaiter() async {
+    let gate = ThumbnailFetchGate(maxConcurrent: 1)
+    let tracker = ConcurrencyTracker()
+    let holderStarted = ResumeGate()
+    let releaseHolder = ResumeGate()
+
+    // Holds the only permit until we release it below.
+    let holderTask = Task {
+      await gate.fetch(key: "holder") {
+        await tracker.enter()
+        await holderStarted.signal()
+        await releaseHolder.wait()
+        await tracker.exit()
+        return Data("holder".utf8)
+      }
+    }
+    await holderStarted.wait()
+
+    // Queued behind the cap (the holder has the only permit) — must
+    // never get a chance to run `work` at all once cancelled.
+    let queuedTask = Task {
+      await gate.fetch(key: "queued") {
+        await tracker.enter()  // Must NOT be reached.
+        await tracker.exit()
+        return Data("queued".utf8)
+      }
+    }
+    // Not load-bearing for correctness (see `BoundedAsyncSemaphore`'s own
+    // tests): the cap is a genuine capacity constraint here, not a timing
+    // race — `queued` cannot acquire a permit no matter when it runs,
+    // since the holder hasn't released. This just widens the window.
+    await Task.yield()
+    await Task.yield()
+    queuedTask.cancel()
+    let queuedResult = await queuedTask.value
+    XCTAssertNil(queuedResult, "a cancelled queued fetch must resolve to nil, never run its work")
+
+    // Requested only AFTER cancelling the queued one — must be able to
+    // acquire the freed slot once the holder releases, proving the
+    // cancelled caller actually gave its place back rather than leaking it
+    // (the bug: the slot would otherwise stay occupied by a fetch nobody
+    // is waiting on anymore).
+    let thirdTask = Task {
+      await gate.fetch(key: "third") {
+        await tracker.enter()
+        await tracker.exit()
+        return Data("third".utf8)
+      }
+    }
+    await releaseHolder.signal()
+    let holderResult = await holderTask.value
+    let thirdResult = await thirdTask.value
+
+    XCTAssertEqual(holderResult, Data("holder".utf8))
+    XCTAssertEqual(thirdResult, Data("third".utf8))
+    let calls = await tracker.callCount
+    XCTAssertEqual(calls, 2, "holder + third ran; the cancelled queued fetch's work must never run")
+  }
+}
+
+/// Deterministic single-shot signal, so these tests don't rely on sleeps
+/// to sequence "the other task has reached this point" before proceeding
+/// — same helper `BoundedAsyncSemaphoreTests` uses.
+private actor ResumeGate {
+  private var isSignaled = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func signal() {
+    isSignaled = true
+    continuation?.resume()
+    continuation = nil
+  }
+
+  func wait() async {
+    if isSignaled { return }
+    await withCheckedContinuation { continuation = $0 }
   }
 }

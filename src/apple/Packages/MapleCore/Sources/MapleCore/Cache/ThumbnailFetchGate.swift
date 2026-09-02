@@ -42,7 +42,7 @@ public actor ThumbnailFetchGate {
   /// registration would reopen that race.
   public func fetch(key: String, _ work: @escaping @Sendable () async -> Data?) async -> Data? {
     if let existing = inFlight[key] {
-      return await existing.value
+      return await Self.awaitCancellably(existing)
     }
 
     let sem = semaphore
@@ -62,7 +62,7 @@ public actor ThumbnailFetchGate {
       return await work()
     }
     inFlight[key] = task
-    let result = await task.value
+    let result = await Self.awaitCancellably(task)
     // Conditional removal: a concurrent `cancelAll()`-equivalent could in
     // principle have cleared and re-registered this key with a NEWER task
     // by the time we get here (same hazard `ThumbnailLoader.inFlight`
@@ -72,5 +72,35 @@ public actor ThumbnailFetchGate {
       inFlight.removeValue(forKey: key)
     }
     return result
+  }
+
+  /// Awaits `task`'s result while propagating THIS caller's own
+  /// cancellation into it (jules review, PR #3159). `Task.detached` does
+  /// not inherit cancellation from its creator, and a plain `await
+  /// task.value` does not observe the AWAITING task's cancellation either
+  /// — so on rapid grid scrolling, where SwiftUI cancels the `.task` for
+  /// every cell that leaves the screen, an off-screen cell's fetch would
+  /// otherwise keep running (or sit queued) forever, permanently occupying
+  /// a gate slot and starving the newly-visible on-screen cells — exactly
+  /// the thundering-herd problem this gate exists to prevent.
+  ///
+  /// `withTaskCancellationHandler` bridges the two: if the CALLING task is
+  /// cancelled while this await is suspended, `onCancel` fires and cancels
+  /// `task` directly, which unblocks a still-queued `sem.acquire()` (its
+  /// own cancellation-aware wait) or, once a permit was already granted,
+  /// simply leaves `work()` to run to completion without anyone left
+  /// waiting on it.
+  ///
+  /// Used for BOTH the fresh-fetch path and the coalesced-await path
+  /// above, so cancelling a coalesced (second, third, …) caller also
+  /// cancels the shared fetch every other coalesced caller is waiting on.
+  /// Accepted trade-off: grid thumbnails rarely coalesce in practice, and
+  /// re-fetching a `nil` result is cheap next to persistent starvation.
+  private static func awaitCancellably(_ task: Task<Data?, Never>) async -> Data? {
+    await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
   }
 }
