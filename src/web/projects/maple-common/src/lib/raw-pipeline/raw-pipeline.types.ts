@@ -51,8 +51,14 @@ export interface DecodeRequest {
    * wins over the GPU path's speed here. A SIZED request (`maxLongEdge` set)
    * with a `filmLut` routes to `render_bytes_sized_with_film` (`sizedFilm`,
    * #2719) — the non-WebGPU live canvas's fast/refine phases are sized
-   * requests, so this is exactly the combination the editor sends when a
-   * look is loaded and WebGPU isn't available.
+   * requests, so this route is what the editor NEEDS to send a loaded look
+   * through when WebGPU isn't available.
+   *
+   * NOT YET WIRED: `RawPipelineService.decode()` has no `filmLut` parameter
+   * today, so nothing in the real UI actually sets this field on a
+   * `DecodeRequest` — `sizedFilm` (like the unsized `film` route above) is
+   * reachable only through direct tests until the 2D call sites resolve and
+   * pass a `.mlut`, tracked separately at #3171.
    */
   filmLut?: ArrayBuffer;
 }
