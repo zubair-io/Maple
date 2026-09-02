@@ -25,20 +25,57 @@ import { materializeCurve } from './tone-curve-edit';
 /** The four curves the channel selector switches between. */
 export type CurveChannel = 'luma' | 'r' | 'g' | 'b';
 
+/**
+ * Which point-curve FAMILY the plot edits (#2232). `sceneLinear`
+ * (`papp:SceneLinearToneCurve*`) applies pre-AgX in scene-linear light —
+ * the original #367 family. `display` (`crs:ToneCurvePV2012*`) applies
+ * post-AgX in display-linear `[0, 1]`, independently per channel — not
+ * luma-coupled, matching Adobe Camera Raw's own point-curve behaviour.
+ * Both families can be authored on the same image at once; this toggle
+ * only changes which one the widget is currently editing.
+ */
+export type CurveFamily = 'sceneLinear' | 'display';
+
 /** A channel tab: its id, its label, and the model field it edits. */
 export interface ChannelTab {
   readonly id: CurveChannel;
   readonly label: string;
-  readonly field: 'toneCurveLuma' | 'toneCurveRed' | 'toneCurveGreen' | 'toneCurveBlue';
+  readonly field:
+    | 'toneCurveLuma'
+    | 'toneCurveRed'
+    | 'toneCurveGreen'
+    | 'toneCurveBlue'
+    | 'displayToneCurveLuma'
+    | 'displayToneCurveRed'
+    | 'displayToneCurveGreen'
+    | 'displayToneCurveBlue';
   /** Stroke colour for this channel's curve. */
   readonly stroke: string;
 }
 
-const CHANNEL_TABS: readonly ChannelTab[] = [
+const SCENE_LINEAR_TABS: readonly ChannelTab[] = [
   { id: 'luma', label: 'Luma', field: 'toneCurveLuma', stroke: 'var(--pro-accent)' },
   { id: 'r', label: 'R', field: 'toneCurveRed', stroke: 'var(--pro-curve-r)' },
   { id: 'g', label: 'G', field: 'toneCurveGreen', stroke: 'var(--pro-curve-g)' },
   { id: 'b', label: 'B', field: 'toneCurveBlue', stroke: 'var(--pro-curve-b)' },
+];
+
+const DISPLAY_TABS: readonly ChannelTab[] = [
+  { id: 'luma', label: 'Master', field: 'displayToneCurveLuma', stroke: 'var(--pro-accent)' },
+  { id: 'r', label: 'R', field: 'displayToneCurveRed', stroke: 'var(--pro-curve-r)' },
+  { id: 'g', label: 'G', field: 'displayToneCurveGreen', stroke: 'var(--pro-curve-g)' },
+  { id: 'b', label: 'B', field: 'displayToneCurveBlue', stroke: 'var(--pro-curve-b)' },
+];
+
+/** Family selector entries — id plus the label the toggle shows. */
+export interface FamilyTab {
+  readonly id: CurveFamily;
+  readonly label: string;
+}
+
+const FAMILY_TABS: readonly FamilyTab[] = [
+  { id: 'sceneLinear', label: 'Scene' },
+  { id: 'display', label: 'Display' },
 ];
 
 /** One parametric region slider. */
@@ -103,11 +140,19 @@ export function buildToneCurveViewModel(
   lumaHistogram: Signal<Uint32Array | null>,
 ) {
   const channel = signal<CurveChannel>('luma');
+  const family = signal<CurveFamily>('sceneLinear');
   const dragOverride = signal<readonly ToneCurvePoint[] | null>(null);
 
-  const activeTab = computed<ChannelTab>(
-    () => CHANNEL_TABS.find((t) => t.id === channel()) ?? CHANNEL_TABS[0],
+  /** The active family's tab list — the four scene-linear or the four
+   * display-referred curves (#2232). */
+  const tabs = computed<readonly ChannelTab[]>(() =>
+    family() === 'display' ? DISPLAY_TABS : SCENE_LINEAR_TABS,
   );
+
+  const activeTab = computed<ChannelTab>(() => {
+    const list = tabs();
+    return list.find((t) => t.id === channel()) ?? list[0];
+  });
 
   /** The committed point list for the active channel. */
   const committedPoints = computed<readonly ToneCurvePoint[]>(() => {
@@ -163,8 +208,15 @@ export function buildToneCurveViewModel(
   /** Read one parametric field off the model. */
   const parametricValue = (field: ParametricSlider['field']): number => model()?.[field] ?? 0;
 
+  /** The parametric region sliders have no display-referred equivalent —
+   * PV2012's basic-panel curve has no per-region-slider decomposition on
+   * the model, only the point curve — so the section hides outside the
+   * scene-linear family. */
+  const showParametric = computed<boolean>(() => family() === 'sceneLinear');
+
   return {
     channel,
+    family,
     dragOverride,
     activeTab,
     points,
@@ -173,7 +225,9 @@ export function buildToneCurveViewModel(
     isIdentity,
     histogramPath,
     parametricValue,
-    tabs: CHANNEL_TABS,
+    showParametric,
+    tabs,
+    familyTabs: FAMILY_TABS,
     sliders: PARAMETRIC_SLIDERS,
     plotSize: PLOT_SIZE,
     parametricMin: PARAMETRIC_RANGE[0],
