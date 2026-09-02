@@ -392,6 +392,14 @@ public actor ImageEditPipeline {
         /// hand-off via `DecodedSnapshot` so `NativeDetailRenderer` can
         /// thread the SAME gain into a deep-zoom / native-detail tile.
         public let aeGain: Float
+        /// Whether this RAW carries lens-correction opcodes at all, and
+        /// whether the CA slider specifically is inert (#2231) — see
+        /// `MapleSceneLinearImageData`'s matching doc comments. Survives
+        /// the decode→render hand-off via `DecodedSnapshot` so the
+        /// lens-correction inspector panel can disable/hide itself and
+        /// grey the CA slider without re-decoding.
+        public let hasLensCorrections: Bool
+        public let lensCorrectionCaInert: Bool
     }
 
     nonisolated public func decodeSceneLinear(
@@ -454,7 +462,9 @@ public actor ImageEditPipeline {
             noiseProfile: imageData.noiseProfile,
             iso: imageData.iso,
             wbFrame: imageData.wbFrame,
-            aeGain: imageData.aeGain
+            aeGain: imageData.aeGain,
+            hasLensCorrections: imageData.hasLensCorrections,
+            lensCorrectionCaInert: imageData.lensCorrectionCaInert
         )
     }
 
@@ -556,7 +566,9 @@ public actor ImageEditPipeline {
             noiseProfile: imageData.noiseProfile,
             iso: imageData.iso,
             wbFrame: imageData.wbFrame,
-            aeGain: imageData.aeGain
+            aeGain: imageData.aeGain,
+            hasLensCorrections: imageData.hasLensCorrections,
+            lensCorrectionCaInert: imageData.lensCorrectionCaInert
         )
     }
 

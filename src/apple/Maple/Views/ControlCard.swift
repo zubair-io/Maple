@@ -61,6 +61,13 @@ struct ControlCard: View {
                 FilmSection(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
+            } else if state.armedTool == .lensCorrections {
+                // Master toggle + three DNG-correction sliders replace the
+                // slider grid (#2231) — same no-primary-field shape as
+                // Tone Curve / HSL / Film.
+                LensCorrectionsSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
             } else {
                 // Sub-param chip row for multi-param tools
                 let subs = state.armedSubParams

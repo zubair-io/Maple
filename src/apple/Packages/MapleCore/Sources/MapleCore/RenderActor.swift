@@ -156,6 +156,15 @@ public actor RenderActor {
     /// the buffer on screen was developed with into its tile refine.
     var decodedAeGain: Float = 1.0
 
+    /// Whether the cached `decodedImage`'s RAW carries lens-correction
+    /// opcodes at all, and whether the CA slider specifically is inert
+    /// (#2231) — see `ImageEditPipeline.SceneLinearDecodeResult`'s
+    /// matching doc comments. Stored alongside the decoded image so the
+    /// lens-correction inspector panel can disable/hide itself without
+    /// re-decoding.
+    var decodedHasLensCorrections: Bool = false
+    var decodedLensCorrectionCaInert: Bool = true
+
     /// Profile the cached `decodedImage` was developed for (#871). The
     /// decode buffer is now profile-dependent: `Profile::Auto` develops
     /// `auto_exposure` Off (so it byte-matches the buffer the Auto curve
@@ -202,7 +211,7 @@ public actor RenderActor {
     /// forwarded to the NR stage (PR #1709 review fix 4); wbFrame is the
     /// #1781 slider-frame export; aeGain is the #1167/#2070 AE-gain export.
     /// Non-RAW decodes yield (image, nil, 0, nil, 1.0).
-    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float)?, Never>?
+    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool)?, Never>?
     var decodeTaskAssetID: AssetRef.ID?
     /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
     /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
@@ -324,6 +333,13 @@ public actor RenderActor {
         /// same-dims re-decode (a baked-field edit) and re-upload instead of
         /// silently presenting the live chain over stale pixels.
         public let decodeGeneration: UInt64
+        /// Whether the cached buffer's RAW carries lens-correction opcodes
+        /// at all, and whether the CA slider specifically is inert (#2231)
+        /// — see `ImageEditPipeline.SceneLinearDecodeResult`'s matching doc
+        /// comments. `false`/`true` for seeded / non-RAW buffers, matching
+        /// their `noiseProfile`/`iso` defaults.
+        public let hasLensCorrections: Bool
+        public let lensCorrectionCaInert: Bool
     }
 
     // MARK: - Scheduler state (slice 3)

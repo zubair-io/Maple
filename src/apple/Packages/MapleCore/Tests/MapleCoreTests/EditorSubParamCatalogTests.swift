@@ -33,13 +33,19 @@ final class EditorSubParamCatalogTests: XCTestCase {
     }
 
     func testOnlyDecodeProductNoiseTiersCommitOnRelease() {
-        // The decode-product pair defers its write; every other sub-param on
-        // every tool stays on the per-tick path.
+        // The decode-product pairs defer their write; every other sub-param
+        // on every tool stays on the per-tick path. Lens Corrections joined
+        // this set at #2231 — moving any of the three scales re-runs the
+        // Rust decode (`OpcodeList3` application), same shape as Deep/
+        // Prefilter.
         let deferred = Tool.allCases
             .flatMap { tool in
                 tool.subParams.filter(\.commitsOnRelease).map { "\(tool.rawValue).\($0.id)" }
             }
-        XCTAssertEqual(deferred, ["noise.deep", "noise.prefilter"])
+        XCTAssertEqual(deferred, [
+            "noise.deep", "noise.prefilter",
+            "lensCorrections.distortion", "lensCorrections.ca", "lensCorrections.vignetting",
+        ])
         XCTAssertFalse(Tool.noise.subParams[0].commitsOnRelease)
         XCTAssertFalse(Tool.noise.subParams[1].commitsOnRelease)
     }
@@ -156,10 +162,13 @@ final class EditorSubParamCatalogTests: XCTestCase {
         // `.filmLook` carries a `strength` sub-param alongside its look
         // selection, so it is multi-param for the same reason as the rest
         // of this list — see #2812 for how it went missing here.
+        // `.lensCorrections` declares three sub-params (distortion/ca/
+        // vignetting, #2231) — no single primary field, same shape as
+        // vignette/grain/colorGrade.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
             && tool != .colorGrade && tool != .hsl && tool != .bwMix && tool != .toneCurve
-            && tool != .filmLook {
+            && tool != .filmLook && tool != .lensCorrections {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
@@ -176,7 +185,7 @@ final class EditorSubParamCatalogTests: XCTestCase {
     /// now fails too, rather than silently weakening the check above.
     func testEveryExcludedToolActuallyDeclaresSubParams() {
         let excluded: [Tool] = [.noise, .sharpen, .vignette, .grain,
-                                .colorGrade, .hsl, .bwMix, .toneCurve]
+                                .colorGrade, .hsl, .bwMix, .toneCurve, .lensCorrections]
         for tool in excluded {
             XCTAssertFalse(tool.subParams.isEmpty,
                 "\(tool) is excluded from the single-param check but declares no sub-params — "
@@ -207,6 +216,43 @@ final class EditorSubParamCatalogTests: XCTestCase {
         XCTAssertEqual(subs[7].range, AdjustmentModel.grayMixerMagentaRange)
         for sub in subs {
             XCTAssertEqual(sub.defaultDisplayValue, 0, accuracy: 1e-9)
+        }
+    }
+
+    func testLensCorrectionsDeclaresDistortionCaVignetting() {
+        // #2231 — the DNG-embedded lens-correction scales (#376's model
+        // fields) get their first user-facing control: a master toggle
+        // (`lensProfileEnable`, not a sub-param — `LensCorrectionsSection`'s
+        // own control surface) plus three decode-product sliders.
+        let subs = Tool.lensCorrections.subParams
+        XCTAssertEqual(subs.map(\.id), ["distortion", "ca", "vignetting"])
+        XCTAssertEqual(subs.map(\.label), ["Distortion", "Chromatic Aberration", "Vignetting"])
+        XCTAssertTrue(Tool.lensCorrections.isMultiParam)
+        XCTAssertEqual(Tool.lensCorrections.defaultSubParamId, "distortion")
+        XCTAssertEqual(Tool.lensCorrections.group, .detail)
+        XCTAssertNil(ToolValueMapping.displayRange(for: .lensCorrections))
+        XCTAssertEqual(subs[0].range, AdjustmentModel.lensCorrectionDistortionRange)
+        XCTAssertEqual(subs[1].range, AdjustmentModel.lensCorrectionCaRange)
+        XCTAssertEqual(subs[2].range, AdjustmentModel.lensCorrectionVignettingRange)
+        let defaults = AdjustmentModel()
+        for sub in subs {
+            XCTAssertEqual(sub.defaultDisplayValue, 100, "lens corrections default to full strength")
+            XCTAssertTrue(sub.commitsOnRelease, "\(sub.id) is a decode-product field")
+        }
+        XCTAssertEqual(subs[0].defaultDisplayValue, defaults.lensCorrectionDistortion)
+        XCTAssertEqual(subs[1].defaultDisplayValue, defaults.lensCorrectionCa)
+        XCTAssertEqual(subs[2].defaultDisplayValue, defaults.lensCorrectionVignetting)
+    }
+
+    func testLensCorrectionsSubParamsWriteDistinctFields() {
+        var model = AdjustmentModel()
+        let subs = Tool.lensCorrections.subParams
+        for (index, sub) in subs.enumerated() {
+            model[keyPath: sub.keyPath] = Double(index + 1)
+        }
+        for (index, sub) in subs.enumerated() {
+            XCTAssertEqual(model[keyPath: sub.keyPath], Double(index + 1),
+                "\(sub.id) shares a field with another lens-correction sub-param")
         }
     }
 

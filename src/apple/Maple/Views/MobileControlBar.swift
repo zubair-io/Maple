@@ -69,6 +69,11 @@ struct MobileControlBar: View {
                 // the group slider stack (#2683) — same no-primary-field
                 // shape as Tone Curve.
                 FilmSection(state: state)
+            } else if state.armedTool == .lensCorrections {
+                // Master toggle + three DNG-correction sliders replace the
+                // group slider stack (#2231) — same no-primary-field shape
+                // as Tone Curve / Film.
+                LensCorrectionsSection(state: state)
             } else {
                 let subs = state.armedSubParams
                 if subs.count > 1 {

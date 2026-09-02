@@ -86,6 +86,11 @@ extension EditSession {
         // the model + anchor (this snapshot is also the freshness read).
         let snapshot = await renderActor.snapshot(forAsset: asset)
         adoptDecodedWbFrame(snapshot.wbFrame)
+        // #2231: same lifecycle as the WB frame above — the inspector
+        // panel's visibility/CA-greying tracks whichever decode is
+        // currently cached, not a per-tick recomputation.
+        hasLensCorrections = snapshot.hasLensCorrections
+        lensCorrectionCaInert = snapshot.lensCorrectionCaInert
         let m = model
         let pipeline = self.pipeline
         // Crop + straighten (#638). Applied as a CoreImage geometry op on the
@@ -330,6 +335,9 @@ extension EditSession {
                 // the GPU present (it reads the session's frame + model).
                 let freshSnapshot = await renderActor.snapshot(forAsset: asset)
                 adoptDecodedWbFrame(freshSnapshot.wbFrame)
+                // #2231: same lifecycle as the WB frame above.
+                hasLensCorrections = freshSnapshot.hasLensCorrections
+                lensCorrectionCaInert = freshSnapshot.lensCorrectionCaInert
                 // #2143: same delivered-extent caps as the cached branch,
                 // from THIS decode's recorded extent
                 // (`freshSnapshot.rawResolution` — pre-canvas-scaling,

@@ -148,6 +148,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            raw_img.has_lens_corrections(),
+            raw_img.lens_correction_ca_inert(),
         );
         0
     })
@@ -243,6 +245,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            raw_img.has_lens_corrections(),
+            raw_img.lens_correction_ca_inert(),
         );
         0
     })
@@ -347,6 +351,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            raw_img.has_lens_corrections(),
+            raw_img.lens_correction_ca_inert(),
         );
         0
     })
@@ -443,6 +449,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            raw_img.has_lens_corrections(),
+            raw_img.lens_correction_ca_inert(),
         );
         0
     })
@@ -529,6 +537,8 @@ pub(crate) fn write_scene_linear_buf_f32(
     iso: u32,
     wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
     ae_gain: f32,
+    has_lens_corrections: bool,
+    lens_correction_ca_inert: bool,
 ) {
     let (f32_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack_f32", || {
         let mut boxed = f32_rgba.into_boxed_slice();
@@ -576,6 +586,8 @@ pub(crate) fn write_scene_linear_buf_f32(
             wb_frame_render_fm_cold: flatten_matrix(wb_frame.render_fm_cold),
             wb_frame_render_fm_warm: flatten_matrix(wb_frame.render_fm_warm),
             ae_gain,
+            has_lens_corrections: has_lens_corrections as u32,
+            lens_correction_ca_inert: lens_correction_ca_inert as u32,
         };
     }
 }

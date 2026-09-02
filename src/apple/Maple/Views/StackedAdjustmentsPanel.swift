@@ -352,6 +352,16 @@ struct StackedAdjustmentsPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
+
+            // Lens Corrections (#2231) is pinned into the Detail section for
+            // the same structural reason: the panel needs a master toggle
+            // above its three sliders, so it has no `displayRange` and the
+            // living-slider stack above filters it out.
+            if group == .detail {
+                LensCorrectionsSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
         }
     }
 

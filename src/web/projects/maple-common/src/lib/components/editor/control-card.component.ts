@@ -85,6 +85,12 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
     { id: 'colorGrade', label: 'Grade' },
     { id: 'filmLook', label: 'Film' },
   ],
+  // Lens Corrections (#2231) has no single primary drag-bar field — same
+  // reason as colorGrade/filmLook above — so Detail gains a row too.
+  detail: [
+    { id: null, label: 'Basic' },
+    { id: 'lensCorrections', label: 'Lens' },
+  ],
 };
 
 @Component({

@@ -55,6 +55,12 @@ struct FlyoutSliderPanel: View {
                 // so this is its whole control surface, same swap as
                 // Tone Curve.
                 FilmSection(state: state)
+            } else if state.armedTool == .lensCorrections {
+                // Master toggle + three DNG-correction sliders replace the
+                // sliders while Lens is armed (#2231) — it has no single
+                // primary field, so this is its whole control surface,
+                // same swap as Tone Curve / Film.
+                LensCorrectionsSection(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams

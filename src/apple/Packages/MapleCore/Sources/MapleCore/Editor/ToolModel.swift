@@ -25,7 +25,7 @@ public enum ToolGroup: String, CaseIterable, Sendable, Hashable {
     }
 }
 
-/// 26 tools grouped per spec §2 "Groups & tools". Capture-sharpening
+/// 27 tools grouped per spec §2 "Groups & tools". Capture-sharpening
 /// Amount / Sigma (`captureSharpen` / `captureSigma`) joined the Detail
 /// group in #875 when the Develop tab — their only prior surface — was
 /// removed; they map directly to the `captureSharpening*` fields.
@@ -53,7 +53,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Effects
     case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
     // Detail
-    case sharpen, noise, colorNR, captureSharpen, captureSigma, crop, presets
+    case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections, crop, presets
 
     public var group: ToolGroup {
         switch self {
@@ -64,7 +64,8 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
             return .color
         case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
             return .effects
-        case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .crop, .presets:
+        case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
+             .crop, .presets:
             return .detail
         }
     }
@@ -97,6 +98,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .colorNR:        return "Color NR"
         case .captureSharpen: return "Deconv"
         case .captureSigma:   return "Deconv σ"
+        case .lensCorrections: return "Lens"
         case .crop:           return "Crop"
         case .presets:        return "Presets"
         }
@@ -137,6 +139,13 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// is declared as this tool's single sub-param so its slider rides
     /// the ordinary sub-param value pipe (HUD, undo). `displayRange`
     /// stays nil and `FilmSection` is the whole control surface.
+    ///
+    /// Lens Corrections (#2231) is wired and takes the same no-primary-
+    /// field shape: it has no single "main" scale, and the panel needs a
+    /// master on/off toggle (`lensProfileEnable`) ABOVE its three sliders
+    /// — a layout the generic sub-param grid has no room for — so
+    /// `displayRange` stays nil and `LensCorrectionsSection` is the whole
+    /// control surface, same as HSL / Tone Curve / Film.
     public var isWired: Bool {
         switch self {
         case .crop:

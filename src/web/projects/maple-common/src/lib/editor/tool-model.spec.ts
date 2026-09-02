@@ -50,12 +50,29 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
   it('returns null for stub tools', () => {
     // hsl / bwMix have no single primary drag-bar field (multi-sub-param
     // panels instead, #1112 / #276); crop is a stub pending its own spec;
-    // presets is wired but value-less. No range, so the drag-bar and value
-    // chip treat them identically (no phantom track, no misleading
-    // midpoint value).
-    for (const tool of ['hsl', 'bwMix', 'crop', 'presets'] as const) {
+    // presets is wired but value-less; lensCorrections (#2231) has no
+    // single primary field either — its own bespoke panel owns the toggle
+    // + three sliders, same shape as filmLook. No range, so the drag-bar
+    // and value chip treat them identically (no phantom track, no
+    // misleading midpoint value).
+    for (const tool of [
+      'hsl',
+      'bwMix',
+      'crop',
+      'presets',
+      'filmLook',
+      'lensCorrections',
+    ] as const) {
       expect(displayRange(tool)).toBeNull();
     }
+  });
+});
+
+describe('lensCorrections (#2231)', () => {
+  it('is a field-less Detail tool, like filmLook is for Effects', () => {
+    expect(TOOLS_IN_GROUP.detail).toContain('lensCorrections');
+    expect(displayRange('lensCorrections')).toBeNull();
+    expect(defaultDisplayValue('lensCorrections')).toBe(0);
   });
 });
 

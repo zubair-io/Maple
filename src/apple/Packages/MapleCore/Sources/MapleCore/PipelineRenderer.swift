@@ -104,6 +104,21 @@ public struct MapleSceneLinearImageData: Sendable {
     /// reproduces the full-image AE brightness instead of omitting the
     /// stage.
     public let aeGain: Float
+    /// Whether this RAW carries a parsed `OpcodeList3` at all
+    /// (`RawImage::has_lens_corrections`, #2231) — `false` for the fp16
+    /// tile paths (no export) and for any source with no `OpcodeList3` tag.
+    /// The lens-correction inspector panel uses this to disable/hide
+    /// itself when there is nothing for `lensProfileEnable`/
+    /// `lensCorrection*` to scale.
+    public let hasLensCorrections: Bool
+    /// Whether the chromatic-aberration slider (`lensCorrectionCa`) is
+    /// INERT on this RAW — no `WarpRectilinear` opcode, or every one
+    /// carries a single coefficient set with no per-plane divergence
+    /// (`RawImage::lens_correction_ca_inert`, #2231). `true` (inert) is
+    /// also the default for the fp16 tile paths (no export) — matching
+    /// `hasLensCorrections == false` there implying every scale is a
+    /// no-op.
+    public let lensCorrectionCaInert: Bool
 
     public var pixelCount: Int { width * height }
 
@@ -116,7 +131,9 @@ public struct MapleSceneLinearImageData: Sendable {
         noiseProfile: [Float]?,
         iso: UInt32,
         wbFrame: WbSliderFrame? = nil,
-        aeGain: Float = 1.0
+        aeGain: Float = 1.0,
+        hasLensCorrections: Bool = false,
+        lensCorrectionCaInert: Bool = true
     ) {
         self.width = width
         self.height = height
@@ -127,6 +144,8 @@ public struct MapleSceneLinearImageData: Sendable {
         self.iso = iso
         self.wbFrame = wbFrame
         self.aeGain = aeGain
+        self.hasLensCorrections = hasLensCorrections
+        self.lensCorrectionCaInert = lensCorrectionCaInert
     }
 }
 
@@ -625,7 +644,9 @@ public struct PipelineRenderer: Sendable {
             noiseProfile: noiseProfile,
             iso: buf.iso,
             wbFrame: WbSliderFrame(buffer: buf),
-            aeGain: buf.ae_gain
+            aeGain: buf.ae_gain,
+            hasLensCorrections: buf.has_lens_corrections != 0,
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
         )
     }
 
@@ -672,7 +693,9 @@ public struct PipelineRenderer: Sendable {
             noiseProfile: noiseProfile,
             iso: buf.iso,
             wbFrame: WbSliderFrame(buffer: buf),
-            aeGain: buf.ae_gain
+            aeGain: buf.ae_gain,
+            hasLensCorrections: buf.has_lens_corrections != 0,
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
         )
     }
 
@@ -719,7 +742,9 @@ public struct PipelineRenderer: Sendable {
             noiseProfile: noiseProfile,
             iso: buf.iso,
             wbFrame: WbSliderFrame(buffer: buf),
-            aeGain: buf.ae_gain
+            aeGain: buf.ae_gain,
+            hasLensCorrections: buf.has_lens_corrections != 0,
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
         )
     }
 
@@ -769,7 +794,9 @@ public struct PipelineRenderer: Sendable {
             noiseProfile: noiseProfile,
             iso: buf.iso,
             wbFrame: WbSliderFrame(buffer: buf),
-            aeGain: buf.ae_gain
+            aeGain: buf.ae_gain,
+            hasLensCorrections: buf.has_lens_corrections != 0,
+            lensCorrectionCaInert: buf.lens_correction_ca_inert != 0
         )
     }
 
