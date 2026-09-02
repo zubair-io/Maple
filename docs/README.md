@@ -32,6 +32,14 @@ Every document in this directory describes the code as it is in the tree today. 
 | [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                  |
 | [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                |
 
+## Design system
+
+| Doc                                                          | Covers                                                                                                                                                                        |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [unified-component-catalog.md](unified-component-catalog.md) | The Maple UI catalog: every atom, molecule, and organism with its web / Apple / Windows implementation status.                                                                |
+| [design/maple-ui/components/](design/maple-ui/components/)   | One contract per component. These files are load-bearing: `tools/check-maple-ui-contracts.sh` lints them in CI and `maple-syrup` serves them on its `/maple-ui` gallery page. |
+| [design/responsive-program/](design/responsive-program/)     | The responsive web program's per-surface design notes (phone shell, grid, loupe, editor, inspector, search, settings) and the tool-glyph sheets that source comments cite.    |
+
 ## Strategy
 
 `docs/strategy/milestones/` is the one deliberate exception to "no plans, tickets, or status" below: forward-looking milestone design specs that a GitHub epic and its sub-issues cite by path, describing intended work rather than the code as it stands today.
@@ -44,14 +52,6 @@ Every document in this directory describes the code as it is in the tree today. 
 | [strategy/milestones/m4-color-output.md](strategy/milestones/m4-color-output.md)                       | Milestone 16 · Color & Output Qualification: the C0–C5 evidence suite, the camera/lens support-tier registry, and the Neutral/Camera Match/Auto Tone/Auto Look rendering modes.        |
 | [strategy/milestones/m5-workflow-expansion.md](strategy/milestones/m5-workflow-expansion.md)           | Milestone 17 · Professional Workflow Expansion (epic #2447/#2442): the decision framework for choosing the next adjacent professional workflow from evidence.                          |
 | [strategy/milestones/m6-native-to-web-editor-ui.md](strategy/milestones/m6-native-to-web-editor-ui.md) | Milestone 18 design spec: the editor surface/interaction parity manifest, the IA port, the command router, and the acceptance gates that bring the web editor to native-editor parity. |
-
-## Design system
-
-| Doc                                                          | Covers                                                                                                                                                                        |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [unified-component-catalog.md](unified-component-catalog.md) | The Maple UI catalog: every atom, molecule, and organism with its web / Apple / Windows implementation status.                                                                |
-| [design/maple-ui/components/](design/maple-ui/components/)   | One contract per component. These files are load-bearing: `tools/check-maple-ui-contracts.sh` lints them in CI and `maple-syrup` serves them on its `/maple-ui` gallery page. |
-| [design/responsive-program/](design/responsive-program/)     | The responsive web program's per-surface design notes (phone shell, grid, loupe, editor, inspector, search, settings) and the tool-glyph sheets that source comments cite.    |
 
 ## Conventions for editing these docs
 
