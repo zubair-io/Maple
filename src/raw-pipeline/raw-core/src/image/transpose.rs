@@ -36,6 +36,14 @@ pub(crate) fn apply<T: Copy + Default + Send + Sync, const CH: usize>(
     dh: usize,
     source_of: impl Fn(usize, usize) -> (usize, usize) + Sync,
 ) -> Vec<T> {
+    // `par_chunks_mut` panics on a zero chunk size, and the chunk size here
+    // is `dw * CH * BLOCK` — a degenerate `dw == 0` (or `dh == 0`, which
+    // makes `out` empty and the loop below a no-op either way) would panic
+    // instead of just producing the empty buffer the pre-#2486 nested loop
+    // silently returned for the same input (Copilot review on #3155).
+    if dw == 0 || dh == 0 {
+        return Vec::new();
+    }
     let mut out = vec![T::default(); dw * dh * CH];
     out.par_chunks_mut(dw * CH * BLOCK)
         .enumerate()
@@ -86,6 +94,28 @@ pub(crate) fn scan<T: Copy + Default, const CH: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A degenerate zero-width or zero-height destination must return an
+    /// empty buffer, not panic in `par_chunks_mut(0)` (Copilot review on
+    /// #3155 — the naive pre-#2486 loop was silently safe here since `for
+    /// _ in 0..0 {}` just doesn't run; the blocked/parallel path needs an
+    /// explicit guard for the same input to stay just as safe).
+    #[test]
+    fn zero_sized_destination_returns_empty_without_panicking() {
+        let src: Vec<u8> = vec![1, 2, 3];
+        assert_eq!(
+            apply::<u8, 3>(&src, 1, 0, 5, |xp, yp| (xp, yp)),
+            Vec::<u8>::new()
+        );
+        assert_eq!(
+            apply::<u8, 3>(&src, 1, 5, 0, |xp, yp| (xp, yp)),
+            Vec::<u8>::new()
+        );
+        assert_eq!(
+            apply::<u8, 3>(&src, 1, 0, 0, |xp, yp| (xp, yp)),
+            Vec::<u8>::new()
+        );
+    }
 
     /// Sizes that straddle the block boundary on both axes, so the last
     /// (partial) row-strip and the last (partial) column-block both get
