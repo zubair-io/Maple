@@ -56,14 +56,18 @@ struct PairingScreen: View {
       }
 
       VStack(spacing: 20) {
-        // Sized for couch-distance scanning. The payload is a fixed-shape
-        // ~210-char base64url string, which lands a v8 (51x51-module) symbol —
-        // at 300pt that was ~5.9pt per module, too fine for a phone camera
-        // across a room; 560pt puts it at ~11pt. The right column has ~1100pt
-        // of width free here, so the code gets the space rather than the
-        // layout's whitespace. Shrinking the payload itself is the other half
-        // (51x51 -> 31x31 is achievable) but that's a breaking QR wire-format
-        // change needing a paired iOS release first — tracked in #2137.
+        // Sized for couch-distance scanning. #2137 shrank the payload from a
+        // fixed-shape ~210-char JSON+base64url string (a 59x59-module
+        // symbol at level-M correction) to a ~114-char binary-packed base32
+        // one (39x39 modules — measured in
+        // PairingProtocolTests.test_qrPayloadV2_rendersSmallerQRSymbolThanV1,
+        // which prints the real module counts on every run) — this 560pt
+        // size and that format shrink are the two halves of the same
+        // readability fix. At 300pt the original 59-module symbol was
+        // ~5.1pt per module, too fine for a phone camera across a room; the
+        // smaller 39-module symbol at 560pt is now ~14.4pt per module. The
+        // right column has ~1100pt of width free here, so the code gets the
+        // space rather than the layout's whitespace.
         QRCodeView(string: code)
           .frame(width: 560, height: 560)
           .padding(24)
