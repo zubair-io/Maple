@@ -48,6 +48,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         tone: [0.0; 6],
         tone_curves: ToneCurveInputs {
             parametric: [0.0; 4],
+            parametric_split: [25.0, 50.0, 75.0],
             luma: vec![],
             red: vec![],
             green: vec![],

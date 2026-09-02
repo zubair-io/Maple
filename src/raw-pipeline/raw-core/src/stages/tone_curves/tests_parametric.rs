@@ -30,17 +30,31 @@
 
 use super::evaluator::{eval_curve_scene_linear, REF_MAX};
 use super::parametric::{
-    axis_to_authoring_x, build_parametric_curve_from_sliders, KNOT_COUNT, MAX_STOPS,
-    REGION_CENTRES,
+    axis_to_authoring_x, build_parametric_curve_from_sliders, DEFAULT_SPLIT_HIGHLIGHT,
+    DEFAULT_SPLIT_MIDTONE, DEFAULT_SPLIT_SHADOW, KNOT_COUNT, MAX_STOPS,
 };
 
 /// Slider order used everywhere in this file and in the builder.
 const REGION_NAMES: [&str; 4] = ["shadows", "darks", "lights", "highlights"];
 
-/// Scene values at the four region centres, in the same order.
+/// The default splits' region centres — the midpoints of the split
+/// intervals ACR defaults to 25/50/75 — recomputed here rather than
+/// imported, since [`super::parametric::region_centres`] is private and
+/// this file only ever needs the default-split value.
+fn region_centres_at_default_splits() -> [f32; 4] {
+    [
+        DEFAULT_SPLIT_SHADOW * 0.5,
+        (DEFAULT_SPLIT_SHADOW + DEFAULT_SPLIT_MIDTONE) * 0.5,
+        (DEFAULT_SPLIT_MIDTONE + DEFAULT_SPLIT_HIGHLIGHT) * 0.5,
+        (DEFAULT_SPLIT_HIGHLIGHT + 100.0) * 0.5,
+    ]
+}
+
+/// Scene values at the four region centres, in the same order, at the
+/// default split points.
 fn region_centre_scenes() -> [f32; 4] {
     let mut out = [0.0_f32; 4];
-    for (slot, centre) in out.iter_mut().zip(REGION_CENTRES) {
+    for (slot, centre) in out.iter_mut().zip(region_centres_at_default_splits()) {
         *slot = axis_to_authoring_x(centre) * REF_MAX;
     }
     out
@@ -53,8 +67,20 @@ fn only(region: usize, value: f32) -> [f32; 4] {
     s
 }
 
+/// Build a curve from sliders at the default split points — every test in
+/// this file is exercising slider behaviour, not split-point behaviour
+/// (that is covered separately in `parametric::tests`), so the splits are
+/// held at ACR's 25/50/75 default throughout.
 fn curve_of(s: [f32; 4]) -> super::PreparedCurve {
-    build_parametric_curve_from_sliders(s[0], s[1], s[2], s[3])
+    build_parametric_curve_from_sliders(
+        s[0],
+        s[1],
+        s[2],
+        s[3],
+        DEFAULT_SPLIT_SHADOW,
+        DEFAULT_SPLIT_MIDTONE,
+        DEFAULT_SPLIT_HIGHLIGHT,
+    )
 }
 
 /// Scene sweep: log-spaced from deep shadow to the top of the authoring
@@ -135,7 +161,15 @@ fn region_windows_keep_the_curve_strictly_increasing() {
         for &d in &grid {
             for &l in &grid {
                 for &h in &grid {
-                    let c = build_parametric_curve_from_sliders(s, d, l, h);
+                    let c = build_parametric_curve_from_sliders(
+                        s,
+                        d,
+                        l,
+                        h,
+                        DEFAULT_SPLIT_SHADOW,
+                        DEFAULT_SPLIT_MIDTONE,
+                        DEFAULT_SPLIT_HIGHLIGHT,
+                    );
                     for w in c.knots.windows(2) {
                         let slope = (w[1].1 - w[0].1) / (w[1].0 - w[0].0);
                         assert!(
@@ -270,7 +304,9 @@ fn each_slider_peaks_at_its_own_centre_and_is_inert_at_the_others() {
     for region in 0..4 {
         let s = only(region, 100.0);
         let own = gain_at(s, centres[region]);
-        let peak = gain_sweep(s).into_iter().fold(0.0_f32, |a, (_, g)| a.max(g));
+        let peak = gain_sweep(s)
+            .into_iter()
+            .fold(0.0_f32, |a, (_, g)| a.max(g));
         assert!(
             own >= peak - 1e-4,
             "{} peaks at {peak} but only reaches {own} at its own centre",

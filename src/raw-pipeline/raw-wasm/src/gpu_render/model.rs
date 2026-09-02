@@ -187,6 +187,11 @@ pub(super) fn build_full_chain_inputs(
                 model.parametric_lights,
                 model.parametric_highlights,
             ],
+            parametric_split: [
+                model.parametric_shadow_split,
+                model.parametric_midtone_split,
+                model.parametric_highlight_split,
+            ],
             luma: model.tone_curve_luma.points.clone(),
             red: model.tone_curve_red.points.clone(),
             green: model.tone_curve_green.points.clone(),
