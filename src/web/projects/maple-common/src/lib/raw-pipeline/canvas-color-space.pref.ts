@@ -33,6 +33,18 @@ import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
 
 export type CanvasColorSpace = 'display-p3' | 'srgb';
 
+const VALUES: readonly CanvasColorSpace[] = ['display-p3', 'srgb'];
+
+/** Runtime guard for the wire values — used everywhere a `CanvasColorSpace`
+ * crosses a boundary this module doesn't fully control: `localStorage`
+ * (`TypedStorage.get` returns unvalidated JSON — a stale value from an older
+ * build, or hand-edited storage, must not silently become a "valid" choice)
+ * and the Settings row's segmented-toggle change event (a `string`, not
+ * statically narrowed to the option values it was built from). */
+export function isCanvasColorSpace(value: unknown): value is CanvasColorSpace {
+  return typeof value === 'string' && (VALUES as readonly string[]).includes(value);
+}
+
 /** True iff `matchMedia`, `window`, and the P3 gamut are all available and
  * this screen reports it. SSR-safe (falls back to `false`, same conservative
  * default `CanvasColorSpace.current`'s Swift counterpart uses before its
@@ -46,15 +58,23 @@ function screenSupportsP3(): boolean {
   }
 }
 
+/** Read + validate the stored choice — `null` on absent, corrupt, or
+ * out-of-range storage, so `current()`'s `??` always falls through to the
+ * gamut-probed default rather than propagating garbage into the WASM
+ * session-open request. */
+function loadStored(): CanvasColorSpace | null {
+  const value = TypedStorage.get<unknown>(STORAGE_KEYS.CANVAS_COLOR_SPACE);
+  return isCanvasColorSpace(value) ? value : null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanvasColorSpacePref {
   /** The stored choice, or `null` until this browser has ever touched the
-   * picker. Read synchronously in the field initializer (mirrors
+   * picker (or the stored value fails `isCanvasColorSpace`). Read
+   * synchronously in the field initializer (mirrors
    * `GpuLiveRenderGate.operatorEnabled`) so `current()` is correct from the
    * very first render, no async round-trip needed. */
-  private readonly stored = signal<CanvasColorSpace | null>(
-    TypedStorage.get<CanvasColorSpace>(STORAGE_KEYS.CANVAS_COLOR_SPACE),
-  );
+  private readonly stored = signal<CanvasColorSpace | null>(loadStored());
 
   /** The effective preference: the stored choice, else the gamut-probed
    * default. Read per session-open request, so a mid-session Settings change

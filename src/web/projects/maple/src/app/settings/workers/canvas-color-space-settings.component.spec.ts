@@ -5,7 +5,13 @@ import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings
 
 describe('CanvasColorSpaceSettingsComponent (#3191)', () => {
   let fixture: ComponentFixture<CanvasColorSpaceSettingsComponent>;
+  // jsdom does not implement `matchMedia` at all, so the TRUE original is
+  // `undefined` — a plain `typeof window.matchMedia | undefined` variable
+  // can't distinguish "captured as undefined" from "never captured", which
+  // silently perpetuates a stale stub across tests (Copilot review). A
+  // separate boolean removes the ambiguity.
   let originalMatchMedia: typeof window.matchMedia | undefined;
+  let capturedOriginal = false;
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const segment = (value: 'display-p3' | 'srgb'): HTMLButtonElement => {
@@ -18,11 +24,14 @@ describe('CanvasColorSpaceSettingsComponent (#3191)', () => {
 
   /** Stub `matchMedia` so the gamut-probed default is deterministic across
    * test hosts (jsdom has no real `matchMedia`, and CI runners vary). Only
-   * the FIRST call captures `originalMatchMedia`, so a test that re-stubs
-   * mid-test (see "falls back to sRGB" below) doesn't clobber it with an
-   * already-stubbed value. */
+   * the FIRST call per test captures `originalMatchMedia`, so a test that
+   * re-stubs mid-test (see "falls back to sRGB" below) doesn't clobber it
+   * with an already-stubbed value. */
   function stubGamut(supportsP3: boolean): void {
-    if (originalMatchMedia === undefined) originalMatchMedia = window.matchMedia;
+    if (!capturedOriginal) {
+      originalMatchMedia = window.matchMedia;
+      capturedOriginal = true;
+    }
     window.matchMedia = ((query: string) => ({
       matches: query.includes('p3') ? supportsP3 : false,
       media: query,
@@ -47,8 +56,11 @@ describe('CanvasColorSpaceSettingsComponent (#3191)', () => {
 
   afterEach(() => {
     TypedStorage.remove(STORAGE_KEYS.CANVAS_COLOR_SPACE);
-    if (originalMatchMedia) window.matchMedia = originalMatchMedia;
+    // Always restore — even when the true original was `undefined` (jsdom's
+    // reality) — so a stub never leaks into the next test.
+    window.matchMedia = originalMatchMedia as typeof window.matchMedia;
     originalMatchMedia = undefined;
+    capturedOriginal = false;
   });
 
   it('defaults to the gamut-probed value and reports it as a default, not a saved choice', () => {
