@@ -20,6 +20,7 @@
 //! rebuild. `< 1` verified pair on the bootstrap graph is the hard-error
 //! floor (spec §5.3: "hard error only when neither is computable").
 
+use super::types::StitchError;
 use std::collections::HashMap;
 
 use crate::ba;
@@ -187,7 +188,7 @@ pub(super) fn rebuild_graph_with_focal(
 /// from `graph`, rebuilds `full_images`/`proxy_images` at that focal,
 /// and rebuilds `graph` against them (reusing `raw_matches_cache`,
 /// appending anything `fetch` supplies for an uncached pair). Returns
-/// `None` when [`refine_from_homography`] can't produce an estimate —
+/// `Err(StitchError::NoFocalSeed)` when [`refine_from_homography`] can't produce an estimate —
 /// the caller's hard-error floor (spec §5.3: fewer than 1 verified
 /// pair). Otherwise `Some(failures)`: any `fetch` error for an uncached
 /// pair, formatted `"pair (a,b): <cause>"` — the caller decides whether
@@ -204,11 +205,12 @@ pub(super) fn refine_if_needed(
     proxy_images: &mut Vec<GraphImage>,
     raw_matches_cache: &mut Vec<((usize, usize), Vec<PixelCorrespondence>)>,
     mut fetch: impl FnMut(usize, usize) -> Result<Vec<PixelCorrespondence>, String>,
-) -> Option<Vec<String>> {
+) -> Result<(), StitchError> {
     if focal_seed.source != FocalSeedSource::HomographyFallback {
-        return Some(Vec::new());
+        return Ok(());
     }
-    focal_seed.full_px = refine_from_homography(graph, proxy_dims, proxy_scale)?;
+    focal_seed.full_px =
+        refine_from_homography(graph, proxy_dims, proxy_scale).ok_or(StitchError::NoFocalSeed)?;
     let (refined_full, refined_proxy) =
         build_graph_images(metas, &focal_seed.full_px, proxy_dims, proxy_scale);
     *full_images = refined_full;
@@ -218,8 +220,7 @@ pub(super) fn refine_if_needed(
     // below still clones on an actual cache *hit* (unavoidable:
     // `build_match_graph` needs an owned return value while the cache
     // stays intact for reuse), but a pair nobody re-requests now costs
-    // nothing, instead of always paying a full deep-clone up front
-    //.
+    // nothing, instead of always paying a full deep-clone up front.
     let cache: HashMap<(usize, usize), Vec<PixelCorrespondence>> =
         std::mem::take(raw_matches_cache).into_iter().collect();
     let mut newly_fetched: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
@@ -235,7 +236,11 @@ pub(super) fn refine_if_needed(
         }
     });
     *raw_matches_cache = cache.into_iter().chain(newly_fetched).collect();
-    Some(failures)
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(StitchError::MatchFailed(failures))
+    }
 }
 
 #[cfg(test)]
