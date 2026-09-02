@@ -6,11 +6,15 @@
 
 use raw_core::decode::decode_bytes;
 use raw_core::film;
-use raw_core::pipeline::{render_from_raw_with_quality_source_and_film, RawInput, RenderQuality};
+use raw_core::pipeline::{
+    render_export_from_raw_with_film, render_from_raw_with_quality_source_and_film, ExportDepth,
+    ExportPixels, RawInput, RenderQuality,
+};
+use raw_core::view::encode::TargetPrimaries;
 use raw_core::xmp;
 use std::path::{Path, PathBuf};
 
-use super::types::{DemosaicChoice, OutputFormat, ProfileChoice};
+use super::types::{DemosaicChoice, OutputFormat, PrimariesChoice, ProfileChoice};
 
 /// Default `--film-lut-dir` value: `resources/film-luts` resolved from the
 /// repo root (not the process cwd, which varies by how `maple-cli` is
@@ -112,6 +116,43 @@ fn render_path_with_quality(
     )?)
 }
 
+/// Non-sRGB sibling of `render_path` / `render_path_with_quality` (#1339, P3
+/// phase 3): routes through the EXPORT entry rather than the display entry,
+/// because only the export entry threads a `TargetPrimaries` choice down to
+/// `rec2020_to_display` (#1337). At `TargetPrimaries::Srgb` + `ExportDepth::
+/// Eight` this produces byte-identical output to the display entry (both
+/// share `render_display_scene`, then the same quantize + geometry tail) —
+/// but that equivalence is exactly why the sRGB (default) path above stays
+/// on the display entry rather than switching everything to this one: it
+/// keeps the historical call untouched for the parity harnesses that depend
+/// on it, and confines this new code path to the case that actually needs it.
+fn render_path_with_primaries(
+    raw_path: &Path,
+    model: &xmp::AdjustmentModel,
+    quality: RenderQuality,
+    target_primaries: TargetPrimaries,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(raw_path)?;
+    let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw = decode_bytes(&bytes, ext)?;
+    let (w, h, pixels) = render_export_from_raw_with_film(
+        &raw,
+        model,
+        quality,
+        Some(RawInput::Path(raw_path)),
+        None,
+        target_primaries,
+        ExportDepth::Eight,
+        film_lut,
+    )?;
+    let out = match pixels {
+        ExportPixels::Eight(out) => out,
+        ExportPixels::Sixteen(_) => unreachable!("ExportDepth::Eight always returns Eight"),
+    };
+    Ok((w, h, out))
+}
+
 /// Shell helper: write a buffer to disk.
 fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(path, bytes)
@@ -139,6 +180,7 @@ pub fn run(
     demosaic: DemosaicChoice,
     profile: ProfileChoice,
     film_lut_dir: Option<&Path>,
+    target_primaries: PrimariesChoice,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let mut model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
@@ -156,16 +198,33 @@ pub fn run(
         .map(Path::to_path_buf)
         .unwrap_or_else(default_film_lut_dir);
     let film_lut = resolve_film_lut(&model, &resolved_lut_dir);
-    // `DemosaicChoice::Full` (the default) routes through `render_path`
-    // for byte-for-byte identity with the historical entry the parity
-    // harnesses depend on. Non-default choices route through the
-    // quality-aware entry. `render_from_raw` itself dispatches to
+    // `DemosaicChoice::Full` at `PrimariesChoice::Srgb` (both defaults)
+    // routes through `render_path` for byte-for-byte identity with the
+    // historical entry the parity harnesses depend on. Non-default
+    // demosaic (still sRGB) routes through the quality-aware entry.
+    // `render_from_raw` itself dispatches to
     // `render_from_raw_with_quality(_, _, RenderQuality::Full)` so the
     // two paths produce the same bytes when `demosaic == Full`, but we
     // keep the dispatch explicit to make the harness invariant obvious.
-    let (w, h, bytes) = match demosaic {
-        DemosaicChoice::Full => render_path(raw, &model, film_lut.as_ref())?,
-        other => render_path_with_quality(raw, &model, other.into(), film_lut.as_ref())?,
+    // `PrimariesChoice::P3` (#1339) is the one case that needs a
+    // DIFFERENT underlying entry (the export path — see
+    // `render_path_with_primaries`), so it gets its own arm regardless of
+    // `demosaic`, rather than threading primaries through the two sRGB
+    // helpers and risking their byte-identity guarantee.
+    let (w, h, bytes) = match (target_primaries, demosaic) {
+        (PrimariesChoice::Srgb, DemosaicChoice::Full) => {
+            render_path(raw, &model, film_lut.as_ref())?
+        }
+        (PrimariesChoice::Srgb, other) => {
+            render_path_with_quality(raw, &model, other.into(), film_lut.as_ref())?
+        }
+        (PrimariesChoice::P3, demosaic) => render_path_with_primaries(
+            raw,
+            &model,
+            demosaic.into(),
+            target_primaries.into(),
+            film_lut.as_ref(),
+        )?,
     };
     let fmt = format.unwrap_or_else(|| infer_format(out));
     let encoded = match fmt {
@@ -310,6 +369,7 @@ mod tests {
             DemosaicChoice::Full,
             ProfileChoice::Neutral,
             None, // exercise the default --film-lut-dir resolution
+            PrimariesChoice::Srgb,
         )
         .expect("no-look render should succeed");
         run(
@@ -321,6 +381,7 @@ mod tests {
             DemosaicChoice::Full,
             ProfileChoice::Neutral,
             None,
+            PrimariesChoice::Srgb,
         )
         .expect("film-look render should succeed");
 
@@ -339,6 +400,124 @@ mod tests {
         );
         eprintln!(
             "[film smoke] {w1}x{h1}, summed |pixel delta| across all channels = {pixel_delta}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// #1339 (P3 phase 3): `--target-primaries p3` must actually reach the
+    /// render — a saturated synthetic chart rendered at P3 must move
+    /// pixels versus the identical render at the sRGB default, proving
+    /// `render_path_with_primaries` really threads `TargetPrimaries::P3`
+    /// down to `rec2020_to_display` (#1337) rather than silently staying
+    /// on the sRGB entry. Fully synthetic, no fixture RAW needed.
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn target_primaries_p3_render_differs_from_srgb_default() {
+        use raw_core::test_support::synth_chart::SyntheticColorChart;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "maple-cli-render-test-p3-smoke-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+
+        let dng_path = tmp.join("chart.dng");
+        SyntheticColorChart::default()
+            .write_to(&dng_path)
+            .expect("write synthetic chart DNG");
+
+        let out_srgb = tmp.join("srgb.png");
+        let out_p3 = tmp.join("p3.png");
+        run(
+            &dng_path,
+            None,
+            &out_srgb,
+            Some(OutputFormat::Png),
+            92,
+            DemosaicChoice::Full,
+            ProfileChoice::Neutral,
+            None,
+            PrimariesChoice::Srgb,
+        )
+        .expect("sRGB render should succeed");
+        run(
+            &dng_path,
+            None,
+            &out_p3,
+            Some(OutputFormat::Png),
+            92,
+            DemosaicChoice::Full,
+            ProfileChoice::Neutral,
+            None,
+            PrimariesChoice::P3,
+        )
+        .expect("P3 render should succeed");
+
+        let (srgb_rgb, w1, h1) = decode_png_rgb8_for_test(&out_srgb);
+        let (p3_rgb, w2, h2) = decode_png_rgb8_for_test(&out_p3);
+        assert_eq!((w1, h1), (w2, h2), "both renders must be the same size");
+        let pixel_delta: i64 = srgb_rgb
+            .iter()
+            .zip(p3_rgb.iter())
+            .map(|(a, b)| (*a as i64 - *b as i64).abs())
+            .sum();
+        assert!(
+            pixel_delta > 0,
+            "--target-primaries p3 must move at least one pixel versus the \
+             sRGB default on a saturated synthetic chart; summed |delta| = {pixel_delta}"
+        );
+        eprintln!("[P3 smoke] {w1}x{h1}, summed |pixel delta| across all channels = {pixel_delta}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The sRGB default must stay byte-for-byte identical to `render_path`
+    /// (not merely "close") when `--target-primaries` isn't passed — the
+    /// parity-harness invariant `run`'s own doc comment promises. Renders
+    /// through the public `run` entry (which dispatches on `PrimariesChoice
+    /// ::Srgb` + `DemosaicChoice::Full`) and compares against calling
+    /// `render_path` directly.
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn srgb_default_is_byte_identical_to_render_path_directly() {
+        use raw_core::test_support::synth_chart::SyntheticColorChart;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "maple-cli-render-test-srgb-identity-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let dng_path = tmp.join("chart.dng");
+        SyntheticColorChart::default()
+            .write_to(&dng_path)
+            .expect("write synthetic chart DNG");
+
+        let out = tmp.join("out.png");
+        run(
+            &dng_path,
+            None,
+            &out,
+            Some(OutputFormat::Png),
+            92,
+            DemosaicChoice::Full,
+            ProfileChoice::Neutral,
+            None,
+            PrimariesChoice::Srgb,
+        )
+        .expect("sRGB render via run() should succeed");
+        let (via_run, w1, h1) = decode_png_rgb8_for_test(&out);
+
+        let model = xmp::AdjustmentModel {
+            profile: raw_core::types::adjustment::Profile::Neutral,
+            ..xmp::AdjustmentModel::default()
+        };
+        let (w2, h2, direct_bytes) =
+            render_path(&dng_path, &model, None).expect("render_path directly");
+        assert_eq!((w1, h1), (w2, h2));
+        assert_eq!(
+            via_run, direct_bytes,
+            "PNG round-trip must not perturb bytes"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

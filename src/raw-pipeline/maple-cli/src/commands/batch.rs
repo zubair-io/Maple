@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use super::render;
-use super::types::{DemosaicChoice, ProfileChoice};
+use super::types::{DemosaicChoice, PrimariesChoice, ProfileChoice};
 
 #[derive(Deserialize)]
 struct ManifestOutput {
@@ -40,6 +40,7 @@ pub fn run(
     profile: ProfileChoice,
     demosaic: DemosaicChoice,
     film_lut_dir: Option<&Path>,
+    target_primaries: PrimariesChoice,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(manifest_path)?)?;
     std::fs::create_dir_all(out_dir)?;
@@ -62,6 +63,7 @@ pub fn run(
             demosaic,
             profile,
             film_lut_dir,
+            target_primaries,
         ) {
             Ok(_) => {
                 eprintln!("ok  {}", case.name);
