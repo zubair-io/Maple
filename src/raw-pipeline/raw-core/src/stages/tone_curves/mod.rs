@@ -39,8 +39,15 @@
 mod evaluator;
 mod parametric;
 
-use evaluator::{eval_curve_scene_linear, prepare_curve, PreparedCurve};
+use evaluator::eval_curve_scene_linear;
 use parametric::build_parametric_curve;
+
+/// Re-exported for [`crate::stages::display_tone_curve`] (#2232): the
+/// display-referred curve family reuses the SAME Fritsch–Carlson
+/// preparation and evaluation machinery, just without the scene-linear
+/// `REF_MAX` domain rescale (`eval_curve_unit` operates directly on the
+/// `[0, 1]` authoring domain, which is also the post-AgX display domain).
+pub(crate) use evaluator::{eval_curve_unit, prepare_curve, PreparedCurve};
 
 use crate::{
     image::{ColorSpace, Image},

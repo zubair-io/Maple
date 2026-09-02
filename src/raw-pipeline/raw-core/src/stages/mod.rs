@@ -12,6 +12,7 @@ pub mod clarity;
 pub mod color_grade;
 pub mod crop;
 pub mod dehaze;
+pub mod display_tone_curve;
 pub mod film_look;
 pub mod grain;
 pub mod guided;

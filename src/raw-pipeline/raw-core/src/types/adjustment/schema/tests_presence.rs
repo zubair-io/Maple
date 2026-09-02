@@ -106,6 +106,54 @@ fn tone_curve_fields_present_in_schema() {
     }
 }
 
+/// Display-referred point curves (#2232, Adobe's `crs:ToneCurvePV2012*`).
+/// All four are `FieldKind::ToneCurve` entries sitting directly after the
+/// scene-linear `tone_curve_blue` (the sibling family), and every one of
+/// them is identity (empty) on a default model — a fresh `AdjustmentModel`
+/// stays bit-identical to the pre-#2232 pipeline output.
+#[test]
+fn display_tone_curve_fields_present_in_schema() {
+    let names = [
+        "display_tone_curve_luma",
+        "display_tone_curve_red",
+        "display_tone_curve_green",
+        "display_tone_curve_blue",
+    ];
+    let m = AdjustmentModel::default();
+    let curves = [
+        &m.display_tone_curve_luma,
+        &m.display_tone_curve_red,
+        &m.display_tone_curve_green,
+        &m.display_tone_curve_blue,
+    ];
+    for (name, curve) in names.iter().zip(curves) {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == *name)
+            .unwrap_or_else(|| panic!("{name} missing from ADJUSTMENT_SCHEMA"));
+        assert!(
+            matches!(entry.kind, FieldKind::ToneCurve),
+            "{name} should be a ToneCurve field"
+        );
+        assert_eq!(
+            entry.enum_name, "",
+            "{name} carries no enum name — the curve type is always ToneCurve"
+        );
+        assert!(
+            curve.is_identity(),
+            "AdjustmentModel::default().{name} must be the identity curve"
+        );
+    }
+    // Order: the four curves follow `tone_curve_blue` immediately.
+    let blue_idx = ADJUSTMENT_SCHEMA
+        .iter()
+        .position(|s| s.name == "tone_curve_blue")
+        .expect("tone_curve_blue missing from schema");
+    for (offset, name) in names.iter().enumerate() {
+        assert_eq!(ADJUSTMENT_SCHEMA[blue_idx + 1 + offset].name, *name);
+    }
+}
+
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars,
 /// plus the colour-grading zone scalars that joined them in #275, are
 /// present in the schema with the documented ranges and defaults.

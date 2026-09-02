@@ -138,6 +138,12 @@ impl Default for AdjustmentModel {
             tone_curve_red: ToneCurve::default(),
             tone_curve_green: ToneCurve::default(),
             tone_curve_blue: ToneCurve::default(),
+            // Per-#2232: display-referred point curves default to identity
+            // (empty `Vec`), same as their scene-linear siblings above.
+            display_tone_curve_luma: ToneCurve::default(),
+            display_tone_curve_red: ToneCurve::default(),
+            display_tone_curve_green: ToneCurve::default(),
+            display_tone_curve_blue: ToneCurve::default(),
             // Per-#1104: decode-time chroma pre-filter ships default-off.
             chroma_prefilter: 0.0,
             // Per-#1106: off until a harness sweep shows enabling is free.
