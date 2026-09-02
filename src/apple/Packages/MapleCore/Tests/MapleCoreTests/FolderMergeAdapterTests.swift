@@ -178,6 +178,39 @@ final class FolderMergeAdapterTests: XCTestCase {
         XCTAssertFalse(adapter.hasFreshData)
     }
 
+    /// `invalidate()` called while a `warmUp()` rebuild is still in flight
+    /// (Copilot review, PR #3187) must WIN: the rebuild's `Task.isCancelled`
+    /// guard has to stop it from swapping fresh `buckets`/`sources` back in
+    /// after the caller already asked for a clean reset, and `invalidate()`
+    /// itself has to cancel that rebuild's `warmTask` rather than leaving it
+    /// to finish unobserved. Several real saved folders (each a genuine
+    /// bookmark-resolve + directory-listing async hop, unlike an in-memory
+    /// stub) widen the window between `warmUp()` starting and finishing —
+    /// there's no injectable delay seam on this adapter to pin the race
+    /// exactly, so this leans on that natural I/O latency plus a `yield()`
+    /// to give the rebuild task a real chance to be in flight, the same
+    /// spirit as `LibraryRootCacheTests`' "slow fetcher" races.
+    func testInvalidateDuringInFlightWarmUpDiscardsTheRebuild() async throws {
+        for i in 0..<5 {
+            let folder = try makeFolder(fileNames: ["IMG_\(i).dng"])
+            try await seedCaptureDate("2026:03:0\(i + 1) 09:00:00", forFileNamed: "IMG_\(i).dng", in: folder)
+            try registerSavedFolder(at: folder, displayName: "Folder\(i)")
+        }
+
+        let adapter = FolderMergeAdapter(defaults: defaults)
+        let warmUpTask = Task { await adapter.warmUp() }
+        await Task.yield()
+        await Task.yield()
+        adapter.invalidate()
+        await warmUpTask.value
+
+        XCTAssertTrue(
+            adapter.assetsForMonth(year: 2026, month: 3).isEmpty,
+            "a rebuild cancelled mid-flight must not repopulate state invalidate() already cleared")
+        XCTAssertTrue(adapter.localBuckets().isEmpty)
+        XCTAssertFalse(adapter.hasFreshData)
+    }
+
     // MARK: - Observer hook
 
     func testAddOnWarmedUpFiresAfterWarmUp() async {
