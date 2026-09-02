@@ -88,6 +88,16 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var parametricDarks: Double       // -100..100, default 0
     public var parametricShadows: Double     // -100..100, default 0
 
+    // ACR's parametric split points (`crs:ParametricShadowSplit` /
+    // `MidtoneSplit` / `HighlightSplit`, #2320). Round-tripped for sidecar
+    // fidelity — a Lightroom/ACR sidecar with moved split points no longer
+    // silently loses them on a Maple save. The Rust curve builder does not
+    // yet consume these fields (still fixed 25/50/75 constants); wiring
+    // them in is tracked in #3152.
+    public var parametricShadowSplit: Double    // 0..100, default 25
+    public var parametricMidtoneSplit: Double   // 0..100, default 50
+    public var parametricHighlightSplit: Double // 0..100, default 75
+
     // Presence
     public var vibrance: Double         // -100..100, default 0
     public var saturation: Double       // -100..100, default 0
@@ -338,6 +348,9 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         parametricLights: Double = 0,
         parametricDarks: Double = 0,
         parametricShadows: Double = 0,
+        parametricShadowSplit: Double = 25,
+        parametricMidtoneSplit: Double = 50,
+        parametricHighlightSplit: Double = 75,
         vibrance: Double = 0,
         saturation: Double = 0,
         clarity: Double = 0,
@@ -437,6 +450,9 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.parametricLights = parametricLights
         self.parametricDarks = parametricDarks
         self.parametricShadows = parametricShadows
+        self.parametricShadowSplit = parametricShadowSplit
+        self.parametricMidtoneSplit = parametricMidtoneSplit
+        self.parametricHighlightSplit = parametricHighlightSplit
         self.vibrance = vibrance
         self.saturation = saturation
         self.clarity = clarity

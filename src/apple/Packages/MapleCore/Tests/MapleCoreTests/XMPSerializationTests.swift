@@ -467,6 +467,88 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertEqual(m2.parametricDarks, 12.75)
     }
 
+    // MARK: - Parametric split points (#2320)
+
+    /// ACR's three split-point keys parse onto their model scalars.
+    func testParseParametricSplitPoints() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: """
+            crs:ParametricShadowSplit="20" \
+            crs:ParametricMidtoneSplit="55" \
+            crs:ParametricHighlightSplit="80"
+            """))
+        XCTAssertEqual(m.parametricShadowSplit, 20)
+        XCTAssertEqual(m.parametricMidtoneSplit, 55)
+        XCTAssertEqual(m.parametricHighlightSplit, 80)
+    }
+
+    /// A document without the split-point attributes at all parses to the
+    /// ACR defaults (25/50/75), not to zero.
+    func testParseNoParametricSplitAttrsLeavesAcrDefaults() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: #"crs:Exposure2012="0""#))
+        XCTAssertEqual(m.parametricShadowSplit, 25)
+        XCTAssertEqual(m.parametricMidtoneSplit, 50)
+        XCTAssertEqual(m.parametricHighlightSplit, 75)
+    }
+
+    /// Split points round-trip through serialize → parse, and default-valued
+    /// (25/50/75) models emit no `crs:Parametric*Split` at all — each field
+    /// is gated on its own non-zero default, not a shared "!= 0" check.
+    func testParametricSplitRoundTripAndDefaultOmission() throws {
+        var m = AdjustmentModel()
+        m.parametricShadowSplit = 10
+        m.parametricMidtoneSplit = 55.25
+        m.parametricHighlightSplit = 90
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:ParametricShadowSplit="10""#), xml)
+        XCTAssertTrue(xml.contains(#"crs:ParametricMidtoneSplit="55.25""#), xml)
+        XCTAssertTrue(xml.contains(#"crs:ParametricHighlightSplit="90""#), xml)
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.parametricShadowSplit, 10)
+        XCTAssertEqual(m2.parametricMidtoneSplit, 55.25)
+        XCTAssertEqual(m2.parametricHighlightSplit, 90)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("Split"),
+                       "default split points must not be serialized")
+    }
+
+    /// The omit-on-default gate and the emitted value share the 2-decimal
+    /// wire codec: a value that rounds to the default must be omitted, not
+    /// emitted verbatim.
+    func testParametricSplitRoundsToDefaultOmitted() throws {
+        var m = AdjustmentModel()
+        m.parametricShadowSplit = 25.004 // rounds to the 25 default
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertFalse(xml.contains("Split"),
+                       "a value that rounds to the default must be omitted, got: \(xml)")
+    }
+
+    /// `XMPSidecarStore` write → read carries the split points across the
+    /// on-disk `.xmp` boundary — a real file, not just an in-memory string.
+    func testSidecarStoreRoundTripParametricSplitPoints() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("dng")
+        defer {
+            let xmpURL = tmp.deletingPathExtension().appendingPathExtension("xmp")
+            try? FileManager.default.removeItem(at: xmpURL)
+        }
+
+        var m = AdjustmentModel()
+        m.parametricShadowSplit = 15
+        m.parametricMidtoneSplit = 48.5
+        m.parametricHighlightSplit = 82
+        let store = XMPSidecarStore(rawURL: tmp)
+        await store.update(model: m, culling: CullingState())
+        await store.flush()
+
+        let fresh = XMPSidecarStore(rawURL: tmp)
+        let (m2, _) = try await fresh.load()
+        XCTAssertEqual(m2.parametricShadowSplit, 15)
+        XCTAssertEqual(m2.parametricMidtoneSplit, 48.5)
+        XCTAssertEqual(m2.parametricHighlightSplit, 82)
+    }
+
     // MARK: - Helpers
 
     private func xmp(attrs: String) -> String {

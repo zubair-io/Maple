@@ -87,14 +87,16 @@ const AXIS_UNITS_PER_STOP: f32 = 12.5;
 /// Top of the region axis.
 const AXIS_MAX: f32 = 100.0;
 
-/// ACR's `crs:ParametricShadowSplit` default. Not yet user-adjustable —
-/// wiring the three `crs:Parametric*Split` keys through the model and all
-/// three XMP layers is #2320, which substitutes these constants for model
-/// fields and changes nothing else here.
+/// ACR's `crs:ParametricShadowSplit` default. Not yet user-adjustable — the
+/// three `crs:Parametric*Split` keys now round-trip through the model and
+/// all three XMP layers (#2320), but this curve builder still uses these
+/// fixed constants rather than `model.parametric_shadow_split` etc.; wiring
+/// them in ripples through raw-gpu's CPU-side parity port and the
+/// GpuLiveParams FFI surface, tracked in #3152.
 const SPLIT_SHADOW: f32 = 25.0;
-/// ACR's `crs:ParametricMidtoneSplit` default (#2320).
+/// ACR's `crs:ParametricMidtoneSplit` default. See #3152.
 const SPLIT_MIDTONE: f32 = AXIS_MIDTONE;
-/// ACR's `crs:ParametricHighlightSplit` default (#2320).
+/// ACR's `crs:ParametricHighlightSplit` default. See #3152.
 const SPLIT_HIGHLIGHT: f32 = 75.0;
 
 /// Region centres — the midpoints of the split intervals, in axis units.

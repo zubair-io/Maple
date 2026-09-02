@@ -162,3 +162,22 @@ fn parametric_region_fields_present_with_default_zero() {
         assert_eq!(entry.default_f32, 0.0, "default for {name}");
     }
 }
+
+/// ACR's parametric split points (#2320) are present in the schema with the
+/// `[0, 100]` range and their ACR defaults (25 / 50 / 75).
+#[test]
+fn parametric_split_fields_present_with_acr_defaults() {
+    for (name, default) in [
+        ("parametric_shadow_split", 25.0),
+        ("parametric_midtone_split", 50.0),
+        ("parametric_highlight_split", 75.0),
+    ] {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from ADJUSTMENT_SCHEMA"));
+        assert!(matches!(entry.kind, FieldKind::F32));
+        assert_eq!(entry.range, (0.0, 100.0), "range for {name}");
+        assert_eq!(entry.default_f32, default, "default for {name}");
+    }
+}

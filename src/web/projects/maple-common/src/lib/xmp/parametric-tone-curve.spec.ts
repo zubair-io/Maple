@@ -97,3 +97,69 @@ describe('XMP parametric tone-curve fields (#365)', () => {
     expect(xml).not.toContain('crs:Parametric');
   });
 });
+
+// ACR's parametric split points (#2320). Mirrors the Swift tests in
+// `XMPSerializationTests.swift` and the Rust tests in
+// `raw-core/src/xmp/tests_effects.rs` — the three `parametric*Split` model
+// scalars serialize to the ACR-compatible `crs:Parametric{Shadow,Midtone,
+// Highlight}Split` keys, parse back, and default-valued (25/50/75) models
+// emit no `crs:Parametric*Split` at all. The curve builder does not yet
+// consume these fields (#3152) — this is the sidecar round trip only.
+describe('XMP parametric split points (#2320)', () => {
+  let parser: XmpParserService;
+  let serializer: XmpSerializerService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    parser = TestBed.inject(XmpParserService);
+    serializer = TestBed.inject(XmpSerializerService);
+  });
+
+  it('parses the three `crs:Parametric*Split` keys onto the model', () => {
+    const xml = makeSidecar(
+      `crs:ParametricShadowSplit="20"
+       crs:ParametricMidtoneSplit="55"
+       crs:ParametricHighlightSplit="80"`,
+    );
+    const { model } = parser.parseAdjustmentModel(xml);
+    expect(model.parametricShadowSplit).toBe(20);
+    expect(model.parametricMidtoneSplit).toBe(55);
+    expect(model.parametricHighlightSplit).toBe(80);
+  });
+
+  it('parses a document without split-point attributes to the ACR defaults, not zero', () => {
+    const xml = makeSidecar(`crs:Exposure2012="0"`);
+    const { model } = parser.parseAdjustmentModel(xml);
+    const merged = { ...defaultAdjustmentModel(), ...model };
+    expect(merged.parametricShadowSplit).toBe(25);
+    expect(merged.parametricMidtoneSplit).toBe(50);
+    expect(merged.parametricHighlightSplit).toBe(75);
+  });
+
+  it('round-trips non-default split values through serialize → parse', () => {
+    const m = defaultAdjustmentModel();
+    m.parametricShadowSplit = 10;
+    m.parametricMidtoneSplit = 55.25;
+    m.parametricHighlightSplit = 90;
+    const xml = serializer.serialize(m);
+    expect(xml).toContain('crs:ParametricShadowSplit="10"');
+    expect(xml).toContain('crs:ParametricMidtoneSplit="55.25"');
+    expect(xml).toContain('crs:ParametricHighlightSplit="90"');
+    const { model } = parser.parseAdjustmentModel(xml);
+    expect(model.parametricShadowSplit).toBe(10);
+    expect(model.parametricMidtoneSplit).toBe(55.25);
+    expect(model.parametricHighlightSplit).toBe(90);
+  });
+
+  it('omits all `crs:Parametric*Split` keys at the ACR default (25/50/75)', () => {
+    const xml = serializer.serialize(defaultAdjustmentModel());
+    expect(xml).not.toContain('Split');
+  });
+
+  it('omits a value that rounds to its own default in the wire codec', () => {
+    const m = defaultAdjustmentModel();
+    m.parametricShadowSplit = 25.004; // rounds to the 25 default
+    const xml = serializer.serialize(m);
+    expect(xml).not.toContain('Split');
+  });
+});

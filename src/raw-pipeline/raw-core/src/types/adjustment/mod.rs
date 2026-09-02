@@ -190,6 +190,18 @@ pub struct AdjustmentModel {
     pub parametric_darks: f32,      // -100..100, default 0
     pub parametric_shadows: f32,    // -100..100, default 0
 
+    // ACR's parametric split points (`crs:ParametricShadowSplit` /
+    // `MidtoneSplit` / `HighlightSplit`, #2320). Round-tripped for sidecar
+    // fidelity — a Lightroom/ACR sidecar with moved split points no longer
+    // silently loses them on a Maple save. The curve builder in
+    // `stages::tone_curves::parametric` does not yet consume these fields
+    // (it still uses fixed 25/50/75 constants); wiring them in ripples
+    // through raw-gpu's CPU-side parity port and the GpuLiveParams FFI
+    // surface, tracked in #3152.
+    pub parametric_shadow_split: f32,    // 0..100, default 25
+    pub parametric_midtone_split: f32,   // 0..100, default 50
+    pub parametric_highlight_split: f32, // 0..100, default 75
+
     pub vibrance: f32,                  // -100..100, default 0 (spec § 3.7)
     pub saturation: f32,                // -100..100, default 0
     pub clarity: f32,                   // -100..100, default 0 (unsharp radius 40 per spec § 3.8)

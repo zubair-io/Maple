@@ -96,6 +96,13 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:ParametricLights', 'parametricLights'),
   numericField('crs:ParametricDarks', 'parametricDarks'),
   numericField('crs:ParametricShadows', 'parametricShadows'),
+  // ACR's parametric split-point keys (defaults 25/50/75, #2320). The
+  // curve builder does not yet consume these fields (#3152) — they are
+  // round-tripped here so a Lightroom/ACR sidecar with moved split points
+  // no longer silently loses them on save.
+  numericField('crs:ParametricShadowSplit', 'parametricShadowSplit'),
+  numericField('crs:ParametricMidtoneSplit', 'parametricMidtoneSplit'),
+  numericField('crs:ParametricHighlightSplit', 'parametricHighlightSplit'),
   numericField('crs:Vibrance', 'vibrance'),
   numericField('crs:Saturation', 'saturation'),
   numericField('crs:Clarity2012', 'clarity'),

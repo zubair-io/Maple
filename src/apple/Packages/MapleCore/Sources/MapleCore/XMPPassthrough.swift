@@ -98,6 +98,7 @@ enum XMPKnownFields {
         "crs:Highlights2012", "crs:Shadows2012", "crs:Whites2012", "crs:Blacks2012",
         "crs:ParametricHighlights", "crs:ParametricLights",
         "crs:ParametricDarks", "crs:ParametricShadows",
+        "crs:ParametricShadowSplit", "crs:ParametricMidtoneSplit", "crs:ParametricHighlightSplit",
         "crs:Vibrance", "crs:Saturation", "crs:Clarity2012", "crs:Texture", "crs:Dehaze",
         "crs:Sharpness", "crs:SharpenRadius", "crs:SharpenDetail", "crs:SharpenEdgeMasking",
         "papp:CaptureSharpeningAmount", "papp:CaptureSharpeningSigma",

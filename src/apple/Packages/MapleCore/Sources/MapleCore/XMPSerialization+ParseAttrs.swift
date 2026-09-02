@@ -39,6 +39,13 @@ extension _XMPParserDelegate {
         case "crs:ParametricLights":    model.parametricLights = d(value) ?? model.parametricLights
         case "crs:ParametricDarks":     model.parametricDarks  = d(value) ?? model.parametricDarks
         case "crs:ParametricShadows":   model.parametricShadows = d(value) ?? model.parametricShadows
+        // ACR's parametric split-point keys (defaults 25/50/75, #2320). The
+        // curve builder does not yet consume these fields (#3152) — they
+        // are round-tripped here so a Lightroom/ACR sidecar with moved
+        // split points no longer silently loses them on save.
+        case "crs:ParametricShadowSplit":   model.parametricShadowSplit   = d(value) ?? model.parametricShadowSplit
+        case "crs:ParametricMidtoneSplit":  model.parametricMidtoneSplit  = d(value) ?? model.parametricMidtoneSplit
+        case "crs:ParametricHighlightSplit": model.parametricHighlightSplit = d(value) ?? model.parametricHighlightSplit
         case "crs:Vibrance":            model.vibrance    = d(value) ?? model.vibrance
         case "crs:Saturation":          model.saturation  = d(value) ?? model.saturation
         case "crs:Clarity2012":         model.clarity     = d(value) ?? model.clarity
