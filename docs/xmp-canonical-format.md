@@ -254,7 +254,10 @@ Two independent mechanisms, both PV2012-shaped.
 
 **Parametric region sliders** are four ordinary `crs:` attributes — `ParametricHighlights`, `ParametricLights`, `ParametricDarks`, `ParametricShadows`. Adobe's three split-point keys (`ParametricShadowSplit`/`MidtoneSplit`/`HighlightSplit`) are _not_ mapped: the model has no fields for them and the curve builder holds the split points as constants.
 
-**Point curves** are the one part of the schema that is not a flat attribute. Four parent elements in canonical emit order — `papp:SceneLinearToneCurve` (luma), `…Red`, `…Green`, `…Blue` — each wrapping an `rdf:Seq` of `rdf:li` leaves holding `"x, y"` text:
+**Point curves** are the one part of the schema that is not a flat attribute, and there are two independent FAMILIES of them — both structurally modelled, both PV2012-shaped, applied at different points in the pipeline. Eight parent elements in canonical emit order, each wrapping an `rdf:Seq` of `rdf:li` leaves holding `"x, y"` text:
+
+- Scene-linear (`#365`, `#273`): `papp:SceneLinearToneCurve` (luma), `…Red`, `…Green`, `…Blue`. Applied *pre-view-transform*, in scene-linear light, luma-coupled for the luma curve (hue-preserving).
+- Display-referred (`#2232`): `crs:ToneCurvePV2012` (master), `…Red`, `…Green`, `…Blue`. Applied *post-AgX*, in display-linear `[0, 1]`, evaluated independently per R/G/B channel — matching Adobe Camera Raw's own point-curve behaviour, not luma-coupled.
 
 ```xml
       <papp:SceneLinearToneCurve>
@@ -264,11 +267,18 @@ Two independent mechanisms, both PV2012-shaped.
           <rdf:li>255, 255</rdf:li>
         </rdf:Seq>
       </papp:SceneLinearToneCurve>
+      <crs:ToneCurvePV2012>
+        <rdf:Seq>
+          <rdf:li>0, 0</rdf:li>
+          <rdf:li>128, 150</rdf:li>
+          <rdf:li>255, 255</rdf:li>
+        </rdf:Seq>
+      </crs:ToneCurvePV2012>
 ```
 
-Coordinates are stored on the model in `[0, 1]` and written in PV2012's `[0, 255]` wire domain, rescaled at the serializer boundary and passed through the same two-decimal number codec. (Windows is the exception: `AdjustmentState` stores curve points already in the wire domain, so its writer skips the rescale.) **Identity is silence** — an identity curve is the empty point list and emits no element at all, not an empty `rdf:Seq`, so an unedited sidecar keeps the bytes it had before point curves existed. A malformed `rdf:li` is dropped rather than failing the parse. Readers match `rdf:li` on its local name so a sidecar that binds RDF to a different prefix still parses.
+Coordinates are stored on the model in `[0, 1]` and written in PV2012's `[0, 255]` wire domain (the SAME wire convention for both families), rescaled at the serializer boundary and passed through the same two-decimal number codec. (Windows is the exception: `AdjustmentState` stores curve points already in the wire domain, so its writer skips the rescale.) **Identity is silence** — an identity curve is the empty point list and emits no element at all, not an empty `rdf:Seq`, so an unedited sidecar keeps the bytes it had before point curves existed. A malformed `rdf:li` is dropped rather than failing the parse. Readers match `rdf:li` on its local name so a sidecar that binds RDF to a different prefix still parses.
 
-Maple's curves are `papp:`, **not** Adobe's `crs:ToneCurvePV2012*`, because they are different quantities: Maple applies these pre-view-transform in scene-linear light, while a PV2012 curve was authored against Lightroom's display transform and only means anything after one. Reading a Lightroom curve into these fields would apply a display-referred shape to scene-linear data. `crs:ToneCurvePV2012*` is therefore deliberately never parsed — it rides the passthrough bucket and re-emits verbatim.
+The two families are different QUANTITIES, not different spellings of the same one: the `papp:` curves apply pre-view-transform in scene-linear light, while a `crs:ToneCurvePV2012` curve was authored against Lightroom's own display transform and only means anything after one. Before `#2232`, `crs:ToneCurvePV2012*` rode the unknown-node passthrough bucket, re-emitted verbatim but never rendered; `#2232` gives it a real pipeline slot (`stages::display_tone_curve`, post-AgX) and moves it off the passthrough pipe onto the `display_tone_curve_*` model fields — a Lightroom-authored curve now renders in Maple rather than surviving only as inert bytes. The two families can coexist on one image: a Lightroom import keeps its `crs:` curve until the user re-authors in Maple's own scene-linear editor.
 
 ## Local adjustments
 
@@ -354,7 +364,7 @@ Child elements sit in fixed slots so the order is stable: title/creator/descript
 
 ## Passthrough
 
-**A Maple writer must not destroy anything it does not understand.** A Lightroom sidecar carries mask groups, history, snapshots, `crs:ToneCurvePV2012*` curves and `xmpMM:` document IDs; all of it has to survive a Maple save.
+**A Maple writer must not destroy anything it does not understand.** A Lightroom sidecar carries mask groups, history, snapshots and `xmpMM:` document IDs; all of it has to survive a Maple save. (`crs:ToneCurvePV2012*` used to be a passthrough example too — since `#2232` it round-trips structurally instead, onto `display_tone_curve_*`, the same way the `papp:` point curves already did per `#365`.)
 
 Three buckets, each with its own rule:
 
@@ -390,7 +400,7 @@ Six claims, tested per platform:
 3. **The cross-engine golden** — Swift and TypeScript each assert their own writer reproduces a byte-identical golden document, from an identical fixture model, duplicated verbatim in `XMPCanonicalFormatTests.swift` and `xmp-canonical.spec.ts`. A divergence on either side fails that side's suite; this is the zero-byte-diff check without a build that runs both languages in one process. Any change to the canonical format updates both copies **and this document** in the same commit.
 4. **Write → parse → write is a fixed point** — a canonical sidecar re-saves to identical bytes.
 5. **Field-level round trip** — every modeled field survives serialize → parse with its value intact.
-6. **Passthrough preservation** — a real Lightroom sidecar (masks, history, snapshots, `crs:ToneCurvePV2012`, `xmpMM:` ids) survives a Maple edit with every unknown node byte-identical, and legacy-layout sidecars (old `papp:` URI, unsorted attributes, no `rdf:about`) still parse and upgrade on the next save.
+6. **Passthrough preservation** — a real Lightroom sidecar (masks, history, snapshots, `xmpMM:` ids) survives a Maple edit with every unknown node byte-identical, and legacy-layout sidecars (old `papp:` URI, unsorted attributes, no `rdf:about`) still parse and upgrade on the next save. `crs:ToneCurvePV2012*` round-trips structurally (§ "Tone curves") rather than through this bucket, and renders.
 
 What the byte-parity claim does **not** cover: whole-document equality for arbitrary round-tripped sidecars. Both writers preserve unknown content, but they capture it differently (a DOM re-serialization on the web, a source slice on Apple), so a document carrying foreign nested fields survives on both without the preserved bytes matching each other. It also excludes `papp:Hidden` (no web writer) and default-valued sliders (Apple emits its core block unconditionally, the web writer omits it).
 

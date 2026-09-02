@@ -163,6 +163,10 @@ const TONE_FIELDS: &[&str] = &[
     "tone_curve_red",
     "tone_curve_green",
     "tone_curve_blue",
+    "display_tone_curve_luma",
+    "display_tone_curve_red",
+    "display_tone_curve_green",
+    "display_tone_curve_blue",
 ];
 
 /// Saturation / vibrance, the 24 HSL band controls, split toning, and the

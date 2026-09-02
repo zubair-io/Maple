@@ -1,4 +1,5 @@
-//! Nested-element XMP I/O for the four point tone curves (#365).
+//! Nested-element XMP I/O for the eight point tone curves — the
+//! scene-linear family (#365) and the display-referred family (#2232).
 //!
 //! Every other field on `AdjustmentModel` is a flat attribute on
 //! `rdf:Description`, which is why [`super::parse`]'s walker only ever looked
@@ -15,23 +16,27 @@
 //! </papp:SceneLinearToneCurve>
 //! ```
 //!
-//! **Namespace.** Maple's point curves are authored in the `papp:` namespace,
-//! not Adobe's `crs:ToneCurvePV2012*`. The two are different quantities:
-//! `#273`'s pipeline foundation applies these curves *pre-AgX*, in scene-linear
-//! light, while a `crs:ToneCurvePV2012` curve was authored against Lightroom's
-//! own display transform and only means anything *after* a view transform
-//! (`docs/xmp-canonical-format.md` § "Tone curves"). Reading a Lightroom
-//! curve into these fields would apply a display-referred shape to
-//! scene-linear data and render the image visibly wrong, so the `crs:` keys
-//! are deliberately NOT parsed here — they survive a read-modify-write through
-//! the writers' unknown-node passthrough instead. Consuming them properly is a
-//! separate display-referred pipeline slot (see `docs/xmp-canonical-format.md`
-//! § "Tone curves").
+//! **Two families, two namespaces.** Maple's own point curves are authored
+//! in the `papp:` namespace; Adobe's are `crs:ToneCurvePV2012*`. The two are
+//! different quantities: `#273`'s pipeline foundation applies the `papp:`
+//! curves *pre-AgX*, in scene-linear light, while a `crs:ToneCurvePV2012`
+//! curve was authored against Lightroom's own display transform and only
+//! means anything *after* a view transform (`docs/xmp-canonical-format.md` §
+//! "Tone curves"). `#2232` gives the `crs:` family its own pipeline slot
+//! (`stages::display_tone_curve`, post-AgX) and its own model fields
+//! (`display_tone_curve_*`), so both round-trip structurally now — reading a
+//! Lightroom curve into the `papp:` fields would still apply a
+//! display-referred shape to scene-linear data and render the image visibly
+//! wrong, which is why the two stay on separate elements/fields rather than
+//! merging. [`CURVE_ELEMENTS`] lists both families (indices 0-3 scene-linear,
+//! 4-7 display-referred) so [`CurveWalker`] and [`serialize_tone_curves`]
+//! handle them with one state machine.
 //!
 //! **Wire domain.** Control points are stored on the model in `[0, 1]` and
-//! written in PV2012's `[0, 255]` domain, matching the paper. The scale factor
-//! is applied at this boundary only — [`crate::types::ToneCurve`] never sees
-//! the wire encoding.
+//! written in PV2012's `[0, 255]` domain for BOTH families — Lightroom's own
+//! point curve editor uses the same `[0, 255]` convention Maple's `papp:`
+//! curves borrowed. The scale factor is applied at this boundary only —
+//! [`crate::types::ToneCurve`] never sees the wire encoding.
 //!
 //! **Identity is silence.** The identity curve is the empty point list, and it
 //! serializes to no element at all — not to an empty `rdf:Seq` — so a sidecar
@@ -41,12 +46,18 @@
 use super::AdjustmentModel;
 use crate::types::adjustment::ToneCurve;
 
-/// The four curve parent elements, in canonical emit order.
-pub(super) const CURVE_ELEMENTS: [&str; 4] = [
+/// The eight curve parent elements, in canonical emit order: the four
+/// scene-linear `papp:` curves (#365) followed by the four display-referred
+/// `crs:` curves (#2232).
+pub(super) const CURVE_ELEMENTS: [&str; 8] = [
     "papp:SceneLinearToneCurve",
     "papp:SceneLinearToneCurveRed",
     "papp:SceneLinearToneCurveGreen",
     "papp:SceneLinearToneCurveBlue",
+    "crs:ToneCurvePV2012",
+    "crs:ToneCurvePV2012Red",
+    "crs:ToneCurvePV2012Green",
+    "crs:ToneCurvePV2012Blue",
 ];
 
 /// Wire domain of a control-point coordinate. PV2012 convention, kept for
@@ -58,7 +69,11 @@ fn curve_slot(m: &mut AdjustmentModel, index: usize) -> &mut ToneCurve {
         0 => &mut m.tone_curve_luma,
         1 => &mut m.tone_curve_red,
         2 => &mut m.tone_curve_green,
-        _ => &mut m.tone_curve_blue,
+        3 => &mut m.tone_curve_blue,
+        4 => &mut m.display_tone_curve_luma,
+        5 => &mut m.display_tone_curve_red,
+        6 => &mut m.display_tone_curve_green,
+        _ => &mut m.display_tone_curve_blue,
     }
 }
 
@@ -67,7 +82,11 @@ fn curve_ref(m: &AdjustmentModel, index: usize) -> &ToneCurve {
         0 => &m.tone_curve_luma,
         1 => &m.tone_curve_red,
         2 => &m.tone_curve_green,
-        _ => &m.tone_curve_blue,
+        3 => &m.tone_curve_blue,
+        4 => &m.display_tone_curve_luma,
+        5 => &m.display_tone_curve_red,
+        6 => &m.display_tone_curve_green,
+        _ => &m.display_tone_curve_blue,
     }
 }
 
@@ -174,9 +193,9 @@ impl CurveWalker {
 /// two); the block's internal shape is identical everywhere, which is what
 /// the cross-language parity tests pin.
 ///
-/// Returns the empty string when all four curves are identity, so an unedited
-/// model adds nothing to the document and the `rdf:Description` stays
-/// self-closing.
+/// Returns the empty string when all eight curves (both families) are
+/// identity, so an unedited model adds nothing to the document and the
+/// `rdf:Description` stays self-closing.
 pub fn serialize_tone_curves(model: &AdjustmentModel, indent: &str) -> String {
     let mut out = String::new();
     for index in 0..CURVE_ELEMENTS.len() {
