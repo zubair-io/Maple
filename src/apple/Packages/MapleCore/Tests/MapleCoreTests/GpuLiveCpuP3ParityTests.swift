@@ -3,7 +3,7 @@
 //
 // #1338 wired the P3 canvas toggle (`CanvasColorSpace`) into the GPU-live
 // path only. #3190 gives the CPU display-encode path
-// (`ImageEditPipeline.processSceneLinear` → `encodeDisplaySRGBViaFFI`) a
+// (`ImageEditPipeline.processSceneLinear` → `encodeDisplayViaFFI`) a
 // P3-aware sibling FFI entry and wires it to the SAME `CanvasColorSpace`
 // setting. This file is the acceptance test named in #3190: a P3-tagged CPU
 // render must equal the GPU-live P3 render within budget on a fixture —
@@ -96,7 +96,7 @@ final class GpuLiveCpuP3ParityTests: XCTestCase {
     /// GPU-LIVE vs CPU-DISPLAY-ENCODE P3 PARITY (fixture-gated): with the
     /// canvas colorspace forced to Display P3 and `Profile::Neutral` (no
     /// Auto cube in play), the CPU `processSceneLinear` output — tagged P3
-    /// by #3190's `encodeDisplaySRGBViaFFI(_:targetPrimaries:)` — must
+    /// by #3190's `encodeDisplayViaFFI(_:targetPrimaries:)` — must
     /// agree with `GpuLiveSession.renderToBuffer` (which already read
     /// `CanvasColorSpace.current` via `makeGpuLiveParams`'s default
     /// argument since #3192) to within the same mean-abs-diff budget
