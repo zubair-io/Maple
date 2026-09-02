@@ -11,14 +11,15 @@
 #
 # --check-only does no building — it just compares the current Rust/cbindgen
 # input hash against the last successful build's stamp and exits 1 with an
-# actionable message if the xcframework is stale (#2375). Wired as the
-# "Maple Exposure" scheme's Pre-actions Run Script so a stale xcframework
-# fails the build BEFORE MapleCore compiles against it — MapleCore is a
-# package dependency of the app target and therefore builds before the app
-# target's own "Build Rust xcframework" script phase ever runs, so that
-# phase can only ever repair the *next* build, not the one hitting a stale
-# header. The check is a plain hash comparison (no cargo/cbindgen
-# invocation), so it costs a fraction of a second on every build.
+# actionable message if the xcframework is stale (#2375). The "Maple
+# Exposure" scheme's Pre-actions Run Script calls it first and, when it
+# reports stale, runs the real build right there (#3195) — MapleCore is a
+# package dependency of the app target and therefore compiles before the
+# app target's own "Build Rust xcframework" script phase ever runs, so the
+# pre-action is the only place the xcframework can be repaired for the
+# build that is about to use it. The check itself is a plain hash
+# comparison (no cargo/cbindgen invocation), so an up-to-date tree still
+# costs a fraction of a second per build.
 #
 # The default profile is RELEASE. The Maple pano path (maple_pano_stitch) runs
 # ~16× slower in debug than release on CPU-heavy SIMD/ONNX workloads (measured:
