@@ -9,32 +9,40 @@
 
 use super::stage;
 use crate::error::Result;
+use crate::view::encode::TargetPrimaries;
 
-/// Apply the canonical display **encode** — `rec2020_to_srgb` (hue-preserving
-/// Oklab gamut compression, #438) followed by `srgb_gamma_encode` — to a
-/// post-AgX **display-linear Rec.2020** f32 RGBA buffer, returning a **newly
-/// allocated** **sRGB-gamma-encoded sRGB-primary** f32 RGBA buffer. The input
-/// slice is read but never mutated.
+/// Apply the canonical display **encode** — [`crate::view::encode::rec2020_to_display`]
+/// (hue-preserving Oklab gamut compression against the TARGET primaries' hull, #438 /
+/// #1337) followed by `srgb_gamma_encode` — to a post-AgX **display-linear Rec.2020**
+/// f32 RGBA buffer, returning a **newly allocated** display-encoded f32 RGBA buffer in
+/// the requested primaries. The input slice is read but never mutated.
 ///
-/// This is the exact pair of view-encode stages the CPU/CLI reference runs
-/// between `agx` and `auto_profile` (see `pipeline::render`:
-/// `agx → rec2020_to_srgb → srgb_gamma_encode → auto_profile`). The Apple
-/// canvas previously reached sRGB **implicitly** at the CoreImage
-/// `createCGImage` boundary, which does a per-channel clamp of the
-/// Rec.2020→sRGB matrix output — it does NOT do the Oklab chroma compression,
-/// so saturated wide-gamut greens (Rec.2020 ≫ sRGB) clipped green up / blue
-/// to zero and diverged from the reference (#871 / #877). Routing the encode
-/// through this entry makes the Apple buffer **gamut-correct by
-/// construction**, sharing raw-core's reference math.
+/// This is the exact pair of view-encode stages the CPU/CLI reference runs between
+/// `agx` and `auto_profile` (see `pipeline::render`: `agx → rec2020_to_display →
+/// srgb_gamma_encode → auto_profile`). The Apple canvas previously reached sRGB
+/// **implicitly** at the CoreImage `createCGImage` boundary, which does a per-channel
+/// clamp of the Rec.2020→sRGB matrix output — it does NOT do the Oklab chroma
+/// compression, so saturated wide-gamut greens (Rec.2020 ≫ sRGB) clipped green up /
+/// blue to zero and diverged from the reference (#871 / #877). Routing the encode
+/// through this entry makes the Apple buffer **gamut-correct by construction**,
+/// sharing raw-core's reference math.
 ///
-/// The output is in the same [0,1]³ sRGB-gamma-encoded sRGB-primary space the
-/// Auto Profile cube (#812) was fit and baked in, so the cube applies on the
-/// matching domain (no per-channel clamp inside the cube's color management).
+/// At `TargetPrimaries::Srgb` the output is in the same [0,1]³ sRGB-gamma-encoded
+/// sRGB-primary space the Auto Profile cube (#812) was fit and baked in, so the cube
+/// applies on the matching domain (no per-channel clamp inside the cube's color
+/// management) — the Auto Profile cube is always fit in sRGB regardless of the
+/// canvas's target primaries (#3190), so a `P3` caller applies the cube BEFORE this
+/// encode, not after.
 ///
-/// Input/output: packed f32 RGBA, row-major, 4 lanes per pixel. Alpha is read
-/// but ignored; output alpha is 1.0 unconditionally (straight alpha, every
-/// stage operates on RGB only).
-pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> Result<Vec<f32>> {
+/// Input/output: packed f32 RGBA, row-major, 4 lanes per pixel. Alpha is read but
+/// ignored; output alpha is 1.0 unconditionally (straight alpha, every stage operates
+/// on RGB only).
+pub fn encode_display_f32(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    target: TargetPrimaries,
+) -> Result<Vec<f32>> {
     use crate::image::{ColorSpace, Image};
     use crate::view::encode;
 
@@ -42,19 +50,19 @@ pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> 
         .checked_mul(height as usize)
         .ok_or_else(|| {
             crate::error::Error::Pipeline(format!(
-                "encode_display_srgb_f32: pixel count overflow: {}x{}",
+                "encode_display_f32: pixel count overflow: {}x{}",
                 width, height
             ))
         })?;
     let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
         crate::error::Error::Pipeline(format!(
-            "encode_display_srgb_f32: expected input length overflow (RGBA 4-lane multiplier): {}x{}",
+            "encode_display_f32: expected input length overflow (RGBA 4-lane multiplier): {}x{}",
             width, height
         ))
     })?;
     if in_f32_rgba.len() != expected_len {
         return Err(crate::error::Error::Pipeline(format!(
-            "encode_display_srgb_f32: input length {} != width({}) * height({}) * 4 = {}",
+            "encode_display_f32: input length {} != width({}) * height({}) * 4 = {}",
             in_f32_rgba.len(),
             width,
             height,
@@ -79,16 +87,17 @@ pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> 
         }
     });
 
-    // Canonical encode: Oklab gamut compression then sRGB gamma. Identical
-    // call sequence to `pipeline::render`.
-    stage("ffi_encode_rec2020_to_srgb", || {
-        encode::rec2020_to_srgb(&mut img)
+    // Canonical encode: Oklab gamut compression (against the TARGET
+    // primaries' hull) then sRGB/P3-shared gamma OETF. Identical call
+    // sequence to `pipeline::render`.
+    stage("ffi_encode_rec2020_to_display", || {
+        encode::rec2020_to_display(&mut img, target)
     });
     stage("ffi_encode_srgb_gamma", || {
         encode::srgb_gamma_encode(&mut img)
     });
 
-    // Pack the sRGB-gamma-encoded sRGB-primary [0,1] result back to f32 RGBA.
+    // Pack the display-gamma-encoded [0,1] result back to f32 RGBA.
     let out = stage("ffi_encode_pack_f32", || {
         let mut v: Vec<f32> = Vec::with_capacity(pixel_count * 4);
         for p in &img.pixels {
@@ -100,6 +109,13 @@ pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> 
         v
     });
     Ok(out)
+}
+
+/// sRGB-target convenience wrapper — the pre-#3190 entry point, kept for
+/// existing callers (mirrors [`crate::view::encode::rec2020_to_srgb`]
+/// wrapping [`crate::view::encode::rec2020_to_display`]).
+pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> Result<Vec<f32>> {
+    encode_display_f32(in_f32_rgba, width, height, TargetPrimaries::Srgb)
 }
 
 #[cfg(test)]
@@ -164,5 +180,47 @@ mod tests {
     fn encode_display_srgb_f32_rejects_size_mismatch() {
         let r = encode_display_srgb_f32(&[0.0; 10], 4, 4);
         assert!(r.is_err(), "size mismatch must error");
+    }
+
+    /// #3190: the P3-target entry must byte-match the canonical CPU encode
+    /// (`rec2020_to_display(.., P3)` + `srgb_gamma_encode`), the same
+    /// contract `encode_display_srgb_f32_matches_cpu_encode` proves for the
+    /// sRGB target — and it must actually DIFFER from the sRGB-target
+    /// result on a saturated wide-gamut input, or the target param would be
+    /// silently inert.
+    #[test]
+    fn encode_display_f32_p3_target_matches_cpu_encode_and_differs_from_srgb() {
+        use crate::image::{ColorSpace, Image};
+        use crate::view::encode;
+
+        let rgb = [0.0f32, 0.8, 0.0]; // saturated wide-gamut green (#877)
+        let input = vec![rgb[0], rgb[1], rgb[2], 1.0];
+
+        let mut ref_img = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+        ref_img.pixels[0] = rgb;
+        encode::rec2020_to_display(&mut ref_img, TargetPrimaries::P3);
+        encode::srgb_gamma_encode(&mut ref_img);
+        let expected = ref_img.pixels[0];
+
+        let out_p3 =
+            encode_display_f32(&input, 1, 1, TargetPrimaries::P3).expect("encode_display_f32 (P3)");
+        for c in 0..3 {
+            assert_eq!(
+                out_p3[c].to_bits(),
+                expected[c].to_bits(),
+                "channel {c} byte-mismatch vs the reference P3 encode"
+            );
+        }
+        assert!((out_p3[3] - 1.0).abs() < 1e-6, "alpha must be 1.0");
+
+        let out_srgb = encode_display_srgb_f32(&input, 1, 1).expect("encode_display_srgb_f32");
+        let diff = (0..3)
+            .map(|c| (out_p3[c] - out_srgb[c]).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            diff > 1e-3,
+            "P3 and sRGB targets produced near-identical output ({diff}) on a saturated \
+             wide-gamut input — the target_primaries param looks inert"
+        );
     }
 }

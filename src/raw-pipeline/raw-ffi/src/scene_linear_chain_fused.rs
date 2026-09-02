@@ -29,59 +29,43 @@
 //! module makes no assumption about that — it is a pure function of its
 //! inputs, unconditionally chain-then-encode, exactly mirroring what two
 //! back-to-back Swift calls with no intervening stage would produce.
+//!
+//! `maple_apply_chain_and_encode_display_target_f32` (#3190) is the
+//! P3-aware sibling: it takes an EXPLICIT `target_primaries` for stage 2,
+//! separate from `params.target_primaries` (which stage 1 reads for its
+//! OWN, unrelated decision of whether to run an inline display-primary
+//! conversion — see `scene_linear_chain_encode_entry.rs`'s module doc for
+//! why the two must never be the same value when a caller wants exactly
+//! one conversion, not zero or two).
 
 use crate::error::set_last_error;
 use crate::scene_linear_chain::{
-    maple_apply_scene_linear_chain_f32, maple_encode_display_srgb_f32, MapleAdjustmentParams,
+    maple_apply_scene_linear_chain_f32, maple_encode_display_f32, MapleAdjustmentParams,
 };
 
-/// Run the per-tick scene-linear chain (`maple_apply_scene_linear_chain_f32`)
-/// and the display encode (`maple_encode_display_srgb_f32`) back-to-back
-/// over a single input buffer, writing the final sRGB-gamma-encoded
-/// sRGB-primary f32 RGBA result directly to `out_ptr` — no Swift-side
-/// CIImage wrap/readback between the two stages.
+/// Shared body for both fused entries below. `target_primaries` is the
+/// encode stage's target (`0` = sRGB, `1` = Display P3) — see the module
+/// doc for why it is independent of `(*params).target_primaries`.
 ///
-/// `in_ptr` and `out_ptr` MUST point to buffers of size
-/// `16 * width * height` bytes (= `4 * width * height` f32 lanes), same
-/// layout as the two underlying entries (`extendedLinearITUR_2020` input,
-/// sRGB-gamma-encoded sRGB-primary output). `out_ptr` may alias `in_ptr`
-/// (the intermediate chain result is held in a Rust-owned buffer, so
-/// aliasing the caller's in/out pointers is safe — unlike the two-step
-/// entries, whose callers already treat aliasing as unsupported for that
-/// same reason with a fresh output allocation each time).
-///
-/// Returns 0 on success. On failure, no new error CODES are introduced —
-/// callers already branch on 1/2/3/8/9 for the two-step calls — but the
-/// message provenance splits in two (PR #2095 review):
-///
-///   * Argument-validation failures (null pointer → 1, zero dimension → 2,
-///     pixel-count overflow → 3) are caught by THIS entry's own guards
-///     before either stage runs, so `maple_last_error()` carries a message
-///     prefixed `apply_chain_and_encode_display_f32:` — the entry that
-///     actually rejected the arguments names itself.
-///   * Genuine stage failures (and any validation the inner entries do on
-///     their own behalf) propagate the failing stage's rc AND its
-///     `maple_last_error()` message verbatim — nothing here overwrites
-///     them after the fact.
-///
-/// `out_ptr` is left unspecified (not necessarily untouched) on failure,
-/// matching the two-step entries' existing contract.
-#[no_mangle]
-pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
+/// # Safety
+/// `in_ptr` / `params` / `out_ptr` must be valid for the documented reads
+/// (or null, checked below); `4 * width * height` f32 lanes each.
+unsafe fn apply_chain_and_encode_inner(
+    context: &str,
     in_ptr: *const f32,
     width: u32,
     height: u32,
     params: *const MapleAdjustmentParams,
+    target_primaries: u32,
     out_ptr: *mut f32,
 ) -> i32 {
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
-        set_last_error("apply_chain_and_encode_display_f32: null pointer".into());
+        set_last_error(format!("{context}: null pointer"));
         return 1;
     }
     if width == 0 || height == 0 {
         set_last_error(format!(
-            "apply_chain_and_encode_display_f32: zero dimension width={} height={}",
-            width, height
+            "{context}: zero dimension width={width} height={height}"
         ));
         return 2;
     }
@@ -95,8 +79,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
         Some(n) => n,
         None => {
             set_last_error(format!(
-                "apply_chain_and_encode_display_f32: pixel-count overflow width={} height={}",
-                width, height
+                "{context}: pixel-count overflow width={width} height={height}"
             ));
             return 3;
         }
@@ -149,7 +132,93 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
     // (`with_capacity(lanes)` above).
     unsafe { intermediate.set_len(lanes) };
 
-    // Stage 2: the exact same encode entry the two-step path calls, fed
+    // Stage 2: the exact same encode entry the two-step path calls (by
+    // symbol, per the module doc's "no re-implementation" contract), fed
     // directly from the chain's output — no intervening wrap/readback.
-    maple_encode_display_srgb_f32(intermediate.as_ptr(), width, height, out_ptr)
+    maple_encode_display_f32(
+        intermediate.as_ptr(),
+        width,
+        height,
+        target_primaries,
+        out_ptr,
+    )
+}
+
+/// Run the per-tick scene-linear chain (`maple_apply_scene_linear_chain_f32`)
+/// and the display encode (`maple_encode_display_srgb_f32`) back-to-back
+/// over a single input buffer, writing the final sRGB-gamma-encoded
+/// sRGB-primary f32 RGBA result directly to `out_ptr` — no Swift-side
+/// CIImage wrap/readback between the two stages.
+///
+/// `in_ptr` and `out_ptr` MUST point to buffers of size
+/// `16 * width * height` bytes (= `4 * width * height` f32 lanes), same
+/// layout as the two underlying entries (`extendedLinearITUR_2020` input,
+/// sRGB-gamma-encoded sRGB-primary output). `out_ptr` may alias `in_ptr`
+/// (the intermediate chain result is held in a Rust-owned buffer, so
+/// aliasing the caller's in/out pointers is safe — unlike the two-step
+/// entries, whose callers already treat aliasing as unsupported for that
+/// same reason with a fresh output allocation each time).
+///
+/// Returns 0 on success. On failure, no new error CODES are introduced —
+/// callers already branch on 1/2/3/8/9 for the two-step calls — but the
+/// message provenance splits in two (PR #2095 review):
+///
+///   * Argument-validation failures (null pointer → 1, zero dimension → 2,
+///     pixel-count overflow → 3) are caught by THIS entry's own guards
+///     before either stage runs, so `maple_last_error()` carries a message
+///     prefixed `apply_chain_and_encode_display_f32:` — the entry that
+///     actually rejected the arguments names itself.
+///   * Genuine stage failures (and any validation the inner entries do on
+///     their own behalf) propagate the failing stage's rc AND its
+///     `maple_last_error()` message verbatim — nothing here overwrites
+///     them after the fact.
+///
+/// `out_ptr` is left unspecified (not necessarily untouched) on failure,
+/// matching the two-step entries' existing contract.
+///
+/// Kept as its own symbol (append-only) alongside
+/// `maple_apply_chain_and_encode_display_target_f32`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    out_ptr: *mut f32,
+) -> i32 {
+    apply_chain_and_encode_inner(
+        "apply_chain_and_encode_display_f32",
+        in_ptr,
+        width,
+        height,
+        params,
+        0, // TargetPrimaries::Srgb wire value
+        out_ptr,
+    )
+}
+
+/// P3-aware sibling of [`maple_apply_chain_and_encode_display_f32`] (#3190):
+/// identical contract, plus `target_primaries` (`0` = sRGB, `1` = Display P3)
+/// selecting stage 2's target primaries — independent of
+/// `(*params).target_primaries`, which the CPU chain caller must keep pinned
+/// to `Srgb` (`0`) so stage 1 never runs its own inline conversion. See the
+/// module doc.
+#[no_mangle]
+pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_f32(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    target_primaries: u32,
+    out_ptr: *mut f32,
+) -> i32 {
+    apply_chain_and_encode_inner(
+        "apply_chain_and_encode_display_target_f32",
+        in_ptr,
+        width,
+        height,
+        params,
+        target_primaries,
+        out_ptr,
+    )
 }

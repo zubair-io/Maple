@@ -190,6 +190,9 @@ mod render_film_tests;
 #[path = "render_tests.rs"]
 mod render_tests;
 #[cfg(test)]
+#[path = "scene_linear_chain_encode_target_tests.rs"]
+mod scene_linear_chain_encode_target_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_fused_tests.rs"]
 mod scene_linear_chain_fused_tests;
 #[cfg(test)]

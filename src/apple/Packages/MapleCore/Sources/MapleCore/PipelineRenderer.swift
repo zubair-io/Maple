@@ -1430,22 +1430,21 @@ extension PipelineRenderer {
         params.bw_mix_blue     = Float(model.grayMixerBlue)
         params.bw_mix_purple   = Float(model.grayMixerPurple)
         params.bw_mix_magenta  = Float(model.grayMixerMagenta)
-        // Target display primaries (#1337): stays hardcoded sRGB (0) on the
-        // CPU chain — DELIBERATELY not wired to `CanvasColorSpace` (#1338).
-        // `apply_scene_linear_chain` only runs `display_encode` inline when
-        // target_primaries != Srgb; at Srgb it stops at DisplayLinearRec2020
-        // and leaves the encode to the SEPARATE `encodeDisplaySRGBViaFFI` /
-        // `PipelineRenderer.encodeDisplaySRGB` call below, which always
-        // treats its input as Rec2020 and always produces an sRGB output —
-        // it has no target_primaries parameter of its own. Flipping this
-        // field to P3 would make THIS call already primaries-convert to P3,
-        // and the sibling call would then wrongly re-interpret that P3
-        // buffer as Rec2020 and re-convert it — a double-transform, not a
-        // toggle. Wiring the CPU path (`CanvasImageView`'s backdrop/fallback
-        // render) needs a P3-aware sibling for `encodeDisplaySRGBViaFFI`
-        // first; out of scope here — the GPU-live path (default-on,
-        // `GpuLiveParams.makeGpuLiveParams`) is the one #1338 wires. Tracked
-        // as a follow-up: #3190.
+        // Target display primaries (#1337): stays PERMANENTLY hardcoded sRGB
+        // (0) on the CPU chain — this is NOT the field the P3 canvas toggle
+        // wires (#1338, #3190). `apply_scene_linear_chain` only runs
+        // `display_encode` inline when target_primaries != Srgb; at Srgb it
+        // stops at DisplayLinearRec2020 and leaves the encode to the
+        // SEPARATE `encodeDisplaySRGBViaFFI` / `PipelineRenderer.
+        // encodeDisplay` call below, which takes its OWN independent
+        // `targetPrimaries` argument. Flipping THIS field to P3 would make
+        // the chain call already primaries-convert to P3, and the encode
+        // call would then wrongly re-interpret that P3 buffer as Rec2020
+        // and re-convert it — a double-transform, not a toggle. So this
+        // field must stay `0` forever regardless of `CanvasColorSpace`;
+        // `ImageEditPipeline.encodeDisplaySRGBViaFFI(_:targetPrimaries:)`
+        // and `applyChainAndEncodeViaFusedFFI(...targetPrimaries:)` are
+        // where `CanvasColorSpace.current` actually reaches the CPU path.
         params.target_primaries = 0
         // Input shape (#1331): the CPU chain (MapleAdjustmentParams) uses `input_shape`
         // only for the WB-identity collapse; the AgX skip is `skip_agx`, not this field.
@@ -1610,6 +1609,44 @@ extension PipelineRenderer {
         return output
     }
 
+    /// P3-aware sibling of `encodeDisplaySRGB` (#3190), via
+    /// `maple_encode_display_f32`. Identical contract, plus `targetPrimaries`
+    /// (`CanvasColorSpace.wireValue`: `0` = sRGB, `1` = Display P3) selecting
+    /// which primaries' hull the Oklab gamut compression targets. Returns
+    /// display-gamma-encoded f32 RGBA in THAT primaries space — the caller
+    /// must tag the resulting `CIImage` to match (sRGB tag for `0`, Display
+    /// P3 tag for `1`), not always sRGB.
+    public static func encodeDisplay(
+        inputBytes: Data,
+        width: Int,
+        height: Int,
+        targetPrimaries: UInt32
+    ) throws -> Data {
+        let lanes = width * height * 4
+        let expectedBytes = lanes * MemoryLayout<Float>.size
+        guard inputBytes.count == expectedBytes else {
+            throw PipelineError.renderFailed(
+                code: 9,
+                message: "encodeDisplay: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+            )
+        }
+        var output = Data(count: expectedBytes)
+        let rc = output.withUnsafeMutableBytes { outBuf -> Int32 in
+            let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+            return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+                return maple_encode_display_f32(
+                    inPtr, UInt32(width), UInt32(height), targetPrimaries, outPtr
+                )
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return output
+    }
+
     /// #2092 — fused per-tick entry: `applySceneLinearChain` followed by
     /// `encodeDisplaySRGB` in ONE FFI call over ONE input/output buffer,
     /// via `maple_apply_chain_and_encode_display_f32`. The Rust side calls
@@ -1679,6 +1716,62 @@ extension PipelineRenderer {
                     return maple_apply_chain_and_encode_display_f32(
                         inPtr, UInt32(width), UInt32(height),
                         &p,
+                        outPtr
+                    )
+                }
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return output
+    }
+
+    /// P3-aware sibling of `applyChainAndEncodeDisplay` (#3190), via
+    /// `maple_apply_chain_and_encode_display_target_f32`. Identical
+    /// contract, plus `targetPrimaries` selecting the ENCODE stage's target
+    /// primaries — independent of `params.target_primaries`, which the
+    /// caller must keep at `0` (sRGB) so the chain stage never runs its own
+    /// inline conversion (see the Rust entry's module doc for why reusing
+    /// `params.target_primaries` for both would double-convert).
+    public static func applyChainAndEncodeDisplayTarget(
+        inputBytes: Data,
+        width: Int,
+        height: Int,
+        params: MapleAdjustmentParams,
+        targetPrimaries: UInt32,
+        noiseProfile: [Float]? = nil
+    ) throws -> Data {
+        guard width > 0, height > 0 else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "applyChainAndEncodeDisplayTarget: zero dimension width=\(width) height=\(height)"
+            )
+        }
+        let lanes = width * height * 4
+        let expectedBytes = lanes * MemoryLayout<Float>.size
+        guard inputBytes.count == expectedBytes else {
+            throw PipelineError.renderFailed(
+                code: 9,
+                message: "applyChainAndEncodeDisplayTarget: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+            )
+        }
+        var output = Data(count: expectedBytes)
+        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+            var p = params
+            if let npBuf {
+                p.noise_profile_ptr = npBuf.baseAddress
+                p.noise_profile_len = UInt32(npBuf.count)
+            }
+            return try output.withUnsafeMutableBytes { outBuf -> Int32 in
+                let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+                return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                    let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+                    return maple_apply_chain_and_encode_display_target_f32(
+                        inPtr, UInt32(width), UInt32(height),
+                        &p,
+                        targetPrimaries,
                         outPtr
                     )
                 }
