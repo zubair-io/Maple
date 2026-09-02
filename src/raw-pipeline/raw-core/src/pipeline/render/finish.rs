@@ -24,10 +24,13 @@ use crate::{
 /// `samples` is taken by value, not borrowed, so the fully-identity case
 /// (`Normal` orientation, identity crop — every caller here already owns a
 /// freshly quantized buffer it doesn't need afterward) can return it
-/// straight back with no clone and no allocation at all. Without this,
-/// `apply_orientation`'s `Normal` arm still pays a full-buffer `to_vec()`
-/// (~27 ms at 100 MP, `examples/tick-tail-bench.rs`) for a caller that had
-/// no use for a second copy in the first place (#2486).
+/// straight back with no clone and no allocation at all, and a `Normal` +
+/// real crop can crop directly out of the caller's own buffer instead of
+/// cloning it first. Without this, `apply_orientation`'s `Normal` arm still
+/// pays a full-buffer `to_vec()` (~27 ms at 100 MP,
+/// `examples/tick-tail-bench.rs`) for a caller that had no use for a second
+/// copy in the first place (#2486; the crop case caught by Copilot review
+/// on the same PR).
 pub(super) fn apply_geometry<T: Sample>(
     samples: Vec<T>,
     width: u32,
@@ -35,8 +38,14 @@ pub(super) fn apply_geometry<T: Sample>(
     orientation: ExifOrientation,
     crop_rect: &Crop,
 ) -> (u32, u32, Vec<T>) {
-    if orientation == ExifOrientation::Normal && crop_rect.is_identity() {
-        return (width, height, samples);
+    if orientation == ExifOrientation::Normal {
+        return if crop_rect.is_identity() {
+            (width, height, samples)
+        } else {
+            stage("crop", || {
+                crop::apply_int_rgb(&samples, width, height, crop_rect)
+            })
+        };
     }
     let (w, h, oriented) = stage("apply_orientation", || {
         apply_orientation(&samples, width, height, orientation)
@@ -102,5 +111,30 @@ mod tests {
         let (w, h, out) = apply_geometry(src, 2, 1, ExifOrientation::Rotate90, &Crop::IDENTITY);
         assert_eq!((w, h), (1, 2));
         assert_eq!(out.len(), 6);
+    }
+
+    /// `Normal` orientation with a REAL crop (Copilot review on #3155):
+    /// must crop directly out of the caller's buffer rather than paying
+    /// `apply_orientation`'s `Normal`-arm `to_vec()` first. Checked by
+    /// equivalence against calling `crop::apply_int_rgb` on the original
+    /// samples directly — the two must agree exactly, since skipping the
+    /// no-op orientation permutation must not change a single pixel.
+    #[test]
+    fn normal_orientation_with_real_crop_matches_cropping_directly() {
+        let w = 4u32;
+        let h = 4u32;
+        let src: Vec<u8> = (0..(w * h * 3) as u8).collect();
+        let crop = Crop {
+            top: 0.25,
+            left: 0.25,
+            bottom: 0.75,
+            right: 0.75,
+            angle: 0.0,
+        };
+        let (gw, gh, geometry_out) =
+            apply_geometry(src.clone(), w, h, ExifOrientation::Normal, &crop);
+        let (cw, ch, crop_out) = crop::apply_int_rgb(&src, w, h, &crop);
+        assert_eq!((gw, gh), (cw, ch));
+        assert_eq!(geometry_out, crop_out);
     }
 }
