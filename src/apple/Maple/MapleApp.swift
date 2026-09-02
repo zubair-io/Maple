@@ -471,12 +471,18 @@ struct GeneralSettingsTab: View {
                     // outside {0, 1} (corrupted defaults, a future enum case
                     // later removed) that matches neither .tag() below and
                     // would render the segmented control with nothing
-                    // selected. The getter falls back to sRGB's raw value in
-                    // that case (mirrors CanvasColorSpace's own out-of-range
-                    // handling); the setter writes straight through since a
-                    // Picker only ever sets one of the two valid tags.
+                    // selected. The getter falls back to `.current`'s raw
+                    // value in that case — NOT a hardcoded sRGB (jules review:
+                    // a hardcoded sRGB fallback here would show "sRGB"
+                    // selected while the canvas itself, reading the same
+                    // out-of-range stored value through `CanvasColorSpace
+                    // .current`, actually falls back to the display-
+                    // capability default and could be rendering P3) — so the
+                    // picker always mirrors what's actually on screen. The
+                    // setter writes straight through since a Picker only
+                    // ever sets one of the two valid tags.
                     Picker("Editor canvas colorspace", selection: Binding(
-                        get: { CanvasColorSpace(rawValue: canvasColorSpace)?.rawValue ?? CanvasColorSpace.srgb.rawValue },
+                        get: { CanvasColorSpace(rawValue: canvasColorSpace)?.rawValue ?? CanvasColorSpace.current.rawValue },
                         set: { canvasColorSpace = $0 }
                     )) {
                         Text("Display P3").tag(CanvasColorSpace.displayP3.rawValue)
