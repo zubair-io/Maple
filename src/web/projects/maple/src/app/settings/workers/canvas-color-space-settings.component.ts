@@ -13,6 +13,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import {
   CanvasColorSpacePref,
+  isCanvasColorSpace,
   MuiSegmentedToggleComponent,
   MuiSettingsRowComponent,
   type MuiSegmentedToggleOption,
@@ -48,9 +49,12 @@ export class CanvasColorSpaceSettingsComponent {
   }
 
   protected onValueChange(next: string): void {
-    const space = next as CanvasColorSpace;
-    this.pref.set(space);
-    this.value.set(space);
+    // `mui-segmented-toggle`'s change event is a plain `string`, not
+    // statically narrowed to `options`' values — guard before it reaches
+    // the pref (localStorage) and the WASM session-open request.
+    if (!isCanvasColorSpace(next)) return;
+    this.pref.set(next);
+    this.value.set(next);
   }
 
   /** One-line provenance readout for the collapsed header, mirroring

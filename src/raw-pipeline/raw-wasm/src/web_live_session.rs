@@ -56,6 +56,7 @@
 
 use crate::gpu_render::{
     chain_inputs_for_model, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
+    resolve_target_color_space,
 };
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
@@ -226,7 +227,7 @@ impl WebLiveSession {
         // pre-#3191 call shape) preserves the historical always-P3 request.
         canvas.set_width(width);
         canvas.set_height(height);
-        let requested_color_space = target_color_space.as_deref().unwrap_or("display-p3");
+        let requested_color_space = resolve_target_color_space(target_color_space.as_deref());
         let present =
             WebPresentSurface::create(&ctx, &canvas, width, height, requested_color_space)
                 .map_err(|e| JsError::new(&e))?;
