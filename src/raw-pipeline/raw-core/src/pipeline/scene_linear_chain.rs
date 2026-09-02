@@ -295,13 +295,15 @@ pub fn apply_scene_linear_chain(
         // already re-tags it as on the way to the canvas. #2478
         img.space = ColorSpace::DisplayLinearRec2020;
     }
-    // Split toning (#1111) + film grain (#1110) — display-linear, post-AgX
-    // (or post-retag for non-RAW), before grain. Gated ONLY on their own
-    // sliders (each `apply`/`apply_model` short-circuits at its own no-op
-    // threshold), matching the GPU live chain's `ColorGradePass` /
-    // `GrainPass`, which were never gated on `is_raw_shape` either — #2478
-    // closed the resulting live-vs-refine pop where a non-RAW colour grade
-    // or grain slider moved live and vanished on the next CPU refine.
+    // Split toning (#1111) + film grain (#1110) — display-linear, running
+    // in that order right after AgX (or the non-RAW retag above) and
+    // before the optional display-primary conversion/encode below. Gated
+    // ONLY on their own sliders (each `apply`/`apply_model` short-circuits
+    // at its own no-op threshold), matching the GPU live chain's
+    // `ColorGradePass` / `GrainPass`, which were never gated on
+    // `is_raw_shape` either — #2478 closed the resulting live-vs-refine
+    // pop where a non-RAW colour grade or grain slider moved live and
+    // vanished on the next CPU refine.
     stage("ffi_chain_color_grade", || {
         color_grade::apply_model(&mut img, model)
     });
