@@ -68,6 +68,23 @@ public actor GpuLiveSession {
     public let width: Int
     public let height: Int
 
+    /// Flat `(slope, offset)` pairs from the DNG NoiseProfile tag (#2342,
+    /// finishes #1714 on Apple) — the same value `RenderActor+DecodedCache`
+    /// carries as `sizedResult.noiseProfile` and `ImageEditPipeline` forwards
+    /// to the CPU chain. Session-scoped (not per-tick, unlike the live
+    /// `AdjustmentModel` fields): it describes the uploaded PIXELS, so it is
+    /// supplied once at `init` alongside them and re-bound on every
+    /// `present`/`renderToBuffer` tick from this stored copy. Empty means "no
+    /// profile" (non-RAW assets, or a RAW whose DNG carries no NoiseProfile
+    /// tag) — the WGSL NLM kernel falls back to the flat, non-modulated
+    /// filter, bit-identical to before this ticket.
+    private let noiseProfile: [Float]
+    /// `RawImage::iso` for the uploaded pixels (#2342). `0` is raw-core's
+    /// "unknown ISO" sentinel — the WGSL kernel's per-pixel modulation reads
+    /// this alongside `noiseProfile` to compute the local sigma; both are
+    /// meaningless without the other, so they travel together.
+    private let iso: UInt32
+
     /// The per-image Auto Profile artifacts (fit once via `fitAutoProfile`); `nil`
     /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
     private var autoProfile: AutoProfileArtifacts?
@@ -100,9 +117,16 @@ public actor GpuLiveSession {
     /// Open a session over `pixels` (interleaved RGBA f32, `width·height·4` lanes —
     /// the decoded scene-linear Rec.2020 buffer). Uploads the image ONCE. Throws on
     /// a bad size or an FFI open failure.
-    public init(pixels: [Float], width: Int, height: Int) throws {
+    ///
+    /// `noiseProfile`/`iso` (#2342) describe THESE pixels — the same decode
+    /// result `pixels` came from — so they are captured here rather than
+    /// per-tick: a re-open (dims change, baked-field re-decode, crop change)
+    /// naturally gets a fresh pair alongside the fresh pixels.
+    public init(pixels: [Float], width: Int, height: Int, noiseProfile: [Float]? = nil, iso: UInt32 = 0) throws {
         self.width = width
         self.height = height
+        self.noiseProfile = noiseProfile ?? []
+        self.iso = iso
         let expected = width * height * 4
         guard pixels.count == expected, width > 0, height > 0 else {
             throw GpuLiveError(
@@ -349,12 +373,26 @@ public actor GpuLiveSession {
             red.withUnsafeBufferPointer { r in
                 green.withUnsafeBufferPointer { g in
                     blue.withUnsafeBufferPointer { b in
-                        var p = params
-                        Self.bind(lu, to: &p.tone_curve_luma_ptr, len: &p.tone_curve_luma_len)
-                        Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
-                        Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
-                        Self.bind(b, to: &p.tone_curve_blue_ptr, len: &p.tone_curve_blue_len)
-                        return withFilmLutBound(p) { pp in withAutoProfileBound(pp, body) }
+                        noiseProfile.withUnsafeBufferPointer { np in
+                            var p = params
+                            Self.bind(lu, to: &p.tone_curve_luma_ptr, len: &p.tone_curve_luma_len)
+                            Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
+                            Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
+                            Self.bind(b, to: &p.tone_curve_blue_ptr, len: &p.tone_curve_blue_len)
+                            // DNG NoiseProfile + ISO (#2342) — session-scoped
+                            // (see the `noiseProfile`/`iso` stored-property
+                            // docs), so bound from `self` rather than a
+                            // per-call argument like the point curves above.
+                            // Empty leaves the FFI's NULL/0 default, which
+                            // the WGSL NLM kernel reads as "no profile" (the
+                            // flat, non-modulated filter).
+                            if !np.isEmpty, let base = np.baseAddress {
+                                p.noise_profile_ptr = base
+                                p.noise_profile_len = UInt32(np.count)
+                            }
+                            p.iso = iso
+                            return withFilmLutBound(p) { pp in withAutoProfileBound(pp, body) }
+                        }
                     }
                 }
             }

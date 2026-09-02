@@ -95,12 +95,21 @@ extension EditSession {
     /// into `decoded` (`.identity` when no crop applies) — together they form
     /// the `GpuUploadIdentity` a same-dims reuse must match (#2039: a crop
     /// change alters the presented pixels even at unchanged dims).
+    ///
+    /// `noiseProfile`/`iso` (#2342) are this decode's `RenderActor` snapshot
+    /// fields (`snapshot.noiseProfile`/`snapshot.iso`) — forwarded to
+    /// `driver.open` on an actual (re-)open so the GPU live session's NLM
+    /// pass gets the same per-pixel modulation the CPU refine chain already
+    /// has. Unused when the open session is reused (`driver.isOpen` below);
+    /// the reused session already carries the pair from ITS open.
     func presentViaGpuLive(
         decoded: CIImage,
         targetSize: CGSize?,
         gen: UInt64?,
         decodeGeneration: UInt64,
-        appliedCrop: Crop
+        appliedCrop: Crop,
+        noiseProfile: [Float]? = nil,
+        iso: UInt32 = 0
     ) async -> Bool {
         guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
             editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
@@ -171,7 +180,8 @@ extension EditSession {
             do {
                 try await driver.open(
                     pixels: buf.pixels, width: buf.width, height: buf.height,
-                    inputShape: inputShape, identity: uploadIdentity)
+                    inputShape: inputShape, identity: uploadIdentity,
+                    noiseProfile: noiseProfile, iso: iso)
                 editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0) inputShape=\(inputShape)")
                 MemoryProbe.sample("gpu-open dims=\(buf.width)x\(buf.height)")
             } catch {
