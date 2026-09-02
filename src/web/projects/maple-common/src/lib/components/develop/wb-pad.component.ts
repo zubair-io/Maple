@@ -18,6 +18,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { MuiPad2dComponent } from '../../ui/pad-2d/mui-pad-2d.component';
 import type { MuiPad2dValue } from '../../ui/pad-2d/mui-pad-2d.component';
+import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { AdjustmentModel } from '../../models/adjustment-model';
@@ -34,7 +35,7 @@ function clamp(value: number, min: number, max: number): number {
 @Component({
   selector: 'pro-wb-pad',
   standalone: true,
-  imports: [MuiPad2dComponent],
+  imports: [MuiPad2dComponent, MapleIconComponent],
   templateUrl: './wb-pad.component.html',
   styleUrl: './wb-pad.component.scss',
   host: { class: 'block' },

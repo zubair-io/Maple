@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Component } from '@angular/core';
 
 import { MapleIconComponent, type MapleIconName } from './maple-icon.component';
-import { ICON_SHAPES } from './maple-icon-registry';
+import { ICON_SHAPES, ICON_VIEWBOX } from './maple-icon-registry';
 import { TOOL_GLYPH_STROKE_WIDTH, TOOL_ICON_SHAPES, type ToolIconName } from './tool-glyph-shapes';
 
 @Component({
@@ -43,6 +43,127 @@ describe('MapleIconComponent', () => {
     it('uses the 16×16 viewBox convention', () => {
       const svg = render('plus');
       expect(svg.getAttribute('viewBox')).toBe('0 0 16 16');
+    });
+  });
+
+  // ---- Per-icon viewBox (#956) ----
+  // Icons ported verbatim from inline <svg> markup elsewhere in the app
+  // keep their ORIGINAL native viewBox instead of the 16×16 chrome default,
+  // so their path/circle data — copied byte-for-byte from the markup they
+  // replace — renders pixel-identically. `size()` still controls the final
+  // on-screen pixels; only the coordinate space changes.
+  describe('per-icon viewBox (new in #956)', () => {
+    it('a name with no ICON_VIEWBOX entry still gets the 16×16 default', () => {
+      expect(ICON_VIEWBOX['search-glass']).toBeUndefined();
+      const svg = render('search-glass');
+      expect(svg.getAttribute('viewBox')).toBe('0 0 16 16');
+    });
+
+    it('a name with an ICON_VIEWBOX entry uses its native size', () => {
+      expect(ICON_VIEWBOX['photo-placeholder']).toBe(24);
+      const svg = render('photo-placeholder');
+      expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
+    });
+
+    it("size() still controls the rendered pixel dimensions regardless of the icon's viewBox", () => {
+      const fixture = TestBed.createComponent(HostComponent);
+      fixture.componentInstance.name = 'search-chip-place'; // ICON_VIEWBOX = 12
+      fixture.detectChanges();
+      const svg = fixture.nativeElement.querySelector('svg') as SVGSVGElement;
+      // The default `size` input (14) is unrelated to the icon's own 12-unit
+      // viewBox — this proves the two are independent, as `mui-icon`'s
+      // token-based pixelSize() relies on.
+      expect(svg.getAttribute('width')).toBe('14');
+      expect(svg.getAttribute('height')).toBe('14');
+      expect(svg.getAttribute('viewBox')).toBe('0 0 12 12');
+    });
+  });
+
+  // ---- Glyphs ported from inline <svg> markup (new in #956) ----
+  // One test per distinct new glyph, each asserting the exact path/circle
+  // data landed byte-for-byte — the whole point of porting verbatim rather
+  // than hand-rescaling into the 16×16 grid.
+  describe('icons ported from inline <svg> markup (#956)', () => {
+    it("search-glass: search-bar.component.html's magnifier", () => {
+      const svg = render('search-glass');
+      const circle = svg.querySelector('circle')!;
+      expect(circle.getAttribute('cx')).toBe('7');
+      expect(circle.getAttribute('cy')).toBe('7');
+      expect(circle.getAttribute('r')).toBe('5');
+      expect(circle.getAttribute('stroke-width')).toBe('1.6');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe('M11 11l3 3');
+      expect(path.getAttribute('stroke-width')).toBe('1.6');
+    });
+
+    it('search-chip-place: reused verbatim across three templates', () => {
+      const svg = render('search-chip-place');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe(
+        'M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z',
+      );
+      const circle = svg.querySelector('circle')!;
+      expect(circle.getAttribute('cx')).toBe('6');
+      expect(circle.getAttribute('cy')).toBe('4.6');
+      expect(circle.getAttribute('r')).toBe('1.2');
+      expect(circle.getAttribute('fill')).not.toBe('none'); // filled: true
+    });
+
+    it('search-close: reused verbatim by search-bar and search-filter-panel', () => {
+      const svg = render('search-close');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe('M3.5 3.5l7 7M10.5 3.5l-7 7');
+      expect(path.getAttribute('stroke-width')).toBe('1.6');
+    });
+
+    it("search-check: search-facet-section.component.html's selected-row check", () => {
+      const svg = render('search-check');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe('M2.5 7.5l3 3 6-7');
+      expect(path.getAttribute('stroke-width')).toBe('1.8');
+    });
+
+    it("search-check-circled: search-tag-picker.component.html's selected-row check", () => {
+      const svg = render('search-check-circled');
+      const circle = svg.querySelector('circle')!;
+      expect(circle.getAttribute('r')).toBe('6');
+      expect(circle.getAttribute('stroke-width')).toBe('1.4');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe('M4 7.2l2 2 4-4.5');
+      expect(path.getAttribute('stroke-width')).toBe('1.6');
+    });
+
+    it("photo-placeholder: photo-results-section.component.html's broken-image glyph", () => {
+      const svg = render('photo-placeholder');
+      const paths = svg.querySelectorAll('path');
+      expect(paths.length).toBe(2);
+      expect(paths[0].getAttribute('d')).toBe('M4 6h16v12H4z');
+      expect(paths[1].getAttribute('d')).toBe('M5 17l5-5 4 4 3-3 2 2v2H5z');
+      const circle = svg.querySelector('circle')!;
+      expect(circle.getAttribute('cx')).toBe('9');
+      expect(circle.getAttribute('fill')).not.toBe('none');
+    });
+
+    it("wb-eyedrop: develop/wb-pad.component.html's eyedropper (distinct from `eyedrop`)", () => {
+      const svg = render('wb-eyedrop');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe('M10.5 1.5L12.5 3.5L5 11l-2 .5.5-2L10.5 1.5Z');
+      expect(ICON_SHAPES['wb-eyedrop']).not.toEqual(ICON_SHAPES['eyedrop']);
+    });
+
+    it("timeline-chevron: timeline-view/timeline-month.component.html's filled disclosure chevron", () => {
+      const svg = render('timeline-chevron');
+      const path = svg.querySelector('path')!;
+      expect(path.getAttribute('d')).toBe('M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z');
+      expect(path.getAttribute('fill')).not.toBe('none'); // filled: true
+    });
+
+    it('drawer-close, drawer-chevron-stub, drawer-search: shells/source-picker-drawer glyphs', () => {
+      expect((ICON_SHAPES['drawer-close'][0] as { d: string }).d).toBe('M3 3l10 10M13 3L3 13');
+      expect((ICON_SHAPES['drawer-chevron-stub'][0] as { d: string }).d).toBe('M2 4l3.5 3.5L9 4');
+      const search = render('drawer-search');
+      expect(search.querySelector('circle')?.getAttribute('r')).toBe('4.5');
+      expect(search.querySelector('path')?.getAttribute('d')).toBe('M9.5 9.5L12.5 12.5');
     });
   });
 

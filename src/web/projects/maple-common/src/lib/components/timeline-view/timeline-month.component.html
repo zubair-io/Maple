@@ -34,10 +34,8 @@
             [class.rotate-90]="!isCollapsed(g.folderName)"
             aria-hidden="true"
           >
-            <!-- Chevron-right SVG; rotates 90° when expanded -->
-            <svg viewBox="0 0 10 10" class="block h-full w-full" fill="currentColor">
-              <path d="M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z" />
-            </svg>
+            <!-- Chevron; rotates 90° when expanded -->
+            <maple-icon name="timeline-chevron" [size]="10" />
           </span>
           {{ folderGroupLabel(g.folderName) }}
           <span class="ml-2 normal-case tracking-normal">({{ g.photos.length }})</span>

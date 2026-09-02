@@ -20,16 +20,7 @@
       aria-label="Eyedropper: set neutral white balance from canvas"
       (click)="onEyedropperClick()"
     >
-      <!-- Eyedropper icon (inline SVG — no icon registry dep) -->
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path
-          d="M10.5 1.5L12.5 3.5L5 11l-2 .5.5-2L10.5 1.5Z"
-          stroke="currentColor"
-          stroke-width="1.2"
-          stroke-linejoin="round"
-        />
-        <circle cx="3.5" cy="10.5" r="1" fill="currentColor" />
-      </svg>
+      <maple-icon name="wb-eyedrop" [size]="14" />
     </button>
   </div>
 

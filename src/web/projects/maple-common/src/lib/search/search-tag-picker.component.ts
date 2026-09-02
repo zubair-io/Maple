@@ -12,6 +12,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { FacetOption } from './search-filter-panel.component';
+import { MapleIconComponent } from '../icons/maple-icon.component';
 
 export interface TagPick {
   readonly kind: 'person' | 'place';
@@ -32,6 +33,7 @@ interface TagSection {
 @Component({
   selector: 'app-search-tag-picker',
   standalone: true,
+  imports: [MapleIconComponent],
   templateUrl: './search-tag-picker.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

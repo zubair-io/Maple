@@ -15,6 +15,36 @@ import { TOOL_ICON_SHAPES, type ToolIconName } from './tool-glyph-shapes';
 export type { IconShape } from './icon-shape';
 export type { ToolIconName } from './tool-glyph-shapes';
 
+/**
+ * Per-icon native viewBox size, in SVG user units — `MapleIconComponent`
+ * defaults to 16 (the chrome-glyph convention every pre-existing entry is
+ * drawn to) when a name has no entry here. Icons ported verbatim from inline
+ * `<svg>` markup elsewhere in the app (#956) keep their ORIGINAL coordinate
+ * space rather than being hand-rescaled into 16 units — copy-paste of the
+ * exact `d`/`cx`/`cy`/`r` values stays visually byte-identical to the markup
+ * it replaces, which a manual rescale of every point (including elliptical
+ * arc radii) would risk subtly getting wrong. `size` still controls the
+ * final on-screen pixels exactly as before; only the coordinate space the
+ * path data is authored in changes per icon.
+ */
+export const ICON_VIEWBOX: Partial<Record<MapleIconName, number>> = {
+  'search-chip-event': 12,
+  'search-chip-person': 12,
+  'search-chip-place': 12,
+  'search-chip-remove': 10,
+  'search-close': 14,
+  'search-check': 14,
+  'search-check-circled': 14,
+  'photo-placeholder': 24,
+  'wb-eyedrop': 14,
+  'timeline-chevron': 10,
+  'drawer-chevron-stub': 11,
+  'drawer-search': 14,
+  // 'search-glass', 'search-sliders', and 'drawer-close' were already
+  // drawn to the standard 16×16 chrome grid — no entry needed, they use
+  // the default.
+};
+
 export type MapleIconName =
   | 'chevron-right'
   | 'chevron-left'
@@ -75,6 +105,25 @@ export type MapleIconName =
   // MapleIconShapes.cs so the glyphs stay pixel-identical across platforms.
   | 'cloud'
   | 'calendar'
+  // --- Ported verbatim from inline <svg> markup (#956) — native viewBox
+  // sizes recorded in `ICON_VIEWBOX` below, one entry per distinct glyph
+  // (several inline usages drew the exact same glyph independently; those
+  // collapse onto one registry entry here).
+  | 'search-glass'
+  | 'search-sliders'
+  | 'search-chip-event'
+  | 'search-chip-person'
+  | 'search-chip-place'
+  | 'search-chip-remove'
+  | 'search-close'
+  | 'search-check'
+  | 'search-check-circled'
+  | 'photo-placeholder'
+  | 'wb-eyedrop'
+  | 'timeline-chevron'
+  | 'drawer-close'
+  | 'drawer-chevron-stub'
+  | 'drawer-search'
   // --- Tool glyphs (S5 Editor). Final artwork in `tool-glyph-shapes.ts`. ---
   | ToolIconName;
 
@@ -242,6 +291,91 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   // Rounded date grid — Timeline tree's per-node icon (#3024, Windows-first
   // #3022). Path data copied verbatim from MapleIconShapes.cs's "calendar".
   calendar: [rect(2.5, 3.5, 11, 10, 1.5), path('M5 2.5v2M11 2.5v2'), path('M2.5 6.5h11')],
+
+  // ── Ported verbatim from inline <svg> markup (#956) ──────────────────────
+  // Each entry's coordinates are copied byte-for-byte from the template it
+  // replaces — see `ICON_VIEWBOX` for the native viewBox each was authored
+  // to. Per-shape `strokeWidth` mirrors the original inline `stroke-width`
+  // attribute exactly.
+
+  // Search bar's magnifier (search-bar.component.html).
+  'search-glass': [
+    { kind: 'circle', cx: 7, cy: 7, r: 5, strokeWidth: 1.6 },
+    { kind: 'path', d: 'M11 11l3 3', strokeWidth: 1.6 },
+  ],
+  // Search bar's "Filters" button (search-bar.component.html).
+  'search-sliders': [{ kind: 'path', d: 'M2 4.5h12M4.5 8h7M6.5 11.5h3', strokeWidth: 1.6 }],
+  // Search-chip glyph: date/event (search-bar.component.html's chip switch).
+  // `strokeWidth: 1` pins these three chip glyphs to the original inline
+  // markup's IMPLICIT stroke-width (the attribute was never set, so the SVG
+  // spec default of 1 applied) — without the override they'd inherit the
+  // component's own 1.5 default and render visibly heavier.
+  'search-chip-event': [
+    { kind: 'rect', x: 1.5, y: 2, width: 9, height: 8.5, rx: 1, strokeWidth: 1 },
+    { kind: 'path', d: 'M1.5 4.5h9M4 1v2M8 1v2', strokeWidth: 1 },
+  ],
+  // Search-chip glyph: person (search-bar.component.html's chip switch).
+  'search-chip-person': [
+    { kind: 'circle', cx: 6, cy: 4, r: 2.2, strokeWidth: 1 },
+    { kind: 'path', d: 'M1.8 10.5c.6-2.2 2.3-3.2 4.2-3.2s3.6 1 4.2 3.2', strokeWidth: 1 },
+  ],
+  // Search-chip glyph: place. The SAME glyph is drawn independently in
+  // search-bar.component.html's chip switch, search-facet-section.component.html,
+  // and search-tag-picker.component.html — one entry, three call sites.
+  'search-chip-place': [
+    {
+      kind: 'path',
+      d: 'M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z',
+      strokeWidth: 1,
+    },
+    { kind: 'circle', cx: 6, cy: 4.6, r: 1.2, filled: true },
+  ],
+  // Search-chip remove (×) button (search-bar.component.html).
+  'search-chip-remove': [{ kind: 'path', d: 'M2.5 2.5l5 5M7.5 2.5l-5 5', strokeWidth: 1.4 }],
+  // Close/clear (×). The SAME glyph is drawn independently in
+  // search-bar.component.html's clear-search button and
+  // search-filter-panel.component.html's sheet-close button.
+  'search-close': [{ kind: 'path', d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', strokeWidth: 1.6 }],
+  // Facet-row checkmark (search-facet-section.component.html).
+  'search-check': [
+    {
+      kind: 'path',
+      d: 'M2.5 7.5l3 3 6-7',
+      strokeWidth: 1.8,
+    },
+  ],
+  // Tag-picker checkmark inside a ring (search-tag-picker.component.html).
+  'search-check-circled': [
+    { kind: 'circle', cx: 7, cy: 7, r: 6, strokeWidth: 1.4 },
+    { kind: 'path', d: 'M4 7.2l2 2 4-4.5', strokeWidth: 1.6 },
+  ],
+  // Broken-image placeholder (photo-results-section.component.html).
+  'photo-placeholder': [
+    { kind: 'path', d: 'M4 6h16v12H4z', strokeWidth: 1 },
+    { kind: 'circle', cx: 9, cy: 11, r: 1.5, filled: true },
+    { kind: 'path', d: 'M5 17l5-5 4 4 3-3 2 2v2H5z', filled: true },
+  ],
+  // White-balance eyedropper (develop/wb-pad.component.html). Distinct
+  // drawing from the existing `eyedrop` glyph — kept as its own entry so
+  // the White Balance pad's icon doesn't change.
+  'wb-eyedrop': [
+    { kind: 'path', d: 'M10.5 1.5L12.5 3.5L5 11l-2 .5.5-2L10.5 1.5Z', strokeWidth: 1.2 },
+    { kind: 'circle', cx: 3.5, cy: 10.5, r: 1, filled: true },
+  ],
+  // Filled disclosure chevron (components/timeline-view/timeline-month.component.html).
+  'timeline-chevron': [
+    { kind: 'path', d: 'M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z', filled: true },
+  ],
+  // Source-picker drawer's close (×) button (shells/source-picker-drawer).
+  'drawer-close': [{ kind: 'path', d: 'M3 3l10 10M13 3L3 13', strokeWidth: 1.5 }],
+  // Source-picker drawer's instance-switcher chevron stub (v0.1 placeholder,
+  // shells/source-picker-drawer).
+  'drawer-chevron-stub': [{ kind: 'path', d: 'M2 4l3.5 3.5L9 4', strokeWidth: 1.5 }],
+  // Source-picker drawer's "Search photos" pill (shells/source-picker-drawer).
+  'drawer-search': [
+    { kind: 'circle', cx: 6, cy: 6, r: 4.5, strokeWidth: 1.5 },
+    { kind: 'path', d: 'M9.5 9.5L12.5 12.5', strokeWidth: 1.5 },
+  ],
 
   // ── S5 Editor tool glyphs (#640) ─────────────────────────────────────────
   // Final artwork, drawn as one family — see `tool-glyph-shapes.ts` for the

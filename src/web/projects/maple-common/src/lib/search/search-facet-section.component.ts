@@ -6,6 +6,7 @@
 // styles in one place (`_option-rows.scss`).
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { MapleIconComponent } from '../icons/maple-icon.component';
 
 export interface FacetRow {
   readonly value: string;
@@ -16,6 +17,7 @@ export interface FacetRow {
 @Component({
   selector: 'app-search-facet-section',
   standalone: true,
+  imports: [MapleIconComponent],
   templateUrl: './search-facet-section.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

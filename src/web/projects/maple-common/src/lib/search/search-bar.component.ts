@@ -22,10 +22,13 @@ import {
   output,
 } from '@angular/core';
 import type { ActiveFilterChip } from './search-filters';
+import { MapleIconComponent } from '../icons/maple-icon.component';
+import type { MapleIconName } from '../icons/maple-icon.component';
 
 @Component({
   selector: 'app-search-bar',
   standalone: true,
+  imports: [MapleIconComponent],
   templateUrl: './search-bar.component.html',
   styleUrl: './search-bar.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -89,19 +92,19 @@ export class SearchBarComponent {
       : `Date filter from your search text “${chip.inferredFrom}”`;
   }
 
-  protected chipIcon(chip: ActiveFilterChip): 'event' | 'person' | 'place' {
+  protected chipIcon(chip: ActiveFilterChip): MapleIconName {
     // An inferred window is still a date, and reads as one — the calendar
     // glyph is right; the `chip-inferred` styling is what sets it apart.
     // `month` is a recurring date, so it also gets the calendar; `scene`
     // has no glyph of its own and borrows the place pin.
     switch (chip.kind) {
       case 'person':
-        return 'person';
+        return 'search-chip-person';
       case 'place':
       case 'scene':
-        return 'place';
+        return 'search-chip-place';
       default:
-        return 'event';
+        return 'search-chip-event';
     }
   }
 }
