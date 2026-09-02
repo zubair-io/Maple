@@ -166,6 +166,30 @@ pub(crate) fn target_primaries_for_color_space(color_space: &str) -> u32 {
     }
 }
 
+/// Clamp `WebLiveSession::open`'s `target_color_space` parameter to the two
+/// wire values the retag path
+/// (`raw_gpu::present_web_colorspace::retag_color_space_context`) actually
+/// understands (#3191, Copilot review). The value crosses the JS→WASM
+/// boundary as a plain string — `None` (the pre-#3191 call shape), any value
+/// other than `"display-p3"` / `"srgb"` (a stale caller, a typo, a future TS
+/// enum member this build doesn't know about), and a corrupt/hand-edited
+/// `localStorage` value that slipped past `CanvasColorSpacePref`'s own guard
+/// all land here — every one of them falls back to the historical
+/// `"display-p3"` default rather than reaching `js_sys::Reflect::set` with an
+/// arbitrary string (which would just make `configure()` throw and silently
+/// degrade to `"srgb"` downstream anyway, but failing closed at the Rust
+/// boundary is cheaper and clearer than relying on that JS-side degradation).
+/// Lives here (not in `web_live_session.rs`, which is wasm32-gated) so this
+/// pure selector's tests run in the default host test build, same reasoning
+/// as [`target_primaries_for_color_space`] above.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn resolve_target_color_space(requested: Option<&str>) -> &str {
+    match requested {
+        Some("srgb") => "srgb",
+        Some("display-p3") | None | Some(_) => "display-p3",
+    }
+}
+
 #[cfg(test)]
 mod primaries_tests {
     /// #1913: the live present's display-encode primaries must match the canvas
@@ -191,6 +215,22 @@ mod primaries_tests {
         );
         assert_eq!(select("unknown"), 0, "unknown tag falls back to sRGB (0)");
         assert_eq!(select(""), 0, "empty tag falls back to sRGB (0)");
+    }
+
+    #[test]
+    fn resolve_target_color_space_accepts_the_two_known_wire_values() {
+        use super::resolve_target_color_space as resolve;
+        assert_eq!(resolve(Some("display-p3")), "display-p3");
+        assert_eq!(resolve(Some("srgb")), "srgb");
+    }
+
+    #[test]
+    fn resolve_target_color_space_falls_back_to_display_p3_on_absence_or_garbage() {
+        use super::resolve_target_color_space as resolve;
+        assert_eq!(resolve(None), "display-p3");
+        assert_eq!(resolve(Some("")), "display-p3");
+        assert_eq!(resolve(Some("P3")), "display-p3");
+        assert_eq!(resolve(Some("adobe-rgb")), "display-p3");
     }
 }
 
