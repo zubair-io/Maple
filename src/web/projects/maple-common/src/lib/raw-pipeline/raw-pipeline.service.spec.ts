@@ -142,6 +142,117 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
 
     await expect(promise).rejects.toThrow('simulated legacy decode failure');
   });
+
+  // #3171: threads a resolved film-look LUT through the CPU decode path, the
+  // wiring `raw-pipeline.decode-route.ts`'s `sizedFilm`/`film` routes needed
+  // to become reachable from a real render tick instead of only from tests.
+  it('threads a resolved film-look LUT into the decode request', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const filmLut = new TextEncoder().encode('slide_fuji_velvia_50').buffer;
+    const promise = service.decode(new Uint8Array([0x44]), 'dng', undefined, 512, true, filmLut);
+
+    await Promise.resolve();
+    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    expect(sent.filmLut).toBe(filmLut);
+    expect(sent.maxLongEdge).toBe(512);
+
+    const rgb = new Uint8Array(3).fill(0x20);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: rgb.buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await promise;
+  });
+
+  it('omits filmLut from the decode request when no look is loaded', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const promise = service.decode(new Uint8Array([0x44]), 'dng');
+
+    await Promise.resolve();
+    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    expect(sent.filmLut).toBeUndefined();
+
+    const rgb = new Uint8Array(3).fill(0x30);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: rgb.buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await promise;
+  });
+
+  it('does NOT transfer the film-look LUT buffer — only the RAW bytes — so the same resolved buffer can be reused across render ticks', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const filmLut = new TextEncoder().encode('slide_fuji_velvia_50').buffer;
+    const promise = service.decode(new Uint8Array([0x44]), 'dng', undefined, 512, true, filmLut);
+
+    await Promise.resolve();
+    const [sent, transfer] = workerStub.postMessage.mock.calls[0] as [
+      DecodeRequest,
+      Transferable[],
+    ];
+    expect(transfer).toContain(sent.bytes);
+    expect(transfer).not.toContain(filmLut);
+
+    const rgb = new Uint8Array(3).fill(0x40);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: rgb.buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await promise;
+
+    // A second decode() call reusing the SAME filmLut reference must still
+    // succeed — a real transfer would have detached/neutered it after the
+    // first postMessage, and reading a detached ArrayBuffer's byteLength
+    // returns 0 rather than throwing, so this is the behavioral proof: the
+    // worker still receives the ORIGINAL byte content, not an empty buffer.
+    const secondPromise = service.decode(
+      new Uint8Array([0x45]),
+      'dng',
+      undefined,
+      512,
+      true,
+      filmLut,
+    );
+    await Promise.resolve();
+    const secondSent = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
+    expect(new Uint8Array(secondSent.filmLut!).length).toBe(
+      new TextEncoder().encode('slide_fuji_velvia_50').length,
+    );
+
+    workerStub.reply({
+      id: secondSent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: new Uint8Array(3).fill(0x50).buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await secondPromise;
+  });
 });
 
 describe('RawPipelineService — non-RAW browser-native decode (#784, #3039)', () => {

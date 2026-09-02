@@ -94,7 +94,7 @@ export class ImageCanvasComponent
   // GPU live-render path (epic #925, P4b-web / #1038) — full scope/invariant
   // notes in `ImageCanvasGpuPresent`. Flag OFF keeps the 2D path the only route.
   private readonly gpuPresent = new ImageCanvasGpuPresent(this);
-  private readonly filmSync = new ImageCanvasFilmSync(this, () => this.forceRerenderForFilm()); // #2683
+  readonly filmSync = new ImageCanvasFilmSync(this, () => this.forceRerenderForFilm()); // #2683, public for Render2dHost (#3171)
 
   private ro?: ResizeObserver;
   // Non-private: read by `ImageCanvasZoomHost` (`ZoomHostHost`).
@@ -318,6 +318,7 @@ export class ImageCanvasComponent
         // re-fire don't schedule a spurious 6500K-default decode.
         if (!this.currentBytes || a.id !== this.currentAssetId || !this.coldOpenDone) return;
         this.filmSync.syncIfNeeded(a.id, model.filmLook, this.gpuPresent.active()); // #2683
+        if (!this.gpuPresent.active()) this.filmSync.ensureCpuLutResolving(a.id, model.filmLook); // #3171
         // Dedup: cold open + As-Shot WB seed both land on the same XMP the
         // canvas already shows, so skip the redundant decode. A genuine edit
         // produces a different XMP and renders. Reading `cropSession.active()`

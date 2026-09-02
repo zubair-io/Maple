@@ -15,6 +15,7 @@ import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
+import type { ImageCanvasFilmSync } from './image-canvas.film';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 
 /**
@@ -26,6 +27,9 @@ export interface Render2dHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly pipeline: RawPipelineService;
+  /** #3171 — `runRender2d` reads `cpuLutBytesForCurrent()` off this for the
+   *  focused asset's currently-resolved film-look LUT bytes. */
+  readonly filmSync: ImageCanvasFilmSync;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
   readonly loading: WritableSignal<boolean>;
   readonly currentAssetId: AssetId | null;
@@ -127,7 +131,11 @@ export async function coldOpen2d(
  * Re-render the retained RAW bytes with `xmp` at `sizing`'s target and publish
  * the result — only if `generation` is still current when the render returns (a
  * stale result is dropped, never painted). Mirrors the inlined `runRender` 2D
- * branch (the GPU branch stays on the component).
+ * branch (the GPU branch stays on the component). #3171: threads the focused
+ * asset's currently-resolved film-look LUT bytes (`host.filmSync`) through to
+ * `RawPipelineService.decode()`, which routes them to the `sizedFilm`/`film`
+ * WASM entry per `selectLegacyDecodeRoute` — `undefined` (no look set, or the
+ * fetch is still in flight) decodes with no look, same as before this ticket.
  */
 export async function runRender2d(
   host: Render2dHost,
@@ -144,6 +152,7 @@ export async function runRender2d(
       xmp,
       sizing.maxLongEdge,
       sizing.qualityPreview,
+      host.filmSync.cpuLutBytesForCurrent(),
     );
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration) return;

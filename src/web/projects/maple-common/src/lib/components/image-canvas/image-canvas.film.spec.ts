@@ -23,8 +23,12 @@ function makeHost(overrides?: { getLattice?: (id: string) => Promise<ArrayBuffer
   // writing `model.filmLook` first.
   const model: AdjustmentModel = { ...defaultAdjustmentModel() };
   const setFilmLut = vi.fn(async (_bytes: ArrayBuffer, _key: number) => undefined);
-  const getLattice =
-    overrides?.getLattice ?? vi.fn(async (id: string) => new TextEncoder().encode(id).buffer);
+  // Always a real `vi.fn` (even when a test supplies its own resolver via
+  // `overrides.getLattice`) so every test can uniformly assert on/clear its
+  // call history, not just the ones using the default resolver.
+  const getLattice = vi.fn(
+    overrides?.getLattice ?? (async (id: string) => new TextEncoder().encode(id).buffer),
+  );
   const onLutApplied = vi.fn();
 
   const host: FilmSyncHost = {
@@ -41,14 +45,17 @@ function makeHost(overrides?: { getLattice?: (id: string) => Promise<ArrayBuffer
     model.filmLook = lookId;
     sync.syncIfNeeded(assetId, lookId, gpuActive);
   };
-  return { sync, syncCall, setFilmLut, getLattice, onLutApplied };
+  return { sync, syncCall, setFilmLut, getLattice, onLutApplied, model, host };
 }
 
-/** Await the async chain inside `sync()` (fetch → post → onLutApplied). */
+/** Await the async chain inside `sync()`/`resolveCpuLut()` (fetch → post →
+ *  onLutApplied) to completion. A macrotask boundary rather than a fixed
+ *  microtask-tick count: the CPU-path tests' chain depth differs slightly
+ *  from the GPU path's, and counting exact ticks is exactly the kind of
+ *  fragile timing assumption that breaks the moment either chain grows an
+ *  await. */
 async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('ImageCanvasFilmSync.syncIfNeeded', () => {
@@ -131,5 +138,135 @@ describe('ImageCanvasFilmSync.syncIfNeeded', () => {
     expect(setFilmLut).toHaveBeenCalledTimes(1);
     const [bytes] = setFilmLut.mock.calls[0]!;
     expect((bytes as ArrayBuffer).byteLength).toBe(0);
+  });
+});
+
+// #3171 — the WASM-CPU 2D fast/refine path's sibling to `syncIfNeeded`/`sync`
+// above: `ensureCpuLutResolving` kicks off (and dedups) the fetch,
+// `cpuLutBytesFor`/`cpuLutBytesForCurrent` read whatever's already cached,
+// synchronously, with no fetch of their own.
+describe('ImageCanvasFilmSync — CPU 2D-path LUT cache', () => {
+  it('cpuLutBytesFor returns undefined before anything has resolved', () => {
+    const { sync } = makeHost();
+    expect(sync.cpuLutBytesFor(ASSET_ID, 'slide_fuji_velvia_50')).toBeUndefined();
+  });
+
+  it('resolves and caches the bytes, and never touches the GPU pipeline.setFilmLut', async () => {
+    const { sync, getLattice, setFilmLut, onLutApplied, model } = makeHost();
+    model.filmLook = 'slide_fuji_velvia_50';
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    await flush();
+
+    expect(getLattice).toHaveBeenCalledWith('slide_fuji_velvia_50');
+    const bytes = sync.cpuLutBytesFor(ASSET_ID, 'slide_fuji_velvia_50');
+    expect(bytes).toBeDefined();
+    expect(Array.from(new Uint8Array(bytes!))).toEqual(
+      Array.from(new TextEncoder().encode('slide_fuji_velvia_50')),
+    );
+    expect(onLutApplied).toHaveBeenCalledTimes(1);
+    expect(setFilmLut).not.toHaveBeenCalled(); // CPU path never posts to the GPU session
+  });
+
+  it('cpuLutBytesForCurrent reads off host.currentAssetId + the current model', async () => {
+    const { sync, model } = makeHost();
+    model.filmLook = 'black_white_kodak_tri_x_400';
+    sync.ensureCpuLutResolving(ASSET_ID, 'black_white_kodak_tri_x_400');
+    await flush();
+
+    const bytes = sync.cpuLutBytesForCurrent();
+    expect(bytes).toBeDefined();
+    expect(Array.from(new Uint8Array(bytes!))).toEqual(
+      Array.from(new TextEncoder().encode('black_white_kodak_tri_x_400')),
+    );
+  });
+
+  it('does not re-fetch for the same (assetId, lookId) pair', async () => {
+    const { sync, getLattice, model } = makeHost();
+    model.filmLook = 'slide_fuji_velvia_50';
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    await flush();
+    getLattice.mockClear();
+
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    await flush();
+
+    expect(getLattice).not.toHaveBeenCalled();
+  });
+
+  it('does not start a second fetch for the same pair while the first is still in flight', () => {
+    const { sync, getLattice, model } = makeHost();
+    model.filmLook = 'slide_fuji_velvia_50';
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+
+    expect(getLattice).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-fetches when the look id changes for the same asset', async () => {
+    const { sync, getLattice, model } = makeHost();
+    model.filmLook = 'slide_fuji_velvia_50';
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    await flush();
+    getLattice.mockClear();
+
+    model.filmLook = 'black_white_kodak_tri_x_400';
+    sync.ensureCpuLutResolving(ASSET_ID, 'black_white_kodak_tri_x_400');
+    await flush();
+
+    expect(getLattice).toHaveBeenCalledWith('black_white_kodak_tri_x_400');
+    expect(sync.cpuLutBytesFor(ASSET_ID, 'slide_fuji_velvia_50')).toBeUndefined();
+  });
+
+  it('an empty (None) look id clears the cache synchronously, with no fetch', () => {
+    const { sync, getLattice } = makeHost();
+    sync.ensureCpuLutResolving(ASSET_ID, '');
+    expect(getLattice).not.toHaveBeenCalled();
+    expect(sync.cpuLutBytesFor(ASSET_ID, '')).toBeUndefined();
+  });
+
+  it('caches a null lattice (404/network failure) as "no look" without retrying every call', async () => {
+    const { sync, getLattice, model } = makeHost({ getLattice: async () => null });
+    model.filmLook = 'retired_catalog_id';
+    sync.ensureCpuLutResolving(ASSET_ID, 'retired_catalog_id');
+    await flush();
+
+    expect(sync.cpuLutBytesFor(ASSET_ID, 'retired_catalog_id')).toBeUndefined();
+    getLattice.mockClear();
+    sync.ensureCpuLutResolving(ASSET_ID, 'retired_catalog_id');
+    expect(getLattice).not.toHaveBeenCalled();
+  });
+
+  it('drops a resolved fetch when the asset switched while it was pending', async () => {
+    const { sync, host } = makeHost();
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    (host as { currentAssetId: AssetId | null }).currentAssetId = 'asset-2' as AssetId;
+    await flush();
+
+    expect(sync.cpuLutBytesFor(ASSET_ID, 'slide_fuji_velvia_50')).toBeUndefined();
+  });
+
+  it('drops a resolved fetch when the look changed again while it was pending', async () => {
+    const { sync, model } = makeHost();
+    model.filmLook = 'slide_fuji_velvia_50';
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    model.filmLook = 'black_white_kodak_tri_x_400'; // a second tick moved the look before the fetch settled
+    await flush();
+
+    expect(sync.cpuLutBytesFor(ASSET_ID, 'slide_fuji_velvia_50')).toBeUndefined();
+  });
+
+  it('reset() clears the CPU cache so a fresh session re-fetches a previously-seen pair', async () => {
+    const { sync, getLattice, model } = makeHost();
+    model.filmLook = 'slide_fuji_velvia_50';
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    await flush();
+    getLattice.mockClear();
+
+    sync.reset();
+    expect(sync.cpuLutBytesFor(ASSET_ID, 'slide_fuji_velvia_50')).toBeUndefined();
+    sync.ensureCpuLutResolving(ASSET_ID, 'slide_fuji_velvia_50');
+    await flush();
+
+    expect(getLattice).toHaveBeenCalledTimes(1);
   });
 });
