@@ -106,7 +106,7 @@ extension RenderActor {
             // or flip a cancel flag here — same-asset slider ticks during a cold
             // open share this one decode and its flag; nobody cancels until a
             // genuinely different decode supersedes it (the replace path below).
-            guard let (decoded, _, _, _, _, _, _) = await existing.value else { return nil }
+            guard let (decoded, _, _, _, _, _, _, _) = await existing.value else { return nil }
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
             }
@@ -137,7 +137,7 @@ extension RenderActor {
         // cancelAll can flip it to abandon this decode.
         let cancelFlag = CancelFlag()
         decodeCancelFlag = cancelFlag
-        let task: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
+        let task: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
             if needsSniff, let provider = asset.bytesProvider {
@@ -190,7 +190,7 @@ extension RenderActor {
                 guard let nonRawImage else { return nil }
                 return (
                     nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0),
-                    false, true
+                    false, true, true
                 )
             }
             let asset = dispatchAsset
@@ -219,8 +219,8 @@ extension RenderActor {
                 guard let sizedResult else { return nil }
                 return (
                     sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-                    sizedResult.wbFrame, sizedResult.aeGain,
-                    sizedResult.hasLensCorrections, sizedResult.lensCorrectionCaInert)
+                    sizedResult.wbFrame, sizedResult.aeGain, sizedResult.hasLensCorrections,
+                    sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert)
             }
             // #940 — legacy full-resolution branch: `target == nil` no
             // longer occurs from any production call site (see above), but
@@ -238,8 +238,8 @@ extension RenderActor {
             guard let refineResult else { return nil }
             return (
                 refineResult.image, refineResult.noiseProfile, refineResult.iso,
-                refineResult.wbFrame, refineResult.aeGain,
-                refineResult.hasLensCorrections, refineResult.lensCorrectionCaInert)
+                refineResult.wbFrame, refineResult.aeGain, refineResult.hasLensCorrections,
+                refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert)
         }
         decodeTask = task
         decodeTaskAssetID = asset.id
@@ -253,7 +253,7 @@ extension RenderActor {
 
         guard let (
             decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain,
-            decodeHasLensCorrections, decodeLensCorrectionCaInert
+            decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert
         ) = decodeResult else {
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
@@ -344,9 +344,10 @@ extension RenderActor {
             // `NativeDetailRenderer` needs the gain of the buffer actually
             // on screen, not a stale one from a superseded decode.
             decodedAeGain = decodeAeGain
-            // #2231: lens-correction signal rides the same write gate (describes the decoded buffer).
+            // #2231/#3189: lens-correction signal rides the same write gate (describes the decoded buffer).
             decodedHasLensCorrections = decodeHasLensCorrections
             decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
+            decodedLensCorrectionDistortionInert = decodeLensCorrectionDistortionInert
             // #2049: identity bump — any real write means the uploaded GPU
             // buffer (if any) is now potentially stale even at unchanged dims.
             decodeGeneration &+= 1
@@ -414,7 +415,7 @@ extension RenderActor {
         decodedWbFrame = nil
         decodedAeGain = 1.0
         decodedHasLensCorrections = false
-        decodedLensCorrectionCaInert = true
+        decodedLensCorrectionCaInert = true; decodedLensCorrectionDistortionInert = true
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
@@ -459,8 +460,8 @@ extension RenderActor {
             wbFrame: decodedWbFrame,
             aeGain: decodedAeGain,
             decodeGeneration: decodeGeneration,
-            hasLensCorrections: decodedHasLensCorrections,
-            lensCorrectionCaInert: decodedLensCorrectionCaInert
+            hasLensCorrections: decodedHasLensCorrections, lensCorrectionCaInert: decodedLensCorrectionCaInert,
+            lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert
         )
     }
 
@@ -535,6 +536,7 @@ extension RenderActor {
         // previous asset must not describe this one.
         self.decodedHasLensCorrections = false
         self.decodedLensCorrectionCaInert = true
+        self.decodedLensCorrectionDistortionInert = true
         // #2049: a seed is a cache WRITE — bump identity so a GPU-live
         // session uploaded from the previous buffer knows to re-upload.
         self.decodeGeneration &+= 1
@@ -560,8 +562,8 @@ extension RenderActor {
         self.decodedAutoExposure = nil  // #1387 — see `seed(...)`
         self.decodedWbFrame = nil  // #1781 — see `seed(...)`
         self.decodedAeGain = 1.0  // #1167/#2070 — see `seed(...)`
-        self.decodedHasLensCorrections = false  // #2231 — see `seed(...)`
-        self.decodedLensCorrectionCaInert = true  // #2231 — see `seed(...)`
+        self.decodedHasLensCorrections = false  // #2231/#3189 — see `seed(...)`
+        self.decodedLensCorrectionCaInert = true; self.decodedLensCorrectionDistortionInert = true
         self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
         return true
     }

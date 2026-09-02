@@ -155,12 +155,11 @@ public actor RenderActor {
     /// image so `NativeDetailRenderer` threads the SAME gain into its tile refine.
     var decodedAeGain: Float = 1.0
 
-    /// Whether the cached `decodedImage`'s RAW carries lens-correction
-    /// opcodes, and whether the CA slider is inert (#2231) — see
-    /// `ImageEditPipeline.SceneLinearDecodeResult`'s doc comments. Stored
-    /// so the inspector can disable/hide itself without re-decoding.
+    /// Whether the cached `decodedImage`'s RAW carries lens-correction opcodes, and whether the
+    /// CA/distortion sliders are inert (#2231, #3189) — see `SceneLinearDecodeResult`'s doc.
     var decodedHasLensCorrections: Bool = false
     var decodedLensCorrectionCaInert: Bool = true
+    var decodedLensCorrectionDistortionInert: Bool = true
 
     /// Profile the cached `decodedImage` was developed for (#871). The
     /// decode buffer is now profile-dependent: `Profile::Auto` develops
@@ -204,11 +203,10 @@ public actor RenderActor {
     /// from it never accidentally matches a different asset's upload).
     var decodeGeneration: UInt64 = 0
 
-    /// (image, noiseProfile, iso, wbFrame, aeGain) — noiseProfile/iso
-    /// forwarded to the NR stage (PR #1709 review fix 4); wbFrame is the
-    /// #1781 slider-frame export; aeGain is the #1167/#2070 AE-gain export.
-    /// Non-RAW decodes yield (image, nil, 0, nil, 1.0).
-    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool)?, Never>?
+    /// (image, noiseProfile, iso, wbFrame, aeGain, hasLensCorrections, lensCorrectionCaInert,
+    /// lensCorrectionDistortionInert) — see `SceneLinearDecodeResult`'s doc for each field
+    /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields (image, nil, 0, nil, 1.0, false, true, true).
+    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool)?, Never>?
     var decodeTaskAssetID: AssetRef.ID?
     /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
     /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
@@ -331,10 +329,11 @@ public actor RenderActor {
         /// silently presenting the live chain over stale pixels.
         public let decodeGeneration: UInt64
         /// Whether the cached buffer's RAW carries lens-correction opcodes
-        /// and whether the CA slider is inert (#2231) — see
-        /// `ImageEditPipeline.SceneLinearDecodeResult`'s doc comments.
+        /// and whether the CA/distortion sliders are inert (#2231, #3189)
+        /// — see `ImageEditPipeline.SceneLinearDecodeResult`'s doc comments.
         public let hasLensCorrections: Bool
         public let lensCorrectionCaInert: Bool
+        public let lensCorrectionDistortionInert: Bool
     }
 
     // MARK: - Scheduler state (slice 3)

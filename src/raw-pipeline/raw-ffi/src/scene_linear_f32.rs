@@ -136,6 +136,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             ae_gain,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
+            raw_img.lens_correction_distortion_inert(),
         );
         0
     })
@@ -233,6 +234,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             ae_gain,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
+            raw_img.lens_correction_distortion_inert(),
         );
         0
     })
@@ -338,6 +340,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             ae_gain,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
+            raw_img.lens_correction_distortion_inert(),
         );
         0
     })
@@ -436,6 +439,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             ae_gain,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
+            raw_img.lens_correction_distortion_inert(),
         );
         0
     })
@@ -494,14 +498,11 @@ pub(crate) fn flatten_matrix(m: raw_core::math::Matrix3) -> [f32; 9] {
     ]
 }
 
-/// f32 counterpart to [`write_scene_linear_buf`]. Boxes the `Vec<f32>` and
-/// hands the raw parts to the caller in a [`MapleSceneLinearBufferF32`].
-/// `noise_profile`/`iso` are forwarded so the per-tick FFI chain
-/// (`maple_apply_scene_linear_chain_f32`) can use them for profile-aware NR
-/// (PR #1709 review fix). `ae_gain` (#1167) is the scalar auto-exposure
-/// anchor gain `auto_exposure` applied to `f32_rgba` (`1.0` when
-/// `papp:AutoExposure="Off"`) — see `MapleSceneLinearBufferF32::ae_gain`'s
-/// doc for how the host uses it.
+/// f32 counterpart to [`write_scene_linear_buf`]. Boxes the `Vec<f32>` and hands the raw parts to
+/// the caller in a [`MapleSceneLinearBufferF32`]. `noise_profile`/`iso` are forwarded so the
+/// per-tick FFI chain (`maple_apply_scene_linear_chain_f32`) can use them for profile-aware NR
+/// (PR #1709 review fix). `ae_gain` (#1167) is the scalar auto-exposure anchor gain
+/// `auto_exposure` applied to `f32_rgba` — see `MapleSceneLinearBufferF32::ae_gain`'s doc.
 pub(crate) fn write_scene_linear_buf_f32(
     out_ptr: usize,
     w: u32,
@@ -513,6 +514,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     ae_gain: f32,
     has_lens_corrections: bool,
     lens_correction_ca_inert: bool,
+    lens_correction_distortion_inert: bool,
 ) {
     let (f32_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack_f32", || {
         let mut boxed = f32_rgba.into_boxed_slice();
@@ -562,6 +564,7 @@ pub(crate) fn write_scene_linear_buf_f32(
             ae_gain,
             has_lens_corrections: has_lens_corrections as u32,
             lens_correction_ca_inert: lens_correction_ca_inert as u32,
+            lens_correction_distortion_inert: lens_correction_distortion_inert as u32,
         };
     }
 }
