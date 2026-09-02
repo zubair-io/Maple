@@ -298,7 +298,15 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:LensProfileVignettingScale", a => a.LensCorrectionVignetting, (a, v) => a.LensCorrectionVignetting = v),
         };
 
-        /// <summary>Point-curve element tags in canonical emit order (#365).</summary>
+        /// <summary>
+        /// Point-curve element tags in canonical emit order: the four
+        /// scene-linear `papp:` curves (#365) followed by the four
+        /// display-referred `crs:ToneCurvePV2012*` curves (#2232). A
+        /// different quantity from the scene-linear family — applied
+        /// post-AgX, independently per R/G/B channel — but structurally
+        /// the same nested-`rdf:Seq` shape, so both families share this one
+        /// table and the parser/writer machinery that walks it.
+        /// </summary>
         public static readonly IReadOnlyList<(string Tag, Func<AdjustmentState, List<CurvePoint>> Curve)> ToneCurveElements =
             new (string, Func<AdjustmentState, List<CurvePoint>>)[]
             {
@@ -306,6 +314,10 @@ namespace Maple.WinUI.Services.Xmp
                 ("papp:SceneLinearToneCurveRed", a => a.ToneCurveRed),
                 ("papp:SceneLinearToneCurveGreen", a => a.ToneCurveGreen),
                 ("papp:SceneLinearToneCurveBlue", a => a.ToneCurveBlue),
+                ("crs:ToneCurvePV2012", a => a.DisplayToneCurveLuma),
+                ("crs:ToneCurvePV2012Red", a => a.DisplayToneCurveRed),
+                ("crs:ToneCurvePV2012Green", a => a.DisplayToneCurveGreen),
+                ("crs:ToneCurvePV2012Blue", a => a.DisplayToneCurveBlue),
             };
 
         /// <summary>The six-color label vocabulary (#1657).</summary>

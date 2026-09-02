@@ -147,6 +147,19 @@ namespace Maple.WinUI.Tests.Support
             },
             ToneCurveBlue = new List<CurvePoint> { new(0, 0), new(255, 204) },
             ToneCurveMode = ToneCurveMode.RatioPreserving,
+            DisplayToneCurveLuma = new List<CurvePoint>
+            {
+                new(0, 0), new(128, 150), new(255, 255),
+            },
+            DisplayToneCurveRed = new List<CurvePoint>
+            {
+                new(0, 0), new(96, 110), new(255, 255),
+            },
+            DisplayToneCurveGreen = new List<CurvePoint>
+            {
+                new(0, 10), new(180, 170), new(255, 255),
+            },
+            DisplayToneCurveBlue = new List<CurvePoint> { new(0, 0), new(255, 214) },
             HighlightRecovery = HighlightRecoveryMode.Blend,
             AutoExposure = ToggleMode.Off,
             Look = LookMode.Neutral,

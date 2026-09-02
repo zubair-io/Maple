@@ -296,7 +296,8 @@ namespace Maple.WinUI.Services.Xmp
         {
             foreach (var child in desc.Elements())
             {
-                var curve = ToneCurveFor(child, doc.Adjustments);
+                var tag = ToneCurveTagFor(child);
+                var curve = tag is null ? null : CurveSlotFor(tag, doc.Adjustments);
                 if (curve is not null)
                 {
                     curve.Clear();
@@ -305,7 +306,7 @@ namespace Maple.WinUI.Services.Xmp
                     // isn't passthrough (#2671) — the writer needs to know
                     // where this tag sat relative to the passthrough nodes
                     // below to reproduce a byte-stable read-modify-write.
-                    doc.ChildOrder.Add(ChildSlot.ForToneCurve($"papp:{child.Name.LocalName}"));
+                    doc.ChildOrder.Add(ChildSlot.ForToneCurve(tag!));
                     continue;
                 }
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
@@ -313,15 +314,26 @@ namespace Maple.WinUI.Services.Xmp
             }
         }
 
-        private static List<CurvePoint>? ToneCurveFor(XElement child, AdjustmentState state)
+        /// <summary>
+        /// The canonical `prefix:Local` tag for `child` when it is one of
+        /// `XmpSchema.ToneCurveElements` — resolved via the ACTUAL namespace
+        /// URI (`XmpSchema.CanonicalPrefixFor`), not a hardcoded `papp:`
+        /// prefix, since #2232 added a `crs:`-namespaced family alongside the
+        /// original `papp:` one.
+        /// </summary>
+        private static string? ToneCurveTagFor(XElement child)
         {
-            if (!XmpSchema.IsPappUri(child.Name.NamespaceName)) return null;
-            var qualified = $"papp:{child.Name.LocalName}";
-            return XmpSchema.ToneCurveElements
-                .Where(e => e.Tag == qualified)
+            var prefix = XmpSchema.CanonicalPrefixFor(child.Name.NamespaceName);
+            if (prefix is not ("papp" or "crs")) return null;
+            var qualified = $"{prefix}:{child.Name.LocalName}";
+            return XmpSchema.ToneCurveElements.Any(e => e.Tag == qualified) ? qualified : null;
+        }
+
+        private static List<CurvePoint>? CurveSlotFor(string qualifiedTag, AdjustmentState state) =>
+            XmpSchema.ToneCurveElements
+                .Where(e => e.Tag == qualifiedTag)
                 .Select(e => e.Curve(state))
                 .FirstOrDefault();
-        }
 
         private static IEnumerable<CurvePoint> ParseCurvePoints(XElement curveElement)
         {
@@ -370,15 +382,9 @@ namespace Maple.WinUI.Services.Xmp
             var attrs = desc.Attributes()
                 .Count(a => !a.IsNamespaceDeclaration && CanonicalName(a) is { } n &&
                             n != "rdf:about" && ConsumedAttributes.Contains(n));
-            var children = desc.Elements().Count(c => ToneCurveTag(c) is not null);
+            var children = desc.Elements().Count(c => ToneCurveTagFor(c) is not null);
             return attrs + children;
         }
-
-        private static string? ToneCurveTag(XElement child) =>
-            XmpSchema.IsPappUri(child.Name.NamespaceName) &&
-            XmpSchema.ToneCurveElements.Any(e => e.Tag == $"papp:{child.Name.LocalName}")
-                ? child.Name.LocalName
-                : null;
 
         private static bool DocumentCarriesPappNamespace(XDocument source) =>
             source.Descendants().Any(e =>

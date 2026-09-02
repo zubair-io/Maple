@@ -55,6 +55,10 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleToneCurves (scene_linear_chain_curves.rs,
     /// #2576): flat [x0,y0,x1,y1,...] knot lists for the curves-aware CPU chain
     /// entry; len counts floats (2× points). Null/empty = identity.
+    /// `display_*` fields (#2232) carry the display-referred
+    /// `crs:ToneCurvePV2012*` curves — appended at the struct tail per the
+    /// offset-stable ABI convention, same wire shape as the scene-linear
+    /// fields above.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleToneCurves
@@ -68,6 +72,14 @@ namespace Maple.WinUI.Native
         public float* blue_ptr;
         public nuint blue_len;
         public uint mode;                  // 0 = PerChannel, 1 = RatioPreserving
+        public float* display_luma_ptr;
+        public nuint display_luma_len;
+        public float* display_red_ptr;
+        public nuint display_red_len;
+        public float* display_green_ptr;
+        public nuint display_green_len;
+        public float* display_blue_ptr;
+        public nuint display_blue_len;
     }
 
     /// <summary>
