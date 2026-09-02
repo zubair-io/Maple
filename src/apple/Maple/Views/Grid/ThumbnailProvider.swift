@@ -30,10 +30,13 @@ import UIKit
 /// bytes back regardless of which backend served them.
 ///
 /// Inject once per grid surface (same lifetime as the owning view model) and
-/// share it across all cells in that grid. This actor is a thin dispatcher: it
-/// does NOT add coalescing or throttling. `ThumbnailLoader` already coalesces
-/// in-flight local requests; the cloud/PhotoKit paths inherit whatever
-/// concurrency their callers drive (one `.task` per visible cell).
+/// share it across all cells in that grid. `ThumbnailLoader` already
+/// coalesces and concurrency-gates in-flight local requests; this actor
+/// gates its own PhotoKit and cloud fetch paths the same way, through
+/// `ThumbnailFetchGate` (#2528) — otherwise a cold open fires one
+/// `PHImageManager.requestImage` / network request per visible cell
+/// simultaneously (`PhotoThumbnailCell`/`CloudThumbTile` each drive their
+/// own `.task` per cell).
 actor ThumbnailProvider {
 
     // MARK: - Dependencies
@@ -47,6 +50,25 @@ actor ThumbnailProvider {
     /// client if desired; today's two initializers never populate both.
     private let thumbClientsByHost: [String: CloudThumbClient]
     private let thumbCache: CloudThumbCache?
+
+    /// Concurrency caps for the PhotoKit and cloud fetch backends (#2528).
+    /// The local backend is already gated inside `ThumbnailLoader`
+    /// (`maxConcurrentDecodes`); these two had no cap at all —
+    /// `PhotoThumbnailCell`/`CloudThumbTile` each drive their own `.task`
+    /// per visible cell, so a cold open of a PhotoKit or cloud folder fired
+    /// one `PHImageManager.requestImage` / network request per realized
+    /// tile simultaneously. Sized the same way as
+    /// `ThumbnailLoader.maxConcurrentDecodes` — bound to the machine,
+    /// min 4, max 12 — even though these paths are I/O- rather than
+    /// CPU-bound, so the backends behave consistently. Separate gate per
+    /// backend so a slow cloud host can never starve PhotoKit fetches of
+    /// their own slots, or vice versa.
+    private static let maxConcurrentFetches: Int = {
+        let cores = ProcessInfo.processInfo.activeProcessorCount
+        return max(4, min(12, cores / 2))
+    }()
+    private let photoKitGate = ThumbnailFetchGate(maxConcurrent: maxConcurrentFetches)
+    private let cloudGate = ThumbnailFetchGate(maxConcurrent: maxConcurrentFetches)
 
     // MARK: - Init
 
@@ -121,15 +143,19 @@ actor ThumbnailProvider {
 
         case .cloudThumb(let absPath, let host):
             guard let cache = thumbCache, let client = resolvedThumbClient(for: host) else { return nil }
-            return await Self.fetchCloudThumb(
-                host: host,
-                absPath: absPath,
-                cache: cache,
-                client: client
-            )
+            return await cloudGate.fetch(key: "\(host)|\(absPath)") {
+                await Self.fetchCloudThumb(
+                    host: host,
+                    absPath: absPath,
+                    cache: cache,
+                    client: client
+                )
+            }
 
         case .photoKit(let localID):
-            return await Self.fetchPhotoKitThumb(localID: localID)
+            return await photoKitGate.fetch(key: localID) {
+                await Self.fetchPhotoKitThumb(localID: localID)
+            }
         }
     }
 
