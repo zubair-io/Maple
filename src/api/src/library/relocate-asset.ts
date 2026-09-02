@@ -82,6 +82,19 @@ export interface RelocateAssetInput {
    * confirming it exists on disk) before passing it — this function is
    * asset-shape-agnostic beyond that. */
   renderedCompanionAbsPath?: string | null;
+  /** Override for which `fileinfo` entry to treat as the asset's active
+   * location, bypassing this function's own `activeFileInfo(doc)`
+   * resolution (which EXCLUDES an entry tagged `missing_since`, falling
+   * back to it only when every live entry is missing-tagged). Pass this
+   * when the caller's own selection semantics legitimately differ — e.g.
+   * the on-demand geo-relocate route (`library/relocate-geo.ts`), whose own
+   * `assetActiveFileInfo` deliberately INCLUDES a missing-tagged entry (a
+   * file the client has since restored on disk is still a valid relocation
+   * candidate). Without this override, a multi-location asset where the
+   * caller's chosen entry is missing-tagged but a DIFFERENT entry is clean
+   * would silently relocate the WRONG location (found in review on #2667).
+   * Omit for the default (and historically only) behavior. */
+  activeFileInfoOverride?: FileInfo;
 }
 
 export type RelocateAssetResult =
@@ -326,6 +339,17 @@ function buildRepointHook(
     // omitting the field here means the doc's existing value is left exactly
     // as it was, matching `moveBackupAsset`'s same "unchanged on a companion
     // that didn't move" behavior.
+    //
+    // `companionPaths[0]` (rather than matching by source path) is safe
+    // ONLY because this call site ever passes exactly ONE entry into
+    // `extraCompanionAbsPaths` (`renderedCompanionAbsPath` above, singular)
+    // — `fs/relocate.ts` preserves input order and only pushes a SUCCESSFUL
+    // copy's destination, so with a single input there is no other entry it
+    // could be (reviewed on #2667). If a second companion type is ever
+    // added to this call site, `fs/relocate.ts` would need to return
+    // source→dest pairs instead of a bare array, and this line would need
+    // to match on source path rather than position — don't reuse this
+    // pattern for a multi-companion caller without making that change.
     if (input.renderedCompanionAbsPath && companionPaths[0]) {
       set.apple_rendered_path = path
         .relative(destLibRoot, companionPaths[0])
@@ -346,7 +370,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   const doc = await c.findOne({ _id: input.id });
   if (!doc) return { kind: 'not-found' };
 
-  const primary = activeFileInfo(doc);
+  const primary = input.activeFileInfoOverride ?? activeFileInfo(doc);
   if (!primary) return { kind: 'error', error: 'asset has no live location' };
 
   const plan = await resolveDestinationPlan(input, primary);

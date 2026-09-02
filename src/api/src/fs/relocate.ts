@@ -316,7 +316,16 @@ async function copyPrimaryAndSidecars(
   const companionPaths: string[] = [];
   const movedCompanionSources: string[] = [];
   for (const companion of extraCompanionAbsPaths) {
-    const dest = companionRenameTarget(sourceAbsPath, finalDest, companion);
+    const candidateDest = companionRenameTarget(sourceAbsPath, finalDest, companion);
+    // Never silently overwrite an unrelated file sitting at the companion's
+    // computed name — `copyVerifiedIntoPlace`'s publish step (`fs.rename`)
+    // overwrites unconditionally, and unlike the primary above, a
+    // companion's destination is never collision-resolved by the caller
+    // (review on #2667: a real, unrelated `.jpg` could already occupy the
+    // base-swapped name). Matches `workers/migration/restructure-fs.ts`'s
+    // `planAndPlace`, which ALSO resolves its rendered companion through
+    // `pickFreePath` rather than trusting the base-swapped name is free.
+    const dest = await pickFreePath(candidateDest, 'relocate:companion');
     if (!(await tryCopyCompanion(companion, dest))) continue;
     createdPaths.push(dest);
     companionPaths.push(dest);

@@ -160,6 +160,14 @@ export async function relocateGeoAsset(
     collision: 'auto-suffix',
     destinationPath: newDir,
     renderedCompanionAbsPath: renderedPresent ? renderedAbsPath : null,
+    // #2667 review: `relocateAsset`'s own `activeFileInfo(doc)` resolution
+    // EXCLUDES a missing_since-tagged entry — but `primary` here came from
+    // the route's `assetActiveFileInfo`, which deliberately does NOT. On a
+    // multi-location asset where those two disagree, omitting this override
+    // would silently relocate a DIFFERENT (clean) location than the one
+    // this function's own dedupe pre-check and companion resolution just
+    // computed against `primary`.
+    activeFileInfoOverride: primary,
   });
 
   if (outcome.kind !== 'relocated') {
