@@ -13,7 +13,10 @@ use std::path::PathBuf;
 
 use crate::features::{AlikedDetector, DetectorOptions, LinearRgbFrame};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, MatchGraph};
+use crate::graph::{
+    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
+    MatchGraph,
+};
 use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame};
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
@@ -156,9 +159,17 @@ pub fn stitch_tile(
         return Err(StitchError::Cancelled);
     }
     let mut match_failures: Vec<String> = Vec::new();
+    // #1215: content-based nomination for unordered / metadata-free tile
+    // input (film scans, nadir strips) — exactly this entry point's own
+    // motivating scenario.
+    let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
     let graph: MatchGraph = build_match_graph(
         &proxy_images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        &[
+            &CaptureOrderProvider,
+            &GimbalPriorProvider::default(),
+            &descriptor_topk,
+        ],
         |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
             Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
             Err(e) => {
