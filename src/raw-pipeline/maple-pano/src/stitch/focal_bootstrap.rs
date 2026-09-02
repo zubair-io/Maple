@@ -182,13 +182,17 @@ pub(super) fn rebuild_graph_with_focal(
 
 /// Full homography-fallback refinement, in place — the single call
 /// `stitch()` makes after its first (bootstrap) `build_match_graph`.
-/// A no-op when `focal_seed.source` is [`FocalSeedSource::Exif`].
-/// Otherwise: self-calibrates the real focal from `graph`, rebuilds
-/// `full_images`/`proxy_images` at that focal, and rebuilds `graph`
-/// against them (reusing `raw_matches_cache`, appending anything
-/// `fetch` supplies for an uncached pair). Returns `None` when
-/// [`refine_from_homography`] can't produce an estimate — the caller's
-/// hard-error floor (spec §5.3: fewer than 1 verified pair).
+/// A no-op (`Some(vec![])`) when `focal_seed.source` is
+/// [`FocalSeedSource::Exif`]. Otherwise: self-calibrates the real focal
+/// from `graph`, rebuilds `full_images`/`proxy_images` at that focal,
+/// and rebuilds `graph` against them (reusing `raw_matches_cache`,
+/// appending anything `fetch` supplies for an uncached pair). Returns
+/// `None` when [`refine_from_homography`] can't produce an estimate —
+/// the caller's hard-error floor (spec §5.3: fewer than 1 verified
+/// pair). Otherwise `Some(failures)`: any `fetch` error for an uncached
+/// pair, formatted `"pair (a,b): <cause>"` — the caller decides whether
+/// a non-empty list is fatal (mirrors the bootstrap build's own
+/// `match_failures` accumulation).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn refine_if_needed(
     focal_seed: &mut FocalSeed,
@@ -199,10 +203,10 @@ pub(super) fn refine_if_needed(
     full_images: &mut Vec<GraphImage>,
     proxy_images: &mut Vec<GraphImage>,
     raw_matches_cache: &mut Vec<((usize, usize), Vec<PixelCorrespondence>)>,
-    mut fetch: impl FnMut(usize, usize) -> Vec<PixelCorrespondence>,
-) -> Option<()> {
+    mut fetch: impl FnMut(usize, usize) -> Result<Vec<PixelCorrespondence>, String>,
+) -> Option<Vec<String>> {
     if focal_seed.source != FocalSeedSource::HomographyFallback {
-        return Some(());
+        return Some(Vec::new());
     }
     focal_seed.full_px = refine_from_homography(graph, proxy_dims, proxy_scale)?;
     let (refined_full, refined_proxy) =
@@ -210,14 +214,28 @@ pub(super) fn refine_if_needed(
     *full_images = refined_full;
     *proxy_images = refined_proxy;
 
+    // Moved (not cloned) into the lookup map — `rebuild_graph_with_focal`
+    // below still clones on an actual cache *hit* (unavoidable:
+    // `build_match_graph` needs an owned return value while the cache
+    // stays intact for reuse), but a pair nobody re-requests now costs
+    // nothing, instead of always paying a full deep-clone up front
+    // (#1214 review, Copilot).
     let cache: HashMap<(usize, usize), Vec<PixelCorrespondence>> =
-        raw_matches_cache.iter().cloned().collect();
-    *graph = rebuild_graph_with_focal(proxy_images, &cache, |a, b| {
-        let corrs = fetch(a, b);
-        raw_matches_cache.push(((a, b), corrs.clone()));
-        corrs
+        std::mem::take(raw_matches_cache).into_iter().collect();
+    let mut newly_fetched: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+    *graph = rebuild_graph_with_focal(proxy_images, &cache, |a, b| match fetch(a, b) {
+        Ok(corrs) => {
+            newly_fetched.push(((a, b), corrs.clone()));
+            corrs
+        }
+        Err(e) => {
+            failures.push(format!("pair ({a},{b}): {e}"));
+            Vec::new()
+        }
     });
-    Some(())
+    *raw_matches_cache = cache.into_iter().chain(newly_fetched).collect();
+    Some(failures)
 }
 
 #[cfg(test)]
