@@ -14,8 +14,13 @@
 // (`ImageEditPipeline.processSceneLinear`) does not have that stage
 // available to it — the FFI struct it drives has no film-look field
 // (#2713) — but its OUTPUT is already the final display-encoded sRGB
-// `CIImage` (`encodeDisplaySRGBViaFFI`'s result), which is exactly the
-// domain a `.mlut` lattice is baked in. That means the lattice can be
+// `CIImage` (`encodeDisplayViaFFI`'s result). Since #3190 made that encode
+// P3-capable (honoring `CanvasColorSpace.current` for `Profile::Neutral`),
+// every call site that composites this cube afterward passes
+// `targetPrimariesOverride: .srgb` to `processSceneLinear` /
+// `processSceneLinearNonRaw` whenever a look is active, so the encode
+// stays pinned to sRGB — exactly the domain a `.mlut` lattice is baked in
+// — regardless of the canvas setting. That means the lattice can be
 // applied directly as a Core Image color cube on that output, without
 // reimplementing raw-core's Rec.2020⇄sRGB round-trip in Swift — trading
 // raw-core's LINEAR-domain strength blend for one baked into the CUBE
