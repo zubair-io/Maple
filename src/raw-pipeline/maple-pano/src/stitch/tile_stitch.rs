@@ -328,7 +328,17 @@ pub(super) fn tile_tail(
     for (ei, edge) in graph.edges.iter_mut().enumerate() {
         let get = |idx: usize| -> Result<_, StitchError> {
             cache.get(idx).map_err(|e| StitchError::Decode {
-                path: inputs.get(idx).cloned().unwrap_or_default(),
+                // `idx` here always comes from a graph edge, which stage 2
+                // built from valid frame indices, so this out-of-range
+                // fallback should be unreachable in practice. If it ever
+                // does trip, name the bad index explicitly rather than
+                // silently falling back to an empty, hard-to-debug path
+                // (Copilot review) — `cache.get`'s own error (in `cause`)
+                // already reports the index too.
+                path: inputs
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| PathBuf::from(format!("<frame index {idx} out of range>"))),
                 cause: e.to_string(),
             })
         };
