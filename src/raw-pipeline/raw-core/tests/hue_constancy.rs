@@ -27,10 +27,8 @@
 //!
 //! Measured baseline (release, this commit): worst drift 1.43° (`Skin`,
 //! view-transform-only), comfortably under the ticket's proposed 2° budget
-//! — see `MAX_HUE_DRIFT_DEG`. No fix was needed to land under budget, so
-//! this PR only adds the gate; `Refs #1625`, not `Closes #1625` — the
-//! Munsell-style correction the ticket floats as a fallback is unnecessary
-//! while every case is green.
+//! — see `MAX_HUE_DRIFT_DEG`. Every case is green, so the Munsell-style
+//! correction the ticket floats as a fallback was not needed.
 
 use raw_core::color::oklab::srgb_linear_to_oklab;
 use raw_core::pipeline::{render_from_scene_linear, render_from_scene_linear_with_chain};
@@ -215,14 +213,22 @@ fn skin_hue_constancy_vibrance_saturation() {
     vibrance_saturation_case(RampHue::Skin);
 }
 
-/// Smoke test that every named hue is actually covered by one of the
-/// per-hue tests above — guards against a hue silently falling off the
-/// list during a future edit.
+/// `HUES` must list exactly the hues the dedicated `#[test]` functions
+/// above cover — this can't be checked by introspecting the test binary,
+/// so it's asserted against an explicit mirror of that list instead.
+/// Catches a hue silently falling off (or duplicating on) `HUES` without a
+/// matching pair of tests being added or removed above.
 #[test]
-fn every_named_hue_is_covered_by_a_dedicated_test() {
+fn hues_matches_the_dedicated_test_functions_above() {
+    let tested = [
+        RampHue::Blue,
+        RampHue::Magenta,
+        RampHue::Orange,
+        RampHue::FoliageYellowGreen,
+        RampHue::Skin,
+    ];
     assert_eq!(
-        HUES.len(),
-        5,
-        "update the per-hue #[test] functions above too"
+        HUES, tested,
+        "HUES no longer matches the per-hue #[test] functions above — update both together"
     );
 }
