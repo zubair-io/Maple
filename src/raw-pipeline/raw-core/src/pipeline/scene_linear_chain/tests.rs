@@ -77,6 +77,77 @@ fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
     );
 }
 
+/// #2478: `color_grade` and `grain` must not be no-ops under `skip_agx` —
+/// before the fix, both stages lived inside the `if !skip_agx` block and
+/// `color_grade`/`grain`'s `assert_space(DisplayLinearRec2020)` would have
+/// panicked on the still-`SceneLinearRec2020`-tagged buffer had they run at
+/// all, so a non-RAW render silently dropped colour-grade and grain sliders
+/// the GPU live chain already honours (gated only on the slider itself,
+/// never on RAW-vs-non-RAW). A saturation-only colour grade plus a nonzero
+/// grain amount must measurably move the output relative to an identical
+/// render with both left at their identity defaults.
+#[test]
+fn apply_scene_linear_chain_skip_agx_still_applies_color_grade_and_grain() {
+    let w = 8u32;
+    let h = 8u32;
+    let pixels = (w * h) as usize;
+    let g = f32_to_f16_bits(0.18);
+    let one = f32_to_f16_bits(1.0);
+    let mut input: Vec<u16> = Vec::with_capacity(pixels * 4);
+    for _ in 0..pixels {
+        input.push(g);
+        input.push(g);
+        input.push(g);
+        input.push(one);
+    }
+    let opts = ChainOptions {
+        skip_agx: true,
+        ..ChainOptions::default()
+    };
+    let baseline = apply_scene_linear_chain(&input, w, h, &AdjustmentModel::default(), &opts)
+        .expect("apply_scene_linear_chain skip_agx baseline");
+    let graded_model = AdjustmentModel {
+        color_grade_global_saturation: 60.0,
+        grain_amount: 40.0,
+        ..AdjustmentModel::default()
+    };
+    let graded = apply_scene_linear_chain(&input, w, h, &graded_model, &opts)
+        .expect("apply_scene_linear_chain skip_agx graded");
+    assert_ne!(
+        baseline, graded,
+        "color_grade/grain sliders had no effect under skip_agx — #2478 regressed"
+    );
+}
+
+/// f32 sibling of the above.
+#[test]
+fn apply_scene_linear_chain_f32_skip_agx_still_applies_color_grade_and_grain() {
+    let w = 8u32;
+    let h = 8u32;
+    let pixels = (w * h) as usize;
+    let mut input: Vec<f32> = Vec::with_capacity(pixels * 4);
+    for _ in 0..pixels {
+        input.extend_from_slice(&[0.18, 0.18, 0.18, 1.0]);
+    }
+    let opts = ChainOptions {
+        skip_agx: true,
+        ..ChainOptions::default()
+    };
+    let baseline = apply_scene_linear_chain_f32(&input, w, h, &AdjustmentModel::default(), &opts)
+        .expect("apply_scene_linear_chain_f32 skip_agx baseline");
+    let graded_model = AdjustmentModel {
+        color_grade_global_saturation: 60.0,
+        grain_amount: 40.0,
+        ..AdjustmentModel::default()
+    };
+    let graded = apply_scene_linear_chain_f32(&input, w, h, &graded_model, &opts)
+        .expect("apply_scene_linear_chain_f32 skip_agx graded");
+    assert_ne!(
+        baseline, graded,
+        "color_grade/grain sliders had no effect under skip_agx — #2478 regressed"
+    );
+}
+
 /// Length mismatch surfaces as a Pipeline error, not a panic.
 #[test]
 fn apply_scene_linear_chain_rejects_size_mismatch() {
