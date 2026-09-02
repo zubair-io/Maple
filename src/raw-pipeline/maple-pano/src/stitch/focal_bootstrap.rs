@@ -183,14 +183,14 @@ pub(super) fn rebuild_graph_with_focal(
 
 /// Full homography-fallback refinement, in place — the single call
 /// `stitch()` makes after its first (bootstrap) `build_match_graph`.
-/// A no-op (`Some(vec![])`) when `focal_seed.source` is
+/// A no-op (`Ok(())`) when `focal_seed.source` is
 /// [`FocalSeedSource::Exif`]. Otherwise: self-calibrates the real focal
 /// from `graph`, rebuilds `full_images`/`proxy_images` at that focal,
 /// and rebuilds `graph` against them (reusing `raw_matches_cache`,
 /// appending anything `fetch` supplies for an uncached pair). Returns
 /// `Err(StitchError::NoFocalSeed)` when [`refine_from_homography`] can't produce an estimate —
 /// the caller's hard-error floor (spec §5.3: fewer than 1 verified
-/// pair). Otherwise `Some(failures)`: any `fetch` error for an uncached
+/// pair). Otherwise `Err(StitchError::MatchFailed(failures))`: any `fetch` error for an uncached
 /// pair, formatted `"pair (a,b): <cause>"` — the caller decides whether
 /// a non-empty list is fatal (mirrors the bootstrap build's own
 /// `match_failures` accumulation).
