@@ -65,9 +65,12 @@ extension CloudSource: ImageSource {
   /// listing's `dirs` separately. Single round-trip; no auto-pagination.
   public func images() async throws -> [ImageRef] {
     let listing = try await listDir(absPath: currentPath)
-    let iso8601 = ISO8601DateFormatter()
+    // #959: was a fresh `ISO8601DateFormatter()` per call; the shared,
+    // cached `ISO8601FlexibleDateDecoding` parser also tolerates the
+    // fractional-second form the server emits, which the previous
+    // plain-only formatter would have silently failed to parse.
     return listing.images.map { img in
-      let captureDate = img.exif?.captured_at.flatMap { iso8601.date(from: $0) }
+      let captureDate = img.exif?.captured_at.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
       return ImageRef(id: "fs:\(img.path)", displayName: img.name, url: nil,
                       captureDate: captureDate)
     }
@@ -231,10 +234,10 @@ extension CloudSource: ImageSource {
     }
     let window = collected.dropFirst(dropFront).prefix(limit)
 
-    let iso8601 = ISO8601DateFormatter()
+    // #959: see the same fix in `images()` above.
     return window.map { a in
       ImageRef(id: a.id, displayName: a.filename, url: nil,
-               captureDate: a.captured_at.flatMap { iso8601.date(from: $0) })
+               captureDate: a.captured_at.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) })
     }
   }
 

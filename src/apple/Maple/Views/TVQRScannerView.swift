@@ -42,7 +42,7 @@ struct TVQRScannerView: View {
       if scannerAvailable {
         DataScannerRepresentable(onPayload: onPayload)
           .frame(minHeight: 260)
-          .clipShape(RoundedRectangle(cornerRadius: 12))
+          .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.lg))
           .accessibilityLabel("Camera preview — point it at the Apple TV's pairing QR code")
       } else {
         VStack(spacing: 8) {

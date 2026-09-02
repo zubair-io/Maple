@@ -187,11 +187,11 @@ private struct ToneCurveChannelChip: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 3)
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
                             .fill(isSelected ? ProTokens.accent(0x28) : Color.clear)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
                             .stroke(isSelected ? tint : Color.clear, lineWidth: 0.5)
                     )
                 Circle()

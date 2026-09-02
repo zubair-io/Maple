@@ -169,7 +169,7 @@ public struct LivingSlider: View {
                 Spacer()
 
                 Text(formattedValue)
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .font(MapleTokens.Typography.valueChip)
                     .monospacedDigit()
                     .foregroundStyle(isModified ? ProTokens.accent : ProTokens.textDim)
                     .accessibilityHidden(true)

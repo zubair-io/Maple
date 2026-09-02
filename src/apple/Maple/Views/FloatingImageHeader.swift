@@ -28,7 +28,7 @@ struct FloatingImageHeader<Trailing: View>: View {
             .accessibilityIdentifier("\(identifierPrefix)-back")
 
             Text(displayName)
-                .font(.system(size: 12, design: .monospaced))
+                .font(MapleTokens.Typography.filename)
                 .foregroundStyle(ProTokens.text)
                 .lineLimit(1)
                 .truncationMode(.middle)

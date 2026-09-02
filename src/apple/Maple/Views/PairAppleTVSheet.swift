@@ -97,7 +97,7 @@ struct PairAppleTVSheet: View {
               .foregroundStyle(.secondary)
           }
           .padding(10)
-          .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 8))
+          .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.md))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Pair with \(label)")

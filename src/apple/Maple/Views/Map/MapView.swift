@@ -112,7 +112,7 @@ struct MapView: View {
           ProgressView()
             .controlSize(.small)
             .padding(8)
-            .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 8))
+            .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.md))
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             .allowsHitTesting(false)
@@ -170,7 +170,7 @@ struct MapView: View {
         .frame(maxWidth: 320)
     }
     .padding(24)
-    .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 12))
+    .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.lg))
     // The map itself keeps panning underneath — the state pane is an
     // informational overlay, not a modal (design doc: "the map still
     // pans").

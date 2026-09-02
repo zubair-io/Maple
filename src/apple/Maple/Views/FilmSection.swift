@@ -266,7 +266,7 @@ private struct FilmLookRow: View {
             .contentShape(Rectangle())
             .background(
                 isSelected ? ProTokens.accent(0x1A) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
             )
         }
         .buttonStyle(.plain)

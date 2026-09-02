@@ -121,7 +121,7 @@ struct FilmstripRail: View {
                 .frame(width: tabWidth, height: 36)
                 .background(
                     ProTokens.bg.opacity(ProGlass.opacity),
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
                 )
         }
         .buttonStyle(.plain)
@@ -145,62 +145,32 @@ private struct FilmstripRailCell: View {
     let source: (any ImageSource)?
     let onSelect: (AssetRef) -> Void
 
-    /// Decoded thumbnail bitmap, produced off the main actor (never in `body`).
-    @State private var decoded: CGImage?
-    @State private var loadTask: Task<Void, Never>?
-    @State private var loadedForID: AssetRef.ID?
-
     var body: some View {
         Button {
             onSelect(asset)
         } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(ProTokens.panel)
-
-                if let decoded {
-                    Image(decorative: decoded, scale: 1)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                }
-
-                if isActive {
+            AsyncThumbnail(asset: asset, source: source) { decoded in
+                ZStack {
                     RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(ProTokens.accent, lineWidth: 2)
+                        .fill(ProTokens.panel)
+
+                    if let decoded {
+                        Image(decorative: decoded, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    }
+
+                    if isActive {
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(ProTokens.accent, lineWidth: 2)
+                    }
                 }
+                .frame(width: width, height: height)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
             }
-            .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(asset.displayName)
         .accessibilityAddTraits(isActive ? .isSelected : [])
-        .onAppear { startLoad() }
-        .onDisappear {
-            loadTask?.cancel()
-            loadTask = nil
-        }
-    }
-
-    private func startLoad() {
-        if loadedForID == asset.id, decoded != nil { return }
-        guard loadTask == nil else { return }
-        let capturedAsset = asset
-        let capturedSource = source
-        loadTask = Task { @MainActor in
-            let bytes = await ThumbnailLoader.shared.load(
-                for: capturedAsset, from: capturedSource
-            )
-            guard !Task.isCancelled else { return }
-            // Decode off the main actor before touching view state — never in
-            // `body`. Keyed on the asset's stable id; no arrival fade (it
-            // hitches scroll the same way it does in the grid).
-            let image = await ThumbnailDecoder.image(
-                for: bytes, key: capturedAsset.stableID ?? capturedAsset.id.uuidString)
-            guard !Task.isCancelled else { return }
-            decoded = image
-            loadedForID = capturedAsset.id
-            loadTask = nil
-        }
     }
 }
