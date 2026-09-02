@@ -110,8 +110,7 @@ export async function classifySameFile(
 
 type SidecarRename = { from: string; to: string };
 type PrimaryRenameResult =
-  | { ok: true; renamedSidecars: SidecarRename[] }
-  | { ok: false; error: string };
+  { ok: true; renamedSidecars: SidecarRename[] } | { ok: false; error: string };
 
 /** Renames the primary file directly (`fs.rename`, no staged copy), then
  * best-effort renames every paired sidecar alongside — matching
@@ -196,11 +195,18 @@ export async function performCaseOnlyRename(req: RelocateRequest): Promise<Reloc
   const renamed = await renamePrimaryAndSidecars(req);
   if (!renamed.ok) return { kind: 'error', error: renamed.error };
 
+  // #2667: no known caller combines a case-only rename (source/dest share a
+  // directory) with `extraCompanionAbsPaths` — the geo-relocate route always
+  // moves BETWEEN directories, so this branch is unreachable for it. Left
+  // empty rather than silently dropping a real companion, so a future
+  // caller that DOES combine the two gets a clearly-empty result instead of
+  // a plausible-looking wrong one.
   if (req.onVerified) {
     try {
       await req.onVerified({
         newAbsPath: req.destAbsPath,
         sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
+        companionPaths: [],
       });
     } catch (err) {
       await revertCaseOnlyRename(req, renamed.renamedSidecars);
@@ -215,6 +221,7 @@ export async function performCaseOnlyRename(req: RelocateRequest): Promise<Reloc
     kind: 'relocated',
     newAbsPath: req.destAbsPath,
     sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
+    companionPaths: [],
     renamedOnCollision: false,
   };
 }

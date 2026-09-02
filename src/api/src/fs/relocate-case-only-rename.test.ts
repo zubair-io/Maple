@@ -126,7 +126,9 @@ describe('relocateFile — case-only rename (#2704)', () => {
     async () => {
       await write('a/img.cr3', 'pixels');
       await write('a/img.xmp', 'edits');
-      const captured: { info?: { newAbsPath: string; sidecarPaths: string[] } } = {};
+      const captured: {
+        info?: { newAbsPath: string; sidecarPaths: string[]; companionPaths: string[] };
+      } = {};
       const outcome = await relocateFile({
         sourceAbsPath: abs('a/img.cr3'),
         destAbsPath: abs('a/IMG.CR3'),
@@ -140,6 +142,7 @@ describe('relocateFile — case-only rename (#2704)', () => {
       expect(captured.info).toEqual({
         newAbsPath: abs('a/IMG.CR3'),
         sidecarPaths: [abs('a/IMG.xmp')],
+        companionPaths: [],
       });
     },
   );

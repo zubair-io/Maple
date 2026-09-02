@@ -71,6 +71,10 @@ export interface RelocateVerifiedInfo {
   newAbsPath: string;
   /** Absolute paths of every sidecar successfully copied alongside. */
   sidecarPaths: string[];
+  /** New absolute paths of every `extraCompanionAbsPaths` entry successfully
+   * copied alongside (#2667) — same best-effort contract as `sidecarPaths`,
+   * omitted here (not present) for a companion that failed to copy. */
+  companionPaths: string[];
 }
 
 export interface RelocateRequest {
@@ -82,6 +86,16 @@ export interface RelocateRequest {
   collision: CollisionPolicy;
   /** Tag surfaced in `pickFreePath`'s collision-log (e.g. `'moveToTrash'`). */
   callerTag?: string;
+  /** Absolute paths of extra non-sidecar companion files to carry alongside
+   * the primary (#2667) — e.g. a PhotoKit backup's Apple-rendered JPEG
+   * (`apple_rendered_path`). Same treatment as a `.xmp` sidecar: base-swap
+   * renamed via `sidecarRenameTarget` when the companion's name shares the
+   * primary's base (falling back to an unchanged basename in the new
+   * directory when it doesn't — mirrors
+   * `workers/migration/restructure-fs.ts`'s `planAndPlace`), copy+verify,
+   * best-effort (a companion that fails to copy is logged and left at its
+   * original location, same as a sidecar), deleted on `mode: 'move'`. */
+  extraCompanionAbsPaths?: string[];
   /** Invoked after the primary + sidecars are copied and verified, before
    * any delete. Throwing (or the returned promise rejecting) aborts the
    * whole relocate: every copy made so far is reverted and the source is
@@ -95,6 +109,9 @@ export type RelocateOutcome =
       kind: 'relocated';
       newAbsPath: string;
       sidecarPaths: string[];
+      /** New absolute paths of every companion successfully copied — see
+       * `RelocateVerifiedInfo.companionPaths` (#2667). */
+      companionPaths: string[];
       /** True when the collision policy actually suffixed the destination
        * away from the caller's requested `destAbsPath`. Only ever true for
        * `'auto-suffix'` / `'keep-both'`. */
@@ -230,21 +247,55 @@ async function tryCopySidecar(sidecar: string, dest: string): Promise<boolean> {
   }
 }
 
+/** #2667: where a non-sidecar companion (e.g. `apple_rendered_path`) lands
+ * when the primary relocates — the SAME base-swap rename `sidecarRenameTarget`
+ * uses, falling back to the companion's unchanged basename in the new
+ * directory when its name doesn't share the primary's base. Matches
+ * `workers/migration/restructure-fs.ts`'s `planAndPlace` fallback for the
+ * same companion. */
+function companionRenameTarget(
+  oldAbsPath: string,
+  newAbsPath: string,
+  companionAbsPath: string,
+): string {
+  const renamed = sidecarRenameTarget(oldAbsPath, newAbsPath, companionAbsPath);
+  return renamed ?? path.join(path.dirname(newAbsPath), path.basename(companionAbsPath));
+}
+
+/** Best-effort copy of one non-sidecar companion — same contract as
+ * `tryCopySidecar` (#2667). */
+async function tryCopyCompanion(companion: string, dest: string): Promise<boolean> {
+  try {
+    await copyVerifiedIntoPlace(companion, dest);
+    return true;
+  } catch (err) {
+    log.warn(
+      { companion, dest, err: err instanceof Error ? err.message : err },
+      'relocate: companion copy failed — original left in place',
+    );
+    return false;
+  }
+}
+
 interface SidecarCopyResult {
   copiedSidecars: string[];
   movedSidecarSources: string[];
+  companionPaths: string[];
+  movedCompanionSources: string[];
 }
 
 /** Steps 2-4: copy + verify + publish the primary, then best-effort carry
- * every paired sidecar alongside. Pushes every path it creates onto the
- * caller's `createdPaths` accumulator as it goes (not just on success) so a
- * mid-loop throw still leaves the caller able to revert exactly what exists
- * on disk. Throws only for a PRIMARY copy failure — sidecar failures are
- * swallowed by `tryCopySidecar`. */
+ * every paired sidecar and extra companion (#2667) alongside. Pushes every
+ * path it creates onto the caller's `createdPaths` accumulator as it goes
+ * (not just on success) so a mid-loop throw still leaves the caller able to
+ * revert exactly what exists on disk. Throws only for a PRIMARY copy
+ * failure — sidecar/companion failures are swallowed by `tryCopySidecar` /
+ * `tryCopyCompanion`. */
 async function copyPrimaryAndSidecars(
   sourceAbsPath: string,
   finalDest: string,
   collision: CollisionPolicy,
+  extraCompanionAbsPaths: string[],
   createdPaths: string[],
 ): Promise<SidecarCopyResult> {
   await copyVerifiedIntoPlace(sourceAbsPath, finalDest);
@@ -260,6 +311,16 @@ async function copyPrimaryAndSidecars(
     createdPaths.push(dest);
     copiedSidecars.push(dest);
     movedSidecarSources.push(sidecar);
+  }
+
+  const companionPaths: string[] = [];
+  const movedCompanionSources: string[] = [];
+  for (const companion of extraCompanionAbsPaths) {
+    const dest = companionRenameTarget(sourceAbsPath, finalDest, companion);
+    if (!(await tryCopyCompanion(companion, dest))) continue;
+    createdPaths.push(dest);
+    companionPaths.push(dest);
+    movedCompanionSources.push(companion);
   }
 
   if (sourceSidecars.length === 0 && collision === 'replace') {
@@ -279,7 +340,7 @@ async function copyPrimaryAndSidecars(
     }
   }
 
-  return { copiedSidecars, movedSidecarSources };
+  return { copiedSidecars, movedSidecarSources, companionPaths, movedCompanionSources };
 }
 
 /** Step 5: run the caller's identity-repoint hook (if any) between the
@@ -309,6 +370,7 @@ async function runIdentityRepoint(
 async function deleteOriginals(
   sourceAbsPath: string,
   movedSidecarSources: string[],
+  movedCompanionSources: string[],
 ): Promise<void> {
   await fs.unlink(sourceAbsPath).catch((err) => {
     log.warn(
@@ -316,11 +378,11 @@ async function deleteOriginals(
       'relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)',
     );
   });
-  for (const src of movedSidecarSources) {
+  for (const src of [...movedSidecarSources, ...movedCompanionSources]) {
     await fs.unlink(src).catch((err) => {
       log.warn(
         { src, err: err instanceof Error ? err.message : err },
-        'relocate: source sidecar unlink failed after a verified copy',
+        'relocate: source sidecar/companion unlink failed after a verified copy',
       );
     });
   }
@@ -374,18 +436,21 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
 
   const createdPaths: string[] = [];
   try {
-    // 2-4. Copy + verify the primary, then carry the sidecars alongside.
-    const { copiedSidecars, movedSidecarSources } = await copyPrimaryAndSidecars(
-      req.sourceAbsPath,
-      finalDest,
-      req.collision,
-      createdPaths,
-    );
+    // 2-4. Copy + verify the primary, then carry the sidecars + any extra
+    // companions (#2667) alongside.
+    const { copiedSidecars, movedSidecarSources, companionPaths, movedCompanionSources } =
+      await copyPrimaryAndSidecars(
+        req.sourceAbsPath,
+        finalDest,
+        req.collision,
+        req.extraCompanionAbsPaths ?? [],
+        createdPaths,
+      );
 
     // 5. Identity repoint, between verify and delete.
     const repointError = await runIdentityRepoint(
       req.onVerified,
-      { newAbsPath: finalDest, sidecarPaths: copiedSidecars },
+      { newAbsPath: finalDest, sidecarPaths: copiedSidecars, companionPaths },
       createdPaths,
     );
     if (repointError) {
@@ -394,13 +459,14 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
 
     // 6. Delete the originals — move mode only.
     if (req.mode === 'move') {
-      await deleteOriginals(req.sourceAbsPath, movedSidecarSources);
+      await deleteOriginals(req.sourceAbsPath, movedSidecarSources, movedCompanionSources);
     }
 
     return {
       kind: 'relocated',
       newAbsPath: finalDest,
       sidecarPaths: copiedSidecars,
+      companionPaths,
       renamedOnCollision: finalDest !== req.destAbsPath,
     };
   } catch (err) {

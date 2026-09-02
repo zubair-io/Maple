@@ -16,11 +16,12 @@
  * Per-asset error isolation: one failure never aborts the batch and never
  * leaves a half-moved file (crash-safe copy→verify→repoint→delete order).
  *
- * The `.xmp` sidecar is handled automatically by `moveBackupAsset` →
- * `planAndPlace` via `listPairedSidecars`, which includes it as a companion —
- * for both the stem-swap convention images use (`photo.dng` → `photo.xmp`)
- * and the full-name convention videos use (`clip.mov` → `clip.mov.xmp`).
- * Videos are relocation candidates the same as any other asset (#1678).
+ * The `.xmp` sidecar is handled automatically by `relocateGeoAsset` (#2667,
+ * `library/relocate-geo.ts` — built on the shared `relocateAsset` primitive)
+ * via `listPairedSidecars`, which includes it as a companion — for both the
+ * stem-swap convention images use (`photo.dng` → `photo.xmp`) and the
+ * full-name convention videos use (`clip.mov` → `clip.mov.xmp`). Videos are
+ * relocation candidates the same as any other asset (#1678).
  *
  * Does NOT stamp `backup_layout_version` — that marker belongs to the bulk
  * geo-migration sweep, not targeted on-demand relocates.
@@ -54,7 +55,7 @@ function assetActiveFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null
 }
 import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
-import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
+import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import type { Collection, WithId } from 'mongodb';
@@ -489,13 +490,16 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
         }
 
         try {
-          // moveBackupAsset called WITHOUT extraSet — do NOT stamp backup_layout_version.
-          // The sidecar is included automatically via listPairedSidecars in planAndPlace.
+          // relocateGeoAsset never stamps backup_layout_version — that marker
+          // belongs to the bulk geo-migration sweep, not this on-demand route.
+          // The sidecar (and, if present, the apple_rendered_path companion)
+          // is included automatically (#2667).
           const originalFilename = primary?.filename;
-          const outcome = await moveBackupAsset(c, doc, libRoot, newDir);
-          // `renamed` is only meaningful for an actual move. moveBackupAsset can't
-          // report a collision auto-rename, so re-read the repointed fileinfo and
-          // compare the new filename to the one we started with.
+          const outcome = await relocateGeoAsset(c, doc, libRoot, newDir, primary!);
+          // `renamed` is only meaningful for an actual move. relocateGeoAsset
+          // can't report a collision auto-rename directly, so re-read the
+          // repointed fileinfo and compare the new filename to the one we
+          // started with.
           const renamed =
             outcome === 'moved' && originalFilename != null
               ? await didRename(c, doc._id, originalFilename)
