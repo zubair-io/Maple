@@ -201,14 +201,15 @@ public final class GpuLiveDriver {
         }
     }
 
-    /// Keep `layer.colorspace` in lockstep with `CanvasColorSpace.current`
-    /// (#1338) — the SAME setting `PipelineRenderer`/`GpuLiveParams` just
-    /// read to pick `target_primaries` for the pixels this present is about
-    /// to write. A stale tag here reproduces #1512 (CoreAnimation double- or
-    /// non-converting the primaries) the moment the Settings toggle flips
-    /// while an asset is open.
-    private func retagLayerIfNeeded(_ layer: CAMetalLayer) {
-        let target = CanvasColorSpace.current
+    /// Keep `layer.colorspace` in lockstep with `target` (#1338) — the exact
+    /// `CanvasColorSpace` `present()` below is ABOUT to pass into
+    /// `GpuLiveParams`/`PipelineRenderer` for `target_primaries`. `present()`
+    /// reads `CanvasColorSpace.current` ONCE and hands the SAME value to
+    /// both this call and the params call — two independent `.current` reads
+    /// a moment apart could observe a mid-flight Settings change differently
+    /// and reproduce #1512 (CoreAnimation double- or non-converting the
+    /// primaries) for exactly one frame (Copilot review on #3192).
+    private func retagLayerIfNeeded(_ layer: CAMetalLayer, to target: CanvasColorSpace) {
         guard target != taggedColorSpace else { return }
         let name: CFString = target == .displayP3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB
         guard let space = CGColorSpace(name: name) else { return }
@@ -305,7 +306,11 @@ public final class GpuLiveDriver {
             gpuDriverLog.notice("GPU-TRACE driver.present skipped: no layer")
             return
         }
-        retagLayerIfNeeded(layer)
+        // Read ONCE and hand the SAME value to both the layer tag and the
+        // params below — see `retagLayerIfNeeded`'s doc for why two
+        // independent `.current` reads would race.
+        let colorSpace = CanvasColorSpace.current
+        retagLayerIfNeeded(layer, to: colorSpace)
         gpuDriverLog.notice("GPU-TRACE driver.present begin drawableSize=\(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height))")
         // drawableSize divergence check (#1769): the Rust side is
         // `drawableSize`'s single writer (`surface.configure`), so when this
@@ -333,7 +338,8 @@ public final class GpuLiveDriver {
                 asShotCCT: asShotCCT, asShotTint: asShotTint,
                 inputShape: self.inputShape,
                 surfaceGeneration: surfaceGeneration,
-                wbFrame: wbFrame
+                wbFrame: wbFrame,
+                targetColorSpace: colorSpace
             )
             withExtendedLifetime(cancel) {}
             if let elapsedMs {
