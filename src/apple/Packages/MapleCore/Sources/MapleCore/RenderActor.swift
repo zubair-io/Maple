@@ -150,18 +150,15 @@ public actor RenderActor {
 
     /// Decode-exported auto-exposure gain captured at decode time
     /// (#1167/#2070). Mirrors `decodedWbFrame`'s export contract but is
-    /// never optional (`1.0` for non-RAW / seeded buffers or frame-less
-    /// bodies — see `MapleSceneLinearImageData.aeGain`). Stored alongside
-    /// the decoded image so `NativeDetailRenderer` can thread the SAME gain
-    /// the buffer on screen was developed with into its tile refine.
+    /// never optional (`1.0` for non-RAW/seeded/frame-less bodies — see
+    /// `MapleSceneLinearImageData.aeGain`). Stored alongside the decoded
+    /// image so `NativeDetailRenderer` threads the SAME gain into its tile refine.
     var decodedAeGain: Float = 1.0
 
     /// Whether the cached `decodedImage`'s RAW carries lens-correction
-    /// opcodes at all, and whether the CA slider specifically is inert
-    /// (#2231) — see `ImageEditPipeline.SceneLinearDecodeResult`'s
-    /// matching doc comments. Stored alongside the decoded image so the
-    /// lens-correction inspector panel can disable/hide itself without
-    /// re-decoding.
+    /// opcodes, and whether the CA slider is inert (#2231) — see
+    /// `ImageEditPipeline.SceneLinearDecodeResult`'s doc comments. Stored
+    /// so the inspector can disable/hide itself without re-decoding.
     var decodedHasLensCorrections: Bool = false
     var decodedLensCorrectionCaInert: Bool = true
 
@@ -334,10 +331,8 @@ public actor RenderActor {
         /// silently presenting the live chain over stale pixels.
         public let decodeGeneration: UInt64
         /// Whether the cached buffer's RAW carries lens-correction opcodes
-        /// at all, and whether the CA slider specifically is inert (#2231)
-        /// — see `ImageEditPipeline.SceneLinearDecodeResult`'s matching doc
-        /// comments. `false`/`true` for seeded / non-RAW buffers, matching
-        /// their `noiseProfile`/`iso` defaults.
+        /// and whether the CA slider is inert (#2231) — see
+        /// `ImageEditPipeline.SceneLinearDecodeResult`'s doc comments.
         public let hasLensCorrections: Bool
         public let lensCorrectionCaInert: Bool
     }
