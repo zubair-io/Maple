@@ -44,10 +44,8 @@ fn parse_s5_effects_fields() {
 
 /// Parametric tone-curve region sliders (prerequisite for #368): the four
 /// PV2012 `crs:Parametric{Highlights,Lights,Darks,Shadows}` keys parse onto
-/// the matching `parametric_*` model scalars. ACR's split-point keys are
-/// intentionally unmapped — the model has no split-point fields, so the
-/// curve builder holds them as the ACR defaults (25/50/75) in constants.
-/// Round-tripping them is #2320.
+/// the matching `parametric_*` model scalars, and (#2320) the three ACR
+/// split-point keys parse onto `parametric_{shadow,midtone,highlight}_split`.
 #[test]
 fn parse_parametric_tone_curve_fields() {
     let xml = r#"<?xml version="1.0"?>
@@ -57,7 +55,10 @@ fn parse_parametric_tone_curve_fields() {
               crs:ParametricHighlights="100"
               crs:ParametricLights="-50"
               crs:ParametricDarks="25"
-              crs:ParametricShadows="-100"/>
+              crs:ParametricShadows="-100"
+              crs:ParametricShadowSplit="20"
+              crs:ParametricMidtoneSplit="55"
+              crs:ParametricHighlightSplit="80"/>
           </rdf:RDF>
         </x:xmpmeta>"#;
     let m = parse(xml).unwrap();
@@ -65,9 +66,13 @@ fn parse_parametric_tone_curve_fields() {
     assert_eq!(m.parametric_lights, -50.0);
     assert_eq!(m.parametric_darks, 25.0);
     assert_eq!(m.parametric_shadows, -100.0);
+    assert_eq!(m.parametric_shadow_split, 20.0);
+    assert_eq!(m.parametric_midtone_split, 55.0);
+    assert_eq!(m.parametric_highlight_split, 80.0);
 }
 
-/// Absent parametric attributes round-trip as the zero (identity) defaults.
+/// Absent parametric attributes round-trip as the identity defaults — 0 for
+/// the region sliders, 25/50/75 for the split points.
 #[test]
 fn parse_no_parametric_attrs_leaves_defaults() {
     let xml = r#"<?xml version="1.0"?>
@@ -82,6 +87,12 @@ fn parse_no_parametric_attrs_leaves_defaults() {
     assert_eq!(m.parametric_lights, d.parametric_lights);
     assert_eq!(m.parametric_darks, d.parametric_darks);
     assert_eq!(m.parametric_shadows, d.parametric_shadows);
+    assert_eq!(m.parametric_shadow_split, d.parametric_shadow_split);
+    assert_eq!(m.parametric_midtone_split, d.parametric_midtone_split);
+    assert_eq!(m.parametric_highlight_split, d.parametric_highlight_split);
+    assert_eq!(d.parametric_shadow_split, 25.0);
+    assert_eq!(d.parametric_midtone_split, 50.0);
+    assert_eq!(d.parametric_highlight_split, 75.0);
 }
 
 /// Absent S5 effects attributes round-trip as the identity-stub defaults
@@ -319,6 +330,75 @@ fn parametric_serialize_rounds_to_wire_codec() {
     m.parametric_lights = f32::NAN;
     assert!(
         !serialize(&m).contains("crs:Parametric"),
+        "non-finite values must not reach the sidecar"
+    );
+}
+
+/// The three ACR split points (#2320) serialize to their `crs:Parametric*
+/// Split` keys and omit at their own non-zero defaults (25/50/75) — each
+/// compared against its own default, not a shared `!= 0.0` gate. Non-default
+/// values round-trip through serialize → parse.
+#[test]
+fn parametric_split_serialize_roundtrip_and_default_omission() {
+    let m = AdjustmentModel::default();
+    assert!(
+        !serialize(&m).contains("Split"),
+        "default split points must not be serialized"
+    );
+
+    let mut m = AdjustmentModel::default();
+    m.parametric_shadow_split = 10.0;
+    m.parametric_midtone_split = 55.25; // fractional — widget drags are not integer-quantized
+    m.parametric_highlight_split = 90.0;
+    let frag = serialize(&m);
+    for expected in [
+        r#"crs:ParametricShadowSplit="10""#,
+        r#"crs:ParametricMidtoneSplit="55.25""#,
+        r#"crs:ParametricHighlightSplit="90""#,
+    ] {
+        assert!(
+            frag.contains(expected),
+            "missing {expected} in fragment: {frag}"
+        );
+    }
+
+    let xml = format!(
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"{frag}/>
+          </rdf:RDF>
+        </x:xmpmeta>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.parametric_shadow_split, 10.0);
+    assert_eq!(parsed.parametric_midtone_split, 55.25);
+    assert_eq!(parsed.parametric_highlight_split, 90.0);
+}
+
+/// Same wire-codec convention as the region sliders: a value that rounds to
+/// its default at 2 decimals is omitted, values round to 2 decimals, and
+/// non-finite values never reach the sidecar.
+#[test]
+fn parametric_split_serialize_rounds_to_wire_codec() {
+    let mut m = AdjustmentModel::default();
+    m.parametric_shadow_split = 25.004; // rounds to the 25.0 default
+    assert!(
+        !serialize(&m).contains("Split"),
+        "a value that rounds to the default must be omitted, got: {}",
+        serialize(&m)
+    );
+
+    m.parametric_shadow_split = 33.333_333;
+    let frag = serialize(&m);
+    assert!(
+        frag.contains(r#"crs:ParametricShadowSplit="33.33""#),
+        "wire value must round to 2 decimals, got: {frag}"
+    );
+
+    m.parametric_shadow_split = f32::NAN;
+    assert!(
+        !serialize(&m).contains("Split"),
         "non-finite values must not reach the sidecar"
     );
 }

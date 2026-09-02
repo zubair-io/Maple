@@ -279,6 +279,32 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             out.push_str(&format!(r#" {key}="{rounded}""#));
         }
     }
+    // ACR's parametric split points (#2320) — same Lightroom-compatible
+    // `crs:` keys and omit-on-default convention as the region sliders
+    // above, but each has its own non-zero default (25/50/75), so the
+    // per-field default is compared rather than a shared `!= 0.0` gate.
+    for (key, value, default) in [
+        (
+            "crs:ParametricShadowSplit",
+            model.parametric_shadow_split,
+            25.0,
+        ),
+        (
+            "crs:ParametricMidtoneSplit",
+            model.parametric_midtone_split,
+            50.0,
+        ),
+        (
+            "crs:ParametricHighlightSplit",
+            model.parametric_highlight_split,
+            75.0,
+        ),
+    ] {
+        let rounded = (value * 100.0).round() / 100.0;
+        if rounded.is_finite() && rounded != default {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
+    }
     // Black & white mix (#276) — see the sibling module for why this group
     // is emitted here when the HSL sliders are not.
     out.push_str(&black_white::serialize(model));

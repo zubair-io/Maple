@@ -32,6 +32,9 @@ extension AdjustmentModel {
         case parametricLights = "parametric_lights"
         case parametricDarks = "parametric_darks"
         case parametricShadows = "parametric_shadows"
+        case parametricShadowSplit = "parametric_shadow_split"
+        case parametricMidtoneSplit = "parametric_midtone_split"
+        case parametricHighlightSplit = "parametric_highlight_split"
         case vibrance = "vibrance"
         case saturation = "saturation"
         case clarity = "clarity"
@@ -145,6 +148,12 @@ extension AdjustmentModel {
     public static let parametricDarksRange: ClosedRange<Double> = -100.0...100.0
     /// Parametric tone curve — shadows region (PV2012, lower quarter).
     public static let parametricShadowsRange: ClosedRange<Double> = -100.0...100.0
+    /// Parametric tone curve — shadow/darks split point (ACR crs:ParametricShadowSplit, #2320).
+    public static let parametricShadowSplitRange: ClosedRange<Double> = 0.0...100.0
+    /// Parametric tone curve — darks/lights split point (ACR crs:ParametricMidtoneSplit, #2320).
+    public static let parametricMidtoneSplitRange: ClosedRange<Double> = 0.0...100.0
+    /// Parametric tone curve — lights/highlights split point (ACR crs:ParametricHighlightSplit, #2320).
+    public static let parametricHighlightSplitRange: ClosedRange<Double> = 0.0...100.0
     /// Vibrance (saturation with skin-tone protection) per spec § 3.7.
     public static let vibranceRange: ClosedRange<Double> = -100.0...100.0
     /// Global saturation.
@@ -353,6 +362,9 @@ extension AdjustmentGroup {
                 "parametric_lights",
                 "parametric_darks",
                 "parametric_shadows",
+                "parametric_shadow_split",
+                "parametric_midtone_split",
+                "parametric_highlight_split",
                 "auto_exposure",
                 "tone_curve_mode",
                 "tone_curve_luma",

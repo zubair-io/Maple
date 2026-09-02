@@ -53,6 +53,9 @@ function canonicalFixtureModel(): AdjustmentModel {
     parametricLights: -3,
     parametricDarks: 2.5,
     parametricShadows: -1,
+    parametricShadowSplit: 30,
+    parametricMidtoneSplit: 55.5,
+    parametricHighlightSplit: 80,
     vibrance: 15,
     saturation: -10,
     clarity: 20,
@@ -353,8 +356,11 @@ const CANONICAL_GOLDEN_DOCUMENT = `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSz
       crs:LuminanceAdjustmentBlue="-13"
       crs:LuminanceSmoothing="18"
       crs:ParametricDarks="2.5"
+      crs:ParametricHighlightSplit="80"
       crs:ParametricHighlights="4"
       crs:ParametricLights="-3"
+      crs:ParametricMidtoneSplit="55.5"
+      crs:ParametricShadowSplit="30"
       crs:ParametricShadows="-1"
       crs:PostCropVignetteAmount="-20"
       crs:PostCropVignetteFeather="40"
