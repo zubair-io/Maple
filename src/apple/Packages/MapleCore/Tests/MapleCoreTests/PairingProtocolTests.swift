@@ -190,20 +190,22 @@ final class PairingProtocolTests: XCTestCase {
     let v1String = try v1Legacy.qrString()
     let v2String = try session.qrPayload.qrStringV2()
 
-    let v1Modules = try XCTUnwrap(Self.qrModuleCount(for: v1String))
-    let v2Modules = try XCTUnwrap(Self.qrModuleCount(for: v2String))
+    let v1Px = try XCTUnwrap(Self.qrSymbolPixelWidth(for: v1String))
+    let v2Px = try XCTUnwrap(Self.qrSymbolPixelWidth(for: v2String))
 
-    print("#2137: v1 QR is \(v1String.count) chars -> \(v1Modules)x\(v1Modules) modules; "
-      + "v2 QR is \(v2String.count) chars -> \(v2Modules)x\(v2Modules) modules")
+    print("#2137: v1 QR is \(v1String.count) chars -> \(v1Px)x\(v1Px) px rendered; "
+      + "v2 QR is \(v2String.count) chars -> \(v2Px)x\(v2Px) px rendered")
 
     XCTAssertLessThan(v2String.count, v1String.count)
-    XCTAssertLessThan(v2Modules, v1Modules)
+    XCTAssertLessThan(v2Px, v1Px)
   }
 
   /// Renders `string` through the same `CIQRCodeGenerator` + level-M
-  /// correction the TV's `QRCodeView` uses, and returns the module count
-  /// (the generator emits one pixel per module, unscaled, no quiet zone).
-  private static func qrModuleCount(for string: String) throws -> Int? {
+  /// correction the TV's `QRCodeView` uses, and returns the rendered
+  /// symbol's pixel width. The generator emits roughly one pixel per
+  /// module, unscaled, so this tracks the module count closely — but it is
+  /// an output-pixel measurement, not a spec module count.
+  private static func qrSymbolPixelWidth(for string: String) throws -> Int? {
     let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator"))
     filter.setValue(Data(string.utf8), forKey: "inputMessage")
     filter.setValue("M", forKey: "inputCorrectionLevel")
