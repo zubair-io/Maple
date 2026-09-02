@@ -361,6 +361,17 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         film_lut_size,
         film_lut_key: p.film_lut_key,
         film_lut_data,
+        // Display-referred point curves (#2232) — same flat-pair marshalling
+        // as `tone_curves` above, into the sibling GPU-inputs shape.
+        display_tone_curves: raw_gpu::DisplayToneCurveInputs {
+            master: read_points(p.display_tone_curve_luma_ptr, p.display_tone_curve_luma_len),
+            red: read_points(p.display_tone_curve_red_ptr, p.display_tone_curve_red_len),
+            green: read_points(
+                p.display_tone_curve_green_ptr,
+                p.display_tone_curve_green_len,
+            ),
+            blue: read_points(p.display_tone_curve_blue_ptr, p.display_tone_curve_blue_len),
+        },
     }
 }
 
