@@ -83,11 +83,12 @@ and zone. `wrangler.jsonc.example` is the committed template.
    unknown deep-link path falls back to the app shell, and that a genuinely
    missing asset still 404s.
 5. Purge the edge cache so no client keeps being served a response cached
-   under the old, broken Worker: `CF_API_TOKEN=... CF_ZONE_ID=... npm run
-purge`. Required once after the first deploy of this Worker; recommended
-   after any deploy where response headers or status codes changed (a plain
-   content-only redeploy of `dist/maple-syrup/browser` does not need it,
-   since asset URLs are content-hashed or explicitly `no-cache`).
+   under the old, broken Worker:
+   `CF_API_TOKEN=... CF_ZONE_ID=... npm run purge`. Required once after the
+   first deploy of this Worker; recommended after any deploy where response
+   headers or status codes changed (a plain content-only redeploy of
+   `dist/maple-syrup/browser` does not need it, since asset URLs are
+   content-hashed or explicitly `no-cache`).
 
 ## What this Worker deliberately does not do
 
