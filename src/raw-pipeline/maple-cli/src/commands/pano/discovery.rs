@@ -109,18 +109,27 @@ fn drop_non_conforming(name: &str, probed: Vec<(PathBuf, FrameProbe)>) -> Vec<Pa
     probed
         .into_iter()
         .filter_map(|(path, probe)| {
-            let wrong_body = majority_model
-                .as_deref()
-                .is_some_and(|m| probe.camera_model != m);
+            // An empty model means the file couldn't be read/decoded at
+            // all (probe_frame's failure shape) — there's no model to
+            // compare against the majority, so don't also blame it on
+            // "wrong camera body": that's misleading for a file that was
+            // never identified as any body at all (Copilot review on
+            // #3131).
+            let unreadable = probe.camera_model.is_empty();
+            let wrong_body = !unreadable
+                && majority_model
+                    .as_deref()
+                    .is_some_and(|m| probe.camera_model != m);
             let no_focal = !probe.has_focal;
-            if !no_focal && !wrong_body {
+            if !unreadable && !no_focal && !wrong_body {
                 return Some(path);
             }
-            let reason = match (no_focal, wrong_body) {
-                (true, true) => "no derivable 35mm focal, wrong camera body for this set",
-                (true, false) => "no derivable 35mm focal",
-                (false, true) => "wrong camera body for this set",
-                (false, false) => unreachable!(),
+            let reason = match (unreadable, no_focal, wrong_body) {
+                (true, _, _) => "unreadable or undecodable",
+                (false, true, true) => "no derivable 35mm focal, wrong camera body for this set",
+                (false, true, false) => "no derivable 35mm focal",
+                (false, false, true) => "wrong camera body for this set",
+                (false, false, false) => unreachable!(),
             };
             eprintln!("pano[{name}]: WARN — {}: {reason}, skipped", path.display());
             None
