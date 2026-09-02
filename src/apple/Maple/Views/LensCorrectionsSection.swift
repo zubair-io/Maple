@@ -92,7 +92,7 @@ struct LensCorrectionsSection: View {
                 )
                 .accessibilityIdentifier("slider-lens-distortion")
                 .accessibilityHint(
-                    session.lensCorrectionDistortionInert
+                    (session.hasLensCorrections && session.lensCorrectionDistortionInert)
                         ? "This RAW's lens profile carries no distortion data"
                         : ""
                 )
@@ -107,7 +107,7 @@ struct LensCorrectionsSection: View {
                 .opacity((session.hasLensCorrections && session.lensCorrectionCaInert) ? Self.disabledOpacity : 1)
                 .accessibilityIdentifier("slider-lens-ca")
                 .accessibilityHint(
-                    session.lensCorrectionCaInert
+                    (session.hasLensCorrections && session.lensCorrectionCaInert)
                         ? "This RAW's lens profile carries no chromatic-aberration data"
                         : ""
                 )
