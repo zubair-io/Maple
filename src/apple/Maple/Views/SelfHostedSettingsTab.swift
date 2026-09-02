@@ -67,39 +67,60 @@ struct SelfHostedSettingsTab: View {
     }
     #endif
 
+    /// #1954: gates the header/empty-state card background below. This
+    /// view backs both the iPhone push list (`PhoneSettingsView`, reached
+    /// only when `MapleShellKind.current == .phoneTab` — see
+    /// `AppShell.body`) and the Mac/iPad `SettingsView` modal, and `#if
+    /// os(iOS)` alone can't tell those apart: iPadOS compiles under
+    /// `os(iOS)` too, so a compile-time check would leak the phone's
+    /// list-row card styling into the iPad modal, which #1908 deliberately
+    /// left with its native pane look (same reason `mapleSettingsBackground()`
+    /// is a no-op there). `MapleShellKind` is the codebase's own
+    /// idiom-derived shell selector for exactly this distinction — see its
+    /// doc comment ("do not call `UIDevice.userInterfaceIdiom` directly
+    /// elsewhere").
+    private var isPhoneShell: Bool { MapleShellKind.current == .phoneTab }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Maple Cloud Servers")
-                .font(.headline)
-                // #1954: this header sits outside the `List` below, so on
-                // iOS it never picked up the `.listRowBackground(surface)`
-                // that #1908 gave every row on this and every other
-                // Settings sub-screen — it rendered flat against the page
-                // `bg`, breaking parity with Backup/About. macOS keeps its
-                // native pane look (`mapleSettingsBackground()` is already
-                // a no-op there), so this is iOS-only.
-                #if os(iOS)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(MapleTokens.Spacing.rowHorizontal)
-                .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                #endif
+            // This header sits outside the `List` below, so it never
+            // picked up the `.listRowBackground(surface)` that #1908 gave
+            // every row on this and every other Settings sub-screen — it
+            // rendered flat against the page `bg`, breaking parity with
+            // Backup/About on the phone shell.
+            Group {
+                let label = Text("Maple Cloud Servers").font(.headline)
+                if isPhoneShell {
+                    label
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(MapleTokens.Spacing.rowHorizontal)
+                        .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleUITokens.radiusMd, style: .continuous))
+                } else {
+                    label
+                }
+            }
 
             if registry.servers.isEmpty {
-                VStack(spacing: 6) {
-                    Text("No paired servers.")
-                        .foregroundStyle(.secondary)
-                    Text("Click \"Add Server…\" to pair a Maple Cloud instance.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
                 // Same #1954 fix as the header above — the empty state is
                 // the only content on screen until a server is paired, so
                 // without this it's the most visible instance of the gap.
-                #if os(iOS)
-                .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                #endif
+                Group {
+                    let emptyState = VStack(spacing: 6) {
+                        Text("No paired servers.")
+                            .foregroundStyle(.secondary)
+                        Text("Click \"Add Server…\" to pair a Maple Cloud instance.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                    if isPhoneShell {
+                        emptyState
+                            .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleUITokens.radiusMd, style: .continuous))
+                    } else {
+                        emptyState
+                    }
+                }
             } else {
                 List {
                     ForEach(registry.servers, id: \.self) { url in
