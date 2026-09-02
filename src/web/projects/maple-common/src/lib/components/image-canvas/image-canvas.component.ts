@@ -23,7 +23,12 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { ImageCanvasService } from './image-canvas.service';
 import { AssetId } from '../../models/asset';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
-import { ImageCanvasGpuPresent, type GpuPresentHost } from './image-canvas.gpu-present';
+import {
+  ImageCanvasGpuPresent,
+  wireGpuKillSwitchEffect,
+  type GpuPresentHost,
+  type GpuKillSwitchHost,
+} from './image-canvas.gpu-present';
 import {
   computeEffectivePx,
   computeRefineTargetLongEdge,
@@ -56,7 +61,7 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ImageCanvasComponent
-  implements AfterViewInit, OnDestroy, GpuPresentHost, Render2dHost, ByteLoadHost
+  implements AfterViewInit, OnDestroy, GpuPresentHost, Render2dHost, GpuKillSwitchHost, ByteLoadHost
 {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
@@ -100,6 +105,7 @@ export class ImageCanvasComponent
   private cleanupRerenderEffect?: () => void;
   private cleanupDrawEffect?: () => void;
   private cleanupRefineViewEffect?: () => void;
+  private cleanupGpuKillSwitchEffect?: () => void; // #2340
   // Public for `GpuPresentHost` (the helper's stale guards read it); component-mutated.
   currentAssetId: AssetId | null = null;
 
@@ -114,9 +120,11 @@ export class ImageCanvasComponent
     gpuActive: () => this.gpuPresent.active(),
     runRender: (xmp, generation, sizing) => this.runRender(xmp, generation, sizing),
   });
-  // Retained focused-asset input; worker decode transfers a copy.
-  private currentBytes: Uint8Array | null = null;
-  private currentExt = '';
+  // Retained focused-asset input; worker decode transfers a copy. Public for
+  // `GpuKillSwitchHost` (#2340) — the kill-switch reopen reuses these
+  // directly rather than re-reading/re-converting the source bytes.
+  currentBytes: Uint8Array | null = null;
+  currentExt = '';
   private readonly rawOpen = new ImageCanvasRawOpen(this, {
     embeddedPreview: this.embeddedPreview,
     imageBitmap: this.imageBitmap,
@@ -368,6 +376,11 @@ export class ImageCanvasComponent
       { injector: this.injector },
     );
     this.cleanupRefineViewEffect = () => refineViewEff.destroy();
+
+    // Kill switch (#2340): tear down + reopen through 2D when the operator
+    // flips GpuLiveRenderGate off mid-session. See wireGpuKillSwitchEffect's
+    // doc comment for why this can't just wait for the next asset open.
+    this.cleanupGpuKillSwitchEffect = wireGpuKillSwitchEffect(this, this.gpuPresent, this.injector);
   }
 
   ngOnDestroy(): void {
@@ -377,6 +390,7 @@ export class ImageCanvasComponent
     this.cleanupRerenderEffect?.();
     this.cleanupDrawEffect?.();
     this.cleanupRefineViewEffect?.();
+    this.cleanupGpuKillSwitchEffect?.();
     this.clearRerenderTimers();
     // Invalidate any in-flight re-render so a late decode can't touch a
     // destroyed component's signals.
