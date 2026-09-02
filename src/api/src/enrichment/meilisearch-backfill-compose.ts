@@ -33,7 +33,7 @@ export interface BackfillRow {
   folder_id?: ObjectId;
   filename?: string;
   fileinfo?: FileInfo[];
-  exif?: { captured_at?: string | null } | null;
+  exif?: { captured_at?: string | null; captured_month?: number | null } | null;
   place?: Place | null;
   description?: string | null;
   ocr_text?: string | null;
@@ -54,6 +54,7 @@ export const ROW_PROJECTION = {
   filename: 1,
   fileinfo: 1,
   'exif.captured_at': 1,
+  'exif.captured_month': 1,
   place: 1,
   description: 1,
   ocr_text: 1,
@@ -125,6 +126,7 @@ export function composeDocument(
     visionNotableObjects: nullIfMissing(visionFields.notable_objects),
     visionTags: nullIfMissing(visionFields.tags),
     people,
+    capturedMonth: nullIfMissing(row.exif?.captured_month),
   });
   return {
     id: mapleId,
