@@ -115,10 +115,13 @@ struct GeneratedSearchProvider: TimelineProvider {
       )
       guard let collection = collections.randomElement() else { return [] }
 
+      // One page is all a widget timeline needs — it renders
+      // `entriesPerTimeline` photos and never scrolls, so the collection's
+      // `total` is irrelevant here.
       let assets = try await context.generatedSearch.assets(
         collectionID: collection.id,
         limit: entriesPerTimeline
-      )
+      ).results
       guard !assets.isEmpty else { return [] }
 
       var entries: [GeneratedSearchEntry] = []
