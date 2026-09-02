@@ -10,12 +10,19 @@ struct TrashBrowserRow: Identifiable, Equatable {
     let displayName: String
     let trashedDate: Date?
     let size: Int64
+    /// The item's original location, relative to the library/share root
+    /// (e.g. `"2024/Paris/IMG_1.dng"`) — what folder-level restore (#2751)
+    /// groups rows by. Present on both source shapes already
+    /// (`TrashedItem`/`TrashItem`); threaded through here so the browser
+    /// doesn't need a second round-trip to learn it.
+    let originalRelativePath: String
 
     init(local item: TrashedItem) {
         self.id = item.id
         self.displayName = item.displayName
         self.trashedDate = item.trashedDate
         self.size = item.size
+        self.originalRelativePath = item.originalRelativePath
     }
 
     /// Fails when the trashed row is not an indexed image (`assetID == nil`,
@@ -29,6 +36,7 @@ struct TrashBrowserRow: Identifiable, Equatable {
         self.displayName = item.filename
         self.trashedDate = item.deletedAt
         self.size = item.size
+        self.originalRelativePath = item.originalRelativePath
     }
 }
 
