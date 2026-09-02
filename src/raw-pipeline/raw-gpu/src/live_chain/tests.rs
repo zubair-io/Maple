@@ -252,6 +252,13 @@ fn single_stage_cases() -> Vec<SingleStage> {
             },
         },
         SingleStage {
+            name: "display_tone_curve(luma point curve)",
+            engage: |m| {
+                m.display_tone_curve_luma =
+                    ToneCurve::new(vec![(0.0, 0.0), (0.3, 0.22), (0.7, 0.8), (1.0, 1.0)]);
+            },
+        },
+        SingleStage {
             name: "vibrance",
             engage: |m| m.vibrance = 40.0,
         },
