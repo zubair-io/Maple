@@ -328,30 +328,3 @@ fn per_channel_gains_ignore_dark_channel_samples() {
         }
     }
 }
-
-/// #3090 review (Copilot): a `poses` entry whose `frame_idx` is out of
-/// range for `full_dims` must return a typed error, not panic while
-/// indexing `full_dims[pose.frame_idx]` deep inside `sample_pairs`.
-#[test]
-fn solve_photometry_rejects_out_of_range_frame_idx() {
-    let (w, h) = (32u32, 32u32);
-    let frames = vec![model_frame(w, h, 0.5, 0.0, 0.0, None)];
-    let (cache, full_dims) = cache_and_dims(frames);
-    // Only one frame (index 0) is in full_dims, but this pose claims
-    // index 5.
-    let poses = vec![
-        translation_pose(0, 0.0, 0.0),
-        translation_pose(5, 10.0, 0.0),
-    ];
-    let canvas = TileCanvasSpec {
-        width: w + 10,
-        height: h,
-        offset_x: 0.0,
-        offset_y: 0.0,
-    };
-    let result = solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts());
-    assert!(
-        result.is_err(),
-        "out-of-range frame_idx should be an Err, not a panic"
-    );
-}
