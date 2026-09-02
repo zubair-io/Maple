@@ -1,0 +1,41 @@
+/**
+ * Copy this file to `wrangler.jsonc` (gitignored — it holds account/domain-
+ * specific values, e.g. the route/zone below) and fill in the placeholders.
+ * Run `npm run cf-typegen` afterward to regenerate
+ * worker-configuration.d.ts (also gitignored) against your config.
+ *
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "maple-hosted-ssr",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-10",
+	"observability": {
+		"enabled": true,
+	},
+	"upload_source_maps": true,
+
+	/**
+	 * Public base URL of the Azure Blob Storage container that
+	 * `.github/workflows/deploy-hosted.yml` uploads `dist/maple-syrup/browser`
+	 * into. Must be reachable from Cloudflare's edge (a public hostname).
+	 */
+	"vars": {
+		"ORIGIN_BASE_URL": "https://hornbeam.blob.core.windows.net/mapleaperture",
+	},
+
+	/**
+	 * Route this Worker onto the production Hosted domain. Needs a
+	 * Cloudflare-managed zone for that domain:
+	 * https://developers.cloudflare.com/workers/configuration/routing/routes/
+	 */
+	"routes": [{ "pattern": "mapleaperture.com/*", "zone_name": "mapleaperture.com" }],
+
+	/**
+	 * Smart Placement
+	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 */
+	// "placement": {  "mode": "smart" }
+}

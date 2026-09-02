@@ -13,18 +13,23 @@
 # WebSocket implementation doesn't fire the `upgrade` event that bridge
 # needs, so `bun run test` hangs indefinitely under this package specifically.
 #
-# One job:
-#   cloudflare-test — typecheck + vitest (@cloudflare/vitest-pool-workers)
-#                     on every push/PR that touches src/cloudflare/.
+# Two jobs, one per standalone Worker in this directory:
+#   cloudflare-test     — the thumbnail-cache Worker (src/cloudflare/).
+#   cloudflare-ssr-test — the Hosted production SSR Worker
+#                         (src/cloudflare/ssr/, #2474) that fronts the Azure
+#                         Blob origin for mapleaperture.com.
+# Both run typecheck + vitest (@cloudflare/vitest-pool-workers) on every
+# push/PR that touches src/cloudflare/.
 #
-# No auto-deploy job. wrangler.jsonc is gitignored (it holds per-operator
-# values — origin URL, R2 bucket name, route/zone — not project source; see
-# wrangler.jsonc.example), so CI has no real config to deploy with. Each
-# operator (including this project's own Cloudflare account) deploys
-# manually from their machine: `npm run deploy` in src/cloudflare/, using
-# their own local wrangler.jsonc.
+# No auto-deploy job for either Worker. wrangler.jsonc is gitignored in each
+# (it holds per-operator values — origin URL, R2 bucket name, route/zone —
+# not project source; see each directory's wrangler.jsonc.example), so CI
+# has no real config to deploy with. Each operator (including this
+# project's own Cloudflare account) deploys manually from their machine:
+# `npm run deploy` in the relevant directory, using their own local
+# wrangler.jsonc.
 #
-# CI's test job generates its own throwaway wrangler.jsonc from
+# Both test jobs generate their own throwaway wrangler.jsonc from
 # wrangler.jsonc.example — fine for typecheck/tests, which only need a
 # structurally valid config, not real account values.
 
@@ -76,4 +81,34 @@ jobs:
 
       - name: Run Worker tests
         working-directory: src/cloudflare
+        run: npm test
+
+  cloudflare-ssr-test:
+    name: cloudflare-ssr-test (typecheck + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Worker deps
+        working-directory: src/cloudflare/ssr
+        run: npm ci
+
+      - name: Generate a throwaway wrangler.jsonc from the example
+        working-directory: src/cloudflare/ssr
+        run: cp wrangler.jsonc.example wrangler.jsonc
+
+      - name: Generate Worker types
+        working-directory: src/cloudflare/ssr
+        run: npm run cf-typegen
+
+      - name: Typecheck
+        working-directory: src/cloudflare/ssr
+        run: npm run typecheck
+
+      - name: Run Worker tests
+        working-directory: src/cloudflare/ssr
         run: npm test
