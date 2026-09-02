@@ -156,7 +156,7 @@ The rotation itself: `pixels_srgb = M_P3→sRGB · pixels_p3`, applied in linear
 python3 src/scripts/compare_images.py --self-test
 ```
 
-It checks: the two matrices are true inverses; white round-trips exactly (P3 and sRGB share the D65 white point); a synthetic in-gamut patch round-trips sRGB → P3 → sRGB within float rounding noise; an out-of-sRGB-gamut P3 primary clips into `[0,1]` without NaN; and — through the real `diff()` entry, with two temporary PNGs — a P3-rotated candidate against its own sRGB source reads near-zero ΔE while the same pair diffed *without* the rotation reads far worse, proving the flag is actually wired into the comparison, not just correct in isolation.
+It checks: the two matrices are true inverses; white round-trips exactly (P3 and sRGB share the D65 white point); a synthetic in-gamut patch round-trips sRGB → P3 → sRGB within float rounding noise; an out-of-sRGB-gamut P3 primary clips into `[0,1]` without NaN; and — through the real `diff()` entry, with two temporary PNGs — a P3-rotated candidate against its own sRGB source reads near-zero ΔE while the same pair diffed _without_ the rotation reads far worse, proving the flag is actually wired into the comparison, not just correct in isolation.
 
 ---
 
