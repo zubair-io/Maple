@@ -282,3 +282,103 @@ jobs:
       - name: Run web unit tests (ng test Maple-common)
         working-directory: src/web
         run: bun x ng test Maple-common
+
+  # Browser-WebGPU smoke (#2315). raw-pipeline.yml's `raw-gpu` job proves
+  # raw-core↔WGSL agreement on lavapipe (SPIR-V); it says nothing about a
+  # BROWSER's own WGSL compiler and WebGPU implementation, which is what the
+  # web live path (`WebLiveSession` / `render_bytes_gpu`) actually ships
+  # against. That surface had zero CI coverage before this job — only a human
+  # opening the app locally.
+  #
+  # Reuses the two existing dev-server e2e specs that already drive the real
+  # WASM/WebGPU render path end to end, rather than writing a new one:
+  #   * e2e/raw-open.spec.ts — opens a real RAW, asserts the WASM decode
+  #     completes with no `unreachable` trap (the #OOM regression class).
+  #   * e2e/slider-tick-render.perf.spec.ts — opens the live editor, which
+  #     opens a real GPU/WASM live session (WebGPU present when the adapter
+  #     resolves, WASM-CPU fallback otherwise), and drives the Exposure
+  #     slider through real per-tick renders. Its own `test.use({
+  #     launchOptions: { args: ['--enable-unsafe-webgpu', ...] } })` is what
+  #     makes a WebGPU adapter resolve at all in headless Chromium — measured
+  #     null without the flag, non-null with it (see that file's own header).
+  #     `MAPLE_PERF=1` un-skips it below.
+  # Both specs already skip-pass on their own (existsSync fixture guard, in
+  # the same style as the shell harnesses) rather than needing a probe step
+  # here — `test-fixtures/raws/test_0006.DNG` is gitignored, so this job is a
+  # clean no-op on a stock runner until fixtures are provisioned, same as
+  # raw-pipeline.yml's color-pipeline job.
+  #
+  # Non-required for now (see raw-pipeline.yml's raw-gpu-metal job for the
+  # same reasoning) — `continue-on-error` is the mechanism, since this repo
+  # has no server-side required-checks list to omit a new job from.
+  web-webgpu-smoke:
+    name: web-webgpu-smoke (raw-open + slider-tick-render in headless Chrome)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Same toolchain as web-build/web-test — the app under test imports the
+      # WASM `pkg/`, so it must be built first.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-10-01
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Same cache key as the other web jobs, so a cache hit here is a
+      # restore rather than a fourth full `-Z build-std` compile.
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      - name: Install web deps
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      - name: Build raw-wasm (pkg/)
+        working-directory: src/web
+        run: bun run raw-wasm
+
+      # playwright.config.ts's default project is bundled Chromium (no
+      # `channel: 'chrome'`, unlike playwright.production.config.ts) — install
+      # that browser specifically, matching what the specs below actually run
+      # against.
+      - name: Install Playwright Chromium
+        working-directory: src/web
+        run: bun x playwright install --with-deps chromium
+
+      # MAPLE_PERF=1 un-skips slider-tick-render.perf.spec.ts; raw-open.spec.ts
+      # has no such gate. Both still skip individually without the RAW
+      # fixture — see the job comment above.
+      - name: Browser WebGPU smoke (raw-open + slider-tick-render)
+        working-directory: src/web
+        env:
+          MAPLE_PERF: '1'
+        run: bun x playwright test e2e/raw-open.spec.ts e2e/slider-tick-render.perf.spec.ts
+
+      # playwright.config.ts has no HTML reporter (`reporter: [['list']]`), so
+      # the artifact worth keeping on a failure is the trace
+      # (`trace: 'retain-on-failure'`) under test-results/, not a report dir.
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-webgpu-smoke-traces
+          path: src/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
