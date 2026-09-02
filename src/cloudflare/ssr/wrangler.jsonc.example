@@ -28,10 +28,10 @@
 
 	/**
 	 * Route this Worker onto the production Hosted domain. Needs a
-	 * Cloudflare-managed zone for that domain:
+	 * Cloudflare-managed zone for that domain. Uncomment once you have one:
 	 * https://developers.cloudflare.com/workers/configuration/routing/routes/
 	 */
-	"routes": [{ "pattern": "mapleaperture.com/*", "zone_name": "mapleaperture.com" }],
+	// "routes": [{ "pattern": "mapleaperture.com/*", "zone_name": "mapleaperture.com" }],
 
 	/**
 	 * Smart Placement
