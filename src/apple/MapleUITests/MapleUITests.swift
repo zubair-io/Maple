@@ -36,7 +36,14 @@ final class MapleUITests: XCTestCase {
     /// drift, never to paper over a real regression.
     func testCanvasMatchesGolden() throws {
         let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
+        // Declared in this order deliberately: `defer` runs LIFO, so
+        // `app.terminate()` fires BEFORE `cleanupStagedFixture()` at scope
+        // exit — the app must be torn down before its staged fixture
+        // directory disappears, not the other way around. Same convention
+        // `SliderMatrixUITests.renderAndDiff` already uses (Copilot review
+        // on #3193).
         defer { driver.cleanupStagedFixture() }
+        defer { driver.app.terminate() }
         driver.waitForCanvasReady(timeout: 30)
         let png = driver.screenshotCanvas()
         if let outcome = MapleAppDriver.lastSpikeBOutcome {
