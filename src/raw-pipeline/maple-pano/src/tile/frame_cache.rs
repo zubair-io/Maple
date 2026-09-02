@@ -25,7 +25,7 @@
 //! 1. **Per-frame locking, not a cache-wide one.** Each frame index gets
 //!    its own [`std::sync::OnceLock`] — the standard library's built-in
 //!    "compute once, block concurrent callers on the SAME cell, never on
-//!    a different one" primitve. The cache's own `Mutex` protects only
+//!    a different one" primitive. The cache's own `Mutex` protects only
 //!    the bookkeeping map (which indices are cached, LRU order) for a
 //!    lookup/insert/evict — microseconds, never held across a decode. A
 //!    miss on frame *i* now only blocks other callers also asking for

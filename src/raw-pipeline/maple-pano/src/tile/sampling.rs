@@ -12,7 +12,7 @@
 //!
 //! Frames are decoded on demand through [`super::frame_cache::TileFrameCache`],
 //! bounded to a handful resident at once — not the whole input set. The
-//! canvas is split into [`super::frame_window::WINDOW_PX`]-sided spatial
+//! canvas is split into [`super::TILE_PX`]-sided spatial
 //! cells, grouped into capacity-bounded "waves" (`frame_window`): each
 //! wave pins its cells' frame set ONCE (not per sample point — the
 //! earlier #3146 attempt did that and thrashed the cache, see
@@ -28,10 +28,11 @@ use crate::error::PanoError;
 use crate::ingest::PlanarImage;
 
 use super::frame_cache::TileFrameCache;
-use super::frame_window::{self, Cell, WINDOW_PX};
+use super::frame_window::{self, Cell};
 use super::photometry::{PairMap, PhotometryOptions, MIN_LUM};
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp::{inverse_similarity_with_offset, sample_bicubic};
+use super::TILE_PX;
 
 /// One strided canvas scan accumulating per-pair (and per-pair-per-cell)
 /// log-ratio statistics.
@@ -83,7 +84,7 @@ pub(super) fn sample_pairs(
         })
         .collect();
 
-    let cells = frame_window::spatial_cells(cw, ch, WINDOW_PX);
+    let cells = frame_window::spatial_cells(cw, ch, TILE_PX);
     let waves = frame_window::group_into_waves(
         &cells,
         &bboxes,

@@ -11,12 +11,7 @@ use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
 use super::photometry::{solve_photometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp::warp_to_tile_region;
-use super::TileEdge;
-
-/// Spatial tile size (canvas pixels per side) used in the tiled multiband
-/// composite. Must be a power of two; larger values use more memory but
-/// fewer tiles.
-const TILE_PX: usize = 1024;
+use super::{TileEdge, TILE_PX};
 
 /// Compute the halo width (pixels) that covers the full influence radius of
 /// a `levels`-deep pyramid using the `[1,4,6,4,1]` binomial kernel (radius
