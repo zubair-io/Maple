@@ -211,6 +211,7 @@ mod context_pipelines_helpers;
 mod context_pipelines_spatial;
 mod dehaze;
 mod display_encode;
+mod display_tone_curve;
 mod dither;
 mod exposure;
 mod film_lut;
@@ -286,6 +287,10 @@ pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use context::GpuContext;
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
+pub use display_tone_curve::{
+    apply_display_tone_curve, display_tone_curve_is_identity, DisplayToneCurveInputs,
+    DisplayToneCurvePass,
+};
 pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rgb_u8};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use film_lut::{apply_film_lut, film_lut_flat_len, FilmLutPass};

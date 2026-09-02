@@ -73,6 +73,7 @@ use crate::chain::Pass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::display_tone_curve::{DisplayToneCurveInputs, DisplayToneCurvePass};
 use crate::film_lut::FilmLutPass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
@@ -257,6 +258,12 @@ pub struct FullChainInputs {
     /// Flat film-look grid (`film_lut_size`³ × 3 floats, layout
     /// `((b*N+g)*N+r)*3+c`). Empty = off (paired with `film_lut_size == 0`).
     pub film_lut_data: Vec<f32>,
+    /// Display-referred point-curve inputs (#2232, `crs:ToneCurvePV2012*`).
+    /// Runs post-AgX, before `color_grade` — a DIFFERENT quantity from
+    /// `tone_curves` above (which runs pre-AgX in scene-linear light).
+    /// Appended at the struct tail per the append-only convention; the
+    /// default (all four curves empty) is identity.
+    pub display_tone_curves: DisplayToneCurveInputs,
 }
 
 /// How the GPU-resident image was produced. Drives which leading stages the live
@@ -426,6 +433,13 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     // switch this to a baked LUT was retired in #2312.
     suffix.push(Box::new(AgxPass {
         contrast: inputs.contrast,
+    }));
+    // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
+    // post-AgX, before color_grade (raw-core's `pipeline::render` 16a0
+    // position). A DIFFERENT quantity from `tone_curves` in the prefix
+    // above (pre-AgX, scene-linear).
+    suffix.push(Box::new(DisplayToneCurvePass {
+        inputs: inputs.display_tone_curves.clone(),
     }));
     // Colour grading (#275) — display-linear Oklab three-zone tint,
     // post-AgX, before grain (the render tail's 16a position).
