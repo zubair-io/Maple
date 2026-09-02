@@ -71,12 +71,24 @@ struct TVRemoteImage: View {
     case failed
   }
 
-  /// `nil` means "not resolved by this view yet" — `resolvedPhase` then falls
-  /// back to a synchronous decoded-cache read, so an image that is already
-  /// warm renders on the FIRST frame instead of showing one `.loading` frame
-  /// of opaque surface before the `.task` gets a chance to run. That one
-  /// frame was a visible grey flash every time a prefetched image appeared.
-  @State private var phase: Phase?
+  /// A phase together with the `cacheKey` it was resolved FOR. The key is
+  /// load-bearing, not bookkeeping: SwiftUI recycles a grid cell's view (and
+  /// its `@State`) onto a different asset, and `.task(id:)` only runs AFTER
+  /// the recycled view has already rendered once. A phase that didn't
+  /// remember its key would therefore paint the previous asset's photo in the
+  /// new asset's cell for that frame — which, scrolling a grid, reads as
+  /// photos repeating down the wall.
+  private struct Resolved {
+    let key: String
+    let phase: Phase
+  }
+
+  /// `nil`, or resolved for a DIFFERENT asset, both mean "nothing this view
+  /// has resolved applies here" — `resolvedPhase` then falls back to a
+  /// synchronous decoded-cache read for the current key, so a warm image
+  /// still renders on the first frame with no grey flash, and a cold one
+  /// shows the placeholder rather than someone else's photo.
+  @State private var resolved: Resolved?
 
   var body: some View {
     Rectangle()
@@ -103,25 +115,16 @@ struct TVRemoteImage: View {
       // leaves the hierarchy (a cell scrolled off before its fetch
       // completed) — the two correctness requirements this view has to
       // satisfy: no stale image after reuse, no thrash from an orphaned
-      // fetch. Resetting `phase` to `.loading` up front means a reused
-      // cell never shows the PREVIOUS asset's pixels while the new one
-      // loads.
-      .task(id: cacheKey) {
-        // A warm decoded image is adopted synchronously; only a genuine miss
-        // drops to `.loading`.
-        if let cached = TVDecodedImageCache.shared.image(forKey: cacheKey) {
-          phase = .loaded(cached)
-          return
-        }
-        phase = nil
-        await load()
-      }
+      // fetch. Reuse itself is handled by `Resolved.key`, which is what
+      // stops a recycled cell painting the previous asset's pixels in the
+      // frame before this task gets to run.
+      .task(id: cacheKey) { await load() }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(accessibilityLabel ?? fallbackAccessibilityLabel)
   }
 
   private var resolvedPhase: Phase {
-    if let phase { return phase }
+    if let resolved, resolved.key == cacheKey { return resolved.phase }
     if let cached = TVDecodedImageCache.shared.image(forKey: cacheKey) { return .loaded(cached) }
     return .loading
   }
@@ -135,8 +138,9 @@ struct TVRemoteImage: View {
   }
 
   private func load() async {
-    if let cached = TVDecodedImageCache.shared.image(forKey: cacheKey) {
-      phase = .loaded(cached)
+    let key = cacheKey
+    if let cached = TVDecodedImageCache.shared.image(forKey: key) {
+      resolved = Resolved(key: key, phase: .loaded(cached))
       return
     }
 
@@ -165,12 +169,13 @@ struct TVRemoteImage: View {
     }
     guard !Task.isCancelled else { return }
 
-    phase = .failed
+    resolved = Resolved(key: key, phase: .failed)
   }
 
   private func finishLoaded(_ image: UIImage) {
-    TVDecodedImageCache.shared.setImage(image, forKey: cacheKey)
-    phase = .loaded(image)
+    let key = cacheKey
+    TVDecodedImageCache.shared.setImage(image, forKey: key)
+    resolved = Resolved(key: key, phase: .loaded(image))
   }
 
   /// Fetch bytes via `fetch`, then decode to a `UIImage`. Returns nil if
