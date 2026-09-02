@@ -57,7 +57,16 @@ struct MapleAppDriver {
             .appendingPathComponent("maple-uitest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
         let stagedFixtureURL = stagedDirectory.appendingPathComponent(fixture)
-        try FileManager.default.copyItem(at: fixtureURL, to: stagedFixtureURL)
+        do {
+            try FileManager.default.copyItem(at: fixtureURL, to: stagedFixtureURL)
+        } catch {
+            // A partially-staged directory from a failed copy would
+            // otherwise leak silently (Copilot review on #3193) — this
+            // driver only throws from here on, so there's no later point
+            // that would clean it up.
+            try? FileManager.default.removeItem(at: stagedDirectory)
+            throw error
+        }
 
         let app = XCUIApplication()
         // Pass the basename (not the full path); MapleApp.init combines it
