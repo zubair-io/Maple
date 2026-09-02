@@ -8,9 +8,12 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
 mod fields;
+mod local_adjustments;
 mod tone_curves;
-pub use tone_curves::serialize_tone_curves;
 use fields::set_field;
+pub use local_adjustments::serialize_local_adjustments;
+use local_adjustments::LocalAdjustmentsWalker;
+pub use tone_curves::serialize_tone_curves;
 use tone_curves::CurveWalker;
 
 // Re-export the canonical schema types so existing
@@ -55,19 +58,29 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // four `papp:SceneLinearToneCurve*` parents. The walker owns that subtree;
     // everything outside it still goes through the attribute path below.
     let mut curves = CurveWalker::default();
+    // Local adjustments (#358) are the other non-flat part of the schema —
+    // see `local_adjustments.rs` for the canonical `crs:GradientBasedCorrections`
+    // / `crs:CircularGradientBasedCorrections` shape this walks.
+    let mut local_adj = LocalAdjustmentsWalker::default();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
                 let name = element_name(&e)?.to_string();
-                // Inside a tone-curve subtree there are no Maple attributes to
-                // read, so the attribute walk is skipped entirely.
-                if !curves.start(&name) {
+                // Inside a tone-curve or local-adjustments subtree there are
+                // no flat Maple attributes to read, so the attribute walk is
+                // skipped entirely for elements either walker claims.
+                if local_adj.start(&name, &e)? {
+                    // handled
+                } else if !curves.start(&name) {
                     apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
                 }
             }
             Ok(Event::Empty(e)) => {
-                apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                let name = element_name(&e)?.to_string();
+                if !local_adj.empty(&name, &e)? {
+                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                }
             }
             Ok(Event::Text(t)) => {
                 let text = t.unescape().map_err(|e| Error::Xmp(e.to_string()))?;
@@ -77,12 +90,22 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 let name = std::str::from_utf8(e.name().as_ref())
                     .map_err(|e| Error::Xmp(e.to_string()))?
                     .to_string();
+                local_adj.end(&name);
                 curves.end(&name, &mut model);
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(Error::Xmp(e.to_string())),
             _ => {}
         }
+    }
+    // Canonical nested form wins over the legacy `papp:LocalAdjustments`
+    // attribute (applied above, mid-loop, via `fields::set_field`) whenever
+    // this walker collected at least one layer — see the migration-precedence
+    // note in `local_adjustments.rs` and `docs/xmp-canonical-format.md` §
+    // "Local adjustments".
+    let canonical_layers = local_adj.finish();
+    if !canonical_layers.is_empty() {
+        model.local_adjustments = canonical_layers;
     }
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
     // Unstamped, non-Maple (or WB-less) documents are V5 (#1894): an
@@ -369,6 +392,8 @@ mod tests_detail;
 mod tests_effects;
 #[cfg(test)]
 mod tests_lens;
+#[cfg(test)]
+mod tests_local_adjustments;
 #[cfg(test)]
 mod tests_metadata;
 #[cfg(test)]

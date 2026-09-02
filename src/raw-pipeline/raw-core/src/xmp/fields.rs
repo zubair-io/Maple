@@ -194,10 +194,15 @@ pub(super) fn set_field(
             }
             // Unknown WB names ("As Shot", "Auto", "Custom") leave defaults.
         }
-        // Local adjustments (ticket #280). Slice 1 wire format: compact JSON
-        // in a single attribute. Long-run goal is canonical
-        // `crs:GradientBasedCorrections` nested-RDF — that requires a
-        // separate XMP-walker extension.
+        // Local adjustments (ticket #280). Slice 1's wire format — compact
+        // JSON in a single attribute — is superseded by the canonical
+        // `crs:GradientBasedCorrections` / `crs:CircularGradientBasedCorrections`
+        // nested-RDF form (#358, `xmp/local_adjustments.rs`). This arm is now
+        // migration-only: a sidecar still carrying the legacy attribute (a
+        // hand-authored pre-#358 fixture; no writer emits it anymore) still
+        // loads, but `super::parse` overwrites `model.local_adjustments` with
+        // whatever the canonical-form walker collected whenever that walker
+        // found at least one layer — see the precedence note there.
         "papp:LocalAdjustments" => {
             m.local_adjustments = crate::types::local_adjustment::decode_local_adjustments(value)
                 .map_err(|e| Error::Xmp(format!("LocalAdjustments: {e}")))?;
