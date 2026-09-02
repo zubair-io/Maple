@@ -322,10 +322,9 @@ jobs:
     name: web-webgpu-smoke (raw-open + slider-tick-render in headless Chrome)
     runs-on: ubuntu-latest
     continue-on-error: true
-    # At least as generous as web-test/web-test-common (20m), which pay the
-    # same toolchain + WASM-build cost this job does, plus this job's own
-    # Chromium install + e2e run on top — 15m under-budgeted that (Copilot
-    # review on this PR).
+    # At least as generous as web-test/web-test-common (20m): this job pays
+    # the same toolchain + WASM-build cost they do, plus its own Chromium
+    # install and e2e run on top, so anything tighter is under-budgeted.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
