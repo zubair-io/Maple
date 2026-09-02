@@ -79,7 +79,13 @@ struct LensCorrectionsSection: View {
                 .accessibilityIdentifier("slider-lens-distortion")
             slider(Self.caSub)
                 .disabled(!session.hasLensCorrections || session.lensCorrectionCaInert)
-                .opacity((!session.hasLensCorrections || session.lensCorrectionCaInert) ? Self.disabledOpacity : 1)
+                // Opacity gates ONLY the CA-alone-inert case: the whole-section
+                // disabled case is already covered by the VStack's own
+                // `.opacity` below, and SwiftUI opacities MULTIPLY down the
+                // view tree — repeating that same condition here would double
+                // it to 0.45×0.45 ≈ 0.2, visibly darker than its siblings
+                // (Jules review).
+                .opacity((session.hasLensCorrections && session.lensCorrectionCaInert) ? Self.disabledOpacity : 1)
                 .accessibilityIdentifier("slider-lens-ca")
                 .accessibilityHint(
                     session.lensCorrectionCaInert
