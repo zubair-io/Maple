@@ -1046,11 +1046,10 @@ public actor RemoteCatalog {
         if status == 409 {
             struct Body: Decodable { let conflict_path: String; let conflict_mtime: String }
             let body = try decoder.decode(Body.self, from: respData)
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let mtime = iso.date(from: body.conflict_mtime)
-                ?? ISO8601DateFormatter().date(from: body.conflict_mtime)
-                ?? Date()
+            // #959: this was hand-rolling the exact fractional-then-plain
+            // fallback (and a fresh `ISO8601DateFormatter()` per call)
+            // that `ISO8601FlexibleDateDecoding` already provides, cached.
+            let mtime = ISO8601FlexibleDateDecoding.date(from: body.conflict_mtime) ?? Date()
             return .conflict(path: body.conflict_path, mtime: mtime)
         }
         throw Self.mapHTTPError(status: status)
