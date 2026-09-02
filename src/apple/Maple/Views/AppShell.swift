@@ -927,7 +927,8 @@ struct AppShell: View {
             onLoad: { await loadTrashBrowserRows() },
             onRestore: { row in await restoreTrashBrowserRow(row) },
             onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
-            onDismissBrowser: { dismissTrashBrowser() }
+            onDismissBrowser: { dismissTrashBrowser() },
+            onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
         )
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
@@ -1344,7 +1345,8 @@ struct AppShell: View {
             onLoad: { await loadTrashBrowserRows() },
             onRestore: { row in await restoreTrashBrowserRow(row) },
             onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
-            onDismissBrowser: { dismissTrashBrowser() }
+            onDismissBrowser: { dismissTrashBrowser() },
+            onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
         )
     }
     #endif
