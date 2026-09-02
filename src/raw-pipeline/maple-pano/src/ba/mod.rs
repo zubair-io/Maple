@@ -70,9 +70,10 @@ mod lm;
 // private to external crates.
 pub(crate) mod residual;
 
+use crate::camera::Camera;
 use crate::graph::{GraphImage, MatchGraph};
 use crate::local_align::fit_local_corrections;
-use crate::math::Mat3;
+use crate::math::{matrix_to_axis_angle, Mat3};
 use lm::{minimize, LmOptions};
 use residual::{FrameMeta, ParamLayout, State};
 
@@ -122,10 +123,27 @@ pub fn solve(
         }
     }
 
-    let mut dropped: Vec<DroppedFrame> = graph
+    // Spec §8 low-texture fallback (gimbal-prior placement): split the
+    // orphan list into frames with literally zero verified edges to any
+    // neighbor (a degree check over `graph.edges`, stricter than "outside
+    // the largest component" — a frame with edges into a disconnected
+    // side-cluster is a real geometry signal, not low-texture) that also
+    // carry a usable gimbal prior, versus everything else. Only the first
+    // group is eligible for placement (`place_low_texture_orphans`,
+    // called at every return point below); the rest keep today's
+    // behavior and go straight into `dropped` as `Disconnected`.
+    let mut has_edge = vec![false; images.len()];
+    for edge in &graph.edges {
+        has_edge[edge.a] = true;
+        has_edge[edge.b] = true;
+    }
+    let (orphans_with_prior, orphans_without_prior): (Vec<usize>, Vec<usize>) = graph
         .orphans
         .iter()
-        .map(|&index| DroppedFrame {
+        .partition(|&&index| !has_edge[index] && images[index].prior_rotation.is_some());
+    let mut dropped: Vec<DroppedFrame> = orphans_without_prior
+        .into_iter()
+        .map(|index| DroppedFrame {
             index,
             reason: DropReason::Disconnected,
         })
@@ -140,6 +158,9 @@ pub fn solve(
     // Initialization: spanning tree, prior gauge alignment, warm-start
     // overrides (in that order — later wins).
     let mut rotations: Vec<Option<Mat3>> = init::spanning_tree_rotations(graph);
+    // `priors` stays alive for the rest of `solve`: `place_low_texture_orphans`
+    // re-derives its own gauge-to-prior rotation from the CONVERGED poses
+    // (see its doc comment) rather than reusing this init-time fit.
     let priors: Vec<Option<Mat3>> = images.iter().map(|img| img.prior_rotation).collect();
     init::align_gauge_to_priors(&mut rotations, &priors);
     if let Some(overrides) = &opts.initial_rotations {
@@ -177,6 +198,7 @@ pub fn solve(
         motion_pruned_matches: Vec::new(),
         local_corrections: vec![None; n_images],
         local_correction_rms: vec![0.0; n_images],
+        placed_by_prior: Vec::new(),
     };
 
     let mut state = State {
@@ -385,6 +407,13 @@ pub fn solve(
                     }
                 }
                 book.write_into(&mut solution, &active);
+                place_low_texture_orphans(
+                    &mut solution,
+                    &mut dropped,
+                    &orphans_with_prior,
+                    &priors,
+                    images,
+                );
                 solution.dropped.append(&mut dropped);
                 solution.dropped.sort_by_key(|d| d.index);
                 return Ok(solution);
@@ -407,6 +436,13 @@ pub fn solve(
             // the violator and finalize with what passes.
             finalize_trivial(&mut solution, images, &active, &rotations, &state);
             book.write_into(&mut solution, &round_active);
+            place_low_texture_orphans(
+                &mut solution,
+                &mut dropped,
+                &orphans_with_prior,
+                &priors,
+                images,
+            );
             solution.dropped.append(&mut dropped);
             solution.dropped.sort_by_key(|d| d.index);
             return Ok(solution);
@@ -425,9 +461,92 @@ pub fn solve(
         if active.len() < 2 {
             finalize_trivial(&mut solution, images, &active, &rotations, &state);
             book.write_into(&mut solution, &round_active);
+            place_low_texture_orphans(
+                &mut solution,
+                &mut dropped,
+                &orphans_with_prior,
+                &priors,
+                images,
+            );
             solution.dropped.append(&mut dropped);
             solution.dropped.sort_by_key(|d| d.index);
             return Ok(solution);
+        }
+    }
+}
+
+/// Spec §8 low-texture failure mode: place each zero-edge orphan that
+/// carries a usable gimbal prior from that prior instead of leaving it
+/// [`DropReason::Disconnected`]. `orphans_with_prior` is pre-filtered by
+/// [`solve`] to frames with no verified edge to any neighbor AND a
+/// `Some` `prior_rotation` — every entry here either gets placed or, if
+/// no gauge mapping can be established (see below), falls back to
+/// `dropped` unchanged.
+///
+/// A placed orphan's raw prior needs the same gauge rotation the solve
+/// itself used to land in the same world frame the solved cameras — and
+/// the later [`crate::leveling`] pass, which rotates every `Some`
+/// camera uniformly — actually share. [`solve`] already computes one
+/// such rotation once, at init time (`align_gauge_to_priors` against
+/// the rough spanning-tree rotations), but that fit is only as good as
+/// the un-refined init; this function re-derives its own, fit against
+/// the CONVERGED poses in `solution.cameras` instead, which is
+/// materially tighter once the solve has resolved the initial jitter.
+/// `priors` is the same per-frame prior list `solve` built its own
+/// gauge fit from. When no solved frame has a usable prior to align
+/// against (`align_gauge_to_priors` returns `None`), there is no
+/// established mapping between an orphan's prior frame and the solve's
+/// arbitrary gauge — placing it would put the frame in an unrelated
+/// orientation, worse than dropping it — so every orphan stays
+/// `Disconnected` in that case.
+///
+/// The placed camera takes the solve's final shared focal/k1/k2 (the
+/// orphan itself contributed no correspondences to refine anything
+/// frame-specific) and is never given a [`FrameStats`]/local-alignment
+/// entry — both stay at their `None`/empty defaults, honestly reporting
+/// that this pose is unverified.
+fn place_low_texture_orphans(
+    solution: &mut BaSolution,
+    dropped: &mut Vec<DroppedFrame>,
+    orphans_with_prior: &[usize],
+    priors: &[Option<Mat3>],
+    images: &[GraphImage],
+) {
+    // The overwhelmingly common case is no low-texture orphans at all —
+    // skip the extra Wahba solve entirely rather than pay for it on
+    // every stitch.
+    if orphans_with_prior.is_empty() {
+        return;
+    }
+    let mut solved_rotations: Vec<Option<Mat3>> = solution
+        .cameras
+        .iter()
+        .map(|c| c.as_ref().map(|cam| cam.rotation))
+        .collect();
+    let gauge_rotation = init::align_gauge_to_priors(&mut solved_rotations, priors);
+
+    for &index in orphans_with_prior {
+        let prior = images[index]
+            .prior_rotation
+            .expect("orphans_with_prior is pre-filtered to Some(prior_rotation)");
+        match gauge_rotation {
+            Some(g) => {
+                let world_rotation = g.mul_mat(&prior);
+                let img = &images[index].camera;
+                solution.cameras[index] = Some(Camera::new(
+                    matrix_to_axis_angle(&world_rotation),
+                    solution.shared_focal_px,
+                    solution.k1,
+                    solution.k2,
+                    img.width,
+                    img.height,
+                ));
+                solution.placed_by_prior.push(index);
+            }
+            None => dropped.push(DroppedFrame {
+                index,
+                reason: DropReason::Disconnected,
+            }),
         }
     }
 }
