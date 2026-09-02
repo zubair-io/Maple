@@ -71,6 +71,18 @@ struct SelfHostedSettingsTab: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Maple Cloud Servers")
                 .font(.headline)
+                // #1954: this header sits outside the `List` below, so on
+                // iOS it never picked up the `.listRowBackground(surface)`
+                // that #1908 gave every row on this and every other
+                // Settings sub-screen — it rendered flat against the page
+                // `bg`, breaking parity with Backup/About. macOS keeps its
+                // native pane look (`mapleSettingsBackground()` is already
+                // a no-op there), so this is iOS-only.
+                #if os(iOS)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(MapleTokens.Spacing.rowHorizontal)
+                .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                #endif
 
             if registry.servers.isEmpty {
                 VStack(spacing: 6) {
@@ -82,6 +94,12 @@ struct SelfHostedSettingsTab: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
+                // Same #1954 fix as the header above — the empty state is
+                // the only content on screen until a server is paired, so
+                // without this it's the most visible instance of the gap.
+                #if os(iOS)
+                .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                #endif
             } else {
                 List {
                     ForEach(registry.servers, id: \.self) { url in
