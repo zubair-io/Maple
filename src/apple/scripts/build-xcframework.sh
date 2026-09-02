@@ -2,7 +2,12 @@
 # build-xcframework.sh — compile raw-ffi for Apple targets, run cbindgen,
 # bundle into RawPipeline.xcframework.
 #
-# Usage: ./scripts/build-xcframework.sh [--debug|--check-only]
+# Usage: ./scripts/build-xcframework.sh [--release|--debug] [--force] [--check-only]
+#
+# --release is the default profile (the Xcode "Build Rust xcframework" phase
+# passes it explicitly in Release configurations); --debug selects the debug
+# profile. --force (or FORCE_XCFRAMEWORK_REBUILD=1) bypasses the content-hash
+# fast-path and rebuilds every slice.
 #
 # --check-only does no building — it just compares the current Rust/cbindgen
 # input hash against the last successful build's stamp and exits 1 with an
