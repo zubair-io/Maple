@@ -18,11 +18,18 @@
 // fallback) key off the SAME `film` route rather than re-deriving the
 // film-presence check independently, so the two can't drift out of sync
 // again.
+//
+// #2719: a sized request carrying a film LUT now has its own dedicated
+// `sizedFilm` route (`render_bytes_sized_with_film`) instead of silently
+// dropping the look — the non-WebGPU live canvas's fast/refine phases are
+// sized requests, so without this route a loaded film look never rendered
+// live on a browser without WebGPU (it only reached the canvas via export
+// or the GPU live session).
 
 import type { DecodeRequest } from './raw-pipeline.types';
 
 /** Which WASM entry `handleLegacyDecode` should call. */
-export type LegacyDecodeRoute = 'gpu' | 'sized' | 'film' | 'cpu';
+export type LegacyDecodeRoute = 'gpu' | 'sizedFilm' | 'sized' | 'film' | 'cpu';
 
 /**
  * Select the route for an unsized-vs-sized, GPU-vs-CPU, look-vs-no-look
@@ -33,10 +40,11 @@ export type LegacyDecodeRoute = 'gpu' | 'sized' | 'film' | 'cpu';
  * Precedence (see the module doc for why `film` outranks `gpu`):
  * 1. `gpu` — unsized, no film LUT, the request opts in, and the runtime
  *    advertises WebGPU.
- * 2. `sized` — a `maxLongEdge` cap was requested (film-on-sized has no
- *    dedicated sibling yet — #2719; falls through to the plain sized entry).
- * 3. `film` — a non-empty `filmLut` rides the (unsized) request.
- * 4. `cpu` — the byte-for-byte legacy no-GPU, no-look path.
+ * 2. `sizedFilm` — BOTH a `maxLongEdge` cap and a non-empty `filmLut` ride
+ *    the request (#2719).
+ * 3. `sized` — a `maxLongEdge` cap was requested with no film LUT.
+ * 4. `film` — a non-empty `filmLut` rides the (unsized) request.
+ * 5. `cpu` — the byte-for-byte legacy no-GPU, no-look path.
  */
 export function selectLegacyDecodeRoute(
   req: Pick<DecodeRequest, 'gpu' | 'maxLongEdge' | 'filmLut'>,
@@ -45,6 +53,7 @@ export function selectLegacyDecodeRoute(
   const sized = req.maxLongEdge !== undefined && req.maxLongEdge > 0;
   const hasFilmLut = !!req.filmLut && req.filmLut.byteLength > 0;
   if (!sized && !hasFilmLut && req.gpu && gpuAdvertised) return 'gpu';
+  if (sized && hasFilmLut) return 'sizedFilm';
   if (sized) return 'sized';
   if (hasFilmLut) return 'film';
   return 'cpu';

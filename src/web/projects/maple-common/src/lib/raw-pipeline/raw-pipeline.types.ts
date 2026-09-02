@@ -49,10 +49,10 @@ export interface DecodeRequest {
    * has no film-aware sibling — only the persistent `WebLiveSession` carries
    * a loaded look — so a filmLut-bearing decode never reaches it; correctness
    * wins over the GPU path's speed here. A SIZED request (`maxLongEdge` set)
-   * with a `filmLut` is the one gap: it still routes through the no-look
-   * sized entry (no `render_bytes_sized_with_film` sibling exists yet — #2719)
-   * — the editor's fast/refine phases target the GPU live session for a loaded
-   * look, so this combination is not expected to be reachable from the UI.
+   * with a `filmLut` routes to `render_bytes_sized_with_film` (`sizedFilm`,
+   * #2719) — the non-WebGPU live canvas's fast/refine phases are sized
+   * requests, so this is exactly the combination the editor sends when a
+   * look is loaded and WebGPU isn't available.
    */
   filmLut?: ArrayBuffer;
 }

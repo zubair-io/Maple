@@ -8,6 +8,7 @@ import {
   render_bytes_scene_linear,
   render_bytes_scene_linear_sized,
   render_bytes_sized,
+  render_bytes_sized_with_film,
   compute_auto_adjustments_from_bytes,
 } from './pkg/raw_wasm';
 // Namespace import so the gpu-gated `render_bytes_gpu` (epic #925, P4b-web /
@@ -208,6 +209,27 @@ function decodeViaFilmRoute(
   return render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes);
 }
 
+/**
+ * `sizedFilm` route (#2719): the sized counterpart of `decodeViaFilmRoute`, for the editor's 2D
+ * fast/refine phases on a non-WebGPU browser with a film look loaded — otherwise byte-for-byte
+ * `decodeViaSizedRoute` with the look threaded through, mirroring how `decodeViaFilmRoute` relates
+ * to `decodeViaCpuRoute`.
+ */
+function decodeViaSizedFilmRoute(
+  bytes: Uint8Array,
+  req: DecodeRequest,
+  filmLutBytes: Uint8Array,
+): LegacyDecodeResult {
+  return render_bytes_sized_with_film(
+    bytes,
+    req.ext,
+    req.xmp ?? null,
+    req.qualityPreview ?? false,
+    req.maxLongEdge as number,
+    filmLutBytes,
+  );
+}
+
 /** `cpu` route: byte-for-byte today's no-GPU, no-look behaviour. */
 function decodeViaCpuRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeResult {
   return render_bytes(bytes, req.ext, req.xmp ?? null);
@@ -280,7 +302,7 @@ function planLegacyDecode(req: DecodeRequest): LegacyDecodePlan {
   const gpuFn = route === 'gpu' ? gpuEntry() : null;
   const markTag = gpuFn
     ? 'maple:wasm-gpu'
-    : route === 'sized'
+    : route === 'sized' || route === 'sizedFilm'
       ? `maple:wasm-sized:${req.maxLongEdge}`
       : 'maple:wasm';
   return { route, filmLutBytes, gpuFn, markTag };
@@ -293,7 +315,10 @@ async function decodeViaPlan(
   req: DecodeRequest,
 ): Promise<LegacyDecodeResult> {
   if (plan.gpuFn) return decodeViaGpuRoute(plan.gpuFn, bytes, req, plan.filmLutBytes);
-  if (plan.route === 'sized') return decodeViaSizedRoute(bytes, req);
+  if (plan.route === 'sizedFilm' && plan.filmLutBytes) {
+    return decodeViaSizedFilmRoute(bytes, req, plan.filmLutBytes);
+  }
+  if (plan.route === 'sized' || plan.route === 'sizedFilm') return decodeViaSizedRoute(bytes, req);
   if (plan.filmLutBytes) return decodeViaFilmRoute(bytes, req, plan.filmLutBytes);
   return decodeViaCpuRoute(bytes, req);
 }

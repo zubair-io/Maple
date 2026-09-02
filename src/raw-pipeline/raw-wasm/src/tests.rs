@@ -253,6 +253,99 @@ fn render_bytes_sized_caps_long_edge_and_matches_as_shot_seed() {
     );
 }
 
+/// A 2×2×2 `.mlut` grid mapping every input to pure red — mirrors
+/// `gpu_render::tests_film::solid_red_lut` (a mirrored, not shared, private
+/// copy — same convention `film_look_tests.rs`'s own `identity_lattice`
+/// documents for this feature). Strong enough that a render with it loaded
+/// must visibly differ from the no-look render, proving the look is
+/// genuinely applied rather than silently ignored.
+fn solid_red_mlut_bytes() -> Vec<u8> {
+    let mut data = Vec::with_capacity(2 * 2 * 2 * 3);
+    for _ in 0..(2 * 2 * 2) {
+        data.extend_from_slice(&[1.0, 0.0, 0.0]);
+    }
+    raw_core::film::encode_mlut(2, &data)
+}
+
+/// #2719: sized + film-look union entry. Empty `film_lut_bytes` must render
+/// byte-identically to the plain sized entry — the same empty-clears
+/// contract `render_bytes_with_film` documents for the unsized path,
+/// extended here to the sized one.
+#[test]
+fn render_bytes_sized_with_film_empty_lut_matches_render_bytes_sized() {
+    let Some(path) = fixture_path() else { return };
+    let bytes = std::fs::read(&path).expect("read fixture");
+    let cap = 768u32;
+    let no_lut =
+        render_bytes_sized(&bytes, "dng", None, false, cap).expect("plain sized render ok");
+    let empty_lut = render::render_bytes_sized_with_film(&bytes, "dng", None, false, cap, &[])
+        .expect("sized+film render with empty lut ok");
+    assert_eq!(no_lut.width(), empty_lut.width());
+    assert_eq!(no_lut.height(), empty_lut.height());
+    assert_eq!(
+        no_lut.rgb(),
+        empty_lut.rgb(),
+        "an empty film_lut_bytes must render byte-identically to render_bytes_sized"
+    );
+    assert_eq!(
+        no_lut.as_shot_temperature(),
+        empty_lut.as_shot_temperature()
+    );
+    assert_eq!(no_lut.as_shot_tint(), empty_lut.as_shot_tint());
+}
+
+/// #2719: with a real (non-empty) film LUT loaded, `render_bytes_sized_with_film`
+/// keeps every contract `render_bytes_sized` already has — long-edge cap,
+/// native dims, As-Shot WB seed — AND visibly changes the pixels versus the
+/// no-look render, proving the look actually reaches the sized develop path
+/// rather than being accepted and dropped.
+#[test]
+fn render_bytes_sized_with_film_caps_long_edge_and_applies_the_look() {
+    let Some(path) = fixture_path() else { return };
+    let bytes = std::fs::read(&path).expect("read fixture");
+    let cap = 768u32;
+    let lut_bytes = solid_red_mlut_bytes();
+
+    let with_film =
+        render::render_bytes_sized_with_film(&bytes, "dng", None, false, cap, &lut_bytes)
+            .expect("sized+film render ok");
+    let (w, h) = (with_film.width(), with_film.height());
+    assert!(
+        w.max(h) <= cap,
+        "long edge {} exceeds cap {}",
+        w.max(h),
+        cap
+    );
+    assert_eq!(
+        with_film.rgb().len(),
+        (w as usize) * (h as usize) * 3,
+        "packed RGB bytes"
+    );
+
+    let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
+    let (nw, nh) = raw_core::pipeline::native_render_dims(&raw_img);
+    assert_eq!(
+        (with_film.full_width(), with_film.full_height()),
+        (nw, nh),
+        "full_* getters must carry the native oriented dims, same contract as render_bytes_sized"
+    );
+
+    // As-Shot derivation is unaffected by the film look — identical to the
+    // no-lut sized entry (matches render_bytes_with_film's own as-shot
+    // contract for the unsized path).
+    let (expected_cct, expected_tint) = as_shot_wb(&raw_img);
+    assert_eq!(with_film.as_shot_temperature(), expected_cct);
+    assert_eq!(with_film.as_shot_tint(), expected_tint);
+
+    let no_lut =
+        render_bytes_sized(&bytes, "dng", None, false, cap).expect("plain sized render ok");
+    assert_ne!(
+        no_lut.rgb(),
+        with_film.rgb(),
+        "a solid-red film LUT must visibly change the rendered pixels"
+    );
+}
+
 /// #1892: a fresh open (no XMP) must develop IDENTICALLY to an explicit
 /// `crs:WhiteBalance="As Shot"` sidecar — both resolve to the As-Shot
 /// sentinel; neither pushes the display estimate into the model. Pre-#1892

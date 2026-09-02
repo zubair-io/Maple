@@ -10,13 +10,21 @@
 // method) for the same reason: the component already computes it for its
 // own two-phase scheduler on every tick, so this just reuses that value.
 //
-// Film only has a GPU live-session code path today (Task 9's routing
-// guarantee, `raw-pipeline.decode-route.ts`): the WASM-CPU 2D fast/refine
-// phases are SIZED requests, and raw-core has no sized+film-aware render
-// entry yet (a documented gap in that file — #2719, not this ticket's to
-// close) — so this helper is a no-op while the GPU live session isn't
-// active. Export (`ImageExportService`) is the OTHER place a `.mlut` gets
-// fetched + threaded through, independently of this class.
+// This class only drives the GPU live-session code path: it's a no-op
+// while the GPU live session isn't active. The WASM-CPU 2D fast/refine
+// phases now HAVE a sized+film-aware render entry
+// (`render_bytes_sized_with_film`, routed via `raw-pipeline.decode-route.ts`'s
+// `sizedFilm` route, #2719) — the primitive raw-core/raw-wasm layer supports
+// a loaded look on the sized path exactly like it already does for the
+// unsized one (Task 9's `render_bytes_with_film`/`'film'` route, which is
+// itself reachable only through direct tests today, not a live decode()
+// call — see `raw-pipeline.types.ts`'s `DecodeRequest.filmLut` doc).
+// Threading a resolved `.mlut` through the 2D `decode()` call sites
+// (`image-canvas.render2d.ts`) so the non-WebGPU live canvas actually SENDS
+// it is tracked separately (#3171) — the primitive layer landing in #2719 is
+// what makes that wiring possible, not the wiring itself. Export
+// (`ImageExportService`) is the OTHER place a `.mlut` gets fetched +
+// threaded through, independently of this class.
 //
 // `RawPipelineService.setFilmLut` transfers its `ArrayBuffer` argument, which
 // detaches it — so every post re-fetches from `FilmLutService`. That's cheap:

@@ -67,8 +67,24 @@ describe('selectLegacyDecodeRoute (#2683 Task 9 fix round 1)', () => {
     expect(selectLegacyDecodeRoute(req, false)).toBe('cpu');
   });
 
-  it('a sized + filmLut request routes to sized (the one documented gap — no sized+film sibling yet)', () => {
+  // ── #2719: sized + film now has its own dedicated route ────────────────────
+
+  it('a sized + filmLut request routes to sizedFilm regardless of gpu opt-in or WebGPU support', () => {
     const req: Req = { gpu: true, maxLongEdge: 1024, filmLut: FILM_BYTES };
+    expect(selectLegacyDecodeRoute(req, true)).toBe('sizedFilm');
+    expect(selectLegacyDecodeRoute(req, false)).toBe('sizedFilm');
+    expect(selectLegacyDecodeRoute({ ...req, gpu: false }, true)).toBe('sizedFilm');
+  });
+
+  it('a sized request with an EMPTY filmLut routes to plain sized, not sizedFilm', () => {
+    const req: Req = { gpu: true, maxLongEdge: 1024, filmLut: EMPTY_FILM_BYTES };
     expect(selectLegacyDecodeRoute(req, true)).toBe('sized');
+  });
+
+  it('sizedFilm outranks maxLongEdge: 0 correctly falling back to the film-only route', () => {
+    // maxLongEdge: 0 is NOT "sized" (the no-cap sentinel) — a filmLut-bearing
+    // request with no real cap still routes to the unsized film entry.
+    const req: Req = { gpu: false, maxLongEdge: 0, filmLut: FILM_BYTES };
+    expect(selectLegacyDecodeRoute(req, false)).toBe('film');
   });
 });
