@@ -39,8 +39,18 @@ use maple_pano::ingest::FramePriors;
 /// plausibly belongs to the rest of its set, without paying for a full
 /// RAW decode.
 struct FrameProbe {
-    /// Empty when the file couldn't be read/decoded at all — probes as
-    /// non-conforming on both signals below.
+    /// `false` only when the file itself couldn't be read from disk or
+    /// decoded at all (I/O error, or `raw_core::read_pano_metadata`
+    /// failing outright) — the genuine "unreadable" signal for
+    /// `drop_non_conforming`. Kept explicit rather than inferred from
+    /// `camera_model.is_empty() && !has_focal`: a successfully-read file
+    /// can legitimately carry neither a Model string nor a derivable
+    /// focal, and conflating that shape with an actual I/O/decode
+    /// failure mislabels the diagnostic as "unreadable" when it's really
+    /// "missing metadata" (Copilot review on #3131).
+    readable: bool,
+    /// Empty when unreadable, or when a readable file's EXIF genuinely
+    /// carries no Model string.
     camera_model: String,
     has_focal: bool,
 }
@@ -54,7 +64,13 @@ fn probe_frame(path: &Path) -> FrameProbe {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
-        .unwrap_or("dng")
+        // Empty, not "dng", when the extension is missing or non-UTF8 —
+        // matches raw_core::decode()'s own path-based hint exactly
+        // (`.unwrap_or_default()`), letting rawler fall back to its
+        // magic-byte format detection instead of assuming DNG and
+        // mis-routing/misclassifying a differently-formatted or
+        // extensionless file (Copilot review on #3131).
+        .unwrap_or_default()
         // ASCII-only: extensions here are always ASCII ("dng", "DNG",
         // ...), and to_lowercase()'s full Unicode case-folding can widen
         // some inputs to multiple characters — not what a routing-key
@@ -62,18 +78,21 @@ fn probe_frame(path: &Path) -> FrameProbe {
         .to_ascii_lowercase();
     let Ok(bytes) = std::fs::read(path) else {
         return FrameProbe {
+            readable: false,
             camera_model: String::new(),
             has_focal: false,
         };
     };
     let Ok(md) = raw_core::read_pano_metadata(&bytes, &ext) else {
         return FrameProbe {
+            readable: false,
             camera_model: String::new(),
             has_focal: false,
         };
     };
     let has_focal = FramePriors::from_metadata(&md).focal_px.is_some();
     FrameProbe {
+        readable: true,
         camera_model: md.camera_model,
         has_focal,
     }
@@ -113,15 +132,14 @@ fn drop_non_conforming(name: &str, probed: Vec<(PathBuf, FrameProbe)>) -> Vec<Pa
     probed
         .into_iter()
         .filter_map(|(path, probe)| {
-            // probe_frame's failure shape (I/O or decode error) is
-            // *both* an empty model and no focal together — that's the
-            // specific signal for "couldn't identify this file at all",
-            // not just an empty/unknown model string on its own (a
-            // successful read can legitimately have no Model tag but
-            // still carry a derivable focal; that case still deserves
-            // the ordinary wrong-body comparison, not an automatic drop
-            // mislabeled as "unreadable") (Copilot review on #3131).
-            let unreadable = probe.camera_model.is_empty() && !probe.has_focal;
+            // Use probe_frame's own explicit readable flag, not an
+            // inference from the data shape — a successfully-read file
+            // can legitimately have both an empty model and no focal,
+            // and that case deserves the ordinary wrong-body comparison
+            // (pass through with no majority established, or lose to an
+            // established one as "wrong body"), not a drop mislabeled as
+            // "unreadable" (Copilot review on #3131).
+            let unreadable = !probe.readable;
             let wrong_body = !unreadable
                 && majority_model
                     .as_deref()
@@ -165,8 +183,24 @@ mod tests {
         (
             PathBuf::from(path),
             FrameProbe {
+                readable: true,
                 camera_model: camera_model.to_string(),
                 has_focal,
+            },
+        )
+    }
+
+    /// The `probe_frame` failure shape (#3131 review, Copilot): `readable:
+    /// false` is the genuine "couldn't read/decode this file at all"
+    /// signal, distinct from a readable file that just happens to carry
+    /// an empty model and no focal (see `probed` above).
+    fn unreadable_probed(path: &str) -> (PathBuf, FrameProbe) {
+        (
+            PathBuf::from(path),
+            FrameProbe {
+                readable: false,
+                camera_model: String::new(),
+                has_focal: false,
             },
         )
     }
@@ -288,9 +322,9 @@ mod tests {
         assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
     }
 
-    /// An unreadable/undecodable frame (empty model, no focal — what
-    /// `probe_frame` returns on I/O or decode failure) is dropped like
-    /// any other non-conforming frame, not treated as its own model.
+    /// An unreadable/undecodable frame — `probe_frame`'s actual I/O/decode
+    /// failure shape, `readable: false` — is dropped like any other
+    /// non-conforming frame, not treated as its own model.
     #[test]
     fn unreadable_frame_probe_is_dropped() {
         let kept = drop_non_conforming(
@@ -298,7 +332,7 @@ mod tests {
             vec![
                 probed("a.dng", "L3D-100c", true),
                 probed("b.dng", "L3D-100c", true),
-                probed("corrupt.dng", "", false),
+                unreadable_probed("corrupt.dng"),
             ],
         );
         assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
