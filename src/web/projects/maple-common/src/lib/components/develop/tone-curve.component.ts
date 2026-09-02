@@ -56,6 +56,8 @@ import {
   buildToneCurveViewModel,
   type ChannelTab,
   type CurveChannel,
+  type CurveFamily,
+  type FamilyTab,
   type ParametricSlider,
   type PlottedKnot,
 } from './tone-curve.vm';
@@ -110,6 +112,16 @@ export class ToneCurveComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.endDrag();
+  }
+
+  // ── Family selector (#2232) ─────────────────────────────────────────────
+
+  selectFamily(tab: FamilyTab): void {
+    this.vm.family.set(tab.id);
+  }
+
+  isActiveFamily(id: CurveFamily): boolean {
+    return this.vm.family() === id;
   }
 
   // ── Channel selector ────────────────────────────────────────────────────
