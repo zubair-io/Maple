@@ -112,6 +112,108 @@ final class AllSourcesTimelineViewModelTests: XCTestCase {
     XCTAssertEqual(july.count, 2, "1 (PhotoKit) + 1 (folder) = 2 — disjoint populations sum")
   }
 
+  /// `loadPage`'s local-only seed must go through the SAME
+  /// `MergedTimelineSource.merge(localStreams:cloudStreams:)` path the
+  /// post-fetch merge uses (Copilot review, PR #3187), not a flat
+  /// `.localOnly` map over the PhotoKit+Folder streams flattened together —
+  /// that bypassed `merge`'s cross-stream dedup and its capture-date sort.
+  ///
+  /// Fixture: a PhotoKit ref and a Folder ref that share a join key (the
+  /// Folder-derived `id`, reused on the PhotoKit ref so they collide the
+  /// same way a real cross-device duplicate would) plus a second,
+  /// Folder-only ref with a LATER capture date so date order and insertion
+  /// order disagree — only a correct, sorted merge puts it first.
+  func test_loadPage_seedsLocalOnlyCellsViaMergeNotFlatten() async throws {
+    let julKey = BucketKey(year: 2024, month: 7)
+
+    let suiteName = "AllSourcesTimelineVMTests-\(UUID().uuidString)"
+    let folderDefaults = UserDefaults(suiteName: suiteName)!
+    addTeardownBlock { folderDefaults.removePersistentDomain(forName: suiteName) }
+    let folderURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AllSourcesTimelineVMTests-folder-\(UUID())")
+    try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: folderURL) }
+
+    // File #1 will be the duplicate — its derived id gets reused on the
+    // PhotoKit-side ref below so the two streams collide.
+    let dupURL = folderURL.appendingPathComponent("IMG_DUP.dng")
+    try Data("dup-pixels".utf8).write(to: dupURL)
+    let dupAttrs = try FileManager.default.attributesOfItem(atPath: dupURL.path)
+    // File #2 is Folder-only, with the LATEST capture date of the three —
+    // insertion order (PhotoKit dup, then this) would put it last; the
+    // correct date-descending merge must put it first.
+    let uniqueURL = folderURL.appendingPathComponent("IMG_UNIQUE.dng")
+    try Data("unique-pixels".utf8).write(to: uniqueURL)
+    let uniqueAttrs = try FileManager.default.attributesOfItem(atPath: uniqueURL.path)
+
+    try await LibraryIndexStore(folderURL: folderURL).updateFingerprints([
+      LibraryIndexStore.FingerprintUpdate(
+        name: "IMG_DUP.dng", size: (dupAttrs[.size] as? NSNumber)?.int64Value,
+        mtime: dupAttrs[.modificationDate] as? Date,
+        dateTimeOriginal: "2024:07:10 09:00:00", cameraSerial: nil),
+      LibraryIndexStore.FingerprintUpdate(
+        name: "IMG_UNIQUE.dng", size: (uniqueAttrs[.size] as? NSNumber)?.int64Value,
+        mtime: uniqueAttrs[.modificationDate] as? Date,
+        dateTimeOriginal: "2024:07:25 09:00:00", cameraSerial: nil),
+    ])
+    let bookmark = try folderURL.bookmarkData(
+      options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+    SavedFolderStore.upsert(
+      SavedFolder(path: folderURL.path, displayName: "A", bookmark: bookmark, lastOpened: Date()),
+      into: folderDefaults)
+    let folderMerge = FolderMergeAdapter(defaults: folderDefaults)
+    await folderMerge.warmUp()
+
+    let folderRefs = folderMerge.assetsForMonth(year: 2024, month: 7)
+      .sorted { $0.displayName < $1.displayName }  // deterministic: IMG_DUP, IMG_UNIQUE
+    let dupFolderRef = try XCTUnwrap(folderRefs.first { $0.displayName == "IMG_DUP" })
+    let uniqueFolderRef = try XCTUnwrap(folderRefs.first { $0.displayName == "IMG_UNIQUE" })
+
+    // Same id as the folder-derived duplicate, so `merge` collapses them —
+    // capture date day 20, between the other two, so its position in the
+    // sorted output only makes sense if the merge (not a flat concat) ran.
+    let photoKitRef = ImageRef(
+      id: dupFolderRef.id, displayName: "photokit-dup", url: nil,
+      captureDate: Self.utcDate(year: 2024, month: 7, day: 20))
+    let photoKitURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AllSourcesTimelineVMTests-photokit-\(UUID()).json")
+    addTeardownBlock { try? FileManager.default.removeItem(at: photoKitURL) }
+    try PhotoKitMergeAdapter.encodeBuckets(
+      [PhotoKitMergeAdapter.BucketKey(year: 2024, month: 7): [photoKitRef]]
+    ).write(to: photoKitURL)
+    let photoKitMerge = PhotoKitMergeAdapter(diskCacheURL: photoKitURL)
+
+    let vm = AllSourcesTimelineViewModel(
+      sources: [],
+      bucketsCache: CloudBucketsCache(baseDir: tmpDir()),
+      pagesCache: CloudPagesCache(baseDir: tmpDir()),
+      photoKitMerge: photoKitMerge, folderMerge: folderMerge)
+
+    await vm.loadPage(year: 2024, month: 7)
+
+    // Recompute against the SAME live streams `localStreams(forMonthOf:)`
+    // would hand the seed — not a hand-reconstructed array — so this
+    // assertion can't accidentally pass just because a manual copy happens
+    // to agree; within-stream order doesn't matter here (`merge`'s only
+    // ordering guarantee is capture-date-descending on its OUTPUT, and
+    // `dedupedAcrossStreams` never collapses two rows of the same stream
+    // against each other), so reusing `folderMerge`'s live return value
+    // is both simpler and strictly more faithful than reordering it.
+    let expected = MergedTimelineSource.merge(
+      localStreams: [[photoKitRef], folderMerge.assetsForMonth(year: 2024, month: 7)], cloudStreams: [])
+    XCTAssertEqual(
+      vm.mergedPagesByBucket[julKey], expected,
+      "seeded cells must match the real merge exactly — same dedup, same order")
+
+    let merged = try XCTUnwrap(vm.mergedPagesByBucket[julKey])
+    XCTAssertEqual(merged.count, 2, "the shared-id PhotoKit/Folder pair collapses to one cell")
+
+    guard case .localOnly(let first) = merged[0] else {
+      return XCTFail("expected .localOnly cells, no cloud streams were seeded")
+    }
+    XCTAssertEqual(first.displayName, "IMG_UNIQUE", "later capture date (7/25) sorts first")
+  }
+
   private static func utcDate(year: Int, month: Int, day: Int) -> Date {
     var cal = Calendar(identifier: .gregorian)
     cal.timeZone = TimeZone(secondsFromGMT: 0)!

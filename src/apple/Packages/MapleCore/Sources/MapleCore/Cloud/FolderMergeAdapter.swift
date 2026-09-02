@@ -127,13 +127,31 @@ public final class FolderMergeAdapter {
     /// Drop the cache and release every opened folder's security scope.
     /// Call when the saved-folders list changes in a way that should force
     /// a clean re-open (mirrors `PhotoKitMergeAdapter.invalidate`).
+    ///
+    /// Cancels and clears any in-flight `warmUp()` first (Copilot review, PR
+    /// #3187): without this, a `rebuild()` already running when
+    /// `invalidate()` is called would still be holding `warmTask`, finish
+    /// later, and swap fresh `newSources`/`buckets` back in — re-firing
+    /// observers — after the caller believed the adapter had been reset.
+    /// `rebuild()`'s own `Task.isCancelled` guard (below) is what actually
+    /// makes the cancellation stick; this just requests it and severs the
+    /// adapter's reference so a future `warmUp()` doesn't await the
+    /// cancelled task instead of starting a fresh one.
+    ///
+    /// Closes from a snapshot taken before `sources` is cleared, not the
+    /// live array (Copilot review, PR #3187) — `close()` is async, so
+    /// closing `sources` in place while iterating it would race a
+    /// concurrent `rebuild()` that starts repopulating the same array.
     public func invalidate() {
+        warmTask?.cancel()
+        warmTask = nil
         bucketsByMonth.removeAll()
-        for source in sources {
-            Task { await source.close() }
-        }
+        let closingSources = sources
         sources.removeAll()
         hasFreshData = false
+        for source in closingSources {
+            Task { await source.close() }
+        }
     }
 
     // MARK: - Private
@@ -148,6 +166,13 @@ public final class FolderMergeAdapter {
         cal.timeZone = TimeZone(secondsFromGMT: 0)!
 
         for folder in saved {
+            // Cancellation check per folder (Copilot review, PR #3187):
+            // `invalidate()` may have cancelled this task between folders,
+            // and there's no reason to keep opening security-scoped sources
+            // — each one just has to be closed again below — for a rebuild
+            // whose result is about to be discarded.
+            if Task.isCancelled { break }
+
             let source = FilesystemSource()
             do {
                 try await source.restore(fromBookmarkData: folder.bookmark)
@@ -166,6 +191,19 @@ public final class FolderMergeAdapter {
                 guard let y = comps.year, let m = comps.month else { continue }
                 buckets[BucketKey(year: y, month: m), default: []].append(ref)
             }
+        }
+
+        // Cancellation guard (Copilot review, PR #3187): `invalidate()` may
+        // have run while the loop above was still awaiting — without this
+        // check, the swap below would still apply `newSources`/`buckets`
+        // and mark `hasFreshData` true, silently undoing the invalidation
+        // and re-firing observers after the caller thought the adapter was
+        // reset. Every source opened by THIS rebuild is closed here rather
+        // than left for `invalidate()`'s snapshot, which only knew about
+        // the sources that existed before this rebuild started.
+        guard !Task.isCancelled else {
+            for opened in newSources { await opened.close() }
+            return
         }
 
         // Release scope on any PREVIOUSLY-opened sources this rebuild is
