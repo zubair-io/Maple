@@ -37,10 +37,10 @@ export interface DecodeRequest {
    */
   qualityPreview?: boolean;
   /**
-   * A baked film-look `.mlut` grid (epic #2683, Task 9) — transferable. The
-   * WASM-CPU fallback's counterpart of the GPU live session's
-   * `set-film-lut` upload. Absent/empty renders with no look applied,
-   * regardless of the sidecar's `film_look`/`film_strength` fields.
+   * A baked film-look `.mlut` grid (epic #2683, Task 9). The WASM-CPU
+   * fallback's counterpart of the GPU live session's `set-film-lut` upload.
+   * Absent/empty renders with no look applied, regardless of the sidecar's
+   * `film_look`/`film_strength` fields.
    *
    * ROUTING GUARANTEE: `handleLegacyDecode` routes ANY unsized request that
    * carries a non-empty `filmLut` to `render_bytes_with_film` UNCONDITIONALLY
@@ -54,11 +54,15 @@ export interface DecodeRequest {
    * requests, so this route is what the editor NEEDS to send a loaded look
    * through when WebGPU isn't available.
    *
-   * NOT YET WIRED: `RawPipelineService.decode()` has no `filmLut` parameter
-   * today, so nothing in the real UI actually sets this field on a
-   * `DecodeRequest` — `sizedFilm` (like the unsized `film` route above) is
-   * reachable only through direct tests until the 2D call sites resolve and
-   * pass a `.mlut`, tracked separately at #3171.
+   * WIRED (#3171): `RawPipelineService.decode()`'s `filmLut` parameter sets
+   * this field, threaded from `ImageCanvasFilmSync`'s CPU-path cache
+   * (`image-canvas.film.ts`) through `image-canvas.render2d.ts`'s
+   * `runRender2d` whenever the GPU live session isn't the active render
+   * path. Deliberately NOT in `decodeOnce`'s postMessage transfer list —
+   * unlike `bytes` (a one-shot RAW copy), the SAME resolved buffer is
+   * reused across every fast/refine tick until the look changes, so
+   * structured-cloning it (not transferring/detaching it) is what makes
+   * that reuse possible.
    */
   filmLut?: ArrayBuffer;
 }

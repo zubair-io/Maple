@@ -10,21 +10,27 @@
 // method) for the same reason: the component already computes it for its
 // own two-phase scheduler on every tick, so this just reuses that value.
 //
-// This class only drives the GPU live-session code path: it's a no-op
-// while the GPU live session isn't active. The WASM-CPU 2D fast/refine
-// phases now HAVE a sized+film-aware render entry
-// (`render_bytes_sized_with_film`, routed via `raw-pipeline.decode-route.ts`'s
-// `sizedFilm` route, #2719) — the primitive raw-core/raw-wasm layer supports
-// a loaded look on the sized path exactly like it already does for the
-// unsized one (Task 9's `render_bytes_with_film`/`'film'` route, which is
-// itself reachable only through direct tests today, not a live decode()
-// call — see `raw-pipeline.types.ts`'s `DecodeRequest.filmLut` doc).
-// Threading a resolved `.mlut` through the 2D `decode()` call sites
-// (`image-canvas.render2d.ts`) so the non-WebGPU live canvas actually SENDS
-// it is tracked separately (#3171) — the primitive layer landing in #2719 is
-// what makes that wiring possible, not the wiring itself. Export
-// (`ImageExportService`) is the OTHER place a `.mlut` gets fetched +
+// `syncIfNeeded`/`sync` drive the GPU live-session code path: a no-op while
+// the GPU live session isn't active. `ensureCpuLutResolving`/`cpuLutBytesFor`
+// (#3171) are the sibling for the WASM-CPU 2D fast/refine phases, which have
+// a sized+film-aware render entry (`render_bytes_sized_with_film`, routed via
+// `raw-pipeline.decode-route.ts`'s `sizedFilm` route, #2719) — the primitive
+// raw-core/raw-wasm layer supports a loaded look on the sized path exactly
+// like it already does for the unsized one (Task 9's
+// `render_bytes_with_film`/`'film'` route). `image-canvas.render2d.ts`'s
+// `runRender2d` reads the cached bytes via `cpuLutBytesFor` and threads them
+// through `RawPipelineService.decode()`'s `filmLut` parameter on every
+// fast/refine tick while the GPU live session isn't the active render path.
+// Export (`ImageExportService`) is the OTHER place a `.mlut` gets fetched +
 // threaded through, independently of this class.
+//
+// The CPU cache deliberately does NOT reuse `lastPostedAssetId`/
+// `lastPostedLookId` — those track what was POSTED to the GPU session (a
+// side effect, meaningful even off the CPU path), while the CPU fields track
+// what's CACHED and ready to read synchronously from a render tick. The two
+// dedup independently so a session can (rarely) flip between GPU and CPU
+// paths — a WebGPU adapter failing mid-session — without one path's stale
+// dedup state suppressing the other's first sync.
 //
 // `RawPipelineService.setFilmLut` transfers its `ArrayBuffer` argument, which
 // detaches it — so every post re-fetches from `FilmLutService`. That's cheap:
@@ -76,6 +82,10 @@ export class ImageCanvasFilmSync {
   reset(): void {
     this.lastPostedAssetId = null;
     this.lastPostedLookId = null;
+    this.cpuLutAssetId = null;
+    this.cpuLutLookId = null;
+    this.cpuLutBytes = null;
+    this.cpuLutFetchKey = null;
   }
 
   private async sync(assetId: AssetId, lookId: string): Promise<void> {
@@ -93,5 +103,80 @@ export class ImageCanvasFilmSync {
     } catch (err) {
       console.warn('[image-canvas] set-film-lut failed:', err);
     }
+  }
+
+  // ── WASM-CPU 2D fast/refine path (#3171) ──────────────────────────────
+  // `.mlut` bytes resolved for the CURRENTLY cached (assetId, lookId) pair,
+  // read synchronously by `image-canvas.render2d.ts`'s `runRender2d` on
+  // every render tick. `getLattice` is an async IndexedDB round trip, so a
+  // per-tick fetch would blow the slider-tick budget — `ensureCpuLutResolving`
+  // kicks off (and dedups) the fetch from the model-change effect instead;
+  // `cpuLutBytesFor` only ever reads whatever's already cached, synchronously.
+  private cpuLutAssetId: AssetId | null = null;
+  private cpuLutLookId: string | null = null;
+  private cpuLutBytes: ArrayBuffer | null = null;
+  /** The (assetId, lookId) pair a fetch is currently in flight for, so a
+   *  second tick before the first fetch resolves doesn't start a duplicate. */
+  private cpuLutFetchKey: string | null = null;
+
+  /**
+   * Kick off resolving `lookId`'s `.mlut` bytes for the CPU 2D decode path,
+   * if the (assetId, lookId) pair isn't already cached or in flight. Call
+   * from the model-change effect whenever the GPU live session is NOT the
+   * active render path (no WebGPU, kill switch off, or GPU-open fallback).
+   * The resolved bytes land in `cpuLutBytesFor` once the fetch settles, and
+   * `onLutApplied()` nudges a re-render to pick them up — the same nudge
+   * `sync()` already fires for the GPU path.
+   */
+  ensureCpuLutResolving(assetId: AssetId, lookId: string): void {
+    if (!lookId) {
+      this.cpuLutAssetId = null;
+      this.cpuLutLookId = null;
+      this.cpuLutBytes = null;
+      return;
+    }
+    if (assetId === this.cpuLutAssetId && lookId === this.cpuLutLookId) return; // cached
+    const key = `${assetId}:${lookId}`;
+    if (this.cpuLutFetchKey === key) return; // already in flight
+    this.cpuLutFetchKey = key;
+    void this.resolveCpuLut(assetId, lookId, key);
+  }
+
+  /**
+   * The currently-cached `.mlut` bytes for `assetId`/`lookId`, or
+   * `undefined` when no look is set or the fetch is still resolving.
+   * Synchronous — never triggers a fetch itself; see `ensureCpuLutResolving`.
+   */
+  cpuLutBytesFor(assetId: AssetId, lookId: string): ArrayBuffer | undefined {
+    if (!lookId) return undefined;
+    if (assetId !== this.cpuLutAssetId || lookId !== this.cpuLutLookId) return undefined;
+    return this.cpuLutBytes ?? undefined;
+  }
+
+  /** `cpuLutBytesFor` for the CURRENT focused asset + model, read directly
+   *  off `host.currentAssetId`/`host.state` (mirroring `sync()`'s own
+   *  reads) so call sites like the component's `runRender` don't have to
+   *  re-derive both. `undefined` when there's no focused asset. */
+  cpuLutBytesForCurrent(): ArrayBuffer | undefined {
+    const assetId = this.host.currentAssetId;
+    if (!assetId) return undefined;
+    return this.cpuLutBytesFor(assetId, this.host.state.adjustmentFor(assetId)().filmLook);
+  }
+
+  private async resolveCpuLut(assetId: AssetId, lookId: string, key: string): Promise<void> {
+    const bytes = await this.host.filmLut.getLattice(lookId);
+    if (this.cpuLutFetchKey === key) this.cpuLutFetchKey = null;
+    // Stale guards, same shape as `sync()`'s: the asset or look may have
+    // changed again while the fetch was pending.
+    if (this.host.currentAssetId !== assetId) return;
+    if (this.host.state.adjustmentFor(assetId)().filmLook !== lookId) return;
+    this.cpuLutAssetId = assetId;
+    this.cpuLutLookId = lookId;
+    // A 404/network failure resolves `null` (never throws — `getLattice`'s
+    // own contract); caching it under the (assetId, lookId) key still
+    // avoids retrying every tick, and `cpuLutBytesFor` reports "no look" for
+    // it exactly like the GPU path's zero-length-buffer clear.
+    this.cpuLutBytes = bytes;
+    this.onLutApplied();
   }
 }

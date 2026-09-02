@@ -142,6 +142,16 @@ export class RawPipelineService implements OnDestroy {
    * are ignored for this branch), but DO still run through the WASM
    * per-tick adjustment chain via `develop_non_raw` (#3039) — see
    * `raw-pipeline.non-raw-develop.ts`'s `developNonRaw`.
+   * @param filmLut A resolved film-look `.mlut` v1 grid (#3171) — the
+   *   WASM-CPU counterpart of the GPU live session's `set-film-lut` upload
+   *   (see `setFilmLut` below and `ImageCanvasFilmSync`). Absent/empty
+   *   renders with no look applied. Routes to `sizedFilm`/`film` per
+   *   `selectLegacyDecodeRoute` (`raw-pipeline.decode-route.ts`) —
+   *   `decodeOnce` does not need to know which. Deliberately NOT part of
+   *   `decodeOnce`'s transfer list: unlike `bytes` (a one-shot RAW file
+   *   copy), the SAME resolved LUT buffer is reused across every
+   *   fast/refine render tick until the look changes, and transferring it
+   *   would detach/neuter it after the first tick.
    */
   decode(
     bytes: Uint8Array,
@@ -149,6 +159,7 @@ export class RawPipelineService implements OnDestroy {
     xmp?: string,
     maxLongEdge?: number,
     qualityPreview?: boolean,
+    filmLut?: ArrayBuffer,
   ): Promise<DecodedImage> {
     // Non-RAW images (jpg/png/heic/webp/…) are already developed sRGB pixels,
     // so they never touch `rawler`/demosaic — but they DO still need the
@@ -170,7 +181,7 @@ export class RawPipelineService implements OnDestroy {
             () => this.nextId++,
             this.pending.set.bind(this.pending),
           )
-      : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
+      : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview, filmLut);
     const next = this.decodeChain.then(run, run);
     // Preserve the chain regardless of success/failure so one bad decode
     // doesn't stall the queue.
@@ -184,6 +195,7 @@ export class RawPipelineService implements OnDestroy {
     xmp?: string,
     maxLongEdge?: number,
     qualityPreview?: boolean,
+    filmLut?: ArrayBuffer,
   ): Promise<DecodedImage> {
     let worker: Worker;
     try {
@@ -210,10 +222,14 @@ export class RawPipelineService implements OnDestroy {
       gpu: this.gpuLiveRenderEnabled,
       maxLongEdge,
       qualityPreview,
+      filmLut,
     };
     return dispatchWithMark<DecodedImage>(
       worker,
       request,
+      // `filmLut` is deliberately absent from the transfer list — see
+      // `decode()`'s doc. Structured-cloning a `.mlut` grid (tens of KB) is
+      // negligible next to the RAW `bytes` transfer this call already makes.
       [buffer],
       'maple:decode',
       ({ resolve, reject }) => ({ kind: 'legacy', resolve, reject }),
