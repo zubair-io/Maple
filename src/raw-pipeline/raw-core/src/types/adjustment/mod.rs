@@ -26,9 +26,7 @@ pub mod curves;
 pub mod schema;
 
 pub use curves::{ToneCurve, ToneCurvePoint};
-pub use schema::{
-    AdjustmentGroup, FieldKind, FieldSpec, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
-};
+pub use schema::{AdjustmentGroup, FieldKind, FieldSpec, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS};
 
 /// User-selectable display Look. Canonical definition lives in
 /// `crate::view::look` (the module that owns the LUT data and `apply`
@@ -290,14 +288,14 @@ pub struct AdjustmentModel {
     // The rest of the Color Grading panel (#275): the midtone zone, the
     // three per-zone luminance offsets, and the unweighted global wheel.
     // ACR namespaces these under `crs:ColorGrade*`.
-    pub color_grade_shadow_luminance: f32,    // -100..100, default 0
-    pub color_grade_midtone_hue: f32,         // 0..360, default 0
-    pub color_grade_midtone_saturation: f32,  // 0..100, default 0
-    pub color_grade_midtone_luminance: f32,   // -100..100, default 0
+    pub color_grade_shadow_luminance: f32, // -100..100, default 0
+    pub color_grade_midtone_hue: f32,      // 0..360, default 0
+    pub color_grade_midtone_saturation: f32, // 0..100, default 0
+    pub color_grade_midtone_luminance: f32, // -100..100, default 0
     pub color_grade_highlight_luminance: f32, // -100..100, default 0
-    pub color_grade_global_hue: f32,          // 0..360, default 0
-    pub color_grade_global_saturation: f32,   // 0..100, default 0
-    pub color_grade_global_luminance: f32,    // -100..100, default 0
+    pub color_grade_global_hue: f32,       // 0..360, default 0
+    pub color_grade_global_saturation: f32, // 0..100, default 0
+    pub color_grade_global_luminance: f32, // -100..100, default 0
 
     // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
     // 24 ACR `crs:` fields: 8 hue adjustments, 8 saturation adjustments,
@@ -420,6 +418,32 @@ pub struct AdjustmentModel {
     pub tone_curve_red: ToneCurve,
     pub tone_curve_green: ToneCurve,
     pub tone_curve_blue: ToneCurve,
+
+    // Display-referred point curves (ticket #2232) — Adobe's
+    // `crs:ToneCurvePV2012*`. A DIFFERENT quantity from the four
+    // `tone_curve_*` fields above: those apply pre-AgX in scene-linear
+    // light; these apply POST-AgX in display-linear `[0, 1]`, evaluated by
+    // `stages::display_tone_curve`. Both families can carry an authored
+    // curve on the same image at once (a Lightroom import keeps its
+    // display-referred curve; a Maple-only edit uses the scene-linear one).
+    //
+    //   `display_tone_curve_luma` (the PV2012 "master" curve) applies to
+    //   R, G and B INDEPENDENTLY with the same curve function — NOT
+    //   luma-coupled. This mirrors Adobe Camera Raw's own point-curve
+    //   behaviour (the same per-channel application every RGB "Curves"
+    //   tool uses), which is why a strong PV2012 curve can slightly
+    //   desaturate — that is the target Lightroom rendering, not a defect.
+    //
+    //   `display_tone_curve_red/green/blue` apply per-channel on top,
+    //   independently — display-referred RGB curves have no hue-preserving
+    //   mode (unlike `tone_curve_mode` above, PV2012 has no ratio-preserving
+    //   concept).
+    //
+    // All four short-circuit when identity (`ToneCurve::is_identity()`).
+    pub display_tone_curve_luma: ToneCurve,
+    pub display_tone_curve_red: ToneCurve,
+    pub display_tone_curve_green: ToneCurve,
+    pub display_tone_curve_blue: ToneCurve,
 
     /// Decode-time chroma pre-filter strength (#1104, tone/zoom design
     /// § 3.1). Luma-guided sparse cross-bilateral on opponent chroma,

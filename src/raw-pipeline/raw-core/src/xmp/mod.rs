@@ -295,10 +295,7 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // Film look blend strength — emitted only when non-default (100),
     // matching the omit-on-default convention above.
     if model.film_strength != 100.0 {
-        out.push_str(&format!(
-            r#" papp:FilmStrength="{}""#,
-            model.film_strength
-        ));
+        out.push_str(&format!(r#" papp:FilmStrength="{}""#, model.film_strength));
     }
     // Parametric tone-curve region sliders (#365) — Lightroom-compatible
     // PV2012 `crs:` keys, emitted only when non-default (0) to mirror the
@@ -405,6 +402,8 @@ mod black_white;
 mod tests;
 #[cfg(test)]
 mod tests_detail;
+#[cfg(test)]
+mod tests_display_tone_curves;
 #[cfg(test)]
 mod tests_effects;
 #[cfg(test)]

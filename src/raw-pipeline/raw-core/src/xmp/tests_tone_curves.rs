@@ -128,7 +128,10 @@ fn all_four_channels_round_trip() {
     .iter()
     .map(|e| block.find(e).unwrap_or_else(|| panic!("missing {e}")))
     .collect();
-    assert!(order.windows(2).all(|w| w[0] < w[1]), "child order: {order:?}");
+    assert!(
+        order.windows(2).all(|w| w[0] < w[1]),
+        "child order: {order:?}"
+    );
 
     let reparsed = parse(&sidecar(&block)).expect("parse");
     assert_eq!(serialize_tone_curves(&reparsed, INDENT), block);
@@ -152,10 +155,11 @@ fn fractional_coordinates_round_trip() {
     );
 }
 
-/// Lightroom's display-referred curves are a different quantity (post-AgX)
+/// Lightroom's display-referred curve is a different quantity (post-AgX)
 /// and must NOT land in the scene-linear fields — see the module header on
-/// `xmp::tone_curves`. They are preserved by the writers' unknown-node
-/// passthrough instead.
+/// `xmp::tone_curves`. It DOES parse (into `display_tone_curve_luma`, #2232)
+/// — that structural round-trip is pinned by `tests.rs`' display-curve
+/// coverage; this test only pins the negative half (no scene-linear leak).
 #[test]
 fn crs_tone_curve_pv2012_is_not_parsed_into_scene_linear_fields() {
     let block = r#"      <crs:ToneCurvePV2012>

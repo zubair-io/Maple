@@ -21,7 +21,7 @@ pub(super) const REF_MAX: f32 = 4.0;
 /// Fritsch–Carlson) or [`prepare_curve_with_tangents`] (from a synthesised
 /// knot array whose analytic tangents the caller already knows — the
 /// parametric path).
-pub(super) struct PreparedCurve {
+pub(crate) struct PreparedCurve {
     /// Sorted, deduped, clamped knots. Length ≥ 0.
     pub(super) knots: Vec<ToneCurvePoint>,
     /// Per-knot tangents after Fritsch–Carlson monotonicity adjustment.
@@ -49,7 +49,7 @@ impl PreparedCurve {
 /// Returns a [`PreparedCurve`] with the Fritsch–Carlson slopes and
 /// monotonicity-guarded tangents pre-computed — the per-pixel evaluator
 /// reads these without allocating.
-pub(super) fn prepare_curve(curve: &ToneCurve) -> PreparedCurve {
+pub(crate) fn prepare_curve(curve: &ToneCurve) -> PreparedCurve {
     let mut pts: Vec<ToneCurvePoint> = curve
         .points
         .iter()
@@ -168,6 +168,22 @@ fn guard_tangents(slopes: &[f32], tangents: Vec<f32>) -> Vec<f32> {
         }
     }
     tangents
+}
+
+/// Evaluate the curve at a display-referred value `v` already in the `[0, 1]`
+/// authoring domain — no `REF_MAX` rescale, since the caller
+/// (`stages::display_tone_curve`) runs post-AgX where the buffer is already
+/// clamped to `[0, 1]` by AgX's own Oklab gamut compression. Degenerate
+/// curves match [`eval_curve_scene_linear`]'s convention: empty (len 0) is
+/// pass-through, single-point (len 1) is a constant at that knot's `y`.
+pub(crate) fn eval_curve_unit(curve: &PreparedCurve, v: f32) -> f32 {
+    if curve.len() < 2 {
+        if let Some(&(_, y)) = curve.knots.first() {
+            return y;
+        }
+        return v;
+    }
+    eval_monotonic_cubic(curve, v.clamp(0.0, 1.0))
 }
 
 /// Evaluate the curve at scene-linear value `v`. The authoring `[0, 1]`

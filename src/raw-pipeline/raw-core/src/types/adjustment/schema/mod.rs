@@ -14,10 +14,9 @@
 //! describe them. `whiteBalancePreset` remains a hand-written web-only field
 //! pending #119.
 //!
-//! `F32`, `Enum`, and `ToneCurve` fields are captured — the four
-//! `tone_curve_*` point curves joined the table in #366, carried by the
-//! [`FieldKind::ToneCurve`] variant. `FieldKind` and `FieldSpec` are
-//! re-exported from `types.rs`.
+//! `F32`, `Enum`, and `ToneCurve` fields are captured — both point-curve
+//! families (`tone_curve_*` since #366, `display_tone_curve_*` since #2232)
+//! carry [`FieldKind::ToneCurve`], re-exported from `types.rs`.
 
 // FieldKind and FieldSpec split into a sibling submodule to stay under the
 // 600-LOC hard budget (#1181).
@@ -32,6 +31,8 @@ mod hsl;
 // The 13 Colour Grading entries, split out for the same reason (#376);
 // `ADJUSTMENT_SCHEMA` lists them in place so emitted order is unchanged.
 mod color_grade;
+// The four display-referred point-curve entries (#2232); same split reason.
+mod display_curves;
 
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
 // same 600-LOC budget reason as `types`.
@@ -496,6 +497,11 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Blue-channel point curve (#273). Applied per `tone_curve_mode`. Identity (empty) by default.",
     },
+    // Display-referred point curves (#2232) — see `display_curves.rs`.
+    display_curves::DISPLAY_TONE_CURVE_LUMA,
+    display_curves::DISPLAY_TONE_CURVE_RED,
+    display_curves::DISPLAY_TONE_CURVE_GREEN,
+    display_curves::DISPLAY_TONE_CURVE_BLUE,
     FieldSpec {
         name: "chroma_prefilter",
         kind: FieldKind::F32,
