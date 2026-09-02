@@ -424,18 +424,21 @@ mod tests {
         }
     }
 
-    /// Identical content everywhere: the gradient-domain data term is
+    /// Identical content everywhere: the gradient-domain **data term** is
     /// exactly zero at every pixel (no disagreement to route around), so
-    /// the min-cut's total edge cost crossed is zero regardless of where
-    /// the partition falls.
+    /// there's no content-driven cost pushing the seam anywhere in
+    /// particular. This checks `CostFields::data` directly rather than
+    /// the integer BK edge capacities `edge_cost` produces from it —
+    /// those are deliberately clamped to a `.max(1)` floor (see its doc)
+    /// so no edge is ever truly free to cross, which is a graph-topology
+    /// concern separate from whether the two frames agree on content.
     #[test]
-    fn identical_content_has_zero_seam_cost() {
+    fn identical_content_has_zero_gradient_domain_data_term() {
         let (w, h) = (16, 12);
         let img = gradient_image(w, h);
         let use_b = cut(&img, &img.clone());
-        // Every crossing edge between a use_b=false and use_b=true pixel
-        // must have zero data-term cost (both images are literally the
-        // same buffer, so grad(diff) == 0 everywhere).
+        // Every pixel's data term must be zero (both images are literally
+        // the same buffer, so grad(diff) == 0 everywhere).
         let fields = build_cost_fields(&img, &img);
         for y in 0..h {
             for x in 0..w {
@@ -448,8 +451,9 @@ mod tests {
             }
         }
         // Sanity: the cut still produces a valid, fully-covered partition
-        // (every pixel decided, whichever way — cost being zero means the
-        // seam is free to fall anywhere including all-A or all-B).
+        // (every pixel decided, whichever way — a zero data term means
+        // content isn't steering the seam, not that the graph has no
+        // cost at all to route around).
         assert_eq!(use_b.len(), (w * h) as usize);
     }
 
