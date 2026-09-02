@@ -44,6 +44,19 @@ import { buildResponseHeaders } from './security-headers';
 
 const WASM_CONTENT_TYPE = 'application/wasm';
 
+/** Headers that make sense on a browser->Worker request but have no
+ * business reaching a static, unauthenticated Azure Blob Storage origin —
+ * session/auth material and client-identifying data that would otherwise
+ * leak into Azure's own request logs for no operational benefit. */
+const STRIPPED_REQUEST_HEADERS = [
+	'cookie',
+	'authorization',
+	'x-forwarded-for',
+	'cf-connecting-ip',
+	'cf-ipcountry',
+	'cf-ray',
+];
+
 function isNavigationRequest(request: Request): boolean {
 	if (request.headers.get('sec-fetch-mode') === 'navigate') return true;
 	// Fallback for clients that don't send Sec-Fetch-Mode (older browsers,
@@ -63,10 +76,13 @@ function originTarget(originBaseUrl: string, pathname: string): URL {
 
 /** Fetches `pathname` from the origin, cloning the incoming request's
  * method, headers and body onto the new URL — full request semantics
- * preserved, not a hand-picked subset. */
+ * preserved, not a hand-picked subset — except for `STRIPPED_REQUEST_HEADERS`,
+ * which never had any reason to leave this Worker. */
 async function fetchOrigin(originBaseUrl: string, request: Request, pathname: string) {
 	const target = originTarget(originBaseUrl, pathname);
-	return fetch(new Request(target.toString(), request));
+	const originRequest = new Request(target.toString(), request);
+	for (const name of STRIPPED_REQUEST_HEADERS) originRequest.headers.delete(name);
+	return fetch(originRequest);
 }
 
 function withWasmContentType(headers: Headers, pathname: string): Headers {
