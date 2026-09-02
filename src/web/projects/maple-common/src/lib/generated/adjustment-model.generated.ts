@@ -63,6 +63,12 @@ export interface GeneratedAdjustmentModel {
   parametricDarks: number;
   /** Parametric tone curve — shadows region (PV2012, lower quarter). Range: [-100.0, 100.0]. */
   parametricShadows: number;
+  /** Parametric tone curve — shadow/darks split point (ACR crs:ParametricShadowSplit, #2320). Range: [0.0, 100.0]. */
+  parametricShadowSplit: number;
+  /** Parametric tone curve — darks/lights split point (ACR crs:ParametricMidtoneSplit, #2320). Range: [0.0, 100.0]. */
+  parametricMidtoneSplit: number;
+  /** Parametric tone curve — lights/highlights split point (ACR crs:ParametricHighlightSplit, #2320). Range: [0.0, 100.0]. */
+  parametricHighlightSplit: number;
   /** Vibrance (saturation with skin-tone protection) per spec § 3.7. Range: [-100.0, 100.0]. */
   vibrance: number;
   /** Global saturation. Range: [-100.0, 100.0]. */
@@ -248,6 +254,9 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     parametricLights: 0.0,
     parametricDarks: 0.0,
     parametricShadows: 0.0,
+    parametricShadowSplit: 25.0,
+    parametricMidtoneSplit: 50.0,
+    parametricHighlightSplit: 75.0,
     vibrance: 0.0,
     saturation: 0.0,
     clarity: 0.0,

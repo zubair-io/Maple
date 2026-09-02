@@ -57,6 +57,13 @@ extension AdjustmentModel.FieldName {
         case .parametricLights:             return \.parametricLights
         case .parametricDarks:              return \.parametricDarks
         case .parametricShadows:            return \.parametricShadows
+        // ACR's parametric split points (#2320) — the Swift model carries
+        // them as ordinary scalars, so they capture/apply like any other
+        // numeric field even though the curve builder does not yet consume
+        // them (#3152).
+        case .parametricShadowSplit:        return \.parametricShadowSplit
+        case .parametricMidtoneSplit:       return \.parametricMidtoneSplit
+        case .parametricHighlightSplit:     return \.parametricHighlightSplit
         case .vibrance:                     return \.vibrance
         case .saturation:                   return \.saturation
         case .clarity:                      return \.clarity
