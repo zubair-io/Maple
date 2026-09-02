@@ -360,11 +360,16 @@ function toCandidate(f: CorpusFingerprint): ExternalRenameCandidate {
  * documents deterministic output order, but the corpus format doesn't need
  * to assume that of every future runner. */
 function runRenameReconcileCase(c: CorpusCase): void {
-  const { missing, new: fresh } = c.reconcile!;
+  if (!c.reconcile) {
+    throw new Error(`${c.name}: rename-reconcile case has no "reconcile" block`);
+  }
+  const { missing, new: fresh } = c.reconcile;
   const actual = matchExternalRenameFingerprints(missing.map(toCandidate), fresh.map(toCandidate))
     .map((m) => ({ missing: m.missingFilename, new: m.newFilename }))
     .sort((a, b) => a.missing.localeCompare(b.missing));
-  const expected = [...c.expected.matches!].sort((a, b) => a.missing.localeCompare(b.missing));
+  const expected = [...(c.expected.matches ?? [])].sort((a, b) =>
+    a.missing.localeCompare(b.missing),
+  );
   expect(actual, `${c.name}: matches`).toEqual(expected);
 }
 

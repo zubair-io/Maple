@@ -427,9 +427,21 @@ namespace Maple.WinUI.Tests
                 foreach (var fp in fps)
                 {
                     if (fp.DateTimeOriginal is null) continue;
+                    // Invariant-culture + AssumeUniversal/AdjustToUniversal so this
+                    // parity runner's result can never depend on the CI machine's
+                    // current culture, and so two corpus strings that are textually
+                    // equal always parse to the SAME Kind (Utc) — the corpus's
+                    // dateTimeOriginal strings carry no explicit offset, and without
+                    // AssumeUniversal a bare DateTime.Parse would tag them Unspecified
+                    // instead of matching the production field's documented UTC
+                    // contract (review on #2934).
                     dict[fp.Filename] = new RenameReconciliationLogic.Fingerprint(
                         fp.Size,
-                        DateTime.Parse(fp.DateTimeOriginal, null, System.Globalization.DateTimeStyles.RoundtripKind),
+                        DateTime.Parse(
+                            fp.DateTimeOriginal,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.AssumeUniversal
+                                | System.Globalization.DateTimeStyles.AdjustToUniversal),
                         fp.CameraSerial);
                 }
                 return dict;
