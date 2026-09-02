@@ -466,7 +466,19 @@ struct GeneralSettingsTab: View {
                 }
                 .accessibilityIdentifier("general.settings.useAmazeDemosaic")
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker("Editor canvas colorspace", selection: $canvasColorSpace) {
+                    // Sanitizing binding (Copilot review on #3192): the raw
+                    // Int in @AppStorage could in principle hold a value
+                    // outside {0, 1} (corrupted defaults, a future enum case
+                    // later removed) that matches neither .tag() below and
+                    // would render the segmented control with nothing
+                    // selected. The getter falls back to sRGB's raw value in
+                    // that case (mirrors CanvasColorSpace's own out-of-range
+                    // handling); the setter writes straight through since a
+                    // Picker only ever sets one of the two valid tags.
+                    Picker("Editor canvas colorspace", selection: Binding(
+                        get: { CanvasColorSpace(rawValue: canvasColorSpace)?.rawValue ?? CanvasColorSpace.srgb.rawValue },
+                        set: { canvasColorSpace = $0 }
+                    )) {
                         Text("Display P3").tag(CanvasColorSpace.displayP3.rawValue)
                         Text("sRGB").tag(CanvasColorSpace.srgb.rawValue)
                     }
