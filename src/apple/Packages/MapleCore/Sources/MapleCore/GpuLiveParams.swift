@@ -158,9 +158,10 @@ extension PipelineRenderer {
         p.parametric_lights = Float(model.parametricLights)
         p.parametric_highlights = Float(model.parametricHighlights)
         // Parametric split points (#3152) — ACR default 25/50/75. The FFI
-        // side treats an exact 0.0 as "host predates this field" and
-        // substitutes the canonical default per field, so this app always
-        // sends the model's real (non-zero-by-default) value.
+        // side treats the WHOLE TRIPLE being exactly 0.0 as "host predates
+        // this field" and substitutes the canonical defaults; this app
+        // always sends the model's real values, so that fallback never
+        // engages here (a stale binary is what would trip it).
         p.parametric_shadow_split = Float(model.parametricShadowSplit)
         p.parametric_midtone_split = Float(model.parametricMidtoneSplit)
         p.parametric_highlight_split = Float(model.parametricHighlightSplit)

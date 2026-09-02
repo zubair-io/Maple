@@ -251,14 +251,19 @@ fn region_amplitude(slider: f32) -> f32 {
     slider.clamp(-100.0, 100.0) / 100.0 * MAX_STOPS
 }
 
+/// Minimum axis-unit gap enforced between adjacent repaired split points.
+/// Mirrors `raw_core`'s `MIN_SPLIT_GAP` — see that constant's docs for why
+/// a merely-ordered (not strictly-separated) repair can still collapse two
+/// region centres onto the same axis coordinate and divide by zero in
+/// `smoothstep`.
+const MIN_SPLIT_GAP: f32 = 1.0;
+
 /// Clamp + order-repair for the split points. Mirrors
-/// `raw_core::stages::tone_curves::parametric::ordered_splits` — see that
-/// function's docs for why `shadow <= midtone <= highlight` is load-bearing
-/// for the window math below.
+/// `raw_core::stages::tone_curves::parametric::ordered_splits`.
 fn ordered_splits(split_shadow: f32, split_midtone: f32, split_highlight: f32) -> (f32, f32, f32) {
-    let midtone = split_midtone.clamp(0.0, AXIS_MAX);
-    let shadow = split_shadow.clamp(0.0, midtone);
-    let highlight = split_highlight.clamp(midtone, AXIS_MAX);
+    let midtone = split_midtone.clamp(2.0 * MIN_SPLIT_GAP, AXIS_MAX - 2.0 * MIN_SPLIT_GAP);
+    let shadow = split_shadow.clamp(MIN_SPLIT_GAP, midtone - MIN_SPLIT_GAP);
+    let highlight = split_highlight.clamp(midtone + MIN_SPLIT_GAP, AXIS_MAX - MIN_SPLIT_GAP);
     (shadow, midtone, highlight)
 }
 

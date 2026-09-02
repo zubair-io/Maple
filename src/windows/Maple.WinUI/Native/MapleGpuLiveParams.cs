@@ -146,11 +146,12 @@ namespace Maple.WinUI.Native
         public float* film_lut_ptr;
         public nuint film_lut_len;
         // Parametric tone-curve split points (#3152) — ACR default 25/50/75.
-        // Left unset (0.0) below: raw-ffi's `inputs_from_params` treats an
-        // exact 0.0 as "host predates this field" and substitutes the
-        // canonical default per field (see gpu_live.rs), so a zeroed struct
-        // here is the correct legacy-equivalent behavior until the Windows
-        // model carries its own split-point fields.
+        // Left unset (all 0.0) below: raw-ffi's `inputs_from_params` treats
+        // the WHOLE TRIPLE being exactly 0.0 as "host predates this field"
+        // and substitutes the canonical defaults (see gpu_live.rs), so a
+        // zeroed struct here is the correct legacy-equivalent behavior
+        // until the Windows model carries its own split-point fields
+        // (#3223).
         public float parametric_shadow_split;
         public float parametric_midtone_split;
         public float parametric_highlight_split;
