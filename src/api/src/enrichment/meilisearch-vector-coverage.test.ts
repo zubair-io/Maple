@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { documentShapeOf } from './meilisearch-vector-coverage.ts';
-import { ASSET_DOC_SHAPE_VERSION, vectorFingerprint } from './meilisearch-embedder-template.ts';
+import {
+  EMBEDDER_TEMPLATE_SHAPE_VERSION,
+  vectorFingerprint,
+} from './meilisearch-embedder-template.ts';
 
 describe('documentShapeOf', () => {
   it('extracts the shape prefix so same-shape fingerprints carry forward', () => {
@@ -39,6 +42,8 @@ describe('documentShapeOf', () => {
       embedUrl: 'http://localhost:11434/api/embed',
       model: 'bge-m3',
     });
-    expect(documentShapeOf(live)).toBe(`v${ASSET_DOC_SHAPE_VERSION}`);
+    // #2992: the live shape prefix now tracks EMBEDDER_TEMPLATE_SHAPE_VERSION,
+    // not ASSET_DOC_SHAPE_VERSION — see meilisearch-embedder-template.ts.
+    expect(documentShapeOf(live)).toBe(`v${EMBEDDER_TEMPLATE_SHAPE_VERSION}`);
   });
 });

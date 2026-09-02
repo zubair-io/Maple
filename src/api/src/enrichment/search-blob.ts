@@ -23,9 +23,33 @@
 
 import type { Place } from '../db/schema.ts';
 
+/**
+ * Meteorological (Northern Hemisphere) season for a 1-12 `captured_month` —
+ * `null` for an out-of-range or missing month. #2992: a season word should
+ * RANK a photo, not filter it, so it rides in `search_blob` (lowest-weight
+ * searchable attribute) rather than becoming a date-range query. Deliberately
+ * NOT hemisphere-aware — the asset's `place` doesn't reliably carry a
+ * latitude this function could use, and the ticket's own worked examples
+ * (winter/summer against a Northern-Hemisphere-shot corpus) don't call for
+ * it; a hemisphere-flipped season is a real limitation for Southern-
+ * Hemisphere libraries, not a silent bug, and can follow later if it proves
+ * to matter. */
+export function seasonForMonth(month: number | null | undefined): string | null {
+  if (month == null || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (month === 12 || month <= 2) return 'winter';
+  if (month <= 5) return 'spring';
+  if (month <= 8) return 'summer';
+  return 'fall';
+}
+
 export interface ComposeSearchBlobInput {
   /** Reverse-geocoded place. `null`/`undefined` ⇒ contributes no tokens. */
   place?: Place | null;
+  /** `exif.captured_month` (1-12), used to derive a season token (#2992).
+   * Month NAMES are deliberately never indexed here — `may`/`march`/`august`
+   * are ordinary English words, and the date parser already serves an
+   * explicit month query; only the season word rides in the blob. */
+  capturedMonth?: number | null;
   /** LLM-generated caption from the describe worker (Phase 6). */
   description?: string | null;
   /** OCR-extracted text from the thumbnail (Phase 8). */
@@ -72,6 +96,7 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   add(input.description);
   add(input.ocrText);
   add(input.transcript);
+  add(seasonForMonth(input.capturedMonth));
 
   // Structured vision signals. Each is a small dictionary contribution
   // that makes facet-like queries hit ("show outdoor sports") without
@@ -203,8 +228,37 @@ export function searchBlobUpdateExpression(
     }
   }
 
+  // Season token (#2992), mirroring `seasonForMonth` — read straight off
+  // the live doc's `exif.captured_month`. Never override-able: unlike
+  // place/description/ocrText, no caller of this expression is mid-write
+  // on `exif.captured_month` itself, so there is nothing to substitute.
+  // Resolves to a 0-or-1-element array so it folds into `$setUnion` the
+  // same way the literal `peopleTokens` array does.
+  // `then` below is MongoDB's own required `$switch` branch key, not a
+  // Promise/thenable — oxlint's `unicorn/no-thenable` can't tell the
+  // difference from a plain object literal, so it's disabled for this block.
+  /* oxlint-disable unicorn/no-thenable -- MongoDB $switch branch syntax, not a thenable */
+  const seasonTokenExpr = {
+    $switch: {
+      branches: [
+        { case: { $in: ['$exif.captured_month', [12, 1, 2]] }, then: ['winter'] },
+        { case: { $in: ['$exif.captured_month', [3, 4, 5]] }, then: ['spring'] },
+        { case: { $in: ['$exif.captured_month', [6, 7, 8]] }, then: ['summer'] },
+        { case: { $in: ['$exif.captured_month', [9, 10, 11]] }, then: ['fall'] },
+      ],
+      default: [],
+    },
+  };
+  /* oxlint-enable unicorn/no-thenable */
+
   const allTokens = {
-    $setUnion: [tokenise(placeExpr), tokenise(descExpr), tokenise(ocrExpr), peopleTokens],
+    $setUnion: [
+      tokenise(placeExpr),
+      tokenise(descExpr),
+      tokenise(ocrExpr),
+      peopleTokens,
+      seasonTokenExpr,
+    ],
   };
 
   // Sort + join with single space. `$reduce` with the empty-string sentinel

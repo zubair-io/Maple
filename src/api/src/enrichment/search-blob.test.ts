@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { composeSearchBlob, searchBlobUpdateExpression } from './search-blob.ts';
+import { composeSearchBlob, searchBlobUpdateExpression, seasonForMonth } from './search-blob.ts';
 import type { Place } from '../db/schema.ts';
 
 function placeWith(blob: string): Place {
@@ -165,6 +165,56 @@ describe('composeSearchBlob', () => {
     });
     expect(out.split(' ').sort()).toEqual(['a', 'cats', 'on', 'two', 'windowsill']);
   });
+
+  // #2992
+  it('folds a season word derived from capturedMonth', () => {
+    const out = composeSearchBlob({ description: 'ice skating', capturedMonth: 2 });
+    expect(out.split(' ')).toContain('winter');
+  });
+
+  it('omits the season word when capturedMonth is missing or out of range', () => {
+    expect(composeSearchBlob({ description: 'a cat' })).toBe('a cat');
+    expect(composeSearchBlob({ description: 'a cat', capturedMonth: null })).toBe('a cat');
+    expect(composeSearchBlob({ description: 'a cat', capturedMonth: 0 }).split(' ')).toEqual([
+      'a',
+      'cat',
+    ]);
+    expect(composeSearchBlob({ description: 'a cat', capturedMonth: 13 }).split(' ')).toEqual([
+      'a',
+      'cat',
+    ]);
+  });
+
+  it('never indexes a month NAME — only the season', () => {
+    const out = composeSearchBlob({ description: 'a cat', capturedMonth: 3 });
+    expect(out).toBe('a cat spring');
+    expect(out).not.toContain('march');
+  });
+});
+
+describe('seasonForMonth', () => {
+  it('maps every Northern-Hemisphere meteorological month to its season', () => {
+    expect(seasonForMonth(12)).toBe('winter');
+    expect(seasonForMonth(1)).toBe('winter');
+    expect(seasonForMonth(2)).toBe('winter');
+    expect(seasonForMonth(3)).toBe('spring');
+    expect(seasonForMonth(4)).toBe('spring');
+    expect(seasonForMonth(5)).toBe('spring');
+    expect(seasonForMonth(6)).toBe('summer');
+    expect(seasonForMonth(7)).toBe('summer');
+    expect(seasonForMonth(8)).toBe('summer');
+    expect(seasonForMonth(9)).toBe('fall');
+    expect(seasonForMonth(10)).toBe('fall');
+    expect(seasonForMonth(11)).toBe('fall');
+  });
+
+  it('returns null for missing or out-of-range input', () => {
+    expect(seasonForMonth(null)).toBeNull();
+    expect(seasonForMonth(undefined)).toBeNull();
+    expect(seasonForMonth(0)).toBeNull();
+    expect(seasonForMonth(13)).toBeNull();
+    expect(seasonForMonth(1.5)).toBeNull();
+  });
 });
 
 describe('searchBlobUpdateExpression', () => {
@@ -237,5 +287,23 @@ describe('searchBlobUpdateExpression', () => {
     expect(json).toContain('greyson');
     expect(json).toContain('maya');
     expect(json).toContain('smith');
+  });
+
+  // #2992: the aggregation form reads $exif.captured_month directly — there
+  // is no override for it, unlike place/description/ocrText, since no
+  // caller of this expression is ever mid-write on captured_month itself.
+  it('references $exif.captured_month and every season word, with no override', () => {
+    const expr = searchBlobUpdateExpression();
+    const json = JSON.stringify(expr);
+    expect(json).toContain('$exif.captured_month');
+    expect(json).toContain('winter');
+    expect(json).toContain('spring');
+    expect(json).toContain('summer');
+    expect(json).toContain('fall');
+  });
+
+  it('still references $exif.captured_month when other sources are overridden', () => {
+    const expr = searchBlobUpdateExpression({ description: 'a cat', ocrText: null });
+    expect(JSON.stringify(expr)).toContain('$exif.captured_month');
   });
 });

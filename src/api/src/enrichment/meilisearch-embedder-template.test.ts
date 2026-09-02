@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  ASSET_DOC_SHAPE_VERSION,
   EMBEDDER_DOCUMENT_TEMPLATE,
   EMBEDDER_TEMPLATE_MAX_BYTES,
+  EMBEDDER_TEMPLATE_SHAPE_VERSION,
   TEMPLATE_FIELD_DEFAULTS,
   vectorFingerprint,
 } from './meilisearch-embedder-template.ts';
@@ -28,10 +28,13 @@ describe('meilisearch embedder template', () => {
     expect(embedders.caption!.documentTemplate).toBe(EMBEDDER_DOCUMENT_TEMPLATE);
   });
 
-  it('produces a stable, shape-versioned fingerprint', () => {
+  it('produces a stable, template-shape-versioned fingerprint', () => {
     const fingerprint = vectorFingerprint(config);
     expect(fingerprint).toBe(vectorFingerprint(config));
-    expect(fingerprint.startsWith(`v${ASSET_DOC_SHAPE_VERSION}:`)).toBe(true);
+    // #2992: keyed on EMBEDDER_TEMPLATE_SHAPE_VERSION, NOT
+    // ASSET_DOC_SHAPE_VERSION — a document-shape bump that never touches a
+    // template-referenced field must not change this prefix.
+    expect(fingerprint.startsWith(`v${EMBEDDER_TEMPLATE_SHAPE_VERSION}:`)).toBe(true);
   });
 
   it('changes when the model changes', () => {

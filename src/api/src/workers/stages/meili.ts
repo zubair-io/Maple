@@ -152,6 +152,7 @@ function searchBlobFor(image: SearchableImage, vision: VisionDoc | null, people:
     visionNotableObjects: nullIfMissing(vision?.notable_objects),
     visionTags: nullIfMissing(vision?.tags),
     people,
+    capturedMonth: nullIfMissing(image.exif?.captured_month),
   });
 }
 
@@ -295,6 +296,17 @@ const meiliStage = defineStage({
   // as a literal because a document-shape change is exactly the condition
   // under which every asset must be re-upserted — the two can never
   // legitimately disagree.
+  //
+  // v9: `search_blob` folds in a season word derived from
+  // `exif.captured_month` (#2992) — "winter" ranks a February photo instead
+  // of the query being converted to a date-range filter. Bumping re-indexes
+  // every row so the season token actually lands. This is a re-UPSERT-only
+  // change: `searchBlob` is deliberately excluded from the embedder
+  // template (`meilisearch-embedder-template.ts`), so it does NOT touch
+  // `EMBEDDER_TEMPLATE_SHAPE_VERSION` — the constant `vectorFingerprint()`
+  // is now keyed on instead of this one, decoupled for exactly this reason
+  // (see that file's doc comment). No GPU re-embed is triggered by this
+  // bump.
   targetVersion: ASSET_DOC_SHAPE_VERSION,
   // Only depends on always-on stages so search is available early. Optional
   // semantic sources explicitly invalidate this stage when their output

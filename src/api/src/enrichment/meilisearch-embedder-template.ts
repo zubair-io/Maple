@@ -8,22 +8,51 @@
  * a re-embed is needed). Editing one and not the other left every asset
  * marked as vector-covered under a template it was never embedded with.
  *
- * `ASSET_DOC_SHAPE_VERSION` is the version of the DOCUMENT we push, not of
- * the template alone. It is folded into the fingerprint so a change to the
- * set of fields the template dereferences invalidates coverage — Meilisearch
- * re-embeds from documents already in the index, so a template that reads a
- * field the indexed documents do not carry yet must NOT be treated as
- * covered. See `meilisearch-vector-coverage.ts`.
+ * Two DIFFERENT versions live here, on purpose (#2992):
  *
- * The meili stage's `targetVersion` is bound to this constant: a document
- * shape change is exactly the condition under which every asset must be
- * re-upserted.
+ * - `ASSET_DOC_SHAPE_VERSION` is the version of the Meilisearch DOCUMENT we
+ *   push (`MeilisearchAssetDoc`'s field set AND the content of any field
+ *   that composes from multiple sources, e.g. `searchBlob`). The meili
+ *   stage's `targetVersion` is bound to it: bumping it re-UPSERTS every
+ *   asset, which is cheap (no GPU).
+ * - `EMBEDDER_TEMPLATE_SHAPE_VERSION` is the version of the SUBSET of
+ *   fields `EMBEDDER_DOCUMENT_TEMPLATE` actually dereferences
+ *   (filename/mediaType/people/placeText/description/transcript/ocrText).
+ *   `vectorFingerprint()` is keyed on THIS one, not on
+ *   `ASSET_DOC_SHAPE_VERSION` — Meilisearch re-embeds from documents
+ *   already in the index, so a template that reads a field the indexed
+ *   documents do not carry yet must NOT be treated as covered (see
+ *   `meilisearch-vector-coverage.ts`), but a document-shape change that
+ *   touches ONLY fields the template never reads (e.g. `searchBlob`, which
+ *   is deliberately excluded from the template — see the template's own
+ *   doc comment) changes nothing the embedder ever sees, so it must NOT
+ *   invalidate vector coverage either.
+ *
+ * Before #2992 these were the SAME constant, so every document-shape bump
+ * — including one that never touched a template-referenced field — forced
+ * a full re-embed (hours of GPU time) alongside the cheap re-upsert it
+ * actually needed. Bump `ASSET_DOC_SHAPE_VERSION` for ANY change to what
+ * gets pushed to Meilisearch; bump `EMBEDDER_TEMPLATE_SHAPE_VERSION` ONLY
+ * when `EMBEDDER_DOCUMENT_TEMPLATE` starts (or stops) dereferencing a
+ * field, or when a template-referenced field's own semantics change enough
+ * that a stale embedding would be actively wrong (not just missing a new,
+ * template-external signal). The two started at the same value (8) because
+ * that was the last point at which they agreed; they may drift apart from
+ * here.
  */
 
 import { createHash } from 'node:crypto';
 
-/** Bump whenever the fields written into `MeilisearchAssetDoc` change. */
-export const ASSET_DOC_SHAPE_VERSION = 8;
+/** Bump whenever the fields written into `MeilisearchAssetDoc` change — this
+ * drives the meili stage's re-upsert `targetVersion`. See the module doc
+ * comment above for how this differs from `EMBEDDER_TEMPLATE_SHAPE_VERSION`. */
+export const ASSET_DOC_SHAPE_VERSION = 9;
+
+/** Bump ONLY when `EMBEDDER_DOCUMENT_TEMPLATE` starts/stops dereferencing a
+ * field (or a referenced field's meaning changes enough to make a stale
+ * embedding wrong). Drives `vectorFingerprint()`'s document-shape prefix —
+ * see the module doc comment above. */
+export const EMBEDDER_TEMPLATE_SHAPE_VERSION = 8;
 
 /**
  * Rendered by Meilisearch for every document to produce the embedding input.
@@ -142,8 +171,12 @@ export interface VectorFingerprintInput {
 
 /**
  * Stable, non-secret identity of the active vector configuration, prefixed
- * with the document-shape version so callers can compare shapes without
- * re-deriving the hash.
+ * with `EMBEDDER_TEMPLATE_SHAPE_VERSION` — the version of the fields the
+ * template actually reads (#2992), not `ASSET_DOC_SHAPE_VERSION` (the
+ * version of the whole document) — so callers can compare shapes without
+ * re-deriving the hash, and so a document-shape change that never touches a
+ * template-referenced field leaves this prefix, and therefore vector
+ * coverage, untouched. See the module doc comment.
  */
 export function vectorFingerprint(input: VectorFingerprintInput): string {
   const digest = createHash('sha256')
@@ -160,5 +193,5 @@ export function vectorFingerprint(input: VectorFingerprintInput): string {
       }),
     )
     .digest('hex');
-  return `v${ASSET_DOC_SHAPE_VERSION}:${digest}`;
+  return `v${EMBEDDER_TEMPLATE_SHAPE_VERSION}:${digest}`;
 }
