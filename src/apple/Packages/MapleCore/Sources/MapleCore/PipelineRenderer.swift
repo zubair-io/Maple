@@ -1423,14 +1423,14 @@ extension PipelineRenderer {
         // wires (#1338, #3190). `apply_scene_linear_chain` only runs
         // `display_encode` inline when target_primaries != Srgb; at Srgb it
         // stops at DisplayLinearRec2020 and leaves the encode to the
-        // SEPARATE `encodeDisplaySRGBViaFFI` / `PipelineRenderer.
+        // SEPARATE `encodeDisplayViaFFI` / `PipelineRenderer.
         // encodeDisplay` call below, which takes its OWN independent
         // `targetPrimaries` argument. Flipping THIS field to P3 would make
         // the chain call already primaries-convert to P3, and the encode
         // call would then wrongly re-interpret that P3 buffer as Rec2020
         // and re-convert it — a double-transform, not a toggle. So this
         // field must stay `0` forever regardless of `CanvasColorSpace`;
-        // `ImageEditPipeline.encodeDisplaySRGBViaFFI(_:targetPrimaries:)`
+        // `ImageEditPipeline.encodeDisplayViaFFI(_:targetPrimaries:)`
         // and `applyChainAndEncodeViaFusedFFI(...targetPrimaries:)` are
         // where `CanvasColorSpace.current` actually reaches the CPU path.
         params.target_primaries = 0

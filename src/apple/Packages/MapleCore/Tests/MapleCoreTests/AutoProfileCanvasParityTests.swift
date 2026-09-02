@@ -352,7 +352,7 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         _ rgb: [Float], cube: CIFilter?, output: ProbeOutput = .srgb
     ) throws -> [Int] {
         // 1. Encode via the FFI (Oklab gamut compression + sRGB gamma) — the
-        //    same call `ImageEditPipeline.encodeDisplaySRGBViaFFI` makes.
+        //    same call `ImageEditPipeline.encodeDisplayViaFFI` makes.
         var inF32: [Float] = [rgb[0], rgb[1], rgb[2], 1.0]
         let inData = inF32.withUnsafeBytes { Data($0) }
         let encoded = try PipelineRenderer.encodeDisplaySRGB(
