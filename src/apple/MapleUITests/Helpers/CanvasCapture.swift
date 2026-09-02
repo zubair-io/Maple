@@ -146,20 +146,29 @@ enum CanvasCapture {
         // review on #3194), not `NSImage(data:).size`: if the PNG carries
         // DPI metadata, `NSImage`'s own size is POINT-scaled, which would
         // silently report a 1.0x scale on a Retina capture and corrupt
-        // this crop. `pixelsWide`/`pixelsHigh` are unambiguous.
-        let scale = CGFloat(bitmap.pixelsWide) / containerFrame.width
+        // this crop. `pixelsWide`/`pixelsHigh` are unambiguous. X/Y are
+        // scaled INDEPENDENTLY (Copilot review, same PR) rather than
+        // assuming one uniform factor — correct even if width/height
+        // round to a very slightly different ratio.
+        let scaleX = CGFloat(bitmap.pixelsWide) / containerFrame.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / containerFrame.height
         let rawPixelRect = CGRect(
-            x: imageRect.minX * scale, y: imageRect.minY * scale,
-            width: imageRect.width * scale, height: imageRect.height * scale)
-        // Clamp to the captured bitmap's own bounds (Copilot review on
-        // #3194): the marker's rect is only guaranteed correct at "fit"
-        // zoom with no pan — a zoomed/panned caller could in principle
-        // yield a negative origin or a size larger than the container,
-        // and the screenshot only HAS pixels for the container it
-        // actually captured. Cropping outside that would introduce blank
-        // padding (or fail) rather than skew the diff with garbage pixels.
+            x: imageRect.minX * scaleX, y: imageRect.minY * scaleY,
+            width: imageRect.width * scaleX, height: imageRect.height * scaleY)
+        // Clamp to the captured bitmap's own bounds: the marker's rect is
+        // only guaranteed correct at "fit" zoom with no pan — a zoomed/
+        // panned caller could in principle yield a negative origin or a
+        // size larger than the container, and the screenshot only HAS
+        // pixels for the container it actually captured. Cropping outside
+        // that would introduce blank padding rather than skew the diff.
         let bitmapBounds = CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
         let pixelRect = rawPixelRect.intersection(bitmapBounds).integral
+        // An empty intersection (marker rect entirely outside the bitmap —
+        // an unexpected frame/scale mismatch, not the ordinary case above)
+        // means there is nothing to crop; `crop`'s `from:` origin can go
+        // to `inf` on a `.null` rect, undefined drawing behavior that's
+        // hard to diagnose. Fail loudly (nil) instead (Copilot review).
+        guard !pixelRect.isEmpty else { return nil }
         // Rebuild the NSImage with its `.size` EXPLICITLY pinned to the
         // bitmap's pixel dimensions, so `crop`'s own `image.size`-relative
         // draw call operates in the same pixel space `pixelRect` was
