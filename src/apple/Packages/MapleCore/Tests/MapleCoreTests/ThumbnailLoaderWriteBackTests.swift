@@ -54,22 +54,23 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
         func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
     }
 
-    private func freshCacheDir() -> URL {
-        URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("maple-thumb-writeback-\(UUID().uuidString)")
-    }
+    // Every test below is entirely on the SOURCELESS path (`stableID`-keyed
+    // assets — PhotoKit/Self-Hosted, never a `primaryURL`), which since
+    // #2763 writes/reads through a fixed on-disk location independent of
+    // `configure(folderURL:)` — that call, and the tmp dir it used to
+    // point at, are gone from here for exactly that reason. Every stable
+    // id below is UUID-suffixed instead: sourceless thumbnails now persist
+    // across separate `swift test` invocations on the same machine (the
+    // whole point of the #2763 fix), so a hardcoded key would start a
+    // later run from an already-warm cache and hide whether the assertion
+    // is actually exercising a fresh miss.
 
     // MARK: - writeThumb must not fire on a source.thumb() hit
 
     func testWriteThumbIsNeverCalledWhenSourceThumbHits() async throws {
-        let tmp = freshCacheDir()
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
-
         let canned = Data([0xAA, 0xBB])
         let source = RecordingSource(canned: canned)
-        let stableID = "maple:onshare0001"
+        let stableID = "maple:onshare0001-\(UUID().uuidString)"
         let asset = AssetRef(
             displayName: "IMG_1.dng",
             hintExtension: "dng",
@@ -94,13 +95,8 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
     // MARK: - Fallback provider fails -> no bytes to write back
 
     func testWriteThumbIsNeverCalledWhenTheFallbackProviderFails() async throws {
-        let tmp = freshCacheDir()
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
-
         let source = RecordingSource(canned: nil)
-        let stableID = "maple:onshare0002"
+        let stableID = "maple:onshare0002-\(UUID().uuidString)"
         struct ProviderFailure: Error {}
         let asset = AssetRef(
             displayName: "IMG_2.dng",
@@ -120,11 +116,6 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
     // MARK: - Default no-op does not break a source that doesn't override writeThumb
 
     func testSourceWithoutWriteThumbOverrideStillServesThumbHits() async throws {
-        let tmp = freshCacheDir()
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
-
         // A minimal conformer that relies entirely on ImageSource's default
         // `writeThumb` no-op (never declares its own) — this is what
         // FilesystemSource/PhotoKitSource/CloudSource/ComposedSource do
@@ -144,7 +135,7 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
         let source = DefaultWriteThumbSource(canned: canned)
         let asset = AssetRef(
             displayName: "IMG_3.dng", hintExtension: "dng",
-            stableID: "maple:defaultwritethumb", bytesProvider: { Data() })
+            stableID: "maple:defaultwritethumb-\(UUID().uuidString)", bytesProvider: { Data() })
 
         let loader = ThumbnailLoader()
         let got = await loader.load(for: asset, from: source)
@@ -198,14 +189,9 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
     /// writes. `persistFallbackRender` must return as soon as the LOCAL
     /// disk-cache write lands, with the write-back running independently.
     func testPersistFallbackRenderReturnsBeforeTheWriteBackCompletes() async throws {
-        let tmp = freshCacheDir()
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
-
         let source = GatedWriteBackSource()
-        let ref = ImageRef(id: "maple:gated0001", displayName: "IMG_1.dng")
-        let key = "maple:gated0001"
+        let key = "maple:gated0001-\(UUID().uuidString)"
+        let ref = ImageRef(id: key, displayName: "IMG_1.dng")
         let localData = Data([0x01, 0x02])
         let onShareData = Data([0x11, 0x22, 0x33])
 
@@ -257,14 +243,9 @@ final class ThumbnailLoaderWriteBackTests: XCTestCase {
     /// size/quality failed) — the write-back must be skipped entirely, not
     /// attempted with the wrong (local-grid) bytes as a fallback.
     func testPersistFallbackRenderSkipsWriteBackWhenThereIsNoOnShareCandidate() async throws {
-        let tmp = freshCacheDir()
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
-
         let source = RecordingSource(canned: nil)
-        let ref = ImageRef(id: "maple:noonshare0001", displayName: "IMG_2.dng")
-        let key = "maple:noonshare0001"
+        let key = "maple:noonshare0001-\(UUID().uuidString)"
+        let ref = ImageRef(id: key, displayName: "IMG_2.dng")
         let localData = Data([0x09])
 
         await ThumbnailLoader.persistFallbackRender(
