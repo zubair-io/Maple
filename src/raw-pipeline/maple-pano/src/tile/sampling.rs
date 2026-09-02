@@ -162,8 +162,16 @@ fn sample_cell(
                 // Invariant: the wave that owns this cell was pinned with
                 // the union of every frame any of its cells' bboxes touch
                 // (see `frame_window::group_into_waves`), so
-                // `poses[i].frame_idx` is always present here.
+                // `poses[i].frame_idx` is always present here. A debug
+                // build catches a broken invariant loudly instead of
+                // silently dropping samples and skewing the photometric
+                // solve (Copilot review).
                 let Some(frame) = pinned.get(&poses[i].frame_idx) else {
+                    debug_assert!(
+                        false,
+                        "frame {} missing from pinned wave set",
+                        poses[i].frame_idx
+                    );
                     continue;
                 };
                 let Some(v) = sample_bicubic(frame, fx - 0.5, fy - 0.5) else {

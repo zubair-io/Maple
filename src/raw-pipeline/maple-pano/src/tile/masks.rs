@@ -99,7 +99,20 @@ pub(super) fn estimate_min_overlap_width(
                             if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
                                 return false;
                             }
+                            // Invariant: the wave that owns this cell was
+                            // pinned with the union of every frame any of
+                            // its cells' bboxes touch (see
+                            // `frame_window::group_into_waves`), so this
+                            // lookup should never miss. A debug build
+                            // catches a broken invariant loudly instead of
+                            // silently undercounting overlap and skewing
+                            // pyramid level selection (Copilot review).
                             let Some(frame) = pinned.get(&poses[i].frame_idx) else {
+                                debug_assert!(
+                                    false,
+                                    "frame {} missing from pinned wave set",
+                                    poses[i].frame_idx
+                                );
                                 return false;
                             };
                             warp::sample_bicubic(frame, fx - 0.5, fy - 0.5).is_some()
