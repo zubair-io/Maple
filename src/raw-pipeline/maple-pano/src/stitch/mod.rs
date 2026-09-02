@@ -93,7 +93,10 @@ use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_gains_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
+use crate::graph::{
+    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
+    GraphImage,
+};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
 
 use crate::leveling;
@@ -279,9 +282,18 @@ pub fn stitch(
     // `raw_matches_cache[i] = ((a, b), correspondences)` in the order
     // `build_match_graph` requests them (deterministic from candidate sort).
     let mut raw_matches_cache: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
+    // §5.2(c) / #1215: content-based nomination for unordered / metadata-free
+    // input, where capture order is meaningless and no gimbal prior exists.
+    // Additive only — verification still decides, so it costs nothing on a
+    // well-ordered/metadata-rich set beyond a few redundant candidate checks.
+    let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
     let mut graph = build_match_graph(
         &proxy_images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        &[
+            &CaptureOrderProvider,
+            &GimbalPriorProvider::default(),
+            &descriptor_topk,
+        ],
         |a, b| -> Vec<PixelCorrespondence> {
             let corrs = match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
                 Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
