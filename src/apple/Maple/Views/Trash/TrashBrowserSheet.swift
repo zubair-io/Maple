@@ -221,12 +221,23 @@ struct TrashBrowserSheet: View {
         }
     }
 
+    // @MainActor on every async method below that touches @State: a
+    // SwiftUI View is not globally actor-isolated in Swift 5 mode
+    // (`Package.swift` pins `swiftLanguageModes: [.v5]`) and `.task`/`Task {
+    // }` take @Sendable closures, so an unannotated async method resuming
+    // after an `await` can mutate `@State` off the main actor and trigger
+    // "Publishing changes from background thread" (Copilot review, PR
+    // #3178 — same fix already applied to NetworkSettingsView,
+    // CloudflareSettingsView, WorkersSettingsView, etc. under #2887).
+
+    @MainActor
     private func reload() async {
         isLoading = true
         rows = await onLoad()
         isLoading = false
     }
 
+    @MainActor
     private func restore(_ row: TrashBrowserRow) async {
         busyID = row.id
         let outcome = await onRestore(row)
@@ -234,6 +245,7 @@ struct TrashBrowserSheet: View {
         apply(outcome, to: row, failureFallback: "Couldn't restore \"\(row.displayName)\" — the original location may no longer be reachable.")
     }
 
+    @MainActor
     private func permanentlyDelete(_ row: TrashBrowserRow) async {
         busyID = row.id
         let outcome = await onPermanentlyDelete(row)
@@ -252,11 +264,11 @@ struct TrashBrowserSheet: View {
     /// the server's trash even though the overall call "failed" — the only
     /// way to know exactly which rows survived is to ask the server again,
     /// same as a fresh `onLoad()` would.
+    @MainActor
     private func restoreFolder(_ group: RowGroup) async {
         guard let onRestoreFolder, !busyFolderIDs.contains(group.id) else { return }
         busyFolderIDs.insert(group.id)
         let outcome = await onRestoreFolder(group.id)
-        busyFolderIDs.remove(group.id)
         switch outcome {
         case .succeeded:
             errorMessage = nil
@@ -265,7 +277,14 @@ struct TrashBrowserSheet: View {
         case .failed(let message):
             errorMessage = message.isEmpty ? "Couldn't restore \"\(group.id)\"." : message
         }
+        // The busy flag stays set through this reload (Copilot review, PR
+        // #3178): clearing it right after `onRestoreFolder` returns — before
+        // the list has actually been refreshed — reopens the "Restore
+        // Folder" button for the few hundred ms `reload()` takes, so a
+        // second tap in that window could kick off a duplicate restore of
+        // rows the first call may already have moved.
         await reload()
+        busyFolderIDs.remove(group.id)
     }
 
     /// Shared outcome handling for both single-row actions. `.stale` (a
@@ -274,6 +293,7 @@ struct TrashBrowserSheet: View {
     /// elsewhere) removes the row exactly like a success, since it no
     /// longer belongs in this trash list, but still surfaces WHY via
     /// `errorMessage` so the removal isn't unexplained.
+    @MainActor
     private func apply(_ outcome: TrashRowActionOutcome, to row: TrashBrowserRow, failureFallback: String) {
         switch outcome {
         case .succeeded:
