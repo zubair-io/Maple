@@ -129,8 +129,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
         ci.model.display_tone_curve_red = curve_from_flat(c.display_red_ptr, c.display_red_len);
         ci.model.display_tone_curve_green =
             curve_from_flat(c.display_green_ptr, c.display_green_len);
-        ci.model.display_tone_curve_blue =
-            curve_from_flat(c.display_blue_ptr, c.display_blue_len);
+        ci.model.display_tone_curve_blue = curve_from_flat(c.display_blue_ptr, c.display_blue_len);
     }
     let opts = ci.options(p.skip_agx != 0);
 
