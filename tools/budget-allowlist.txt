@@ -56,4 +56,3 @@ src/api/tests/backup-ingest.test.ts                                             
 # "Gates that do not apply to C#", pre-#2747 revision, for how long these
 # went unmeasured).
 src/windows/Maple.WinUI/Services/Cloud/CloudClient.cs                             # 631  — Maple Cloud HTTP client; split tracked in #3119
-src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.Library.cs                # 605  — library/folder-tree/thumbnails partial; split tracked in #3120
