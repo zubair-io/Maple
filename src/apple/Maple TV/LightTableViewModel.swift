@@ -77,6 +77,11 @@ final class LightTableViewModel {
   /// Background stale-while-revalidate refresh, when the pool was served
   /// from `cachedPools`. Cancelled by `cancelRefresh()` on screen disappear.
   private var refreshTask: Task<Void, Never>?
+  /// The memories fetch, and the merge that waits on it (see `refresh`).
+  /// Both cancelled alongside `refreshTask` so navigating away doesn't leave
+  /// network work running for a screen nobody is looking at.
+  private var memoriesFetchTask: Task<[SearchAsset], Never>?
+  private var memoriesTask: Task<Void, Never>?
 
   /// Session-lifetime pool cache, keyed by library. Reopening the Light
   /// Table serves the last pool instantly from here and only revalidates in
@@ -127,6 +132,10 @@ final class LightTableViewModel {
   func cancelRefresh() {
     refreshTask?.cancel()
     refreshTask = nil
+    memoriesFetchTask?.cancel()
+    memoriesFetchTask = nil
+    memoriesTask?.cancel()
+    memoriesTask = nil
   }
 
   /// Fetches the source queries, merges them into the pool, and updates the
@@ -173,20 +182,24 @@ final class LightTableViewModel {
       return params
     }()
 
-    async let memoriesResult = fetchMemories()
+    // A stored Task rather than `async let`, so it can outlive this call:
+    // the search-backed sources publish a pool and return, and the memories
+    // merge below finishes on its own time. It still STARTS here, so it runs
+    // concurrently with the searches rather than after them.
+    memoriesFetchTask?.cancel()
+    let memoriesFetch = Task { await fetchMemories() }
+    memoriesFetchTask = memoriesFetch
+
     async let picksResult = fetchOrEmpty(picksParams)
     async let highRatedResult = fetchOrEmpty(highRatedParams)
     async let peopleResult = fetchOrEmpty(peopleParams)
 
-    let memories = await memoriesResult
     let (picks, picksError) = await picksResult
     let (highRated, highRatedError) = await highRatedResult
     let (people, peopleError) = await peopleResult
     guard g == generation else { return }
 
-    // Memories first in the dedup order, so a photo that is both a pick and
-    // part of today's memory is sourced once, from the memory.
-    var merged = mergeDeduped(mergeDeduped(mergeDeduped(memories, picks), highRated), people)
+    var merged = mergeDeduped(mergeDeduped(picks, highRated), people)
     var recentError: Error?
 
     if merged.count < Self.minimumPoolSize {
@@ -204,10 +217,46 @@ final class LightTableViewModel {
     if merged.isEmpty, let firstError = picksError ?? highRatedError ?? peopleError ?? recentError {
       loadError = firstError
     }
-    if !merged.isEmpty {
-      Self.cachedPools[libraryID] = merged
+    guard !merged.isEmpty else {
+      // Nothing from the searches, so there is no pool to show yet and
+      // nothing to gain by returning early — wait for memories inline.
+      let memories = await memoriesFetch.value
+      guard g == generation else { return }
+      publish(memories)
+      return
     }
-    pool = merged.shuffled()
+
+    // Publish the search-backed sources NOW so the prints start gliding.
+    // Memories cost two serial round trips (the day's collections, then each
+    // collection's photos), and making the first print wait on them made
+    // opening the Light Table visibly slower than it used to be. This screen
+    // is an ambient cycle, not a page load: it needs SOMETHING to show, and
+    // the memories fold in a moment later.
+    publish(merged)
+
+    memoriesTask?.cancel()
+    memoriesTask = Task { [weak self] in
+      let memories = await memoriesFetch.value
+      guard !Task.isCancelled else { return }
+      await self?.foldInMemories(memories, base: merged, generation: g)
+    }
+  }
+
+  /// Merge late-arriving memories into an already-published pool. Memories
+  /// lead the dedup order, so a photo that is both a pick and part of today's
+  /// memory is sourced once, from the memory.
+  private func foldInMemories(_ memories: [SearchAsset], base: [SearchAsset], generation g: Int) {
+    guard g == generation, !memories.isEmpty else { return }
+    publish(mergeDeduped(memories, base))
+  }
+
+  /// Shuffle `assets` into the live pool and cache it. Restarts the cyclic
+  /// walk: the pool is a bag an ambient display draws from, so re-seating the
+  /// cursor just changes which photo comes next, not what the viewer sees now.
+  private func publish(_ assets: [SearchAsset]) {
+    guard !assets.isEmpty else { return }
+    Self.cachedPools[libraryID] = assets
+    pool = assets.shuffled()
     cursor = 0
   }
 

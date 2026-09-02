@@ -9,7 +9,8 @@ import UIKit
 /// every few seconds while the oldest fades out (capped at
 /// `maxOnStage`). Positions come from a jittered grid of stage slots
 /// rather than pure randomness, so a stage this full spreads across the
-/// whole table instead of heaping in the middle. Cycles forever with no interaction required; the Siri
+/// whole table instead of heaping in the middle. The table lays itself
+/// out quickly on open and only then settles into its ambient drift. Cycles forever with no interaction required; the Siri
 /// Remote can still move focus onto any print, which raises it (scale +
 /// red focus ring) and surfaces a centered caption.
 ///
@@ -79,12 +80,21 @@ struct LightTableScreen: View {
   /// Ever-increasing stacking counter — see `StagePrint.z`.
   @State private var spawnSeq: Double = 0
 
-  /// How often a new print glides in.
+  /// How often a new print glides in, once the table is laid out.
   private static let spawnInterval: Duration = .seconds(2.5)
-  /// How long a print lingers before it slides off. Longer than
-  /// `spawnInterval`, so many prints coexist (≈ lifetime / interval ≈ 10),
-  /// each on its own in → settle → out lifecycle.
-  private static let cardLifetime: Duration = .seconds(25)
+  /// How often prints glide in while the table is still filling for the first
+  /// time. At the ambient cadence a full stage took nearly half a minute to
+  /// assemble, which read as the screen being slow to load rather than as a
+  /// deliberate drift.
+  private static let fillInterval: Duration = .seconds(0.55)
+  /// How long a print lingers before it slides off, randomised per print.
+  /// A range rather than a constant because the opening fill spawns a dozen
+  /// prints within a few seconds: on a fixed lifetime they would all expire
+  /// together and the table would visibly empty and refill in waves. Spread
+  /// lifetimes desynchronise the removals from the very first cycle.
+  private static func cardLifetime() -> Duration {
+    .seconds(.random(in: 18...34))
+  }
   /// Safety cap so a burst can't overcrowd the stage (the lifetime already
   /// self-regulates the steady-state count). One per slot.
   private static let maxOnStage = slotColumns * slotRows
@@ -323,7 +333,7 @@ struct LightTableScreen: View {
       stage.append(print)
     }
     removalTasks[id] = Task {
-      try? await Task.sleep(for: Self.cardLifetime)
+      try? await Task.sleep(for: Self.cardLifetime())
       guard !Task.isCancelled else { return }
       withAnimation(.easeIn(duration: 1.5)) {
         stage.removeAll { $0.id == id }
@@ -341,9 +351,14 @@ struct LightTableScreen: View {
     stopCycle()
     guard !viewModel.pool.isEmpty else { return }
     cycleTask = Task {
+      // Lay the table quickly the first time, then drift. `filling` latches
+      // off once the stage has been full, so the gaps that open up as prints
+      // expire are refilled at the ambient cadence, not the fill one.
+      var filling = true
       while !Task.isCancelled {
         await spawnPrint()
-        try? await Task.sleep(for: Self.spawnInterval)
+        if filling, stage.count >= Self.maxOnStage { filling = false }
+        try? await Task.sleep(for: filling ? Self.fillInterval : Self.spawnInterval)
       }
     }
   }
