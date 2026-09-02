@@ -15,17 +15,25 @@
 
 import { Injectable } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
+import type { PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
-import {
-  metadataAttrParts,
-  metadataNestedBlocks,
-  metadataNamespacePrefixes,
-  METADATA_NAMESPACES,
-} from './xmp-metadata';
 import { toneCurveBlocks } from './xmp-tone-curves';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
+import {
+  escapeXmpAttr,
+  enumFieldParts,
+  cropParts,
+  cullingParts,
+  metadataAttrPartsOrEmpty,
+  passthroughAttrParts,
+  passthroughDocumentNodes,
+} from './xmp-serializer-parts';
+import {
+  buildKeywordsBlock,
+  composeNestedChildren,
+  resolveExtraNamespaces,
+} from './xmp-serializer-children';
 
 @Injectable({ providedIn: 'root' })
 export class XmpSerializerService {
@@ -36,12 +44,6 @@ export class XmpSerializerService {
    * @param passthrough  Unknown attributes / nested nodes from the source sidecar (optional).
    * @param culling    Rating / flag / colorLabel (optional; omitted when all default).
    */
-  // Pre-existing complexity, unmodified by #2215's file-budget split — this
-  // change only refactors `metadataAttrParts`/`metadataNamespacePrefixes`
-  // (imported below, unrelated call sites here) for their own complexity;
-  // no branches in this method changed. Tracked for a real decomposition
-  // separately.
-  // fallow-ignore-next-line complexity
   serialize(
     model: AdjustmentModel,
     passthrough?: PassthroughBucket,
@@ -62,167 +64,29 @@ export class XmpSerializerService {
     parts.push('crs:HasSettings="True"');
 
     parts.push(...this._adjustmentParts(model));
-
-    // Highlight recovery (#2214; raw-core spec § 3.3a) — enum field,
-    // default 'ChromaticAdaptation'. Emit only when non-default, mirroring
-    // the Swift writer (`XMPSerialization+Attrs.swift`); the model value is
-    // already the canonical wire string.
-    if (model.highlightRecovery && model.highlightRecovery !== 'ChromaticAdaptation') {
-      parts.push(`papp:HighlightRecoveryMode="${this._escapeAttr(model.highlightRecovery)}"`);
-    }
-
-    // Per-image auto-exposure (#429; TS wiring #2214, web half of #1387) —
-    // enum field, default 'On'. Sidecars predating the field have no
-    // `papp:AutoExposure` and parse to 'On'; only an explicit opt-out
-    // writes it. Mirrors the Swift writer added in PR #2205.
-    if (model.autoExposure && model.autoExposure !== 'On') {
-      parts.push(`papp:AutoExposure="${this._escapeAttr(model.autoExposure)}"`);
-    }
-
-    // DisplayLookCurve (#371; retired in #443) — the field is a no-op
-    // post-#443 but the attribute is still emitted on non-default values
-    // so pre-#443 sidecars round-trip. Default-valued models omit the
-    // attribute, so newly-saved sidecars carry no `papp:Look` at all.
-    if (model.look && model.look !== 'Default') {
-      parts.push(`papp:Look="${this._escapeAttr(model.look)}"`);
-    }
-
-    // Auto Profile (Phase 1, #536). Canonical successor to the retired
-    // `papp:Look` — pure enum-string field with default 'Auto'. Mirrors
-    // raw-core's `serialize()` (xmp/mod.rs): only emit when non-default,
-    // and the legacy `papp:Look` is intentionally NOT mirrored on write —
-    // newly-saved sidecars carry only the new attribute name.
-    if (model.profile && model.profile !== 'Auto') {
-      parts.push(`papp:Profile="${this._escapeAttr(model.profile)}"`);
-    }
-
-    // Film emulation (epic #2683) — `filmLook` is a free-form catalog id
-    // string (not a fixed enum), default ''. Emit only when a look is
-    // selected, mirroring every other string/enum field's omit-on-default
-    // rule; `filmStrength` rides the numeric-field table above (default
-    // 100, omitted when untouched).
-    if (model.filmLook) {
-      parts.push(`papp:FilmLook="${this._escapeAttr(model.filmLook)}"`);
-    }
-
-    // Hot/dead-pixel suppression (#1106) — decode-product enum field,
-    // default 'Off'. Emit only when non-default, mirroring the Rust and
-    // Swift writers, so pre-#1106 sidecars stay byte-identical.
-    if (model.hotPixelSuppression && model.hotPixelSuppression !== 'Off') {
-      parts.push(`papp:HotPixelSuppression="${this._escapeAttr(model.hotPixelSuppression)}"`);
-    }
-
-    // DNG lens corrections master switch (#376) — enum field, default
-    // 'On'. Emit only when the user turned the corrections off, using
-    // ACR's "0" spelling so Lightroom reads it back. The three
-    // `crs:LensProfile*Scale` companions ride the numeric-field table.
-    if (model.lensProfileEnable === 'Off') {
-      parts.push(`crs:LensProfileEnable="0"`);
-    }
-
-    // User white-balance method (#431; TS wiring #2214) — enum field,
-    // default 'Cat16'. Emit only when non-default so pre-#431 sidecars
-    // stay byte-identical.
-    if (model.wbMethod && model.wbMethod !== 'Cat16') {
-      parts.push(`papp:WbMethod="${this._escapeAttr(model.wbMethod)}"`);
-    }
-
-    // Tone-curve application mode (#436; TS wiring #2214) — enum field,
-    // default 'PerChannel'. Emit only when non-default.
-    if (model.toneCurveMode && model.toneCurveMode !== 'PerChannel') {
-      parts.push(`papp:ToneCurveMode="${this._escapeAttr(model.toneCurveMode)}"`);
-    }
-
-    // Black & white toggle (#276) — ACR/Lightroom-compatible `crs:` key,
-    // default 'Off'. Emit only "True" on non-default so pre-#276 sidecars
-    // stay byte-identical, mirroring the Rust (`xmp/mod.rs`) and Swift
-    // writers. The 8 gray-mixer weights are plain numeric fields, already
-    // emitted above by `_adjustmentParts` via `ADJUSTMENT_FIELDS`.
-    if (model.blackWhite === 'On') {
-      parts.push('crs:ConvertToGrayscale="True"');
-    }
-
-    // Crop / straighten (#277, spec § 01 invariant 3). Emit the full group
-    // only when non-identity. CropAngle is independent — a pure straighten
-    // with no rect trim emits angle but no HasCrop/rect fields. Mirrors the
-    // Rust `serialize()` in xmp/mod.rs and the Swift XMP writer.
-    if (model.crop) {
-      const c = model.crop;
-      const rectIsIdentity = c.top === 0 && c.left === 0 && c.bottom === 1 && c.right === 1;
-      if (!rectIsIdentity) {
-        parts.push('crs:HasCrop="True"');
-        parts.push(`crs:CropTop="${this._fmtCrop(c.top)}"`);
-        parts.push(`crs:CropLeft="${this._fmtCrop(c.left)}"`);
-        parts.push(`crs:CropBottom="${this._fmtCrop(c.bottom)}"`);
-        parts.push(`crs:CropRight="${this._fmtCrop(c.right)}"`);
-        parts.push('crs:CropConstrainToWarp="0"');
-      }
-      if (c.angle !== 0) {
-        parts.push(`crs:CropAngle="${this._fmtCrop(c.angle)}"`);
-      }
-    }
-
-    // Culling fields.
-    if (culling?.rating && culling.rating > 0) {
-      parts.push(`xmp:Rating="${culling.rating}"`);
-    }
-    if (culling?.flag && culling.flag !== 'unflagged') {
-      parts.push(`papp:Flag="${culling.flag}"`);
-    }
-    if (culling?.colorLabel) {
-      parts.push(`papp:ColorLabel="${culling.colorLabel}"`);
-    }
-
+    // Single-attribute enum fields (highlight recovery, auto-exposure,
+    // Look/Profile, film emulation, hot-pixel suppression, lens-profile
+    // switch, WB method, tone-curve mode, black & white) — see
+    // `xmp-serializer-parts.ts`.
+    parts.push(...enumFieldParts(model));
+    // Crop / straighten (#277) — see `xmp-serializer-parts.ts`.
+    parts.push(...cropParts(model.crop));
+    // Rating / flag / colorLabel.
+    parts.push(...cullingParts(culling));
     // Metadata block — simple attributes (Batch Metadata, spec 2026-06-26).
     // Inserted before passthrough so the fixed metadata order is stable.
-    if (metadata) {
-      for (const part of metadataAttrParts(metadata)) {
-        parts.push(part);
-      }
-    }
-
+    parts.push(...metadataAttrPartsOrEmpty(metadata));
     // Passthrough: unknown attributes from the source sidecar.
-    if (passthrough) {
-      for (const attr of passthrough.unknownAttributes) {
-        parts.push(`${attr.name}="${this._escapeAttr(attr.value)}"`);
-      }
-    }
+    parts.push(...passthroughAttrParts(passthrough));
 
     const indent = DESCRIPTION_CHILD_INDENT;
 
-    // Passthrough: unknown nested nodes (ToneCurve, etc.) — indented inside rdf:Description.
-    const nestedNodes = (passthrough?.unknownNodes ?? []).map((n) => `${indent}${n}`).join('\n');
-
-    // dc:subject — IPTC keyword bag (#632). Emitted as a nested
-    // `<dc:subject><rdf:Bag><rdf:li>…</rdf:Bag></dc:subject>` block when
-    // the culling object carries any keywords. An empty / undefined list
-    // omits the element so the round-trip empty → no element → empty
-    // matches the read path's "no element" default and matches Apple's
-    // `XMPSerializer` behaviour.
-    const keywords = (culling?.keywords ?? []).filter((k) => k && k.trim().length > 0);
-    const keywordsBlock =
-      keywords.length === 0
-        ? ''
-        : [
-            `${indent}<dc:subject>`,
-            `${indent}  <rdf:Bag>`,
-            ...keywords.map((k) => `${indent}    <rdf:li>${this._escapeText(k)}</rdf:li>`),
-            `${indent}  </rdf:Bag>`,
-            `${indent}</dc:subject>`,
-          ].join('\n');
-
-    // Metadata nested elements (lang-alt / seq), in fixed order.
-    const metadataBlocks = metadata ? metadataNestedBlocks(metadata) : [];
-
-    // Compose nested children in canonical slots: metadata
-    // title/creator/description first, then keywords (dc:subject), then
-    // metadata rights/usageTerms, then any unknown passthrough nodes.
-    const titleCreatorDesc = metadataBlocks.filter((b) =>
-      /^ *<(dc:title|dc:creator|dc:description)>/.test(b),
+    // dc:subject — IPTC keyword bag (#632); see `xmp-serializer-children.ts`.
+    const { block: keywordsBlock, filtered: keywords } = buildKeywordsBlock(
+      culling?.keywords,
+      indent,
     );
-    const rightsUsage = metadataBlocks.filter((b) =>
-      /^ *<(dc:rights|xmpRights:UsageTerms)>/.test(b),
-    );
+
     // Point tone curves (#365) — nested `papp:SceneLinearToneCurve*` blocks,
     // emitted at the canonical child indent, the same ladder the keywords and
     // metadata blocks sit on. Identity curves emit nothing, so a model with
@@ -232,36 +96,31 @@ export class XmpSerializerService {
     // keeps its position relative to the other unknown nodes.
     const toneCurvesBlock = toneCurveBlocks(model, indent);
 
-    const children = [
-      titleCreatorDesc.join('\n'),
+    // Compose nested children in canonical slots — see `xmp-serializer-children.ts`.
+    const children = composeNestedChildren({
+      metadata,
+      passthrough,
       keywordsBlock,
-      rightsUsage.join('\n'),
       toneCurvesBlock,
-      nestedNodes,
-    ]
-      .filter((b) => b.length > 0)
-      .join('\n');
-
-    // Namespace declarations: the canonical xmp/crs/papp prelude is emitted by
-    // `canonicalDocument`; these are the conditional metadata namespaces plus
-    // dc-for-keywords, in fixed prefix order. Keeps the declaration list quiet
-    // for sidecars that use none of them.
-    const usedPrefixes = metadata ? metadataNamespacePrefixes(metadata) : new Set<string>();
-    if (keywords.length > 0) usedPrefixes.add('dc');
-    const NS_ORDER = ['dc', 'exif', 'photoshop', 'Iptc4xmpCore', 'xmpRights'];
-    const extraNamespaces: Array<readonly [string, string]> = NS_ORDER.filter((p) =>
-      usedPrefixes.has(p),
-    ).map((p) => [p, METADATA_NAMESPACES[p]] as const);
-    for (const namespace of [...(passthrough?.unknownNamespaces ?? [])].sort((a, b) =>
-      a.prefix.localeCompare(b.prefix),
-    )) {
-      extraNamespaces.push([namespace.prefix, namespace.uri]);
-    }
-
-    return canonicalDocument(extraNamespaces, parts, children, {
-      rdfNodes: passthrough?.unknownRdfNodes,
-      xmpmetaNodes: passthrough?.unknownXmpmetaNodes,
+      indent,
     });
+
+    // Namespace declarations: the canonical xmp/crs/papp prelude is emitted
+    // by `canonicalDocument`; the rest — conditional metadata namespaces,
+    // dc-for-keywords, and passthrough namespaces — comes from
+    // `xmp-serializer-children.ts`.
+    const extraNamespaces = resolveExtraNamespaces({
+      metadata,
+      hasKeywords: keywords.length > 0,
+      unknownNamespaces: passthrough?.unknownNamespaces,
+    });
+
+    return canonicalDocument(
+      extraNamespaces,
+      parts,
+      children,
+      passthroughDocumentNodes(passthrough),
+    );
   }
 
   /**
@@ -290,7 +149,7 @@ export class XmpSerializerService {
 
     // WhiteBalance preset (string field — emit unless "As Shot").
     if (model.whiteBalancePreset && model.whiteBalancePreset !== 'As Shot') {
-      parts.push(`${WB_PRESET_FIELD.xmpKey}="${this._escapeAttr(model.whiteBalancePreset)}"`);
+      parts.push(`${WB_PRESET_FIELD.xmpKey}="${escapeXmpAttr(model.whiteBalancePreset)}"`);
     }
 
     const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
@@ -331,31 +190,5 @@ export class XmpSerializerService {
       }
     }
     return { fieldParts, emittedKeys };
-  }
-
-  /**
-   * Minimal XML text-content escaping for `rdf:li` content (not attribute
-   * content — attributes use `_escapeAttr` because `"` and `'` matter
-   * there). Only `&`, `<`, `>` are strictly required between tags.
-   */
-  private _escapeText(value: string): string {
-    return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  }
-
-  private _escapeAttr(value: string): string {
-    return value
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;');
-  }
-
-  /**
-   * Format a crop edge or angle value. 6 significant decimal places —
-   * matches the reference renderer's output and keeps sidecars
-   * byte-interchangeable for the crop group across platforms.
-   */
-  private _fmtCrop(v: number): string {
-    return v.toFixed(6);
   }
 }
