@@ -59,7 +59,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // everything outside it still goes through the attribute path below.
     let mut curves = CurveWalker::default();
     // Local adjustments (#358) are the other non-flat part of the schema —
-    // see `local_adjustments.rs` for the canonical `crs:GradientBasedCorrections`
+    // see `local_adjustments/` for the canonical `crs:GradientBasedCorrections`
     // / `crs:CircularGradientBasedCorrections` shape this walks.
     let mut local_adj = LocalAdjustmentsWalker::default();
 
@@ -101,7 +101,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // Canonical nested form wins over the legacy `papp:LocalAdjustments`
     // attribute (applied above, mid-loop, via `fields::set_field`) whenever
     // this walker collected at least one layer — see the migration-precedence
-    // note in `local_adjustments.rs` and `docs/xmp-canonical-format.md` §
+    // note in `local_adjustments/` and `docs/xmp-canonical-format.md` §
     // "Local adjustments".
     let canonical_layers = local_adj.finish();
     if !canonical_layers.is_empty() {
@@ -129,6 +129,23 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
 /// The element's qualified name (`papp:SceneLinearToneCurve`, `rdf:li`, …).
 fn element_name<'a>(e: &'a BytesStart<'a>) -> Result<&'a str> {
     std::str::from_utf8(e.name().into_inner()).map_err(|e| Error::Xmp(e.to_string()))
+}
+
+/// Parse an XMP boolean-like attribute value case-insensitively. Shared by
+/// every field in the schema that accepts Adobe's `1`/`true`/`on` and
+/// `0`/`false`/`off` spellings (`crs:LensProfileEnable` in `fields.rs`,
+/// `crs:CorrectionActive`/`crs:Flipped` in `local_adjustments/parse.rs`) so
+/// third-party XMP that spells a boolean `"On"`, `"TRUE"`, or `"Off"` is
+/// accepted the same way everywhere rather than each call site hand-rolling
+/// its own (narrower, inconsistently-cased) match arm. `None` for anything
+/// else — the caller decides the fallback (a hard error for a field with no
+/// sensible default, or a default value for one that has one).
+fn parse_xmp_bool(v: &str) -> Option<bool> {
+    match v.to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" => Some(true),
+        "0" | "false" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 /// Apply one element's attribute set to `model`. Lifted out of [`parse`]'s
