@@ -76,6 +76,17 @@ export interface ComposeSearchBlobInput {
    * `$lookup` person names, so the meili stage passes them explicitly.
    * Auto-generated `Person N` clusters are excluded upstream. */
   people?: string[] | null;
+  /** Whole-clip summary from the `video-describe` stage (#2158). `null`
+   * on a non-video asset, or a video the stage hasn't run on yet. */
+  videoSummary?: string | null;
+  /** Per-scene captions from `video-describe`, one per sampled frame the
+   * model commented on — each contributes once, so a phrase repeated
+   * across several similar scenes doesn't inflate the token set. */
+  videoSceneCaptions?: string[] | null;
+  /** Per-scene visible text from `video-describe`. Distinct from `ocrText`
+   * (the poster-frame `describe` stage's OCR): this is text legible in
+   * frames sampled later in the clip that the poster never showed. */
+  videoSceneTextVisible?: string[] | null;
 }
 
 /** Pure: build the unified blob from the contributing sources. Returns `""`
@@ -112,6 +123,15 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   // word. The meili stage filters out auto-generated `Person N` names
   // before passing them in.
   for (const p of input.people ?? []) add(p);
+
+  // Video-describe (#2158): the whole-clip summary once, then each unique
+  // scene caption and visible-text value once — exactly the design doc's
+  // "composeSearchBlob adds the summary once, then each unique scene
+  // caption and visible-text value once." `add()`'s own set semantics
+  // already dedupe a caption repeated across similar scenes.
+  add(input.videoSummary);
+  for (const c of input.videoSceneCaptions ?? []) add(c);
+  for (const t of input.videoSceneTextVisible ?? []) add(t);
 
   return [...tokens].sort().join(' ');
 }
