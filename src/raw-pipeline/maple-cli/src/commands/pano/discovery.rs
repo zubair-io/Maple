@@ -55,7 +55,11 @@ fn probe_frame(path: &Path) -> FrameProbe {
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("dng")
-        .to_lowercase();
+        // ASCII-only: extensions here are always ASCII ("dng", "DNG",
+        // ...), and to_lowercase()'s full Unicode case-folding can widen
+        // some inputs to multiple characters — not what a routing-key
+        // lowercasing wants (Copilot review on #3131).
+        .to_ascii_lowercase();
     let Ok(bytes) = std::fs::read(path) else {
         return FrameProbe {
             camera_model: String::new(),
