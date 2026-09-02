@@ -5,7 +5,9 @@
 //! `MAPLE_STAGE_DUMP` for per-stage EXR output via raw-core's view path.
 
 use raw_core::pipeline::{render_from_scene_linear, render_from_scene_linear_with_chain};
-use raw_core::synthetic_input::{chroma_ramp, halo_disk, hue_patch, neutral_ramp, Primary, RampHue};
+use raw_core::synthetic_input::{
+    chroma_ramp, halo_disk, hue_patch, neutral_ramp, Primary, RampHue,
+};
 use raw_core::xmp;
 use std::path::Path;
 
@@ -70,7 +72,7 @@ pub fn run(
             let slug = hue.ok_or("--hue is required for --kind chroma-ramp")?;
             let rh = RampHue::from_slug(slug).ok_or_else(|| {
                 format!(
-                    "--hue '{}' not recognised — use foliage/blue/magenta/skin",
+                    "--hue '{}' not recognised — use foliage/blue/magenta/skin/orange",
                     slug
                 )
             })?;
