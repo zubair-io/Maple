@@ -106,9 +106,11 @@ fn measure_drift(hue: RampHue, bytes: &[u8], width: u32) -> Vec<Sample> {
     out
 }
 
-/// Asserts every sample stays within budget and prints the worst one —
-/// "no eyeballing" per `docs/testing.md`, but the number still lands in
-/// the CI log next to the assertion it backs.
+/// Asserts every sample stays within budget and prints the worst one. Rust
+/// captures stdout by default, so the `println!` is silent on a green run
+/// here — it surfaces on a local `cargo test -- --nocapture` (used to
+/// derive `MAX_HUE_DRIFT_DEG` above) and automatically once a case fails,
+/// which is when the number is actually needed.
 fn assert_within_budget(hue: RampHue, variant: &str, samples: &[Sample]) {
     assert!(
         !samples.is_empty(),
