@@ -2,9 +2,18 @@
 import Foundation
 
 /// The payload encoded into the QR code the TV shows during pairing. `v` is a
-/// wire-format version gate — `parse` rejects anything that isn't exactly `1`,
-/// so a future format change can ship a new version without a phone on the old
-/// app version silently misinterpreting the fields.
+/// wire-format version gate: `parse` accepts `1` (the original JSON +
+/// base64url format) or `2` (#2137's compact binary + base32 format, see
+/// `PairingPayloadV2.swift`) and rejects anything else, so a future format
+/// change can ship without an old app silently misinterpreting the fields.
+///
+/// `parse` accepting both versions (rather than switching outright) is what
+/// makes a staged *deployment* safe, even though both halves land in this
+/// one PR: ship the iOS build first and let it reach users (TestFlight) —
+/// every phone can already read a v2 code once it has — before shipping the
+/// tvOS build that actually starts emitting v2 (`TVPairingSession.init`,
+/// `PairingViewModel.start()`). Flipping the TV out first would strand any
+/// phone still on the old build; it could no longer pair with anything.
 public struct PairingQRPayload: Codable, Equatable, Sendable {
   public let v: Int
   public let ip: String
@@ -30,11 +39,19 @@ public struct PairingQRPayload: Codable, Equatable, Sendable {
     return data.base64URLEncodedString()
   }
 
-  /// The exact inverse of `qrString()`. Returns `nil` — never throws — on
-  /// malformed base64url, malformed JSON, or a version other than `1`: a
-  /// scanned QR code is untrusted input from a camera, so every failure mode
-  /// collapses to "not a valid pairing code" for the caller.
+  /// Inverse of both `qrString()` (v1) and `qrStringV2()` (v2). Returns
+  /// `nil` — never throws — on malformed input in either format or a
+  /// version other than `1`/`2`: a scanned QR code is untrusted input from a
+  /// camera, so every failure mode collapses to "not a valid pairing code"
+  /// for the caller.
+  ///
+  /// Tries v2 (base32) first: its alphabet (`A-Z2-7`, case-sensitive)
+  /// rejects any v1 string on the first lowercase letter, `-`, or `_` it
+  /// hits — which every real base64url payload has — so this ordering never
+  /// misidentifies a v1 code, it just costs one doomed-to-fail decode
+  /// attempt on it.
   public static func parse(_ s: String) -> PairingQRPayload? {
+    if let v2 = parseV2(s) { return v2 }
     guard let data = Data(base64URLEncoded: s) else { return nil }
     guard let payload = try? JSONDecoder().decode(PairingQRPayload.self, from: data) else { return nil }
     guard payload.v == 1 else { return nil }

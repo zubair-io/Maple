@@ -72,14 +72,17 @@ final class PairingViewModel {
 
     do {
       let boundPort = try listener.start()
+      // #2137: v2, the compact binary + base32 QR format. Requires a phone
+      // build whose parser already accepts v2 to have shipped first — see
+      // the sequencing note on `PairingQRPayload`.
       let payload = PairingQRPayload(
-        v: 1,
+        v: 2,
         ip: ip,
         port: boundPort,
         token: session.qrPayload.token,
         tvPublicKey: session.qrPayload.tvPublicKey
       )
-      let qrString = try payload.qrString()
+      let qrString = try payload.qrStringV2()
       let expiresAt = now().addingTimeInterval(Self.codeLifetime)
       phase = .ready(qrString: qrString, expiresAt: expiresAt)
       scheduleExpiry(at: expiresAt)
