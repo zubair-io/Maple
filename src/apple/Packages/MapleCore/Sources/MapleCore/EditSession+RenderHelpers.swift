@@ -81,26 +81,37 @@ extension EditSession {
         if let filmExport = try await renderExportWithFilmLook() {
             return filmExport
         }
+        // Resolve the look BEFORE the render (#3190 review follow-up): a
+        // non-RAW export with an active look must pin `renderForExport`'s
+        // encode to sRGB, matching the interactive CPU fallback's rule
+        // (`EditSession+Render.swift`) — the `FilmLookCube` lattice is
+        // baked in sRGB, so handing it P3-gamma bytes (canvas set to
+        // Display P3) would misinterpret them as sRGB-gamma. `filmLattice`
+        // is resolved once here and reused for both the pin decision and
+        // the actual `apply` below.
+        let filmLattice = filmLutStore.lattice(for: model.filmLook)
+        let filmActive = filmLattice != nil && model.filmStrength > 0
         // #1781: decode-bake anchor with a present frame; the export
         // decode's own frame export rides processSceneLinear(wbFrame:).
         let image = try await renderActor.renderForExport(
-            asset: asset, model: model, asShot: wbDeltaAnchor
+            asset: asset, model: model, asShot: wbDeltaAnchor,
+            targetPrimariesOverride: filmActive ? .srgb : nil
         )
         // Non-RAW film-look export (#2713): the CIImage-graph path above has
         // no FFI film-look stage (`maple_render_file_with_film` is RAW-only
         // — see `EditSession+FilmExport.swift`'s file header), so a JPEG/
         // HEIF export with a look previously came out unlooked even though
         // the live canvas shows it. `renderActor.renderForExport`'s output
-        // is already display-encoded sRGB — the same domain the interactive
-        // canvas's CPU fallback composites `FilmLookCube` onto
-        // (`EditSession+Render.swift`) — so apply it here the same way.
-        // Gated on `!asset.isRaw`: the RAW path above is either bit-exact
-        // (a resolved look) or intentionally look-less (no look), and this
-        // must not change either of those outcomes. `FilmLookCube.apply` is
-        // itself a no-op when `model.filmLook` has no resolvable lattice, so
-        // this is safe to call unconditionally for every non-RAW export.
+        // is already display-encoded (sRGB when film is active, per the pin
+        // above) — the same domain the interactive canvas's CPU fallback
+        // composites `FilmLookCube` onto (`EditSession+Render.swift`) — so
+        // apply it here the same way. Gated on `!asset.isRaw`: the RAW path
+        // above is either bit-exact (a resolved look) or intentionally
+        // look-less (no look), and this must not change either of those
+        // outcomes. `FilmLookCube.apply` is itself a no-op when
+        // `model.filmLook` has no resolvable lattice, so this is safe to
+        // call unconditionally for every non-RAW export.
         guard !asset.isRaw else { return image }
-        let filmLattice = filmLutStore.lattice(for: model.filmLook)
         return FilmLookCube.apply(to: image, lattice: filmLattice, strengthPct: model.filmStrength)
     }
 }

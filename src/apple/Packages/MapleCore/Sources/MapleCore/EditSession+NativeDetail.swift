@@ -130,6 +130,15 @@ extension EditSession {
                 detailRect: publishedPatchRect,
                 decodeRect: decodeRect
             )
+            // #3190 review follow-up: `FilmLookCube` assumes an sRGB-encoded
+            // input (same as the Auto Profile cube below) — when the film
+            // look is active, pin `processSceneLinear`'s encode to sRGB
+            // regardless of the canvas setting so the cube isn't fed
+            // P3-gamma bytes it would misinterpret as sRGB-gamma. Mirrors
+            // `profileLUT != nil ? .srgb : ...` immediately below.
+            let filmActive = filmLattice != nil && m.filmStrength > 0
+            let targetPrimaries: CanvasColorSpace =
+                (profileLUT != nil || filmActive) ? .srgb : CanvasColorSpace.current
             let materialised = await Task.detached(priority: .userInitiated) {
                 () -> CIImage? in
                 let processed = pipeline.processSceneLinear(
@@ -144,10 +153,12 @@ extension EditSession {
                     assetID: nil,
                     noiseProfile: snapshot.noiseProfile,
                     iso: snapshot.iso,
-                    wbFrame: snapshot.wbFrame
+                    wbFrame: snapshot.wbFrame,
+                    targetPrimariesOverride: filmActive ? .srgb : nil
                 )
                 // Film look (#2683): `processSceneLinear`'s output is
-                // already the final gamma-encoded sRGB image, the same
+                // already the final gamma-encoded image in `targetPrimaries`
+                // (pinned to sRGB above whenever film is active) — the same
                 // domain the `.mlut` lattice is baked in — bake the cube
                 // here rather than in the FFI chain (#2713). Closes the
                 // "film vanishes at 100% zoom" gap: this is the CPU
@@ -159,9 +170,17 @@ extension EditSession {
                     strengthPct: m.filmStrength
                 )
                 let cropped = filmed.cropped(to: localDetailRect)
+                // Tag must match what `processSceneLinear` actually encoded
+                // (`targetPrimaries` above) — see `materializeRegion`'s doc
+                // comment (jules review on #3239: this used to be hardcoded
+                // to sRGB regardless of the real tag).
+                let colorSpace = targetPrimaries == .displayP3
+                    ? ImageEditPipeline.displayEncodedColorSpaceP3
+                    : ImageEditPipeline.displayEncodedColorSpace
                 guard let cg = pipeline.materializeRegion(
                     cropped,
-                    rect: localDetailRect
+                    rect: localDetailRect,
+                    colorSpace: colorSpace
                 ) else { return nil }
                 return CIImage(cgImage: cg)
             }.value

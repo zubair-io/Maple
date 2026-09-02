@@ -272,12 +272,18 @@ extension EditSession {
                     isRendering = false
                     return
                 }
+                // #3190 review follow-up: `FilmLookCube` is baked/fit in
+                // sRGB, same as the Auto Profile cube — pin the encode to
+                // sRGB whenever film is active so it isn't fed P3-gamma
+                // bytes it would misinterpret as sRGB-gamma.
+                let filmActive = filmLattice != nil && m.filmStrength > 0
                 image = await Task.detached(priority: .userInitiated) {
                     let processed = mapleStage(filterStageName) { () -> CIImage in
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
                                 decoded: cached, model: m, targetSize: processTarget,
-                                assetID: assetID
+                                assetID: assetID,
+                                targetPrimariesOverride: filmActive ? .srgb : nil
                             )
                         }
                         return pipeline.processSceneLinear(
@@ -287,7 +293,8 @@ extension EditSession {
                             assetID: assetID,
                             noiseProfile: cachedNoiseProfile,
                             iso: cachedISO,
-                            wbFrame: cachedWbFrame
+                            wbFrame: cachedWbFrame,
+                            targetPrimariesOverride: filmActive ? .srgb : nil
                         )
                     }
                     return FilmLookCube.apply(to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
@@ -390,12 +397,16 @@ extension EditSession {
                     isRendering = false
                     return
                 }
+                // #3190 review follow-up: same sRGB pin as the cached branch
+                // above — `FilmLookCube` assumes sRGB-encoded input.
+                let filmActive = filmLattice != nil && m.filmStrength > 0
                 let processed = await Task.detached(priority: .userInitiated) {
                     let developed = mapleStage(filterStageName) { () -> CIImage in
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
                                 decoded: decoded, model: m, targetSize: processTarget,
-                                assetID: assetID
+                                assetID: assetID,
+                                targetPrimariesOverride: filmActive ? .srgb : nil
                             )
                         }
                         return pipeline.processSceneLinear(
@@ -405,7 +416,8 @@ extension EditSession {
                             assetID: assetID,
                             noiseProfile: freshNoiseProfile,
                             iso: freshISO,
-                            wbFrame: freshWbFrame
+                            wbFrame: freshWbFrame,
+                            targetPrimariesOverride: filmActive ? .srgb : nil
                         )
                     }
                     return FilmLookCube.apply(to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
