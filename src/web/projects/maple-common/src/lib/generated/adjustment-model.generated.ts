@@ -221,6 +221,14 @@ export interface GeneratedAdjustmentModel {
   toneCurveGreen: ToneCurve;
   /** Blue-channel point curve (#273). Applied per `toneCurveMode`. Identity (empty) by default. */
   toneCurveBlue: ToneCurve;
+  /** Display-referred master point curve (#2232, `crs:ToneCurvePV2012`). Applied post-AgX to R/G/B independently with the same curve function (matches Adobe Camera Raw's own point-curve behavior — not luma-coupled). Identity (empty) by default. */
+  displayToneCurveLuma: ToneCurve;
+  /** Display-referred red-channel point curve (#2232, `crs:ToneCurvePV2012Red`). Applied post-AgX, independently per channel. Identity (empty) by default. */
+  displayToneCurveRed: ToneCurve;
+  /** Display-referred green-channel point curve (#2232, `crs:ToneCurvePV2012Green`). Applied post-AgX, independently per channel. Identity (empty) by default. */
+  displayToneCurveGreen: ToneCurve;
+  /** Display-referred blue-channel point curve (#2232, `crs:ToneCurvePV2012Blue`). Applied post-AgX, independently per channel. Identity (empty) by default. */
+  displayToneCurveBlue: ToneCurve;
   /** Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
   chromaPrefilter: number;
   /** Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key. */
@@ -333,6 +341,10 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     toneCurveRed: { points: [] },
     toneCurveGreen: { points: [] },
     toneCurveBlue: { points: [] },
+    displayToneCurveLuma: { points: [] },
+    displayToneCurveRed: { points: [] },
+    displayToneCurveGreen: { points: [] },
+    displayToneCurveBlue: { points: [] },
     chromaPrefilter: 0.0,
     hotPixelSuppression: 'Off',
     deepDenoise: 0.0,
