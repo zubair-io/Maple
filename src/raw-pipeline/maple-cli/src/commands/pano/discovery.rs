@@ -109,13 +109,15 @@ fn drop_non_conforming(name: &str, probed: Vec<(PathBuf, FrameProbe)>) -> Vec<Pa
     probed
         .into_iter()
         .filter_map(|(path, probe)| {
-            // An empty model means the file couldn't be read/decoded at
-            // all (probe_frame's failure shape) — there's no model to
-            // compare against the majority, so don't also blame it on
-            // "wrong camera body": that's misleading for a file that was
-            // never identified as any body at all (Copilot review on
-            // #3131).
-            let unreadable = probe.camera_model.is_empty();
+            // probe_frame's failure shape (I/O or decode error) is
+            // *both* an empty model and no focal together — that's the
+            // specific signal for "couldn't identify this file at all",
+            // not just an empty/unknown model string on its own (a
+            // successful read can legitimately have no Model tag but
+            // still carry a derivable focal; that case still deserves
+            // the ordinary wrong-body comparison, not an automatic drop
+            // mislabeled as "unreadable") (Copilot review on #3131).
+            let unreadable = probe.camera_model.is_empty() && !probe.has_focal;
             let wrong_body = !unreadable
                 && majority_model
                     .as_deref()
@@ -293,6 +295,33 @@ mod tests {
                 probed("a.dng", "L3D-100c", true),
                 probed("b.dng", "L3D-100c", true),
                 probed("corrupt.dng", "", false),
+            ],
+        );
+        assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
+    }
+
+    /// An empty model string alone isn't "unreadable" — a successful
+    /// metadata read can legitimately carry no Model tag while still
+    /// having a derivable focal. With no majority established yet, such
+    /// a frame passes through untouched rather than being auto-dropped
+    /// (Copilot review on #3131).
+    #[test]
+    fn empty_model_with_a_derivable_focal_is_not_treated_as_unreadable() {
+        let kept = drop_non_conforming("set", vec![probed("a.dng", "", true)]);
+        assert_eq!(names(kept), vec!["a.dng"]);
+    }
+
+    /// The same empty-model-but-focal frame, once a real majority body
+    /// is established by other frames, is dropped as "wrong body" (it
+    /// can't be confirmed to match) rather than "unreadable".
+    #[test]
+    fn empty_model_with_a_derivable_focal_still_loses_to_an_established_majority() {
+        let kept = drop_non_conforming(
+            "set",
+            vec![
+                probed("a.dng", "L3D-100c", true),
+                probed("b.dng", "L3D-100c", true),
+                probed("c.dng", "", true),
             ],
         );
         assert_eq!(names(kept), vec!["a.dng", "b.dng"]);
