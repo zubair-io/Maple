@@ -2,8 +2,9 @@
 //
 // #2271/#2273 — opens the unified cross-source Timeline: every library on
 // every connected Maple Cloud server, fanned out and merged with PhotoKit
-// via `AllSourcesTimelineViewModel`. Triggered by the sidebar's TIMELINE
-// row (`LibrarySidebar.onSelectTimeline`).
+// AND every saved local Folder (#2274, Phase 2 of #2270) via
+// `AllSourcesTimelineViewModel`. Triggered by the sidebar's TIMELINE row
+// (`LibrarySidebar.onSelectTimeline`).
 //
 // Mirrors the per-server auth/session dance `AppShell+CloudActions` already
 // does for the sidebar's folder listing (`loadCloudFoldersFor`) and for the
@@ -69,11 +70,20 @@ extension AppShell {
                 return adapter
             }()
 
+            // Local saved-Folders half of the merge (#2274, Phase 2 of
+            // #2270). Unconditional — unlike PhotoKit there's no
+            // authorization gate; an empty `SavedFolderStore` just means
+            // `warmUp()` opens nothing and every bucket/assetsForMonth call
+            // returns empty, same as `photoKitMerge == nil` would.
+            let folderMerge = FolderMergeAdapter()
+            Task { await folderMerge.warmUp() }
+
             // The user may have navigated away while the above awaited
             // (folders fetch, sign-in bootstrap) — don't clobber whatever
             // they've since selected with a stale Timeline VM.
             guard librarySelection == .allSources else { return }
-            allSourcesTimelineVM = AllSourcesTimelineViewModel(sources: sources, photoKitMerge: photoKitMerge)
+            allSourcesTimelineVM = AllSourcesTimelineViewModel(
+                sources: sources, photoKitMerge: photoKitMerge, folderMerge: folderMerge)
             allSourcesTimelineThumbCache = CloudThumbCache()
             pruneSessionsForNewAssetList()
         }

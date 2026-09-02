@@ -312,15 +312,35 @@ extension FilesystemSource: ImageSource {
     /// `images()` from ever losing an asset outright over a hashing error.
     public func images() async throws -> [ImageRef] {
         let scope = scopeURL
+        // #2274 (unified Timeline Phase 2): local-folder assets carried no
+        // `captureDate`, so `MergedTimelineSource` had nothing to bucket
+        // them by and the Timeline section silently excluded every local
+        // Folders source. The raw EXIF `DateTimeOriginal` string is already
+        // being cached per-file in `LibraryIndex.LibraryEntry
+        // .dateTimeOriginal` — `ExternalRenameReconciler.syncFingerprintCache`
+        // warms it (incrementally, up to `maxFingerprintWarmupPerScan` files
+        // per `_index()` scan) for its OWN purpose (same-folder external-
+        // rename detection, #2656), but the cached value is exactly the
+        // capture-date input `captureDate` needs too — so this reads that
+        // SAME cache rather than re-deriving anything or reading EXIF a
+        // second time. `LibraryIndexStore.load()` re-reads `index.json`
+        // fresh every call (see its own doc comment on why that's cheap
+        // enough not to bother caching further), so this stays correct
+        // across concurrent writers without adding a second cache layer.
+        let index = try? await libraryIndexStore?.load()
         var refs: [ImageRef] = []
         refs.reserveCapacity(_assets.count)
         for fa in _assets {
             let id = await mapleId(for: fa) ?? fa.url.path
+            let captureDate = index?.entries[fa.url.lastPathComponent]?.dateTimeOriginal
+                .flatMap { ExifCaptureDate.iso8601UTC(fromExifString: $0) }
+                .flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
             refs.append(ImageRef(
                 id: id,
                 displayName: fa.name,
                 url: fa.url,
-                scopeParentURL: scope
+                scopeParentURL: scope,
+                captureDate: captureDate
             ))
         }
         return refs
