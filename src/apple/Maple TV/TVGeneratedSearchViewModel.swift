@@ -83,8 +83,8 @@ final class TVGeneratedSearchViewModel {
     await withTaskGroup(of: (String, SearchAsset?).self) { group in
       for collection in loaded {
         group.addTask { [client] in
-          let assets = try? await client.assets(collectionID: collection.id, limit: 1)
-          return (collection.id, assets?.first)
+          let page = try? await client.assets(collectionID: collection.id, limit: 1)
+          return (collection.id, page?.results.first)
         }
       }
       for await (id, asset) in group {
@@ -94,9 +94,13 @@ final class TVGeneratedSearchViewModel {
     }
   }
 
-  /// The photos in one collection, or `[]` when the fetch fails — the caller
-  /// simply doesn't open a viewer over an empty set.
-  func assets(for collection: GeneratedSearchCard) async -> [SearchAsset] {
-    (try? await client.assets(collectionID: collection.id)) ?? []
+  /// The FIRST PAGE of one collection's photos, plus the collection's full
+  /// size — or an empty page when the fetch fails, in which case the caller
+  /// simply doesn't open anything. The grid this opens pages onward from here
+  /// (`TVMemoryAssetsViewModel`); a collection is routinely bigger than one
+  /// response.
+  func firstPage(of collection: GeneratedSearchCard) async -> GeneratedSearchAssetPage {
+    (try? await client.assets(collectionID: collection.id))
+      ?? GeneratedSearchAssetPage(results: [], total: 0)
   }
 }

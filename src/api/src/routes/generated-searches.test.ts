@@ -132,6 +132,70 @@ describe('GET /api/generated-searches/:id/assets', () => {
     expect(body.results).toHaveLength(2);
   });
 
+  it('pages with limit + offset, and reports the full total on every page', async () => {
+    const id = await seedCollection();
+    // Distinct capture instants so `captured_desc` gives a stable order to
+    // page through — otherwise a tie makes "page 2 continues page 1"
+    // unverifiable rather than merely unordered.
+    for (let i = 0; i < 5; i++) {
+      await db.collection('assets').insertOne({
+        maple_id: `p${i}`,
+        fileinfo: [
+          {
+            library_id: LIB,
+            path: `/p/p${i}.jpg`,
+            filename: `p${i}.jpg`,
+            deleted_at: null,
+            missing_since: null,
+          },
+        ],
+        deleted_at: null,
+        size: 1,
+        mtime: 1,
+        exif: {
+          captured_at: `2018-08-1${i}T12:00:00.000Z`,
+          captured_year: 2018,
+          captured_month: 8,
+        },
+      } as never);
+    }
+
+    const first = await get(`/api/generated-searches/${id}/assets?limit=2&offset=0`);
+    const second = await get(`/api/generated-searches/${id}/assets?limit=2&offset=2`);
+    const last = await get(`/api/generated-searches/${id}/assets?limit=2&offset=4`);
+
+    // `total` is the whole collection on every page — that is what lets a
+    // client know it has more to fetch.
+    expect(first.body.total).toBe(5);
+    expect(second.body.total).toBe(5);
+    expect(last.body.total).toBe(5);
+
+    expect(first.body.results).toHaveLength(2);
+    expect(second.body.results).toHaveLength(2);
+    expect(last.body.results).toHaveLength(1);
+
+    // The pages partition the collection: no repeats, nothing skipped. Keyed
+    // on `_id` rather than `id` — the latter is derived from the library root
+    // path, which this suite doesn't seed.
+    const ids = [...first.body.results, ...second.body.results, ...last.body.results].map(
+      (r: { _id: string }) => r._id,
+    );
+    expect(new Set(ids).size).toBe(5);
+  });
+
+  it('reads past the first page rather than capping the collection', async () => {
+    const id = await seedCollection();
+    await seedAsset('a');
+    await seedAsset('b');
+
+    // An offset beyond the end is an empty page, not an error — a client that
+    // races ahead of `total` gets a clean stop.
+    const { status, body } = await get(`/api/generated-searches/${id}/assets?offset=99`);
+    expect(status).toBe(200);
+    expect(body.total).toBe(2);
+    expect(body.results).toEqual([]);
+  });
+
   it('404s for an unknown collection', async () => {
     const { status } = await get(`/api/generated-searches/${new ObjectId().toHexString()}/assets`);
     expect(status).toBe(404);
