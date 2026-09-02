@@ -62,16 +62,18 @@ struct FaceEmbedSettingsRow: View {
         .onDisappear { saveConfirmationTask?.cancel() }
     }
 
+    // Always renders — even when `snapshot.faceModels` is absent. See
+    // FaceDetectSettingsRow's identical note.
     @ViewBuilder
     private var modelStatusBanner: some View {
         let headline = EnrichmentSettingsVM.faceModelStatusHeadline(snapshot.faceModels)
-        if let recognizer = snapshot.faceModels?.recognizer {
-            MuiBanner(
-                variant: snapshot.faceModels?.status == .loaded ? .success : .warning,
-                message: "\(headline) arcface_r100_glint360k.onnx · \(EnrichmentSettingsVM.formatModelBytes(recognizer.bytes)) · \(recognizer.path)"
-            )
-            .accessibilityIdentifier("enrichment.faceEmbed.statusBanner")
-        }
+        let detail = EnrichmentSettingsVM.faceModelDetailSuffix(
+            fileLabel: "arcface_r100_glint360k.onnx", probe: snapshot.faceModels?.recognizer)
+        MuiBanner(
+            variant: snapshot.faceModels?.status == .loaded ? .success : .warning,
+            message: "\(headline)\(detail)"
+        )
+        .accessibilityIdentifier("enrichment.faceEmbed.statusBanner")
     }
 
     // @MainActor — see FaceDetectSettingsRow's identical note.

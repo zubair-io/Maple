@@ -20,6 +20,11 @@ struct RenderConfigSettingsView: View {
     @State private var loading = true
     @State private var loadError: String?
     @State private var saving = false
+    /// Distinct from `loadError`: that banner replaces the whole panel body
+    /// (there is nothing to show once the initial GET fails), while a save
+    /// failure happens with a perfectly good `config` already on screen — so
+    /// it renders inline, next to the toggle, instead of hiding the panel.
+    @State private var saveError: String?
 
     var body: some View {
         Section("GPU live render") {
@@ -43,6 +48,11 @@ struct RenderConfigSettingsView: View {
                     label: "Web GPU live render", disabled: saving
                 )
                 .accessibilityIdentifier("workers.renderConfig.enabled")
+
+                if let saveError {
+                    MuiStatusText(state: .error, text: saveError)
+                        .accessibilityIdentifier("workers.renderConfig.saveError")
+                }
 
                 LabeledContent("This app") {
                     Text(MaintenancePanelsVM.renderStatusLabel(localGpuEnabled: GpuLiveFlag.isEnabled))
@@ -77,12 +87,13 @@ struct RenderConfigSettingsView: View {
     private func setEnabled(_ next: Bool) async {
         guard !saving else { return }
         saving = true
+        saveError = nil
         let previous = config
         do {
             config = try await client.save(RenderConfigPatch(gpuLiveRenderEnabled: next))
         } catch {
             config = previous
-            loadError = error.localizedDescription
+            saveError = error.localizedDescription
         }
         saving = false
     }

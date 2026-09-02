@@ -98,4 +98,20 @@ final class EnrichmentSettingsVMTests: XCTestCase {
         let formatted = EnrichmentSettingsVM.formatModelBytes(16_700_000)
         XCTAssertTrue(formatted.contains("MB"), "expected an MB-scale string, got \(formatted)")
     }
+
+    // MARK: - faceModelDetailSuffix
+
+    func test_faceModelDetailSuffix_nilProbeIsEmpty() {
+        // A missing probe must not suppress the banner entirely (Copilot
+        // review on #3215) — the caller always shows the headline; this only
+        // covers whether the trailing file detail is appended.
+        XCTAssertEqual(EnrichmentSettingsVM.faceModelDetailSuffix(fileLabel: "x.onnx", probe: nil), "")
+    }
+
+    func test_faceModelDetailSuffix_includesFilenameSizeAndPath() {
+        let probe = FaceModelsStatus.FileProbe(path: "/x/scrfd_10g.onnx", present: true, bytes: 1_000_000)
+        let suffix = EnrichmentSettingsVM.faceModelDetailSuffix(fileLabel: "scrfd_10g.onnx", probe: probe)
+        XCTAssertTrue(suffix.contains("scrfd_10g.onnx"))
+        XCTAssertTrue(suffix.contains("/x/scrfd_10g.onnx"))
+    }
 }

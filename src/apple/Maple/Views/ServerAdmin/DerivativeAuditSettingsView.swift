@@ -176,7 +176,10 @@ struct DerivativeAuditSettingsView: View {
             apply(saved)
         } catch {
             config = previous
-            loadError = error.localizedDescription
+            // NOT loadError — that banner replaces the whole panel body, which
+            // would hide the very toggle the operator just clicked. Route
+            // through the same save-state surface the Save button uses.
+            saveState = .failed(error.localizedDescription)
         }
     }
 
