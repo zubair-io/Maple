@@ -27,6 +27,7 @@ import {
   type ResolvedEnrichmentConfig,
 } from './enrichment-config.resolve.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
+import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
 const log = childLogger('describe');
 
@@ -59,8 +60,12 @@ export async function startDescribeWorker(): Promise<never[]> {
 export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): Promise<void> {
   // Invalidate any cached provider in the stage handler so the URL change
   // takes effect without a restart. Safe to call unconditionally — the
-  // next claim will lazily re-resolve.
+  // next claim will lazily re-resolve. `video-describe` (#2158) reads the
+  // same `describe_servers` config through its own cached pool, so it
+  // needs the same invalidation or a saved server-list change would apply
+  // to `describe` but leave video-describe on the stale pool until restart.
   resetDescribeDeps();
+  resetVideoDescribeDeps();
 
   if (!resolved.describe_worker_enabled) {
     log.info('describe worker disabled (describe_worker_enabled=false)');
@@ -117,9 +122,4 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
 /** Lifecycle hook called at shutdown. No-op — stage-controller runtime handles teardown. */
 export async function stopDescribeWorker(): Promise<void> {
   log.info('describe bootstrap stop called (stage-controller runtime owns lifecycle)');
-}
-
-/** Test-only: no workers in Plan 3+ — returns empty array. */
-export function _getWorkersForTests(): never[] {
-  return [];
 }
