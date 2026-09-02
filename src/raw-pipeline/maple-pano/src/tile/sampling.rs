@@ -18,32 +18,40 @@ use super::photometry::{PairMap, PhotometryOptions, MIN_LUM};
 use super::placement::{TileCanvasSpec, TilePose};
 use super::warp::{inverse_similarity_with_offset, sample_bicubic};
 
+/// Row-bands processed with bounded local parallelism per group; groups
+/// run sequentially so the on-demand decode cache's working set stays
+/// spatially local to a small slice of canvas rows (#3090). See
+/// `sample_pairs` for why a single flat parallel pass over the whole
+/// canvas would defeat a capacity-bounded cache.
+const SAMPLING_GROUP_BANDS: usize = 4;
+
 /// One strided canvas scan accumulating per-pair (and per-pair-per-cell)
-/// log-ratio statistics. Parallel over row bands; merged in band order
-/// for determinism.
+/// log-ratio statistics. Parallel *within* small groups of row-bands;
+/// groups run sequentially, and every group's results are merged in
+/// original band order for determinism.
 ///
 /// `full_dims` is indexed by the *original* input frame index (same
 /// space as `cache` and `poses[i].frame_idx`) — #3090: frames are
 /// decoded on demand through `cache`, bounded to a handful resident at
 /// once, rather than requiring the whole set pre-decoded.
 ///
-/// # Why a flat parallel pass is fine here (#3090)
+/// # Why groups, not one flat parallel pass (#3090)
 ///
-/// An earlier version of this fix restricted parallelism to small
-/// sequential groups of bands, reasoning that a flat `bands.par_iter()`
-/// over the whole canvas would spread concurrently-active scan positions
-/// across the entire canvas — each needing a different couple of frames,
-/// for a combined working set that could exceed the cache capacity and
-/// thrash. That reasoning targeted the wrong cost: `sample_band` below
-/// resolves each relevant frame through `cache` **once per band**, not
-/// once per pixel sample, so the number of cache accesses is already
-/// tiny (bands × relevant-frames-per-band, not canvas-pixels ×
-/// relevant-frames), and restricting parallelism on top of that only
-/// threw away most of the machine's cores for no memory benefit —
-/// measured as a large wall-clock regression on `pano_00` (too few
-/// frames for the cache to ever evict anything, so the grouping bought
-/// nothing there either). Left as a flat parallel pass; peak resident
-/// frames is still bounded by `cache`'s capacity.
+/// `cache` bounds how many decoded frames stay resident at once. A flat
+/// `bands.par_iter()` over every row-band in the canvas defeats that:
+/// rayon's work-stealing scheduler hands each thread a large contiguous
+/// SLICE of the bands array up front, so with `P` threads the `P`
+/// concurrently-active scan positions end up spread roughly evenly
+/// across the *entire* canvas rather than clustered together — each
+/// needing a different couple of frames, for a combined working set
+/// that can exceed the cache capacity and thrash (repeatedly evicting
+/// and re-decoding the same frames; measured as a large wall-clock
+/// regression on the 23-frame `pano_03` strip during development).
+/// Chunking into `SAMPLING_GROUP_BANDS`-sized groups and running groups
+/// sequentially keeps every concurrently-active band within one small,
+/// contiguous slice of canvas rows, so the frames they need overlap
+/// heavily — matching the "tile sweep moves monotonically along the
+/// strip" assumption the cache capacity is sized against.
 pub(super) fn sample_pairs(
     cache: &TileFrameCache,
     full_dims: &[(u32, u32)],
@@ -91,23 +99,27 @@ pub(super) fn sample_pairs(
     let rows: Vec<usize> = (0..ch).step_by(opts.stride).collect();
     let bands: Vec<&[usize]> = rows.chunks(64).collect();
 
-    let band_maps: Vec<PairMap> = bands
-        .par_iter()
-        .map(|band| {
-            sample_band(
-                band,
-                cw,
-                k,
-                ncx,
-                opts,
-                &bboxes,
-                &frame_dims,
-                &inv_sims,
-                poses,
-                cache,
-            )
-        })
-        .collect::<Result<Vec<PairMap>, PanoError>>()?;
+    let mut band_maps: Vec<PairMap> = Vec::with_capacity(bands.len());
+    for group in bands.chunks(SAMPLING_GROUP_BANDS) {
+        let group_maps: Vec<PairMap> = group
+            .par_iter()
+            .map(|band| {
+                sample_band(
+                    band,
+                    cw,
+                    k,
+                    ncx,
+                    opts,
+                    &bboxes,
+                    &frame_dims,
+                    &inv_sims,
+                    poses,
+                    cache,
+                )
+            })
+            .collect::<Result<Vec<PairMap>, PanoError>>()?;
+        band_maps.extend(group_maps);
+    }
 
     // Sequential band-order merge (deterministic float summation order).
     let mut merged = PairMap::new();
@@ -135,18 +147,9 @@ pub(super) fn sample_pairs(
 }
 
 /// Accumulate one row-band's per-pair log-ratio statistics. Split out of
-/// `sample_pairs` so `bands.par_iter()` there can call it directly.
-///
-/// Resolves each relevant frame through `cache` **once per band**, not
-/// once per sample: `TileFrameCache::get` takes a lock even on a hit, and
-/// calling it inside the per-pixel loop (as an earlier version of this
-/// fix did) measured a ~25% wall-clock regression versus plain slice
-/// indexing — on `pano_00`, which has too few frames for the cache to
-/// ever evict anything, so that cost bought no memory benefit at all.
-/// "Relevant" is a coarse Y-only bbox pre-filter (a band spans one fixed
-/// row range but many columns); the existing per-sample 2D bbox check
-/// below is unchanged and still decides which samples actually use a
-/// resolved frame.
+/// `sample_pairs` so the group-chunked driver there can run it via
+/// `par_iter()` *within* a small group of bands, rather than over the
+/// whole canvas at once (#3090 — see `sample_pairs` docs).
 #[allow(clippy::too_many_arguments)]
 fn sample_band(
     band: &[usize],
@@ -162,22 +165,6 @@ fn sample_band(
 ) -> Result<PairMap, PanoError> {
     let mut map = PairMap::new();
     let mut hits: Vec<(usize, f64, [f64; 3], f64, f64)> = Vec::with_capacity(k);
-
-    let Some((&y0, &y1)) = band.iter().min().zip(band.iter().max()) else {
-        return Ok(map);
-    };
-    let (band_y0, band_y1) = (y0 as f64, y1 as f64 + 1.0);
-    let mut band_frames: Vec<Option<std::sync::Arc<crate::ingest::PlanarImage>>> =
-        Vec::with_capacity(k);
-    for i in 0..k {
-        let (_, by0, _, by1) = bboxes[i];
-        if by1 < band_y0 || by0 > band_y1 {
-            band_frames.push(None);
-        } else {
-            band_frames.push(Some(cache.get(poses[i].frame_idx)?));
-        }
-    }
-
     for &ry in band.iter() {
         let cy = ry as f64 + 0.5;
         for rx in (0..cw).step_by(opts.stride) {
@@ -188,15 +175,13 @@ fn sample_band(
                 if cx < bx0 || cx > bx1 || cy < by0 || cy > by1 {
                     continue;
                 }
-                let Some(frame) = &band_frames[i] else {
-                    continue;
-                };
                 let (fw, fh) = frame_dims[i];
                 let (fx, fy) = inv_sims[i].apply(cx, cy);
                 if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
                     continue;
                 }
-                let Some(v) = sample_bicubic(frame, fx - 0.5, fy - 0.5) else {
+                let frame = cache.get(poses[i].frame_idx)?;
+                let Some(v) = sample_bicubic(&frame, fx - 0.5, fy - 0.5) else {
                     continue;
                 };
                 let rgb = [
