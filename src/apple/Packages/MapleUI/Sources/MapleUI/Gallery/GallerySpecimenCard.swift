@@ -26,14 +26,8 @@ struct GallerySpecimenCard<Content: View>: View {
             // when it doesn't, so specimens that already fit (every atom,
             // and most molecules/organisms) are visually unchanged.
             ViewThatFits(in: .horizontal) {
-                content
-                    .padding(MuiTokens.spacingMd)
-                    .frame(minHeight: 72, alignment: .center)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    content
-                        .padding(MuiTokens.spacingMd)
-                        .frame(minHeight: 72, alignment: .center)
-                }
+                styledContent
+                ScrollView(.horizontal, showsIndicators: false) { styledContent }
             }
             .frame(maxWidth: .infinity)
             .background(MuiTokens.imageCanvas, in: RoundedRectangle(cornerRadius: MuiTokens.radiusMd, style: .continuous))
@@ -53,5 +47,14 @@ struct GallerySpecimenCard<Content: View>: View {
         }
         .padding(MuiTokens.spacingSm)
         .background(MuiTokens.surface, in: RoundedRectangle(cornerRadius: MuiTokens.radiusLg, style: .continuous))
+    }
+
+    /// `content` with the padding/sizing shared by both `ViewThatFits`
+    /// branches — factored out (Copilot review on #3161) so the direct and
+    /// scrolling variants can't drift from each other.
+    private var styledContent: some View {
+        content
+            .padding(MuiTokens.spacingMd)
+            .frame(minHeight: 72, alignment: .center)
     }
 }
