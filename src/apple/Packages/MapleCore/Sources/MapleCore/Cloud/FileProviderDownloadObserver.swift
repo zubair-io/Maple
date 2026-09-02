@@ -208,8 +208,11 @@ public final class FileProviderDownloadObserver {
                 let total = observed.totalUnitCount > 0 ? observed.totalUnitCount : nil
                 if let total { self.lastExpectedBytes = total }
                 progress.report(received: observed.completedUnitCount, total: self.lastExpectedBytes)
+                // `stop()` itself calls `progressSink?.finish()` — no need
+                // to also call `progress.finish()` here first (Copilot
+                // review, PR #3185: the two calls were redundant, if
+                // harmless since `finish()` is idempotent).
                 if observed.isFinished {
-                    progress.finish()
                     self.stop()
                 }
             }
