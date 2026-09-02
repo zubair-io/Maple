@@ -186,4 +186,97 @@ describe('Hosted SSR Worker', () => {
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe('<html>app shell</html>');
 	});
+
+	it('does not carry a stale If-None-Match from the deep-link request onto the index.html fallback fetch', async () => {
+		// Regression for a real bug: a returning visitor's browser sends
+		// If-None-Match for the deep-link URL (from a previous fallback
+		// response's ETag, which was index.html's own ETag). If that header
+		// were forwarded onto the fresh /index.html fetch, a real Azure origin
+		// would correctly — and unhelpfully — answer 304 Not Modified with an
+		// empty body, and a naive fallback would serve that as "200 OK, empty
+		// body": a blank page. This mock always answers 200 with a full body
+		// regardless of what headers arrive, so the behavioral assertion below
+		// (a full, non-empty app shell) is what actually proves the fallback
+		// fetch works correctly whether or not a stale conditional header
+		// exists on the original request.
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/browse/lib/photo.dng', method: 'GET' })
+			.reply(404, 'not found');
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
+			.reply(200, '<html>app shell</html>', { headers: { 'content-type': 'text/html' } });
+
+		const request = new IncomingRequest('https://mapleaperture.com/browse/lib/photo.dng', {
+			headers: {
+				'sec-fetch-mode': 'navigate',
+				accept: 'text/html',
+				'if-none-match': '"stale-etag-from-a-previous-fallback-response"',
+			},
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe('<html>app shell</html>');
+	});
+
+	it('passes through the real status when the index.html fallback fetch itself fails', async () => {
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/browse/lib/photo.dng', method: 'GET' })
+			.reply(404, 'not found');
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
+			.reply(500, 'container misconfigured');
+
+		const request = navigationRequest('https://mapleaperture.com/browse/lib/photo.dng');
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		// A masked 200 here would render as a blank successful-looking
+		// navigation instead of surfacing the real outage.
+		expect(response.status).toBe(500);
+		expect(await response.text()).toBe('container misconfigured');
+	});
+
+	it('preserves the request method when proxying (HEAD stays HEAD)', async () => {
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/raw_wasm_bg.wasm', method: 'HEAD' })
+			.reply(200, '', { headers: { 'content-type': 'application/octet-stream' } });
+
+		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm', {
+			method: 'HEAD',
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('application/wasm');
+	});
+
+	it('drops the query string when fetching the origin', async () => {
+		// Azure Blob Storage's REST API treats certain query keys as commands
+		// (e.g. ?comp=, ?sig=) — forwarding an arbitrary client query string
+		// could turn a should-be-404 into a 400/403 that never reaches the SPA
+		// fallback. The interceptor below has no query string in its path, so
+		// Undici would fail to match if the Worker forwarded one.
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/assets/icon.png', method: 'GET' })
+			.reply(200, PNG_MAGIC, { headers: { 'content-type': 'image/png' } });
+
+		const request = new IncomingRequest('https://mapleaperture.com/assets/icon.png?utm_source=x');
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+	});
 });
