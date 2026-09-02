@@ -21,8 +21,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     private let cursorStore: ChangeCursorStore
     private let workingSetListCache: WorkingSetListCache?
     /// Long-lived SSE consumer. Started in init when not dormant; stopped
-    /// on `invalidate()`. nil while dormant.
+    /// on `invalidate()`, OR earlier once APNs push-to-signal is confirmed
+    /// active for this device (#1025) — see the APNs-confirmation `Task`
+    /// in `init(domain:)`. nil while dormant.
     private var changeFeed: ChangeFeedClient?
+    /// Reports this device's push token to the server and tracks whether
+    /// that registration has ever succeeded. nil while dormant. See
+    /// `ApnsDeviceRegistrationClient`'s doc comment for why this is an
+    /// actor rather than a lock-guarded class.
+    private var apnsRegistrationClient: ApnsDeviceRegistrationClient?
+    /// PushKit `.fileProvider` registration for this process. Started in
+    /// init when not dormant; stopped on `invalidate()`. nil while
+    /// dormant. See `ApnsPushRegistrar`'s doc comment.
+    private var apnsRegistrar: ApnsPushRegistrar?
 
     /// Page size used when streaming a parent listing to resolve a single
     /// child by name (subdir lookup in `item(for:)`, sidecar→assetID lookup
@@ -186,6 +197,21 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         )
         self.changeFeed?.start()
+
+        // APNs push-to-signal (#1025). Registration starts unconditionally
+        // and synchronously (cheap — PushKit's `desiredPushTypes` setter
+        // doesn't block on network) so the token is delivered and reported
+        // to the server as soon as PushKit has one. `changeFeed` above
+        // keeps running as the safe default; a SEPARATE, bounded async
+        // task below decides whether to stop it once push is confirmed
+        // active, rather than gating the decision on this synchronous
+        // init (which `NSFileProviderReplicatedExtension` requires).
+        let apnsRegistrationClient = ApnsDeviceRegistrationClient(server: cfg.serverURL, http: http)
+        self.apnsRegistrationClient = apnsRegistrationClient
+        let apnsRegistrar = ApnsPushRegistrar(domain: domain, registrationClient: apnsRegistrationClient)
+        self.apnsRegistrar = apnsRegistrar
+        apnsRegistrar.start()
+
         // Separate sandboxed process from the main app and MapleBackupAgent
         // — no access to either's in-memory LocalNetworkResolver cache, and
         // this synchronous `init` (required by NSFileProviderReplicatedExtension)
@@ -200,11 +226,36 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // type, because nothing ever re-pointed it. The in-flight SSE
         // socket (if any) isn't torn down; the new address takes effect on
         // the client's next reconnect, same as `catalog`'s swap takes
-        // effect on its next request.
-        Task { [catalog, changeFeed = self.changeFeed] in
+        // effect on its next request. `apnsRegistrationClient` gets the
+        // same swap so a re-registration (token refresh) prefers the LAN
+        // address too.
+        Task { [catalog, changeFeed = self.changeFeed, apnsRegistrationClient] in
             let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: cfg.serverURL)
             await catalog.updateServer(effective)
             changeFeed?.updateServer(effective)
+            await apnsRegistrationClient.updateServer(effective)
+        }
+
+        // APNs-confirmation task: waits (bounded) for BOTH the operator's
+        // server-side toggle to be on with real credentials configured AND
+        // this specific device to have successfully registered a token,
+        // before stopping the SSE fallback. Never speculative — a
+        // half-confirmed state (operator toggle on, but this device's
+        // token not yet acknowledged) leaves `changeFeed` running rather
+        // than risk leaving the extension with no live channel at all.
+        // `changeFeed?.stop()` (not nil-ing the property) matches how
+        // `invalidate()` already tears it down — calling `.stop()` twice
+        // (once here, once later from `invalidate()`) is a safe no-op the
+        // second time.
+        Task { [weak self, apnsRegistrationClient] in
+            guard let self else { return }
+            guard await apnsRegistrationClient.isServerPushConfigured() else { return }
+            guard await apnsRegistrationClient.waitUntilRegistered() else {
+                self.log.notice("APNs enabled server-side but this device's token wasn't confirmed within the timeout — keeping SSE fallback active")
+                return
+            }
+            self.changeFeed?.stop()
+            self.log.notice("APNs push confirmed active for this device — stopped SSE fallback")
         }
         let hasTokens = (try? TokenStore.load(server: cfg.serverURL)) != nil
         log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
@@ -220,6 +271,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
 
     open func invalidate() {
         changeFeed?.stop()
+        apnsRegistrar?.stop()
         log.info("invalidate")
     }
 
