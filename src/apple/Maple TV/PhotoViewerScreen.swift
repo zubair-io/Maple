@@ -250,6 +250,7 @@ struct PhotoViewerScreen: View {
   /// this is resolving, the previous photo stays up, which is what makes a
   /// left/right step read as one cross-dissolve rather than
   /// photo → placeholder → photo.
+  @MainActor
   private func showCurrentAsset() async {
     guard let asset = currentAsset, !asset.isVideo else { return }
     if displayed?.assetID == asset.id, displayed?.isPreview == true { return }
@@ -283,9 +284,15 @@ struct PhotoViewerScreen: View {
     guard !Task.isCancelled, currentAsset?.id == asset.id else { return }
 
     guard let preview else {
-      // Only a genuine dead end replaces what's on screen — and only if the
-      // stopgap thumbnail didn't already land.
-      if displayed?.assetID != asset.id { failedAssetID = asset.id }
+      // A genuine dead end for THIS asset. If the stopgap thumbnail landed
+      // above, keep it — it is the right photo. Otherwise what's on screen
+      // belongs to the asset the viewer just left, and leaving it up would
+      // show one photo while claiming to be on another, so it goes and the
+      // failure glyph stands alone.
+      if displayed?.assetID != asset.id {
+        displayed = nil
+        failedAssetID = asset.id
+      }
       return
     }
     displayed = DisplayedImage(assetID: asset.id, image: preview, isPreview: true)
