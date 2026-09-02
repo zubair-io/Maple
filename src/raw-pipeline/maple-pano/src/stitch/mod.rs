@@ -235,12 +235,9 @@ pub fn stitch(
         .map(|m| (m.proxy_scale_x, m.proxy_scale_y))
         .collect();
 
-    // Camera seeds (spec §5.3): EXIF focal when present (the shared
-    // median substitutes for any frame lacking its own), or — when NOT
-    // ONE frame in the set carries a usable EXIF focal — an assumed-FOV
-    // bootstrap (#1214) just accurate enough to verify a match graph.
-    // The bootstrap is corrected below, once that graph has verified
-    // pairs to self-calibrate a real focal from.
+    // Camera seeds (spec §5.3): EXIF focal when any frame has one (the
+    // shared median fills gaps), else an assumed-FOV bootstrap (#1214)
+    // good enough to verify a graph — self-calibrated below from that graph.
     let mut focal_seed = focal_bootstrap::seed_from_priors(&metas);
     let (mut full_images, mut proxy_images) =
         focal_bootstrap::build_graph_images(&metas, &focal_seed.full_px, &proxy_dims, &proxy_scale);
@@ -292,14 +289,10 @@ pub fn stitch(
     }
 
     // ── homography-fallback refinement (#1214) ──────────────────────────────
-    //
-    // The bootstrap graph above verified pairs against an assumed-FOV guess;
-    // replace it with the real self-calibrated focal and rebuild once more,
-    // which is what every downstream stage reads `full_images`/`proxy_images`/
-    // `graph` from. A live-matcher failure on a candidate the bootstrap never
-    // requested is a real match failure, not silently swallowed —
-    // `refine_if_needed` reports it back for us to propagate.
-    let refine_failures = focal_bootstrap::refine_if_needed(
+    // Replace the assumed-FOV bootstrap with the self-calibrated focal and
+    // rebuild the graph every downstream stage reads; a live-matcher failure
+    // on a pair the bootstrap never requested is a real `MatchFailed`.
+    focal_bootstrap::refine_if_needed(
         &mut focal_seed,
         &metas,
         &proxy_dims,
@@ -314,13 +307,9 @@ pub fn stitch(
                 .map(|ml| ml_matches_to_correspondences(&ml, DEFAULT_MIN_SCORE))
                 .map_err(|e| e.to_string())
         },
-    )
-    .ok_or(StitchError::NoFocalSeed)?;
-    if !refine_failures.is_empty() {
-        return Err(StitchError::MatchFailed(refine_failures));
-    }
+    )?;
     // Timed after refinement, not just the bootstrap build, so the stage
-    // duration covers any fallback rebuild work too (review: Jules).
+    // duration covers any fallback rebuild work too.
     let t_graph = t2.elapsed().as_secs_f64();
     progress(2, 1.0);
 
