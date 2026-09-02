@@ -83,4 +83,37 @@ final class FullImageViewVMTests: XCTestCase {
         flagEnabled: true, isRaw: true, showingOriginal: false,
         presentFailed: false))
   }
+
+  // MARK: - imageRectAccessibilityValue (#2288)
+
+  func testImageRectIsCenteredWhenSmallerThanContainerAndNoPan() {
+    // The common "fit" case: a 3:2 image inside a 16:10 container, no pan —
+    // letterboxed with equal margins on the constraining axis.
+    let value = FullImageViewVM.imageRectAccessibilityValue(
+      containerSize: CGSize(width: 1280, height: 800),
+      imageSize: CGSize(width: 1200, height: 800),
+      panOffset: .zero)
+    // x = (1280 - 1200) / 2 = 40, y = (800 - 800) / 2 = 0.
+    XCTAssertEqual(value, "40.00,0.00,1200.00,800.00")
+  }
+
+  func testImageRectExactlyFillsContainerWhenSameSize() {
+    let value = FullImageViewVM.imageRectAccessibilityValue(
+      containerSize: CGSize(width: 1000, height: 700),
+      imageSize: CGSize(width: 1000, height: 700),
+      panOffset: .zero)
+    XCTAssertEqual(value, "0.00,0.00,1000.00,700.00")
+  }
+
+  func testImageRectFoldsInPanOffset() {
+    // A non-zero pan (zoomed past fit) shifts the centered origin by
+    // exactly the pan amount — the same math the ZStack's own
+    // `.offset(controller.panOffset)` applies to the laid-out leaf.
+    let value = FullImageViewVM.imageRectAccessibilityValue(
+      containerSize: CGSize(width: 1280, height: 800),
+      imageSize: CGSize(width: 1200, height: 800),
+      panOffset: CGSize(width: 15, height: -5))
+    // x = 40 + 15 = 55, y = 0 - 5 = -5.
+    XCTAssertEqual(value, "55.00,-5.00,1200.00,800.00")
+  }
 }

@@ -1,35 +1,29 @@
 // CanvasZoomHost.swift — reusable zoom/pan/gesture canvas host (#1099).
 //
-// The shared canvas capability extracted from the legacy `FullImageView`
-// (spec §5.0): pixelScale zoom (0 = fit … 8.0 cap), clamped pan, pinch
-// via `MagnifyGesture` with a start-captured scale, double-tap, Cmd+
-// scroll-wheel zoom, wheel pan, and the always-visible zoom badge. Both
-// the legacy full-image surface and the S5 `EditorView` embed this host;
-// the S4 loupe adopts it under #577.
+// The shared canvas capability extracted from the legacy `FullImageView` (spec §5.0): pixelScale
+// zoom (0 = fit … 8.0 cap), clamped pan, pinch via `MagnifyGesture` with a start-captured scale,
+// double-tap, Cmd+scroll-wheel zoom, wheel pan, and the always-visible zoom badge. Both the legacy
+// full-image surface and the S5 `EditorView` embed this host; the S4 loupe adopts it under #577.
 //
-// The host owns the viewport: it reports the live size into the
-// `CanvasZoomController` (which pushes `previewSize` / `pixelScale` /
-// the visible tile rect into the `EditSession`), frames the consumer's
-// canvas leaf at the resolved display frame, and clips overflow so a
-// zoomed-in canvas pans inside a fixed window.
+// The host owns the viewport: it reports the live size into the `CanvasZoomController` (which
+// pushes `previewSize`/`pixelScale`/the visible tile rect into the `EditSession`), frames the
+// consumer's canvas leaf at the resolved display frame, and clips overflow so a zoomed-in canvas
+// pans inside a fixed window.
 //
-// Gesture arbitration (spec §5.0 — the editor's editing gestures keep
-// working):
+// Gesture arbitration (spec §5.0 — the editor's editing gestures keep working):
 //
 //   • Pinch                → zoom, anchored at the gesture location.
-//   • Drag                 → pan when zoomed; INERT at fit (the drag
-//                            belongs to the editing surface / system
-//                            gestures — attached via simultaneousGesture
-//                            so nothing else is starved).
-//   • Plain wheel (macOS)  → pan when zoomed; at fit it routes to
-//                            `onWheelEditing` (armed-tool nudge in the
-//                            editor) or passes through when nil (legacy).
+//   • Drag                 → pan when zoomed; INERT at fit (belongs to the editing
+//                            surface/system gestures — via simultaneousGesture so
+//                            nothing else is starved).
+//   • Plain wheel (macOS)  → pan when zoomed; at fit routes to `onWheelEditing`
+//                            (armed-tool nudge) or passes through when nil (legacy).
 //   • Cmd+wheel (macOS)    → zoom anchored at the cursor.
-//   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to
-//                            fit; editor: toggle fit ↔ 100%).
+//   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to fit; editor:
+//                            toggle fit ↔ 100%).
 //
-// Keyboard shortcuts stay with the consumers (legacy toolbar ⌘0/⌘1/⌘=/⌘-,
-// editor toolbar ⌘0/⌘1) — they call the controller's command methods.
+// Keyboard shortcuts stay with the consumers (legacy toolbar ⌘0/⌘1/⌘=/⌘-, editor toolbar ⌘0/⌘1) —
+// they call the controller's command methods.
 
 import SwiftUI
 import MapleCore
@@ -124,6 +118,13 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
                         #else
                         .offset(controller.panOffset)
                         #endif
+                    // #2288 — 0×0 marker carrying the photo's rect as text; see imageRectAccessibilityValue's doc.
+                    Color.clear.frame(width: 0, height: 0)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Editor canvas image rect")
+                        .accessibilityIdentifier("canvas-image-rect")
+                        .accessibilityValue(FullImageViewVM.imageRectAccessibilityValue(
+                            containerSize: geo.size, imageSize: frame, panOffset: controller.panOffset))
                 } else {
                     fallback()
                 }

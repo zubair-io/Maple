@@ -125,6 +125,44 @@ enum CanvasCapture {
         return elementPNG ?? screenCropPNG(to: frame)
     }
 
+    /// PNG of just the rendered PHOTO, not the whole (letterboxed) canvas
+    /// container — reads the `canvas-image-rect` marker (#2288:
+    /// `FullImageViewVM.imageRectAccessibilityValue`) to find where the
+    /// image sits within `containerFrame` (both in POINTS), captures the
+    /// container the same way `canvasPNG` does, then crops down to the
+    /// image's own sub-rect — scaled from points to the captured image's
+    /// actual pixel dimensions, since a Retina capture is 2x the point
+    /// frame. Returns nil if the marker is missing or its value doesn't
+    /// parse — callers should treat that as "crop unavailable", not a
+    /// silent full-frame fallback (which would just reproduce the bug this
+    /// exists to fix).
+    static func imagePNG(_ canvas: XCUIElement, containerFrame: CGRect, imageRectMarker: XCUIElement) -> Data? {
+        guard imageRectMarker.exists,
+              let imageRect = parseImageRect(imageRectMarker.value as? String),
+              let containerPNG = canvasPNG(canvas, frame: containerFrame),
+              let containerImage = NSImage(data: containerPNG)
+        else { return nil }
+        // Points → pixels: the captured PNG's actual size vs. the point
+        // frame it was captured at (2x on Retina, 1x otherwise).
+        let scale = containerImage.size.width / containerFrame.width
+        let pixelRect = CGRect(
+            x: imageRect.minX * scale, y: imageRect.minY * scale,
+            width: imageRect.width * scale, height: imageRect.height * scale)
+        return crop(containerImage, to: pixelRect).tiffRepresentation
+            .flatMap { NSBitmapImageRep(data: $0) }
+            .flatMap { $0.representation(using: .png, properties: [:]) }
+    }
+
+    /// Parse `"x,y,width,height"` (points, relative to the canvas
+    /// container's own origin) into a `CGRect`. `nil` on any malformed
+    /// input rather than a partial/best-effort rect.
+    private static func parseImageRect(_ value: String?) -> CGRect? {
+        guard let value else { return nil }
+        let parts = value.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 4 else { return nil }
+        return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+    }
+
     /// Full-screen grab cropped to `frame`, PNG-encoded. Needs no live
     /// element — this is the fallback whenever the sentinel can't be
     /// screenshot directly, so it must not touch the element at all.
