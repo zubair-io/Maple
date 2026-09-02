@@ -17,7 +17,6 @@ import {
   MuiSegmentedToggleComponent,
   MuiSettingsRowComponent,
   type MuiSegmentedToggleOption,
-  type CanvasColorSpace,
 } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -35,14 +34,15 @@ const OPTIONS: readonly MuiSegmentedToggleOption[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CanvasColorSpaceSettingsComponent {
-  private readonly pref = inject(CanvasColorSpacePref);
+  // `protected`, not `private` — the template reads `pref.current()`
+  // directly (jules review on #3224: a separate `value` signal duplicated
+  // this state and could desync from the source of truth if the preference
+  // ever changed from outside this component; reading through unifies on
+  // one source instead of keeping a manually-synced copy).
+  protected readonly pref = inject(CanvasColorSpacePref);
 
   protected readonly options = OPTIONS;
   protected readonly expanded = signal(false);
-
-  /** The effective preference — the stored choice, else the gamut-probed
-   * default. Bound two-way to the segmented toggle. */
-  protected readonly value = signal<CanvasColorSpace>(this.pref.current());
 
   protected toggleExpanded(): void {
     this.expanded.update((v) => !v);
@@ -54,7 +54,6 @@ export class CanvasColorSpaceSettingsComponent {
     // the pref (localStorage) and the WASM session-open request.
     if (!isCanvasColorSpace(next)) return;
     this.pref.set(next);
-    this.value.set(next);
   }
 
   /** One-line provenance readout for the collapsed header, mirroring
@@ -64,10 +63,10 @@ export class CanvasColorSpaceSettingsComponent {
   }
 
   protected statusLabel(): string {
-    return this.value() === 'display-p3' ? 'P3' : 'sRGB';
+    return this.pref.current() === 'display-p3' ? 'P3' : 'sRGB';
   }
 
   protected statusColor(): string {
-    return this.value() === 'display-p3' ? 'var(--s-ok)' : 'var(--s-text-dim)';
+    return this.pref.current() === 'display-p3' ? 'var(--s-ok)' : 'var(--s-text-dim)';
   }
 }
