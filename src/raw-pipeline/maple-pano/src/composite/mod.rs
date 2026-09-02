@@ -1,16 +1,24 @@
 //! The M2-CPU compositing orchestrator (spec §5.4–§5.8): canvas →
 //! gain → warp → seam placement → multi-band blend.
 //!
-//! # Seam placement in this milestone
+//! # Seam placement
 //!
-//! Seams here are **Voronoi by source-border distance**: each covered
-//! canvas pixel is owned by the frame whose projection of it sits
-//! deepest inside that frame (max distance to its nearest frame edge) —
-//! the classic Burt–Adelson composite, deterministic and content-blind.
-//! The spec's step-7 **graph-cut** seam finder (content-aware routing
-//! around motion/parallax) replaces this mask generator in the follow-up
-//! ticket referenced from #1155; the orchestrator and blend contract
-//! (per-frame weight planes) are exactly the interface it slots into.
+//! [`CompositeOptions::seam_strategy`] picks between two seam placements
+//! (`crate::seam::SeamStrategy`):
+//!
+//! - **Voronoi** (default, M2a): each covered canvas pixel is owned by
+//!   the frame whose projection of it sits deepest inside that frame
+//!   (max distance to its nearest frame edge) — the classic
+//!   Burt–Adelson composite, deterministic and content-blind.
+//! - **GraphCut** (M2b, #1179): a Boykov–Kolmogorov max-flow seam
+//!   (`crate::seam`) that routes the boundary around content only one
+//!   frame shows (a moving subject, a parallax-shifted edge) instead of
+//!   cutting through it — computed on a cheap downsampled "seam canvas"
+//!   (`crate::seam::masks`) and sampled back at full resolution.
+//!
+//! [`CompositeReport::seam_strategy`] records which one a given run
+//! actually used, and both `maple-cli pano stitch`'s report JSON and the
+//! `StitchReport` surface it (spec §6).
 //!
 //! # Memory-bounded tiled path (`composite_tiled`, M6-D #1248)
 //!
@@ -48,6 +56,7 @@ use crate::gain::{solve_gains, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::project::Projection;
+use crate::seam::{self, SeamStrategy};
 use crate::warp::warp_to_canvas;
 
 /// Options for [`composite`].
@@ -58,6 +67,9 @@ pub struct CompositeOptions {
     /// Override the spec band-count rule (`log2(min overlap width)`,
     /// cap 7). Mostly for tests.
     pub levels_override: Option<usize>,
+    /// Voronoi (default) or graph-cut seam placement (#1179). See the
+    /// module doc.
+    pub seam_strategy: SeamStrategy,
 }
 
 /// What [`composite`] did — the numbers the CLI report surfaces.
@@ -70,6 +82,8 @@ pub struct CompositeReport {
     /// Average overlap width (px) of the narrowest overlapping pair —
     /// the input to the band-count rule.
     pub min_overlap_width_px: usize,
+    /// Which seam placement this run actually used (#1179).
+    pub seam_strategy: SeamStrategy,
 }
 
 /// Composite posed frames onto an automatically constructed canvas.
@@ -122,7 +136,25 @@ pub fn composite(
         })
         .collect();
 
-    let (masks, min_overlap) = voronoi_masks(&layers, cameras, &canvas);
+    let (voronoi, min_overlap) = voronoi_masks(&layers, cameras, &canvas);
+    let masks = match opts.seam_strategy {
+        SeamStrategy::Voronoi => voronoi,
+        SeamStrategy::GraphCut => {
+            // All layers are already resident at full canvas resolution
+            // here (unlike the memory-bounded tiled path), so the label
+            // solve runs directly on them — no downsampled seam canvas
+            // needed for this entry point.
+            let labels = seam::labels::compute_labels(&layers);
+            let mut masks = seam::labels::labels_to_masks(&labels, layers.len());
+            seam::labels::feather_masks(
+                &mut masks,
+                canvas.width,
+                canvas.height,
+                seam::masks::FEATHER_RADIUS_PX,
+            );
+            masks
+        }
+    };
     let levels = opts
         .levels_override
         .unwrap_or_else(|| levels_for_overlap_width(min_overlap));
@@ -137,6 +169,7 @@ pub fn composite(
             gains,
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
+            seam_strategy: opts.seam_strategy,
         },
     ))
 }
@@ -316,6 +349,7 @@ mod tests {
             canvas: canvas_opts.clone(),
             gain: GainOptions::default(),
             levels_override: Some(1),
+            seam_strategy: SeamStrategy::Voronoi,
         };
         let (ref_img, ref_report) =
             composite(&frames, &cams, &ref_opts, &no_lc).expect("composite");
@@ -327,9 +361,16 @@ mod tests {
 
         // Run composite_tiled_frames at two strip heights.
         for strip_rows in [1_u32, 8] {
-            let (tiled_img, _) =
-                composite_tiled_frames(&frames, &cams, &gains, &no_lc, &canvas, strip_rows)
-                    .expect("composite_tiled_frames");
+            let (tiled_img, _) = composite_tiled_frames(
+                &frames,
+                &cams,
+                &gains,
+                &no_lc,
+                &canvas,
+                strip_rows,
+                SeamStrategy::Voronoi,
+            )
+            .expect("composite_tiled_frames");
 
             assert_eq!(
                 tiled_img.width(),

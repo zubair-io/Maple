@@ -86,6 +86,16 @@ pub struct StitchArgs {
     /// reduce tile-pass overhead at the cost of more peak RSS.
     #[arg(long)]
     pub(super) canvas_tile_rows: Option<u32>,
+    /// Seam placement on the rotation-strategy composite (#1179; no effect
+    /// on the tile-strategy branch, which keeps its own Voronoi seam).
+    /// `voronoi` (default): deterministic, content-blind, source-border
+    /// distance — what every `pano-budgets.json` ratchet is measured
+    /// against. `graph-cut`: content-aware Boykov-Kolmogorov max-flow seam
+    /// that routes around a moving subject or parallax-shifted edge
+    /// instead of cutting through it — opt-in until a follow-up
+    /// re-baselines the budgets with it as the default.
+    #[arg(long, value_enum, default_value_t = SeamStrategyArg::Voronoi)]
+    pub(super) seam_strategy: SeamStrategyArg,
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].
@@ -144,6 +154,23 @@ impl LocalAlignArg {
         match self {
             LocalAlignArg::Mesh => "mesh",
             LocalAlignArg::Off => "off",
+        }
+    }
+}
+
+/// CLI surface for [`maple_pano::seam::SeamStrategy`] (#1179).
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(super) enum SeamStrategyArg {
+    Voronoi,
+    GraphCut,
+}
+
+impl SeamStrategyArg {
+    pub(super) fn to_strategy(self) -> maple_pano::seam::SeamStrategy {
+        use maple_pano::seam::SeamStrategy;
+        match self {
+            SeamStrategyArg::Voronoi => SeamStrategy::Voronoi,
+            SeamStrategyArg::GraphCut => SeamStrategy::GraphCut,
         }
     }
 }
