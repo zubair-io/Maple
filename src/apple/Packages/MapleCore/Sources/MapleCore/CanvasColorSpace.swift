@@ -79,9 +79,16 @@ public enum CanvasColorSpace: Int, CaseIterable, Sendable {
     ///      gamut, `.srgb` otherwise (#1338 acceptance: "P3 if available,
     ///      sRGB elsewhere").
     public static var current: CanvasColorSpace {
-        let stored = UserDefaults.standard.integer(forKey: defaultsKey)
-        if let explicit = CanvasColorSpace(rawValue: stored),
-            UserDefaults.standard.object(forKey: defaultsKey) != nil
+        // Single read of the stored object, type-checked before mapping
+        // (Copilot review on #3192): the previous form called BOTH
+        // `integer(forKey:)` and `object(forKey:)` — two lookups per call,
+        // on the hot render-tick path — and `integer(forKey:)` silently
+        // coerces any non-Int stored value (a corrupted default, or a
+        // future migration bug) to `0`, i.e. an explicit "sRGB", rather
+        // than falling through to the P3-if-available default below. A
+        // single `as? Int` cast rejects a wrong-typed value outright.
+        if let stored = UserDefaults.standard.object(forKey: defaultsKey) as? Int,
+            let explicit = CanvasColorSpace(rawValue: stored)
         {
             return explicit
         }
