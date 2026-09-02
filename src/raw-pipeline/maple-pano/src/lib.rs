@@ -173,3 +173,11 @@ pub mod tile;
 // Appended after tile — keep lib.rs append-only.
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod stitch;
+
+// --- Content-aware seam finding (M2b, #1179, spec §5.7): a graph-cut
+// (Boykov-Kolmogorov max-flow) seam finder over downsampled overlap
+// regions between neighbouring warped frames, selectable alongside the
+// M2a Voronoi seam via `composite::SeamStrategy`. No platform deps (pure
+// Rust, no `ml`/`ml-static` gate) so it builds on every target the crate
+// does, including iOS. Appended after stitch — keep lib.rs append-only.
+pub mod seam;

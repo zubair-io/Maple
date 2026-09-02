@@ -177,6 +177,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "gains": comp_report.gains,
         "blend_levels": comp_report.blend_levels,
         "min_overlap_width_px": comp_report.min_overlap_width_px,
+        "seam_strategy": comp_report.seam_strategy.label(),
         "timings_s": timings,
     })
 }

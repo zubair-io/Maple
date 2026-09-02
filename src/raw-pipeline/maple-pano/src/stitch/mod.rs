@@ -537,6 +537,7 @@ pub fn stitch(
         &kept_local,
         &canvas,
         tile_rows,
+        opts.seam_strategy,
     )
     .map_err(|e| StitchError::Composite(e.to_string()))?;
 

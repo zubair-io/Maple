@@ -220,6 +220,42 @@ impl CanvasSpec {
     pub fn pixel_count(&self) -> usize {
         self.width as usize * self.height as usize
     }
+
+    /// A copy of this canvas uniformly shrunk (aspect preserved) so its
+    /// pixel count is at or under `max_pixels`, covering the exact same
+    /// angular window (`u0`/`v0` unchanged; `du`/`dv` recomputed from the
+    /// new dimensions so `width · du` and `height · dv` — the covered
+    /// extent — stay exactly what they were, which is what keeps
+    /// [`Self::is_full_wrap`]'s `width · |du| == 2π` invariant exact
+    /// regardless of the integer rounding on `width`/`height`).
+    ///
+    /// A no-op (clones `self`) when already at or under the cap. Used by
+    /// the graph-cut seam finder (#1179) to build a cheap low-resolution
+    /// "seam canvas" for content-aware mask computation ahead of the
+    /// memory-bounded full-resolution tiled composite.
+    pub fn downscaled(&self, max_pixels: usize) -> Self {
+        let total = self.pixel_count();
+        if total <= max_pixels || max_pixels == 0 {
+            return self.clone();
+        }
+        let scale = (max_pixels as f64 / total as f64).sqrt();
+        let width = ((self.width as f64 * scale).floor() as u32).max(1);
+        let height = ((self.height as f64 * scale).floor() as u32).max(1);
+        let du = self.du * (self.width as f64 / width as f64);
+        let dv = self.dv * (self.height as f64 / height as f64);
+        Self {
+            projection: self.projection,
+            width,
+            height,
+            u0: self.u0,
+            v0: self.v0,
+            du,
+            dv,
+            rotation: self.rotation,
+            rotation_inv: self.rotation_inv,
+            full_wrap: self.full_wrap,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------

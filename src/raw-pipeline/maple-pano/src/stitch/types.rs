@@ -66,6 +66,13 @@ pub struct StitchOptions {
     /// leaves this `false` (CPU ORT, parity-verified); the iOS FFI sets
     /// it `true`.
     pub use_coreml: bool,
+    /// Voronoi (default) or graph-cut seam placement on the composite's
+    /// rotation-branch tail (#1179). See `composite`'s module doc.
+    /// Voronoi stays the default: it's what every existing
+    /// `pano-budgets.json` ratchet was measured against; graph-cut is
+    /// opt-in until a follow-up re-baselines those budgets with it as
+    /// the default.
+    pub seam_strategy: crate::seam::SeamStrategy,
 }
 
 impl Default for StitchOptions {
@@ -88,6 +95,7 @@ impl Default for StitchOptions {
             max_canvas_px: 256_000_000,
             canvas_tile_rows: None,
             use_coreml: false,
+            seam_strategy: crate::seam::SeamStrategy::Voronoi,
         }
     }
 }
