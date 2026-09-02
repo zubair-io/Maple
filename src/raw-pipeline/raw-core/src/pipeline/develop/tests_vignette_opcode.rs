@@ -90,7 +90,7 @@ fn fix_vignette_radial_opcode_parses_and_applies_end_to_end() {
     let scene = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
         .expect("scene-linear render must succeed");
 
-    let px = |x: u32, y: u32| -> [f32; 3] { scene.pixels[(y * DIM + x) as usize] };
+    let px = |x: u32, y: u32| -> [f32; 3] { scene.pixels[(y * scene.width + x) as usize] };
     let center_val = px(DIM / 2, DIM / 2)[0] as f64;
 
     // Sample points spanning the radial profile: center, two mid-edges,
@@ -100,7 +100,7 @@ fn fix_vignette_radial_opcode_parses_and_applies_end_to_end() {
         (DIM / 2, DIM / 2),
         (DIM / 2, 2),
         (2, DIM / 2),
-        (61, 32),
+        (DIM - 3, DIM / 2),
         (2, 2),
     ];
     for (x, y) in samples {
