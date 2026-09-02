@@ -48,12 +48,18 @@ fn tc_rgba() -> Vec<f32> {
     ]
 }
 
+/// ACR's `crs:Parametric{Shadow,Midtone,Highlight}Split` defaults — the value
+/// every case uses unless it's specifically exercising split-point behavior
+/// (#3152).
+const DEFAULT_SPLITS: [f32; 3] = [25.0, 50.0, 75.0];
+
 /// Build the model-equivalent [`ToneCurveInputs`] AND the matching raw-core
 /// `AdjustmentModel` from the same source fields, so both sides see identical
 /// curves (the parity gate compares the GPU run of the inputs against raw-core's
 /// run of the model).
 struct Case {
-    parametric: [f32; 4], // shadows, darks, lights, highlights
+    parametric: [f32; 4],       // shadows, darks, lights, highlights
+    parametric_split: [f32; 3], // shadow, midtone, highlight split points
     luma: Vec<(f32, f32)>,
     red: Vec<(f32, f32)>,
     green: Vec<(f32, f32)>,
@@ -65,6 +71,7 @@ impl Case {
     fn inputs(&self) -> ToneCurveInputs {
         ToneCurveInputs {
             parametric: self.parametric,
+            parametric_split: self.parametric_split,
             luma: self.luma.clone(),
             red: self.red.clone(),
             green: self.green.clone(),
@@ -83,6 +90,9 @@ impl Case {
             parametric_darks: self.parametric[1],
             parametric_lights: self.parametric[2],
             parametric_highlights: self.parametric[3],
+            parametric_shadow_split: self.parametric_split[0],
+            parametric_midtone_split: self.parametric_split[1],
+            parametric_highlight_split: self.parametric_split[2],
             tone_curve_luma: ToneCurve::new(self.luma.clone()),
             tone_curve_red: ToneCurve::new(self.red.clone()),
             tone_curve_green: ToneCurve::new(self.green.clone()),
@@ -149,6 +159,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "all-default-noop",
             Case {
                 parametric: [0.0, 0.0, 0.0, 0.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: vec![],
                 green: vec![],
@@ -160,6 +171,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "per-channel-perchannel",
             Case {
                 parametric: [0.0, 0.0, 0.0, 0.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: s_curve(),
                 green: lift_curve(),
@@ -171,6 +183,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "per-channel-ratio-preserving",
             Case {
                 parametric: [0.0, 0.0, 0.0, 0.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: s_curve(),
                 green: lift_curve(),
@@ -182,6 +195,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "parametric-only",
             Case {
                 parametric: [60.0, -20.0, 30.0, -50.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: vec![],
                 green: vec![],
@@ -193,6 +207,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "luma-only",
             Case {
                 parametric: [0.0, 0.0, 0.0, 0.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: s_curve(),
                 red: vec![],
                 green: vec![],
@@ -204,6 +219,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "combined-all",
             Case {
                 parametric: [40.0, 10.0, -15.0, 25.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: lift_curve(),
                 red: s_curve(),
                 green: pull_curve(),
@@ -219,6 +235,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "mixed-identity-perchannel",
             Case {
                 parametric: [0.0, 0.0, 0.0, 0.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: s_curve(),
                 green: vec![],
@@ -233,6 +250,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "mixed-identity-ratio",
             Case {
                 parametric: [0.0, 0.0, 0.0, 0.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: s_curve(),
                 green: vec![],
@@ -250,6 +268,7 @@ fn cases() -> Vec<(&'static str, Case)> {
             "parametric-mixed-fixture",
             Case {
                 parametric: [-75.0, 50.0, -50.0, 75.0],
+                parametric_split: DEFAULT_SPLITS,
                 luma: vec![],
                 red: vec![],
                 green: vec![],
@@ -261,6 +280,24 @@ fn cases() -> Vec<(&'static str, Case)> {
             "parametric-opposing-extremes",
             Case {
                 parametric: [100.0, -100.0, 100.0, -100.0],
+                parametric_split: DEFAULT_SPLITS,
+                luma: vec![],
+                red: vec![],
+                green: vec![],
+                blue: vec![],
+                ratio_preserving: false,
+            },
+        ),
+        // #3152: non-default split points, with the region sliders active so
+        // moving the splits actually perturbs where each window's gain
+        // lands. Proves the GPU port's `sample_axis`/`region_centres`
+        // threading matches raw-core's, not just the default-split path
+        // every other case above exercises.
+        (
+            "parametric-non-default-splits",
+            Case {
+                parametric: [60.0, -40.0, 40.0, -60.0],
+                parametric_split: [15.0, 45.0, 85.0],
                 luma: vec![],
                 red: vec![],
                 green: vec![],
@@ -358,6 +395,7 @@ fn all_default_is_exact_passthrough_on_gpu() {
     let count = (input.len() / 4) as u32;
     let inputs = ToneCurveInputs {
         parametric: [0.0, 0.0, 0.0, 0.0],
+        parametric_split: DEFAULT_SPLITS,
         luma: vec![],
         red: vec![],
         green: vec![],
@@ -383,6 +421,7 @@ fn gpu_alpha_passthrough() {
     let count = (input.len() / 4) as u32;
     let inputs = Case {
         parametric: [40.0, 10.0, -15.0, 25.0],
+        parametric_split: DEFAULT_SPLITS,
         luma: lift_curve(),
         red: s_curve(),
         green: pull_curve(),
@@ -414,6 +453,7 @@ fn per_channel_and_ratio_preserving_differ() {
     let count = (input.len() / 4) as u32;
     let per = Case {
         parametric: [0.0; 4],
+        parametric_split: DEFAULT_SPLITS,
         luma: vec![],
         red: s_curve(),
         green: lift_curve(),
@@ -423,6 +463,7 @@ fn per_channel_and_ratio_preserving_differ() {
     .inputs();
     let ratio = Case {
         parametric: [0.0; 4],
+        parametric_split: DEFAULT_SPLITS,
         luma: vec![],
         red: s_curve(),
         green: lift_curve(),

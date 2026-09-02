@@ -180,6 +180,13 @@ fn aggressive_model() -> AdjustmentModel {
         blacks: -15.0,
         parametric_shadows: 20.0,
         parametric_lights: 15.0,
+        // Non-default split points (#3152) — proves the FFI marshalling +
+        // GPU live chain agree with the CPU reference on WHERE the region
+        // windows land, not just on their amplitudes (every other model in
+        // this file leaves the splits at their 25/50/75 default).
+        parametric_shadow_split: 15.0,
+        parametric_midtone_split: 55.0,
+        parametric_highlight_split: 82.0,
         tone_curve_luma: ToneCurve::new(vec![(0.0, 0.0), (0.25, 0.18), (0.75, 0.82), (1.0, 1.0)]),
         tone_curve_mode: ToneCurveMode::RatioPreserving,
         vibrance: 35.0,
@@ -322,6 +329,11 @@ pub(super) fn direct_raw_gpu(
                 model.parametric_darks,
                 model.parametric_lights,
                 model.parametric_highlights,
+            ],
+            parametric_split: [
+                model.parametric_shadow_split,
+                model.parametric_midtone_split,
+                model.parametric_highlight_split,
             ],
             luma: model.tone_curve_luma.points.clone(),
             red: model.tone_curve_red.points.clone(),

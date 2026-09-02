@@ -101,6 +101,10 @@ pub struct ToneCurveInputs {
     /// Parametric region sliders (shadows, darks, lights, highlights), each
     /// `[-100, 100]`. Mirror `model.parametric_{shadows,darks,lights,highlights}`.
     pub parametric: [f32; 4],
+    /// Parametric split points (shadow, midtone, highlight), each `[0, 100]`,
+    /// ACR default 25/50/75 (#3152). Mirror
+    /// `model.parametric_{shadow,midtone,highlight}_split`.
+    pub parametric_split: [f32; 3],
     /// `tone_curve_luma` control points (`[0, 1]^2`). Empty = identity.
     pub luma: Vec<(f32, f32)>,
     /// `tone_curve_red` control points. Empty = identity.
@@ -133,7 +137,9 @@ impl ToneCurveInputs {
     /// per-lane early-return).
     fn prepared_slots(&self) -> [PreparedCurve; NUM_SLOTS] {
         let [s, d, l, h] = self.parametric;
-        let parametric = build_parametric_curve(s, d, l, h);
+        let [split_shadow, split_midtone, split_highlight] = self.parametric_split;
+        let parametric =
+            build_parametric_curve(s, d, l, h, split_shadow, split_midtone, split_highlight);
         [
             parametric,
             prepare_curve(&self.luma),
