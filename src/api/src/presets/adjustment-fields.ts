@@ -42,6 +42,11 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   parametric_lights: [-100.0, 100.0],
   parametric_darks: [-100.0, 100.0],
   parametric_shadows: [-100.0, 100.0],
+  // ACR's parametric split points (#2320) — round-tripped through the
+  // sidecar; defaults 25/50/75, not 0.
+  parametric_shadow_split: [0.0, 100.0],
+  parametric_midtone_split: [0.0, 100.0],
+  parametric_highlight_split: [0.0, 100.0],
   vibrance: [-100.0, 100.0],
   saturation: [-100.0, 100.0],
   clarity: [-100.0, 100.0],
