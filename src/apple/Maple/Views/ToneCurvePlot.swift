@@ -73,9 +73,9 @@ struct ToneCurvePlot: View {
             }
             .frame(width: size, height: size)
             .background(ProTokens.canvasAlt)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
                     .stroke(ProTokens.border, lineWidth: 0.5)
             )
             .contentShape(Rectangle())

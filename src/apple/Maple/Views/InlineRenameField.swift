@@ -41,8 +41,8 @@ struct InlineRenameField: View {
         .foregroundStyle(MapleTokens.textMain)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(MapleTokens.inputBg, in: RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(MapleTokens.borderHi, lineWidth: 1))
+        .background(MapleTokens.inputBg, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.xs))
+        .overlay(RoundedRectangle(cornerRadius: MapleTokens.Radius.xs).stroke(MapleTokens.borderHi, lineWidth: 1))
         .focused($fieldFocused)
         .onSubmit(submitDraft)
         .onKeyPress(.escape) {

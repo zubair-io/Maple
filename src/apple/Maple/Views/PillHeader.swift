@@ -38,10 +38,10 @@ struct PillHeader: View {
             // the chrome below is editor-specific.
             MiniHistogram(session: state.session)
                 .frame(width: 70, height: 30)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .background(ProTokens.panel, in: RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
+                .background(ProTokens.panel, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
                         .stroke(ProTokens.border, lineWidth: 0.5)
                 )
                 .allowsHitTesting(false)

@@ -383,7 +383,7 @@ private struct PanoFrameThumbnail: View {
     @State private var failed = false
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 6)
+        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
             .fill(Color.secondary.opacity(0.2))
             .frame(width: 64, height: 48)
             .overlay {
@@ -396,7 +396,7 @@ private struct PanoFrameThumbnail: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
             .task(id: asset.id) { await load() }
     }
 
