@@ -1,5 +1,9 @@
 # M5 — Professional Workflow Expansion: a decision framework
 
+`docs/strategy/milestones/` numbers its docs M1–M6, mapping to GitHub milestones
+13–18 in order: M1 → milestone 13, M2 → 14, M3 → 15, M4 → 16, M5 → 17, M6 → 18.
+This doc is M5, i.e. milestone 17.
+
 This is not a feature design. Milestone 17 (Professional Workflow Expansion,
 epic #2447) and its scoping ticket #2442 ask for one thing: pick a single
 adjacent professional workflow to build next, from evidence about what
