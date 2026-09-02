@@ -181,10 +181,15 @@ struct MemoriesScreen: View {
     }
   }
 
+  @MainActor
   private func open(_ collection: GeneratedSearchCard) {
     guard openingCollectionID == nil else { return }
     openingCollectionID = collection.id
-    Task {
+    // `@MainActor in` explicitly: this closure mutates `@State` after an
+    // await, and an unstructured `Task` started from a non-isolated method
+    // (a plain `View` member is not main-actor-isolated — only `body` is)
+    // would resume that continuation on the global executor.
+    Task { @MainActor in
       let page = await viewModel.firstPage(of: collection)
       openingCollectionID = nil
       // Don't open an empty grid — a memory whose photos failed to load
