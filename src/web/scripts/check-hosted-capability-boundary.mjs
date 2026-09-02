@@ -103,14 +103,13 @@ const scripts = await walkFiles(artifactRoot, (path) => path.endsWith('.js'));
  * so it matches a plain filename under `artifactRoot` regardless of how the
  * builder wrote it — root-relative (`/main-...js`) and dot-relative
  * (`./main-...js`) hrefs are both plausible depending on `baseHref`/deploy-
- * url config, not just the bare filename this build happens to emit today
- * (Copilot review, PR #3141). The negative lookahead on the second slash
- * leaves a protocol-relative `//example.com/...` href untouched (rather
- * than reducing it to `/example.com/...`), so resolveEagerFile's explicit
- * `startsWith('//')` check below stays reachable and gives that case its
- * specific "external URL" message instead of falling through to the
- * generic "resolves outside" one both still catch (Jules review, PR
- * #3141). */
+ * url config, not just the bare filename this build happens to emit today.
+ * The negative lookahead on the second slash leaves a protocol-relative
+ * `//example.com/...` href untouched (rather than reducing it to
+ * `/example.com/...`), so resolveEagerFile's explicit `startsWith('//')`
+ * check below stays reachable and gives that case its specific "external
+ * URL" message instead of falling through to the generic "resolves
+ * outside" one both still catch. */
 function normalizeHref(href) {
   return href.split(/[?#]/)[0].replace(/^(?:\.\/|\/(?!\/))/, '');
 }
@@ -135,9 +134,9 @@ function eagerHrefsFromIndexHtml(html) {
  * — NOT a bare `startsWith(root)` prefix check, which a sibling like
  * `${artifactRoot}_evil/…` would pass, and NOT `path.relative(...).
  * startsWith('..')`, which false-rejects a legitimate in-root filename
- * that happens to start with `..` (e.g. `..foo.js`) — Jules review, PR
- * #3141. Mirrors serve-dist-coep.mjs's `isWithinRoot` / src/api's
- * static_ui.ts, the project's existing pattern for this exact check. */
+ * that happens to start with `..` (e.g. `..foo.js`). Mirrors
+ * serve-dist-coep.mjs's `isWithinRoot` / src/api's static_ui.ts, the
+ * project's existing pattern for this exact check. */
 function isWithinRoot(root, abs) {
   return abs === root || abs.startsWith(root + sep);
 }
@@ -146,11 +145,10 @@ function isWithinRoot(root, abs) {
  * it outside that directory — an unexpected `../` traversal, an absolute
  * filesystem path, or a fully-qualified/protocol-relative URL in a
  * hand-authored `index.html` should fail loudly with a clear message
- * rather than `stat()` an arbitrary path or crash with a cryptic ENOENT
- * (Copilot + Jules review, PR #3141: `path.resolve` treats
- * `https://example.com/x.js` as a relative path segment, which would
- * otherwise slip past a naive containment check and only fail later, deep
- * inside `stat()`). */
+ * rather than `stat()` an arbitrary path or crash with a cryptic ENOENT.
+ * `path.resolve` treats `https://example.com/x.js` as a relative path
+ * segment, which would otherwise slip past a naive containment check and
+ * only fail later, deep inside `stat()`. */
 function resolveEagerFile(href) {
   if (href.startsWith('//') || href.includes('://')) {
     throw new Error(`Eager href "${href}" is an external URL, not a local build output path`);
@@ -167,7 +165,9 @@ const indexHtml = await readFile(indexHtmlPath, 'utf8');
 const eagerHrefs = eagerHrefsFromIndexHtml(indexHtml);
 const entryHrefs = eagerHrefs.filter((href) => /^main-[A-Za-z0-9]+\.js$/.test(href));
 if (entryHrefs.length !== 1) {
-  throw new Error(`Expected one Hosted main bundle in ${indexHtmlPath}, found ${entryHrefs.length}`);
+  throw new Error(
+    `Expected one Hosted main bundle in ${indexHtmlPath}, found ${entryHrefs.length}`,
+  );
 }
 
 for (const boundary of SOURCE_BOUNDARIES) {
