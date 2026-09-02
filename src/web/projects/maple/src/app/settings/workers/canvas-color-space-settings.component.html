@@ -31,7 +31,7 @@
 
     <mui-segmented-toggle
       [options]="options"
-      [value]="value()"
+      [value]="pref.current()"
       (valueChange)="onValueChange($event)"
       ariaLabel="Canvas colour space"
       data-testid="canvas-color-space-toggle"
