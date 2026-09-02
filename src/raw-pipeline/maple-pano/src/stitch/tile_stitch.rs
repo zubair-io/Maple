@@ -292,9 +292,14 @@ pub(super) fn tile_tail(
     let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
     let edge_count = graph.edges.len();
     for (ei, edge) in graph.edges.iter_mut().enumerate() {
+        // #3090 review (Copilot): `inputs[idx]` here would itself panic on
+        // an out-of-range `idx` while trying to build the error message
+        // for a DIFFERENT failure — `.get()` keeps this a clean error
+        // either way; the real failure reason still comes through in
+        // `cause` from `cache.get()` (which bounds-checks `idx` itself).
         let get = |idx: usize| -> Result<_, StitchError> {
             cache.get(idx).map_err(|e| StitchError::Decode {
-                path: inputs[idx].clone(),
+                path: inputs.get(idx).cloned().unwrap_or_default(),
                 cause: e.to_string(),
             })
         };

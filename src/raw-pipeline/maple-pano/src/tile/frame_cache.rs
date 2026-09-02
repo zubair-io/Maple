@@ -127,7 +127,16 @@ impl<'a> TileFrameCache<'a> {
             "TileFrameCache::get miss with no backing inputs — a from_frames() test cache \
              must be pre-seeded with every index it will be asked for",
         );
-        let path = &inputs[idx];
+        // #3090 review (Copilot): bounds-check before indexing — an
+        // out-of-range `idx` (a caller bug elsewhere) should surface as
+        // a typed error through the pano pipeline's Result chain, not a
+        // panic.
+        let path = inputs.get(idx).ok_or_else(|| {
+            PanoError::InvalidOptions(format!(
+                "TileFrameCache::get: index {idx} out of range for {} inputs",
+                inputs.len()
+            ))
+        })?;
         let img = Arc::new(crate::ingest::ingest_file(path)?.image);
         if entries.len() >= self.capacity {
             entries.pop(); // LRU is at the back.
@@ -240,5 +249,39 @@ mod tests {
             "re-decoded frame 0 should match its first decode"
         );
         assert!(d2 > 0, "sanity: the third decode actually produced pixels");
+    }
+
+    /// #3090 review (Copilot): an out-of-range `idx` on a cache miss must
+    /// return a typed `PanoError`, not panic while indexing `inputs`.
+    #[test]
+    fn get_rejects_out_of_range_idx_on_a_real_backing_slice() {
+        let dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test-fixtures/raws/pano_00"
+        ));
+        if !dir.is_dir() {
+            eprintln!("skipping: {} not present", dir.display());
+            return;
+        }
+        let inputs: Vec<PathBuf> = std::fs::read_dir(dir)
+            .expect("read_dir")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("dng"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        if inputs.is_empty() {
+            eprintln!("skipping: no .dng found in {}", dir.display());
+            return;
+        }
+        let cache = TileFrameCache::new(&inputs, 4);
+        let result = cache.get(inputs.len() + 1);
+        assert!(
+            result.is_err(),
+            "out-of-range idx should be an Err, not a panic"
+        );
     }
 }
