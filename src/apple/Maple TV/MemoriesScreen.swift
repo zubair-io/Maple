@@ -36,7 +36,10 @@ struct MemoriesScreen: View {
   private struct OpenMemory: Identifiable {
     var id: String { collection.id }
     let collection: GeneratedSearchCard
-    let assets: [SearchAsset]
+    let firstPage: [SearchAsset]
+    /// The collection's full size, so the grid knows how much is still to
+    /// come — `firstPage` is one page of it, not the whole thing.
+    let total: Int
   }
 
   init(session: TVCloudSession, libraryID: String) {
@@ -66,7 +69,12 @@ struct MemoriesScreen: View {
     // `load()` against a viewModel still bound to the old library.
     .task { await viewModel.load() }
     .fullScreenCover(item: $openMemory) { open in
-      MemoryDetailScreen(collection: open.collection, assets: open.assets, session: session)
+      MemoryDetailScreen(
+        collection: open.collection,
+        firstPage: open.firstPage,
+        total: open.total,
+        session: session
+      )
     }
   }
 
@@ -177,12 +185,16 @@ struct MemoriesScreen: View {
     guard openingCollectionID == nil else { return }
     openingCollectionID = collection.id
     Task {
-      let assets = await viewModel.assets(for: collection)
+      let page = await viewModel.firstPage(of: collection)
       openingCollectionID = nil
       // Don't open an empty grid — a memory whose photos failed to load
       // should do nothing rather than show a blank screen.
-      if !assets.isEmpty {
-        openMemory = OpenMemory(collection: collection, assets: assets)
+      if !page.results.isEmpty {
+        openMemory = OpenMemory(
+          collection: collection,
+          firstPage: page.results,
+          total: page.total
+        )
       }
     }
   }

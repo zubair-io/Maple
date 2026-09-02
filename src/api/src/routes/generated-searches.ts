@@ -90,6 +90,12 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       const { resolved, filter } = prepared;
 
       const limit = clampInt(query.limit, 1, 500, 100);
+      // Paged rather than capped. A collection can hold more photos than any
+      // one response should carry, and a client that could only ever see the
+      // first page silently disagreed with the `result_count` on its own card.
+      // `total` is already returned by both legs below, so a caller pages
+      // until it has that many rows.
+      const offset = clampInt(query.offset, 0, 100_000, 0);
       const coll = await assetsCollection();
 
       const meili = await meiliPage({
@@ -97,7 +103,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         filter,
         resolved,
         libraryId: doc.library_id,
-        skip: 0,
+        skip: offset,
         limit,
       });
       if (meili !== null) {
@@ -112,6 +118,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         coll
           .find(liveFilter, { maxTimeMS: SEARCH_FIND_TIMEOUT_MS })
           .sort(pickSort('captured_desc'))
+          .skip(offset)
           .limit(limit)
           .toArray(),
         coll.countDocuments(liveFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
@@ -130,5 +137,5 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         results: (outcome.docs as AssetDoc[]).map((d) => projectAsset(d as never, libs, idToSlug)),
       };
     },
-    { query: t.Object({ limit: t.Optional(t.String()) }) },
+    { query: t.Object({ limit: t.Optional(t.String()), offset: t.Optional(t.String()) }) },
   );

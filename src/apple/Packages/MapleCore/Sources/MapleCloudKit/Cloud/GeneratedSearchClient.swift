@@ -99,6 +99,18 @@ struct GeneratedSearchAssetsResponse: Codable, Sendable {
   let results: [SearchAsset]
 }
 
+/// One page of a collection's photos. `total` is the size of the whole
+/// collection, not of this page, so a caller knows whether to ask for more.
+public struct GeneratedSearchAssetPage: Sendable {
+  public let results: [SearchAsset]
+  public let total: Int
+
+  public init(results: [SearchAsset], total: Int) {
+    self.results = results
+    self.total = total
+  }
+}
+
 public actor GeneratedSearchClient {
   public nonisolated let server: URL
   private let httpClient: AuthenticatedHTTPClient
@@ -140,19 +152,33 @@ public actor GeneratedSearchClient {
     return try JSONDecoder().decode(GeneratedSearchListResponse.self, from: data).results
   }
 
-  /// `GET /api/generated-searches/<id>/assets?limit=<n>`
+  /// `GET /api/generated-searches/<id>/assets?limit=<n>&offset=<n>`
   ///
   /// The server re-derives the live query on every call, which is where the
   /// hidden-people and screenshot exclusions are applied. Always go through
   /// this rather than composing a `SearchParams` from a card.
-  public func assets(collectionID: String, limit: Int = 50) async throws -> [SearchAsset] {
-    let items = [URLQueryItem(name: "limit", value: String(limit))]
+  ///
+  /// Returns a page, not the collection: the response's `total` is the size of
+  /// the whole collection, so a caller pages with `offset` until it holds that
+  /// many. A collection can be larger than any single response should carry —
+  /// a caller that took only the first page silently disagreed with the
+  /// `result_count` printed on its own card.
+  public func assets(
+    collectionID: String,
+    limit: Int = 100,
+    offset: Int = 0
+  ) async throws -> GeneratedSearchAssetPage {
+    let items = [
+      URLQueryItem(name: "limit", value: String(limit)),
+      URLQueryItem(name: "offset", value: String(offset)),
+    ]
     let path = "/api/generated-searches/\(collectionID)/assets"
     let (data, resp) = try await httpClient.data(
       for: URLRequest(url: makeURL(path: path, query: items))
     )
     try Self.checkOK(resp, data: data)
-    return try JSONDecoder().decode(GeneratedSearchAssetsResponse.self, from: data).results
+    let decoded = try JSONDecoder().decode(GeneratedSearchAssetsResponse.self, from: data)
+    return GeneratedSearchAssetPage(results: decoded.results, total: decoded.total)
   }
 
   // MARK: - Helpers

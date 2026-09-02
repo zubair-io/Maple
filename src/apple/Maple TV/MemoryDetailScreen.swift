@@ -9,18 +9,20 @@
 // the same shape every other set in the app has — a wall you can look over
 // first, then a photo.
 //
-// This screen is handed its assets rather than fetching them: `MemoriesScreen`
-// already loads them to decide whether the memory is worth opening at all
-// (an empty one opens nothing), so re-fetching here would be a second round
-// trip for bytes already in hand.
+// The first page is handed in rather than fetched: `MemoriesScreen` already
+// loads it to decide whether the memory is worth opening at all (an empty one
+// opens nothing), so re-fetching page 0 here would be a second round trip for
+// rows already in hand. Everything after that is paged in as the grid scrolls
+// — a memory is routinely larger than one response.
 
 import MapleCloudKit
 import SwiftUI
 
 struct MemoryDetailScreen: View {
   let collection: GeneratedSearchCard
-  let assets: [SearchAsset]
   let session: TVCloudSession
+
+  @State private var viewModel: TVMemoryAssetsViewModel
 
   /// Presents `PhotoViewerScreen` at the chosen photo when non-nil.
   @State private var selectedAsset: SearchAsset?
@@ -29,6 +31,22 @@ struct MemoryDetailScreen: View {
   /// not the one that opened it — the same contract `TimelineScreen` has.
   @FocusState private var focusedCellID: String?
   @Environment(\.dismiss) private var dismiss
+
+  init(collection: GeneratedSearchCard, firstPage: [SearchAsset], total: Int, session: TVCloudSession) {
+    self.collection = collection
+    self.session = session
+    _viewModel = State(initialValue: TVMemoryAssetsViewModel(
+      collectionID: collection.id,
+      firstPage: firstPage,
+      total: total,
+      client: session.generatedSearchClient
+    ))
+  }
+
+  /// How many trailing cells from the end of the loaded set trigger the next
+  /// page — wide enough that paging starts before focus reaches the last
+  /// loaded cell, matching `TimelineScreen`.
+  private static let pageAheadThreshold = 24
 
   private static let cellSpacing: CGFloat = 32
   private static let rowSpacing: CGFloat = 40
@@ -44,12 +62,13 @@ struct MemoryDetailScreen: View {
     }
     .onExitCommand { dismiss() }
     .fullScreenCover(item: $selectedAsset) { asset in
-      let startIndex = assets.firstIndex(where: { $0.id == asset.id }) ?? 0
+      let loaded = viewModel.assets
+      let startIndex = loaded.firstIndex(where: { $0.id == asset.id }) ?? 0
       PhotoViewerScreen(
         // Falls back to a single-asset list only in the practically
-        // unreachable case where `asset` isn't in `assets` at cover-render
-        // time — mirrors `TimelineScreen`'s same fallback.
-        assets: assets.isEmpty ? [asset] : assets,
+        // unreachable case where `asset` isn't in the loaded set at
+        // cover-render time — mirrors `TimelineScreen`'s same fallback.
+        assets: loaded.isEmpty ? [asset] : loaded,
         startIndex: startIndex,
         session: session,
         onDismiss: { viewedAsset in focusedCellID = viewedAsset.id }
@@ -57,12 +76,14 @@ struct MemoryDetailScreen: View {
     }
   }
 
-  /// The memory's own subtitle line if the server gave it one, otherwise the
-  /// photo count — the top bar should never render a blank second line.
+  /// The memory's own subtitle if the server gave it one, otherwise the photo
+  /// count. The count is the COLLECTION's, not the loaded page's — the grid
+  /// fills in behind it as you scroll, and a header that counted only what had
+  /// arrived would tick upward while you looked at it.
   private var subtitle: String {
     let described = collection.subtitle?.trimmingCharacters(in: .whitespaces)
     if let described, !described.isEmpty { return described }
-    return assets.count == 1 ? "1 photo" : "\(assets.count) photos"
+    return collection.result_count == 1 ? "1 photo" : "\(collection.result_count) photos"
   }
 
   /// Same wall shape as the Timeline: `TVGridLayout` derives the column count
@@ -78,10 +99,12 @@ struct MemoryDetailScreen: View {
       )
       ScrollView {
         LazyVGrid(columns: layout.gridItems, alignment: .center, spacing: Self.rowSpacing) {
-          // A memory is a fixed set the server already returned in full —
-          // there is no paging here, so unlike the Timeline this can key on
-          // the asset's own id rather than its index.
-          ForEach(assets) { asset in
+          let assets = viewModel.assets
+          // Index-as-identity, matching the Timeline: a memory's pages only
+          // ever append, so no cell's identity shifts under it, and focus
+          // keys on `asset.id` below regardless.
+          ForEach(assets.indices, id: \.self) { index in
+            let asset = assets[index]
             TimelineCell(
               asset: asset,
               server: session.server,
@@ -92,6 +115,10 @@ struct MemoryDetailScreen: View {
               onSelect: { selectedAsset = asset }
             )
             .focused($focusedCellID, equals: asset.id)
+            .onAppear {
+              guard viewModel.canLoadMore, index >= assets.count - Self.pageAheadThreshold else { return }
+              Task { await viewModel.loadMore() }
+            }
           }
         }
         .padding(.horizontal, Self.horizontalInset)
