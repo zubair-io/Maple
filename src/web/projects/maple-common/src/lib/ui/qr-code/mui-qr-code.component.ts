@@ -20,8 +20,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  InjectionToken,
   computed,
   effect,
+  inject,
   input,
   signal,
   viewChild,
@@ -29,6 +31,31 @@ import {
 import { toCanvas } from 'qrcode';
 
 export type MuiQrCodeSize = 'sm' | 'md' | 'lg';
+
+// Injectable seam for the encoder call rather than calling `toCanvas`
+// directly (#3034). Angular's esbuild-based Vitest test runner statically
+// bundles relative-path source imports and explicitly disallows
+// `vi.mock()` for them — it patches `vi.mock` to throw "not supported for
+// relative imports ... use Angular TestBed for mocking dependencies" (see
+// `@angular/build/src/builders/unit-test/runners/vitest/build-options.js`).
+// Mocking the *external*, bare-specifier `qrcode` package itself via
+// `vi.mock('qrcode', ...)` is nominally allowed, but proved unreliable
+// under the same runner once more than one spec file in this library
+// renders this component in the same, non-isolated (`isolate: false`)
+// Vitest worker: module-level mock registration raced with which spec's
+// copy of the component module got evaluated — and therefore linked
+// against `qrcode` — first, so some runs called the real encoder no matter
+// which file's mock "won." A DI token sidesteps module interception
+// entirely: each spec's own `TestBed.configureTestingModule` provider
+// override is scoped to that spec and torn down with the rest of the
+// TestBed environment between tests, so there is nothing left for a later
+// file to inherit.
+export type QrCodeEncodeFn = typeof toCanvas;
+
+export const QR_CODE_TO_CANVAS = new InjectionToken<QrCodeEncodeFn>('QR_CODE_TO_CANVAS', {
+  providedIn: 'root',
+  factory: () => toCanvas,
+});
 
 const SIZE_PX: Record<MuiQrCodeSize, number> = {
   sm: 96,
@@ -64,13 +91,15 @@ export class MuiQrCodeComponent {
   readonly pixelSize = computed(() => SIZE_PX[this.size()]);
   readonly renderError = signal<string | null>(null);
 
+  private readonly toCanvasFn = inject(QR_CODE_TO_CANVAS);
+
   constructor() {
     effect(() => {
       const value = this.value();
       const width = this.pixelSize();
       const canvasEl = this.canvas()?.nativeElement;
       if (!canvasEl) return;
-      toCanvas(canvasEl, value, {
+      this.toCanvasFn(canvasEl, value, {
         width,
         margin: QUIET_ZONE_MODULES,
         color: { dark: '#000000', light: '#ffffff' },

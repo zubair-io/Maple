@@ -1,20 +1,21 @@
-// The invite panel renders a `mui-qr-code`, which calls the real `qrcode`
-// encoder in an `effect()` — jsdom has no working canvas 2D context (see
-// qr-code's own spec), so the module is mocked here too, purely to keep
-// that side effect quiet while this component's own revoke/invite logic is
-// under test.
+// The invite panel renders a `mui-qr-code`, which calls an injected encoder
+// function in an `effect()` — jsdom has no working canvas 2D context (see
+// qr-code's own spec), so the real `qrcode`-backed default has to be
+// overridden here too, purely to keep that side effect quiet while this
+// component's own revoke/invite logic is under test. Overridden via the
+// `QR_CODE_TO_CANVAS` DI token (#3034; see its doc comment in
+// `mui-qr-code.component.ts`) rather than `vi.mock('qrcode', ...)`.
 
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { toCanvas } from 'qrcode';
 
 import type { MuiManagedUser } from './mui-user-management.component';
 import { MuiUserManagementComponent } from './mui-user-management.component';
+import { QR_CODE_TO_CANVAS } from '../qr-code/mui-qr-code.component';
 
-vi.mock('qrcode', () => ({ toCanvas: vi.fn().mockResolvedValue(undefined) }));
-void toCanvas;
+const mockedToCanvas = vi.fn().mockResolvedValue(undefined);
 
 const USERS: readonly MuiManagedUser[] = [
   { id: 'u1', name: 'Zubair Lawrence', email: 'zubair@justmaple.app', role: 'Owner' },
@@ -40,7 +41,10 @@ class HostComponent {
 }
 
 function render(): { fixture: ComponentFixture<HostComponent>; host: HostComponent } {
-  TestBed.configureTestingModule({ imports: [HostComponent] });
+  TestBed.configureTestingModule({
+    imports: [HostComponent],
+    providers: [{ provide: QR_CODE_TO_CANVAS, useValue: mockedToCanvas }],
+  });
   const fixture = TestBed.createComponent(HostComponent);
   fixture.detectChanges();
   return { fixture, host: fixture.componentInstance };

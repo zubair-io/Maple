@@ -1,22 +1,29 @@
 // jsdom's `<canvas>.getContext('2d')` is null (same limitation documented in
 // image-canvas.draw2d.spec.ts), so `qrcode`'s real canvas renderer can never
-// actually draw here. The `qrcode` module is mocked so the component's own
-// logic — invoking `toCanvas` with the right args, and reacting to its
-// resolve/reject — is what's under test, not the third-party renderer.
+// actually draw here. The encoder call is injected (`QR_CODE_TO_CANVAS`,
+// #3034) and overridden via a `TestBed` provider rather than mocked at the
+// module level with `vi.mock` — see that token's doc comment in the
+// component for why: Angular's Vitest runner disallows `vi.mock` for
+// relative-path imports outright, and mocking the external `qrcode`
+// package itself proved unreliable once more than one spec file in this
+// library rendered the component in the same, non-isolated Vitest worker.
+// A `TestBed` provider override has no such cross-file interference — it's
+// scoped to, and torn down with, each test's own testing module.
 
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { toCanvas } from 'qrcode';
 
-import { MuiQrCodeComponent } from './mui-qr-code.component';
+import type { QrCodeEncodeFn } from './mui-qr-code.component';
+import { MuiQrCodeComponent, QR_CODE_TO_CANVAS } from './mui-qr-code.component';
 
-vi.mock('qrcode', () => ({ toCanvas: vi.fn() }));
-
-const mockedToCanvas = vi.mocked(toCanvas);
+const mockedToCanvas = vi.fn<QrCodeEncodeFn>();
 
 function render(): ComponentFixture<MuiQrCodeComponent> {
-  TestBed.configureTestingModule({ imports: [MuiQrCodeComponent] });
+  TestBed.configureTestingModule({
+    imports: [MuiQrCodeComponent],
+    providers: [{ provide: QR_CODE_TO_CANVAS, useValue: mockedToCanvas }],
+  });
   const fixture = TestBed.createComponent(MuiQrCodeComponent);
   fixture.componentRef.setInput('value', 'https://justmaple.app/pair/abc123');
   fixture.detectChanges();
@@ -101,7 +108,10 @@ describe('MuiQrCodeComponent', () => {
   // still lands exactly once with no error.
   it('still renders when effects are flushed before the first detectChanges', async () => {
     mockedToCanvas.mockResolvedValue(undefined as never);
-    TestBed.configureTestingModule({ imports: [MuiQrCodeComponent] });
+    TestBed.configureTestingModule({
+      imports: [MuiQrCodeComponent],
+      providers: [{ provide: QR_CODE_TO_CANVAS, useValue: mockedToCanvas }],
+    });
     const fixture = TestBed.createComponent(MuiQrCodeComponent);
     fixture.componentRef.setInput('value', 'https://justmaple.app/pair/abc123');
     TestBed.tick(); // flush effects before the test ever calls detectChanges
