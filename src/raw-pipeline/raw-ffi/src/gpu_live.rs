@@ -364,6 +364,17 @@ pub struct MapleGpuLiveParams {
     /// writes). Null / zero len = off (paired with `film_lut_size == 0`).
     pub film_lut_ptr: *const f32,
     pub film_lut_len: usize,
+    // --- parametric tone-curve split points (#3152) — ACR's
+    //     `crs:Parametric{Shadow,Midtone,Highlight}Split`, `[0, 100]`,
+    //     default 25/50/75. Appended at the tail per the offset-stable ABI
+    //     convention. UNLIKE most tail fields, `0.0` is NOT identity here (0
+    //     is an in-range axis position, and the default is 25/50/75, not
+    //     0/0/0) — `inputs_from_params` treats a zeroed field as "stale
+    //     host" and substitutes the canonical default per field, the same
+    //     fallback convention `noise_profile`/`iso` established in #2342. ---
+    pub parametric_shadow_split: f32,
+    pub parametric_midtone_split: f32,
+    pub parametric_highlight_split: f32,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.

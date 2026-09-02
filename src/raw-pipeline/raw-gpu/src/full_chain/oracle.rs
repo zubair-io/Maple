@@ -149,6 +149,11 @@ impl Case {
                     self.model.parametric_lights,
                     self.model.parametric_highlights,
                 ],
+                parametric_split: [
+                    self.model.parametric_shadow_split,
+                    self.model.parametric_midtone_split,
+                    self.model.parametric_highlight_split,
+                ],
                 luma: self.model.tone_curve_luma.points.clone(),
                 red: self.model.tone_curve_red.points.clone(),
                 green: self.model.tone_curve_green.points.clone(),

@@ -156,6 +156,26 @@ final class GpuLiveSessionTests: XCTestCase {
         XCTAssertEqual(p.vibrance, 0)
     }
 
+    /// #3152: the default model's split points (ACR's 25/50/75) reach the FFI
+    /// struct verbatim, and a moved split point survives the mapping too — the
+    /// whole point of wiring this field through instead of leaving it fixed.
+    func test_makeGpuLiveParams_carries_parametric_split_points() {
+        let defaultModel = AdjustmentModel()
+        let defaultParams = PipelineRenderer.makeGpuLiveParams(from: defaultModel)
+        XCTAssertEqual(defaultParams.parametric_shadow_split, 25)
+        XCTAssertEqual(defaultParams.parametric_midtone_split, 50)
+        XCTAssertEqual(defaultParams.parametric_highlight_split, 75)
+
+        var movedModel = AdjustmentModel()
+        movedModel.parametricShadowSplit = 15
+        movedModel.parametricMidtoneSplit = 55
+        movedModel.parametricHighlightSplit = 82
+        let movedParams = PipelineRenderer.makeGpuLiveParams(from: movedModel)
+        XCTAssertEqual(movedParams.parametric_shadow_split, 15)
+        XCTAssertEqual(movedParams.parametric_midtone_split, 55)
+        XCTAssertEqual(movedParams.parametric_highlight_split, 82)
+    }
+
     /// #1747 review fix: the decoded-anchor 0/0 sentinel is an ALL-OR-NOTHING
     /// pair. A caller that (by mistake) supplies only ONE of `asShotCCT` /
     /// `asShotTint` must still get the legacy sentinel (0/0) — NOT a

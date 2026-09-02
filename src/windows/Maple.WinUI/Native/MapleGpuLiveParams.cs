@@ -134,6 +134,26 @@ namespace Maple.WinUI.Native
         public float* noise_profile_ptr;
         public uint noise_profile_len;
         public uint iso;
+        // Film look (epic #2683, Task 8) — the C# side has no LUT-provisioning
+        // path yet (out of scope here), so these are always left at their
+        // struct-default zero/null, which raw-ffi's own doc contract reads as
+        // "no look loaded" — a bit-identical no-op, same as every pre-#2683
+        // host. Present ONLY to keep this mirror's memory layout aligned with
+        // the real Rust struct for the fields appended after them (#3152).
+        public float film_strength;
+        public uint film_lut_size;
+        public uint film_lut_key;
+        public float* film_lut_ptr;
+        public nuint film_lut_len;
+        // Parametric tone-curve split points (#3152) — ACR default 25/50/75.
+        // Left unset (0.0) below: raw-ffi's `inputs_from_params` treats an
+        // exact 0.0 as "host predates this field" and substitutes the
+        // canonical default per field (see gpu_live.rs), so a zeroed struct
+        // here is the correct legacy-equivalent behavior until the Windows
+        // model carries its own split-point fields.
+        public float parametric_shadow_split;
+        public float parametric_midtone_split;
+        public float parametric_highlight_split;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
