@@ -152,14 +152,19 @@ describe('XMP parametric split points (#2320)', () => {
   });
 
   it('omits all `crs:Parametric*Split` keys at the ACR default (25/50/75)', () => {
+    // Named keys, not a bare "Split" substring — `crs:SplitToning*` (an
+    // unrelated field family, also serialized here) contains "Split" too
+    // (Copilot review).
     const xml = serializer.serialize(defaultAdjustmentModel());
-    expect(xml).not.toContain('Split');
+    expect(xml).not.toContain('crs:ParametricShadowSplit');
+    expect(xml).not.toContain('crs:ParametricMidtoneSplit');
+    expect(xml).not.toContain('crs:ParametricHighlightSplit');
   });
 
   it('omits a value that rounds to its own default in the wire codec', () => {
     const m = defaultAdjustmentModel();
     m.parametricShadowSplit = 25.004; // rounds to the 25 default
     const xml = serializer.serialize(m);
-    expect(xml).not.toContain('Split');
+    expect(xml).not.toContain('crs:ParametricShadowSplit');
   });
 });
