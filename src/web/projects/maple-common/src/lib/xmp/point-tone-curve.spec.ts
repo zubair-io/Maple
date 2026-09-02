@@ -1,5 +1,6 @@
-// point-tone-curve.spec.ts — nested-element XMP I/O for the four point tone
-// curves (#365).
+// point-tone-curve.spec.ts — nested-element XMP I/O for the four scene-linear
+// point tone curves (#365). The display-referred `crs:ToneCurvePV2012*`
+// family (#2232) has its own sibling spec, `display-tone-curve.spec.ts`.
 //
 // `CANONICAL_BLOCK` below is the cross-language parity artifact: the same
 // literal appears in the Rust suite (`raw-core/src/xmp/tests_tone_curves.rs`)
@@ -12,8 +13,9 @@
 //
 // The namespace decision this file pins: scene-linear point curves are
 // `papp:SceneLinearToneCurve*`, and Lightroom's display-referred
-// `crs:ToneCurvePV2012*` is NOT read into those fields — it survives a
-// read-modify-write untouched through the unknown-node passthrough.
+// `crs:ToneCurvePV2012*` is a DIFFERENT quantity that must not land in these
+// fields — since #2232 it parses structurally into its own
+// `displayToneCurve*` fields instead (see the sibling spec).
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -215,9 +217,11 @@ describe('XMP point tone curves (#365)', () => {
   // ── Namespace decision ───────────────────────────────────────────────────
 
   /**
-   * Lightroom's display-referred curves are a different quantity (post-AgX)
+   * Lightroom's display-referred curve is a different quantity (post-AgX)
    * and must NOT land in the scene-linear fields — applying a display-referred
-   * shape to scene-linear light renders the image visibly wrong.
+   * shape to scene-linear light renders the image visibly wrong. (It DOES
+   * parse — into `displayToneCurveLuma`, #2232 — see
+   * `display-tone-curve.spec.ts` for the structural round-trip.)
    */
   it('does not parse crs:ToneCurvePV2012 into the scene-linear fields', () => {
     const block = [
@@ -237,11 +241,14 @@ describe('XMP point tone curves (#365)', () => {
   });
 
   /**
-   * The other half of the decision: an imported Lightroom curve survives a
-   * read-modify-write byte-for-byte through the nested-node passthrough, so
-   * Maple never destroys an edit it declines to interpret.
+   * The other half of the decision: an imported Lightroom curve is now a
+   * MODELED field (#2232) — it parses into `displayToneCurveLuma`, is no
+   * longer in the passthrough bucket, and round-trips through the ordinary
+   * structural serializer rather than verbatim-preserved bytes. See
+   * `display-tone-curve.spec.ts` for the full structural-round-trip
+   * coverage; this test only pins the "not passthrough anymore" half.
    */
-  it('preserves crs:ToneCurvePV2012 verbatim across a read-modify-write', () => {
+  it('parses crs:ToneCurvePV2012 structurally instead of preserving it as passthrough', () => {
     const pv2012 = [
       '  <crs:ToneCurvePV2012>',
       '   <rdf:Seq>',
@@ -254,8 +261,9 @@ describe('XMP point tone curves (#365)', () => {
     const source = sidecar(pv2012);
 
     const { model, passthrough } = parser.parseAdjustmentModel(source);
-    // The nested element (not just attributes) reaches the passthrough bucket.
-    expect(passthrough.unknownNodes.length).toBe(1);
+    // The curve is no longer unknown — nothing left in the passthrough bucket.
+    expect(passthrough.unknownNodes.length).toBe(0);
+    expect(model.displayToneCurveLuma?.points.length).toBe(3);
 
     // Modify something Maple does own, then write.
     const edited: AdjustmentModel = {
@@ -267,8 +275,9 @@ describe('XMP point tone curves (#365)', () => {
     const written = serializer.serialize(edited, passthrough);
     expect(written).toContain('crs:Exposure2012="0.75"');
     expect(written).toContain('<papp:SceneLinearToneCurve>');
-    // The Lightroom curve came through untouched, byte for byte.
-    expect(written).toContain(passthrough.unknownNodes[0]);
+    // The Lightroom curve's VALUES survive, re-formatted canonically.
+    expect(written).toContain('<crs:ToneCurvePV2012>');
+    expect(written).toContain('<rdf:li>128, 180</rdf:li>');
 
     // And a second read/write cycle is stable.
     const second = parser.parseAdjustmentModel(written);
