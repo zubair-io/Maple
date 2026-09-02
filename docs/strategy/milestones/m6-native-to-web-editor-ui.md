@@ -1,0 +1,202 @@
+# M6 · Native-to-Web Editor UI Parity — design spec
+
+Epic [#2452](https://github.com/zubair-io/Maple/issues/2452), milestone **18 · Native-to-Web Editor UI Parity**. Sub-issues: [#2448](https://github.com/zubair-io/Maple/issues/2448) (parity manifest), [#2449](https://github.com/zubair-io/Maple/issues/2449) (IA port), [#2450](https://github.com/zubair-io/Maple/issues/2450) (command router), [#2451](https://github.com/zubair-io/Maple/issues/2451) (acceptance gates), plus the still-open tail of the Pro Editor Canvas-first epic ([#1534](https://github.com/zubair-io/Maple/issues/1534), [#1542](https://github.com/zubair-io/Maple/issues/1542)).
+
+This document is derived from the code as of `origin/main` at the time of writing, not from the responsive-program design notes under `docs/design/responsive-program/s5-editor.md` and `s6-info-inspector.md` — those describe an earlier phone-first editor (drag bar, value chip, group tabs) that the Pro Editor Canvas-first rebuild (#1534, #1807) superseded. Where this spec and those notes disagree, this spec follows the current tree.
+
+## 1. Outcome
+
+A photographer who edits in the Maple app on a Mac or iPad, then picks the same job back up in a browser, finds the same tools in the same groups, gets the same values out of the same gestures, and never loses an in-flight edit crossing between them. Concretely, "parity" means three things, matching the epic's own exit criteria:
+
+1. **Surface parity.** Every released native editor capability — a tool, a chrome control, a mode — either has a working, reachable web equivalent, or an explicitly documented and approved exception (a platform-only capability like Apple's capture-sharpening deconvolution pair, which needs a dedicated hardware-accelerated path web doesn't have yet).
+2. **Interaction parity.** The same gesture class (pointer drag, keyboard, touch, scroll) produces the same result on both platforms — a slider's range, default, step, and reset behavior are identical because they come from the same generated schema; zoom, pan, and before/after behave the same; focus stays where the user put it (a focused slider consumes its own arrow keys, it doesn't leak them to image navigation).
+3. **Structural resilience.** Resizing the browser window, or rotating an iPad, doesn't lose the open asset, the edit history, the armed tool, or the zoom/pan state — the shell re-lays-out around unchanged state rather than rebuilding it.
+
+**What parity explicitly does not mean:**
+
+- **Not a literal port of native's current, unconverged state.** As detailed in §2, the Apple editor today has two competing full control layouts behind a temporary settings toggle, several shortcuts documented in code but never wired to a key, and two different slider primitives with different interaction contracts. "Port the native IA" cannot mean "copy whichever of these ships this week" — it means both platforms converge on one jointly-defined interaction contract, and in a few cases (keyboard shortcuts, scroll-wheel slider nudge) **web is already ahead and native needs to catch up**, not the other way around.
+- **Not pixel-identical chrome.** The web editor stays idiomatic Angular — Tailwind utilities, standalone components, signals — not a transliteration of SwiftUI view hierarchies. The shared Rust core and GPU chain are unchanged; only the UI layer that drives them is in scope.
+- **Not a rewrite of the pipeline, and not a reason to add pipeline features.** Masking and local adjustments exist in `raw-core` (`src/raw-pipeline/raw-core/src/stages/local_adjustments/`) but are surfaced on **no platform** — every editor shows a disabled "Mask" dock entry pointing at [#1541](https://github.com/zubair-io/Maple/issues/1541). That is a net-new capability gap on both platforms simultaneously, not a native-to-web asymmetry, so it is out of scope for this epic's exit criteria (see Open decision 3).
+- **Not Windows or tvOS parity.** The epic's own language is "a photographer moving between native Maple and Maple in a browser" — "native Maple" is the Apple app specifically. Windows' editor already diverges from both (no AUTO, no copy/paste, no presets, no film looks, per `docs/features.md` §8) and is out of scope here; it has its own port track if and when someone opens that epic.
+- **Not deprecating the native apps**, and **not a new shared Swift/TypeScript runtime.** "One editor command router" (#2450) means one shared _contract_ — what counts as a commit boundary, what makes a command stale — implemented natively in each language against each platform's own existing scheduler. There is no code-sharing mechanism between Swift and TypeScript below the Rust core, and building one is not in scope.
+
+## 2. Current state
+
+### 2.1 Two shells, two histories
+
+**Web** (`src/web/projects/maple-common/src/lib/shells/editor-shell/editor-shell.component.{ts,html}`, 562+513 lines) is one component tree reached at `/edit/:slug`. It composes, in one absolutely-positioned stack: a full-bleed canvas, a floating glass top bar (back, name, histogram, AUTO, Reset, before/after, undo, info, export), a left filmstrip rail (tablet+), a right tool dock plus flyout panels, a bottom control card, a value HUD, and an info pane that renders as a sheet on phone and a docked pane on tablet/desktop. Breakpoint is a single reactive signal (`LayoutService.layout()`, `<768` phone / `≤1024` tablet / `>1024` desktop) that nothing in `EditorStateService` or `ImageCanvasService` subscribes to — so resizing the window today already re-lays-out the chrome without touching edit history, armed tool, or zoom/pan. This is exactly the "live breakpoint changes preserve state" behavior #2449 asks for; on the web side it is close to already true and the job is mostly verification plus closing gaps as the IA is restructured.
+
+**Apple** has two entry points onto one `EditorView.swift` (559 lines): a mode flip inside the Mac/iPad pane shell (`AppShellCenterColumn.swift`), and a `NavigationStack` push on iPhone (`EditorDestination.swift`). Both share `EditSession`/`EditorState`. But **the Apple editor has not converged on one control layout**: `EditorView.swift` persists a `ControlVariant` via `@AppStorage`, explicitly commented as a temporary design-exploration toggle meant for removal before ship, choosing between:
+
+- **Variant A** — `ToolDock.swift` (vertical glass rail, regular-size-class only) + `FlyoutSliderPanel.swift` (single-group 300pt side panel) + `MobileControlBar.swift` on iPhone.
+- **Variant B** — `StackedAdjustmentsPanel.swift` (all four groups in one scrollable, collapsible inspector; docked trailing pane on regular width, bottom sheet on compact).
+
+On a real iPhone today, neither variant's phone story is actually what renders: `EditorView.swift` mounts a third, always-shown `IPhoneLegacyControlBar` whenever `isIPhone` is true, which pre-empts `MobileControlBar` entirely. So the ticket's own framing of `MobileControlBar` as a canonical native reference point needs a caveat — it exists, is fully built, and is currently dead code in production. This is the single biggest open question for #2449 (see Open decision 1): there is no one native IA to port yet.
+
+### 2.2 Slider primitives don't agree with each other, let alone across platforms
+
+Apple has two slider implementations in concurrent use. `LivingSlider.swift` (used by both control-layout variants) does commit-on-release and a VoiceOver adjustable action, but has no double-tap reset, no long-press fine mode, and no keyboard arrow nudge. The legacy `DragBar.swift` (used only by `IPhoneLegacyControlBar` and `ControlCard`, i.e. what iPhone users actually see) has double-tap reset, long-press fine mode at 0.25× sensitivity, and haptics — the richer contract, but confined to the shipping-but-uncommitted-to control path.
+
+Web's slider (`app-drag-bar` wrapping `mui-drag-bar`, `src/web/projects/maple-common/src/lib/editor/drag-bar.component.ts`) has pointer drag, long-press fine mode, double-click reset, and `Shift+Arrow` keyboard nudge (`editor-shell-keyboard.ts`) — closer to Apple's legacy `DragBar` than to `LivingSlider`. It has **no scroll-wheel nudge**; `image-canvas.zoom-gestures.ts` documents this explicitly as belonging to "the S5 armed-tool wheel nudge" — the phone-first editor #1534/#1807 retired — and never ported forward. Apple, meanwhile, does have scroll-wheel nudge today, routed through `CanvasZoomHost` → `EditorState.wheelNudge` → `WheelNudgeBurst.swift`. This is a genuine native-only capability that #2450 needs to close in web's favor of direction, not a web gap to fill from a native reference that already has it solved cleanly — Apple's own zoom-keyboard-shortcut story is worse than web's (next paragraph), so "bring native's wheel-nudge design to web, bring web's keyboard design to native" is the honest framing.
+
+### 2.3 Keyboard shortcuts: web is the more complete reference today
+
+Web's `editor-shell-keyboard.ts` (`src/web/projects/maple-common/src/lib/shells/editor-shell/`) wires a full command set — Escape, `⌘S`, `⌘Z`/`⌘⇧Z` undo/redo, `⌘C` copy settings, `[`/`]` tool cycle (`Shift+[`/`]` group cycle), bare arrows for image navigation vs `Shift+`arrow for slider nudge, `1`-`4` groups, `5`/`0` rating, `P`/`X`/`U` flags, `\`/`B` before/after, `R` reset, `F`/`Z` zoom fit/100%, `⌘⌥S`/`⌘⌥D` sidebar/inspector toggles — with real focus-aware suppression: it bails out for text inputs, and `isValueWidgetKey()` skips bare arrow/Home/End keys when focus is already inside a `role="slider"` or `role="spinbutton"`, so a focused drag bar keeps its own arrow semantics.
+
+Apple's editor, by contrast, wires only up/down arrow group-cycling and a color-wheel arrow nudge. `CanvasZoomController.swift` documents `⌘0`/`⌘1`/`⌘=`/`⌘-` in comments, but nothing calls them — dead code. There is no `⌘Z`/`⌘⇧Z` (undo/redo is tap/long-press only), no reset shortcut, and no macOS `Commands` scene anywhere in `src/apple` — the rich Browse-grid shortcut set (`BrowseGrid.swift`) never carried over to the editor. #2450's command router is, on the Apple side, substantially new build rather than "wire up what's already there."
+
+### 2.4 Scopes: the data pipeline is ready, the UI mostly isn't
+
+Both platforms render a histogram in the editor chrome. Neither renders a waveform, RGB parade, or vectorscope in the editor: Apple has no such view anywhere in `src/apple`; web's design system already has `mui-waveform`, `mui-vectorscope`, and `mui-scopes-panel` built (`unified-component-catalog.md` §2, all three ✓) but **no consumer mounts them inside the editor** — a plain grep for the component names also matches their own definition/spec files and the `maple-syrup` gallery page, so the precise check is a search for `<mui-scopes-panel` usage (or, equivalently, any of the three tags anywhere under `src/web/projects/maple-common/src/lib/shells/editor-shell`): zero hits. Per `docs/web.md`, the render worker already reads back downsampled data for histogram, waveform, parade, and vectorscope on every GPU-live frame, so the web-side gap is "mount an existing organism," not "build a data path." That makes web scopes a cheap win for #2449; Apple scopes beyond the histogram are unscoped net-new work this epic should not silently absorb (see non-goals).
+
+### 2.5 Maple UI adoption inside the editor
+
+Web's editor already wraps several Maple UI organisms at the leaf level: `pro-tool-dock` wraps `MuiToolDockComponent`, `app-drag-bar` wraps `MuiDragBarComponent`, `pro-control-card` uses `MuiLivingSliderComponent`, `editor-histogram` wraps `MuiHistogramComponent`. A few surfaces remain legacy or unmounted (export dialog, crop toolbar/overlay, the scopes primitives above). Apple's editor views — `ToolDock.swift`, `StackedAdjustmentsPanel.swift`, `FlyoutSliderPanel.swift`, `MobileControlBar.swift`, `LivingSlider.swift` — do not consume `MapleUI`'s equivalent components (`MuiToolDock`, `MuiLivingSlider`, per `unified-component-catalog.md` §2-5, all ✓ on Apple too, just unused here) at all; per `docs/apple.md`, "the editor and browse surfaces are still hand-built SwiftUI." This is exactly the gap epic [#3019](https://github.com/zubair-io/Maple/issues/3019)'s Apple waves MA5/MA6 exist to close — they are not yet filed as numbered issues. Landing them would, as a side effect, resolve Apple's `LivingSlider`/`DragBar` interaction-contract split for free, since `MuiLivingSlider` already has one settled contract shared with web (see Open decision 5).
+
+### 2.6 Parity manifest — first cut
+
+This table is a representative seed, not the exhaustive manifest #2448 will generate — a full pass covers every field in `ADJUSTMENT_SCHEMA` plus every chrome control. **N** = native (Apple), **W** = web. ✓ released and reachable, **P** partial/inconsistent, **—** not present on that platform, **✕** present on neither (net-new, not a parity gap).
+
+| Capability                                | Group     |  N  |  W  | Notes                                                                                                                                                                                                                |
+| ----------------------------------------- | --------- | :-: | :-: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browse ↔ full-editor mode split           | Shell     |  ✓  |  ✓  | Apple: pane-shell mode flip (Mac/iPad) / `NavigationStack` push (iPhone). Web: `/edit/:slug` route.                                                                                                                  |
+| One converged control layout              | Shell     |  P  |  ✓  | Apple has two variants behind a temporary flag (§2.1); web has one.                                                                                                                                                  |
+| Tool dock (4 groups + Crop/Curve/Presets) | Shell     |  ✓  |  ✓  | Apple: `ToolDock.swift`. Web: `pro-tool-dock` / `MuiToolDockComponent`.                                                                                                                                              |
+| Same-component compact/regular/wide dock  | Shell     |  P  |  ✓  | Web's dock takes an `orientation` input for phone; Apple's dock is a separate regular-only view, `MobileControlBar` a separate phone view.                                                                           |
+| Slider: drag (relative)                   | Input     |  ✓  |  ✓  | Both present.                                                                                                                                                                                                        |
+| Slider: keyboard arrow nudge              | Input     |  —  |  ✓  | Web: `Shift+Arrow` in `editor-shell-keyboard.ts`. Apple: neither slider primitive has it.                                                                                                                            |
+| Slider: scroll-wheel nudge                | Input     |  ✓  |  —  | Apple: `WheelNudgeBurst.swift`. Web: explicitly deferred (§2.2).                                                                                                                                                     |
+| Slider: long-press fine mode              | Input     |  P  |  ✓  | Apple: only on legacy `DragBar`, not `LivingSlider` (the primitive both current variants use).                                                                                                                       |
+| Slider: double-tap/click reset            | Input     |  P  |  ✓  | Same split as above.                                                                                                                                                                                                 |
+| Zoom: fit / 100% / pinch                  | Canvas    |  ✓  |  ✓  | Both present.                                                                                                                                                                                                        |
+| Zoom: keyboard shortcuts                  | Canvas    |  —  |  ✓  | Apple: documented in comments, never wired. Web: `F`/`Z`.                                                                                                                                                            |
+| Before/after: latched toggle              | Canvas    |  ✓  |  ✓  | Both preserve zoom/pan across the toggle.                                                                                                                                                                            |
+| Before/after: momentary (press-hold)      | Canvas    |  ✕  |  ✕  | Not implemented on either platform — net-new for both (Open decision 2).                                                                                                                                             |
+| Filmstrip present, collapsible            | Nav       |  ✓  |  ✓  | Regular/tablet+ only on both; no phone filmstrip on either.                                                                                                                                                          |
+| Commit-on-navigate (asset switch)         | Nav       |  ✓  |  ?  | Apple: `flushPendingSidecarWrite()` on session teardown, verified. Web: needs an explicit #2451 gate — not independently confirmed in this pass.                                                                     |
+| Undo/redo: bounded ring, cap 32           | History   |  ✓  |  ✓  | Same cap, same commit-on-gesture-end model on both.                                                                                                                                                                  |
+| Undo/redo: keyboard shortcut              | History   |  —  |  ✓  | Apple: tap/long-press only.                                                                                                                                                                                          |
+| Masking (subject/radial/linear)           | Tool      |  ✕  |  ✕  | Zero UI on either platform; `raw-core` has the stages. Out of scope (§1, Open decision 3).                                                                                                                           |
+| Crop + straighten                         | Tool      |  ✓  |  ✓  | Feature-complete on both.                                                                                                                                                                                            |
+| Histogram                                 | Scopes    |  ✓  |  ✓  | Both wired.                                                                                                                                                                                                          |
+| Waveform / parade / vectorscope           | Scopes    |  —  |  —  | Web has the data path and the components, unmounted. Apple has neither. See §2.4.                                                                                                                                    |
+| Capture sharpening (deconvolution)        | Tool      |  ✓  |  —  | Approved platform exception per `docs/features.md` §8 — needs a path web doesn't have yet.                                                                                                                           |
+| AUTO (single-tap exposure-only)           | Tool      |  —  |  ✓  | Apple: `EditorState+AutoReset.swift` exists, no view calls it (`docs/features.md` §3).                                                                                                                               |
+| Reset all                                 | Tool      |  ✓  |  ✓  | Both present.                                                                                                                                                                                                        |
+| Copy settings                             | Clipboard |  ✓  |  ✓  | Both present; Apple's clipboard is session-scoped/in-memory by design.                                                                                                                                               |
+| Paste settings from inside the editor     | Clipboard |  ?  |  —  | Web: paste is Browse-shell-only (multi-select), not reachable from inside the open editor. Apple: not independently confirmed — flag for the manifest's first real pass.                                             |
+| Export dialog                             | Export    |  P  |  ✓  | Apple's `ExportPanel.swift` header comment: "basic version, full impl in P9" — no size control, no batch.                                                                                                            |
+| Tool dock a11y (role/name coverage)       | A11y      |  P  |  P  | Apple: dense overall (77 call sites) but `LivingSlider` itself is thin. Web: `tool-dock.component.html` has 1 aria attribute despite being a navigation-role switcher; `mui-drag-bar` is the best-covered primitive. |
+| Editor panels on Maple UI (`Mui*`)        | Adoption  |  —  |  P  | Web wraps several `Mui*` organisms already (§2.5); Apple's editor views are 0% adopted — the MA5/MA6 gap.                                                                                                            |
+
+### 2.7 Where the responsive-program and Canvas-first specs disagree with the tree
+
+`docs/design/responsive-program/s5-editor.md` describes a drag-bar-centric phone editor (value chip overlay, group tabs, 21-tick drag bar) that predates the Canvas-first rebuild; its own file header in the codebase (`EditorView.swift` comments, `#1807`) records that the S5 editor was retired. `s6-info-inspector.md`'s `InfoPanelView` design is a closer match to the live `InfoPanelView.swift` / `app-info-panel` and can be treated as still broadly accurate. Neither doc should be used as a source of truth for tool grouping, dock layout, or drag-bar interaction — `docs/features.md` §3 and this spec's §2 are current.
+
+## 3. Per sub-issue
+
+### 3.1 #2448 — Editor surface and interaction parity manifest
+
+**Scope.** Build the manifest as two layers, not one monolith:
+
+1. **A hand-authored data file**, one row per capability id (tool, chrome control, or interaction primitive) — `tools/editor-parity/manifest.json`. Fields per the ticket: id, product name, group, order; native/web reachability; compact/regular/wide presentation (mapped onto the existing `MapleLayout`/`LayoutService` phone-tablet-desktop split, so "compact" = phone, "regular" = tablet, "wide" = desktop — no new breakpoint vocabulary); keyboard/pointer/touch/focus behavior; accessibility name/value/state/actions; Undo/copy-paste/history/preview/export participation; and an `exception` object (`platform`, `rationale`, `ticket`) for approved asymmetries like capture sharpening.
+2. **A checker**, not a generator, in the spirit of `tools/check-maple-ui-contracts.sh`: required-field presence, cross-referenced against the two real code-level enumerations — web's `ToolId` union (`tool-model.ts`) and Apple's `Tool` enum (`ToolModel.swift`) — so every real tool has exactly one manifest row and every manifest row names a real tool. It does **not** duplicate ranges, defaults, or steps into the manifest; those already exist as generated data (`adjustment-tables.generated.ts` on web, `AdjustmentModel+Generated.swift` on Apple) and the checker reads them live, flagging drift instead of re-authoring a third copy that can itself go stale. Ship it as a Bun/TypeScript script (it has to parse the generated `.ts`), `tools/check-editor-parity-manifest.ts`, wired into `cross.yml` as its own job alongside `maple-ui-contracts`.
+
+The "integrated-but-unreleased tools cannot appear as working controls" criterion is inherently a runtime fact, not a static one — the manifest declares a row `disabled: true, exception: {...}`, and #2451's accessibility-tree assertions spot-check that the live control actually reports itself disabled (`aria-disabled` / the equivalent Apple accessibility trait), closing the loop between the static manifest and shipped behavior.
+
+For "product documentation is generated from or checked against the manifest": `docs/features.md` §3 and its §8 per-platform matrix are hand-maintained prose, deliberately (`docs/README.md`: "derive from code, cite paths," no generated prose). Rather than generating that prose, add a lightweight diff check that reads the manifest's per-capability reachability and asserts §8's matrix cells for editor rows haven't drifted from it — checked, not generated, matching the doc's own house style.
+
+**Sequencing.** First — everything else in this epic consumes the manifest's shape. The checker's cross-reference logic (tool-enum ↔ manifest) can be built and tested against today's tree immediately; populating every row is incremental and doesn't block #2449/#2450 starting on the rows that already exist.
+
+**Acceptance.** The ticket's own five criteria, plus: the checker runs in CI and fails on an unmapped tool in either direction; the `docs/features.md` §8 drift check runs and passes.
+
+**Non-goals.** Not a code generator — nothing consumes the manifest to emit Swift or TypeScript UI code. Not a replacement for `adjustment-tables.generated.ts` / the Swift generated mirror — those stay the range/default/step source of truth.
+
+### 3.2 #2449 — Port the native editor IA to the responsive web shell
+
+**Scope.** Stable, named regions on both platforms: navigation/back, image identity, histogram/scopes, comparison, export, filmstrip, tool groups, detail inspector — using web's current region names as the reference vocabulary, since `editor-shell.component.html` already names and separates exactly these regions cleanly. The real IA work is on Apple, which needs to converge on one control layout before "port" is even well-defined (§2.1, Open decision 1).
+
+**Design.**
+
+- **Pre-req: Apple converges on one variant.** Recommend Variant B (`StackedAdjustmentsPanel`) as the target: it already matches web's density (one scrollable panel of grouped sliders next to a dock, rather than a single-group flyout), and Variant A's phone companion (`MobileControlBar`) is already dead code in production while the thing that actually ships (`IPhoneLegacyControlBar`) is closer to a single-adaptive-component model than either named variant. Converging deletes the `@AppStorage` exploration flag, `FlyoutSliderPanel`, and (after confirming nothing else depends on it) `MobileControlBar`.
+- **compact/regular/wide via `MapleLayout`/`LayoutService`.** Both are already shared, width-mirrored, and unsubscribed-from by edit-session state — reuse them as-is; do not invent a parallel breakpoint concept for the editor specifically.
+- **Capability-driven hiding.** Both platforms already have the right _shape_ for this — a dock-entry array with a `disabled`/`ticket` pair (`DOCK_ENTRIES` on web, the equivalent literals in `ToolDock.swift` on Apple) — but each maintains its own hand-written copy. Once #2448's manifest exists, both should read `disabled`/`exception` off the manifest instead of a hardcoded literal, so there is one place that says "Mask is disabled, see #1541" instead of two.
+- **Scopes as the cheap win.** Mount `mui-scopes-panel`/`mui-waveform`/`mui-vectorscope` in the web editor's existing scopes slot; the render-worker data path is already there (§2.4). This is genuinely in scope for #2449 (a web IA gap) and should not wait on any Apple-side scope work, which is unscoped net-new (§ Non-goals).
+- **Live breakpoint resize.** Verify and lock in web's already-working behavior (§2.1) with a regression test; audit Apple's Mac/iPad window-resize path for the same property (not independently confirmed in this pass — `EditorState`/`EditSession` should not rebuild on a `MapleLayout` transition, only the SwiftUI view tree should re-lay-out).
+
+**Sequencing.** After #2448's schema exists (even before it's fully populated) and after the Apple variant-convergence pre-req; can run in parallel with #2450 since it's a layout concern, not an input-routing one, though the two integrate at the end (a tool-dock click and a `[`/`]` keypress both need to resolve to the same "arm this tool" action).
+
+**Acceptance.** The ticket's five criteria as written.
+
+**Non-goals.** No phone-only component tree (already true on web; the target for Apple's converged variant). No new Apple scopes UI beyond what mounting the existing MapleUI histogram in `ToolDock`'s chrome already provides — waveform/parade/vectorscope on Apple is unscoped net-new work; if wanted, it needs its own ticket, since Apple has no `MuiWaveform`/`MuiVectorscope` consumer or data-readback path yet (unlike web, where GPU-live sessions already produce the readback).
+
+### 3.3 #2450 — Unify web editor commands across keyboard, pointer, touch, and focus contexts
+
+**Scope.** One editor command router **per platform**, sharing a documented contract, not a shared code module (§1). The contract: what user input resolves to what intent, given focus context, the active subtool, the current asset's generation counter, capability state (is this tool released here?), and input source.
+
+**Design.**
+
+- **No `ActionTransaction`-shaped contract exists in code today** — grep across the whole tree is empty. The closest existing primitives are Apple's `EditSession+UndoRedo` commit boundaries plus `RenderActor`'s generation counter, and web's `EditorStateService.commit()` plus `image-canvas.two-phase.ts`'s generation-counter-based fast/refine scheduler (`docs/web.md` § "Two render paths"). The router's commit/staleness logic should be built on top of each platform's _existing_ generation-counter machinery, not introduce a second one.
+- **Close the two-directional gap identified in §2.2/§2.3**, explicitly, not just "port native to web": scroll-wheel slider nudge is native-only today and needs a web implementation (not a resurrection of the old S5 wheel handler — a new one scoped to the current shell); `⌘Z`/`⌘⇧Z`, zoom shortcuts, and a reset shortcut are web-only today and need real Apple wiring (the zoom shortcuts already have their target methods on `CanvasZoomController` — this is "connect the wire," not "design the behavior").
+- **Slider primitive consolidation on Apple** is a natural side effect of routing everything through one router: if the router owns commit boundaries and fine-mode/reset semantics centrally, `LivingSlider` and legacy `DragBar` converge on one contract by construction rather than needing a separate refactor. Whether that consolidation lands as MapleUI's `MuiLivingSlider` (closing the #3019 MA5/MA6 gap in the same pass) or as a converged `LivingSlider.swift` is an open call (Open decision 5).
+- **Focus-context suppression is mostly solved on web already** (`isValueWidgetKey()`, input/textarea/contentEditable bail-outs in `editor-shell-keyboard.ts`) and should be formalized as the router's focus-context resolution rule rather than rebuilt; Apple has almost nothing to route today, so this is closer to new build there.
+- **Momentary before/after is net-new on both platforms** (§2.6) — build it once, to the same spec, on both, rather than framing it as a web catch-up item.
+
+**Sequencing.** Depends on #2448 for the per-capability interaction fields it needs to route against; can run in parallel with #2449.
+
+**Acceptance.** The ticket's six criteria as written, with the explicit note that "equivalent results across supported inputs" requires the wheel-nudge and keyboard-shortcut gap-closure in both directions described above, not a one-directional port.
+
+**Non-goals.** Not a shared Swift/TypeScript runtime. Not a rewrite of `RenderActor` or the web render worker's generation-counter scheduling — the router consumes those, it doesn't replace them.
+
+### 3.4 #2451 — Cross-width editor interaction and accessibility acceptance gates
+
+**Scope.** Continuous verification at desktop/tablet/phone widths, across keyboard, pointer, touch, screen reader, reduced motion, and 200% zoom — for the web editor primarily, since that's where the shell and its breakpoints live; Apple gets an equivalent new harness since none of this exists there today.
+
+**Design — what this extends.**
+
+- **Web functional/a11y e2e**: `src/web/e2e/production/accessibility.spec.ts` already has the right shape — a `VIEWPORTS` array (desktop 1440×900, tablet 800×1024, phone 390×844, each flagging whether a filmstrip is expected) and keyboard-only navigation helpers (`tabTo`, `openFolderWithKeyboard`) — but its current editor-adjacent coverage is thin. `editor-action-chrome.spec.ts`, `editor-action-panels.spec.ts`, and `editor-interactions.spec.ts` cover editor functionality but, per this pass, are not parametrized across `VIEWPORTS`. #2451's job is to extend the viewport parametrization pattern from `accessibility.spec.ts` into the editor-specific specs (or vice versa — fold editor scenarios into `accessibility.spec.ts`'s existing loop), not invent a third harness style.
+- **`maple-ui-contracts` extension**: the new `check-editor-parity-manifest` job from #2448 is this epic's version of the same "doc/data must match code" pattern; #2451 is the piece that closes the loop by asserting the manifest's static claims against the live accessibility tree (role, name, value, disabled state) at each viewport.
+- **Apple has no equivalent today.** `MapleUITests`' existing harnesses (`MapleAppDriver`, golden-canvas, slider-matrix) are all pixel/color-focused (`docs/apple.md` § "UI test harnesses"); none walk the accessibility tree, assert focus order, or test reduced-motion/Dynamic-Type-equivalent zoom. This needs a new `MapleUITests` class following the same skip-pass-on-missing-fixtures convention as the existing ones, since there is no reusable Apple starting point.
+- **Component/unit layer**: generated-metadata and breakpoint-selection tests are ordinary `ng test`/`swift test` additions alongside the manifest checker — no new infrastructure.
+- **Objective render parity stays with the existing harnesses** (`test_color_pipeline.sh`, the Swift golden/slider-matrix suites) — #2451 does not duplicate colour verification, only layout/interaction/state.
+
+**Sequencing.** Builds incrementally alongside #2449/#2450 (the harness should exist and be red before those land, not be written after as a rubber stamp), reaching full breadth only once both are substantially in place.
+
+**Acceptance.** The ticket's six criteria as written. On "expected test counts are exact and non-zero": Maple's Apple test suite has previously had a scheme silently stop executing a target while CI stayed green — a required job whose count can silently drop to zero is indistinguishable from passing, so the new Apple harness's job should assert its own test count explicitly, the same discipline #2451 already asks for.
+
+**Non-goals.** Not a Windows or tvOS harness (§1). Not a Lighthouse/performance audit — the 16ms slider budget is covered elsewhere in `CLAUDE.md` and `docs/testing.md`; this ticket is layout, interaction, and accessibility only.
+
+## 4. Open decisions
+
+1. **Which native control variant does #2449 port against?** Apple has two (§2.1), switchable via a temporary flag, plus a third de facto path (`IPhoneLegacyControlBar`) that's what iPhone users actually see. _Recommended default:_ converge Apple on Variant B (`StackedAdjustmentsPanel`) before or as the first slice of #2449, delete the exploration flag and Variant A's dead code.
+2. **Is momentary (press-and-hold) before/after in scope for M6?** Neither platform has it today (§2.6); it's explicitly in #2450's acceptance criteria. _Recommended default:_ yes — build it once, to one spec, on both platforms simultaneously.
+3. **Does masking (#1541, and its unfiled Apple equivalent) gate M6's exit criteria?** The epic's own resolution-plan checklist includes #1534 (whose closure depends on #1541) but not #1541 itself — and #1541 lives in milestone 15, not 18. _Recommended default:_ no. Decouple #1534's presence in the epic checklist from M6's actual exit criteria; only #1542 (a genuine web-shell polish item, filmstrip + desaturated-before) should gate M6. #1534 closes on its own schedule once masking work is scoped and staffed separately.
+4. **Does the parity manifest generate `docs/features.md`, or only get checked against it?** _Recommended default:_ checked, not generated (§3.1) — preserves the doc's hand-audited, prose-derived-from-code convention.
+5. **Where does Apple's `LivingSlider`/`DragBar` interaction-contract consolidation land — inside #2450, or as epic #3019's unfiled MA5/MA6 waves?** They fix overlapping problems (§2.5, §3.3). _Recommended default:_ treat MA5/MA6 as a dependency #2450 can either wait on or absorb; whoever picks up #2450 should file MA5/MA6 first if they don't already exist by the time #2450 starts, so the Maple UI adoption and the interaction-consolidation work happen once.
+6. **Is web-side scroll-wheel slider nudge in scope for #2450, or does its "belongs to the retired S5 editor" history mean it should stay deferred?** _Recommended default:_ in scope — #2450's own acceptance criteria require input-source equivalence, and the S5 note explains why it's currently missing, not why it should stay missing.
+7. **Is Windows in scope anywhere in this epic?** _Recommended default:_ no, per the epic's own "native Maple and Maple in a browser" framing (§1) — stated here explicitly since the milestone title alone could be misread as "every native surface."
+8. **What technology checks the manifest?** _Recommended default:_ a Bun/TypeScript script (`tools/check-editor-parity-manifest.ts`), because it needs to parse the generated `.ts` adjustment tables, not just markdown section headers — a shell script in the style of `check-maple-ui-contracts.sh` can't do that cross-reference.
+
+## 5. Implementation order
+
+**Phase 0 — prerequisites (parallelizable).**
+
+- Apple control-variant convergence (Open decision 1) — blocks #2449's Apple-side IA work, nothing else.
+- #2448 manifest schema + checker skeleton, cross-referencing today's `ToolId`/`Tool` enums — independent of variant convergence, can start immediately.
+- File MA5/MA6 as real issues if they don't exist yet (Open decision 5) — independent, unblocks nothing else directly but should happen early so #2450 can decide whether to depend on or absorb them.
+
+**Phase 1 — foundations (parallelizable once Phase 0's manifest skeleton lands).**
+
+- #2448: populate the manifest, wire the checker into `cross.yml`, add the `docs/features.md` §8 drift check.
+- #2451: extend `accessibility.spec.ts`'s viewport parametrization into the editor specs; scaffold the new Apple `MapleUITests` accessibility-tree class. Both can be red against today's tree and made to pass incrementally as #2449/#2450 land.
+
+**Phase 2 — the port itself (parallelizable against each other, not against Phase 1).**
+
+- #2449: IA regions, capability-driven hiding off the manifest, mount web scopes, verify/lock live-resize state preservation.
+- #2450: command router per platform, gap-closure in both directions (wheel nudge → web, keyboard shortcuts → Apple), momentary before/after net-new on both, slider-primitive consolidation on Apple (possibly folding in MA5/MA6).
+- #1542 (filmstrip polish + desaturated-before) — independent of the above, web-only, can land any time after Phase 0.
+
+**Phase 3 — close the loop.**
+
+- #2451 reaches full breadth (cross-width × keyboard/pointer/touch/screen-reader/reduced-motion/200%-zoom) against the ported IA and router; this is where the epic's exit criteria actually get proven, not asserted.
+- Update `docs/features.md` §3/§8 to reflect the closed gaps; confirm the drift check is green rather than hand-editing around it.
