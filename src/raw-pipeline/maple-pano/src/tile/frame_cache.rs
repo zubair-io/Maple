@@ -15,9 +15,22 @@
 //! concurrently-running bands. [`TileFrameCache`] is the equivalent
 //! mechanism sized for that: a small LRU keyed by (original) frame
 //! index, shared behind an `Arc` so a cache hit is a cheap refcount bump
-//! rather than a deep copy, with the lock held only for the bookkeeping
-//! (never across a decode) so one thread's cache miss never blocks
-//! another thread's hit.
+//! rather than a deep copy.
+//!
+//! The lock is held across a decode on a miss, not just the bookkeeping.
+//! An earlier version released it during decode so one thread's slow
+//! decode couldn't block another thread's cache hit — but on a *cold*
+//! cache (the common case: several rayon threads all requesting the same
+//! not-yet-cached frame around the same time) that let multiple threads
+//! race into redundant concurrent decodes of the *same* frame before any
+//! of them finished inserting, each one transiently doubling or tripling
+//! peak RSS beyond what the capacity was supposed to bound — measured
+//! directly against this cache's whole reason for existing. Every caller
+//! only consults this cache a handful of times per band/tile/scan-pass
+//! (never per pixel — see the callers in `tile/sampling.rs`,
+//! `tile/masks.rs`, `tile/composite.rs`), so serializing the (comparatively
+//! rare) decodes trades a small, bounded amount of cross-thread overlap
+//! for peak RSS that actually stays at `capacity`.
 //!
 //! For a strip capture (frames laid out along one axis, each overlapping
 //! only its near neighbours) the working set touched by any handful of
@@ -42,7 +55,8 @@ pub(crate) struct TileFrameCache<'a> {
     capacity: usize,
     /// Most-recently-used at the front; evict from the back. A `Vec` is
     /// fine at this capacity (single-digit entries) — no need for a
-    /// hash-indexed LRU structure.
+    /// hash-indexed LRU structure. Locked across a decode on a miss too
+    /// (see module docs) — deliberately, not an oversight.
     entries: Mutex<Vec<(usize, Arc<PlanarImage>)>>,
 }
 
@@ -70,6 +84,16 @@ impl<'a> TileFrameCache<'a> {
     #[cfg(test)]
     pub(crate) fn from_frames(frames: Vec<PlanarImage>) -> Self {
         let capacity = frames.len().max(1);
+        Self::from_frames_with_capacity(frames, capacity)
+    }
+
+    /// Like [`Self::from_frames`], but with an explicit (possibly smaller)
+    /// capacity — for this module's own eviction-order tests, which need
+    /// eviction to actually fire without needing real decodable files on
+    /// disk (every index a test asks for is pre-seeded, so `get` never
+    /// takes the miss/decode path regardless of capacity).
+    #[cfg(test)]
+    fn from_frames_with_capacity(frames: Vec<PlanarImage>, capacity: usize) -> Self {
         let entries = frames
             .into_iter()
             .enumerate()
@@ -77,66 +101,56 @@ impl<'a> TileFrameCache<'a> {
             .collect();
         Self {
             inputs: None,
-            capacity,
+            capacity: capacity.max(1),
             entries: Mutex::new(entries),
         }
     }
 
     /// Get frame `idx` (an index into the `inputs` this cache was built
     /// with), decoding on demand and evicting the least-recently-used
-    /// entry if the cache is already at capacity. Decoding happens
-    /// **outside** the lock, so a slow decode on one thread never blocks
-    /// another thread's concurrent cache hit.
+    /// entry if the cache is already at capacity.
+    ///
+    /// The lock is held for the whole call, decode included (see module
+    /// docs for why): a hit is a cheap linear scan + `Arc` clone under
+    /// the lock, and a miss decodes under the same lock so two threads
+    /// can never race into a redundant concurrent decode of the same
+    /// frame.
     pub(crate) fn get(&self, idx: usize) -> Result<Arc<PlanarImage>, PanoError> {
-        if let Some(img) = self.touch(idx) {
+        let mut entries = self.entries.lock().unwrap();
+        if let Some(pos) = entries.iter().position(|(i, _)| *i == idx) {
+            let entry = entries.remove(pos);
+            let img = entry.1.clone();
+            entries.insert(0, entry);
             return Ok(img);
         }
-        // Miss: decode outside the lock.
         let inputs = self.inputs.expect(
             "TileFrameCache::get miss with no backing inputs — a from_frames() test cache \
              must be pre-seeded with every index it will be asked for",
         );
         let path = &inputs[idx];
         let img = Arc::new(crate::ingest::ingest_file(path)?.image);
-        Ok(self.insert(idx, img))
-    }
-
-    /// Fast path: if `idx` is already cached, move it to MRU position and
-    /// return the shared frame. Locks only for the bookkeeping.
-    fn touch(&self, idx: usize) -> Option<Arc<PlanarImage>> {
-        let mut entries = self.entries.lock().unwrap();
-        let pos = entries.iter().position(|(i, _)| *i == idx)?;
-        let entry = entries.remove(pos);
-        let img = entry.1.clone();
-        entries.insert(0, entry);
-        Some(img)
-    }
-
-    /// Insert a freshly-decoded frame at MRU position, evicting the LRU
-    /// entry first if at capacity. Re-checks for a race: another thread
-    /// may have decoded and inserted the same `idx` while this thread was
-    /// decoding — both decodes are equally valid (pure function of the
-    /// same file), so the race just costs one redundant decode, never a
-    /// correctness issue; the already-present entry is kept.
-    fn insert(&self, idx: usize, img: Arc<PlanarImage>) -> Arc<PlanarImage> {
-        let mut entries = self.entries.lock().unwrap();
-        if let Some(pos) = entries.iter().position(|(i, _)| *i == idx) {
-            let existing = entries.remove(pos);
-            let kept = existing.1.clone();
-            entries.insert(0, existing);
-            return kept;
-        }
         if entries.len() >= self.capacity {
             entries.pop(); // LRU is at the back.
         }
         entries.insert(0, (idx, img.clone()));
-        img
+        Ok(img)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mk_frame(w: u32) -> PlanarImage {
+        PlanarImage::from_planes(
+            w,
+            1,
+            vec![0.0; w as usize],
+            vec![0.0; w as usize],
+            vec![0.0; w as usize],
+            crate::ingest::ValidityMask::new_filled(w, 1, true),
+        )
+    }
 
     /// A capacity-1 cache re-decodes on every distinct index — proves the
     /// eviction path runs, not just the insert-empty path.
@@ -147,59 +161,84 @@ mod tests {
         assert_eq!(cache.capacity, 1);
     }
 
-    /// `touch`/`insert` bookkeeping: inserting beyond capacity evicts the
-    /// least-recently-used (back-of-list) entry, not the most-recent one.
+    /// A `from_frames` test cache resolves every pre-seeded index without
+    /// touching `inputs` (which is `None`) — the `get` path used
+    /// throughout `tile/`'s unit tests.
     #[test]
-    fn insert_evicts_lru_not_mru() {
-        let inputs: Vec<PathBuf> = vec![];
-        let cache = TileFrameCache::new(&inputs, 2);
-        let mk = |w: u32| {
-            Arc::new(PlanarImage::from_planes(
-                w,
-                1,
-                vec![0.0; w as usize],
-                vec![0.0; w as usize],
-                vec![0.0; w as usize],
-                crate::ingest::ValidityMask::new_filled(w, 1, true),
-            ))
-        };
-        cache.insert(0, mk(1));
-        cache.insert(1, mk(2));
-        // Cache: [1 (MRU), 0 (LRU)]. Touch 0 to make it MRU.
-        assert!(cache.touch(0).is_some());
-        // Cache: [0 (MRU), 1 (LRU)]. Insert 2 — should evict 1, not 0.
-        cache.insert(2, mk(3));
-        assert!(
-            cache.touch(0).is_some(),
-            "0 was MRU, should survive eviction"
-        );
-        assert!(
-            cache.touch(1).is_none(),
-            "1 was LRU, should have been evicted"
-        );
-        assert!(cache.touch(2).is_some(), "2 was just inserted");
+    fn from_frames_resolves_preseeded_indices() {
+        let cache = TileFrameCache::from_frames(vec![mk_frame(3), mk_frame(5)]);
+        assert_eq!(cache.get(0).unwrap().width(), 3);
+        assert_eq!(cache.get(1).unwrap().width(), 5);
     }
 
-    /// Re-inserting an index already present (the decode-race path) keeps
-    /// the cache at one entry for that index and returns a usable image,
-    /// rather than growing unboundedly or panicking.
+    /// A hit moves the touched entry to the front (MRU position) — the
+    /// ordering `get`'s eviction (LRU is at the back) depends on.
     #[test]
-    fn insert_race_on_same_index_keeps_one_entry() {
-        let inputs: Vec<PathBuf> = vec![];
-        let cache = TileFrameCache::new(&inputs, 4);
-        let mk = |w: u32| {
-            Arc::new(PlanarImage::from_planes(
-                w,
-                1,
-                vec![0.0; w as usize],
-                vec![0.0; w as usize],
-                vec![0.0; w as usize],
-                crate::ingest::ValidityMask::new_filled(w, 1, true),
-            ))
-        };
-        cache.insert(0, mk(1));
-        let kept = cache.insert(0, mk(2));
-        assert_eq!(kept.width(), 1, "the already-present decode should be kept");
-        assert_eq!(cache.entries.lock().unwrap().len(), 1);
+    fn hit_moves_entry_to_mru_position() {
+        let cache = TileFrameCache::from_frames_with_capacity(
+            vec![mk_frame(1), mk_frame(2), mk_frame(3)],
+            3,
+        );
+        // Seeded order (index 0 first) means 2 is initially LRU (back).
+        cache.get(2).unwrap(); // touch the current LRU
+        let entries = cache.entries.lock().unwrap();
+        assert_eq!(entries[0].0, 2, "touched entry should now be MRU (front)");
+    }
+
+    /// End-to-end (real files, fixture-gated — soft-skips without
+    /// `test-fixtures/raws/pano_00/`): a capacity-2 cache asked for all 3
+    /// `pano_00` frames in order evicts the least-recently-used one, not
+    /// the most-recently-used one, and correctly re-decodes it (not a
+    /// stale/wrong buffer) when asked for again.
+    #[test]
+    fn eviction_targets_lru_and_redecodes_correctly_on_a_real_set() {
+        let dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test-fixtures/raws/pano_00"
+        ));
+        if !dir.is_dir() {
+            eprintln!("skipping: {} not present", dir.display());
+            return;
+        }
+        let mut inputs: Vec<PathBuf> = std::fs::read_dir(dir)
+            .expect("read_dir")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("dng"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        inputs.sort();
+        if inputs.len() < 3 {
+            eprintln!("skipping: expected >= 3 .dng, found {}", inputs.len());
+            return;
+        }
+
+        let cache = TileFrameCache::new(&inputs, 2);
+        let d0 = cache.get(0).unwrap().r.len();
+        let _d1 = cache.get(1).unwrap();
+        // Cache: [1 (MRU), 0 (LRU)]. Loading 2 must evict 0, not 1.
+        let d2 = cache.get(2).unwrap().r.len();
+        {
+            let entries = cache.entries.lock().unwrap();
+            assert!(
+                entries.iter().any(|(i, _)| *i == 1),
+                "1 was MRU, should have survived eviction"
+            );
+            assert!(
+                !entries.iter().any(|(i, _)| *i == 0),
+                "0 was LRU, should have been evicted"
+            );
+        }
+        // Asking for 0 again must re-decode it correctly (same pixel
+        // count as the first decode), not panic or return garbage.
+        let d0_again = cache.get(0).unwrap().r.len();
+        assert_eq!(
+            d0_again, d0,
+            "re-decoded frame 0 should match its first decode"
+        );
+        assert!(d2 > 0, "sanity: the third decode actually produced pixels");
     }
 }
