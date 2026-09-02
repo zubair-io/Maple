@@ -1,8 +1,6 @@
 //! Voronoi ownership masks + overlap-width estimation for the tile
 //! composite. Split from `tile/mod.rs` for the file-size budget (#3086).
 
-use std::sync::Arc;
-
 use crate::error::PanoError;
 use crate::ingest::PlanarImage;
 
@@ -48,13 +46,6 @@ pub(super) fn estimate_min_overlap_width(
     let mut overlap_count = vec![vec![0usize; k]; k];
     let mut overlap_rows = vec![vec![std::collections::BTreeSet::<usize>::new(); k]; k];
 
-    // #3090: this scan is sequential (not rayon-parallel) and visits a
-    // frame far more often than once — resolve each frame through `cache`
-    // the first time this pass needs it, then reuse the same `Arc` (a
-    // cheap clone) for the rest of the scan instead of paying the
-    // cache's lock + bookkeeping on every single sample.
-    let mut resolved: Vec<Option<Arc<PlanarImage>>> = vec![None; k];
-
     for ry in (0..ch).step_by(stride) {
         for rx in (0..cw).step_by(stride) {
             let cx = rx as f64 + 0.5;
@@ -71,11 +62,8 @@ pub(super) fn estimate_min_overlap_width(
                 if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
                     continue;
                 }
-                if resolved[i].is_none() {
-                    resolved[i] = Some(cache.get(poses[i].frame_idx)?);
-                }
-                let frame = resolved[i].as_ref().expect("just resolved above");
-                covered[i] = warp::sample_bicubic(frame, fx - 0.5, fy - 0.5).is_some();
+                let frame = cache.get(poses[i].frame_idx)?;
+                covered[i] = warp::sample_bicubic(&frame, fx - 0.5, fy - 0.5).is_some();
             }
             for a in 0..k {
                 if !covered[a] {
