@@ -323,7 +323,7 @@ struct AppShell: View {
     #if os(iOS)
     /// A widget/URL deep-link or Map pin tap's `SearchParams`, waiting to be
     /// applied to the iPhone Search tab's account-wide session (#3163).
-    /// `switchToPhoneSearchTab(seeding:)` (AppShell+CloudActions.swift) sets
+    /// `switchToPhoneSearchTab(seeding:libraryID:)` (AppShell+PhoneSearchSeed.swift) sets
     /// this AND flips `cm.tab.shell` to `"search"`; `PhoneSearchTab` applies
     /// it once its session is ready and clears it after submitting. iPhone
     /// only — mac/iPad seed `searchVM` directly via `activateSearch`.
