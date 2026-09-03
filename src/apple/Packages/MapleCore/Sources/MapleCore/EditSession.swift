@@ -377,6 +377,11 @@ public final class EditSession {
     /// boundary (`endEdit` / next `beginEdit` / `undo` / `redo` / flush).
     @ObservationIgnored var pendingEdit: PendingEdit?
     @ObservationIgnored var nextTransactionID: UInt64 = 0
+    /// The render generation of the last frame that actually reached the
+    /// canvas (CPU publish or GPU-live present), `nil` for a generation-less
+    /// render. The stale-render guard's observable: a value older than the
+    /// latest transaction's generation means a stale frame got through.
+    @ObservationIgnored public internal(set) var lastPublishedRenderGeneration: UInt64?
     /// The most recently recorded, undone, or redone transaction — what
     /// the UI and tests observe as "the action that just happened".
     public internal(set) var lastCommittedTransaction: EditTransaction?

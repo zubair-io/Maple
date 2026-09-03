@@ -103,15 +103,17 @@ export class CropToolbarComponent {
     this.crop.setAspect(id);
     const ratio = resolveAspect(this.crop.aspectPreset(), width, height);
     if (ratio == null) return;
-    this.editor.commit();
+    this.editor.commit('crop', 'Crop aspect');
     this.library.updateAdjustment(id2, {
       crop: centeredCropForAspect(ratio, width, height, m.crop.angle),
     });
+    this.editor.endEdit();
   }
 
-  /** Commit one undo snapshot at the start of a straighten drag. */
+  /** Open one transaction at the start of a straighten drag (#2432); the
+   * next boundary (another commit, undo, image switch) closes it. */
   protected onStraightenStart(): void {
-    this.editor.commit();
+    this.editor.commit('crop', 'Straighten');
   }
 
   protected onStraighten(angle: number): void {
@@ -127,9 +129,10 @@ export class CropToolbarComponent {
   protected reset(): void {
     const id = this.editor.imageId();
     if (!id || !this.canReset()) return;
-    this.editor.commit();
+    this.editor.commit('crop', 'Reset crop');
     this.library.updateAdjustment(id, { crop: defaultCrop() });
     this.crop.setAspect('free');
+    this.editor.endEdit();
   }
 
   /** Exit crop — re-arm Exposure so the canvas renders the cropped result. */

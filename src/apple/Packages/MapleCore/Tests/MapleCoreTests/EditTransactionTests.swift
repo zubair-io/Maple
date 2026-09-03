@@ -28,7 +28,10 @@ final class EditTransactionTests: XCTestCase {
         // Values are the canonical sidecar attribute strings — the same bytes
         // the XMP writer emits, so a web transaction over the same models
         // produces an identical diff (docs/xmp-canonical-format.md).
-        XCTAssertEqual(a.diff[1], SidecarFieldChange(key: "crs:Exposure2012", before: "0", after: "0.5"))
+        // `before` is nil, not "0": the diff is omit-on-default on both
+        // platforms even though the Apple writer emits the core block
+        // unconditionally (see `SidecarDiff.attributes(of:)`).
+        XCTAssertEqual(a.diff[1], SidecarFieldChange(key: "crs:Exposure2012", before: nil, after: "0.5"))
         XCTAssertEqual(a.invalidation, .develop)
     }
 
@@ -82,7 +85,7 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(EditTransaction.serializationVersion, 1)
         XCTAssertEqual(
             t.serializedJSON(),
-            #"{"description":"t","diff":[{"after":"0.5","before":"0","key":"crs:Exposure2012"}],"id":1,"invalidation":"develop","kind":"adjustment","version":1}"#
+            #"{"description":"t","diff":[{"after":"0.5","before":null,"key":"crs:Exposure2012"}],"id":1,"invalidation":"develop","kind":"adjustment","version":1}"#
         )
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(t.serializedJSON().utf8)) as? [String: Any])
