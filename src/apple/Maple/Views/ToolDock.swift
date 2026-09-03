@@ -71,15 +71,21 @@ struct ToolDock: View {
                     onPresetsTap: onPresetsTap
                 )
 
-                // Mask — disabled placeholder; Tool.mask does not exist yet.
-                DisabledDockPlaceholder(symbol: "lasso", label: "Mask")
+                // Mask (#355) — real Tool case: arms the mask overlay +
+                // `MaskSection`. Like Crop it is edited through the canvas
+                // rather than the drag bar, so the dock is its route here.
+                SpecialDockButton(
+                    state: state,
+                    tool: .mask,
+                    onPresetsTap: onPresetsTap
+                )
                 // Heal — disabled placeholder; Tool.heal does not exist yet.
                 DisabledDockPlaceholder(symbol: "bandage", label: "Heal")
             }
             .padding(.vertical, 10)
         }
         // Width is 64pt (same as before); height grows to fit the content
-        // (4 groups + divider + 3 real special + 2 disabled ≈ 9 rows × 54pt + padding).
+        // (4 groups + divider + 5 real special + 1 disabled ≈ 10 rows × 54pt + padding).
         .frame(width: 64, height: min(CGFloat(ToolGroup.allCases.count + 5) * 54 + 40, 520))
         .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
         .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
@@ -100,6 +106,9 @@ private struct GroupDockButton: View {
     /// Dot shown when any tool in the group has a non-neutral value.
     private var isModified: Bool {
         Tool.tools(in: group).contains { tool in
+            // Mask (#355): modified once any layer exists — a layer stack has
+            // no scalar to compare against a default.
+            if tool == .mask { return !state.session.model.localAdjustments.isEmpty }
             // Film (#2683) has a catalog pick with no sub-param of its
             // own — only its Strength scalar is a sub-param — so the dot
             // must also light whenever a look is chosen, independent of
@@ -189,6 +198,7 @@ private struct SpecialDockButton: View {
 
     private var isModified: Bool {
         if tool == .crop { return !state.session.model.crop.isIdentity }
+        if tool == .mask { return !state.session.model.localAdjustments.isEmpty }
         // Film (#2683): the dot must light on a chosen look even before
         // Strength (its only sub-param) has been touched.
         if tool == .filmLook { return !state.session.model.filmLook.isEmpty }

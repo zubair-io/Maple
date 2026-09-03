@@ -157,7 +157,16 @@ extension EditSession {
             return false
         }
 
-        let m = model
+        // Local adjustments (#355): raw-core evaluates masks in FULL-FRAME
+        // normalized coordinates and applies the user crop AFTER the chain,
+        // but this path crops the decoded buffer BEFORE upload (#1617), so
+        // the wgpu chain's (x, y) are crop-normalized. Remap every layer
+        // through the crop's affine (`MaskRemap`) so the live canvas places
+        // each mask exactly where the CPU refine and the export do. Identity
+        // crop ⇒ the stack passes through untouched.
+        var m = model
+        m.localAdjustments = MaskRemap.remapped(
+            model.localAdjustments, appliedCrop: appliedCrop, nativeSize: nativeImageSize)
         let pipeline = self.pipeline
         let assetURL = asset.primaryURL
 

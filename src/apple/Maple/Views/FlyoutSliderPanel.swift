@@ -61,6 +61,11 @@ struct FlyoutSliderPanel: View {
                 // primary field, so this is its whole control surface,
                 // same swap as Tone Curve / Film.
                 LensCorrectionsSection(state: state)
+            } else if state.armedTool == .mask {
+                // Layer list + per-layer controls replace the sliders while
+                // Mask is armed (#355); the handles live on the canvas
+                // (`MaskOverlay`), same split as Crop / CropToolbar.
+                MaskSection(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams

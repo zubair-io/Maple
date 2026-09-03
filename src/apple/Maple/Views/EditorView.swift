@@ -507,8 +507,16 @@ struct EditorView: View {
                 if state.armedTool == .crop {
                     CropOverlay(state: state)
                 }
+                // Mask overlay (#355): the selected layer's handles + weight
+                // tint while the Mask tool is armed. The canvas renders the
+                // masked result live underneath.
+                if state.armedTool == .mask {
+                    MaskOverlay(state: state)
+                }
             }
-            .padding(state.armedTool == .crop ? Self.cropViewportMargin : 0)
+            // The same edge margin for Mask: a handle at the frame edge
+            // needs its full grab radius inside the gesture region.
+            .padding(state.armedTool == .crop || state.armedTool == .mask ? Self.cropViewportMargin : 0)
             // Before/after "BEFORE" badge — surfaced while the session is
             // showing the original (the canvas itself falls back to the
             // placeholder).

@@ -192,6 +192,10 @@ enum ToolGlyphShapes {
             return [.circle(cx: 8, cy: 8, r: 4.8), .circle(cx: 8, cy: 8, r: 2.2)]
 
         // ── Standalone ──────────────────────────────────────────────────────
+        // Mask (#355) — a radial mask's ellipse with a gradient's
+        // pin-and-axis through it: the two shapes the tool draws.
+        case .mask:
+            return [.circle(cx: 8, cy: 8, r: 4.6), .path("M8 2.2v2M8 11.8v2")]
         // Two crop rails crossing.
         case .crop:
             return [.path("M4.6 2.6v8.8h8.8"), .path("M2.6 4.6h8.8v8.8")]

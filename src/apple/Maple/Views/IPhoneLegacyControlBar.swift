@@ -52,6 +52,12 @@ struct IPhoneLegacyControlBar: View {
                 LensCorrectionsSection(state: state)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 7)
+            } else if state.armedTool == .mask {
+                // Layer list + per-layer controls replace the drag bar
+                // (#355): the handles live on the canvas (`MaskOverlay`).
+                MaskSection(state: state)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 7)
             } else {
                 DragBar(state: state)
                     .padding(.vertical, 7)

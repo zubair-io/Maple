@@ -212,6 +212,8 @@ Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; 
 | Library Picker Modal   |  ✓  |   ✓   |    ✓    |
 | List View              |  ✓  |   ✓   |    ✓    |
 | Map Surface            |  ✓  |   ✓   |    ✓    |
+| Mask Overlay           |  —  |   ✓   |    —    |
+| Mask Panel             |  —  |   ✓   |    —    |
 | Mobile Control Bar     |  ✓  |   ✓   |    ✓    |
 | Move To Modal          |  ✓  |   ✓   |    ✓    |
 | Notification Feed      |  ✓  |   ✓   |    ✓    |
@@ -240,7 +242,7 @@ Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; 
 | Version History Panel  |  ✓  |   ✓   |    ✓    |
 | Whiteboard Canvas      |  ✓  |   ✓   |    ✓    |
 
-55 elements, complete on all three platforms.
+57 elements; 55 complete on all three platforms. Mask Overlay and Mask Panel (the local-adjustment surfaces, `docs/design/maple-ui/components/mask-overlay.md` / `mask-panel.md`) shipped on Apple first (#355); the web twin is #1541 and Windows has no masking UI in M3 (`docs/strategy/milestones/m3-local-adjustments.md` § 7).
 
 ## 6. Pages
 

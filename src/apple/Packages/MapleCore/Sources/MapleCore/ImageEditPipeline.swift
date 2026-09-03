@@ -916,6 +916,11 @@ public actor ImageEditPipeline {
             iso: iso,
             wbFrame: wbFrame
         )
+        // Local adjustments (#355): the layer stack rides the CPU chain on
+        // the same flat wire the GPU live chain binds — full-frame
+        // coordinates, since this entry develops the whole frame and
+        // `CropImageStage` cuts the crop from its OUTPUT.
+        let localAdjustments = LocalAdjustmentFlat.flatten(model.localAdjustments)
 
         // #1959 — input-readback cache check. `scaled` is a pure function
         // of `(decodedSource, w, h)` (see `Self.prescaleForDisplay`), so
@@ -987,7 +992,8 @@ public actor ImageEditPipeline {
                 outputBytes = try mapleStage("apply scene-linear chain") {
                     try PipelineRenderer.applySceneLinearChain(
                         inputBytes: inputBytes, width: w, height: h, params: params,
-                        noiseProfile: noiseProfile
+                        noiseProfile: noiseProfile,
+                        localAdjustments: localAdjustments
                     )
                 }
             } catch {
@@ -1094,6 +1100,11 @@ public actor ImageEditPipeline {
             iso: iso,
             wbFrame: wbFrame
         )
+        // Local adjustments (#355): the layer stack rides the CPU chain on
+        // the same flat wire the GPU live chain binds — full-frame
+        // coordinates, since this entry develops the whole frame and
+        // `CropImageStage` cuts the crop from its OUTPUT.
+        let localAdjustments = LocalAdjustmentFlat.flatten(model.localAdjustments)
 
         // Same input-readback cache check as `applySceneLinearChainViaFFI` —
         // see that function's #1959 comment for the correctness argument.
@@ -1139,7 +1150,8 @@ public actor ImageEditPipeline {
                     try PipelineRenderer.applyChainAndEncodeDisplayTarget(
                         inputBytes: inputBytes, width: w, height: h, params: params,
                         targetPrimaries: targetPrimaries.wireValue,
-                        noiseProfile: noiseProfile
+                        noiseProfile: noiseProfile,
+                        localAdjustments: localAdjustments
                     )
                 }
             } catch {

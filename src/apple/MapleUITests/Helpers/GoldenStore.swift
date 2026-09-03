@@ -158,7 +158,7 @@ enum GoldenStore {
     /// CIEDE2000Tests.loadRGBA — we pin to sRGB explicitly so wide-gamut
     /// Macs don't re-encode the bytes through the device color space
     /// before flattening.
-    private static func decodeRGBA(_ data: Data) throws -> ([UInt8], Int, Int) {
+    static func decodeRGBA(_ data: Data) throws -> ([UInt8], Int, Int) {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let img = CGImageSourceCreateImageAtIndex(src, 0, nil)
         else {

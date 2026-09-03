@@ -1507,12 +1507,20 @@ extension PipelineRenderer {
     ///
     /// `inputBytes` must be exactly `16 * width * height` bytes (each
     /// pixel = 4 f32 lanes). Throws on size mismatch or chain failure.
+    ///
+    /// `localAdjustments` (#355) is the flat layer stack from
+    /// `LocalAdjustmentFlat.flatten` — bound to `local_adjustments_ptr/len`
+    /// for the duration of the call, exactly like `noiseProfile`; empty
+    /// leaves the FFI's NULL/0 default (no layers ⇒ the stage's early
+    /// return). This entry always sees the FULL frame (the crop is applied
+    /// to its output by `CropImageStage`), so the stack is passed as-is.
     public static func applySceneLinearChain(
         inputBytes: Data,
         width: Int,
         height: Int,
         params: MapleAdjustmentParams,
-        noiseProfile: [Float]? = nil
+        noiseProfile: [Float]? = nil,
+        localAdjustments: [Float] = []
     ) throws -> Data {
         let lanes = width * height * 4
         let expectedBytes = lanes * MemoryLayout<Float>.size
@@ -1527,11 +1535,13 @@ extension PipelineRenderer {
         // `withUnsafeBufferPointer` so the closure captures the live pointer;
         // the outer closure chain keeps `noiseProfile` alive for the duration.
         let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+          try localAdjustments.withUnsafeBufferPointer { laBuf in
             var p = params
             if let npBuf {
                 p.noise_profile_ptr = npBuf.baseAddress
                 p.noise_profile_len = UInt32(npBuf.count)
             }
+            bindLocalAdjustments(laBuf, to: &p.local_adjustments_ptr, len: &p.local_adjustments_len)
             return try output.withUnsafeMutableBytes { outBuf -> Int32 in
                 let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
                 return inputBytes.withUnsafeBytes { inBuf -> Int32 in
@@ -1543,12 +1553,25 @@ extension PipelineRenderer {
                     )
                 }
             }
+          }
         }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
         return output
+    }
+
+    /// Point a `(ptr, len)` pair at the flat layer stack, leaving the FFI's
+    /// NULL/0 default when it is empty.
+    static func bindLocalAdjustments(
+        _ buffer: UnsafeBufferPointer<Float>,
+        to ptr: inout UnsafePointer<Float>?,
+        len: inout UInt
+    ) {
+        guard !buffer.isEmpty, let base = buffer.baseAddress else { return }
+        ptr = base
+        len = UInt(buffer.count)
     }
 
     /// Helper: invoke `body` with an `UnsafeBufferPointer<T>?` scoped to
@@ -1778,7 +1801,8 @@ extension PipelineRenderer {
         height: Int,
         params: MapleAdjustmentParams,
         targetPrimaries: UInt32,
-        noiseProfile: [Float]? = nil
+        noiseProfile: [Float]? = nil,
+        localAdjustments: [Float] = []
     ) throws -> Data {
         guard width > 0, height > 0 else {
             throw PipelineError.renderFailed(
@@ -1807,11 +1831,13 @@ extension PipelineRenderer {
         }
         var output = Data(count: expectedBytes)
         let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+          try localAdjustments.withUnsafeBufferPointer { laBuf in
             var p = params
             if let npBuf {
                 p.noise_profile_ptr = npBuf.baseAddress
                 p.noise_profile_len = UInt32(npBuf.count)
             }
+            bindLocalAdjustments(laBuf, to: &p.local_adjustments_ptr, len: &p.local_adjustments_len)
             return try output.withUnsafeMutableBytes { outBuf -> Int32 in
                 let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
                 return inputBytes.withUnsafeBytes { inBuf -> Int32 in
@@ -1824,6 +1850,7 @@ extension PipelineRenderer {
                     )
                 }
             }
+          }
         }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"

@@ -370,12 +370,21 @@ public actor GpuLiveSession {
         let red = Self.flattened(model.toneCurveRed)
         let green = Self.flattened(model.toneCurveGreen)
         let blue = Self.flattened(model.toneCurveBlue)
-        return luma.withUnsafeBufferPointer { lu in
+        // Local adjustments (#355): the layer stack on the same flat-array
+        // wire the point curves use (`LocalAdjustmentFlat`, one exactly-sized
+        // allocation per tick). The caller has already remapped the layers
+        // into this session's (possibly cropped) buffer space — see
+        // `EditSession.presentViaGpuLive`. Empty ⇒ NULL/0 ⇒ the stage's
+        // early return.
+        let layers = LocalAdjustmentFlat.flatten(model.localAdjustments)
+        return layers.withUnsafeBufferPointer { la in
+          luma.withUnsafeBufferPointer { lu in
             red.withUnsafeBufferPointer { r in
                 green.withUnsafeBufferPointer { g in
                     blue.withUnsafeBufferPointer { b in
                         noiseProfile.withUnsafeBufferPointer { np in
                             var p = params
+                            Self.bind(la, to: &p.local_adjustments_ptr, len: &p.local_adjustments_len)
                             Self.bind(lu, to: &p.tone_curve_luma_ptr, len: &p.tone_curve_luma_len)
                             Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
                             Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
@@ -397,6 +406,7 @@ public actor GpuLiveSession {
                     }
                 }
             }
+          }
         }
     }
 

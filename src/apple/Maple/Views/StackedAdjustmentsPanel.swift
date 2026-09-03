@@ -186,16 +186,19 @@ struct StackedAdjustmentsPanel: View {
             }
             .accessibilityIdentifier("editor-panel-tool-presets")
 
-            // --- Future special tools (no Tool case yet; disabled placeholders) ---
-            // Mask — gated on a future `Tool.mask` case (not yet in the enum).
+            // Mask (#355) — real Tool case: arms the mask overlay; the
+            // layer list + per-layer sliders render in the Detail section.
             SpecialToolButton(
-                icon: .symbol("lasso"),
+                icon: .tool(.mask),
                 label: "Mask",
-                isSelected: false,
-                isEnabled: false, // disabled: Tool.mask does not exist yet
-                action: {}
-            )
+                isSelected: state.armedTool == .mask,
+                isEnabled: true
+            ) {
+                state.arm(tool: .mask)
+            }
             .accessibilityIdentifier("editor-panel-tool-mask")
+
+            // --- Future special tools (no Tool case yet; disabled placeholders) ---
 
             // Heal — gated on a future `Tool.heal` case.
             SpecialToolButton(
@@ -295,6 +298,13 @@ struct StackedAdjustmentsPanel: View {
                 ColorGradingPanel(state: state)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
+            } else if group == state.armedGroup && state.armedTool == .mask {
+                // Mask (#355): the layer list + per-layer controls replace
+                // the Detail slider stack while Mask is armed — same
+                // custom-surface swap as Crop / Color Grading.
+                MaskSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
             } else {
                 // Sub-param row — shown when the armed tool (which belongs to
                 // this group) has multiple sub-params.
@@ -376,6 +386,10 @@ struct StackedAdjustmentsPanel: View {
                 // even before Strength (its only sub-param) has moved.
                 if tool == .filmLook {
                     return !state.session.model.filmLook.isEmpty
+                }
+                // Mask (#355): modified once any layer exists.
+                if tool == .mask {
+                    return !state.session.model.localAdjustments.isEmpty
                 }
                 guard tool.isWired else { return false }
                 let subs = tool.subParams

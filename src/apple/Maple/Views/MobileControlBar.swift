@@ -74,6 +74,10 @@ struct MobileControlBar: View {
                 // group slider stack (#2231) — same no-primary-field shape
                 // as Tone Curve / Film.
                 LensCorrectionsSection(state: state)
+            } else if state.armedTool == .mask {
+                // Layer list + per-layer controls replace the group slider
+                // stack (#355) — same no-primary-field shape as Crop.
+                MaskSection(state: state)
             } else {
                 let subs = state.armedSubParams
                 if subs.count > 1 {
@@ -164,8 +168,14 @@ struct MobileControlBar: View {
                     onPresetsTap: onPresetsTap
                 )
 
+                // Mask (#355) — real Tool case, mirroring the dock.
+                MobileToolButton(
+                    state: state,
+                    tool: .mask,
+                    onPresetsTap: onPresetsTap
+                )
+
                 // ── Disabled placeholders ────────────────────────────────────
-                MobileDisabledPlaceholder(symbol: "lasso", label: "Mask")
                 MobileDisabledPlaceholder(symbol: "bandage", label: "Heal")
             }
             .padding(.horizontal, 10)

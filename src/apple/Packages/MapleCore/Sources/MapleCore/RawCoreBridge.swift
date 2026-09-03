@@ -249,6 +249,12 @@ public enum RawCoreBridge {
         m.nrColor = 0
         // Sharpen (the chain handles it — see the nrColor note above).
         m.sharpenAmount = 0
+        // Local adjustments (#355) — the `local_adjustments` stage runs in
+        // BOTH the decode and the live chain; the chain carries the layer
+        // stack on `local_adjustments_ptr` (`LocalAdjustmentFlat`), so the
+        // decode must not bake it or every mask would apply twice. Also
+        // keeps a mask drag off the decoded-buffer cache key.
+        m.localAdjustments = []
         return m
     }
 

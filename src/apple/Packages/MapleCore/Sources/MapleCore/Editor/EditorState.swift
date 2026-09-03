@@ -121,6 +121,18 @@ public final class EditorState {
         cropAspectId = id
     }
 
+    // MARK: Mask session (#355) — the API lives in EditorState+Masks.swift
+
+    /// Index into `session.model.localAdjustments` of the layer whose
+    /// handles the canvas overlay draws and whose controls the mask panel
+    /// edits. Transient UI state — never persisted. Read through
+    /// `selectedMask`, which re-validates it against the live stack.
+    public var selectedMaskIndex: Int?
+
+    /// `true` between `beginMaskGesture()` and `endMaskGesture()` — the
+    /// one-snapshot-per-drag guard for continuous mask edits.
+    @ObservationIgnored var maskGestureActive = false
+
     // MARK: Arm / select
 
     /// Arm a tool. If it belongs to a different group, switch group too.
@@ -152,6 +164,18 @@ public final class EditorState {
             // Entering crop — reset the aspect lock and force fit + zero pan.
             cropAspectId = .free
             zoom.resetToFit()
+        }
+        // Mask (#355): editing is fit-zoom-only for all of M3 — the overlay
+        // footprint maps 1:1 onto the painted image only at fit, and the
+        // tile/native-detail paths don't run while a layer stack exists
+        // (`EditSession._scheduleRefine`). Land on the first layer when
+        // nothing valid is selected so the panel never opens on "nothing".
+        if tool == .mask {
+            endMaskGesture()
+            zoom.resetToFit()
+            if selectedMask == nil {
+                selectedMaskIndex = session.model.localAdjustments.indices.first
+            }
         }
     }
 

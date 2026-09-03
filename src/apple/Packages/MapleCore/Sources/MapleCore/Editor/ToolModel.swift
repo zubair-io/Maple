@@ -53,7 +53,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Effects
     case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
     // Detail
-    case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections, crop, presets
+    case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections, mask, crop, presets
 
     public var group: ToolGroup {
         switch self {
@@ -65,7 +65,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
             return .effects
         case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
-             .crop, .presets:
+             .mask, .crop, .presets:
             return .detail
         }
     }
@@ -99,6 +99,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .captureSharpen: return "Deconv"
         case .captureSigma:   return "Deconv σ"
         case .lensCorrections: return "Lens"
+        case .mask:           return "Mask"
         case .crop:           return "Crop"
         case .presets:        return "Presets"
         }
@@ -146,9 +147,15 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// — a layout the generic sub-param grid has no room for — so
     /// `displayRange` stays nil and `LensCorrectionsSection` is the whole
     /// control surface, same as HSL / Tone Curve / Film.
+    ///
+    /// Mask (#355) takes the Crop shape: its model field
+    /// (`localAdjustments`) and pipeline stage exist, but it is edited
+    /// through the canvas overlay + `MaskSection` rather than the drag bar
+    /// — `displayRange` is nil, and `EditorState+Masks.swift` is the whole
+    /// value pipe, with its own undo boundaries.
     public var isWired: Bool {
         switch self {
-        case .crop:
+        case .crop, .mask:
             return false
         default:
             return true

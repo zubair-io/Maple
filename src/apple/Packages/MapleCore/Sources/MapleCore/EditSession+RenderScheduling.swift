@@ -97,6 +97,14 @@ extension EditSession {
         // output) — a touch slower at deep zoom on a cropped image, but
         // correct. Full-frame (uncropped) renders keep the fast paths.
         let cropApplied = !cropEditingActive && CropImageStage.shouldApply(model.crop)
+        // Local adjustments (#355): mask coordinates are full-frame
+        // normalized and raw-core's tile entry rejects a model that carries
+        // them (`pipeline::tile`, rc 10) — a tile has no offset plumbing to
+        // reinterpret them, and the native-detail patch would run the chain
+        // on a sub-rect for the same wrong result. Both 1:1 paths stay off
+        // while a layer stack exists; the bounded whole-image refine below
+        // (full frame, crop applied afterward) is the correct path.
+        let masksPresent = !model.localAdjustments.isEmpty
         // Native visible-region detail is the production 100% path. It uses a
         // stripped-model RAW handle and sends the resulting small scene-linear
         // patch through the same Apple display chain as the CPU canvas. The
@@ -104,6 +112,7 @@ extension EditSession {
         // because it publishes scene-linear tiles directly and has open color
         // parity work.
         if !cropApplied,
+           !masksPresent,
            asset.isRaw,
            asset.primaryURL != nil,
            // #1167/#2070: the tile develop now accepts the full-image
@@ -126,6 +135,7 @@ extension EditSession {
         }
         // Plan 3 / Ticket 06 M4 — deep-zoom branch.
         if !cropApplied,
+           !masksPresent,
            Self.deepZoomEnabled,
            pixelScale >= 1.0,
            !viewportSourceRect.isEmpty,
