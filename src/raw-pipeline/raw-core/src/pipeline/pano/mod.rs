@@ -27,12 +27,9 @@
 //!    clipped skies feed magenta-fringed pixels to the matcher),
 //! 7. DCP `profile_for` + `apply_colorimetry` (CM/FM + HSM →
 //!    scene-linear Rec.2020 D65),
-//! 8. ProfileGainTableMap when present (DNG 1.6 § 6.8 spatially-varying
-//!    calibration gain — the in-file lens-shading/vignette mechanism
-//!    raw-core already applies),
-//! 9. EXIF orientation.
+//! 8. EXIF orientation.
 //!
-//! **Excluded — everything after PGTM in the canonical chain:** the
+//! **Excluded — everything after DCP in the canonical chain:** the
 //! decode-time denoisers (`chroma_prefilter`, `deep_denoise` — default-off
 //! anyway), capture sharpening, damped auto-exposure (#429), user white
 //! balance / tone / color / effects stages, sharpen, and noise reduction.
@@ -312,19 +309,13 @@ fn develop_scene_linear_for_pano(
     // highlight_recovery_oklab::apply_post_dcp is a documented no-op for
     // the default `ChromaticAdaptation` mode — skipped.
 
-    // ProfileGainTableMap (DNG 1.6 § 6.8) — in-file spatially-varying
-    // calibration gain (lens shading / vignette), scene-linear Rec.2020.
-    // No-op when the source doesn't ship the tag (the DJI pano fixtures
-    // don't — their vignette arrives via the stage-2a OpcodeList3 GainMap
-    // instead; see module docs).
-    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
-        stage("pano_profile_gain_table_map", || {
-            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
-        });
-    }
-    dump_after("pano_04_profile_gain_table_map", &scene);
+    // ProfileGainTableMap is not applied here either (#2774): it is the
+    // spatial half of the vendor PTC look pair #425 dropped, not a
+    // calibration gain — see `pipeline::develop`. (The DJI pano fixtures
+    // never shipped one; their vignette arrives via the stage-2a
+    // OpcodeList3 GainMap instead; see module docs.)
 
-    // STOP — everything downstream of PGTM in the canonical chain is
+    // STOP — everything downstream of DCP in the canonical chain is
     // display prep or user adjustment (see module docs).
     Ok((scene, applied_opcodes))
 }
