@@ -12,26 +12,29 @@ cast). Feeds `ACR_AUTO` in raw-core's `auto_adjustments_awb_fixture_tests.rs`
 (#2247). Starting points are each fixture's as-shot reading.
 
 Usage: src/scripts/fit_acr_auto_wb.py [test_0017 ...]   (default: all)
-Env:   MAPLE_CLI (release maple-cli), MAPLE_FIT_WORK (scratch dir)
+Env:   MAPLE_CLI (release maple-cli), MAPLE_FIT_WORK (scratch dir; default: a fresh mkdtemp)
 """
 import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 ROOT = str(pathlib.Path(__file__).resolve().parents[2])
 CLI = os.environ.get("MAPLE_CLI", f"{ROOT}/src/raw-pipeline/target/release/maple-cli")
 sys.path.insert(0, f"{ROOT}/src/scripts")
 import compare_images
-WORK = os.environ.get("MAPLE_FIT_WORK", "/tmp/maple-acr-auto-fit")
+WORK = os.environ.get("MAPLE_FIT_WORK") or tempfile.mkdtemp(prefix="maple-acr-auto-fit-")
 os.makedirs(WORK, exist_ok=True)
 
 def render(stem, raw, t, tint, ref="wb_auto"):
     base = open(f"{ROOT}/test-fixtures/references/{stem}/xmp/baseline.xmp").read()
     xmp = base.replace('crs:WhiteBalance="As Shot"', f'crs:WhiteBalance="Custom" crs:Temperature="{t:.0f}" crs:Tint="{tint:.1f}"')
     assert xmp != base
-    xp = f"{WORK}/{stem}.xmp"; open(xp, "w").write(xmp)
+    xp = f"{WORK}/{stem}.xmp"
+    with open(xp, "w") as f:
+        f.write(xmp)
     png = f"{WORK}/{stem}.png"
     subprocess.run([CLI, "render", f"{ROOT}/test-fixtures/raws/{raw}", "--params", xp, "--out", png, "--profile", "neutral", "--demosaic", "preview"], check=True, capture_output=True)
     d = compare_images.diff(png, f"{ROOT}/test-fixtures/references/{stem}/down/{ref}.png")
