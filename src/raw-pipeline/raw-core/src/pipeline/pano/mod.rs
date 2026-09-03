@@ -75,7 +75,7 @@ use crate::{
     cancel::CancelToken,
     color::dcp,
     demosaic,
-    error::Result,
+    error::{Error, Result},
     image::{CfaPattern, ExifOrientation, Image, RawImage},
     linearize,
     stages::{highlight_recovery, white_balance},
@@ -157,6 +157,12 @@ pub struct PanoIngest {
 /// exact stage list). `ext` is the lowercase file-extension hint, exactly
 /// as in [`crate::decode_raw`].
 pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
+    guard_decode_panics("decode_for_pano", ext, || {
+        decode_for_pano_unguarded(bytes, ext)
+    })
+}
+
+fn decode_for_pano_unguarded(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
     let raw = crate::decode::decode_bytes(bytes, ext)?;
     // Stage 2a inputs (#1159): best-effort — a source without (parseable)
     // opcodes develops exactly as before.
@@ -179,8 +185,43 @@ pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
 /// is read but never linearized/demosaiced), so a many-frame priors pass —
 /// e.g. printing the gimbal table for a 21-frame pano — stays cheap.
 pub fn read_pano_metadata(bytes: &[u8], ext: &str) -> Result<PanoSourceMetadata> {
-    let raw = crate::decode::decode_bytes(bytes, ext)?;
-    Ok(read_pano_metadata_from_parts(bytes, ext, &raw))
+    guard_decode_panics("read_pano_metadata", ext, || {
+        let raw = crate::decode::decode_bytes(bytes, ext)?;
+        Ok(read_pano_metadata_from_parts(bytes, ext, &raw))
+    })
+}
+
+/// Panic boundary for the pano ingest entries (#3230).
+///
+/// `rawler::decode` already wraps its own decoder in `catch_unwind` (an
+/// `assert!` on inconsistent on-file metadata — e.g. `BlackLevel::new`'s
+/// `levels.len() == width * height * cpp` — comes back as a
+/// `DecoderFailed("Caught a panic while decoding…")`, which
+/// [`crate::decode::decode_bytes`] maps to [`Error::Decode`]). What it does
+/// NOT wrap is everything else these entries touch on the same untrusted
+/// bytes: rawler's unwrapped `get_decoder` / `raw_metadata` / `ifd` helpers
+/// and our own OpcodeList3 / EXIF walks. These entries run on user-selected
+/// assets inside the Self Hosted job-runner's `maple-cli pano stitch`
+/// subprocess and behind `maple_pano_stitch`, so a panic here must be a
+/// typed per-frame failure ([`Error::DecodePanicked`]), never a dead
+/// process. (The C ABI is safe regardless — `maple_pano_stitch` runs on a
+/// `with_large_stack` worker thread whose `join()` absorbs the unwind as
+/// rc 99 — but "render worker panicked" is not a per-frame diagnosis.)
+fn guard_decode_panics<T>(entry: &str, ext: &str, body: impl FnOnce() -> Result<T>) -> Result<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let reason = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "non-string panic payload".to_string());
+            Err(Error::DecodePanicked {
+                path: std::path::PathBuf::from(format!("rawfile.{ext}")),
+                reason: format!("{entry}: {reason}"),
+            })
+        }
+    }
 }
 
 /// The truncated develop chain (module docs stages 1–8). Pre-orientation.

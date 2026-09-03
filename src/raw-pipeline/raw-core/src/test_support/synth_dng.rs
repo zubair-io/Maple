@@ -22,6 +22,7 @@ const TAG_CFA_PATTERN: u16 = 33422;
 const TAG_DNG_VERSION: u16 = 50706;
 const TAG_DNG_BACKWARD_VERSION: u16 = 50707;
 const TAG_UNIQUE_CAMERA_MODEL: u16 = 50708;
+const TAG_BLACK_LEVEL_REPEAT_DIM: u16 = 50713;
 const TAG_BLACK_LEVEL: u16 = 50714;
 const TAG_WHITE_LEVEL: u16 = 50717;
 const TAG_COLOR_MATRIX_1: u16 = 50721;
@@ -104,6 +105,11 @@ pub struct SyntheticGreyDng {
     /// always resolves to the full frame (`ActiveAreaRect::full`, DNG
     /// default — see `pipeline::pano::opcodes::read_opcode_list3`).
     pub opcode_list3: Option<Vec<u8>>,
+    /// `BlackLevelRepeatDim` (rows, cols). The writer always emits a SINGLE
+    /// `BlackLevel` value, so anything but `None` / `(1, 1)` is a
+    /// deliberately inconsistent file: rawler's `BlackLevel::new` asserts
+    /// `levels.len() == rows * cols * cpp` and panics (#3230's repro).
+    pub black_level_repeat_dim: Option<(u16, u16)>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -127,6 +133,7 @@ impl Default for SyntheticGreyDng {
             linearization_table: None,
             encoded_value_override: None,
             opcode_list3: None,
+            black_level_repeat_dim: None,
         }
     }
 }
@@ -233,6 +240,9 @@ impl SyntheticGreyDng {
 
         // Linearisation
         ifd.add_short(TAG_BLACK_LEVEL, 0);
+        if let Some((rows, cols)) = self.black_level_repeat_dim {
+            ifd.add_shorts(TAG_BLACK_LEVEL_REPEAT_DIM, vec![rows, cols]);
+        }
         ifd.add_short(TAG_WHITE_LEVEL, 65535);
 
         // ColorMatrix1: identity unless override set (Hasselblad / similar).

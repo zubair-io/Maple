@@ -150,3 +150,9 @@ required-features = ["testkit"]
 name = "ml_glue"
 path = "tests/ml_glue.rs"
 required-features = ["ml"]
+
+[dev-dependencies]
+# `SyntheticGreyDng` for the #3230 rejected-DNG ingest gate — a file rawler
+# panics on (caught at the raw-core boundary) must surface as a typed
+# `PanoError::RawDecode`, never unwind through `ingest_bytes`.
+raw-core = { path = "../raw-core", features = ["test-support"] }

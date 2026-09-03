@@ -290,3 +290,71 @@ fn applies_opcode_list3_on_dji_fixtures() {
         ingest.applied_opcodes
     );
 }
+
+/// A DNG whose `BlackLevelRepeatDim` (2×2) disagrees with its single
+/// `BlackLevel` value — the shape of on-file inconsistency rawler only
+/// checks with an `assert_eq!` (`BlackLevel::new`, rawimage.rs) and so
+/// PANICS on rather than rejecting. The #3230 contract: both pano entries
+/// return a typed error for it and never unwind into the caller.
+fn rawler_rejected_dng() -> Vec<u8> {
+    SyntheticGreyDng {
+        black_level_repeat_dim: Some((2, 2)),
+        ..SyntheticGreyDng::default()
+    }
+    .write_to_bytes()
+}
+
+#[test]
+fn rawler_rejected_dng_is_a_typed_error_not_a_panic() {
+    let bytes = rawler_rejected_dng();
+    // Sanity: the same writer with a consistent header decodes fine, so the
+    // failure below is the repeat-dim mismatch and nothing else.
+    decode_for_pano(&SyntheticGreyDng::default().write_to_bytes(), "dng")
+        .expect("consistent synthetic DNG decodes");
+
+    let err = decode_for_pano(&bytes, "dng").expect_err("inconsistent BlackLevel must fail");
+    match &err {
+        Error::Decode { reason, .. } | Error::DecodePanicked { reason, .. } => assert!(
+            reason.contains("panic"),
+            "expected the caught rawler panic in the reason, got: {reason}"
+        ),
+        other => panic!("expected a decode error, got {other:?}"),
+    }
+
+    let err = read_pano_metadata(&bytes, "dng").expect_err("metadata read must fail too");
+    assert!(
+        matches!(err, Error::Decode { .. } | Error::DecodePanicked { .. }),
+        "expected a decode error, got {err:?}"
+    );
+}
+
+/// The boundary itself: a panic anywhere inside the guarded body — the
+/// rawler helpers `decode_bytes` calls OUTSIDE rawler's own catch, or our
+/// OpcodeList3 / EXIF walks — becomes `Error::DecodePanicked` carrying the
+/// entry name and the panic message.
+#[test]
+fn guard_maps_a_panic_to_decode_panicked() {
+    let err = guard_decode_panics::<()>("decode_for_pano", "dng", || {
+        panic!("levels.len() == width * height * cpp");
+    })
+    .expect_err("panic must surface as an error");
+    match err {
+        Error::DecodePanicked { path, reason } => {
+            assert_eq!(path, std::path::PathBuf::from("rawfile.dng"));
+            assert_eq!(
+                reason,
+                "decode_for_pano: levels.len() == width * height * cpp"
+            );
+        }
+        other => panic!("expected DecodePanicked, got {other:?}"),
+    }
+
+    // A non-panicking body passes its result straight through.
+    let ok = guard_decode_panics("read_pano_metadata", "dng", || Ok(7u8)).unwrap();
+    assert_eq!(ok, 7);
+    let passthrough = guard_decode_panics::<()>("read_pano_metadata", "dng", || {
+        Err(Error::Pipeline("inner".into()))
+    })
+    .expect_err("inner Err passes through untouched");
+    assert!(matches!(passthrough, Error::Pipeline(m) if m == "inner"));
+}
