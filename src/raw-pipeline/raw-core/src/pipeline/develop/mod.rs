@@ -493,7 +493,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // Local adjustments (ticket #280). Empty Vec (the default) makes this a
     // bit-identical short-circuit — the parity-harness baseline is unchanged.
     stage("local_adjustments", || {
-        local_adjustments::apply(&mut scene, &model.local_adjustments)
+        local_adjustments::apply(&mut scene, &model.local_adjustments, &model.mask_rasters)
     });
     dump_after("12b_local_adjustments", &scene);
     // Vignette (#1109, tone/zoom design § 10.1) — scene-linear radial gain,

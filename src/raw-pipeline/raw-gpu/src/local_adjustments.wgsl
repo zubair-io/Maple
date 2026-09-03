@@ -18,7 +18,10 @@
 // to ONE dispatch regardless of layer count: no per-layer ping-pong, no extra
 // scratch buffer, and the layer stack rides a single read-only storage buffer
 // (`params @0` uniform + src/dst/layers = 3 storage buffers, under the
-// 4-per-stage `downlevel_defaults()` ceiling from #925).
+// 4-per-stage `downlevel_defaults()` ceiling from #925). A `Mask::Bitmap`
+// layer (#3271) additionally samples a fourth storage buffer, the
+// concatenated mask plane — AT that ceiling, not under it; see
+// `local_adjustments.rs` for why a fifth buffer isn't available.
 //
 // ## Normalized coordinates
 //
@@ -74,10 +77,19 @@ struct Layer {
 @group(0) @binding(1) var<storage, read> input_buf: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read_write> output_buf: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> layers: array<Layer>;
+// Concatenated `Mask::Bitmap` raster pixels (#3271). A `KIND_BITMAP` layer's
+// `geom.z` is the f32 offset of its raster's first texel here (rewritten
+// host-side from the wire's `raster_id`); `geom.x`/`geom.y` are that
+// raster's width/height. Never empty — `local_adjustments.rs` pads an unused
+// plane to one element so the binding always has a buffer.
+@group(0) @binding(4) var<storage, read> mask_plane: array<f32>;
 
 // `f32::EPSILON`, the degenerate-geometry threshold the Rust evaluator uses.
 const F32_EPSILON: f32 = 1.1920929e-7;
 const KIND_RADIAL: f32 = 1.0;
+// raw_core::types::local_adjustment::flat::{KIND_BITMAP, KIND_EVERYWHERE} (#3271).
+const KIND_BITMAP: f32 = 2.0;
+const KIND_EVERYWHERE: f32 = 3.0;
 // raw_core::types::local_adjustment::flat::RANGE_KIND_COLOR (#3270).
 const RANGE_KIND_COLOR: f32 = 1.0;
 // raw_core::stages::local_adjustments::range::L_EDGE.
@@ -209,7 +221,37 @@ fn radial_weight(
     return 1.0 - smoothstep(1.0 - feather, 1.0, d);
 }
 
+// raw_core::types::local_adjustment::MaskRaster::sample — bilinear, clamped,
+// `(dim - 1)` texel mapping. geom.x/geom.y = raster width/height, geom.z =
+// plane offset (rewritten host-side from the raster id; < 0 = unresolved,
+// matching `MaskRaster::sample`'s empty-raster case: weight 0 everywhere).
+fn sample_raster(layer: Layer, p: vec2<f32>) -> f32 {
+    let w = u32(layer.geom.x);
+    let h = u32(layer.geom.y);
+    if (layer.geom.z < 0.0 || w == 0u || h == 0u) {
+        return 0.0;
+    }
+    let base = u32(layer.geom.z);
+    let fx = clamp(p.x, 0.0, 1.0) * max(f32(w) - 1.0, 0.0);
+    let fy = clamp(p.y, 0.0, 1.0) * max(f32(h) - 1.0, 0.0);
+    let x0 = u32(floor(fx));
+    let y0 = u32(floor(fy));
+    let x1 = min(x0 + 1u, w - 1u);
+    let y1 = min(y0 + 1u, h - 1u);
+    let tx = fx - f32(x0);
+    let ty = fy - f32(y0);
+    let top = mask_plane[base + y0 * w + x0] * (1.0 - tx) + mask_plane[base + y0 * w + x1] * tx;
+    let bottom = mask_plane[base + y1 * w + x0] * (1.0 - tx) + mask_plane[base + y1 * w + x1] * tx;
+    return top * (1.0 - ty) + bottom * ty;
+}
+
 fn mask_weight(layer: Layer, p: vec2<f32>) -> f32 {
+    if (layer.shape.z == KIND_EVERYWHERE) {
+        return 1.0;
+    }
+    if (layer.shape.z == KIND_BITMAP) {
+        return sample_raster(layer, p);
+    }
     let feather = layer.shape.x;
     if (layer.shape.z == KIND_RADIAL) {
         let w = radial_weight(layer.geom.xy, layer.geom.zw, layer.shape.y, feather, p);

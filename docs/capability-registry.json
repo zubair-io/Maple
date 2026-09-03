@@ -584,7 +584,7 @@
       "asset_classes": ["raw"],
       "preview_paths": ["cpu_reference"],
       "export_paths": ["maple_cli"],
-      "fields": ["local_adjustments"],
+      "fields": ["local_adjustments", "mask_rasters"],
       "integration": [],
       "qualification": []
     },
@@ -854,7 +854,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:d14319c2d9183e1fb22ae4daac4a33faafe8f3fa00cd32d186309e7a9cd243f2",
+      "corpus_hash": "blake3:409eda208ed4a96d17745cf39f5eab16226aac6ef7e9e0cfe9371ae70701a853",
       "status": "stale_corpus",
       "record": {
         "backend": "metal",

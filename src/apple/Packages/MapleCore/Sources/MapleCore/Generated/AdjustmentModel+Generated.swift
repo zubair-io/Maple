@@ -490,6 +490,7 @@ extension AdjustmentGroup {
 public let adjustmentNonCopyableFields: [String] = [
     "local_adjustments",
     "inpaint_removals",
+    "mask_rasters",
     "capture_sharpening_radius",
     "wb_sample_x",
     "wb_sample_y",

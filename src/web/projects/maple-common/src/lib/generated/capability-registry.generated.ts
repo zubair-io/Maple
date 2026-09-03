@@ -409,7 +409,7 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
     assetClasses: ['raw'],
     previewPaths: ['cpu_reference'],
     exportPaths: ['maple_cli'],
-    fields: ['local_adjustments'],
+    fields: ['local_adjustments', 'mask_rasters'],
     integration: [],
     qualification: [],
     releaseState: 'core',
