@@ -372,10 +372,7 @@ fn estimate_neutral(probe: &Image, space: &ProbeSpace) -> Option<[f32; 3]> {
 /// bounding to that would pin the recommendation to garbage. Such a reading
 /// is ignored and the estimate stands on its own.
 fn bounded_by_prior(estimate: (f32, f32), prior: (f32, f32)) -> (f32, f32) {
-    let (t_lo, t_hi) = schema_range("temperature");
-    let (tint_lo, tint_hi) = schema_range("tint");
-    let prior_usable = (t_lo..=t_hi).contains(&prior.0) && (tint_lo..=tint_hi).contains(&prior.1);
-    if !prior_usable {
+    if !in_schema_domain(prior) {
         return estimate;
     }
     let prior_mired = 1.0e6 / prior.0;
@@ -384,7 +381,27 @@ fn bounded_by_prior(estimate: (f32, f32), prior: (f32, f32)) -> (f32, f32) {
     let tint = estimate
         .1
         .clamp(prior.1 - MAX_TINT_MOVE, prior.1 + MAX_TINT_MOVE);
-    ((1.0e6 / mired).clamp(t_lo, t_hi), tint)
+    (1.0e6 / mired, tint)
+}
+
+/// Whether a pair is a usable slider value — inside the schema's
+/// `temperature` / `tint` domain.
+fn in_schema_domain((temperature, tint): (f32, f32)) -> bool {
+    let (t_lo, t_hi) = schema_range("temperature");
+    let (tint_lo, tint_hi) = schema_range("tint");
+    (t_lo..=t_hi).contains(&temperature) && (tint_lo..=tint_hi).contains(&tint)
+}
+
+/// Pin a pair into the schema's `temperature` / `tint` domain. Every value
+/// [`compute_awb`] returns is a slider recommendation, so every return path
+/// goes through here — including the fallback, which is the camera's own
+/// reading and is not itself bounded by the slider domain (test_0004 reads
+/// +180 tint against a -150..150 slider), and [`bounded_by_prior`], whose
+/// band can reach [`MAX_TINT_MOVE`] past the edge from an in-domain prior.
+fn into_schema_domain((temperature, tint): (f32, f32)) -> (f32, f32) {
+    let (t_lo, t_hi) = schema_range("temperature");
+    let (tint_lo, tint_hi) = schema_range("tint");
+    (temperature.clamp(t_lo, t_hi), tint.clamp(tint_lo, tint_hi))
 }
 
 /// Auto white-balance recommendation as `(temperature_k, tint)` for the
@@ -393,7 +410,9 @@ fn bounded_by_prior(estimate: (f32, f32), prior: (f32, f32)) -> (f32, f32) {
 /// The camera's own reading (`dcp::estimate_as_shot_cct_tint` — its
 /// interpolated colour matrix, not the generic Planckian model, #1725) is
 /// both the bound on the estimate ([`bounded_by_prior`]) and the fallback
-/// when too few pixels survive the gates or the solve degenerates.
+/// when too few pixels survive the gates or the solve degenerates. Every
+/// path lands in the slider domain ([`into_schema_domain`]) — the camera's
+/// reading is not itself bounded by the schema.
 pub(crate) fn compute_awb(
     probe: &Image,
     raw: &RawImage,
@@ -402,10 +421,11 @@ pub(crate) fn compute_awb(
     probe.assert_space(ColorSpace::SceneLinearRec2020);
     let space = ProbeSpace::resolve(raw, probe_model);
     let as_shot = dcp::estimate_as_shot_cct_tint(raw).unwrap_or((6500.0, 0.0));
-    estimate_neutral(probe, &space)
+    let recommendation = estimate_neutral(probe, &space)
         .and_then(|neutral| space.temp_tint(neutral))
         .map(|estimate| bounded_by_prior(estimate, as_shot))
-        .unwrap_or(as_shot)
+        .unwrap_or(as_shot);
+    into_schema_domain(recommendation)
 }
 
 #[cfg(test)]
