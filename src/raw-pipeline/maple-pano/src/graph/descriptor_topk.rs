@@ -151,6 +151,8 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-#[cfg(test)]
+// Synthetic correspondences come from `testkit` — same gate as the
+// integration suites that use it (#3236).
+#[cfg(all(test, feature = "testkit"))]
 #[path = "descriptor_topk_tests.rs"]
 mod tests;

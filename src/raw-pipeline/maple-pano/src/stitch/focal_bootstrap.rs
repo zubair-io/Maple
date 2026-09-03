@@ -243,6 +243,8 @@ pub(super) fn refine_if_needed(
     }
 }
 
-#[cfg(test)]
+// Synthetic correspondences come from `testkit` — same gate as the
+// integration suites that use it (#3236).
+#[cfg(all(test, feature = "testkit"))]
 #[path = "focal_bootstrap_tests.rs"]
 mod tests;

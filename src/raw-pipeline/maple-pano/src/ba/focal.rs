@@ -212,6 +212,8 @@ fn inverse_similarity(t: &Mat3) -> Mat3 {
     Mat3([[inv_s, 0.0, cx], [0.0, inv_s, cy], [0.0, 0.0, 1.0]])
 }
 
-#[cfg(test)]
+// Synthetic correspondences come from `testkit` — same gate as the
+// integration suites that use it (#3236).
+#[cfg(all(test, feature = "testkit"))]
 #[path = "focal_tests.rs"]
 mod tests;

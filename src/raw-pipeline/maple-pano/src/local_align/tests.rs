@@ -86,6 +86,7 @@ fn identity_correction_is_no_op() {
 /// When every match perfectly lies on a rotation-model (zero residual),
 /// the fitted correction is driven to near-zero by regularisation.
 /// Spec requirement: max correction < 0.05 px on a pure-rotation set.
+#[cfg(feature = "testkit")]
 #[test]
 fn pure_rotation_correction_near_identity() {
     // Build two cameras related by a clean 30° yaw — no parallax.
