@@ -131,6 +131,7 @@ fn masked_model() -> AdjustmentModel {
                     end: Point2::new(0.9, 0.8),
                     feather: 0.5,
                 },
+                range: None,
                 adjustments: PartialAdjustments {
                     exposure: Some(0.5),
                     contrast: Some(20.0),
@@ -153,6 +154,7 @@ fn masked_model() -> AdjustmentModel {
                     feather: 0.6,
                     invert: true,
                 },
+                range: None,
                 adjustments: PartialAdjustments {
                     exposure: Some(-0.4),
                     saturation: Some(-25.0),

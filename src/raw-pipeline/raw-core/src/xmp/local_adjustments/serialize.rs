@@ -2,7 +2,7 @@
 //! side of `mod.rs`'s walker, split into its own file for the same
 //! size-budget reason as `parse.rs` (see that file's header).
 
-use super::{AdjustmentModel, LocalAdjustment, Mask, PartialAdjustments};
+use super::{AdjustmentModel, LocalAdjustment, Mask, PartialAdjustments, RangeRefinement};
 use super::{LINEAR_CONTAINER, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL, RADIAL_CONTAINER};
 
 /// Round to the canonical 2-decimal wire precision
@@ -61,6 +61,7 @@ fn serialize_container(container: &str, layers: &[&LocalAdjustment], indent: &st
             "{i4}crs:What=\"Correction\"\n{i4}crs:CorrectionAmount=\"1\"\n{i4}crs:CorrectionActive=\"True\""
         ));
         out.push_str(&serialize_adjustments(&layer.adjustments, &i4));
+        out.push_str(&serialize_range(layer.range, &i4));
         // One ladder, two spaces per level (`docs/xmp-canonical-format.md`
         // § "Indentation"): `crs:CorrectionMasks` sits with the correction's
         // attributes, its `rdf:Seq` one step in, the mask leaf one further.
@@ -98,6 +99,40 @@ fn serialize_adjustments(a: &PartialAdjustments, indent: &str) -> String {
         out.push_str(&format!("\n{indent}crs:LocalHue=\"{}\"", fmt2(h / 100.0)));
     }
     out
+}
+
+/// The colour-range refinement's `papp:Range*` attributes (#3270, spec
+/// §5.2), on the SAME `rdf:Description` the sliders live on — Maple-private
+/// by design (Adobe has no range-mask schema to borrow), so a reference
+/// renderer that ignores them still applies the correction through the
+/// primary mask.
+fn serialize_range(range: Option<RangeRefinement>, indent: &str) -> String {
+    let Some(RangeRefinement::Color {
+        hue_deg,
+        hue_half_width_deg,
+        chroma_min,
+        l_min,
+        l_max,
+        feather,
+    }) = range
+    else {
+        return String::new();
+    };
+    format!(
+        "\n{indent}papp:RangeKind=\"Color\"\n\
+         {indent}papp:RangeHue=\"{}\"\n\
+         {indent}papp:RangeHueWidth=\"{}\"\n\
+         {indent}papp:RangeChromaMin=\"{}\"\n\
+         {indent}papp:RangeLMin=\"{}\"\n\
+         {indent}papp:RangeLMax=\"{}\"\n\
+         {indent}papp:RangeFeather=\"{}\"",
+        fmt2(hue_deg),
+        fmt2(hue_half_width_deg),
+        fmt2(chroma_min),
+        fmt2(l_min),
+        fmt2(l_max),
+        fmt2(feather),
+    )
 }
 
 fn serialize_mask(mask: &Mask, indent: &str) -> String {

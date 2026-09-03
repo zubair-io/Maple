@@ -119,6 +119,7 @@ fn worst_case_layer() -> Vec<LocalAdjustment> {
             end: Point2::new(0.9, 0.85),
             feather: 0.6,
         },
+        range: None,
         adjustments: PartialAdjustments {
             exposure: Some(0.6),
             contrast: Some(25.0),

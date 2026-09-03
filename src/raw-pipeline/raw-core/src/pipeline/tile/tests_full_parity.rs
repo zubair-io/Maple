@@ -43,6 +43,7 @@ fn radial_layer() -> LocalAdjustment {
             feather: 0.5,
             invert: false,
         },
+        range: None,
         adjustments: PartialAdjustments {
             exposure: Some(0.8),
             saturation: Some(30.0),

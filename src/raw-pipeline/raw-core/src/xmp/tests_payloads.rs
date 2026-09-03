@@ -27,6 +27,7 @@ fn parse_local_adjustments_linear_round_trips() {
             end: Point2::new(1.0, 0.5),
             feather: 0.5,
         },
+        range: None,
         adjustments: PartialAdjustments {
             exposure: Some(1.0),
             ..Default::default()

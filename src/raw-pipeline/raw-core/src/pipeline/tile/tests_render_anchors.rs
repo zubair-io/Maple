@@ -397,6 +397,7 @@ fn tile_matches_full_chain_with_all_spatial_sliders() {
                 feather: 0.5,
                 invert: false,
             },
+            range: None,
             adjustments: PartialAdjustments {
                 exposure: Some(0.7),
                 ..PartialAdjustments::default()

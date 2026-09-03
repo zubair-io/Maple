@@ -85,7 +85,13 @@ fn layer_from_json(v: &Value) -> Result<Option<LocalAdjustment>, String> {
         obj.get("adjustments")
             .ok_or_else(|| "layer missing `adjustments`".to_string())?,
     )?;
-    Ok(Some(LocalAdjustment { mask, adjustments }))
+    // This legacy JSON wire predates range refinements (#3270) and is
+    // parse-only migration support — a legacy layer never carried one.
+    Ok(Some(LocalAdjustment {
+        mask,
+        range: None,
+        adjustments,
+    }))
 }
 
 fn mask_to_json(m: &Mask) -> Value {
@@ -261,6 +267,7 @@ mod tests {
                 end: Point2::new(0.8, 0.9),
                 feather: 0.4,
             },
+            range: None,
             adjustments: PartialAdjustments {
                 exposure: Some(1.5),
                 shadows: Some(-25.0),
@@ -282,6 +289,7 @@ mod tests {
                 feather: 0.6,
                 invert: true,
             },
+            range: None,
             adjustments: PartialAdjustments {
                 exposure: Some(-0.7),
                 temperature: Some(200.0),

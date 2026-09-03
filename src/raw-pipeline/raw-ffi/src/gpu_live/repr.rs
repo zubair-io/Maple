@@ -241,7 +241,7 @@ pub struct MapleGpuLiveParams {
     //     output is bit-identical to pre-#1698. The pointed-to data must stay
     //     valid for the call; the Rust side copies it out and frees nothing. ---
     pub local_adjustments_ptr: *const f32,
-    /// Number of f32 elements at `local_adjustments_ptr`. A multiple of 24; a
+    /// Number of f32 elements at `local_adjustments_ptr`. A multiple of 32; a
     /// trailing partial record is dropped rather than rejected.
     pub local_adjustments_len: usize,
     // --- DNG NoiseProfile + ISO (#1714) — the `RawImage::{noise_profile, iso}`

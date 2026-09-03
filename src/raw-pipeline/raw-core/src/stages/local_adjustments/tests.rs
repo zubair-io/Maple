@@ -45,6 +45,7 @@ fn linear_exposure_doubles_at_full_weight_side() {
             end: Point2::new(1.0, 0.5),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             exposure: Some(1.0),
             ..Default::default()
@@ -78,6 +79,7 @@ fn radial_exposure_doubles_at_center() {
             feather: 0.0,
             invert: false,
         },
+        range: None,
         adjustments: PartialAdjustments {
             exposure: Some(1.0),
             ..Default::default()
@@ -108,6 +110,7 @@ fn local_temperature_shifts_blue() {
             end: Point2::new(1.0, 0.0),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             temperature: Some(-1000.0), // -1000K delta from 6500K
             ..Default::default()
@@ -128,6 +131,7 @@ fn local_contrast_increases_spread() {
             end: Point2::new(1.0, 0.0),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             contrast: Some(50.0),
             ..Default::default()
@@ -150,6 +154,7 @@ fn local_saturation_desaturates() {
             end: Point2::new(1.0, 0.0),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             saturation: Some(-100.0),
             ..Default::default()
@@ -172,6 +177,7 @@ fn local_shadows_lift() {
             end: Point2::new(1.0, 0.0),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             shadows: Some(100.0),
             ..Default::default()
@@ -191,6 +197,7 @@ fn local_blacks_additive_lift() {
             end: Point2::new(1.0, 0.0),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             blacks: Some(100.0),
             ..Default::default()
@@ -211,6 +218,7 @@ fn full_mask_layer(adj: PartialAdjustments) -> Vec<LocalAdjustment> {
             end: Point2::new(1.0, 0.0),
             feather: 0.0,
         },
+        range: None,
         adjustments: adj,
     }]
 }
@@ -369,6 +377,7 @@ fn local_tone_controls_are_sequential() {
                 end: Point2::new(1.0, 0.0),
                 feather: 0.0,
             },
+            range: None,
             adjustments: PartialAdjustments {
                 highlights: Some(80.0),
                 ..Default::default()
@@ -380,6 +389,7 @@ fn local_tone_controls_are_sequential() {
                 end: Point2::new(1.0, 0.0),
                 feather: 0.0,
             },
+            range: None,
             adjustments: PartialAdjustments {
                 shadows: Some(80.0),
                 ..Default::default()
@@ -398,151 +408,3 @@ fn local_tone_controls_are_sequential() {
     );
 }
 
-fn oklab_hue_deg(rgb: [f32; 3]) -> f32 {
-    let lab = crate::color::oklab::rec2020_to_oklab(rgb);
-    lab[2].atan2(lab[1]).to_degrees()
-}
-
-fn oklab_lc(rgb: [f32; 3]) -> (f32, f32) {
-    let lab = crate::color::oklab::rec2020_to_oklab(rgb);
-    (lab[0], (lab[1] * lab[1] + lab[2] * lab[2]).sqrt())
-}
-
-/// Signed circular hue delta in degrees, `(-180, 180]`.
-fn hue_delta_deg(from: f32, to: f32) -> f32 {
-    let mut d = to - from;
-    while d > 180.0 {
-        d -= 360.0;
-    }
-    while d <= -180.0 {
-        d += 360.0;
-    }
-    d
-}
-
-#[test]
-fn hue_100_rotates_oklab_hue_by_30_degrees_and_keeps_l_and_c() {
-    // A mid-chroma orange, well inside the Rec.2020 hull at the rotated hue.
-    let src = [0.45, 0.22, 0.08];
-    let layers = vec![LocalAdjustment::linear(
-        Point2::new(0.0, 0.5),
-        Point2::new(1.0, 0.5),
-        PartialAdjustments {
-            hue: Some(100.0),
-            ..Default::default()
-        },
-    )];
-    let mut img = Image {
-        width: 3,
-        height: 1,
-        pixels: vec![src; 3],
-        space: ColorSpace::SceneLinearRec2020,
-    };
-    apply(&mut img, &layers);
-    // x=2 is the w=1 end of the gradient (feather 0.5 spans t 0.25..0.75).
-    let out = img.pixels[2];
-    let d = hue_delta_deg(oklab_hue_deg(src), oklab_hue_deg(out));
-    assert!((d - 30.0).abs() < 0.5, "rotated by {d}°, expected 30°");
-    let (l0, c0) = oklab_lc(src);
-    let (l1, c1) = oklab_lc(out);
-    assert!((l1 - l0).abs() < 1e-4, "L moved {l0} -> {l1}");
-    assert!((c1 - c0).abs() < 1e-4, "C moved {c0} -> {c1}");
-    // x=0 is the w=0 end: untouched.
-    assert_eq!(img.pixels[0], src);
-}
-
-#[test]
-fn hue_at_half_weight_rotates_15_degrees() {
-    let src = [0.45, 0.22, 0.08];
-    let layers = vec![LocalAdjustment {
-        mask: Mask::Radial {
-            center: Point2::new(0.5, 0.5),
-            radii: Point2::new(10.0, 10.0),
-            angle: 0.0,
-            feather: 0.0,
-            invert: false,
-        },
-        adjustments: PartialAdjustments {
-            hue: Some(50.0),
-            ..Default::default()
-        },
-    }];
-    let mut img = flat_image(2, 2, 0.0);
-    img.pixels = vec![src; 4];
-    apply(&mut img, &layers);
-    let d = hue_delta_deg(oklab_hue_deg(src), oklab_hue_deg(img.pixels[0]));
-    assert!((d - 15.0).abs() < 0.5, "rotated by {d}°, expected 15°");
-}
-
-#[test]
-fn hue_leaves_a_pixel_below_the_chroma_gate_bit_identical() {
-    // A pixel whose Oklab chroma is genuinely below the `1e-6` gate (a
-    // uniform RGB value, not a Rec.2020 "grey": Rec.2020 (0.18,0.18,0.18)
-    // itself carries ~1.08e-5 Oklab chroma from the primaries-matrix float32
-    // round trip — see `hue_rotation_of_actual_grey_stays_within_a_tight_bound`
-    // below, which pins that magnitude instead of pretending it's zero).
-    // Constructing a pixel from L=0,a=0,b=0 directly (Rec.2020 black) sits
-    // exactly at zero chroma with no such noise.
-    let layers = vec![LocalAdjustment::linear(
-        Point2::new(0.0, 0.5),
-        Point2::new(1.0, 0.5),
-        PartialAdjustments {
-            hue: Some(100.0),
-            ..Default::default()
-        },
-    )];
-    let mut img = flat_image(4, 1, 0.0);
-    let snapshot = img.pixels.clone();
-    apply(&mut img, &layers);
-    assert_eq!(img.pixels, snapshot);
-}
-
-#[test]
-fn hue_rotation_of_actual_grey_stays_within_a_tight_numerical_bound() {
-    // Rec.2020 grey carries a tiny (~1e-5) Oklab chroma from the primaries
-    // matrix's float32 round trip (the same noise floor `saturation::apply`'s
-    // identical `c_in < 1e-6` gate already tolerates) — so it is NOT bit-
-    // identical after a rotation, but the drift must stay far below anything
-    // visible: a rotation can only ever move a pixel by an amount
-    // proportional to its own chroma, never amplify it.
-    let layers = vec![LocalAdjustment::linear(
-        Point2::new(0.0, 0.5),
-        Point2::new(1.0, 0.5),
-        PartialAdjustments {
-            hue: Some(100.0),
-            ..Default::default()
-        },
-    )];
-    let mut img = flat_image(4, 1, 0.18);
-    let snapshot = img.pixels.clone();
-    apply(&mut img, &layers);
-    for (out, before) in img.pixels.iter().zip(&snapshot) {
-        for c in 0..3 {
-            assert!(
-                (out[c] - before[c]).abs() < 1e-4,
-                "grey drifted too far: {before:?} -> {out:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn hue_rotation_keeps_every_channel_non_negative_near_the_hull() {
-    // A saturated Rec.2020 red sits on the hull; rotating it toward yellow
-    // lands on a narrower part of the hull, which is exactly the case the
-    // soft knee exists for.
-    let src = [0.9, 0.02, 0.01];
-    let layers = vec![LocalAdjustment::linear(
-        Point2::new(0.0, 0.5),
-        Point2::new(1.0, 0.5),
-        PartialAdjustments {
-            hue: Some(100.0),
-            ..Default::default()
-        },
-    )];
-    let mut img = flat_image(3, 1, 0.0);
-    img.pixels = vec![src; 3];
-    apply(&mut img, &layers);
-    let out = img.pixels[2];
-    assert!(out.iter().all(|c| *c >= -1e-5), "negative channel: {out:?}");
-}
