@@ -27,7 +27,8 @@
 //! 12..16  exposure, contrast, highlights, shadows
 //! 16..20  whites, blacks, saturation, vibrance
 //! 20..22  temperature, tint
-//! 22..24  (padding, written as 0)
+//! 22     hue        Oklab hue rotation (#3269), presence bit 10
+//! 23     (padding, written as 0)
 //! ```
 //!
 //! ## Why a presence bitmask rather than a sentinel value
@@ -43,7 +44,7 @@
 //! The mask rides an `f32` slot rather than a bitcast `u32` so the array stays
 //! a plain float wire on both the C ABI and the WGSL side (WGSL would need a
 //! `bitcast<u32>` otherwise, and the C header would carry a lane whose
-//! interpretation depends on the reader). The mask never exceeds 1023, and an
+//! interpretation depends on the reader). The mask never exceeds 2047, and an
 //! `f32` represents every integer below 2²⁴ exactly, so the round trip through
 //! the float slot is lossless.
 
@@ -70,6 +71,7 @@ pub const PRESENT_SATURATION: u32 = 1 << 6;
 pub const PRESENT_VIBRANCE: u32 = 1 << 7;
 pub const PRESENT_TEMPERATURE: u32 = 1 << 8;
 pub const PRESENT_TINT: u32 = 1 << 9;
+pub const PRESENT_HUE: u32 = 1 << 10;
 
 /// Serialize a layer stack to the flat wire. The result length is always
 /// `layers.len() * LAYER_FLAT_LEN`; an empty stack yields an empty `Vec`.
@@ -128,14 +130,18 @@ fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
         (a.temperature, PRESENT_TEMPERATURE),
         (a.tint, PRESENT_TINT),
     ];
-    let present = fields
+    let mut present = fields
         .iter()
         .filter_map(|&(value, bit)| value.map(|_| bit))
         .fold(0u32, |acc, bit| acc | bit);
+    if a.hue.is_some() {
+        present |= PRESENT_HUE;
+    }
     slot[8] = present as f32;
     for (i, &(value, _)) in fields.iter().enumerate() {
         slot[12 + i] = value.unwrap_or(0.0);
     }
+    slot[22] = a.hue.unwrap_or(0.0);
 }
 
 /// Deserialize the flat wire back into a layer stack. A trailing partial layer
@@ -194,6 +200,11 @@ fn read_adjustments(slot: &[f32]) -> PartialAdjustments {
         vibrance: field(7, PRESENT_VIBRANCE),
         temperature: field(8, PRESENT_TEMPERATURE),
         tint: field(9, PRESENT_TINT),
+        hue: if present & PRESENT_HUE != 0 {
+            Some(slot[22])
+        } else {
+            None
+        },
     }
 }
 
@@ -213,7 +224,24 @@ mod tests {
             vibrance: Some(-5.0),
             temperature: Some(1500.0),
             tint: Some(-9.0),
+            hue: Some(12.0),
         }
+    }
+
+    #[test]
+    fn hue_rides_slot_22_with_presence_bit_10() {
+        let layers = vec![LocalAdjustment::linear(
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            PartialAdjustments {
+                hue: Some(-42.5),
+                ..Default::default()
+            },
+        )];
+        let flat = layers_to_flat(&layers);
+        assert_eq!(flat[22], -42.5);
+        assert_eq!(flat[8] as u32, PRESENT_HUE);
+        assert_eq!(layers_from_flat(&flat)[0].adjustments.hue, Some(-42.5));
     }
 
     #[test]
@@ -279,8 +307,8 @@ mod tests {
             adjustments: all_controls(),
         }];
         let flat = layers_to_flat(&layers);
-        assert_eq!(flat[8], 1023.0);
-        assert_eq!(flat[8] as u32, 1023);
+        assert_eq!(flat[8], 2047.0);
+        assert_eq!(flat[8] as u32, 2047);
     }
 
     #[test]

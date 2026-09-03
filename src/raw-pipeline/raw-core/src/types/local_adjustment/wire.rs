@@ -204,6 +204,9 @@ fn adjustments_to_json(a: &PartialAdjustments) -> Value {
     if let Some(v) = a.tint {
         obj.insert("tint".into(), json!(v));
     }
+    if let Some(v) = a.hue {
+        obj.insert("hue".into(), json!(v));
+    }
     Value::Object(obj)
 }
 
@@ -231,6 +234,7 @@ fn adjustments_from_json(v: &Value) -> Result<PartialAdjustments, String> {
         vibrance: g("vibrance")?,
         temperature: g("temperature")?,
         tint: g("tint")?,
+        hue: g("hue")?,
     })
 }
 

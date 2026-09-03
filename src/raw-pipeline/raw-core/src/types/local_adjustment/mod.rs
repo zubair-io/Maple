@@ -38,7 +38,7 @@ pub use wire::{decode_local_adjustments, encode_local_adjustments};
 ///
 /// Every field is wired in `stages::local_adjustments::apply`, applied
 /// in this order: `exposure` → `temperature`/`tint` → `contrast` →
-/// `highlights` → `shadows` → `whites` → `blacks` → `saturation` →
+/// `highlights` → `shadows` → `whites` → `blacks` → `hue` → `saturation` →
 /// `vibrance`. See that module's docs for the operator behind each control
 /// (e.g. `contrast` is a scene-linear, luma-ratio-preserving power curve
 /// pivoted at 0.18 grey — global contrast routes to the AgX sigmoid slope
@@ -56,6 +56,11 @@ pub struct PartialAdjustments {
     pub vibrance: Option<f32>,
     pub temperature: Option<f32>,
     pub tint: Option<f32>,
+    /// Oklab hue rotation of the masked pixels, −100 … 100 → ±`HSL_HUE_MAX_RAD`
+    /// (30° at full deflection, the HSL stage's constant). Lightness and
+    /// chroma are preserved; the same soft-knee gamut handling as saturation.
+    /// The control the skin-tone workflow drags (#3269).
+    pub hue: Option<f32>,
 }
 
 impl PartialAdjustments {
@@ -73,6 +78,7 @@ impl PartialAdjustments {
             && self.vibrance.is_none()
             && self.temperature.is_none()
             && self.tint.is_none()
+            && self.hue.is_none()
     }
 }
 
@@ -177,6 +183,15 @@ mod tests {
     fn partial_adjustments_with_exposure_is_not_empty() {
         let p = PartialAdjustments {
             exposure: Some(0.5),
+            ..Default::default()
+        };
+        assert!(!p.is_empty());
+    }
+
+    #[test]
+    fn partial_adjustments_with_only_hue_is_not_empty() {
+        let p = PartialAdjustments {
+            hue: Some(5.0),
             ..Default::default()
         };
         assert!(!p.is_empty());

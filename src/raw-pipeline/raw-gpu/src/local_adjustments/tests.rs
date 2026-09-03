@@ -135,6 +135,7 @@ fn all_controls() -> PartialAdjustments {
         vibrance: Some(25.0),
         temperature: Some(1200.0),
         tint: Some(8.0),
+        hue: Some(-40.0),
     }
 }
 
@@ -208,6 +209,14 @@ fn wgsl_local_adjustments_match_raw_core_per_control_within_1e_4() {
         (
             "radial-invert/exposure",
             radial(0.5, true, only(|a| a.exposure = Some(1.0))),
+        ),
+        (
+            "hue+/linear",
+            linear(0.5, only(|a| a.hue = Some(100.0))),
+        ),
+        (
+            "hue-/radial-invert",
+            radial(0.4, true, only(|a| a.hue = Some(-65.0))),
         ),
     ];
 
