@@ -67,7 +67,7 @@ const DECODE_INPUT_KEYS = [
 ] as const satisfies readonly (keyof AdjustmentModel)[];
 
 /** JSON with recursively sorted object keys — a canonical, comparable form. */
-export function stableStringify(value: unknown): string {
+function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   if (value !== null && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
