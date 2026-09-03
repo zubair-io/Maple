@@ -7,6 +7,54 @@
 //! rounding the start corners DOWN to even multiples — the demosaic stage
 //! relies on it.
 
+/// Where a tile's developed buffer sits inside the developed FRAME — the
+/// anchor for point ops whose field is defined over the whole frame
+/// (vignette's ellipse, local-adjustment masks in normalised coordinates),
+/// #1157. `full` is the DefaultCrop'd frame at the develop resolution (the
+/// extent the whole-image chains hand those stages) and `origin` the padded
+/// crop's top-left in that frame, signed because a padded crop may start
+/// before the crop origin.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TileWindow {
+    pub origin: (i32, i32),
+    pub full: (u32, u32),
+}
+
+impl TileWindow {
+    /// Window for the padded mosaic crop at `(rx, ry)` developed at
+    /// `divisor` (2 for a half-res `Preview`, else 1). Mirrors
+    /// `crop_to_default`'s clamp + degenerate fallback so the frame agrees
+    /// with the whole-image develop of the same raw.
+    pub(super) fn for_padded_crop(
+        raw: &crate::image::RawImage,
+        rx: u32,
+        ry: u32,
+        divisor: u32,
+    ) -> Self {
+        let (cx, cy, cw, ch) = match raw.crop_rect {
+            Some(c) => {
+                let cw = c.w.min(raw.width.saturating_sub(c.x));
+                let ch = c.h.min(raw.height.saturating_sub(c.y));
+                if cw == 0 || ch == 0 {
+                    (0, 0, raw.width, raw.height)
+                } else {
+                    (c.x, c.y, cw, ch)
+                }
+            }
+            None => (0, 0, raw.width, raw.height),
+        };
+        let d = divisor.max(1) as i64;
+        let origin = (
+            ((rx as i64 - cx as i64) / d) as i32,
+            ((ry as i64 - cy as i64) / d) as i32,
+        );
+        TileWindow {
+            origin,
+            full: ((cw / divisor.max(1)).max(1), (ch / divisor.max(1)).max(1)),
+        }
+    }
+}
+
 /// Pad a `(src_x, src_y, src_w, src_h)` source-pixel rect by `pad` pixels on
 /// each edge, clamp to `(0..mosaic_w, 0..mosaic_h)`, and round the resulting
 /// rect's start corners DOWN to the nearest even multiple to preserve

@@ -232,10 +232,10 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
 /// Error codes:
 ///   - 1: null pointer argument
 ///   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
-///   - 10: model not tile-compatible (dehaze, vignette, deep denoise, a
-///         non-identity local adjustment, or active capture sharpening —
-///         #1084 / #1105 / #1109) — caller should fall back to fit-zoom
-///         rendering
+///   - 10: model not tile-compatible (dehaze, BM3D deep denoise, or an
+///         OpcodeList3 DNG — #1105 / #1932; vignette, local adjustments and
+///         capture sharpening tile since #1157) — caller should fall back
+///         to fit-zoom rendering
 ///   - 11: upscale attempt (out > src) — tile path is downscale-only
 ///   - 12: mismatched aspect — tile path requires `out_w/out_h` aspect
 ///         to match `src_w/src_h` aspect (within integer rounding)

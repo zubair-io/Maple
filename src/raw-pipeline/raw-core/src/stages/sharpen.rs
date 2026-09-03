@@ -73,6 +73,14 @@ const MIN_SCALE: f32 = 0.0;
 ///
 /// Non-cancellable wrapper — forwards to [`apply_cancellable`] with a
 /// never-cancel token, so its output is bit-identical to the pre-#951 stage.
+/// Spatial reach of the stage, in pixels per side, for the tile path's
+/// overlap calculator (#1157): the unsharp blur is a Gaussian at the clamped
+/// sigma (`±⌈3σ⌉` taps) and the edge mask reads one neighbour for its
+/// gradient. 10 px at the σ = 3 clamp.
+pub fn stencil_reach_px(radius: f32) -> usize {
+    (3.0 * radius.clamp(0.5, 3.0)).ceil() as usize + 1
+}
+
 #[inline]
 pub fn apply(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
     apply_cancellable(img, amount, radius, detail, masking, CancelToken::never());

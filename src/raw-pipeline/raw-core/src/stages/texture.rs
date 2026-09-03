@@ -9,6 +9,11 @@ use crate::{
 /// needed (the const-assert in `pipeline::tile::mod` is dominated by
 /// clarity's much larger reach).
 const TEXTURE_GUIDED_RADIUS: usize = 2;
+/// Effective stencil reach, in pixels per side, for the tile path's overlap
+/// calculator (#1157): a guided filter box-blurs a buffer that was itself
+/// box-blurred at the same radius, so it reaches `2 × radius` — the same
+/// relation `clarity::CLARITY_GUIDED_REACH_PX` states for its radius.
+pub const TEXTURE_GUIDED_REACH_PX: usize = 2 * TEXTURE_GUIDED_RADIUS;
 
 /// Guided-filter regularisation. Same value as clarity / dehaze —
 /// scene-linear luma sits in roughly the [0,1] range across all three
