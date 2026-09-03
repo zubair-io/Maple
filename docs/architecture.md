@@ -97,13 +97,14 @@ The AgX matrices, sigmoid coefficients, and LUT are derived by `src/scripts/deri
 
 Anything that appears in more than one language is generated, never hand-copied. `tools/codegen.sh` builds the `codegen` crate and emits, from `raw-core` as the source of truth:
 
-| Schema                                      | Source in `raw-core`            | Emitted to                                                                                                                                                           |
-| ------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Adjustment model                            | `types::ADJUSTMENT_SCHEMA`      | Swift (`MapleCore/Generated/AdjustmentModel+Generated.swift`), TS (`maple-common/src/lib/generated/adjustment-model.generated.ts`, `adjustment-tables.generated.ts`) |
-| UI tokens (colour, motion, radius, spacing) | `ui_tokens`                     | Swift ×2 (`MapleCore`, `MapleUI`), TS, SCSS, WinUI XAML (`Maple.WinUI/Themes/Tokens.xaml`)                                                                           |
-| Colour matrices                             | `color::{matrices, oklab}`      | WGSL (`raw-gpu/src/generated/color_matrices.wgsl`), TS                                                                                                               |
-| AgX coefficients                            | `src/scripts/derive_agx_lut.py` | WGSL (`raw-gpu/src/generated/agx_coeffs.wgsl`)                                                                                                                       |
-| Film catalog                                | `film_catalog::FILM_CATALOG`    | Swift, TS                                                                                                                                                            |
+| Schema                                      | Source in `raw-core`                                         | Emitted to                                                                                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adjustment model                            | `types::ADJUSTMENT_SCHEMA`                                   | Swift (`MapleCore/Generated/AdjustmentModel+Generated.swift`), TS (`maple-common/src/lib/generated/adjustment-model.generated.ts`, `adjustment-tables.generated.ts`)    |
+| UI tokens (colour, motion, radius, spacing) | `ui_tokens`                                                  | Swift ×2 (`MapleCore`, `MapleUI`), TS, SCSS, WinUI XAML (`Maple.WinUI/Themes/Tokens.xaml`)                                                                              |
+| Colour matrices                             | `color::{matrices, oklab}`                                   | WGSL (`raw-gpu/src/generated/color_matrices.wgsl`), TS                                                                                                                  |
+| AgX coefficients                            | `src/scripts/derive_agx_lut.py`                              | WGSL (`raw-gpu/src/generated/agx_coeffs.wgsl`)                                                                                                                          |
+| Film catalog                                | `film_catalog::FILM_CATALOG`                                 | Swift, TS                                                                                                                                                               |
+| Capability registry                         | `capability_registry` + `test-fixtures/qualification/*.json` | Swift, TS, C# (`Maple.WinUI/Generated/CapabilityRegistry.g.cs`), `docs/capability-registry.{md,json}` — release state computed from evidence, see [testing](testing.md) |
 
 The C header for the Apple FFI is not generated here — cbindgen runs as part of `build-xcframework.sh`.
 

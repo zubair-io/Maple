@@ -1,0 +1,14 @@
+{
+  "backend": "cpu-reference",
+  "command": "bash src/scripts/test_synthetic_grey.sh",
+  "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
+  "executed_cases": 6,
+  "expected_cases": 6,
+  "failed_cases": 0,
+  "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+  "pipeline_version": 2,
+  "recorded_at": "2026-09-03T03:53:50Z",
+  "schema_version": 5,
+  "skipped_cases": 0,
+  "source": "synthetic_grey"
+}

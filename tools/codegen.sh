@@ -22,6 +22,12 @@
 #                                            (epic #925 P2 / #990)
 #   - film-catalog   (raw_core::film_catalog::FILM_CATALOG) → Swift + TS
 #                                            (epic #2683, Task 6)
+#   - capability-registry (raw_core::capability_registry::CAPABILITY_REGISTRY
+#                                            judged against the evidence
+#                                            records in test-fixtures/
+#                                            qualification/) → Swift + TS +
+#                                            C# + markdown + JSON release
+#                                            summaries (#2430)
 #
 # Outputs:
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift
@@ -50,6 +56,11 @@
 #   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCatalog+Generated.swift
 #   - src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts
+#   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CapabilityRegistry+Generated.swift
+#   - src/web/projects/maple-common/src/lib/generated/capability-registry.generated.ts
+#   - src/windows/Maple.WinUI/Generated/CapabilityRegistry.g.cs
+#   - docs/capability-registry.md
+#   - docs/capability-registry.json
 #
 # The cbindgen step for the FFI header is handled by
 # `src/apple/scripts/build-xcframework.sh` as part of the xcframework build —
@@ -139,6 +150,28 @@ FILM_TS_OUT="src/web/projects/maple-common/src/lib/generated/film-catalog.genera
 "$BIN" --schema film-catalog --target swift --out "$FILM_SWIFT_OUT"
 "$BIN" --schema film-catalog --target ts    --out "$FILM_TS_OUT"
 
+# --- Capability registry (#2430) ------------------------------------------
+# The registry table is reviewed Rust; the `core` / `integrated` /
+# `released` state per capability is computed here from the harness
+# evidence records in test-fixtures/qualification/ (written by
+# tools/qualification/record.sh). Regenerating on every codegen run is what
+# makes "evidence loss demotes a capability in the next build" true: a
+# record that no longer matches the current pipeline / schema version, its
+# corpus, or its declared case count stops counting, and this drift gate
+# then requires the demoted outputs to be committed.
+
+CAP_EVIDENCE_DIR="test-fixtures/qualification"
+CAP_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CapabilityRegistry+Generated.swift"
+CAP_TS_OUT="src/web/projects/maple-common/src/lib/generated/capability-registry.generated.ts"
+CAP_CS_OUT="src/windows/Maple.WinUI/Generated/CapabilityRegistry.g.cs"
+CAP_MD_OUT="docs/capability-registry.md"
+CAP_JSON_OUT="docs/capability-registry.json"
+
+for target_out in "swift:$CAP_SWIFT_OUT" "ts:$CAP_TS_OUT" "cs:$CAP_CS_OUT" "md:$CAP_MD_OUT" "json:$CAP_JSON_OUT"; do
+  "$BIN" --schema capability-registry --target "${target_out%%:*}" \
+    --evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
+done
+
 echo "codegen.sh: outputs regenerated."
 echo "  - $SWIFT_OUT"
 echo "  - $TS_OUT"
@@ -153,3 +186,8 @@ echo "  - $COLOR_MATRICES_TS_OUT"
 echo "  - $AGX_WGSL_OUT"
 echo "  - $FILM_SWIFT_OUT"
 echo "  - $FILM_TS_OUT"
+echo "  - $CAP_SWIFT_OUT"
+echo "  - $CAP_TS_OUT"
+echo "  - $CAP_CS_OUT"
+echo "  - $CAP_MD_OUT"
+echo "  - $CAP_JSON_OUT"

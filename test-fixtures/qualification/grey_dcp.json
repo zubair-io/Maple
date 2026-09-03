@@ -1,0 +1,14 @@
+{
+  "backend": "cpu-reference",
+  "command": "bash src/scripts/test_grey_dcp.sh",
+  "corpus_hash": "blake3:0057c6121e986a89123379cb8252fcdc47dd202b561b6ab35fb2815fe6826c01",
+  "executed_cases": 4,
+  "expected_cases": 4,
+  "failed_cases": 0,
+  "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+  "pipeline_version": 2,
+  "recorded_at": "2026-09-03T03:53:58Z",
+  "schema_version": 5,
+  "skipped_cases": 0,
+  "source": "grey_dcp"
+}

@@ -19,7 +19,8 @@
 #                             language's entries were before this job existed;
 #                             an already-gated extension stays fully
 #                             append-forbidden).
-#   * codegen-drift         — fails if generated cross-platform constants are stale.
+#   * codegen-drift         — fails if generated cross-platform constants are stale;
+#                             also uploads the capability release summary (#2430).
 #   * fallow-audit-web      — fallow audit (dead code / complexity / dupes) over
 #                             src/web, scoped to files changed vs the merge base.
 #                             Per #1829.
@@ -470,6 +471,22 @@ jobs:
             echo "::error::codegen outputs are out of date. Run 'bash tools/codegen.sh' and commit the result."
             exit 1
           fi
+
+      # The machine-readable release summary (#2430) — the capability
+      # registry judged against the committed evidence records, regenerated
+      # by the step above — is this build's release artifact. It names the
+      # pipeline + schema version and, per evidence source, the corpus hash,
+      # backend, counts, and commit the evidence was recorded on; the run's
+      # own SHA is the artifact name.
+      - name: Upload the capability release summary
+        if: steps.probe.outputs.have_script == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: capability-release-summary-${{ github.sha }}
+          path: |
+            docs/capability-registry.json
+            docs/capability-registry.md
+          if-no-files-found: error
 
   maple-ui-contracts:
     name: maple-ui-contracts (component-contract docs are complete)
