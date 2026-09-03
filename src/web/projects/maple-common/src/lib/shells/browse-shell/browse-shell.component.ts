@@ -34,12 +34,16 @@ import { DropZoneComponent } from '../../components/drop-zone/drop-zone.componen
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-settings-dialog.component';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
+import { BatchSyncService } from '../../editor/copy-paste/batch-sync.service';
+import { BatchSyncBannerComponent } from '../../editor/copy-paste/batch-sync-banner.component';
 import {
   ALL_ADJUSTMENT_GROUP_IDS,
   buildGroupPatch,
   type AdjustmentGroupId,
 } from '../../editor/copy-paste/adjustment-groups';
 import { selectSidebarEntry } from './source-selection';
+import type { AssetId } from '../../models/asset';
+import type { AdjustmentModel } from '../../models/adjustment-model';
 // Interface, not the concrete AssetRenameService — see
 // asset-rename-capability.ts's module doc (keeps BunApiBackendService out
 // of Hosted's static bundle; BrowseShellComponent is shared by both apps).
@@ -69,6 +73,7 @@ import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summar
     ToolbarActionsComponent,
     DragMoveCollisionDialogComponent,
     DragMoveSummaryBannerComponent,
+    BatchSyncBannerComponent,
     CdkDropListGroup,
   ],
   templateUrl: './browse-shell.component.html',
@@ -83,6 +88,7 @@ export class BrowseShellComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private readonly clipboard = inject(AdjustmentClipboardService);
+  protected readonly batch = inject(BatchSyncService);
   private readonly layoutService = inject(LayoutService);
   private readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
@@ -219,11 +225,10 @@ export class BrowseShellComponent {
     if (focusedId == null) return;
     const model = this.state.adjustmentFor(focusedId)();
     const patch = buildGroupPatch(model, ALL_ADJUSTMENT_GROUP_IDS);
-    if (Object.keys(patch).length === 0) return;
-    for (const id of this.state.selectedAssetIds()) {
-      if (id === focusedId) continue;
-      this.state.updateAdjustment(id, patch);
-    }
+    // The source asset is never re-written — sync pushes the focused image's
+    // settings onto the REST of the selection.
+    const targets = [...this.state.selectedAssetIds()].filter((id) => id !== focusedId);
+    void this._runBatch(targets, patch);
   }
 
   /** Build the clipboard's group patch and write it onto every currently
@@ -231,11 +236,27 @@ export class BrowseShellComponent {
   private _pasteToSelection(groups: readonly AdjustmentGroupId[]): void {
     const entry = this.clipboard.entry();
     if (!entry) return;
-    const patch = buildGroupPatch(entry.model, groups);
-    if (Object.keys(patch).length === 0) return;
-    for (const id of this.state.selectedAssetIds()) {
-      this.state.updateAdjustment(id, patch);
-    }
+    void this._runBatch([...this.state.selectedAssetIds()], buildGroupPatch(entry.model, groups));
+  }
+
+  /**
+   * Run one batch transfer (#2436). Remembers the patch so "Retry failed"
+   * re-runs the same edit rather than whatever the clipboard holds by then —
+   * the clipboard and the selection can both change while a run is in
+   * flight, and a retry must repeat the run it is reporting on.
+   */
+  private _lastBatchPatch: Partial<AdjustmentModel> | null = null;
+
+  private async _runBatch(ids: readonly AssetId[], patch: Partial<AdjustmentModel>): Promise<void> {
+    if (Object.keys(patch).length === 0 || ids.length === 0) return;
+    this._lastBatchPatch = patch;
+    await this.batch.apply(ids, patch);
+  }
+
+  /** Re-run just the assets the last batch could not write. */
+  onRetryFailedBatch(): void {
+    const patch = this._lastBatchPatch;
+    if (patch) void this.batch.retryFailed(patch);
   }
 
   // ── Page unload — flush pending XMP writes ───────────────────────────────
