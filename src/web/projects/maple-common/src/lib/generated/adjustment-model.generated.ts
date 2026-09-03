@@ -28,6 +28,8 @@ export type LensProfileEnable = 'Off' | 'On';
 
 export type WbMethod = 'Cat16' | 'DiagonalRec2020';
 
+export type WbSource = 'AsShot' | 'Auto' | 'Preset' | 'Sampled' | 'Manual';
+
 export type AutoExposureMode = 'Off' | 'On';
 
 export type HotPixelSuppressionMode = 'Off' | 'On';
@@ -41,6 +43,14 @@ export interface GeneratedAdjustmentModel {
   tint: number;
   /** User white-balance method (ticket #431). 'Cat16' performs proper chromatic adaptation in CAT16 cone space (default); 'DiagonalRec2020' is the legacy per-channel diagonal-gain path retained for parity A/B. */
   wbMethod: WbMethod;
+  /** Where the white balance came from (#2434): 'AsShot' (default), 'Auto', 'Preset', 'Sampled', or 'Manual'. XMP key `papp:WbSource`, omitted at the default. Provenance only — never a render input. */
+  wbSource: WbSource;
+  /** Normalised image-relative x of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleX`. Range: [0.0, 1.0]. */
+  wbSampleX: number;
+  /** Normalised image-relative y of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleY`. Range: [0.0, 1.0]. */
+  wbSampleY: number;
+  /** Version of the estimator that produced an 'Auto' or 'Sampled' white balance (#2434; `raw_core::stages::white_balance_sample::WB_ALGORITHM_VERSION`), 0 when the pair was not derived. A re-derivation of the math bumps it so an old sidecar's stored reading is never reinterpreted. XMP key `papp:WbAlgorithmVersion`. Range: [0.0, 1000000.0]. */
+  wbAlgorithmVersion: number;
   /** Linear exposure in EV stops applied in scene-linear. Range: [-4.0, 4.0]. */
   exposure: number;
   /** Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics). Range: [-100.0, 100.0]. */
@@ -251,6 +261,10 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     temperature: 6500.0,
     tint: 0.0,
     wbMethod: 'Cat16',
+    wbSource: 'AsShot',
+    wbSampleX: 0.0,
+    wbSampleY: 0.0,
+    wbAlgorithmVersion: 0.0,
     exposure: 0.0,
     brightness: 0.0,
     contrast: 0.0,

@@ -219,10 +219,37 @@ impl ProbeSpace {
         })
     }
 
+    /// A probe pixel mapped into the judging space.
+    pub(crate) fn judge(&self, rec2020: [f32; 3]) -> [f32; 3] {
+        self.to_space.mul_vec(rec2020)
+    }
+
+    /// Whether a judged pixel has any channel within [`CLIP_MARGIN`] of its
+    /// sensor ceiling.
+    pub(crate) fn is_clipped(&self, judged: [f32; 3]) -> bool {
+        (0..3).any(|k| judged[k] >= self.ceilings[k] * (1.0 - CLIP_MARGIN))
+    }
+
+    /// The scene-linear luma below which a pixel carries no usable
+    /// chromaticity ([`LUMA_MIN_FRACTION`] of the neutral clip level).
+    pub(crate) fn luma_floor(&self) -> f32 {
+        LUMA_MIN_FRACTION * self.neutral_clip
+    }
+
     /// The slider pair that neutralises `neutral` (a G-normalised
     /// chromaticity in the judging space), clamped to the schema's
     /// `temperature` / `tint` domain. `None` when the solve degenerates.
-    fn temp_tint(&self, neutral: [f32; 3]) -> Option<(f32, f32)> {
+    pub(crate) fn temp_tint(&self, neutral: [f32; 3]) -> Option<(f32, f32)> {
+        let (t_lo, t_hi) = schema_range("temperature");
+        let (tint_lo, tint_hi) = schema_range("tint");
+        self.solve(neutral).map(|(temperature, tint)| {
+            (temperature.clamp(t_lo, t_hi), tint.clamp(tint_lo, tint_hi))
+        })
+    }
+
+    /// [`Self::temp_tint`] before the clamp — the sampler reports a solve
+    /// outside the slider domain instead of silently pinning it.
+    pub(crate) fn solve(&self, neutral: [f32; 3]) -> Option<(f32, f32)> {
         let (temperature, tint) = match &self.tier {
             Tier::Camera {
                 frame,
@@ -236,18 +263,13 @@ impl ProbeSpace {
             }
             Tier::Generic => neutral_to_temp_tint(neutral),
         };
-        if !(temperature.is_finite() && tint.is_finite()) {
-            return None;
-        }
-        let (t_lo, t_hi) = schema_range("temperature");
-        let (tint_lo, tint_hi) = schema_range("tint");
-        Some((temperature.clamp(t_lo, t_hi), tint.clamp(tint_lo, tint_hi)))
+        (temperature.is_finite() && tint.is_finite()).then_some((temperature, tint))
     }
 }
 
 /// The `(min, max)` a schema field declares — the recommendation is a slider
 /// value, so it lives in the slider's domain.
-fn schema_range(name: &str) -> (f32, f32) {
+pub(crate) fn schema_range(name: &str) -> (f32, f32) {
     ADJUSTMENT_SCHEMA
         .iter()
         .find(|f| f.name == name)
@@ -263,6 +285,12 @@ fn pre_gain_of(neutral: [f32; 3]) -> [f32; 3] {
         return [1.0; 3];
     }
     neutral.map(|n| if n.abs() > 1e-6 { 1.0 / n } else { 1.0 })
+}
+
+/// G-normalise a judged pixel to the `[r, 1, b]` chromaticity the solve takes.
+pub(crate) fn chromaticity_of(judged: [f32; 3]) -> [f32; 3] {
+    let g = judged[1].max(1e-6);
+    [judged[0] / g, 1.0, judged[2] / g]
 }
 
 /// Channel sums of an admitted population, in f64 so a 100 MP probe can't
