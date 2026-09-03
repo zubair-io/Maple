@@ -36,7 +36,6 @@ namespace Maple.WinUI.Services.Xmp
     /// </summary>
     public readonly record struct ChildSlot(string? ModeledTag, int PassthroughIndex)
     {
-        public static ChildSlot ForToneCurve(string tag) => new(tag, -1);
         public static ChildSlot ForModeled(string tag) => new(tag, -1);
         public static ChildSlot ForPassthrough(int index) => new(null, index);
     }
