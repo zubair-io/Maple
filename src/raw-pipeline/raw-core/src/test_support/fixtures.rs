@@ -89,6 +89,12 @@ pub const REFERENCE_RAWS: &[&str] = &[
 pub fn decode_raw(name: &str) -> crate::image::RawImage {
     let path = require_raw(name);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {name}: {e}"));
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    crate::decode::decode_bytes(&bytes, ext).unwrap_or_else(|e| panic!("decode {name}: {e}"))
+    // `decode_bytes` documents a lowercase extension (`decode()` enforces it);
+    // the fixture names carry the case each file actually has.
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    crate::decode::decode_bytes(&bytes, &ext).unwrap_or_else(|e| panic!("decode {name}: {e}"))
 }
