@@ -18,8 +18,15 @@
 // Spec: docs/design/responsive-program/s5-editor.md §4 + §6.
 
 import { Injectable, computed, inject, signal, untracked } from '@angular/core';
+import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
+import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import {
+  type EditTransaction,
+  type EditTransactionKind,
+  makeEditTransaction,
+} from './edit-transaction';
 import type { AssetId } from '../models/asset';
 import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
 import {
@@ -33,6 +40,7 @@ import {
   type ToolGroup,
   type ToolId,
   TOOLS_IN_GROUP,
+  TOOL_DISPLAY,
   defaultDisplayValue,
   displayRange,
   displayValueFromInternal,
@@ -55,6 +63,14 @@ import {
 /** Cap on the editor's undo/redo ring (per spec §4). */
 export const UNDO_STACK_CAP = 32;
 
+/** An open, not-yet-recorded transaction (#2432). */
+interface PendingEdit {
+  readonly id: number;
+  readonly kind: EditTransactionKind;
+  readonly description: string;
+  readonly before: AdjustmentModel;
+}
+
 export type HapticEvent =
   | 'zero-cross' // .light  / vibrate(8)
   | 'extreme' //   .medium / vibrate(12)
@@ -72,6 +88,8 @@ const HAPTIC_DURATION_MS: Record<HapticEvent, number> = {
 export class EditorStateService {
   private library = inject(LibraryStateService);
   private pipeline = inject(RawPipelineService);
+  private serializer = inject(XmpSerializerService);
+  private announcer = inject(LiveAnnouncer);
 
   // ── Identity / arming ────────────────────────────────────────────────────
   readonly imageId = signal<AssetId | null>(null);
@@ -88,12 +106,39 @@ export class EditorStateService {
    * filmstrip image switches keep the selection. */
   private readonly subParamMemory = new Map<ToolId, string>();
 
-  // ── Snapshot ring (full AdjustmentModel; cap 32) ─────────────────────────
-  private readonly _undoStack = signal<AdjustmentModel[]>([]);
-  private readonly _redoStack = signal<AdjustmentModel[]>([]);
+  // ── Transaction ring (#2432; cap 32) ─────────────────────────────────────
+  //
+  // Every committed action is ONE `EditTransaction`: `commit()` opens it
+  // (capturing the model as `before`), the gesture's value writes are
+  // previews (render + coalesced sidecar write, no history), and
+  // `endEdit()` closes it — computing the sidecar diff, dropping a no-op,
+  // otherwise recording it, handing `after` to the library (→ sidecar) and
+  // announcing it. A still-open transaction is closed by the next boundary
+  // (`commit`, `undo`, `redo`, `endEdit`, `bind`), so a caller that only
+  // knows the START of a gesture still produces exactly one entry. Mirrors
+  // Apple's `EditSession+UndoRedo.swift`.
+  private readonly _undoStack = signal<EditTransaction[]>([]);
+  private readonly _redoStack = signal<EditTransaction[]>([]);
+  private _pending: PendingEdit | null = null;
+  private _nextTransactionId = 0;
 
-  readonly canUndo = computed(() => this._undoStack().length > 0);
+  /** The most recently recorded, undone, or redone transaction. */
+  readonly lastCommittedTransaction = signal<EditTransaction | null>(null);
+
+  /** True when an undo entry exists OR the open transaction has already
+   * moved the model (it becomes one at the next boundary). */
+  readonly canUndo = computed(() => {
+    if (this._undoStack().length > 0) return true;
+    const pending = this._pending;
+    const current = this.currentAdjustment();
+    return pending != null && current != null && !sameModel(pending.before, current);
+  });
   readonly canRedo = computed(() => this._redoStack().length > 0);
+
+  /** The recorded transactions, oldest first. Test / diagnostics seam. */
+  undoHistory(): readonly EditTransaction[] {
+    return this._undoStack();
+  }
 
   // ── Derived: live adjustment + dirty flag ────────────────────────────────
   readonly currentAdjustment = computed<AdjustmentModel | null>(() => {
@@ -172,8 +217,10 @@ export class EditorStateService {
   bind(id: AssetId, armed?: { group: ToolGroup; tool: ToolId }): void {
     this.imageId.set(id);
     this.autoResult.set(null);
+    this._pending = null;
     this._undoStack.set([]);
     this._redoStack.set([]);
+    this.lastCommittedTransaction.set(null);
     this._discardDeferred();
     if (armed) {
       this.armedGroup.set(armed.group);
@@ -182,53 +229,80 @@ export class EditorStateService {
     this.armedSubParamId.set(untracked(() => this._resolveSubParamId(this.armedTool())));
   }
 
-  /** Snapshot the current model onto the undo stack. Call at the start
-   * of a gesture / shortcut so subsequent value writes are reversible. */
-  commit(): void {
+  /** Open the edit transaction for a user action (#2432). Call at the
+   * START of a gesture / shortcut / discrete edit; `endGesture()` or
+   * `endEdit()` closes it. Closes any transaction still open first, so two
+   * consecutive gestures never merge. The default description names the
+   * armed tool so the announcement says what moved. */
+  commit(kind: EditTransactionKind = 'adjustment', description?: string): void {
     const adj = this.currentAdjustment();
     if (!adj) return;
-    this._undoStack.update((stack) => {
-      const next = [...stack, structuredClone(adj)];
-      if (next.length > UNDO_STACK_CAP) next.splice(0, next.length - UNDO_STACK_CAP);
-      return next;
-    });
+    this.endEdit();
+    this._nextTransactionId += 1;
+    this._pending = {
+      id: this._nextTransactionId,
+      kind,
+      description: description ?? TOOL_DISPLAY[this.armedTool()],
+      before: structuredClone(adj),
+    };
     this._redoStack.set([]);
+  }
+
+  /** Close the open transaction. A no-op (model unchanged) records nothing;
+   * anything else becomes exactly one undo entry, is handed to the library
+   * as the state the sidecar persists, and is announced. */
+  endEdit(): void {
+    const pending = this._pending;
+    const id = this.imageId();
+    const current = this.currentAdjustment();
+    if (!pending) return;
+    this._pending = null;
+    if (id == null || !current) return;
+    const tx = makeEditTransaction(this.serializer, {
+      ...pending,
+      after: structuredClone(current),
+    });
+    if (!tx) return;
+    this._undoStack.update((stack) => pushCapped(stack, tx));
+    this.lastCommittedTransaction.set(tx);
+    // The transaction IS what the sidecar persists (coalesces with the
+    // per-tick writes through the same debounce).
+    this.library.updateAdjustment(id, tx.after);
+    void this.announcer.announce(tx.description);
+  }
+
+  /** Abandon the open transaction without recording it. The model keeps
+   * whatever the preview ticks wrote. */
+  cancelEdit(): void {
+    this._pending = null;
   }
 
   undo(): void {
     const id = this.imageId();
     if (id == null) return;
+    this.endEdit();
     const stack = this._undoStack();
     if (stack.length === 0) return;
-    const prev = stack[stack.length - 1];
-    const current = this.currentAdjustment();
-    if (current) {
-      this._redoStack.update((s) => {
-        const next = [...s, structuredClone(current)];
-        if (next.length > UNDO_STACK_CAP) next.splice(0, next.length - UNDO_STACK_CAP);
-        return next;
-      });
-    }
+    const tx = stack[stack.length - 1];
     this._undoStack.update((s) => s.slice(0, -1));
-    this.library.updateAdjustment(id, prev);
+    this._redoStack.update((s) => pushCapped(s, tx));
+    this.library.updateAdjustment(id, structuredClone(tx.before));
+    this.lastCommittedTransaction.set(tx);
+    void this.announcer.announce(`Undo ${tx.description}`);
   }
 
   redo(): void {
     const id = this.imageId();
     if (id == null) return;
+    this.endEdit();
     const stack = this._redoStack();
     if (stack.length === 0) return;
-    const next = stack[stack.length - 1];
-    const current = this.currentAdjustment();
-    if (current) {
-      this._undoStack.update((s) => {
-        const arr = [...s, structuredClone(current)];
-        if (arr.length > UNDO_STACK_CAP) arr.splice(0, arr.length - UNDO_STACK_CAP);
-        return arr;
-      });
-    }
+    const tx = stack[stack.length - 1];
     this._redoStack.update((s) => s.slice(0, -1));
-    this.library.updateAdjustment(id, next);
+    this._undoStack.update((s) => pushCapped(s, tx));
+    this.library.updateAdjustment(id, structuredClone(tx.after));
+    this.lastCommittedTransaction.set(tx);
+    void this.announcer.announce(`Redo ${tx.description}`);
   }
 
   // ── Arming ──────────────────────────────────────────────────────────────
@@ -292,8 +366,10 @@ export class EditorStateService {
     const deferred = this._deferredDisplay();
     this._gestureActive.set(false);
     this._deferredDisplay.set(null);
-    if (deferred == null) return;
-    this.setArmedDisplayValue(deferred);
+    if (deferred != null) this.setArmedDisplayValue(deferred);
+    // The gesture's release is the transaction's commit boundary (#2432):
+    // the drag bar's pointer-down `commit()` opened it.
+    this.endEdit();
   }
 
   /** Abandon a gesture without committing its parked value (pointercancel:
@@ -342,11 +418,12 @@ export class EditorStateService {
     // A reset is an explicit, discrete edit — it always writes through, even
     // for a commit-on-release sub-param, so drop any parked drag value first.
     this._discardDeferred();
-    this.commit();
+    this.commit('reset', `Reset ${TOOL_DISPLAY[this.armedTool()]}`);
     const sub = this.armedSubParam();
     this.setArmedDisplayValue(
       sub ? subParamDefaultDisplay(sub) : defaultDisplayValue(this.armedTool()),
     );
+    this.endEdit();
     this.haptic('reset');
   }
 
@@ -366,8 +443,9 @@ export class EditorStateService {
     const id = this.imageId();
     const adj = this.currentAdjustment();
     if (id == null || !adj || adj.blackWhite === mode) return;
-    this.commit();
+    this.commit('adjustment', mode === 'On' ? 'Black & White on' : 'Black & White off');
     this.library.updateAdjustment(id, { blackWhite: mode });
+    this.endEdit();
     if (mode === 'On' && this.armedTool() === 'hsl') {
       this.armTool('bwMix');
     }
@@ -385,8 +463,9 @@ export class EditorStateService {
     if (id == null || this.currentAdjustment() == null) return false;
     const patch = buildApplyPatch(preset.fields);
     if (Object.keys(patch).length === 0) return false;
-    this.commit();
+    this.commit('preset', `Apply preset ${preset.name}`);
     this.library.updateAdjustment(id, patch);
+    this.endEdit();
     this.haptic('switch');
     return true;
   }
@@ -413,8 +492,9 @@ export class EditorStateService {
     patch.whiteBalancePreset = 'As Shot';
     patch.profile = 'Auto';
 
-    this.commit();
+    this.commit('reset', 'Reset all adjustments');
     this.library.updateAdjustment(id, patch);
+    this.endEdit();
     this.haptic('reset');
     return true;
   }
@@ -472,7 +552,7 @@ export class EditorStateService {
    */
   private _applyAutoAdjustments(id: AssetId, patch: AutoAdjustPatch): boolean {
     if (this.imageId() !== id) return false;
-    this.commit();
+    this.commit('auto', 'Auto adjustments');
     const exposure = clampAdjustment('exposure', patch.exposure);
     this.library.updateAdjustment(id, {
       exposure,
@@ -483,6 +563,7 @@ export class EditorStateService {
       blacks: clampAdjustment('blacks', patch.blacks),
       autoExposure: 'Off',
     });
+    this.endEdit();
     // Report the CLAMPED value — the one actually written — so the feedback
     // text can never disagree with the edit (#3130 review).
     const sign = exposure >= 0 ? '+' : '';
@@ -498,6 +579,15 @@ export class EditorStateService {
       nav.vibrate(HAPTIC_DURATION_MS[event]);
     }
   }
+}
+
+function pushCapped(stack: EditTransaction[], tx: EditTransaction): EditTransaction[] {
+  const next = [...stack, tx];
+  return next.length > UNDO_STACK_CAP ? next.slice(next.length - UNDO_STACK_CAP) : next;
+}
+
+function sameModel(a: AdjustmentModel, b: AdjustmentModel): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {

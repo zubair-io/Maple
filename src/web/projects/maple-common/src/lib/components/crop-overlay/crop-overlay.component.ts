@@ -163,8 +163,9 @@ export class CropOverlayComponent implements AfterViewInit, OnDestroy {
     const handle = hitTestHandle(px, py, this.rect(), HANDLE_TOLERANCE);
     if (!handle) return;
     const start = pxToNormalized(px, py, this.footprint());
-    // One undo entry per gesture — snapshot before the first mutation.
-    this.editor.commit();
+    // One transaction per gesture (#2432) — opened before the first
+    // mutation, closed in `onPointerUp`.
+    this.editor.commit('crop', 'Crop');
     this.drag = {
       handle,
       startCrop: { ...this.cropRect() },
@@ -201,6 +202,7 @@ export class CropOverlayComponent implements AfterViewInit, OnDestroy {
     if (!this.drag) return;
     this.drag = null;
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
+    this.editor.endEdit();
   }
 
   /** Cursor hint for the current pointer position (set on plain hover). */

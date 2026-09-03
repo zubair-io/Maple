@@ -14,7 +14,7 @@
 //  - <?xpacket end="w"?> trailer, LF line endings.
 
 import { Injectable } from '@angular/core';
-import type { AdjustmentModel } from '../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
@@ -23,6 +23,7 @@ import { localAdjustmentBlocks } from './xmp-local-adjustments';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
   escapeXmpAttr,
+  unescapeXmpAttr,
   enumFieldParts,
   cropParts,
   cullingParts,
@@ -150,6 +151,44 @@ export class XmpSerializerService {
    * out-of-range model field must never reach the sidecar. Mirrors the
    * Swift writer.
    */
+  /**
+   * Every canonical attribute this writer would emit for `model` that
+   * differs from what it emits for the default model — the adjustment,
+   * enum, and crop attributes — plus the nested tone-curve block under the
+   * synthetic key `toneCurves` (curves are children, not attributes). The
+   * edit-transaction sidecar diff (#2432, `editor/edit-transaction.ts`) is
+   * computed over this map, so a diff is expressed in the exact bytes the
+   * sidecar carries; Apple computes the same map from its own writer
+   * (`SidecarDiff.attributes(of:)`), subtracting its unconditional
+   * core-block emission so both maps are omit-on-default
+   * (docs/xmp-canonical-format.md § "Known divergence").
+   */
+  modelAttributes(model: AdjustmentModel): ReadonlyMap<string, string> {
+    const defaults = this._attributeMap(defaultAdjustmentModel());
+    const out = new Map<string, string>();
+    for (const [key, value] of this._attributeMap(model)) {
+      if (defaults.get(key) !== value) out.set(key, value);
+    }
+    const curves = toneCurveBlocks(model, '');
+    if (curves) out.set('toneCurves', curves);
+    return out;
+  }
+
+  private _attributeMap(model: AdjustmentModel): Map<string, string> {
+    const out = new Map<string, string>();
+    const parts = [
+      ...this._adjustmentParts(model),
+      ...enumFieldParts(model),
+      ...cropParts(model.crop),
+    ];
+    for (const part of parts) {
+      const eq = part.indexOf('=');
+      if (eq < 0) continue;
+      out.set(part.slice(0, eq), unescapeXmpAttr(part.slice(eq + 2, -1)));
+    }
+    return out;
+  }
+
   private _adjustmentParts(model: AdjustmentModel): string[] {
     const parts: string[] = [];
 
