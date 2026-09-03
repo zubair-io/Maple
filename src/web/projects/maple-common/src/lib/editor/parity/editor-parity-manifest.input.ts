@@ -96,12 +96,12 @@ const INPUT: readonly ParityCapability[] = [
     name: 'Slider: scroll-wheel nudge',
     group: 'input',
     order: 30,
-    reachability: { apple: 'released', web: 'absent' },
+    reachability: BOTH,
     presentation: SAME('No chrome; a wheel over the canvas at fit zoom nudges the armed tool'),
     interaction: {
       keyboard: 'n/a',
       pointer:
-        'Plain wheel at fit zoom: detents nudge the armed (tool, sub-param); a burst within 0.5s shares one undo entry (WheelNudgeBurst.swift); commit-on-release fields flush 250ms after the last detent',
+        'Plain wheel at fit zoom: detents nudge the armed (tool, sub-param) by 1 internal unit (⇧ 10, ⌥ 0.1); a burst within 0.5s shares one undo entry (WheelNudgeBurst.swift / editor-shell-wheel.ts); commit-on-release fields flush 250ms after the last detent',
       touch: 'n/a',
       focus: 'Cmd/Ctrl+wheel stays zoom; plain wheel while zoomed stays pan',
     },
@@ -113,12 +113,7 @@ const INPUT: readonly ParityCapability[] = [
       actions: ['adjust'],
     },
     participation: EDIT,
-    exception: {
-      platform: 'web',
-      rationale:
-        'Web deferred the wheel nudge with the retired S5 editor (image-canvas.zoom-gestures.ts leaves a fit-zoom plain wheel unconsumed); Apple has it via CanvasZoomHost → EditorState.wheelNudge.',
-      ticket: '#2450',
-    },
+    exception: null,
   },
   {
     id: 'input.slider-fine-mode',
@@ -208,7 +203,7 @@ const CANVAS: readonly ParityCapability[] = [
       'Full-bleed canvas; pixelScale 0 = fit, 1 = true 100%, cap 8; snap-to-fit below fit × 1.02',
     ),
     interaction: {
-      keyboard: 'Web: F fit, Z 100%, ⌘0 fit, ⌘1 100%',
+      keyboard: 'Web: F fit, Z 100%, ⌘0 fit, ⌘1 100%, ⌘= / ⌘- step',
       pointer:
         'Cmd/Ctrl+wheel or trackpad pinch zooms at the cursor; double-click toggles fit ↔ 100%; drag pans when zoomed',
       touch: 'Two-finger pinch at the centroid; one-finger drag pans when zoomed',
@@ -232,7 +227,8 @@ const CANVAS: readonly ParityCapability[] = [
     reachability: { apple: 'absent', web: 'released' },
     presentation: SAME('No chrome; documented in the toolbar tooltips'),
     interaction: {
-      keyboard: 'F / Z (bare), ⌘0 / ⌘1 (modifier) — never while a text field has focus',
+      keyboard:
+        'F / Z (bare), ⌘0 / ⌘1 fit / 100%, ⌘= / ⌘- bounded step (same step as the toolbar and wheel) — never while a text field has focus',
       pointer: 'n/a',
       touch: 'n/a',
       focus: 'Works while a slider is focused (F / Z are not value keys)',
@@ -282,13 +278,16 @@ const CANVAS: readonly ParityCapability[] = [
     name: 'Before / after: momentary (press-and-hold)',
     group: 'canvas',
     order: 40,
-    reachability: { apple: 'absent', web: 'absent' },
-    presentation: SAME('Not present on either platform'),
+    reachability: { apple: 'absent', web: 'released' },
+    presentation: SAME(
+      'Web: the same before/after button and the \\ / B keys — a tap toggles the latched split, a hold (≥300ms) shows the whole frame as "before" until release; zoom and pan untouched',
+    ),
     interaction: {
-      keyboard: 'Intended: hold \\ shows before, release restores after, zoom and pan preserved',
-      pointer: 'Intended: press-and-hold the toggle',
-      touch: 'Intended: press-and-hold',
-      focus: 'n/a',
+      keyboard: 'Hold \\ or B to peek, release to restore (a short tap toggles the latched split)',
+      pointer:
+        'Press-and-hold the toggle (pointer captured; a drag-off release still ends the peek)',
+      touch: 'Press-and-hold',
+      focus: 'One press/release pair through the command router whichever input pressed it',
     },
     accessibility: {
       role: 'button',
@@ -299,10 +298,10 @@ const CANVAS: readonly ParityCapability[] = [
     },
     participation: NONE,
     exception: {
-      platform: 'both',
+      platform: 'apple',
       rationale:
-        'Net-new on both platforms (design spec Open decision 2): web under #2450, Apple under #3250, to one shared spec.',
-      ticket: '#2450',
+        'Web ships the press/release peek through its command router (#2450); Apple builds the same contract in its router (#3250).',
+      ticket: '#3250',
     },
   },
   {
@@ -372,22 +371,19 @@ const NAVIGATION: readonly ParityCapability[] = [
     name: 'Commit-on-navigate (asset switch flushes the in-flight edit)',
     group: 'navigation',
     order: 20,
-    reachability: { apple: 'released', web: 'partial' },
+    reachability: BOTH,
     presentation: SAME('No chrome'),
     interaction: {
-      keyboard: '←/→ during a drag must not carry the gesture onto the next asset',
-      pointer: 'Filmstrip click mid-gesture',
+      keyboard:
+        '←/→ are refused while a scrub, slider drag or wheel burst is in flight (editor-command-router.ts)',
+      pointer:
+        'A filmstrip switch mid-drag drops the remaining ticks (control card) and any in-flight canvas scrub; bind() discards a parked commit-on-release value',
       touch: 'Same',
-      focus: 'n/a',
+      focus: 'Apple: flushPendingSidecarWrite() on session teardown',
     },
     accessibility: { role: 'none', name: 'n/a', value: 'none', state: 'none', actions: ['none'] },
     participation: { undo: false, copyPaste: null, history: true, preview: 'none', export: true },
-    exception: {
-      platform: 'web',
-      rationale:
-        'Apple flushes via flushPendingSidecarWrite() on session teardown (verified). Web writes through the 750ms sidecar debounce and discards a parked commit-on-release value on bind(), but no gate proves an uncommitted gesture cannot land on the next asset yet.',
-      ticket: '#2451',
-    },
+    exception: null,
   },
 ];
 

@@ -66,7 +66,12 @@
   [class.shell--desktop]="isDesktop()"
 >
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
-  <div #canvasWrap class="absolute inset-0 z-0" (pointerdown)="onCanvasPointerDown($event)">
+  <div
+    #canvasWrap
+    class="absolute inset-0 z-0"
+    (pointerdown)="onCanvasPointerDown($event)"
+    (wheel)="onCanvasWheel($event)"
+  >
     <editor-image-canvas class="h-full w-full" [hideToolbar]="true" />
   </div>
 
@@ -94,6 +99,7 @@
         class="flex shrink-0 items-center gap-1 rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-2 py-1 outline-none transition-colors duration-[120ms] ease-out appearance-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         title="Back to Library (Esc)"
         aria-label="Back to Library"
+        [attr.aria-keyshortcuts]="keyshortcuts('nav.back')"
         (click)="goBack()"
       >
         <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
@@ -105,6 +111,30 @@
         data-editor-region="identity"
         >{{ assetName() }}</span
       >
+
+      <!-- Command menu (#2450) — ⌘K / ?: every keyboard command, discoverable
+           and clickable; picks route through the same command router. -->
+      <div class="relative shrink-0">
+        <button
+          class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+          [class]="iconBtnClass(commandMenuOpen())"
+          title="Commands (⌘K)"
+          aria-label="Commands"
+          [attr.aria-pressed]="commandMenuOpen()"
+          [attr.aria-keyshortcuts]="keyshortcuts('commands.menu')"
+          data-testid="editor-shell-commands"
+          (click)="commandMenuOpen() ? commandMenuOpen.set(false) : onCommandMenuOpen()"
+        >
+          <maple-icon name="search-sliders" [size]="14" color="var(--pro-text-muted)" />
+        </button>
+        <mui-command-menu
+          [open]="commandMenuOpen()"
+          [commands]="commandMenuItems"
+          placeholder="Type a command"
+          (select)="onCommandMenuSelect($event)"
+          (closeRequested)="commandMenuOpen.set(false)"
+        />
+      </div>
 
       <!-- Center spacer -->
       <div class="shrink-0 grow-0 basis-1"></div>
@@ -119,6 +149,7 @@
         title="Scopes"
         aria-label="Scopes"
         [attr.aria-pressed]="scopesOpen()"
+        [attr.aria-keyshortcuts]="keyshortcuts('panel.scopes')"
         [disabled]="!hasFocusedAsset()"
         data-testid="editor-shell-scopes"
         data-editor-region="scopes"
@@ -171,16 +202,21 @@
         RESET
       </button>
 
-      <!-- Before/After split toggle -->
+      <!-- Before/After (#2450): tap toggles the latched split, press-and-hold
+           peeks at "before" until release — the same press/release pair the
+           \ / B keys resolve to, through the command router. -->
       <button
-        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)] [touch-action:none]"
         [class]="iconBtnClass(canvasSvc.showBeforeAfter())"
-        title="Before/After (\)"
+        title="Before/After (\ tap · hold to peek)"
         aria-label="Toggle before/after"
-        [attr.aria-pressed]="canvasSvc.showBeforeAfter()"
+        [attr.aria-pressed]="canvasSvc.latchedBeforeAfter()"
+        [attr.aria-keyshortcuts]="keyshortcuts('compare.press')"
         data-testid="editor-shell-before-after"
         data-editor-region="comparison"
-        (click)="canvasSvc.toggleBeforeAfter()"
+        (pointerdown)="onComparePointerDown($event)"
+        (pointerup)="onComparePointerUp()"
+        (pointercancel)="onComparePointerCancel()"
       >
         <maple-icon name="split" [size]="16" color="var(--pro-text-muted)" />
       </button>
@@ -190,6 +226,7 @@
         class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none hover:border-[color:var(--pro-border)] hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         title="Undo (⌘Z) / hold for Redo (⌘⇧Z)"
         aria-label="Undo"
+        [attr.aria-keyshortcuts]="keyshortcuts('history.undo')"
         data-testid="editor-shell-undo"
         [disabled]="!editorState.canUndo() && !editorState.canRedo()"
         (pointerdown)="onUndoPointerDown($event)"
@@ -206,6 +243,7 @@
         title="Info"
         aria-label="Info"
         [attr.aria-pressed]="infoOpen()"
+        [attr.aria-keyshortcuts]="keyshortcuts('chrome.inspector')"
         data-testid="editor-shell-info"
         data-editor-region="inspector-toggle"
         (click)="infoOpen.update((v) => !v)"

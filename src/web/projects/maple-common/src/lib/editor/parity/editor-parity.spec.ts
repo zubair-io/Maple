@@ -105,7 +105,7 @@ describe('editor parity manifest — placeholders and exceptions', () => {
 
   it('answers reachability queries for released and unknown capabilities', () => {
     expect(isReleasedOnWeb('tool.exposure')).toBe(true);
-    expect(isReleasedOnWeb('input.slider-wheel-nudge')).toBe(false);
+    expect(isReleasedOnWeb('canvas.deep-zoom-tiles')).toBe(false);
     expect(isReleasedOnWeb('nope')).toBe(false);
     expect(parityCapability('canvas.zoom')?.name).toContain('Zoom');
     expect(parityCapability('nope')).toBeNull();

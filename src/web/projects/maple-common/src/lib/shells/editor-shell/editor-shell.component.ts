@@ -68,6 +68,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgTemplateOutlet } from '@angular/common';
@@ -103,7 +104,23 @@ import { editRouteCommands, viewRouteCommands } from '../../addressing/route-add
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { basenameOf } from '../shell-helpers';
 import { applyRouteAddress as applyEditorRouteAddress } from './editor-shell-route';
-import { handleEditorKeydown } from './editor-shell-keyboard';
+import { handleEditorKeydown, handleEditorKeyup } from './editor-shell-keyboard';
+import {
+  type CommandRouterState,
+  bind,
+  cancelCompare,
+  executeIntent,
+  newCommandRouterState,
+} from './editor-command-router';
+import { EDITOR_COMMANDS, ariaKeyshortcuts, describeChord } from './editor-commands';
+import {
+  type WheelNudgeState,
+  cleanupWheel,
+  newWheelNudgeState,
+  onCanvasWheel,
+} from './editor-shell-wheel';
+import type { MuiCommandItem } from '../../ui/command-menu/mui-command-menu.component';
+import { MuiCommandMenuComponent } from '../../ui/command-menu/mui-command-menu.component';
 import {
   type ChromeRecedeState,
   newChromeRecedeState,
@@ -165,6 +182,7 @@ import * as sc from './editor-shell.classes';
     InfoPanelComponent,
     MuiSheetShellComponent,
     ExportDialogComponent,
+    MuiCommandMenuComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -200,6 +218,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     effect(() => {
       const id = this.state.focusedAssetId();
       if (id != null) {
+        // A canvas scrub still in flight belongs to the previous asset — drop
+        // it before re-binding so its remaining ticks can't land here (#2450).
+        if (untracked(() => this.scrubbing())) cleanupScrub(this, this._scrub);
         this.editorState.bind(id);
       }
     });
@@ -312,6 +333,56 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** Export options dialog (#943) — modal, so it has no anchor to share. */
   readonly exportOpen = signal<boolean>(false);
+
+  // ── Command router (#2450) ─────────────────────────────────────────────
+  // Keys, the command menu, the wheel and the before/after button all
+  // resolve to intents executed in editor-command-router.ts.
+  readonly commandRouter: CommandRouterState = newCommandRouterState();
+  private readonly _wheel: WheelNudgeState = newWheelNudgeState();
+  /** ⌘K / ? command menu — every keyboard command, discoverable + clickable. */
+  readonly commandMenuOpen = signal<boolean>(false);
+  readonly commandMenuItems: readonly MuiCommandItem[] = EDITOR_COMMANDS.filter((c) => c.menu).map(
+    (c) => ({ id: c.id, label: c.label, shortcut: c.chords.map(describeChord).join(' · ') }),
+  );
+  /** Asset the open command menu was opened on — a pick after a filmstrip
+   *  switch is a stale command and the router refuses it. */
+  private commandMenuAssetId: string | null = null;
+  protected keyshortcuts = (id: string) => ariaKeyshortcuts(id);
+
+  onCommandMenuOpen(): void {
+    this.commandMenuAssetId = this.state.focusedAssetId();
+    this.commandMenuOpen.set(true);
+  }
+
+  onCommandMenuSelect(id: string): void {
+    const command = EDITOR_COMMANDS.find((c) => c.id === id);
+    this.commandMenuOpen.set(false);
+    if (!command) return;
+    executeIntent(this, this.commandRouter, {
+      intent: command.intent,
+      assetId: this.commandMenuAssetId,
+    });
+  }
+
+  /** Plain wheel at fit zoom nudges the armed tool (editor-shell-wheel.ts). */
+  onCanvasWheel(e: WheelEvent): void {
+    onCanvasWheel(this, this._wheel, e);
+  }
+
+  /** Before/after control: press starts a peek, a short release toggles
+   *  the latched split — the same press/release pair the keyboard uses. */
+  onComparePointerDown(e: PointerEvent): void {
+    (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
+    executeIntent(this, this.commandRouter, bind(this, { kind: 'compare.press' }));
+  }
+
+  onComparePointerUp(): void {
+    executeIntent(this, this.commandRouter, bind(this, { kind: 'compare.release' }));
+  }
+
+  onComparePointerCancel(): void {
+    cancelCompare(this, this.commandRouter);
+  }
   // Chrome recede (idle-timer/resize-observer/pointermove machinery lives in
   // editor-shell-chrome.ts, extracted to stay under the per-file LOC budget).
   readonly chromeState = signal<ChromeState>('full');
@@ -355,6 +426,8 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this._clearHudTimer();
     cleanupScrub(this, this._scrub);
     undoOnPointerCancel(this._undo);
+    cancelCompare(this, this.commandRouter);
+    cleanupWheel(this, this._wheel);
     teardownPointerMove(this._chrome);
     // Editor-teardown persist trigger (#2018): leaving the editor (SPA
     // navigation, not just a hard tab close) is one of the write policy's
@@ -531,5 +604,10 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
     handleEditorKeydown(this, e);
+  }
+
+  @HostListener('document:keyup', ['$event'])
+  onKeyup(e: KeyboardEvent): void {
+    handleEditorKeyup(this, e);
   }
 }

@@ -152,6 +152,12 @@ export class EditorStateService {
   /** True between `beginGesture()` and `endGesture()`. */
   private readonly _gestureActive = signal<boolean>(false);
 
+  /** True while a continuous value gesture (drag bar, slider drag, canvas
+   *  scrub, wheel burst) is in flight — the command router refuses
+   *  navigation for its duration so an uncommitted interaction can never
+   *  land on another asset (#2450). */
+  readonly gestureActive = computed<boolean>(() => this._gestureActive());
+
   /** True when writes from the armed pair are held until gesture end. */
   readonly armedCommitsOnRelease = computed<boolean>(() => isCommitOnRelease(this.armedSubParam()));
 

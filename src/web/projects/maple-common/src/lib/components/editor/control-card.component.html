@@ -86,6 +86,7 @@
           [gradient]="gradientFor(tool)"
           [bipolar]="bipolarFor(tool)"
           (dragStart)="onSliderDragStart(tool)"
+          (dragEnd)="onSliderDragEnd()"
           (valueChange)="onSliderChange(tool, $event)"
           (resetRequest)="onSliderReset(tool)"
         />
