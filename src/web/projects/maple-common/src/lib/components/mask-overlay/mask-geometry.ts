@@ -74,7 +74,7 @@ export interface MaskAffine {
   ty: number;
 }
 
-export const IDENTITY_AFFINE: MaskAffine = Object.freeze({ a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 });
+const IDENTITY_AFFINE: MaskAffine = Object.freeze({ a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 });
 
 export const applyAffine = (m: MaskAffine, p: MaskPoint): MaskPoint => ({
   x: m.a * p.x + m.c * p.y + m.tx,
@@ -348,10 +348,6 @@ export function dragMaskHandle(
 /** The largest move toward `delta` that keeps the span `[lo, hi]` inside [0, 1]. */
 function clampDelta(delta: number, lo: number, hi: number): number {
   return Math.min(1 - hi, Math.max(-lo, delta));
-}
-
-export function maskFeather(mask: LocalMask): number {
-  return mask.feather;
 }
 
 export function withMaskFeather(mask: LocalMask, feather: number): LocalMask {

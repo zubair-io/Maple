@@ -31,6 +31,7 @@ import { CropSessionService } from './crop-session.service';
 import { resolveAspect } from './crop-aspect';
 import type { Crop } from '../../models/adjustment-model';
 import { defaultCrop } from '../../models/adjustment-model';
+import { focusedImageDims, hostLocalPoint, observeHostSize } from './overlay-host';
 import {
   type CropHandle,
   type Footprint,
@@ -74,12 +75,7 @@ export class CropOverlayComponent implements AfterViewInit, OnDestroy {
   private ro?: ResizeObserver;
   private drag: DragState | null = null;
 
-  /** Focused asset's native (display-oriented) dimensions. Falls back to a
-   *  3:2 frame before the decode publishes real dims. */
-  private readonly imgDims = computed(() => {
-    const a = this.library.focusedAsset();
-    return { w: a?.width ?? 6240, h: a?.height ?? 4160 };
-  });
+  private readonly imgDims = focusedImageDims(this.library);
 
   /** The live crop rect from the focused asset's model. */
   private readonly model = computed(() => {
@@ -137,16 +133,7 @@ export class CropOverlayComponent implements AfterViewInit, OnDestroy {
   });
 
   ngAfterViewInit(): void {
-    const el = this.host.nativeElement;
-    this.ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        this.wrapW.set(e.contentRect.width);
-        this.wrapH.set(e.contentRect.height);
-      }
-    });
-    this.ro.observe(el);
-    this.wrapW.set(el.clientWidth);
-    this.wrapH.set(el.clientHeight);
+    this.ro = observeHostSize(this.host.nativeElement, this.wrapW, this.wrapH);
     // Crop edits assume fit + zero pan so the footprint maps 1:1 onto the
     // painted image; entering crop snaps the view there (matches Lightroom).
     this.canvasSvc.zoomToFit();
@@ -214,8 +201,7 @@ export class CropOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   private localPoint(ev: PointerEvent): { px: number; py: number } {
-    const r = this.host.nativeElement.getBoundingClientRect();
-    return { px: ev.clientX - r.left, py: ev.clientY - r.top };
+    return hostLocalPoint(this.host.nativeElement, ev);
   }
 }
 
