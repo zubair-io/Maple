@@ -118,10 +118,25 @@ export function onCanvasWheel(
   if (commitsOnRelease) scheduleFlush(shell, state);
 }
 
+/**
+ * True while a burst is still in flight — its undo transaction is open and
+ * the next detent will join it. The router's gesture guard reads this so
+ * navigation can't carry a half-finished burst onto another asset: switching
+ * assets resets the transaction ring, which would drop the burst's undo entry
+ * even though the per-tick writes already landed in the model.
+ */
+export function wheelBurstActive(state: WheelNudgeState, now: number = performance.now()): boolean {
+  return state.burstOpen && now - state.lastAt <= BURST_MS;
+}
+
 function scheduleFlush(shell: EditorShellComponent, state: WheelNudgeState): void {
   if (state.flushTimer !== null) clearTimeout(state.flushTimer);
   state.flushTimer = setTimeout(() => {
     state.flushTimer = null;
+    // The flush CLOSES the transaction, so the burst it belonged to is over
+    // even if the next detent lands inside BURST_MS — that detent has to open
+    // a transaction of its own or it would be applied outside undo entirely.
+    state.burstOpen = false;
     shell.editorState.endGesture();
   }, FLUSH_MS);
 }
@@ -131,5 +146,6 @@ export function cleanupWheel(shell: EditorShellComponent, state: WheelNudgeState
   if (state.flushTimer === null) return;
   clearTimeout(state.flushTimer);
   state.flushTimer = null;
+  state.burstOpen = false;
   shell.editorState.endGesture();
 }
