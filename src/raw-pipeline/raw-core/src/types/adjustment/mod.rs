@@ -398,6 +398,14 @@ pub struct AdjustmentModel {
     /// (see `schema` module-level doc).
     pub local_adjustments: Vec<super::local_adjustment::LocalAdjustment>,
 
+    /// Registered rasters `local_adjustments`' `Mask::Bitmap` layers refer
+    /// to by id (#3271, spec §5.3). Derived data, populated by the host
+    /// (`raw-ffi`'s mask-raster registry) from a process-wide store keyed
+    /// by digest — never parsed from or written to the sidecar, and never
+    /// copied by copy/paste settings, same as `local_adjustments` itself.
+    /// **Not part of `ADJUSTMENT_SCHEMA`.**
+    pub mask_rasters: Vec<std::sync::Arc<super::local_adjustment::MaskRaster>>,
+
     /// Baked AI-removal layers (ticket #1486). Each carries a mask region, a
     /// content-hash reference to the synthetic-raw patch
     /// (`.maple/inpaint/<patch_ref>.f16`), and the bake-grade snapshot. The

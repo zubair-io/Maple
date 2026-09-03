@@ -8,6 +8,24 @@ use raw_core::types::adjustment::AutoExposureMode;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{CurveMode, FullChainInputs, ToneCurveInputs};
 
+/// Map a resolved raster list into raw-gpu's own carrier shape (#3271) —
+/// `raw_gpu::GpuMaskRaster` can't be `raw_core::types::MaskRaster` directly;
+/// see that type's doc for why (raw-gpu takes raw-core only as a
+/// dev-dependency, so its real API can't name raw-core's type).
+fn to_gpu_rasters(
+    rasters: &[std::sync::Arc<raw_core::types::MaskRaster>],
+) -> Vec<raw_gpu::GpuMaskRaster> {
+    rasters
+        .iter()
+        .map(|r| raw_gpu::GpuMaskRaster {
+            id: r.id,
+            width: r.width,
+            height: r.height,
+            data: r.data.clone(),
+        })
+        .collect()
+}
+
 /// Build the STRIPPED prefix model (see the `gpu_render` module docs): the
 /// GPU-chain-re-run stages are zeroed to their no-op defaults so develop
 /// short-circuits them BIT-EXACTLY, leaving only the upstream stages the GPU
@@ -75,6 +93,10 @@ pub(super) fn stripped_prefix_model(
         // stack so the develop prefix short-circuits the stage. A non-empty
         // value here would DOUBLE-APPLY: once in the prefix, once on the GPU.
         local_adjustments: Vec::new(),
+        // Cleared alongside `local_adjustments` (#3271) — an empty layer
+        // stack never resolves a raster, so an unused `Arc` clone here would
+        // be pure overhead in the stripped copy.
+        mask_rasters: Vec::new(),
         // Vignette (#1109) is re-run by the GPU chain — zero the amount so the
         // develop prefix short-circuits the stage (a non-zero value here would
         // DOUBLE-APPLY: once in the prefix, once on the GPU). Feather is inert
@@ -216,6 +238,14 @@ pub(super) fn build_full_chain_inputs(
         // Local adjustments (#1698) — serialized to the flat wire the GPU
         // storage buffer binds directly.
         local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
+        // Every registered raster a `Mask::Bitmap` layer above may reference
+        // (#3271), carried straight through from `model.mask_rasters` in
+        // raw-gpu's own shape; see `to_gpu_rasters`. Always empty today — no
+        // Web entry point registers a raster yet (`Mask::Bitmap` reaches the
+        // model only via a sidecar written by another platform) — but the
+        // plumbing is not Apple-specific, so a future Web raster source
+        // needs no change here.
+        mask_rasters: to_gpu_rasters(&model.mask_rasters),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,

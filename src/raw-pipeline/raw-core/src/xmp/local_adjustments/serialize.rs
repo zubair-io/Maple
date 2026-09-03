@@ -3,7 +3,10 @@
 //! size-budget reason as `parse.rs` (see that file's header).
 
 use super::{AdjustmentModel, LocalAdjustment, Mask, PartialAdjustments, RangeRefinement};
-use super::{LINEAR_CONTAINER, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL, RADIAL_CONTAINER};
+use super::{
+    GROUP_CONTAINER, LINEAR_CONTAINER, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL,
+    RADIAL_CONTAINER,
+};
 
 /// Round to the canonical 2-decimal wire precision
 /// (`docs/xmp-canonical-format.md` § "Number formatting"). Values here are
@@ -31,6 +34,13 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
         .iter()
         .filter(|l| matches!(&l.mask, Mask::Radial { .. }))
         .collect();
+    // Bitmap and Everywhere (#3271) share a third container — Lightroom
+    // 11+'s own shape for its AI masks, `crs:MaskGroupBasedCorrections`.
+    let group: Vec<&LocalAdjustment> = model
+        .local_adjustments
+        .iter()
+        .filter(|l| matches!(&l.mask, Mask::Bitmap { .. } | Mask::Everywhere))
+        .collect();
 
     let mut out = String::new();
     if !linear.is_empty() {
@@ -41,6 +51,12 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
             out.push('\n');
         }
         out.push_str(&serialize_container(RADIAL_CONTAINER, &radial, indent));
+    }
+    if !group.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&serialize_container(GROUP_CONTAINER, &group, indent));
     }
     out
 }
@@ -136,7 +152,51 @@ fn serialize_range(range: Option<RangeRefinement>, indent: &str) -> String {
 }
 
 fn serialize_mask(mask: &Mask, indent: &str) -> String {
+    match mask {
+        Mask::Bitmap { recipe, .. } => format!(
+            "{indent}<rdf:li\n\
+             {indent}  crs:What=\"{MASK_WHAT_IMAGE}\"\n\
+             {indent}  crs:MaskSubType=\"1\"\n\
+             {indent}  crs:MaskValue=\"1\"\n\
+             {indent}  papp:MaskSource=\"PersonSkin\"\n\
+             {indent}  papp:MaskPerson=\"{}\"\n\
+             {indent}  papp:MaskFacialSkin=\"{}\"\n\
+             {indent}  papp:MaskBodySkin=\"{}\"\n\
+             {indent}  papp:MaskModel=\"{}\"\n\
+             {indent}  papp:MaskDigest=\"{}\"/>\n",
+            recipe.person,
+            if recipe.facial_skin { "True" } else { "False" },
+            if recipe.body_skin { "True" } else { "False" },
+            escape_attr(&recipe.model),
+            escape_attr(&recipe.digest),
+        ),
+        Mask::Everywhere => format!(
+            "{indent}<rdf:li\n\
+             {indent}  crs:What=\"{MASK_WHAT_IMAGE}\"\n\
+             {indent}  crs:MaskValue=\"1\"\n\
+             {indent}  papp:MaskSource=\"Everywhere\"/>\n"
+        ),
+        _ => serialize_geometric_mask(mask, indent),
+    }
+}
+
+/// Minimal XML-attribute escaping for the two free-text bitmap-recipe
+/// fields (`MaskModel`, `MaskDigest`) — every other value on this element
+/// is a closed enum or a formatted number, so this is the one place a
+/// `crs:*`/`papp:*` attribute value could legally contain `&`/`<`/`"`.
+fn escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('"', "&quot;")
+}
+
+/// Only ever called for `Linear`/`Radial` — [`serialize_mask`] routes
+/// `Bitmap`/`Everywhere` to its own two arms before falling through here.
+fn serialize_geometric_mask(mask: &Mask, indent: &str) -> String {
     match *mask {
+        Mask::Bitmap { .. } | Mask::Everywhere => {
+            unreachable!("serialize_mask routes Bitmap/Everywhere before calling this")
+        }
         Mask::Linear {
             start,
             end,

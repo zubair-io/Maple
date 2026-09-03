@@ -273,9 +273,11 @@ pub struct MapleAdjustmentParams {
     pub local_adjustments_len: usize,
 }
 
-/// Decode the local-adjustment layer stack (#1698) out of the C params. NULL or
-/// zero-length — every host with no masks, including one built against a
-/// pre-#1698 header — yields an empty Vec, which makes
+/// Decode the local-adjustment layer stack (#1698) out of the C params, and
+/// (#3271) resolve every `Mask::Bitmap` record's `raster_id` against the
+/// process-wide registry (`crate::mask_registry::layers_and_rasters_from_flat`).
+/// NULL or zero-length — every host with no masks, including one built
+/// against a pre-#1698 header — yields an empty pair, which makes
 /// `local_adjustments::apply` early-return, so the output stays bit-identical
 /// to pre-#1698.
 ///
@@ -289,14 +291,15 @@ pub struct MapleAdjustmentParams {
 /// reads, or null.
 pub(crate) unsafe fn read_local_adjustments(
     p: &MapleAdjustmentParams,
-) -> Vec<raw_core::types::LocalAdjustment> {
+) -> (
+    Vec<raw_core::types::LocalAdjustment>,
+    Vec<std::sync::Arc<raw_core::types::MaskRaster>>,
+) {
     if p.local_adjustments_ptr.is_null() || p.local_adjustments_len == 0 {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
-    raw_core::types::layers_from_flat(std::slice::from_raw_parts(
-        p.local_adjustments_ptr,
-        p.local_adjustments_len,
-    ))
+    let flat = std::slice::from_raw_parts(p.local_adjustments_ptr, p.local_adjustments_len);
+    crate::mask_registry::layers_and_rasters_from_flat(flat)
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA

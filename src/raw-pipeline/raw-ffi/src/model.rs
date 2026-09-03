@@ -1,7 +1,9 @@
 //! Helpers for marshalling the XMP sidecar input that every render entry
 //! shares — load the optional XMP file, parse it to a raw-core
-//! `AdjustmentModel`, and report the matching error code via
-//! `set_last_error`.
+//! `AdjustmentModel`, report the matching error code via `set_last_error`,
+//! and (#3271) resolve any `Mask::Bitmap` layer's raster against the
+//! process-wide registry (`crate::mask_registry::resolve_into`) so every
+//! caller of these two functions gets working bitmap masks for free.
 //!
 //! Tile-path dehaze / deep-denoise guards. Dehaze relies on a full-image
 //! dark-channel computation; running it on a crop tile would produce a
@@ -32,7 +34,10 @@ pub(crate) fn load_xmp_model_owned(xmp_path_str: Option<&str>) -> LoadModel {
         None => LoadModel::Ok(xmp::AdjustmentModel::default()),
         Some(p) => match std::fs::read_to_string(p) {
             Ok(xml) => match xmp::parse(&xml) {
-                Ok(m) => LoadModel::Ok(m),
+                Ok(mut m) => {
+                    crate::mask_registry::resolve_into(&mut m);
+                    LoadModel::Ok(m)
+                }
                 Err(e) => {
                     set_last_error(format!("xmp parse: {}", e));
                     LoadModel::Err(4)
@@ -59,7 +64,10 @@ pub(crate) fn load_xmp_model_from_doc(xmp_doc: Option<&str>) -> LoadModel {
     match xmp_doc {
         None => LoadModel::Ok(xmp::AdjustmentModel::default()),
         Some(xml) => match xmp::parse(xml) {
-            Ok(m) => LoadModel::Ok(m),
+            Ok(mut m) => {
+                crate::mask_registry::resolve_into(&mut m);
+                LoadModel::Ok(m)
+            }
             Err(e) => {
                 set_last_error(format!("xmp parse: {}", e));
                 LoadModel::Err(4)

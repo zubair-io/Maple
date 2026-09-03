@@ -7,8 +7,16 @@
 //!
 //! Current scope:
 //!
-//! * Two mask shapes — `Linear` (gradient line) and `Radial` (ellipse).
-//!   Brush, AI subject / sky, and range masks defer to follow-up tickets.
+//! * Four mask shapes — `Linear` (gradient line), `Radial` (ellipse),
+//!   `Bitmap` (a host-supplied raster, #3271 — a Vision person/skin
+//!   selection today), and `Everywhere` (weight 1, the no-person-detected
+//!   fallback). Brush masks defer to a follow-up ticket. A `Bitmap`'s
+//!   pixels never round-trip through the sidecar — `LocalAdjustment.range`
+//!   and the recipe attributes do; the raster is derived data, regenerated
+//!   from the recipe or read from a device-local cache.
+//! * An optional [`RangeRefinement`] (#3270) narrows any mask further,
+//!   evaluated on the pixel entering the stage rather than the layer's own
+//!   output.
 //! * Every field on `PartialAdjustments` is wired in
 //!   `stages::local_adjustments::apply` (PR #1450, closed #1422) — see that
 //!   module's own docs for the full per-pixel apply order and the operators
@@ -25,9 +33,11 @@
 //! buffers.
 
 pub mod flat;
+mod raster;
 mod wire;
 
 pub use flat::{layers_from_flat, layers_to_flat, LAYER_FLAT_LEN};
+pub use raster::MaskRaster;
 pub use wire::{decode_local_adjustments, encode_local_adjustments};
 
 /// A subset of `AdjustmentModel` that may be applied locally (within a mask).
@@ -130,6 +140,35 @@ pub enum Mask {
         /// If true, mask sense is inverted (1 outside, 0 inside).
         invert: bool,
     },
+    /// A host-supplied raster (#3271, spec §5.3) — a person/skin selection
+    /// from `PersonSkinMaskService` today, any bitmap source in principle.
+    /// `raster_id` is the flat-wire id a registered [`MaskRaster`] carries;
+    /// `0` means unresolved, which evaluates to weight 0 (never a global
+    /// correction) rather than silently falling back to `Everywhere`.
+    Bitmap {
+        recipe: BitmapRecipe,
+        raster_id: u32,
+    },
+    /// Weight 1 everywhere — the "skin range only (whole image)" fallback
+    /// when no person is detected (spec §3.2).
+    Everywhere,
+}
+
+/// The recipe that regenerates a bitmap mask's raster (#3271, spec §5.3).
+/// Every field is opaque identity data to Rust — the host (Apple Vision
+/// today) turns it into a raster and registers it; the sidecar stores the
+/// recipe, never pixels, so a device without the cached raster regenerates
+/// it from these fields.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BitmapRecipe {
+    pub person: u32,
+    pub facial_skin: bool,
+    pub body_skin: bool,
+    /// Segmentation model identifier, e.g. `apple-vision-person-instance/1`.
+    pub model: String,
+    /// 16 lowercase hex chars, the host-computed digest that also names the
+    /// raster in the registry and the on-disk cache.
+    pub digest: String,
 }
 
 /// A per-pixel refinement multiplied into the primary mask's weight, computed

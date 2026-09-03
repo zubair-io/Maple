@@ -87,7 +87,11 @@ fn cpu_reference(
     raw_core::stages::clarity::apply(&mut img, model.clarity);
     raw_core::stages::texture::apply(&mut img, model.texture);
     raw_core::stages::dehaze::apply(&mut img, model.dehaze);
-    raw_core::stages::local_adjustments::apply(&mut img, &model.local_adjustments);
+    raw_core::stages::local_adjustments::apply(
+        &mut img,
+        &model.local_adjustments,
+        &model.mask_rasters,
+    );
     raw_core::stages::sharpen::apply(
         &mut img,
         model.sharpen_amount,

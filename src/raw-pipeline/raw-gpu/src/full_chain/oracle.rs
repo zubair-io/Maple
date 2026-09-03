@@ -211,6 +211,11 @@ impl Case {
             texture: self.model.texture,
             dehaze: self.model.dehaze,
             local_adjustments: raw_core::types::layers_to_flat(&self.model.local_adjustments),
+            // Every existing `Case` leaves `model.mask_rasters` empty (#3271)
+            // — bitmap-mask parity is covered directly by
+            // `local_adjustments/tests.rs`'s own dedicated gate, not this
+            // shared whole-chain oracle.
+            mask_rasters: Vec::new(),
             vignette_amount: self.model.vignette_amount,
             vignette_feather: self.model.vignette_feather,
             grain_amount: self.model.grain_amount,
@@ -319,7 +324,11 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     // Local adjustments (#1698) — develop's 12b slot, between dehaze and
     // vignette. Empty for every existing case, so the shared oracle stays
     // bit-identical for them.
-    raw_core::stages::local_adjustments::apply(&mut img, &case.model.local_adjustments);
+    raw_core::stages::local_adjustments::apply(
+        &mut img,
+        &case.model.local_adjustments,
+        &case.model.mask_rasters,
+    );
     raw_core::stages::vignette::apply(
         &mut img,
         case.model.vignette_amount,

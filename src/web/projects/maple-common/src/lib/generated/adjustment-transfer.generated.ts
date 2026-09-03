@@ -114,6 +114,7 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   crop: 'AssetRelative',
   local_adjustments: 'Unsupported',
   inpaint_removals: 'Unsupported',
+  mask_rasters: 'Unsupported',
   capture_sharpening_radius: 'Unsupported',
   wb_sample_x: 'Unsupported',
   wb_sample_y: 'Unsupported',

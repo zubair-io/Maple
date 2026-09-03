@@ -118,6 +118,7 @@ fn schema_matches_struct() {
         look,
         profile,
         local_adjustments,
+        mask_rasters,
         inpaint_removals,
         tone_curve_mode,
         tone_curve_luma,
@@ -387,6 +388,10 @@ fn schema_matches_struct() {
         "AdjustmentModel::default().local_adjustments must be empty"
     );
     assert!(
+        mask_rasters.is_empty(),
+        "AdjustmentModel::default().mask_rasters must be empty"
+    );
+    assert!(
         inpaint_removals.is_empty(),
         "AdjustmentModel::default().inpaint_removals must be empty"
     );
@@ -430,8 +435,11 @@ fn schema_exemption_allowlist() {
     // booleans, not user-facing slider values.
     // `wb_scale_version` added in #1780: internal parse-state enum recording
     // which WB slider scale the sidecar's stored values were authored in.
+    // `mask_rasters` added in #3271: Vec<Arc<MaskRaster>> structured payload,
+    // same rationale as `inpaint_removals`.
     const ALLOWED: &[&str] = &[
         "local_adjustments",
+        "mask_rasters",
         "inpaint_removals",
         "crop",
         "temperature_seen",
@@ -440,7 +448,7 @@ fn schema_exemption_allowlist() {
     ];
     assert_eq!(
         ALLOWED.len(),
-        6,
+        7,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -449,6 +457,12 @@ fn schema_exemption_allowlist() {
         "local_adjustments must remain on the schema-exemption allow-list \
          (Vec<LocalAdjustment> with its own schema — unlike the tone-curve \
          fields, which the FieldKind::ToneCurve variant covers since #366)"
+    );
+    assert!(
+        ALLOWED.contains(&"mask_rasters"),
+        "mask_rasters must remain on the schema-exemption allow-list \
+         (Vec<Arc<MaskRaster>> structured payload, not a codegen-eligible \
+         scalar/enum)"
     );
     assert!(
         ALLOWED.contains(&"inpaint_removals"),

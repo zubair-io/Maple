@@ -300,6 +300,11 @@ pub const NON_COPYABLE_FIELDS: &[&str] = &[
     // references a synthetic-raw patch content-hashed from THIS image's
     // pixels. Permanently excluded.
     "inpaint_removals",
+    // Bitmap-mask raster registry (#3271). Each `MaskRaster` is a decoded
+    // pixel buffer keyed to THIS image's Vision-generated skin mask — like
+    // `inpaint_removals`, raster-derived and meaningless on another image.
+    // Permanently excluded.
+    "mask_rasters",
     // Deprecated read-only alias for `capture_sharpening_sigma` (#456). No
     // code reads it after parse and no writer emits it, so copying it would
     // move a value that can never render.

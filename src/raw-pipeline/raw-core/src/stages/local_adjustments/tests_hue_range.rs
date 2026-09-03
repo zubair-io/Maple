@@ -59,7 +59,7 @@ fn hue_100_rotates_oklab_hue_by_30_degrees_and_keeps_l_and_c() {
         pixels: vec![src; 3],
         space: ColorSpace::SceneLinearRec2020,
     };
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // x=2 is the w=1 end of the gradient (feather 0.5 spans t 0.25..0.75).
     let out = img.pixels[2];
     let d = hue_delta_deg(oklab_hue_deg(src), oklab_hue_deg(out));
@@ -91,7 +91,7 @@ fn hue_at_half_weight_rotates_15_degrees() {
     }];
     let mut img = flat_image(2, 2, 0.0);
     img.pixels = vec![src; 4];
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     let d = hue_delta_deg(oklab_hue_deg(src), oklab_hue_deg(img.pixels[0]));
     assert!((d - 15.0).abs() < 0.5, "rotated by {d}°, expected 15°");
 }
@@ -115,7 +115,7 @@ fn hue_leaves_a_pixel_below_the_chroma_gate_bit_identical() {
     )];
     let mut img = flat_image(4, 1, 0.0);
     let snapshot = img.pixels.clone();
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     assert_eq!(img.pixels, snapshot);
 }
 
@@ -137,7 +137,7 @@ fn hue_rotation_of_actual_grey_stays_within_a_tight_numerical_bound() {
     )];
     let mut img = flat_image(4, 1, 0.18);
     let snapshot = img.pixels.clone();
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     for (out, before) in img.pixels.iter().zip(&snapshot) {
         for c in 0..3 {
             assert!(
@@ -164,7 +164,7 @@ fn hue_rotation_keeps_every_channel_non_negative_near_the_hull() {
     )];
     let mut img = flat_image(3, 1, 0.0);
     img.pixels = vec![src; 3];
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     let out = img.pixels[2];
     assert!(out.iter().all(|c| *c >= -1e-5), "negative channel: {out:?}");
 }
@@ -244,7 +244,7 @@ fn range_refinement_scopes_the_layer_to_matching_pixels_only() {
         pixels: vec![skin_like(), blue],
         space: ColorSpace::SceneLinearRec2020,
     };
-    apply(&mut img, &[layer]);
+    apply(&mut img, &[layer], &[]);
     assert!(
         (img.pixels[0][0] - skin_like()[0] * 2.0).abs() < 1e-5,
         "skin pixel doubled: {}",

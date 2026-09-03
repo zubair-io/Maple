@@ -113,6 +113,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         look: _,
         profile: _,
         local_adjustments: _,
+        mask_rasters: _,
         inpaint_removals: _,
         tone_curve_mode: _,
         tone_curve_luma: _,
@@ -230,6 +231,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "look",
         "profile",
         "local_adjustments",
+        "mask_rasters",
         "inpaint_removals",
         "tone_curve_mode",
         "tone_curve_luma",
@@ -348,5 +350,6 @@ fn group_ids_and_labels_are_unique() {
 #[test]
 fn mask_and_inpaint_fields_are_excluded() {
     assert!(NON_COPYABLE_FIELDS.contains(&"local_adjustments"));
+    assert!(NON_COPYABLE_FIELDS.contains(&"mask_rasters"));
     assert!(NON_COPYABLE_FIELDS.contains(&"inpaint_removals"));
 }

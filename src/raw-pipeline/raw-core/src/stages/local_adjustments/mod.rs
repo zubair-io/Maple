@@ -33,6 +33,7 @@
 //! preserves the parity-harness baseline for every existing fixture.
 
 use rayon::prelude::*;
+use std::sync::Arc;
 
 use crate::image::{ColorSpace, Image};
 use crate::stages::hsl::HSL_HUE_MAX_RAD;
@@ -40,7 +41,7 @@ use crate::stages::saturation;
 use crate::stages::scene_tone_controls::{highlights_mult, shadows_mult, smoothstep, LUMA_REC2020};
 use crate::stages::vibrance;
 use crate::stages::white_balance;
-use crate::types::{LocalAdjustment, PartialAdjustments};
+use crate::types::{LocalAdjustment, MaskRaster, PartialAdjustments};
 
 pub mod hue;
 pub mod mask;
@@ -51,11 +52,16 @@ pub mod range;
 /// blending mode beyond "apply weighted delta," matching the most common
 /// Lightroom/Capture One behavior for stackable local layers.
 ///
+/// `rasters` resolves any `Mask::Bitmap` layer's raster (#3271) — pass
+/// `&[]` when the caller has no bitmap masks (e.g. a headless CLI render
+/// with only linear/radial layers); a `Bitmap` layer with no matching
+/// entry evaluates to weight 0, not a global correction.
+///
 /// `img` must be `SceneLinearRec2020` (the working space between `dehaze`
 /// and `sharpen`).
-pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
+pub fn apply(img: &mut Image, layers: &[LocalAdjustment], rasters: &[Arc<MaskRaster>]) {
     let full = (img.width, img.height);
-    apply_windowed(img, layers, (0, 0), full);
+    apply_windowed(img, layers, rasters, (0, 0), full);
 }
 
 /// [`apply`] for a buffer that is a WINDOW of the full frame (#1157): mask
@@ -68,6 +74,7 @@ pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
 pub fn apply_windowed(
     img: &mut Image,
     layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
     origin: (i32, i32),
     full: (u32, u32),
 ) {
@@ -120,6 +127,10 @@ pub fn apply_windowed(
         if layer.adjustments.is_empty() {
             continue;
         }
+        // Resolved ONCE per layer, outside the pixel loop — `mask::resolve`
+        // is a linear scan of `rasters`, and every pixel in this layer's
+        // pass wants the SAME raster.
+        let raster = mask::resolve(&layer.mask, rasters);
         img.pixels
             .par_chunks_mut(w)
             .enumerate()
@@ -127,7 +138,7 @@ pub fn apply_windowed(
                 let ny = (origin.1 + y as i32) as f32 * inv_h;
                 for (x, p) in row.iter_mut().enumerate() {
                     let nx = (origin.0 + x as i32) as f32 * inv_w;
-                    let geometric = mask::evaluate(&layer.mask, nx, ny);
+                    let geometric = mask::evaluate(&layer.mask, raster, nx, ny);
                     if geometric <= 0.0 {
                         continue;
                     }

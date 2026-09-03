@@ -420,6 +420,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         local_adjustments::apply_windowed(
             &mut scene,
             &model.local_adjustments,
+            &model.mask_rasters,
             window.origin,
             window.full,
         )

@@ -413,7 +413,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
     stage("sized_local_adjustments", || {
-        local_adjustments::apply(&mut scene, &model.local_adjustments)
+        local_adjustments::apply(&mut scene, &model.local_adjustments, &model.mask_rasters)
     });
     dump_after("12b_local_adjustments", &scene);
     // Vignette (#1109) — normalized elliptical radius makes the gain field

@@ -153,7 +153,9 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.sharpen_detail = p.sharpen_detail;
     model.sharpen_masking = p.sharpen_masking;
     model.nr_color = p.nr_color;
-    model.local_adjustments = read_local_adjustments(p);
+    let (local_adjustments, mask_rasters) = read_local_adjustments(p);
+    model.local_adjustments = local_adjustments;
+    model.mask_rasters = mask_rasters;
 
     // Non-RAW WB contract (#1331 / #1734): for a non-RAW shape the uploaded
     // buffer is ALREADY at the correct linear Rec.2020 D65 white point (the

@@ -53,6 +53,7 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         texture: 0.0,
         dehaze: 0.0,
         local_adjustments: layers_flat,
+        mask_rasters: Vec::new(),
         vignette_amount: 0.0,
         vignette_feather: 50.0,
         grain_amount: 0.0,
