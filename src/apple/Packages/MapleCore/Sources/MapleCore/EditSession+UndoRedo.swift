@@ -1,12 +1,20 @@
-// EditSession+UndoRedo.swift — the editor's bounded undo/redo ring.
+// EditSession+UndoRedo.swift — the editor's bounded transaction ring
+// (#2432; originally the whole-model snapshot ring split out of
+// `EditSession.swift` for the file-size budget, #1153).
 //
-// Split out of `EditSession.swift` for the file-size budget (#1153). The
-// two stacks stay stored on the class (Swift can't put stored properties
-// in an extension); everything that operates on them lives here.
+// Every committed editor action is ONE `EditTransaction`: `beginEdit`
+// opens it (capturing the model as `before`), the gesture or discrete edit
+// mutates `model` (preview-only ticks — render + coalesced sidecar write,
+// no history), and `endEdit` closes it: the diff is computed, a no-op is
+// dropped, otherwise the transaction is pushed onto the undo ring, handed
+// to the sidecar store, and announced. A still-open transaction is closed
+// by the next boundary (`beginEdit`, `undo`, `redo`, `endEdit`,
+// `flushPendingSidecarWrite`), so a caller that only knows the START of
+// a gesture (the drag bar's touch-down `commit()`) still produces exactly
+// one entry.
 //
-// Mirrors the web `EditorStateService` ring: push-on-gesture-start, cap at
-// `undoStackCap` with a FIFO drop off the bottom, and a symmetric cap on
-// the redo side so a long undo run can't grow it without bound.
+// Mirrors the web `EditorStateService` ring: cap at `undoStackCap` with a
+// FIFO drop off the bottom, and a symmetric cap on the redo side.
 
 import Foundation
 
@@ -17,39 +25,98 @@ extension EditSession {
     /// on `redo()` to keep the two stacks symmetric.
     public static let undoStackCap: Int = 32
 
-    public var canUndo: Bool { !undoStack.isEmpty }
+    /// True when an undo entry exists OR the open transaction has already
+    /// moved the model (it will become one at the next boundary).
+    public var canUndo: Bool {
+        if !undoStack.isEmpty { return true }
+        guard let pending = pendingEdit else { return false }
+        return pending.before != model
+    }
+
     public var canRedo: Bool { !redoStack.isEmpty }
 
-    /// Push the current model to the undo stack before a user gesture.
-    /// Trims to `undoStackCap` (FIFO) so the editor's history stays bounded.
-    public func beginEdit() {
-        undoStack.append(model)
-        if undoStack.count > Self.undoStackCap {
-            undoStack.removeFirst(undoStack.count - Self.undoStackCap)
-        }
+    /// Open a transaction before a user gesture or discrete edit. Closes
+    /// any transaction still open (recording it if it changed anything) so
+    /// two consecutive gestures never merge. Back-compatible default kind
+    /// for the app's per-slider `commit()` sites.
+    public func beginEdit(kind: EditTransaction.Kind = .adjustment, description: String = "Adjustment") {
+        endEdit()
+        nextTransactionID &+= 1
+        pendingEdit = PendingEdit(id: nextTransactionID, kind: kind, description: description, before: model)
         redoStack.removeAll()
     }
 
-    public func undo() {
-        guard let prev = undoStack.popLast() else { return }
-        redoStack.append(model)
-        if redoStack.count > Self.undoStackCap {
-            redoStack.removeFirst(redoStack.count - Self.undoStackCap)
+    /// Close the open transaction. A no-op transaction (model unchanged)
+    /// records nothing; anything else becomes exactly one undo entry.
+    public func endEdit() {
+        guard let pending = pendingEdit else { return }
+        pendingEdit = nil
+        guard let tx = EditTransaction.make(
+            id: pending.id, kind: pending.kind, description: pending.description,
+            before: pending.before, after: model)
+        else { return }
+        record(tx)
+        // The transaction IS what the sidecar persists: hand `after` to the
+        // store explicitly (it coalesces with the per-tick writes).
+        if let store = sidecarStore {
+            let culling = self.culling
+            Task { await store.update(model: tx.after, culling: culling) }
         }
-        model = prev
+        announcer.announce(tx.description)
+    }
+
+    /// Abandon the open transaction without recording it. The model keeps
+    /// whatever the preview ticks wrote (matches the web `cancelGesture`).
+    public func cancelEdit() {
+        pendingEdit = nil
+    }
+
+    public func undo() {
+        endEdit()
+        guard let tx = undoStack.popLast() else { return }
+        redoStack.append(tx)
+        trim(&redoStack)
+        model = tx.before
+        lastCommittedTransaction = tx
+        announcer.announce("Undo \(tx.description)")
     }
 
     public func redo() {
-        guard let next = redoStack.popLast() else { return }
-        undoStack.append(model)
-        if undoStack.count > Self.undoStackCap {
-            undoStack.removeFirst(undoStack.count - Self.undoStackCap)
-        }
-        model = next
+        endEdit()
+        guard let tx = redoStack.popLast() else { return }
+        undoStack.append(tx)
+        trim(&undoStack)
+        model = tx.after
+        lastCommittedTransaction = tx
+        announcer.announce("Redo \(tx.description)")
     }
 
     public func resetToOriginal() {
-        beginEdit()
+        beginEdit(kind: .reset, description: "Reset to original")
         model = originalModel
+        endEdit()
     }
+
+    /// The recorded transactions, oldest first. Test / diagnostics seam.
+    public var undoHistory: [EditTransaction] { undoStack }
+
+    private func record(_ tx: EditTransaction) {
+        undoStack.append(tx)
+        trim(&undoStack)
+        lastCommittedTransaction = tx
+    }
+
+    private func trim(_ stack: inout [EditTransaction]) {
+        if stack.count > Self.undoStackCap {
+            stack.removeFirst(stack.count - Self.undoStackCap)
+        }
+    }
+}
+
+/// An open, not-yet-recorded transaction.
+struct PendingEdit {
+    let id: UInt64
+    let kind: EditTransaction.Kind
+    let description: String
+    let before: AdjustmentModel
 }

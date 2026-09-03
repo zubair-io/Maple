@@ -54,9 +54,14 @@ public enum AdjustmentPasteApplier {
             guard let url = asset.primaryURL, !SidecarPath.isVideo(url) else { continue }
 
             if let session = sessions[asset.id] {
+                // A live session records the paste as ONE transaction
+                // (#2432): undoable, announced, persisted through the
+                // session's own store.
+                session.beginEdit(kind: .paste, description: "Paste settings")
                 session.model = AdjustmentGroupMerge.merged(
                     session.model, applying: source, groups: groups
                 )
+                session.endEdit()
                 written += 1
                 continue
             }
