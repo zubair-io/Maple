@@ -407,8 +407,9 @@ final class EditorStateTests: XCTestCase {
         // the Detail group when the Develop tab was removed (#875), +
         // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276),
         // + Tone Curve in Light (#367), + Film in Effects, + Lens
-        // Corrections in Detail (#2231).
-        XCTAssertEqual(Tool.allCases.count, 29)
+        // Corrections in Detail (#2231), + Mask and Heal in Detail (#3274):
+        // 29 → 31.
+        XCTAssertEqual(Tool.allCases.count, 31)
     }
 
     func testToolGroupMembership() {
@@ -419,8 +420,8 @@ final class EditorStateTests: XCTestCase {
         // Effects gained Film: 6 → 7.
         XCTAssertEqual(Tool.tools(in: .effects).count, 7)
         // Detail gained captureSharpen + captureSigma (#875): 5 → 7, then
-        // Lens Corrections (#2231): 7 → 8.
-        XCTAssertEqual(Tool.tools(in: .detail).count, 8)
+        // Lens Corrections (#2231): 7 → 8, then Mask + Heal (#3274): 8 → 10.
+        XCTAssertEqual(Tool.tools(in: .detail).count, 10)
     }
 
     func testBrightnessToolWiresToModel() {
