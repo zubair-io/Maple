@@ -93,6 +93,8 @@ The XMP form is a third container, `crs:MaskGroupBasedCorrections`, the one Ligh
 
 `scope_vectorscope.wgsl` reads the display-encoded RGBA f32 buffer, converts each pixel with the Rec.709 YCbCr matrix, and adds `round(alpha · 255)` to bin `(cb, cr)` over [−0.5, 0.5]² at 128×128, plus a running total. `raw_core::scope::vectorscope_histogram(&Image, weights: Option<&[f32]>)` is the reference implementation and the CPU-path producer. `MapleScopeStats { frame: u64, total: u32, bins: [u32; 16384] }` is the C struct the host supplies.
 
+**Readback (implementation detail, not originally spec'd):** the histogram buffer is never mapped synchronously — that would stall the render the scope pass rides on. `LiveSession` owns a pair of `MAP_READ` staging buffers and alternates between them every tick: each render copies its histogram into the CURRENT slot and requests an async map, then `take_scope_stats` (a separate call, never blocking) reports whichever OTHER slot's map has already completed. In practice that is always the PREVIOUS tick's sample — one tick late — because a map requested moments ago essentially never resolves synchronously, while the other slot's request has had a whole tick's wall-clock time. A host that wants the CPU-chain fallback (no GPU, or GPU init failed) calls `maple_apply_chain_and_encode_display_scoped_f32` instead: synchronous, `frame` always `1`, no staging buffers — there is no async readback to be late about.
+
 ### 5.5 Gating
 
 `local_adjustments_are_active` also returns true when a scope-target layer is set, so weight-only mode is encoded. The scope pass is gated on the host's `scope_enabled` flag.

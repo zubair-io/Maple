@@ -120,7 +120,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         // generation whenever it registers a different layer instance (covers
         // pointer reuse / ABA) or detects a drawableSize divergence, so a stale
         // cached surface can never be presented against a recycled address.
-        match raw_gpu::present_chain_to_surface(
+        let present_result = raw_gpu::present_chain_to_surface(
             &state.ctx,
             &inner.session,
             &inputs,
@@ -128,7 +128,21 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
             &mut state.present_surface,
             surface_generation,
             &token,
-        ) {
+        );
+
+        // Vectorscope scope stats (#3272) — the PREVIOUS tick's sample, if its
+        // async map has completed by now; see `LiveSession::take_scope_stats`.
+        // Written regardless of the present's own outcome: the chain (and the
+        // scope pass, which reads its buffer) already ran by this point, so a
+        // present-surface failure shouldn't also swallow an otherwise-valid
+        // sample.
+        if p.scope_enabled != 0 {
+            if let Some(stats) = inner.session.take_scope_stats(&state.ctx) {
+                crate::scope_stats::write_stats(p.scope_out, stats.frame, stats.total, &stats.bins);
+            }
+        }
+
+        match present_result {
             Ok(true) => 0,
             Ok(false) => RC_PRESENT_CANCELLED,
             Err(msg) => {

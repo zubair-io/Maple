@@ -16,9 +16,7 @@
 //! keeps the simpler per-pixel point-op accessors.
 
 use crate::context::GpuContext;
-use crate::context_pipelines_helpers::{
-    compile_source, compile_standalone, compile_with_matrices,
-};
+use crate::context_pipelines_helpers::{compile_source, compile_standalone, compile_with_matrices};
 
 impl GpuContext {
     /// The cached exposure compute pipeline, compiling `exposure.wgsl` on first
@@ -129,7 +127,11 @@ impl GpuContext {
     /// vibrance / saturation. A pure point op; 2 storage buffers.
     pub fn color_grade_pipeline(&self) -> &wgpu::ComputePipeline {
         self.color_grade_pipeline.get_or_init(|| {
-            compile_with_matrices(&self.device, "color-grade", include_str!("color_grade.wgsl"))
+            compile_with_matrices(
+                &self.device,
+                "color-grade",
+                include_str!("color_grade.wgsl"),
+            )
         })
     }
 
@@ -271,6 +273,23 @@ impl GpuContext {
     pub fn film_lut_pipeline(&self) -> &wgpu::ComputePipeline {
         self.film_lut_pipeline.get_or_init(|| {
             compile_with_matrices(&self.device, "film-lut", include_str!("film_lut.wgsl"))
+        })
+    }
+
+    /// The cached vectorscope-scope compute pipeline (#3272, spec §5.4). A
+    /// mask-weighted Rec.709 Cb/Cr histogram of the display-encoded chain
+    /// buffer — plain YCbCr coefficients, no Oklab, so the kernel compiles
+    /// standalone like `grain_pipeline` / `dither_pipeline`. 3-binding
+    /// layout (params uniform + src storage + the histogram storage
+    /// buffer, read_write for its integer atomics); `layout: None` derives
+    /// it from the WGSL bindings.
+    pub fn vectorscope_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.vectorscope_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "vectorscope",
+                include_str!("scope_vectorscope.wgsl"),
+            )
         })
     }
 }

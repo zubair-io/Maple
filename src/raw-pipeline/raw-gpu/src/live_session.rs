@@ -38,11 +38,11 @@
 
 use crate::chain::{CancelToken, Pass};
 use crate::context::GpuContext;
-use crate::dehaze::{compute_airlight, AirlightSource};
+use crate::dehaze::AirlightSource;
 use crate::dither::{alloc_packed_rgb, encode_dither, unpack_rgb_u8};
 use crate::full_chain::FullChainInputs;
 use crate::image::GpuImage;
-use crate::live_chain::{build_live_chain, build_live_split, chain_signature, dehaze_is_active};
+use crate::live_chain::{build_live_chain, chain_signature, dehaze_is_active};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Process-wide monotonic counter handing out a unique [`LiveSession::session_id`]
@@ -99,6 +99,11 @@ pub struct LiveSession {
     /// [`NEXT_LIVE_SESSION_ID`] at construction; stable for the session's whole
     /// lifetime.
     session_id: u64,
+    /// The vectorscope scope-pass histogram + double-buffered `MAP_READ`
+    /// staging (#3272) — see `live_session/scope.rs`. Session-owned
+    /// (zero-alloc), like every other buffer above; unused (never read or
+    /// written) when a render's `inputs.scope.enabled` is `false`.
+    scope: scope::ScopeBuffers,
 }
 
 impl LiveSession {
@@ -200,6 +205,7 @@ impl LiveSession {
             airlight_staging,
             airlight_readback_fallback,
             session_id,
+            scope: scope::ScopeBuffers::new(ctx),
         })
     }
 
@@ -316,6 +322,18 @@ impl LiveSession {
             Some(idx) => idx,
             None => return Ok(None), // cancelled mid-encode
         };
+        // Scope pass (#3272): reads the chain's final buffer, same as the
+        // present/chain-only sibling `encode_chain_f32_single` — before
+        // dither, which only concerns the u8 SURFACE this path additionally
+        // produces.
+        if inputs.scope.enabled {
+            self.encode_scope(
+                ctx,
+                &mut encoder,
+                &self.ping_pong[final_idx],
+                inputs.scope.layer >= 0,
+            );
+        }
         encode_dither(
             ctx,
             &mut encoder,
@@ -323,78 +341,11 @@ impl LiveSession {
             &self.dither_out,
             dims,
         );
-        Ok(Some(self.submit_and_read_surface(ctx, encoder).await?))
-    }
-
-    /// The C5a CPU-readback FALLBACK path (`airlight_readback_fallback == true`):
-    /// run the pre-dehaze PREFIX, read the post-prefix buffer back,
-    /// `compute_airlight` from the EXACT buffer dehaze sees, then run the dehaze
-    /// SUFFIX (built with the real CPU A) + dither + the final readback. Two
-    /// submits + a per-tick GPU→CPU readback — superseded by the default on-GPU
-    /// reduction (#1033), kept for the parity reference + as a fallback.
-    async fn render_dehaze_split(
-        &self,
-        ctx: &GpuContext,
-        inputs: &FullChainInputs<'_>,
-        cancel: Option<&CancelToken>,
-    ) -> Result<Option<Vec<u8>>, String> {
-        let dims = self.image.dims();
-        let f32_byte_len = self.image.byte_len();
-
-        // Phase 1: the pre-dehaze prefix (airlight unknown → placeholder; only the
-        // prefix runs here). Encode prefix from ping-pong A, then copy the
-        // post-prefix result to the airlight staging buffer.
-        let (prefix, _) = build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
-        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
-
-        let mut enc1 = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("live-prefix-encoder"),
-            });
-        enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
-            Some(idx) => idx,
-            None => return Ok(None),
-        };
-        enc1.copy_buffer_to_buffer(
-            &self.ping_pong[prefix_final],
-            0,
-            &self.airlight_staging,
-            0,
-            f32_byte_len,
-        );
-        ctx.queue.submit(Some(enc1.finish()));
-
-        // Read the post-prefix buffer back and measure A exactly as raw-core does.
-        let pre_dehaze = limits::map_f32_readback(ctx, &self.airlight_staging).await?;
-        let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
-
-        // Phase 2: dehaze + suffix (built with the REAL airlight) + dither. The
-        // post-prefix data is STILL RESIDENT in `ping_pong[prefix_final]` (submit 1
-        // didn't touch it after the staging copy), so the suffix runs from THAT
-        // index directly — no re-seed copy, no parity-index bookkeeping.
-        let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
-        let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
-
-        let mut enc2 = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("live-suffix-encoder"),
-            });
-        let suffix_final =
-            match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel) {
-                Some(idx) => idx,
-                None => return Ok(None),
-            };
-        encode_dither(
-            ctx,
-            &mut enc2,
-            &self.ping_pong[suffix_final],
-            &self.dither_out,
-            dims,
-        );
-        Ok(Some(self.submit_and_read_surface(ctx, enc2).await?))
+        let out = self.submit_and_read_surface(ctx, encoder).await?;
+        if inputs.scope.enabled {
+            self.scope_after_submit();
+        }
+        Ok(Some(out))
     }
 
     /// Run the GATED live chain for `inputs` to its FINAL f32 buffer and STOP —
@@ -474,65 +425,21 @@ impl LiveSession {
             });
         encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
         let final_idx = self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel)?;
+        // Scope pass (#3272): encoded into this SAME submit, reading the
+        // chain's final buffer — no extra submit, no stall.
+        if inputs.scope.enabled {
+            self.encode_scope(
+                ctx,
+                &mut encoder,
+                &self.ping_pong[final_idx],
+                inputs.scope.layer >= 0,
+            );
+        }
         ctx.queue.submit(Some(encoder.finish()));
+        if inputs.scope.enabled {
+            self.scope_after_submit();
+        }
         Some(final_idx)
-    }
-
-    /// The C5a CPU-readback FALLBACK chain-only path
-    /// (`airlight_readback_fallback == true`): run the pre-dehaze PREFIX, read the
-    /// post-prefix buffer back, `compute_airlight` from the EXACT buffer dehaze
-    /// sees, then run the dehaze SUFFIX (built with the real CPU A) — leaving the
-    /// f32 result resident, NO dither. Two submits + a readback; superseded by the
-    /// default on-GPU reduction (#1033), kept as a fallback.
-    async fn encode_chain_f32_dehaze_split(
-        &self,
-        ctx: &GpuContext,
-        inputs: &FullChainInputs<'_>,
-        cancel: Option<&CancelToken>,
-    ) -> Result<Option<usize>, String> {
-        let dims = self.image.dims();
-        let f32_byte_len = self.image.byte_len();
-
-        let (prefix, _) = build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
-        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
-
-        let mut enc1 = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("live-present-prefix-encoder"),
-            });
-        enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
-            Some(idx) => idx,
-            None => return Ok(None),
-        };
-        enc1.copy_buffer_to_buffer(
-            &self.ping_pong[prefix_final],
-            0,
-            &self.airlight_staging,
-            0,
-            f32_byte_len,
-        );
-        ctx.queue.submit(Some(enc1.finish()));
-
-        let pre_dehaze = limits::map_f32_readback(ctx, &self.airlight_staging).await?;
-        let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
-
-        let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
-        let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
-
-        let mut enc2 = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("live-present-suffix-encoder"),
-            });
-        let suffix_final =
-            match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel) {
-                Some(idx) => idx,
-                None => return Ok(None),
-            };
-        ctx.queue.submit(Some(enc2.finish()));
-        Ok(Some(suffix_final))
     }
 
     /// Borrow the ping-pong buffer at `idx` (0 or 1) — the f32 chain output a
@@ -552,7 +459,14 @@ impl LiveSession {
 #[path = "live_session/airlight_tests.rs"]
 mod airlight_tests;
 mod encode;
+// The C5a CPU-readback airlight fallback (`render_dehaze_split` /
+// `encode_chain_f32_dehaze_split`) — split out purely for the file-size
+// budget; see that file's own header.
+mod dehaze_split;
 mod limits;
+// The vectorscope scope-pass buffers + `take_scope_stats` (#3272) — split
+// out purely for the file-size budget; see that file's own header.
+mod scope;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests.rs"]
 mod tests;
@@ -561,3 +475,8 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_pool.rs"]
 mod tests_pool;
+// The double-buffered scope readback gate (#3272) — own file (600-LOC
+// budget), reuses `limits` (`pub(super)` there).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_scope.rs"]
+mod tests_scope;

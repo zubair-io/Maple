@@ -246,6 +246,9 @@ pub(super) fn build_full_chain_inputs(
         // plumbing is not Apple-specific, so a future Web raster source
         // needs no change here.
         mask_rasters: to_gpu_rasters(&model.mask_rasters),
+        // No Web entry point drives the vectorscope scope pass yet (#3272 is
+        // Apple-first) — always disabled here.
+        scope: raw_gpu::ScopeRequest::default(),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,

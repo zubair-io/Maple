@@ -95,6 +95,10 @@ mod render_develop;
 mod render_film;
 mod scene_linear;
 mod scene_linear_chain;
+// The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
+// `write_stats`. No `gpu` gate: the CPU fused entry (`scene_linear_chain_fused`)
+// writes through it too, so it stays available in every build.
+mod scope_stats;
 // #2092 (follow-on to #1959 / PR #2083): the fused per-tick FFI entry —
 // chain + display-encode in one call over one buffer, no intervening
 // Swift-side CIImage wrap/readback. Split out of `scene_linear_chain`
@@ -151,6 +155,9 @@ pub use id::MapleFallbackIdHasher;
 // integration tests the same way `maple_last_error` is below.
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
 pub use scene_linear_chain::MapleAdjustmentParams;
+// #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
+// entry writes through it even without the `gpu` feature).
+pub use scope_stats::MapleScopeStats;
 // gpu-gated: the live-session FFI structs (absent from the default xcframework).
 #[cfg(feature = "gpu")]
 pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
