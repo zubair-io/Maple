@@ -117,9 +117,34 @@
 //! [`resolve_target`] therefore treats `!temperature_seen && !tint_seen &&
 //! model.temperature == 6500.0 && model.tint == 0.0` as the As-Shot signal
 //! and substitutes the slider frame's own resolved as-shot reference point
-//! (`frame.scene_cct`, tint 0 — DCP has no separate as-shot tint concept)
-//! so unedited renders are exact no-ops regardless of how far the camera's
-//! true as-shot CCT sits from 6500K. Checking the numeric pair in addition
+//! `(frame.scene_cct, frame.scene_tint)` so unedited renders are exact
+//! no-ops regardless of how far the camera's true as-shot CCT sits from
+//! 6500K.
+//!
+//! ## The as-shot point carries a tint (#2321)
+//!
+//! A real scene's as-shot chromaticity generally sits off the blackbody
+//! locus — that is the entire reason `tint` exists as a second,
+//! perpendicular axis — so the pair at which the slider is an identity for
+//! an image is `(scene_cct, scene_tint)`, NOT `(scene_cct, 0)`. Before
+//! #2321 the reference point was `(scene_cct, 0)` and [`apply`]'s identity
+//! short-circuit hid the gap: at exactly that point the stage returned
+//! identity by fiat, one kelvin either side it applied the full absolute
+//! gain, which missed the true as-shot chromaticity by the whole
+//! perpendicular offset (measured: a 1 K temperature-only nudge on a
+//! synthetic 40-tint-unit off-locus fixture moved a channel by 11.5 %).
+//! Every path now anchors on the frame's own `(scene_cct, scene_tint)`:
+//! the As-Shot seed, the short-circuits in [`apply`] and
+//! [`retargeted_render_profile`], and the partially-authored Custom WB
+//! rows — a temperature-only sidecar keeps the image's as-shot tint, a
+//! tint-only sidecar keeps the image's as-shot CCT (rather than the
+//! literal `AdjustmentModel::default()` 6500 K). Continuity follows from
+//! the #1870 estimator/render invariant: `camera_neutral_for(cm_as_shot,
+//! scene_cct, scene_tint)` reproduces `as_shot_neutral`, so
+//! [`camera_wb_gain`] is ≈ `[1, 1, 1]` at the reference point and moves
+//! by O(δ) around it. The fallback CAT16 tier (`white_balance::resolve_wb`)
+//! keeps ACR's literal-zero convention for the temperature-only row — it
+//! has no calibration to estimate an as-shot tint from (#1746). Checking the numeric pair in addition
 //! to the flags (rather than the flags alone) is what correctly keeps a
 //! named WB preset (e.g. Tungsten, 2850 K / 0 tint — which also leaves both
 //! `_seen` flags `false`, since presets resolve to a `(temp, tint)` pair at
@@ -140,7 +165,7 @@
 //! point exactly, or the tile-vs-live-frame seam reappears (the original
 //! #1725 "horizontal band" symptom, for the post-DCP CAT16 path).
 //! [`apply`]'s own identity short-circuit only recognizes ONE reference
-//! point, `(frame.scene_cct, 0.0)` — insufficient here because a real
+//! point, `(frame.scene_cct, frame.scene_tint)` — insufficient here because a real
 //! camera's as-shot chromaticity can sit far enough off the blackbody
 //! locus that reaching it needs a large tint (measured on a real
 //! Hasselblad H2D-39 bundle profile: the true as-shot point's
@@ -229,25 +254,36 @@ const MODEL_DEFAULT_TINT: f32 = 0.0;
 /// caller (both flags forced `true`), or a named preset resolved by
 /// `xmp::wb_preset` at parse time (neither flag set, but a non-default
 /// value — no preset resolves to exactly `6500.0, 0.0`) — is an explicit
-/// target and passes through, honoring the same temperature-only-Custom
-/// tint-defaulting rule `white_balance::resolve_wb` uses: `crs:Tint`
-/// absent alongside an authored `crs:Temperature` means ACR's "absent
-/// tint" convention (0.0), not "carry over whatever `model.tint` happens
-/// to hold".
+/// target. A partially-authored Custom WB anchors its missing half on the
+/// image's own as-shot point (#2321): `crs:Tint` absent alongside an
+/// authored `crs:Temperature` keeps `frame.scene_tint` (a temperature
+/// nudge off as-shot renders within O(δ) of as-shot, not a step of the
+/// whole off-locus gap), and `crs:Temperature` absent alongside an authored
+/// `crs:Tint` keeps `frame.scene_cct` rather than the literal
+/// `AdjustmentModel::default()` 6500 K. `model.tint` / `model.temperature`
+/// for the unauthored half are never read — they still hold the numeric
+/// defaults, which mean nothing for this image.
 pub fn resolve_target(model: &AdjustmentModel, frame: &SliderFrame) -> (f32, f32) {
     let is_as_shot = !model.temperature_seen
         && !model.tint_seen
         && (model.temperature - MODEL_DEFAULT_TEMPERATURE).abs() < 0.5
         && (model.tint - MODEL_DEFAULT_TINT).abs() < 0.5;
     if is_as_shot {
-        return (frame.scene_cct, 0.0);
+        return (frame.scene_cct, frame.scene_tint);
     }
-    let tint = if model.temperature_seen && !model.tint_seen {
-        0.0
-    } else {
-        model.tint
-    };
-    (model.temperature, tint)
+    match (model.temperature_seen, model.tint_seen) {
+        (true, false) => (model.temperature, frame.scene_tint),
+        (false, true) => (frame.scene_cct, model.tint),
+        _ => (model.temperature, model.tint),
+    }
+}
+
+/// Whether `(temperature, tint)` is this frame's own as-shot reference
+/// point `(scene_cct, scene_tint)`, within the 0.5 K / 0.5-tint tolerance
+/// `stages::white_balance::apply` uses — the single identity test [`apply`]
+/// and [`retargeted_render_profile`] share (#2321).
+fn is_as_shot_target(frame: &SliderFrame, temperature: f32, tint: f32) -> bool {
+    (temperature - frame.scene_cct).abs() < 0.5 && (tint - frame.scene_tint).abs() < 0.5
 }
 
 /// G-normalise a camera-space triple so the green channel reads exactly 1.0
@@ -346,15 +382,14 @@ pub fn camera_wb_gain(
 /// already scaled by `1 / as_shot_neutral`), before DCP.
 ///
 /// Identity short-circuit when `(temperature, tint)` already matches the
-/// resolved as-shot reference `(frame.scene_cct, 0)` within the same
-/// tolerance `stages::white_balance::apply` uses. This is a real
-/// short-circuit, not a redundant one: `camera_wb_gain` at that exact point
-/// is only APPROXIMATELY `[1, 1, 1]` (a real scene's as-shot chromaticity
-/// generally sits slightly off the pure blackbody locus that `cct_to_xy`
-/// describes at `tint = 0` — that's the entire reason `tint` exists as a
-/// second, perpendicular axis) — so without this short-circuit, opening an
-/// image at its own as-shot default would NOT render pixel-identically to
-/// today's pipeline.
+/// resolved as-shot reference `(frame.scene_cct, frame.scene_tint)` within
+/// the same tolerance `stages::white_balance::apply` uses. `camera_wb_gain`
+/// at that exact point is `[1, 1, 1]` only up to the Robertson round-trip
+/// (≈1e-4 in xy), so the short-circuit is what keeps an unedited render
+/// bit-identical; it is no longer load-bearing for continuity — the
+/// reference point now carries the frame's own as-shot tint (#2321), so a
+/// target one kelvin or one tint unit off it computes a gain within O(δ)
+/// of identity instead of a step of the whole off-locus gap.
 ///
 /// Callers MUST pass `(temperature, tint)` through [`resolve_target`]
 /// first so an As-Shot model (indistinguishable on this branch from the
@@ -373,7 +408,7 @@ pub fn apply(
     tint: f32,
 ) {
     img.assert_space(crate::image::ColorSpace::CameraNativeLinearRgb);
-    if (temperature - frame.scene_cct).abs() < 0.5 && tint.abs() < 0.5 {
+    if is_as_shot_target(frame, temperature, tint) {
         return; // identity short-circuit: as-shot renders unchanged
     }
     let g = camera_wb_gain(frame, as_shot_neutral, temperature, tint);
@@ -393,7 +428,7 @@ pub fn apply(
 /// bit-exact no-op, matching `white_balance::apply_delta`'s contract for
 /// the post-DCP CAT16 path. This matters specifically because
 /// [`apply`]'s own identity short-circuit only recognizes ONE reference
-/// point — `(frame.scene_cct, 0.0)` — and a real camera's as-shot
+/// point — `(frame.scene_cct, frame.scene_tint)` — and a real camera's as-shot
 /// chromaticity can sit far enough off the blackbody locus that its
 /// tint (see [`target_xyz`]'s doc) is large (measured on a real
 /// Hasselblad H2D-39 bundle profile: ≈ 53 at the ACR `kTintScale`
@@ -482,8 +517,7 @@ pub fn retargeted_render_profile(
     let Some(e) = profile.cm_endpoints else {
         return profile; // single-calibration render profile: nothing to re-interpolate
     };
-    let is_as_shot = (temperature - frame.scene_cct).abs() < 0.5 && tint.abs() < 0.5;
-    if is_as_shot {
+    if is_as_shot_target(frame, temperature, tint) {
         return profile;
     }
     let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);

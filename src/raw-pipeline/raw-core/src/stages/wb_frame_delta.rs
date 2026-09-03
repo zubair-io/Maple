@@ -82,6 +82,11 @@ use crate::{
 };
 
 use super::{camera_wb_gain, retargeted_render_profile, SliderFrame};
+// #2321: the as-shot tint estimator moved into the frame module (it is
+// what `SliderFrame::scene_tint` is built from); re-imported here so the
+// estimator/render invariant tests in `wb_frame_delta_tests` keep
+// addressing it as `super::robertson_as_shot_tint`.
+use super::frame::robertson_as_shot_tint;
 use crate::stages::white_balance::{wb_cat16_matrix, xy_to_xyz};
 
 /// Plain-data export of a resolved [`SliderFrame`] + the frame's as-shot
@@ -186,7 +191,7 @@ impl SliderFrameExport {
         // pre-#1894. `frame_to_rec2020` below reconstructs `w_frame` from
         // this SAME pair via `slider_source_xy`, so estimator and
         // reconstruction share one mapping (the #1870 invariant).
-        let as_shot_tint = robertson_as_shot_tint(&frame, raw.as_shot_neutral);
+        let as_shot_tint = frame.scene_tint;
         // #1967: the render profile's linear-core detail, independent of
         // which VALUE-frame arm `SliderFrame::resolve` took above.
         let render_forward_matrix = profile.forward_matrix.unwrap_or(Matrix3([[0.0; 3]; 3]));
@@ -282,6 +287,7 @@ impl SliderFrameExport {
             endpoints,
             cm_as_shot,
             scene_cct: self.scene_cct,
+            scene_tint: self.as_shot_tint,
             render_cm,
         }
     }
@@ -427,19 +433,6 @@ fn generic_cat16_delta(target: (f32, f32), decoded: (f32, f32)) -> Matrix3 {
         Some(m_decoded_inv) => m_target.mul_mat(&m_decoded_inv),
         None => m_target,
     }
-}
-
-/// #1894: the same Robertson mapping [`SliderFrameExport::resolve`] reads
-/// `as_shot_tint` off of (`dng_temperature::xy_to_temp_tint`), applied to
-/// the frame's own scene-illuminant xy — the estimator half of the #1870
-/// invariant this module's `frame_to_rec2020` must invert exactly.
-fn robertson_as_shot_tint(frame: &SliderFrame, as_shot_neutral: [f32; 3]) -> f32 {
-    let xyz = frame.scene_illuminant_xyz(as_shot_neutral);
-    let sum = xyz[0] + xyz[1] + xyz[2];
-    if !sum.is_finite() || sum < 1e-6 {
-        return 0.0;
-    }
-    crate::color::dng_temperature::xy_to_temp_tint(xyz[0] / sum, xyz[1] / sum).1
 }
 
 /// The frame's camera→Rec.2020 transform (module doc): the DCP Bradford

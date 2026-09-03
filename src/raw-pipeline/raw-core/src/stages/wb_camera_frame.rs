@@ -70,6 +70,17 @@ pub struct SliderFrame {
     /// As-shot CCT in THIS frame — the temperature at which the slider is
     /// an identity for this image.
     pub scene_cct: f32,
+    /// As-shot tint in THIS frame (#2321): the Robertson tint of the
+    /// frame's own scene-illuminant xy ([`Self::scene_illuminant_xyz`] fed
+    /// through `dng_temperature::xy_to_temp_tint` — the same estimate
+    /// `dcp::estimate_as_shot_cct_tint` hands the app for slider
+    /// hydration), in the ACR sign convention `camera_wb_gain` consumes.
+    /// `(scene_cct, scene_tint)` is the slider pair at which the slider is
+    /// an identity for this image; a real camera's as-shot chromaticity
+    /// generally sits off the blackbody locus, so this is rarely 0 and
+    /// `(scene_cct, 0)` is NOT the as-shot point (the discontinuity #2321
+    /// measured).
+    pub scene_tint: f32,
     /// The RENDER PROFILE's XYZ→camera calibration (`profile.color_matrix`,
     /// same convention as the value-frame CMs — inverted to camera→XYZ in
     /// the delta)
@@ -102,6 +113,20 @@ impl SliderFrame {
     /// which is ACR's frame for them as well, since the bundle ships the
     /// same Adobe matrices ACR uses for non-DNG bodies.
     pub fn resolve(raw: &RawImage, profile: &DcpProfile) -> SliderFrame {
+        let frame = Self::resolve_cct_frame(raw, profile);
+        let scene_tint = robertson_as_shot_tint(&frame, raw.as_shot_neutral);
+        SliderFrame {
+            scene_tint,
+            ..frame
+        }
+    }
+
+    /// [`Self::resolve`] without the tint half: the endpoints / as-shot CM
+    /// / as-shot CCT arms. `scene_tint` is left at 0 and filled in by
+    /// [`Self::resolve`] from the resulting frame's own scene-illuminant xy
+    /// (the tint solve needs `cm_as_shot`, which every arm below produces
+    /// differently).
+    fn resolve_cct_frame(raw: &RawImage, profile: &DcpProfile) -> SliderFrame {
         let entries = {
             let mut entries: Vec<(f32, Matrix3)> = raw
                 .color_matrices
@@ -134,6 +159,7 @@ impl SliderFrame {
                         *m_cold, *cct_cold, *m_warm, *cct_warm, scene_cct,
                     ),
                     scene_cct,
+                    scene_tint: 0.0,
                     render_cm,
                 }
             }
@@ -152,6 +178,7 @@ impl SliderFrame {
                     endpoints: None,
                     cm_as_shot: *m_single,
                     scene_cct,
+                    scene_tint: 0.0,
                     render_cm,
                 }
             }
@@ -165,6 +192,7 @@ impl SliderFrame {
                     .map(|e| (e.m_cold, e.cct_cold, e.m_warm, e.cct_warm)),
                 cm_as_shot: profile.color_matrix,
                 scene_cct: profile.scene_cct,
+                scene_tint: 0.0,
                 render_cm,
             },
         }
@@ -200,6 +228,21 @@ impl SliderFrame {
             })
             .unwrap_or(crate::color::matrices::XYZ_D65)
     }
+}
+
+/// The frame's as-shot tint (#1894, #2321): the Robertson tint
+/// (`dng_temperature::xy_to_temp_tint`) of the frame's own
+/// scene-illuminant xy — the estimator half of the #1870 invariant that
+/// `wb_frame_delta::frame_to_rec2020` / `wb_camera::target_xyz` invert
+/// through `slider_source_xy`. A degenerate (singular / non-finite)
+/// projection reads as on-locus (0).
+pub(super) fn robertson_as_shot_tint(frame: &SliderFrame, as_shot_neutral: [f32; 3]) -> f32 {
+    let xyz = frame.scene_illuminant_xyz(as_shot_neutral);
+    let sum = xyz[0] + xyz[1] + xyz[2];
+    if !sum.is_finite() || sum < 1e-6 {
+        return 0.0;
+    }
+    crate::color::dng_temperature::xy_to_temp_tint(xyz[0] / sum, xyz[1] / sum).1
 }
 
 /// Direct (non-iterative) Robertson as-shot CCT for a single fixed
