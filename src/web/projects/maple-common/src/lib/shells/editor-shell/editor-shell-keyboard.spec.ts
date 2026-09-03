@@ -26,6 +26,7 @@ import type { AdjustmentModel } from '../../models/adjustment-model';
 import { handleEditorKeydown, handleEditorKeyup } from './editor-shell-keyboard';
 import { newCommandRouterState } from './editor-command-router';
 import type { EditorShellComponent } from './editor-shell.component';
+import { newWheelNudgeState, type WheelNudgeState } from './editor-shell-wheel';
 
 // `handleEditorKeydown` reads `e.target` unconditionally (real keydown events
 // always carry one — the shell binds via `@HostListener('document:keydown')`).
@@ -92,6 +93,7 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
     controlCard?: { resetGroup: ReturnType<typeof vi.fn> };
     commandRouter: ReturnType<typeof newCommandRouterState>;
     commandMenuOpen: ReturnType<typeof signal<boolean>>;
+    wheelNudge: WheelNudgeState;
     scrubbing: () => boolean;
     onScopesPanelToggle: ReturnType<typeof vi.fn>;
     goBack: ReturnType<typeof vi.fn>;
@@ -138,6 +140,7 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
       controlCard: { resetGroup: vi.fn() },
       commandRouter: newCommandRouterState(),
       commandMenuOpen: signal(false),
+      wheelNudge: newWheelNudgeState(),
       scrubbing: () => false,
       onScopesPanelToggle: vi.fn(),
       goBack: vi.fn(),

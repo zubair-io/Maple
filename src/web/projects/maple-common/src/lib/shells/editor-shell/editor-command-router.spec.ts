@@ -16,6 +16,7 @@ import {
   resolveKeydown,
 } from './editor-command-router';
 import { ariaKeyshortcuts, chordMatches, describeChord, EDITOR_COMMANDS } from './editor-commands';
+import { newWheelNudgeState } from './editor-shell-wheel';
 
 function makeShell(assetId: string | null = 'a.dng') {
   const focused = signal<string | null>(assetId);
@@ -57,6 +58,7 @@ function makeShell(assetId: string | null = 'a.dng') {
     assetName: () => 'a.dng',
     controlCard: { resetGroup: vi.fn() },
     commandMenuOpen: signal(false),
+    wheelNudge: newWheelNudgeState(),
     scrubbing: () => false,
     goBack: vi.fn(),
     navigateToAsset: vi.fn(),
@@ -134,6 +136,23 @@ describe('executeIntent', () => {
     // Back and the menu toggle are not asset-bound.
     expect(
       executeIntent(asShell(shell), router, { intent: { kind: 'nav.back' }, assetId: 'a.dng' }),
+    ).toBe(true);
+  });
+
+  it('refuses navigation while a wheel burst is still in flight', () => {
+    const shell = makeShell();
+    const router = newCommandRouterState();
+    // A plain (not commit-on-release) tool never calls beginGesture, so the
+    // burst's open undo transaction is the only thing standing between the
+    // user and an asset switch that would reset the ring and drop it.
+    shell.wheelNudge.burstOpen = true;
+    shell.wheelNudge.lastAt = performance.now();
+    expect(
+      executeIntent(asShell(shell), router, { intent: { kind: 'nav.next' }, assetId: 'a.dng' }),
+    ).toBe(false);
+    shell.wheelNudge.burstOpen = false;
+    expect(
+      executeIntent(asShell(shell), router, { intent: { kind: 'nav.next' }, assetId: 'a.dng' }),
     ).toBe(true);
   });
 
