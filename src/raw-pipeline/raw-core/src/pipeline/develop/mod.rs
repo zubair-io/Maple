@@ -11,10 +11,10 @@
 //! 5. highlight recovery,
 //! 6. DCP `profile_for` + `apply_colorimetry` (CM/FM + HSM in
 //!    linear-ProPhoto-D50, then gamut conversion to Rec.2020 — #425
-//!    dropped the Adobe aesthetic layers PLT/PTC),
-//! 7. ProfileGainTableMap (when present),
-//! 8. damped per-image auto-exposure,
-//! 9. white-balance, scene-tone-controls, vibrance, saturation, hsl,
+//!    dropped the Adobe aesthetic layers PLT/PTC, and #2774 the DNG 1.6
+//!    ProfileGainTableMap that is the spatial half of the PTC pair),
+//! 7. damped per-image auto-exposure,
+//! 8. white-balance, scene-tone-controls, vibrance, saturation, hsl,
 //!    clarity, texture, dehaze, local-adjustments, vignette, sharpen,
 //!    nr_luminance, nr_color.
 //!
@@ -376,15 +376,17 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
     });
     dump_after("03b_oklab_highlight_recovery", &scene);
-    // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
-    // Applied AFTER the gamut conversion, in scene-linear Rec.2020. No-op
-    // when raw.profile_gain_table_map is None (most fixtures).
-    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
-        stage("profile_gain_table_map", || {
-            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
-        });
-    }
-    dump_after("04_profile_gain_table_map", &scene);
+    // `raw.profile_gain_table_map` (DNG 1.6 ProfileGainTableMap) is
+    // deliberately NOT applied here (#2774). The spec pairs it with the
+    // profile's ProfileToneCurve — "if used together, the gain table map
+    // should be applied first" — and on a real Apple ProRAW the pair is a
+    // ×2.7 mean shadow lift that the PTC then re-compresses. #425 dropped
+    // the PTC (colorimetry-only DCP under AgX), so applying the gain map
+    // alone lifts the whole scene about a stop against ACR: test_0013
+    // baseline mean ΔE 11.7 / bias +0.075 with it, 5.9 / −0.03 without.
+    // It is a vendor look layer like PLT/PTC, not colorimetry, and gets
+    // the same treatment. See `color::profile_gain_table_map`'s module
+    // doc for the measurements.
     // Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1) — the
     // last denoising step of the decode product: after DCP colorimetry +
     // post-DCP highlight recovery, before capture sharpening (denoise

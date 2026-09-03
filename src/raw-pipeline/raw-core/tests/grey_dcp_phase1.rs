@@ -165,6 +165,63 @@ fn forward_matrix_replaces_bradford() {
 /// through the (removed) `apply_with_plt_and_ptc` entry point for the
 /// Fallback / non-bundled path and the test asserted the curve's
 /// output value at L; the predictor's premise no longer applies.
+/// #2774: the DNG 1.6 ProfileGainTableMap is the spatial half of the
+/// vendor look pair (gain map + ProfileToneCurve) that #425 dropped, so it
+/// must be equally dead in the develop chain. Attach a uniform 2× map to
+/// the decoded synthetic RawImage and assert the scene-linear output is
+/// unchanged; a live map would double every pixel.
+#[test]
+fn profile_gain_table_map_is_noop_under_colorimetry_only() {
+    use raw_core::color::profile_gain_table_map::ProfileGainTableMap;
+
+    let dng = SyntheticGreyDng {
+        linear_value: 0.18,
+        ..Default::default()
+    }
+    .with_hasselblad_dcp();
+    let bytes = dng.write_to_bytes();
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic must decode");
+    assert!(raw.profile_gain_table_map.is_none());
+    let mut raw_with_map = raw.clone();
+    raw_with_map.profile_gain_table_map = Some(ProfileGainTableMap {
+        map_points_v: 2,
+        map_points_h: 2,
+        map_points_n: 1,
+        origin_h: 0.0,
+        origin_v: 0.0,
+        spacing_h: 1.0,
+        spacing_v: 1.0,
+        input_weights: [0.0; 5],
+        gains: vec![2.0; 4],
+    });
+
+    let model = AdjustmentModel::default();
+    let img_plain = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
+        .expect("scene-linear render must succeed");
+    let img_with_map =
+        develop_scene_linear_from_raw_with_quality(&raw_with_map, &model, RenderQuality::Full)
+            .expect("scene-linear render must succeed");
+
+    for (i, (a, b)) in img_plain
+        .pixels
+        .iter()
+        .zip(img_with_map.pixels.iter())
+        .enumerate()
+    {
+        for c in 0..3 {
+            assert!(
+                (a[c] - b[c]).abs() <= EPS_SCENE_LINEAR,
+                "pixel {} chan {}: ProfileGainTableMap must be a no-op in the \
+                 develop chain (#2774) (plain={}, with-map={})",
+                i,
+                c,
+                a[c],
+                b[c]
+            );
+        }
+    }
+}
+
 #[test]
 fn profile_tone_curve_is_noop_under_colorimetry_only() {
     let curve = vec![

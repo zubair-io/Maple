@@ -117,6 +117,41 @@ fn render_test_0013_ptc_is_noop_under_colorimetry_only() {
     );
 }
 
+/// #2774: the DNG 1.6 ProfileGainTableMap is the spatial half of the
+/// vendor PTC pair #425 dropped, so it must be dead data in the develop
+/// chain exactly like `profile_tone_curve` is. test_0013 (iPhone 12 Pro
+/// ProRAW) is the only fixture that ships one — with the map applied its
+/// harness baseline read mean ΔE 11.7 / bias +0.075 against ACR (which
+/// applies map + PTC together); with it left alone, 5.9 / −0.03.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn render_test_0013_pgtm_is_noop_under_colorimetry_only() {
+    let path = require_raw("test_0013.DNG");
+    let bytes = std::fs::read(&path).unwrap();
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode iPhone");
+    assert!(
+        raw.profile_gain_table_map.is_some(),
+        "test_0013 must surface a ProfileGainTableMap (decode-side wiring, #1923)"
+    );
+    let model = AdjustmentModel::default();
+    let (_, _, with_pgtm) = render_from_raw(&raw, &model).expect("render with PGTM");
+    let mut raw_no_pgtm = raw.clone();
+    raw_no_pgtm.profile_gain_table_map = None;
+    let (_, _, without_pgtm) = render_from_raw(&raw_no_pgtm, &model).unwrap();
+    assert_eq!(with_pgtm.len(), without_pgtm.len());
+    let diffs: usize = with_pgtm
+        .iter()
+        .zip(without_pgtm.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        diffs, 0,
+        "ProfileGainTableMap must not be applied in the develop chain (#2774) — \
+         got {} differing bytes between with-PGTM and without-PGTM renders",
+        diffs
+    );
+}
+
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_test_0002_exposure_max_is_brighter_than_baseline() {

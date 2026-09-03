@@ -221,11 +221,8 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_highlight_recovery_oklab", || {
         highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
     });
-    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
-        stage("tile_profile_gain_table_map", || {
-            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
-        });
-    }
+    // ProfileGainTableMap is not applied on any path (#2774) — see
+    // `pipeline::develop` for the rationale.
     // Decode-time chroma pre-filter (#1104). Translation-invariant with a
     // ±4 px stencil — well inside TILE_OVERLAP_PX (48), so the padded tile
     // renders the same pixels the full-image path does. No-op at default 0.

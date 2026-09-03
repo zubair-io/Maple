@@ -3463,266 +3463,266 @@
       "baseline": {
         "mean": 6.2,
         "p95": 9.3,
-        "max": 24.34,
+        "max": 23.9,
         "bias": 0.0513
       },
       "baseline_auto": {
-        "mean": 5.55,
-        "p95": 13.25,
-        "max": 37.74,
+        "mean": 5.5,
+        "p95": 13.0,
+        "max": 37.1,
         "bias": 0.0302
       },
       "blacks_max": {
-        "mean": 11.3,
-        "p95": 23.0,
-        "max": 37.5,
-        "bias": 0.0462
+        "mean": 10.6,
+        "p95": 21.6,
+        "max": 37.2,
+        "bias": 0.0215
       },
       "blacks_min": {
-        "mean": 17.2,
-        "p95": 42.2,
-        "max": 64.8,
-        "bias": 0.1994
+        "mean": 7.3,
+        "p95": 18.1,
+        "max": 35.2,
+        "bias": 0.0542
       },
       "clarity_max": {
-        "mean": 11.5,
-        "p95": 25.8,
-        "max": 49.1,
-        "bias": 0.1009
+        "mean": 6.8,
+        "p95": 17.0,
+        "max": 38.3,
+        "bias": 0.0433
       },
       "clarity_min": {
-        "mean": 12.9,
-        "p95": 27.0,
-        "max": 49.2,
-        "bias": 0.0989
+        "mean": 6.3,
+        "p95": 10.0,
+        "max": 44.4,
+        "bias": 0.0411
       },
       "contrast_max": {
-        "mean": 15.4,
-        "p95": 37.9,
-        "max": 55.1,
-        "bias": 0.1313
+        "mean": 6.9,
+        "p95": 12.8,
+        "max": 32.9,
+        "bias": 0.0364
       },
       "contrast_min": {
-        "mean": 10.5,
-        "p95": 17.2,
-        "max": 30.9,
-        "bias": 0.0331
+        "mean": 6.8,
+        "p95": 13.2,
+        "max": 28.3,
+        "bias": 0.0575
       },
       "dehaze_max": {
-        "mean": 11.0,
-        "p95": 24.4,
+        "mean": 7.9,
+        "p95": 19.5,
         "max": 52.7,
-        "bias": 0.1433
+        "bias": 0.0573
       },
       "dehaze_min": {
-        "mean": 12.3,
-        "p95": 18.4,
-        "max": 60.2,
-        "bias": 0.1241
+        "mean": 15.6,
+        "p95": 28.3,
+        "max": 74.2,
+        "bias": 0.2174
       },
       "exposure_max": {
-        "mean": 7.5,
+        "mean": 9.1,
         "p95": 15.2,
         "max": 40.7,
-        "bias": 0.0849
+        "bias": 0.1222
       },
       "exposure_min": {
         "mean": 1.6,
-        "p95": 4.2,
-        "max": 11.5,
+        "p95": 3.8,
+        "max": 10.5,
         "bias": 0.0229
       },
       "highlights_max": {
-        "mean": 15.0,
-        "p95": 25.2,
-        "max": 46.4,
-        "bias": 0.0162
+        "mean": 9.2,
+        "p95": 17.3,
+        "max": 27.0,
+        "bias": 0.1035
       },
       "highlights_min": {
-        "mean": 12.2,
-        "p95": 26.1,
-        "max": 45.0,
-        "bias": 0.1574
+        "mean": 5.0,
+        "p95": 9.1,
+        "max": 27.4,
+        "bias": 0.0338
       },
       "nr_color_max": {
         "mean": 6.2,
         "p95": 9.3,
         "max": 28.0,
-        "bias": 0.0563
+        "bias": 0.0513
       },
       "nr_color_min": {
         "mean": 6.2,
         "p95": 9.3,
         "max": 51.2,
-        "bias": 0.0559
+        "bias": 0.0509
       },
       "nr_luminance_max": {
         "mean": 6.6,
         "p95": 10.1,
         "max": 40.4,
-        "bias": 0.0576
+        "bias": 0.0526
       },
       "saturation_max": {
-        "mean": 13.8,
-        "p95": 25.6,
-        "max": 43.0,
-        "bias": 0.1009
+        "mean": 8.8,
+        "p95": 13.3,
+        "max": 25.5,
+        "bias": 0.0633
       },
       "saturation_min": {
-        "mean": 11.0,
-        "p95": 25.9,
-        "max": 43.2,
-        "bias": 0.0873
+        "mean": 3.4,
+        "p95": 7.8,
+        "max": 24.3,
+        "bias": 0.0307
       },
       "shadows_max": {
-        "mean": 10.0,
-        "p95": 20.4,
-        "max": 40.3,
-        "bias": 0.0446
+        "mean": 7.5,
+        "p95": 11.9,
+        "max": 33.7,
+        "bias": 0.0432
       },
       "shadows_min": {
-        "mean": 14.9,
-        "p95": 35.1,
-        "max": 52.8,
-        "bias": 0.1272
+        "mean": 5.9,
+        "p95": 10.5,
+        "max": 28.3,
+        "bias": 0.0383
       },
       "sharpen_amount_max": {
         "mean": 7.6,
         "p95": 12.6,
         "max": 101.4,
-        "bias": 0.069
+        "bias": 0.064
       },
       "sharpen_amount_min": {
         "mean": 6.0,
         "p95": 9.0,
         "max": 41.0,
-        "bias": 0.0514
+        "bias": 0.0464
       },
       "sharpen_detail_max": {
         "mean": 6.7,
         "p95": 10.9,
         "max": 29.2,
-        "bias": 0.059
+        "bias": 0.054
       },
       "sharpen_detail_min": {
         "mean": 6.0,
         "p95": 9.0,
         "max": 29.2,
-        "bias": 0.0542
+        "bias": 0.0492
       },
       "sharpen_masking_max": {
         "mean": 6.0,
         "p95": 9.0,
         "max": 41.6,
-        "bias": 0.0532
+        "bias": 0.0482
       },
       "sharpen_radius_max": {
         "mean": 6.2,
         "p95": 9.2,
         "max": 29.2,
-        "bias": 0.0587
+        "bias": 0.0537
       },
       "sharpen_radius_min": {
         "mean": 6.1,
         "p95": 9.2,
         "max": 29.2,
-        "bias": 0.0534
+        "bias": 0.0484
       },
       "temperature_max": {
-        "mean": 12.1,
-        "p95": 24.0,
-        "max": 41.1,
-        "bias": 0.1096
+        "mean": 8.1,
+        "p95": 11.5,
+        "max": 26.3,
+        "bias": 0.0792
       },
       "temperature_min": {
-        "mean": 17.3,
-        "p95": 24.7,
-        "max": 48.3,
-        "bias": 0.0525
+        "mean": 13.9,
+        "p95": 24.1,
+        "max": 46.4,
+        "bias": 0.1474
       },
       "texture_max": {
-        "mean": 12.2,
-        "p95": 25.5,
-        "max": 46.3,
-        "bias": 0.0806
+        "mean": 6.8,
+        "p95": 10.8,
+        "max": 38.1,
+        "bias": 0.0563
       },
       "texture_min": {
-        "mean": 12.6,
-        "p95": 26.4,
-        "max": 42.7,
-        "bias": 0.0925
+        "mean": 6.2,
+        "p95": 9.2,
+        "max": 22.7,
+        "bias": 0.0464
       },
       "tint_max": {
-        "mean": 25.6,
-        "p95": 35.2,
-        "max": 50.3,
-        "bias": 0.2264
+        "mean": 20.3,
+        "p95": 25.9,
+        "max": 37.8,
+        "bias": 0.0968
       },
       "tint_min": {
-        "mean": 24.1,
-        "p95": 31.2,
-        "max": 49.5,
-        "bias": 0.1091
+        "mean": 18.4,
+        "p95": 25.0,
+        "max": 43.2,
+        "bias": 0.1476
       },
       "vibrance_max": {
-        "mean": 14.4,
-        "p95": 27.0,
-        "max": 47.5,
-        "bias": 0.2071
+        "mean": 8.6,
+        "p95": 15.3,
+        "max": 36.4,
+        "bias": 0.0893
       },
       "vibrance_min": {
-        "mean": 12.9,
-        "p95": 31.5,
-        "max": 51.3,
-        "bias": 0.1048
+        "mean": 4.5,
+        "p95": 9.5,
+        "max": 30.5,
+        "bias": 0.018
       },
       "wb_auto": {
-        "mean": 13.9,
-        "p95": 25.8,
-        "max": 42.4,
-        "bias": 0.1148
+        "mean": 9.3,
+        "p95": 12.5,
+        "max": 24.6,
+        "bias": 0.0861
       },
       "wb_cloudy": {
-        "mean": 12.0,
-        "p95": 25.2,
-        "max": 42.0,
-        "bias": 0.0874
+        "mean": 6.1,
+        "p95": 8.8,
+        "max": 23.7,
+        "bias": 0.0439
       },
       "wb_daylight": {
-        "mean": 12.9,
-        "p95": 25.7,
-        "max": 43.1,
-        "bias": 0.1054
+        "mean": 6.6,
+        "p95": 9.6,
+        "max": 23.6,
+        "bias": 0.0546
       },
       "wb_flash": {
-        "mean": 12.9,
-        "p95": 25.8,
-        "max": 43.1,
-        "bias": 0.111
+        "mean": 6.7,
+        "p95": 9.5,
+        "max": 23.4,
+        "bias": 0.0504
       },
       "wb_shade": {
-        "mean": 11.7,
-        "p95": 25.0,
-        "max": 41.3,
-        "bias": 0.0805
+        "mean": 6.3,
+        "p95": 9.1,
+        "max": 23.7,
+        "bias": 0.0443
       },
       "wb_tungsten": {
-        "mean": 15.6,
-        "p95": 25.1,
-        "max": 44.5,
-        "bias": 0.1565
+        "mean": 10.9,
+        "p95": 16.5,
+        "max": 35.4,
+        "bias": 0.1076
       },
       "whites_max": {
-        "mean": 16.0,
-        "p95": 26.0,
-        "max": 34.5,
-        "bias": 0.1467
+        "mean": 17.8,
+        "p95": 25.6,
+        "max": 48.2,
+        "bias": 0.2505
       },
       "whites_min": {
-        "mean": 12.1,
-        "p95": 26.5,
-        "max": 45.4,
-        "bias": 0.1315
+        "mean": 5.0,
+        "p95": 8.3,
+        "max": 23.8,
+        "bias": 0.0153
       }
     },
     "test_0014": {
