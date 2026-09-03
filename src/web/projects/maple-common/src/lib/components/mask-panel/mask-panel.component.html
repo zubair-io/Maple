@@ -1,0 +1,98 @@
+<div class="mask-panel flex flex-col gap-2 p-3" data-testid="mask-panel">
+  <div class="flex gap-2">
+    <mui-button
+      size="sm"
+      iconLeading="plus"
+      ariaLabel="Add linear mask"
+      testId="mask-add-linear"
+      (pressed)="session.addLinear()"
+      >Linear</mui-button
+    >
+    <mui-button
+      size="sm"
+      iconLeading="plus"
+      ariaLabel="Add radial mask"
+      testId="mask-add-radial"
+      (pressed)="session.addRadial()"
+      >Radial</mui-button
+    >
+  </div>
+
+  @if (rows().length === 0) {
+    <mui-text variant="body" color="muted" data-testid="mask-empty">
+      No masks yet — add a linear or radial mask to edit part of the image.
+    </mui-text>
+  } @else {
+    <div class="mask-list flex flex-col" role="list" data-testid="mask-list">
+      @for (row of rows(); track row.index) {
+        <mui-list-row
+          [icon]="row.icon"
+          [label]="row.title"
+          [subtitle]="row.subtitle"
+          [active]="row.active"
+          [testId]="'mask-row-' + row.index"
+          (pressed)="session.select(row.index)"
+        >
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            iconLeading="trash"
+            [iconOnly]="true"
+            [ariaLabel]="'Delete ' + row.title"
+            [testId]="'mask-delete-' + row.index"
+            (pressed)="session.remove(row.index)"
+          />
+        </mui-list-row>
+      }
+    </div>
+  }
+
+  @if (selected(); as layer) {
+    <div class="mask-controls flex flex-col gap-2" data-testid="mask-controls">
+      <mui-living-slider
+        label="Feather"
+        [value]="feather()"
+        [min]="0"
+        [max]="1"
+        [step]="0.01"
+        (valueChange)="onFeatherChange($event)"
+        (dragStart)="onDragStart()"
+        (dragEnd)="onDragEnd()"
+      />
+      @if (isRadial()) {
+        <mui-checkbox
+          label="Invert"
+          [checked]="inverted()"
+          inputId="mask-invert"
+          (checkedChange)="onInvertChange($event)"
+        />
+      }
+      @for (control of controls; track control.id) {
+        <mui-living-slider
+          [label]="control.label"
+          [value]="valueOf(control)"
+          [min]="control.min"
+          [max]="control.max"
+          [step]="control.step"
+          [bipolar]="true"
+          (valueChange)="onValueChange(control, $event)"
+          (dragStart)="onDragStart()"
+          (dragEnd)="onDragEnd()"
+          (resetRequest)="onControlReset(control)"
+        />
+      }
+      <div class="flex justify-end">
+        <mui-button
+          variant="ghost"
+          size="sm"
+          iconLeading="undo-uturn"
+          ariaLabel="Reset mask adjustments"
+          testId="mask-reset"
+          (pressed)="session.resetAdjustments()"
+          >Reset</mui-button
+        >
+      </div>
+    </div>
+  }
+</div>

@@ -66,6 +66,8 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   // Non-slider tools — these appear as group chips or special controls;
   // they get a neutral gradient as a safety fallback.
   crop: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
+  // Mask (#1541) is value-less like crop: no drag-bar track to colour.
+  mask: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
   presets: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
 };
 
