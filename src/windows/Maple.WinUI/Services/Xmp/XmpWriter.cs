@@ -156,14 +156,16 @@ namespace Maple.WinUI.Services.Xmp
         // ── Nested children ─────────────────────────────────────────────────
 
         /// <summary>
-        /// Interleaves the modeled tone-curve blocks back into passthrough
-        /// content at their original source position (#2671), via
-        /// <see cref="XmpSidecarDocument.ChildOrder"/>. A tone-curve tag
-        /// that is now identity (no points) emits nothing at its slot —
-        /// "identity is silence" — while every other recorded slot still
-        /// runs in source order. A curve with no recorded slot (never
-        /// parsed, or added since) falls back to the pre-#2671 default:
-        /// before every recorded slot, in canonical order — the same
+        /// Interleaves the modeled child blocks — the eight tone curves and,
+        /// since #358, the two local-adjustment containers — back into
+        /// passthrough content at their original source position (#2671),
+        /// via <see cref="XmpSidecarDocument.ChildOrder"/>. A modeled tag
+        /// that is now identity (no points, no layers of that kind) emits
+        /// nothing at its slot — "identity is silence" — while every other
+        /// recorded slot still runs in source order. A block with no
+        /// recorded slot (never parsed, or added since) falls back to the
+        /// pre-#2671 default: before every recorded slot, in canonical order
+        /// (curves, then the linear and radial containers) — the same
         /// output a document with no passthrough content produced before
         /// this fix. Two defensive rules keep a `ChildOrder` that is
         /// missing, stale, or out of sync with <see cref="XmpSidecarDocument.PassthroughNodes"/>
@@ -171,29 +173,33 @@ namespace Maple.WinUI.Services.Xmp
         /// nothing required doing so before this PR) from losing content or
         /// crashing the save: every `PassthroughNodes` entry not visited by
         /// a recorded slot is appended afterward rather than dropped, and a
-        /// recorded tag `XmpSchema.ToneCurveElements` doesn't recognize is
-        /// looked up with `TryGetValue` rather than the indexer.
+        /// recorded tag the modeled set doesn't recognize is looked up with
+        /// `TryGetValue` rather than the indexer.
         /// </summary>
         private static string BuildChildren(XmpSidecarDocument doc)
         {
-            var curveBlocks = XmpSchema.ToneCurveElements
-                .ToDictionary(e => e.Tag, e => ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments)));
+            var modeledBlocks = XmpSchema.ToneCurveElements
+                .Select(e => (e.Tag, Block: ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments))))
+                .Concat(XmpLocalAdjustments.ContainerTags.Select(tag =>
+                    (Tag: tag, Block: XmpLocalAdjustments.Block(tag, doc.Adjustments.LocalAdjustments, ChildIndent))))
+                .ToList();
+            var blocksByTag = modeledBlocks.ToDictionary(b => b.Tag, b => b.Block);
 
             var recordedTags = new HashSet<string>();
             var visitedPassthroughIndexes = new HashSet<int>();
             var blocks = new List<string>();
             foreach (var slot in doc.ChildOrder)
             {
-                if (slot.ToneCurveTag is { } tag)
+                if (slot.ModeledTag is { } tag)
                 {
                     // Same duplicate guard as the passthrough branch below:
                     // HashSet.Add returns false for a tag already recorded,
                     // so a stale/out-of-sync ChildOrder repeating the same
-                    // tone-curve tag doesn't emit that block twice — only
+                    // modeled tag doesn't emit that block twice — only
                     // the first occurrence writes (Copilot review on
                     // #3113).
                     if (!recordedTags.Add(tag)) continue;
-                    if (curveBlocks.TryGetValue(tag, out var block) && block is not null) blocks.Add(block);
+                    if (blocksByTag.TryGetValue(tag, out var block) && block is not null) blocks.Add(block);
                 }
                 else if (slot.PassthroughIndex >= 0 && slot.PassthroughIndex < doc.PassthroughNodes.Count)
                 {
@@ -220,12 +226,12 @@ namespace Maple.WinUI.Services.Xmp
                 }
             }
 
-            var freshCurveBlocks = XmpSchema.ToneCurveElements
-                .Where(e => !recordedTags.Contains(e.Tag))
-                .Select(e => curveBlocks[e.Tag])
+            var freshBlocks = modeledBlocks
+                .Where(b => !recordedTags.Contains(b.Tag))
+                .Select(b => b.Block)
                 .Where(b => b is not null)
                 .Select(b => b!);
-            blocks.InsertRange(0, freshCurveBlocks);
+            blocks.InsertRange(0, freshBlocks);
 
             return string.Join("\n", blocks);
         }

@@ -285,6 +285,15 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// whole `crs:Crop*` group. See `Crop` and spec § 3.12.
     public var crop: Crop  // default .identity
 
+    /// Masked, per-region edits (#280/#358) — a hand-written mirror of
+    /// `raw_core::types::LocalAdjustment`, permanently outside codegen
+    /// because it is a nested list rather than a flat slider (see
+    /// `LocalAdjustment.swift`). Empty is the default; the XMP writer emits
+    /// the `crs:GradientBasedCorrections` /
+    /// `crs:CircularGradientBasedCorrections` containers only for a
+    /// non-empty stack (`XMPSerialization+LocalAdjustments.swift`).
+    public var localAdjustments: [LocalAdjustment]  // default []
+
     /// DNG-embedded lens corrections (#376). The vendor's distortion /
     /// lateral-CA / vignetting corrections travel inside the DNG as
     /// `OpcodeList3` opcodes and are resampled into the demosaiced buffer
@@ -419,6 +428,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         hotPixelSuppression: HotPixelSuppressionMode = .off,
         deepDenoise: Double = 0,
         crop: Crop = .identity,
+        localAdjustments: [LocalAdjustment] = [],
         lensProfileEnable: LensProfileEnable = .on,
         lensCorrectionDistortion: Double = 100,
         lensCorrectionCa: Double = 100,
@@ -525,6 +535,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.hotPixelSuppression = hotPixelSuppression
         self.deepDenoise = deepDenoise
         self.crop = crop
+        self.localAdjustments = localAdjustments
         self.lensProfileEnable = lensProfileEnable
         self.lensCorrectionDistortion = lensCorrectionDistortion
         self.lensCorrectionCa = lensCorrectionCa
@@ -534,33 +545,4 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     }
 
     public static let `default` = AdjustmentModel()
-
-    /// True when this model carries user adjustments that change the
-    /// rendered pixels, judged with the white-balance fields excluded.
-    ///
-    /// `temperature`/`tint`/`wbScaleVersion` must be excluded: on first
-    /// open the editor seeds them with the image's as-shot values, so a
-    /// rating-only or flag-only sidecar save records non-default WB numbers
-    /// that do NOT represent an edit. Comparing against a baseline that
-    /// copies those three fields treats those sidecars as visually unedited
-    /// — the common culling case — at the cost of also treating a WB-only
-    /// edit as unedited. Callers that gate derived-image generation on this
-    /// (the `.maple/previews` display tier in `ThumbnailLoader`) accept
-    /// that trade-off: a WB-only edit made in the local editor still gets a
-    /// correct display preview from the editor-exit render refresh; only a
-    /// WB-only edit arriving externally (synced sidecar, never rendered on
-    /// this device) slips through.
-    ///
-    /// `wbMethod` is NOT copied into the baseline (#2216): unlike
-    /// temperature/tint, nothing seeds it from the image itself, so a
-    /// non-default value only ever comes from an explicit user or
-    /// externally-authored choice — a real edit, correctly caught here.
-    public var isVisuallyEditedBeyondWhiteBalance: Bool {
-        let baseline = AdjustmentModel(
-            temperature: temperature,
-            tint: tint,
-            wbScaleVersion: wbScaleVersion
-        )
-        return self != baseline
-    }
 }

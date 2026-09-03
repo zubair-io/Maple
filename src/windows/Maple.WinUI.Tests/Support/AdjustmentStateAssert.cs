@@ -23,7 +23,8 @@ namespace Maple.WinUI.Tests.Support
 
         /// <summary>Asserts every public field of <paramref name="expected"/> and
         /// <paramref name="actual"/> holds an equal value. Tone-curve fields
-        /// (`List&lt;CurvePoint&gt;`) compare by sequence, not by reference.</summary>
+        /// (`List&lt;CurvePoint&gt;`) and the local-adjustment stack
+        /// (`List&lt;LocalAdjustment&gt;`) compare by sequence, not by reference.</summary>
         public static void Equal(AdjustmentState expected, AdjustmentState actual)
         {
             foreach (var field in Fields)
@@ -36,6 +37,16 @@ namespace Maple.WinUI.Tests.Support
                         curveExpected.SequenceEqual(curveActual),
                         $"{field.Name}: expected [{string.Join(", ", curveExpected)}], " +
                         $"got [{string.Join(", ", curveActual)}]");
+                    continue;
+                }
+                if (e is List<LocalAdjustment> layersExpected && a is List<LocalAdjustment> layersActual)
+                {
+                    // Records compare by value, so SequenceEqual is a deep
+                    // layer-by-layer comparison (#358).
+                    Assert.True(
+                        layersExpected.SequenceEqual(layersActual),
+                        $"{field.Name}: expected [{string.Join(", ", layersExpected)}], " +
+                        $"got [{string.Join(", ", layersActual)}]");
                     continue;
                 }
                 Assert.True(Equals(e, a), $"{field.Name}: expected {e}, got {a}");
