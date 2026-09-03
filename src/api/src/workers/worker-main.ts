@@ -73,6 +73,8 @@ async function main(): Promise<void> {
 }
 main().catch(async (e) => {
   process.stderr.write(`[worker-main] fatal: ${e instanceof Error ? e.message : e}\n`);
-  await flushOtelBeforeExit();
+  // Best-effort: a collector that is down must not stand between a failed
+  // boot and the exit code the parent's respawn logic is waiting on.
+  await flushOtelBeforeExit().catch(() => {});
   process.exit(1);
 });
