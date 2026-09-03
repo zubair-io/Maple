@@ -10,40 +10,8 @@
 
 use super::super::*;
 use crate::stages::auto_adjustments::compute_auto_adjustments;
+use crate::test_support::fixtures::{decode_raw as decode, REFERENCE_RAWS as FIXTURES};
 use crate::xmp::AdjustmentModel;
-
-/// The reference fixtures, with the extension each one actually carries.
-/// `test_0001.RAW` and `test_0016.X3F` are excluded: the first is a raw
-/// sensor dump the decoder does not accept by extension, the second is a
-/// Sigma X3F whose develop path is covered elsewhere.
-const FIXTURES: &[&str] = &[
-    "test_0000.DNG",
-    "test_0002.dng",
-    "test_0003.CR2",
-    "test_0004.fff",
-    "test_0005.RAF",
-    "test_0006.DNG",
-    "test_0007.DNG",
-    "test_0008.RAF",
-    "test_0009.CR2",
-    "test_0010.CR2",
-    "test_0011.ARW",
-    "test_0012.raf",
-    "test_0013.DNG",
-    "test_0014.NEF",
-    "test_0015.dng",
-    "test_0017.dng",
-    "test_0018.dng",
-    "test_0019.dng",
-    "test_0020.dng",
-];
-
-fn decode(name: &str) -> crate::image::RawImage {
-    let path = crate::test_support::fixtures::require_raw(name);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {name}: {e}"));
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    crate::decode::decode_bytes(&bytes, ext).unwrap_or_else(|e| panic!("decode {name}: {e}"))
-}
 
 fn auto_for(name: &str) -> crate::stages::auto_adjustments::AutoAdjustments {
     compute_auto_adjustments(&decode(name), &AdjustmentModel::default())
