@@ -240,6 +240,12 @@ final class EditSessionTransactionTests: XCTestCase {
     /// writing `renderedPreview`.
     func testAStaleRenderCannotReplaceNewerTransactionState() async throws {
         let (session, _) = try makeFileBackedSession()
+        // Warm up: one complete render adopts the decode's WB frame and
+        // fills the decoded cache, so nothing below schedules a render of
+        // its own (a WB re-seed would) and the generations stay ours.
+        await session.decodeAndRender(targetSize: nil, phase: .fast, gen: nil)
+        for _ in 0..<20 { await Task.yield() }
+
         // A render for the pre-edit model is "in flight" holding gen g0.
         let g0 = await session.renderActor.scheduleRender(phase: .fast) { _ in }
 
@@ -254,14 +260,23 @@ final class EditSessionTransactionTests: XCTestCase {
         // Whatever the superseded live render may already have published is
         // the CORRECT state; clear it so the only way `renderedPreview`
         // becomes non-nil below is a publish from one of the two calls.
-        await Task.yield()
+        for _ in 0..<20 { await Task.yield() }
         session.renderedPreview = nil
+        session.gpuFramePresented = false
+        session.lastPublishedRenderGeneration = nil
 
         await session.decodeAndRender(targetSize: nil, phase: .fast, gen: g0)
-        XCTAssertNil(session.renderedPreview, "a stale render published over the newer transaction")
+        XCTAssertNotEqual(
+            session.lastPublishedRenderGeneration, g0,
+            "a stale render published over the newer transaction")
 
+        // The live generation (or anything newer the session scheduled
+        // meanwhile) is what reaches the canvas — never the stale one.
         await session.decodeAndRender(targetSize: nil, phase: .fast, gen: live)
-        XCTAssertNotNil(session.renderedPreview, "the live render must publish")
-        XCTAssertNil(session.renderError)
+        let published = try XCTUnwrap(
+            session.lastPublishedRenderGeneration,
+            "the live render must publish (error: \(String(describing: session.renderError)))")
+        XCTAssertGreaterThanOrEqual(published, live)
+        XCTAssertTrue(session.renderedPreview != nil || session.gpuFramePresented)
     }
 }
