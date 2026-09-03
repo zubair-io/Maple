@@ -28,6 +28,9 @@ function render(
   updateAdjustment: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   haptic: ReturnType<typeof vi.fn>;
+  beginGesture: ReturnType<typeof vi.fn>;
+  endGesture: ReturnType<typeof vi.fn>;
+  focusedAssetId: ReturnType<typeof signal<string | null>>;
   // Convenience passthroughs so callers that only need the rendered DOM or
   // the component instance (the colour sub-tool row tests below) don't have
   // to destructure `.fixture` first.
@@ -49,11 +52,16 @@ function render(
   // throw on a mock that pre-dates this exercising it.
   const armedTool = vi.fn(() => 'brightness');
   const armTool = vi.fn();
+  const beginGesture = vi.fn();
+  const endGesture = vi.fn();
 
   TestBed.configureTestingModule({
     imports: [ControlCardComponent],
     providers: [
-      { provide: EditorStateService, useValue: { commit, haptic, armedTool, armTool } },
+      {
+        provide: EditorStateService,
+        useValue: { commit, haptic, armedTool, armTool, beginGesture, endGesture },
+      },
       {
         provide: LibraryStateService,
         useValue: { focusedAssetId, adjustmentFor, updateAdjustment },
@@ -73,6 +81,9 @@ function render(
     updateAdjustment,
     commit,
     haptic,
+    beginGesture,
+    endGesture,
+    focusedAssetId,
     nativeElement: fixture.nativeElement,
     componentInstance: fixture.componentInstance,
   };
@@ -120,6 +131,27 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     const debugEl = fixture.debugElement.query(By.directive(MuiLivingSliderComponent));
     return debugEl.componentInstance as MuiLivingSliderComponent;
   }
+
+  // #2450: a drag is a gesture the command router can see (navigation is
+  // refused while it is in flight), and its ticks are bound to the asset it
+  // started on — a filmstrip switch mid-drag must not write to the new image.
+  it('marks the gesture for the router and drops ticks once the focused asset changes', () => {
+    const { fixture, updateAdjustment, beginGesture, endGesture, focusedAssetId } = render();
+    const slider = firstSlider(fixture);
+    slider.dragStart.emit();
+    expect(beginGesture).toHaveBeenCalledTimes(1);
+    slider.value.set(0.5);
+    expect(updateAdjustment).toHaveBeenCalledTimes(1);
+    focusedAssetId.set('asset-2');
+    slider.value.set(0.7);
+    expect(updateAdjustment).toHaveBeenCalledTimes(1);
+    slider.dragEnd.emit();
+    expect(endGesture).toHaveBeenCalledTimes(1);
+    // Between drags a tick writes to whichever asset is focused.
+    slider.value.set(0.9);
+    expect(updateAdjustment).toHaveBeenCalledTimes(2);
+    expect(updateAdjustment).toHaveBeenLastCalledWith('asset-2', expect.anything());
+  });
 
   it('a drag gesture (dragStart then many valueChange ticks) commits exactly once, before the first update', () => {
     const { fixture, updateAdjustment, commit } = render({ activeGroup: 'light' });

@@ -35,7 +35,51 @@ export class ImageCanvasService {
 
   readonly showBeforeAfter = computed(() => this.beforeAfterSplitX() !== null);
 
+  // ── Momentary before/after (#2450) ─────────────────────────────────────
+  // A press-and-hold peek: the whole frame shows "before" while held, then
+  // the split returns to exactly what it was (latched or off). Zoom and pan
+  // are separate signals, so both modes preserve them by construction.
+  private readonly _peeking = signal<boolean>(false);
+  private peekRestore: number | null = null;
+
+  /** True while a momentary peek holds the whole frame at "before". */
+  readonly peekingBefore = computed(() => this._peeking());
+
+  /** The latched split toggle's own state — a peek does not count. */
+  readonly latchedBeforeAfter = computed(
+    () => !this._peeking() && this.beforeAfterSplitX() !== null,
+  );
+
+  beginPeekBefore(): void {
+    if (this._peeking()) return;
+    this.peekRestore = this.beforeAfterSplitX();
+    this._peeking.set(true);
+    this.beforeAfterSplitX.set(1);
+  }
+
+  endPeekBefore(): void {
+    if (!this._peeking()) return;
+    this._peeking.set(false);
+    this.beforeAfterSplitX.set(this.peekRestore);
+    this.peekRestore = null;
+  }
+
+  // ── Bounded step zoom by request (#2450) ───────────────────────────────
+  // The step needs the viewport/native geometry only `CanvasZoomGestures`
+  // holds, so keyboard ⌘= / ⌘- post a request here and the zoom host
+  // answers it — the same bounded, centre-anchored step the toolbar and the
+  // wheel use.
+  readonly stepZoomRequest = signal<{ readonly seq: number; readonly direction: 1 | -1 }>({
+    seq: 0,
+    direction: 1,
+  });
+
+  requestStepZoom(direction: 1 | -1): void {
+    this.stepZoomRequest.update((r) => ({ seq: r.seq + 1, direction }));
+  }
+
   toggleBeforeAfter(): void {
+    if (this._peeking()) return;
     if (this.beforeAfterSplitX() !== null) {
       this.beforeAfterSplitX.set(null);
     } else {

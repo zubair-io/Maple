@@ -278,12 +278,30 @@ export class ControlCardComponent {
   onSliderDragStart(tool: ToolId): void {
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;
+    this.dragAssetId = id;
     this.editorState.commit();
+    // Marks the gesture for the command router (#2450): navigation is
+    // refused while a drag is in flight, so the ticks below can never be
+    // applied to a different asset than the one the drag started on.
+    this.editorState.beginGesture();
+  }
+
+  /** Asset the current slider drag started on (`null` between drags). A
+   *  tick whose focused asset differs is dropped rather than written to
+   *  the wrong image (#2450 — the router already refuses keyboard
+   *  navigation mid-drag; this covers a filmstrip tap from a second
+   *  pointer). */
+  private dragAssetId: string | null = null;
+
+  onSliderDragEnd(): void {
+    this.dragAssetId = null;
+    this.editorState.endGesture();
   }
 
   onSliderChange(tool: ToolId, value: number): void {
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;
+    if (this.dragAssetId !== null && this.dragAssetId !== id) return;
     const field = fieldFor(tool);
     if (!field) return;
     // Arm the tool being dragged, mirroring Apple's `LivingSliderRow` (#1876)
