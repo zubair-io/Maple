@@ -189,6 +189,20 @@ describe('XMP enum mode fields (#2214)', () => {
       expect(model.wbAlgorithmVersion).toBe(1);
     });
 
+    it('never writes the sample point without a sampled source (#3309 review)', () => {
+      // A stale coordinate left in the model — a pasted look carries the
+      // source but not the point — must not leak into the sidecar and claim
+      // provenance the pair does not have. Matches raw-core and Swift.
+      const m = defaultAdjustmentModel();
+      m.wbSource = 'Preset';
+      m.wbSampleX = 0.4;
+      m.wbSampleY = 0.6;
+      const xml = serializer.serialize(m);
+      expect(xml).toContain('papp:WbSource="Preset"');
+      expect(xml).not.toContain('papp:WbSampleX');
+      expect(xml).not.toContain('papp:WbSampleY');
+    });
+
     it('omits every provenance key at the default', () => {
       const xml = serializer.serialize(defaultAdjustmentModel());
       for (const key of [
