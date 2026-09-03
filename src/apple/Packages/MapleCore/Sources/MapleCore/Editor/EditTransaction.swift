@@ -159,13 +159,23 @@ public struct EditTransaction: Equatable, Sendable {
 
 /// Deterministic sidecar diff between two models.
 public enum SidecarDiff {
-    /// Every canonical attribute the sidecar writer would emit for `model`,
-    /// plus the nested tone-curve block under the synthetic key
-    /// `toneCurves` (curves are children, not attributes). Culling is held
+    /// Every canonical attribute the sidecar writer would emit for `model`
+    /// that differs from what it emits for the default model, plus the
+    /// nested tone-curve block under the synthetic key `toneCurves` (curves
+    /// are children, not attributes). Subtracting the default-model emission
+    /// gives both platforms omit-on-default semantics: the Apple writer
+    /// emits the core `crs:` block unconditionally where the Web writer
+    /// omits it at default (docs/xmp-canonical-format.md § "Known
+    /// divergence"), and without this step the two diffs would disagree on
+    /// `before` for every first edit of a default field. Culling is held
     /// fixed so only model-derived keys can differ between two calls.
     public static func attributes(of model: AdjustmentModel) -> [String: String] {
+        let defaults = Dictionary(
+            XMPSerializer._buildAttrs(model: .default, culling: CullingState()),
+            uniquingKeysWith: { _, last in last })
         var out: [String: String] = [:]
-        for (key, value) in XMPSerializer._buildAttrs(model: model, culling: CullingState()) {
+        for (key, value) in XMPSerializer._buildAttrs(model: model, culling: CullingState())
+        where defaults[key] != value {
             out[key] = value
         }
         let curves = XMPSerializer._buildToneCurvesBlock(model: model, indent: "")

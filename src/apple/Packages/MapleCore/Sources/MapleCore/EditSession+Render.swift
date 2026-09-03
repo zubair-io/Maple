@@ -450,6 +450,7 @@ extension EditSession {
                 }
             }
             renderedPreview = displayImage
+            lastPublishedRenderGeneration = gen
             previewIsFullRender = true
             previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
             renderError = nil

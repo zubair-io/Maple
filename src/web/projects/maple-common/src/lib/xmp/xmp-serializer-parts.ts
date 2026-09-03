@@ -28,6 +28,16 @@ export function escapeXmpAttr(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
+/** Exact inverse of `escapeXmpAttr` (`&amp;` last, so a literal `&lt;` that
+ * was escaped as `&amp;lt;` comes back as `&lt;`, not `<`). */
+export function unescapeXmpAttr(value: string): string {
+  return value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&amp;', '&');
+}
+
 /**
  * Format a crop edge or angle value. 6 significant decimal places — matches
  * the reference renderer's output and keeps sidecars byte-interchangeable
