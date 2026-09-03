@@ -1,22 +1,19 @@
-//! #2321 continuity CASE for camera-space WB near the as-shot point.
-//!
-//! NOTE: both tests below are currently `#[ignore]`d — this file does NOT
-//! gate `cargo test`'s default surface yet. It documents and quantifies a
-//! real discontinuity, pending the design call #1746 leaves open (see each
-//! test's `#[ignore]` reason for the measured numbers). Un-ignore once that
-//! call lands and the underlying math is fixed.
+//! #2321 continuity gate for camera-space WB near the as-shot point.
 //!
 //! Sibling of [`super::tests`] (`wb_camera_tests.rs`) split out under the
 //! 600-LOC file-size budget — same pattern as `wb_camera_frame_tests.rs`.
 //!
-//! `apply`'s identity short-circuit forces a bit-exact no-op AT
-//! `(frame.scene_cct, 0)` (module doc), but `camera_wb_gain`'s general
-//! formula is only APPROXIMATELY identity there once `as_shot_neutral`
-//! sits off the pure blackbody locus — which a real scene's as-shot
-//! chromaticity generally does (that's the entire reason `tint` exists as
-//! a second, perpendicular axis). So a `(temperature, tint)` one kelvin
-//! either side of the short-circuit's 0.5K/0.5-tint tolerance should move
-//! pixels by O(delta), not jump by the whole off-locus gap. See #2321.
+//! `apply`'s identity short-circuit forces a bit-exact no-op AT the
+//! frame's as-shot reference point, and `camera_wb_gain`'s general formula
+//! is only APPROXIMATELY identity there. Before #2321 that reference point
+//! was `(frame.scene_cct, 0)` — on the blackbody locus — while a real
+//! scene's as-shot chromaticity generally sits off it (that's the entire
+//! reason `tint` exists as a second, perpendicular axis), so a
+//! `(temperature, tint)` one kelvin either side of the short-circuit's
+//! 0.5K/0.5-tint tolerance jumped by the whole off-locus gap (measured on
+//! the fixture below: 11.5 % of a channel for a 1 K nudge). The reference
+//! point now carries the frame's own as-shot tint (`SliderFrame::scene_tint`),
+//! so the same nudge moves pixels by O(delta). These two rows gate that.
 
 use super::*;
 use crate::image::{ColorSpace, Image};
@@ -30,12 +27,20 @@ const CANON_5D3_D65_CM: [[f32; 3]; 3] = [
     [-0.0908, 0.2162, 0.5668],
 ];
 
-fn frame(scene_cct: f32) -> SliderFrame {
-    SliderFrame {
+/// A single-CM frame anchored on `as_shot_neutral` the way
+/// `SliderFrame::resolve` anchors a real one: `scene_tint` is the Robertson
+/// tint of the frame's own scene-illuminant xy for that neutral.
+fn frame(scene_cct: f32, as_shot_neutral: [f32; 3]) -> SliderFrame {
+    let cct_only = SliderFrame {
         endpoints: None,
         cm_as_shot: Matrix3(CANON_5D3_D65_CM),
         scene_cct,
+        scene_tint: 0.0,
         render_cm: Matrix3(CANON_5D3_D65_CM),
+    };
+    SliderFrame {
+        scene_tint: super::frame::robertson_as_shot_tint(&cct_only, as_shot_neutral),
+        ..cct_only
     }
 }
 
@@ -47,22 +52,27 @@ fn off_locus_as_shot(cct: f32) -> [f32; 3] {
     camera_neutral_for(Matrix3(CANON_5D3_D65_CM), cct, 40.0)
 }
 
-/// Temperature-only row. Currently RED — measured on this exact fixture: a
-/// 1K nudge off as-shot moves a channel by a 0.1151 fraction (11.5%), not
-/// the O(1K) response this case expects. See #2321.
+/// Temperature-only row. Before #2321 this was RED on this exact fixture:
+/// a 1K nudge off as-shot moved a channel by a 0.1151 fraction (11.5%),
+/// not the O(1K) response this case expects.
 #[test]
-#[ignore = "#2321: camera-space WB is discontinuous at the as-shot point \
-            (measured: a 1K nudge moves a channel by 11.5%, not O(delta)); \
-            ignored pending the design question #1746 leaves open"]
 fn temperature_only_custom_wb_near_as_shot_moves_by_o_delta_not_a_cliff() {
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = off_locus_as_shot(scene_cct);
-    let frame = frame(scene_cct);
+    let frame = frame(scene_cct, as_shot_neutral);
+    assert!(
+        frame.scene_tint.abs() > 30.0,
+        "fixture precondition: the as-shot point must sit measurably off the \
+         locus (manufactured 40 tint units; frame reads {})",
+        frame.scene_tint
+    );
     let baseline = [0.4_f32, 0.2, 0.3];
 
+    let as_shot_model = AdjustmentModel::default();
+    let (t0, tint0) = resolve_target(&as_shot_model, &frame);
     let mut as_shot = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
     as_shot.pixels[0] = baseline;
-    apply(&mut as_shot, &frame, as_shot_neutral, scene_cct, 0.0);
+    apply(&mut as_shot, &frame, as_shot_neutral, t0, tint0);
     assert_eq!(
         as_shot.pixels[0], baseline,
         "as-shot must remain the exact reference no-op"
@@ -94,20 +104,16 @@ fn temperature_only_custom_wb_near_as_shot_moves_by_o_delta_not_a_cliff() {
 }
 
 /// Tint-only mirror row: a tint-only Custom WB must not move the effective
-/// temperature off the image's own as-shot CCT. `resolve_target`'s As-Shot
-/// branch only fires when NEITHER `_seen` flag is set, so
-/// `tint_seen=true, temperature_seen=false` instead passes
+/// temperature off the image's own as-shot CCT. Before #2321
+/// `resolve_target`'s As-Shot branch only fired when NEITHER `_seen` flag
+/// was set, so `tint_seen=true, temperature_seen=false` passed
 /// `model.temperature` — still the literal 6500.0 default — straight
-/// through. Currently RED — measured on this exact fixture: resolves to
-/// 6500K instead of the image's own 3200K as-shot CCT, a 3300K jump. See
-/// #2321.
+/// through: measured on this exact fixture, a 3300K jump off the image's
+/// own 3200K as-shot CCT.
 #[test]
-#[ignore = "#2321: a tint-only Custom WB yanks temperature to the model \
-            default (measured: resolves to 6500K instead of the image's \
-            own 3200K as-shot CCT)"]
 fn tint_only_custom_wb_does_not_move_temperature_off_as_shot_cct() {
     let scene_cct = 3200.0_f32; // far from AdjustmentModel::default()'s 6500K
-    let frame = frame(scene_cct);
+    let frame = frame(scene_cct, off_locus_as_shot(scene_cct));
     let model = AdjustmentModel {
         tint: 10.0,
         tint_seen: true,
