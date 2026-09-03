@@ -281,10 +281,21 @@ extension EditSession {
       model: m,
       asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
       asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
-      wbFrame: liveWbFrame
+      wbFrame: liveWbFrame,
+      scopeEnabled: scopeEnabled,
+      scopeLayer: -1
     ) { [weak self] error in
       presentErr = error
       self?.renderError = error
+    }
+    // Only overwrite on an actual new sample — mirrors the driver's own
+    // "one-off readback miss leaves the previous sample in place"
+    // contract one layer up. Gated on `scopeEnabled` too, so turning the
+    // HUD off stops the needless re-publish of a now-stale sample every
+    // tick (the driver's own `lastScopeSample` isn't cleared on
+    // disable, it just stops updating).
+    if scopeEnabled, let scope = driver.lastScopeSample {
+      scopeSample = scope
     }
     if let presentErr {
       // NO silent failure (#1769): a thrown present means nothing (or a

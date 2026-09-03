@@ -92,6 +92,11 @@ struct EditorView: View {
   }
   // ── END TEMPORARY ─────────────────────────────────────────────────────────
 
+  /// Whether the vectorscope HUD is showing (#3277). Persisted so the
+  /// choice survives app restarts; the HUD itself arms
+  /// `session.scopeEnabled` on appear.
+  @AppStorage("editor.showsScope") private var showsScope = false
+
   private var isRegular: Bool { hSizeClass == .regular }
 
   /// The restored S5 control stack is deliberately phone-idiom-only.
@@ -240,7 +245,8 @@ struct EditorView: View {
             state: state,
             onBack: onDismiss,
             onShare: onShare,
-            onInfo: onInfo
+            onInfo: onInfo,
+            showsScope: $showsScope
           )
           Spacer(minLength: 0)
         }
@@ -311,10 +317,17 @@ struct EditorView: View {
 
     }
     .overlay(alignment: .topTrailing) {
-      // GPU frame-time HUD — validation-only (gpu build +
-      // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
-      // from the legacy FullImageView when it was retired (#1807).
-      EditorFrameTimeHUD(session: state.session)
+      VStack(alignment: .trailing, spacing: 8) {
+        // GPU frame-time HUD — validation-only (gpu build +
+        // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
+        // from the legacy FullImageView when it was retired (#1807).
+        EditorFrameTimeHUD(session: state.session)
+        // Skin-tone vectorscope HUD (#3277) — toggled by the pill's
+        // "Scope" button, persisted via `showsScope`.
+        if showsScope {
+          VectorscopeHud(state: state)
+        }
+      }
     }
     // Full-bleed editor (#4 follow-up): on regular size class (Mac/iPad)
     // pull the content into the top safe-area inset left over from the
