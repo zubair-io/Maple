@@ -11,45 +11,9 @@
 // All routing / address-resolution logic is preserved verbatim from the
 // previous 3-column shell — only the layout / chrome layer changed.
 //
-// Curve panel: glass card that opens/closes via the Curve dock entry (#1540).
-// Tablet/desktop anchors to the dock column; phone floats above the bottom
-// dock in the same anchor slot the always-visible slider card uses, so
-// `onPhoneDockGroupChange` closes it (and Presets) when a group icon is
-// tapped.
-// Crop panel: glass card that opens while the Crop dock entry is armed
-// (#1813) — hosts the shared `CropToolbarComponent`/`CropSessionService` also
-// used by the S5 editor (`EditorComponent`, #638), so a crop commits through
-// the identical AdjustmentModel.crop path on both editors. The interactive
-// crop rectangle is the shared `CropOverlayComponent`, already mounted
-// inside `ImageCanvasComponent` (which both editors embed) and gated on
-// `CropSessionService.active` — no per-editor overlay wiring needed. Wired on
-// phone too, straight through `onToolChange` (#1807 Task 5 retired the
-// phone-specific `onPhoneToolChange` wrapper — closing the now-removed
-// flyout was its only phone-specific behaviour).
-// Presets panel: glass card that opens/closes via the Presets dock entry
-// (#1815) — hosts the shared `PresetsPanelComponent`, also used by the S5
-// editor (#1115), so apply/save/delete route through the identical
-// `PresetsService` / `EditorStateService.applyPreset` path on both editors.
-// HSL / B&W bodies (epic #1807 slice 4, #276): neither has a dock entry —
-// both are reached from the Colour sub-tool row and render INSIDE the
-// control card via content projection (`cardBodySubParam`), not in a
-// dock-side panel of their own — hosting the shared `SubParamRowComponent` +
-// `DragBarComponent` + `ValueChipComponent` multi-param surface the S5
-// editor's HSL pill uses (#1112); B&W adds an explicit toggle for
-// `model.blackWhite` (`onBlackWhiteToggle`, routed through
-// `EditorStateService.setBlackWhite` for undo). HSL's sub-tool chip is
-// hidden while Black & White is On (#276) — see `blackWhiteOn`/`bwMixArmed`
-// below and `ControlCardComponent.subtools()`.
-// Scopes panel (#2449): glass card hosting `editor-scopes-panel` (the Maple
-// UI four-up scopes organism over the worker's per-frame readback), opened
-// from the top bar's histogram/scopes button on every breakpoint.
-// Curve, Crop, Presets, Scopes and Noise share one dock-side panel anchor and
-// are mutually exclusive there (editor-shell-panels.ts); on phone the
-// always-visible slider card floats in that
-// same anchor slot too. HSL/bwMix/Color Grading project into the control
-// card instead, so it's the card — not a dock-side panel — that must not
-// collide with Curve/Presets/Noise/Crop/Info: the card hides while any of
-// them is open (`.control-card-anchor`'s `@if` guard, Critical 1 review).
+// Panels (Curve / Crop / Presets / Scopes / Noise) and their mutual
+// exclusion: editor-shell-panels.ts. HSL / B&W / Grade / Film / Lens render
+// inside the control card via content projection (#1807 Task 4, #276).
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -109,10 +73,13 @@ import {
   type CommandRouterState,
   bind,
   cancelCompare,
+  comparePointerDown,
+  comparePointerUp,
   executeIntent,
   newCommandRouterState,
+  selectMenuCommand,
 } from './editor-command-router';
-import { EDITOR_COMMANDS, ariaKeyshortcuts, describeChord } from './editor-commands';
+import { ariaKeyshortcuts, commandMenuItems } from './editor-commands';
 import {
   type WheelNudgeState,
   cleanupWheel,
@@ -334,34 +301,21 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Export options dialog (#943) — modal, so it has no anchor to share. */
   readonly exportOpen = signal<boolean>(false);
 
-  // ── Command router (#2450) ─────────────────────────────────────────────
-  // Keys, the command menu, the wheel and the before/after button all
-  // resolve to intents executed in editor-command-router.ts.
+  // ── Command router (#2450) — editor-command-router.ts ─────────────────
+  // Keys, the ⌘K command menu, the wheel and the before/after button all
+  // resolve to intents executed there.
   readonly commandRouter: CommandRouterState = newCommandRouterState();
   private readonly _wheel: WheelNudgeState = newWheelNudgeState();
-  /** ⌘K / ? command menu — every keyboard command, discoverable + clickable. */
   readonly commandMenuOpen = signal<boolean>(false);
-  readonly commandMenuItems: readonly MuiCommandItem[] = EDITOR_COMMANDS.filter((c) => c.menu).map(
-    (c) => ({ id: c.id, label: c.label, shortcut: c.chords.map(describeChord).join(' · ') }),
-  );
-  /** Asset the open command menu was opened on — a pick after a filmstrip
-   *  switch is a stale command and the router refuses it. */
-  private commandMenuAssetId: string | null = null;
+  readonly commandMenuItems: readonly MuiCommandItem[] = commandMenuItems();
   protected keyshortcuts = (id: string) => ariaKeyshortcuts(id);
 
-  onCommandMenuOpen(): void {
-    this.commandMenuAssetId = this.state.focusedAssetId();
-    this.commandMenuOpen.set(true);
+  onCommandMenuToggle(): void {
+    executeIntent(this, this.commandRouter, bind(this, { kind: 'commands.menu' }));
   }
 
   onCommandMenuSelect(id: string): void {
-    const command = EDITOR_COMMANDS.find((c) => c.id === id);
-    this.commandMenuOpen.set(false);
-    if (!command) return;
-    executeIntent(this, this.commandRouter, {
-      intent: command.intent,
-      assetId: this.commandMenuAssetId,
-    });
+    selectMenuCommand(this, this.commandRouter, id);
   }
 
   /** Plain wheel at fit zoom nudges the armed tool (editor-shell-wheel.ts). */
@@ -369,15 +323,12 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     onCanvasWheel(this, this._wheel, e);
   }
 
-  /** Before/after control: press starts a peek, a short release toggles
-   *  the latched split — the same press/release pair the keyboard uses. */
   onComparePointerDown(e: PointerEvent): void {
-    (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
-    executeIntent(this, this.commandRouter, bind(this, { kind: 'compare.press' }));
+    comparePointerDown(this, this.commandRouter, e);
   }
 
   onComparePointerUp(): void {
-    executeIntent(this, this.commandRouter, bind(this, { kind: 'compare.release' }));
+    comparePointerUp(this, this.commandRouter);
   }
 
   onComparePointerCancel(): void {
