@@ -14,10 +14,12 @@ What follows is the drift that is still real.
 
 ## Residual: test_0018 tint (open — attributed, awaiting a reference re-render)
 
-The #814 capture left 14 cases breaching, and they were deliberately **not**
-re-baselined. #2333 attributed both clusters (every number from a private
-release `maple-cli` built at the named commit, run through the harness against
-the references on disk):
+The #814 capture left 14 cases breaching, deliberately **not** re-baselined.
+#2333 attributed both clusters (every number from a private release
+`maple-cli` built at the named commit, run through the harness against the
+references on disk): the twelve `test_0013` cells are green since #3265, so
+only the two `test_0018` tint cells remain red today — those are the
+residual this section now tracks.
 
 **`test_0013` — closed by #3265 (#2774).** The 12-case cluster (`baseline`,
 `baseline_auto`, ten full-res `sharpen_*`/`nr_*`) and its uniform +0.07 / +0.06
