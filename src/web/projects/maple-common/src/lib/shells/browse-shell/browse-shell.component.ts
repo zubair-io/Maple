@@ -249,8 +249,12 @@ export class BrowseShellComponent {
 
   private async _runBatch(ids: readonly AssetId[], patch: Partial<AdjustmentModel>): Promise<void> {
     if (Object.keys(patch).length === 0 || ids.length === 0) return;
-    this._lastBatchPatch = patch;
-    await this.batch.apply(ids, patch);
+    const summary = await this.batch.apply(ids, patch);
+    // Only a run that actually happened owns the retry patch. A refused
+    // request (one already in flight) returns null, and overwriting here
+    // would point "Retry failed" at a patch the reported run never used
+    // (Copilot review on #3312).
+    if (summary) this._lastBatchPatch = patch;
   }
 
   /** Re-run just the assets the last batch could not write. */
