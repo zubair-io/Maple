@@ -136,6 +136,10 @@ const WHITE_BALANCE_FIELDS: &[&str] = &[
     "tint_seen",
     "wb_method",
     "wb_scale_version",
+    // Provenance (#2434): a pasted Preset / Manual / Auto pair should say
+    // what it is on the target too. The sample coordinates and algorithm
+    // version stay out (see `NON_COPYABLE_FIELDS`).
+    "wb_source",
 ];
 
 /// Scene tone controls (spec § 3.6), the PV2012 parametric curve, and the
@@ -300,6 +304,14 @@ pub const NON_COPYABLE_FIELDS: &[&str] = &[
     // code reads it after parse and no writer emits it, so copying it would
     // move a value that can never render.
     "capture_sharpening_radius",
+    // White-balance provenance detail (#2434). The sample point is a
+    // coordinate in THIS image's raster and the algorithm version describes
+    // THIS derivation — neither means anything on another image, and a
+    // preset must not carry them either (`capturePresetFields` on both
+    // front ends excludes this list).
+    "wb_sample_x",
+    "wb_sample_y",
+    "wb_algorithm_version",
 ];
 
 #[cfg(test)]

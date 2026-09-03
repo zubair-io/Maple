@@ -9,7 +9,7 @@
 use super::{
     AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode,
     LensProfileEnable, Look,
-    Profile, ToneCurveMode, WbMethod,
+    Profile, ToneCurveMode, WbMethod, WbSource,
 };
 use crate::error::{Error, Result};
 
@@ -291,6 +291,22 @@ pub(super) fn set_field(
         // changes sign vs the legacy diagonal-gain path, but #431 is
         // the documented switchover; users who need the old behaviour
         // opt in via `papp:WbMethod="DiagonalRec2020"`.
+        // White-balance provenance (#2434). `papp:WbSource` is strict like
+        // the other papp: enums; the sample point and algorithm version are
+        // plain numerics.
+        "papp:WbSource" => {
+            m.wb_source = match value {
+                "AsShot" | "asshot" => WbSource::AsShot,
+                "Auto" | "auto" => WbSource::Auto,
+                "Preset" | "preset" => WbSource::Preset,
+                "Sampled" | "sampled" => WbSource::Sampled,
+                "Manual" | "manual" => WbSource::Manual,
+                other => return Err(Error::Xmp(format!("unknown WbSource: {}", other))),
+            };
+        }
+        "papp:WbSampleX" => m.wb_sample_x = v()?,
+        "papp:WbSampleY" => m.wb_sample_y = v()?,
+        "papp:WbAlgorithmVersion" => m.wb_algorithm_version = v()?,
         "papp:WbMethod" => {
             m.wb_method = match value {
                 "cat16" | "Cat16" | "CAT16" => WbMethod::Cat16,

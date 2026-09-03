@@ -33,6 +33,8 @@ mod hsl;
 mod color_grade;
 // The four display-referred point-curve entries (#2232); same split reason.
 mod display_curves;
+// White balance: the slider pair, method, and the #2434 provenance fields.
+mod white_balance;
 
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
 // same 600-LOC budget reason as `types`.
@@ -49,30 +51,13 @@ pub use groups::{AdjustmentGroup, NON_COPYABLE_FIELDS};
 /// (`local_adjustments`, `inpaint_removals`, `crop`) stay out of the table
 /// and ride the drift test's allow-list instead.
 pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
-    FieldSpec {
-        name: "temperature",
-        kind: FieldKind::F32,
-        range: (2000.0, 12000.0),
-        default_f32: 6500.0,
-        enum_name: "",
-        doc: "White balance correlated color temperature in Kelvin.",
-    },
-    FieldSpec {
-        name: "tint",
-        kind: FieldKind::F32,
-        range: (-150.0, 150.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870).",
-    },
-    FieldSpec {
-        name: "wb_method",
-        kind: FieldKind::Enum,
-        range: (0.0, 0.0),
-        default_f32: 0.0,
-        enum_name: "WbMethod",
-        doc: "User white-balance method (ticket #431). 'Cat16' performs proper chromatic adaptation in CAT16 cone space (default); 'DiagonalRec2020' is the legacy per-channel diagonal-gain path retained for parity A/B.",
-    },
+    white_balance::TEMPERATURE,
+    white_balance::TINT,
+    white_balance::WB_METHOD,
+    white_balance::WB_SOURCE,
+    white_balance::WB_SAMPLE_X,
+    white_balance::WB_SAMPLE_Y,
+    white_balance::WB_ALGORITHM_VERSION,
     FieldSpec {
         name: "exposure",
         kind: FieldKind::F32,
@@ -566,5 +551,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_defaults;
 #[cfg(test)]
 mod tests_presence;

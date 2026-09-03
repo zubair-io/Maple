@@ -15,7 +15,7 @@ pub mod local_adjustment;
 pub use adjustment::{
     AdjustmentGroup, AdjustmentModel, BlackWhiteMode, Crop, FieldKind, FieldSpec,
     HighlightRecoveryMode, Profile, ToneCurve, ToneCurveMode, ToneCurvePoint, WbMethod,
-    WbScaleVersion, WhiteBalancePreset, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
+    WbScaleVersion, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
 };
 pub use inpaint::{BakeGrade, InpaintPatch, Removal};
 pub use local_adjustment::{

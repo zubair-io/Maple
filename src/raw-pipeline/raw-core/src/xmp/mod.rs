@@ -21,7 +21,7 @@ use tone_curves::CurveWalker;
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
     AdjustmentModel, AutoExposureMode, Crop, HighlightRecoveryMode, HotPixelSuppressionMode,
-    LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbScaleVersion,
+    LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbScaleVersion, WbSource,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -286,6 +286,29 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // fragment; an id the catalog doesn't recognise still round-trips
     // (see `fields.rs::set_field` — it resolves as identity at render
     // time rather than failing the parse).
+    // White-balance provenance (#2434): omit-on-default like the rest of
+    // the papp: block. The sample point only travels with a Sampled source
+    // and the algorithm version only when something was derived.
+    if model.wb_source != WbSource::default() {
+        let v = match model.wb_source {
+            WbSource::AsShot => "AsShot",
+            WbSource::Auto => "Auto",
+            WbSource::Preset => "Preset",
+            WbSource::Sampled => "Sampled",
+            WbSource::Manual => "Manual",
+        };
+        out.push_str(&format!(r#" papp:WbSource="{v}""#));
+    }
+    if model.wb_source == WbSource::Sampled {
+        out.push_str(&format!(r#" papp:WbSampleX="{}""#, model.wb_sample_x));
+        out.push_str(&format!(r#" papp:WbSampleY="{}""#, model.wb_sample_y));
+    }
+    if model.wb_algorithm_version != 0.0 {
+        out.push_str(&format!(
+            r#" papp:WbAlgorithmVersion="{}""#,
+            model.wb_algorithm_version
+        ));
+    }
     if !model.film_look.is_empty() {
         out.push_str(&format!(
             r#" papp:FilmLook="{}""#,

@@ -13,6 +13,9 @@
 export const ADJUSTMENT_RANGES = {
   temperature: [2000.0, 12000.0] as const,
   tint: [-150.0, 150.0] as const,
+  wbSampleX: [0.0, 1.0] as const,
+  wbSampleY: [0.0, 1.0] as const,
+  wbAlgorithmVersion: [0.0, 1000000.0] as const,
   exposure: [-4.0, 4.0] as const,
   brightness: [-100.0, 100.0] as const,
   contrast: [-100.0, 100.0] as const,
@@ -136,6 +139,7 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
       'tint_seen',
       'wb_method',
       'wb_scale_version',
+      'wb_source',
     ],
   },
   {
@@ -278,4 +282,7 @@ export const ADJUSTMENT_NON_COPYABLE_FIELDS: readonly string[] = [
   'local_adjustments',
   'inpaint_removals',
   'capture_sharpening_radius',
+  'wb_sample_x',
+  'wb_sample_y',
+  'wb_algorithm_version',
 ];
