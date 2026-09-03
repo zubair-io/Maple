@@ -314,10 +314,15 @@ fn rawler_rejected_dng_is_a_typed_error_not_a_panic() {
 
     let err = decode_for_pano(&bytes, "dng").expect_err("inconsistent BlackLevel must fail");
     match &err {
-        Error::Decode { reason, .. } | Error::DecodePanicked { reason, .. } => assert!(
+        // rawler's own `catch_unwind` gets there first today and reports the
+        // caught panic in its message; if that boundary ever moves, our own
+        // one turns the same unwind into `DecodePanicked`, whose variant —
+        // not its reason text — is the evidence.
+        Error::Decode { reason, .. } => assert!(
             reason.contains("panic"),
             "expected the caught rawler panic in the reason, got: {reason}"
         ),
+        Error::DecodePanicked { .. } => {}
         other => panic!("expected a decode error, got {other:?}"),
     }
 
