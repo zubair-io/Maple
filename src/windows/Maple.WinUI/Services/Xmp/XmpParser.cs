@@ -306,7 +306,7 @@ namespace Maple.WinUI.Services.Xmp
                     // isn't passthrough (#2671) — the writer needs to know
                     // where this tag sat relative to the passthrough nodes
                     // below to reproduce a byte-stable read-modify-write.
-                    doc.ChildOrder.Add(ChildSlot.ForToneCurve(tag!));
+                    doc.ChildOrder.Add(ChildSlot.ForModeled(tag!));
                     continue;
                 }
                 // Local adjustments (#358): both containers are modeled, so

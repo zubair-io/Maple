@@ -403,7 +403,7 @@ namespace Maple.WinUI.Tests
         {
             var doc = XmpParser.Parse(DocWithUnknownAttributeAndNode);
             Assert.NotNull(doc);
-            doc!.ChildOrder.Add(ChildSlot.ForToneCurve("papp:NotARealToneCurve"));
+            doc!.ChildOrder.Add(ChildSlot.ForModeled("papp:NotARealToneCurve"));
 
             var resaved = XmpWriter.Serialize(doc);
 
@@ -474,7 +474,7 @@ namespace Maple.WinUI.Tests
             // The parsed document already has one ChildOrder slot for
             // papp:SceneLinearToneCurve — append a second slot for the
             // same tag, simulating stale data.
-            doc!.ChildOrder.Add(ChildSlot.ForToneCurve("papp:SceneLinearToneCurve"));
+            doc!.ChildOrder.Add(ChildSlot.ForModeled("papp:SceneLinearToneCurve"));
 
             var resaved = XmpWriter.Serialize(doc);
 
