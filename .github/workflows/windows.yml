@@ -31,9 +31,13 @@ jobs:
             src/windows -> target
 
       - name: Build raw-core & raw-ffi on Windows
+        # raw-ffi is a real release build, not a check: the cdylib it
+        # produces (src/raw-pipeline/target/release/raw_ffi.dll — the path
+        # Maple.WinUI.csproj bundles from) is what the WinUI test suite's
+        # struct-layout gate (#3221, RawFfiLayoutTests) loads below.
         run: |
           cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-core
-          cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-ffi --features gpu
+          cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --features gpu
 
       - name: Run raw-core Unit Tests on Windows
         run: |
@@ -52,7 +56,13 @@ jobs:
         run: |
           dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
 
-      - name: Run WinUI XMP Sidecar Tests
+      - name: Run WinUI XMP Sidecar Tests + raw-ffi struct-layout gate
+        # MAPLE_RAW_FFI_DLL arms RawFfiLayoutTests (#3221): every C# mirror
+        # of a raw-ffi #[repr(C)] struct is checked field-for-field against
+        # the DLL built above. Unset, those tests skip-pass (local dev
+        # without a Rust build); set and missing, they FAIL.
+        env:
+          MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\release\raw_ffi.dll
         run: |
           dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 
