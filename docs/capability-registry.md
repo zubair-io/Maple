@@ -21,7 +21,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Asset classes: `raw`, `non_raw`
 - Preview paths: `cpu_reference`, `gpu_live`, `wasm_cpu`, `wasm_gpu`
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
-- Fields: `temperature`, `tint`, `temperature_seen`, `tint_seen`, `wb_method`, `wb_scale_version`
+- Fields: `temperature`, `tint`, `temperature_seen`, `tint_seen`, `wb_method`, `wb_scale_version`, `wb_source`, `wb_sample_x`, `wb_sample_y`, `wb_algorithm_version`
 - Integration evidence:
   - `sidecar_contract_apple` — satisfied
   - `sidecar_contract_api` — satisfied

@@ -62,7 +62,9 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         preview_paths: ALL_PREVIEWS,
         export_paths: ALL_EXPORTS,
         groups: &[AdjustmentGroup::WhiteBalance],
-        fields: &[],
+        // Provenance for a sampled pair (#2434) — non-copyable, so in no
+        // group, but owned by white balance all the same.
+        fields: &["wb_sample_x", "wb_sample_y", "wb_algorithm_version"],
         integration: DEVELOP_INTEGRATION,
         qualification: COLOR_QUALIFICATION,
     },

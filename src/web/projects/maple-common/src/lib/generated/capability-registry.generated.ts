@@ -86,6 +86,10 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
       'tint_seen',
       'wb_method',
       'wb_scale_version',
+      'wb_source',
+      'wb_sample_x',
+      'wb_sample_y',
+      'wb_algorithm_version',
     ],
     integration: ['sidecar_contract_apple', 'sidecar_contract_api', 'gpu_chain_parity_lavapipe'],
     qualification: [
