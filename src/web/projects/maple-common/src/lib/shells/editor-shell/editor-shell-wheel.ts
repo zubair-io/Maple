@@ -34,6 +34,8 @@ export interface WheelNudgeState {
   lastSubParam: string | null;
   /** Asset the burst is nudging — a focus switch always starts a new burst. */
   lastAssetId: string | null;
+  /** An undo entry is already open for the burst in progress. */
+  burstOpen: boolean;
   flushTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -44,6 +46,7 @@ export function newWheelNudgeState(): WheelNudgeState {
     lastTool: null,
     lastSubParam: null,
     lastAssetId: null,
+    burstOpen: false,
     flushTimer: null,
   };
 }
@@ -74,9 +77,11 @@ export function onCanvasWheel(
   const editorState = shell.editorState;
   if (!editorState.armedToolAcceptsValueEdits()) return;
   e.preventDefault();
-  const steps = detentsFor(state, e);
-  if (steps === 0) return;
 
+  // Burst identity is decided BEFORE the event is accumulated: a pixel-mode
+  // remainder belongs to the burst that produced it, so a tool/sub-param/
+  // asset change or a pause past BURST_MS starts from a clean accumulator
+  // rather than letting the leftover fire the new burst's first detent early.
   const tool = editorState.armedTool();
   const subParam = editorState.armedSubParamId();
   const assetId = editorState.imageId();
@@ -85,11 +90,24 @@ export function onCanvasWheel(
     subParam !== state.lastSubParam ||
     assetId !== state.lastAssetId ||
     now - state.lastAt > BURST_MS;
-  if (newBurst) editorState.commit();
+  if (newBurst) {
+    state.accumulatedPx = 0;
+    state.burstOpen = false;
+  }
+  // Every accepted event extends the burst, detent or not — otherwise a slow
+  // trackpad scroll whose first events are all sub-detent would keep looking
+  // like a fresh burst and reset its own accumulation.
   state.lastAt = now;
   state.lastTool = tool;
   state.lastSubParam = subParam;
   state.lastAssetId = assetId;
+
+  const steps = detentsFor(state, e);
+  if (steps === 0) return;
+  if (!state.burstOpen) {
+    editorState.commit();
+    state.burstOpen = true;
+  }
 
   const commitsOnRelease = editorState.armedCommitsOnRelease();
   if (commitsOnRelease) editorState.beginGesture();

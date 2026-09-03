@@ -78,10 +78,13 @@ export class MuiPopoverComponent implements OnDestroy {
         // some dispatch orders), so an immediate `addEventListener` here
         // can catch its own opening click and close the panel instantly.
         this.openTimer = setTimeout(() => this.attachListeners(), 0);
-        // Focus containment basics: once the panel exists, move focus onto
-        // it so keyboard/AT users land inside rather than wherever the
-        // trigger click left focus.
-        queueMicrotask(() => this.panel()?.nativeElement.focus());
+        // Focus containment basics: once the panel exists, move focus
+        // inside it so keyboard/AT users land in the panel rather than
+        // wherever the trigger click left focus. Content that names its own
+        // entry point with `autofocus` (the Command Menu's search field)
+        // takes focus instead of the bare panel — otherwise the panel eats
+        // it and typing filters nothing.
+        queueMicrotask(() => this.focusInside());
       } else {
         if (this.openTimer !== null) {
           clearTimeout(this.openTimer);
@@ -95,6 +98,12 @@ export class MuiPopoverComponent implements OnDestroy {
   ngOnDestroy(): void {
     if (this.openTimer !== null) clearTimeout(this.openTimer);
     this.detachListeners();
+  }
+
+  private focusInside(): void {
+    const panelEl = this.panel()?.nativeElement;
+    if (!panelEl) return;
+    (panelEl.querySelector<HTMLElement>('[autofocus]') ?? panelEl).focus();
   }
 
   private attachListeners(): void {

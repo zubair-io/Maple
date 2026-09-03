@@ -109,6 +109,17 @@ describe('focusContextOf', () => {
     expect(focusContextOf(search, true)).toBe('menu');
     expect(focusContextOf(search, false)).toBe('text');
   });
+
+  it('fires before/after from \\ or B, with or without Shift on the letter', () => {
+    const shell = makeShell();
+    const press = (init: KeyboardEventInit) =>
+      resolveKeydown(asShell(shell), new KeyboardEvent('keydown', init))?.intent.kind ?? null;
+    expect(press({ key: '\\' })).toBe('compare.press');
+    expect(press({ key: 'b' })).toBe('compare.press');
+    expect(press({ key: 'B', shiftKey: true })).toBe('compare.press');
+    // Shift+\ is `|` — a different key, and no command's.
+    expect(press({ key: '|', shiftKey: true })).toBeNull();
+  });
 });
 
 describe('executeIntent', () => {
@@ -272,7 +283,9 @@ describe('command table', () => {
     expect(describeChord({ key: 'ArrowRight', shift: true })).toBe('⇧→');
     expect(ariaKeyshortcuts('history.undo')).toBe('Meta+Z Control+Z');
     expect(ariaKeyshortcuts('chrome.inspector')).toBe('Meta+Alt+D Control+Alt+D');
-    expect(ariaKeyshortcuts('compare.press')).toBe('\\');
+    // Every key a command accepts is announced, not only the first one.
+    expect(ariaKeyshortcuts('compare.press')).toBe('\\ B');
+    expect(ariaKeyshortcuts('zoom.in')).toBe('Meta+= Control+= Meta++ Control++');
     expect(ariaKeyshortcuts('nope')).toBeNull();
   });
 });
