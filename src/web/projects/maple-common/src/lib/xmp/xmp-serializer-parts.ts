@@ -143,10 +143,10 @@ export function cullingParts(culling?: {
     parts.push(`xmp:Rating="${culling.rating}"`);
   }
   if (culling?.flag && culling.flag !== 'unflagged') {
-    parts.push(`papp:Flag="${culling.flag}"`);
+    parts.push(`papp:Flag="${escapeXmpAttr(culling.flag)}"`);
   }
   if (culling?.colorLabel) {
-    parts.push(`papp:ColorLabel="${culling.colorLabel}"`);
+    parts.push(`papp:ColorLabel="${escapeXmpAttr(culling.colorLabel)}"`);
   }
   return parts;
 }
