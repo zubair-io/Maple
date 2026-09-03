@@ -60,11 +60,13 @@ extension XMPSerializer {
 
         // Nested content, in the canonical child order the TS serializer also
         // uses: dc:title / dc:creator / dc:description, then the keyword bag,
-        // then dc:rights / xmpRights:UsageTerms, then the point tone curves.
-        // A metadata-carrying save must not drop an authored curve — that is
-        // exactly the silent-data-loss shape #2191 fixed for the parametric
-        // scalars.
+        // then dc:rights / xmpRights:UsageTerms, then the point tone curves,
+        // then the local-adjustment containers (#358). A metadata-carrying
+        // save must not drop an authored curve or mask — that is exactly the
+        // silent-data-loss shape #2191 fixed for the parametric scalars.
         let toneCurvesBlock = _buildToneCurvesBlock(
+            model: model, indent: XMPCanonical.childIndent)
+        let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
             model: model, indent: XMPCanonical.childIndent)
         let isRightsBlock: (String) -> Bool = { block in
             block.contains("<dc:rights>") || block.contains("<xmpRights:UsageTerms>")
@@ -74,6 +76,7 @@ extension XMPSerializer {
             keywordsBlock,
             metaBlocks.filter(isRightsBlock).joined(separator: "\n"),
             toneCurvesBlock,
+            localAdjustmentsBlock,
             _passthroughNodesBlock(passthrough, indent: XMPCanonical.childIndent),
         ]
         .filter { !$0.isEmpty }

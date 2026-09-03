@@ -51,6 +51,7 @@ fn serialize_container(container: &str, layers: &[&LocalAdjustment], indent: &st
     let i3 = format!("{indent}      ");
     let i4 = format!("{indent}        ");
     let i5 = format!("{indent}          ");
+    let i6 = format!("{indent}            ");
 
     let mut out = format!("{indent}<{container}>\n{i1}<rdf:Seq>\n");
     for layer in layers {
@@ -60,9 +61,12 @@ fn serialize_container(container: &str, layers: &[&LocalAdjustment], indent: &st
             "{i4}crs:What=\"Correction\"\n{i4}crs:CorrectionAmount=\"1\"\n{i4}crs:CorrectionActive=\"True\""
         ));
         out.push_str(&serialize_adjustments(&layer.adjustments, &i4));
-        out.push_str(&format!(">\n{i4}<crs:CorrectionMasks>\n{i3}  <rdf:Seq>\n"));
-        out.push_str(&serialize_mask(&layer.mask, &i5));
-        out.push_str(&format!("{i3}  </rdf:Seq>\n{i4}</crs:CorrectionMasks>\n"));
+        // One ladder, two spaces per level (`docs/xmp-canonical-format.md`
+        // § "Indentation"): `crs:CorrectionMasks` sits with the correction's
+        // attributes, its `rdf:Seq` one step in, the mask leaf one further.
+        out.push_str(&format!(">\n{i4}<crs:CorrectionMasks>\n{i5}<rdf:Seq>\n"));
+        out.push_str(&serialize_mask(&layer.mask, &i6));
+        out.push_str(&format!("{i5}</rdf:Seq>\n{i4}</crs:CorrectionMasks>\n"));
         out.push_str(&format!("{i3}</rdf:Description>\n{i2}</rdf:li>\n"));
     }
     out.push_str(&format!("{i1}</rdf:Seq>\n{indent}</{container}>"));
