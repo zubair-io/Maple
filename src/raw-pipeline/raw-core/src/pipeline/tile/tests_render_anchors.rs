@@ -175,9 +175,10 @@ fn tile_ae_gain_one_matches_existing_tile_output() {
 ///
 /// Simulates the app's unedited-open state: no XMP sidecar, so
 /// `model.temperature`/`model.tint` are hydrated to the image's as-shot
-/// `(cct, tint)` (the estimator's output — Fix A), exactly matching
-/// `EditSession+Hydration.swift`'s `initialModel`. Renders the SAME
-/// source region two ways:
+/// `(cct, tint)` — the decode-exported slider frame's own pair since
+/// #1976, exactly what `EditSession+Hydration.swift` adopts. Renders the
+/// SAME source region two ways (with the default model's non-zero spatial
+/// sliders pinned to zero on both, see the body — #3289):
 ///
 /// 1. **Scene-chain path** (`pipeline::apply_scene_linear_chain`, the
 ///    Rust equivalent of the GPU-live per-tick FFI entry): decode the
@@ -202,24 +203,46 @@ fn tile_ae_gain_one_matches_existing_tile_output() {
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
-    use crate::color::dcp::estimate_as_shot_cct_tint;
     use crate::pipeline::fp16::f16_bits_to_f32;
+    use crate::stages::wb_camera::SliderFrameExport;
 
     let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
 
-    // Fix A's estimator output — same call the app's cold-open hydration
-    // would use for a fresh (no-sidecar) EditSession.
-    let (as_shot_cct, as_shot_tint) =
-        estimate_as_shot_cct_tint(&raw).expect("estimate as-shot cct/tint");
+    // The anchor the app's cold-open hydration parks the sliders at since
+    // #1976: the decode-exported slider frame's own as-shot pair
+    // (`wb_frame_scene_cct` / `wb_frame_as_shot_tint` over the FFI,
+    // `EditSession+Hydration`), not the older standalone estimator — and
+    // the per-tick chain carries that same frame (#1781) so its WB delta is
+    // derived in the frame the develop chain reads the sliders in.
+    let (profile, _) = crate::color::dcp::profile_for_with_source(&raw).expect("dcp profile");
+    let frame = SliderFrameExport::resolve(&raw, &profile);
+    assert!(frame.is_present(), "fixture must export a slider frame");
+    let (as_shot_cct, as_shot_tint) = (frame.scene_cct, frame.as_shot_tint);
 
     // Unedited-open model: temperature/tint hydrated to as-shot, no other
     // sliders touched (matches `EditSession+Hydration.initialModel` with
-    // `loadedModel == nil`).
+    // `loadedModel == nil`) — EXCEPT the two spatial stages that are not
+    // zero in `AdjustmentModel::default()`, `sharpen_amount` (40) and
+    // `nr_color` (25). Since #1043 the per-tick chain runs both itself, so
+    // a decode that baked them in AND a chain that re-applies them would
+    // double-apply on path 1 while the tile path (from the mosaic) applies
+    // them once — a 1.03 % channel-ratio split that is not WB at all
+    // (#3289). Pin them to zero on both paths, as `tests_live_parity`'s
+    // `decode_model` does, so this test measures the WB contract only.
     let model = AdjustmentModel {
         temperature: as_shot_cct,
         tint: as_shot_tint,
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        nr_luminance: 0.0,
+        ..AdjustmentModel::default()
+    };
+    let decode_model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        nr_luminance: 0.0,
         ..AdjustmentModel::default()
     };
 
@@ -230,7 +253,7 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
     // `RawImageCache`/`sharedDecode` open with no sidecar.
     let decoded = crate::pipeline::develop_scene_linear_from_raw_with_quality(
         &raw,
-        &AdjustmentModel::default(),
+        &decode_model,
         RenderQuality::Full,
     )
     .expect("base decode at default WB");
@@ -253,6 +276,7 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
         &crate::pipeline::ChainOptions {
             decoded_temp: as_shot_cct,
             decoded_tint: as_shot_tint,
+            wb_frame: Some(&frame),
             // skip_agx: stay in scene-linear, matching the tile path's output space
             skip_agx: true,
             noise_profile: raw.noise_profile.as_deref(),
