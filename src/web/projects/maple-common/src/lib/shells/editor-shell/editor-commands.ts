@@ -114,7 +114,11 @@ export const EDITOR_COMMANDS: readonly EditorCommand[] = [
   {
     id: 'compare.press',
     label: 'Before / after (tap toggles, hold peeks)',
-    chords: [{ key: ['\\', 'b'], shift: false }],
+    // Two chords rather than one two-key chord: `\` pins Shift absent (held
+    // with Shift the key IS `|`, a different chord), while `B` leaves Shift
+    // don't-care so Shift+B fires it too. Split also means both alternatives
+    // are listed in the menu and announced through `aria-keyshortcuts`.
+    chords: [{ key: '\\', shift: false }, { key: 'b' }],
     intent: { kind: 'compare.press' },
     menu: true,
   },
@@ -355,10 +359,14 @@ export function commandMenuItems(): readonly MuiCommandItem[] {
 export function ariaKeyshortcuts(id: string): string | null {
   const command = EDITOR_COMMANDS.find((c) => c.id === id);
   if (!command) return null;
-  // `meta` matches ⌘ or Ctrl (chordMatches), so announce both variants.
+  // `meta` matches ⌘ or Ctrl (chordMatches), so announce both variants; a
+  // chord that accepts several keys announces every one of them, because
+  // each really does fire the command.
   return command.chords
-    .flatMap((chord) => {
-      const key = typeof chord.key === 'string' ? chord.key : chord.key[0];
+    .flatMap((chord) =>
+      (typeof chord.key === 'string' ? [chord.key] : chord.key).map((k) => [chord, k] as const),
+    )
+    .flatMap(([chord, key]) => {
       const tail = [
         ...(chord.alt ? ['Alt'] : []),
         ...(chord.shift ? ['Shift'] : []),
