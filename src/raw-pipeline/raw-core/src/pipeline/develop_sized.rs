@@ -328,14 +328,10 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
     });
     dump_after("03b_oklab_highlight_recovery", &scene);
-    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
-        stage("sized_profile_gain_table_map", || {
-            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
-        });
-    }
-    dump_after("04_profile_gain_table_map", &scene);
+    // ProfileGainTableMap is not applied on any path (#2774) — see
+    // `super::develop` for the rationale.
     // Decode-time chroma pre-filter (#1104) — runs on the downsampled
-    // buffer here; same position as the unsized variant (post-PGTM, pre
+    // buffer here; same position as the unsized variant (post-DCP, pre
     // capture-sharpening). No-op at the default 0.
     stage("sized_chroma_prefilter", || {
         chroma_prefilter::apply(&mut scene, model.chroma_prefilter)

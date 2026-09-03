@@ -121,10 +121,9 @@ fn render_scene_linear_tile_rounds_source_coords_to_even() {
 /// gitignored; `ignore`d without `--features fixtures`, fail-closed
 /// with it — #1082). The fixture facts the coordinate mapping relies on are
 /// asserted, not assumed: no DefaultCrop (the full chain crops before
-/// the color stages, which would shift coordinates), no
-/// ProfileGainTableMap (spatially-varying gain is evaluated in
-/// buffer-normalized coordinates), and Normal orientation (the tile
-/// entry orients its output; the develop helper does not).
+/// the color stages, which would shift coordinates) and Normal
+/// orientation (the tile entry orients its output; the develop helper
+/// does not).
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn tile_matches_full_chain_with_non_default_tone_curve() {
@@ -136,10 +135,6 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
     assert!(
         raw.crop_rect.is_none(),
         "fixture grew a DefaultCrop — update this test's coordinate mapping"
-    );
-    assert!(
-        raw.profile_gain_table_map.is_none(),
-        "fixture grew a ProfileGainTableMap — update this test's stage set"
     );
     assert_eq!(
         raw.orientation,
@@ -307,10 +302,6 @@ fn tile_matches_full_chain_with_non_default_hsl() {
     assert!(
         raw.crop_rect.is_none(),
         "fixture grew a DefaultCrop — update this test's coordinate mapping"
-    );
-    assert!(
-        raw.profile_gain_table_map.is_none(),
-        "fixture grew a ProfileGainTableMap — update this test's stage set"
     );
     assert_eq!(
         raw.orientation,
