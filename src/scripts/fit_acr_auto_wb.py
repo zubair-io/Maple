@@ -14,14 +14,17 @@ cast). Feeds `ACR_AUTO` in raw-core's `auto_adjustments_awb_fixture_tests.rs`
 Usage: src/scripts/fit_acr_auto_wb.py [test_0017 ...]   (default: all)
 Env:   MAPLE_CLI (release maple-cli), MAPLE_FIT_WORK (scratch dir)
 """
-import json, os, subprocess, sys, warnings
-warnings.filterwarnings("ignore")
+import os
 import pathlib
+import subprocess
+import sys
+import warnings
+warnings.filterwarnings("ignore")
 ROOT = str(pathlib.Path(__file__).resolve().parents[2])
 CLI = os.environ.get("MAPLE_CLI", f"{ROOT}/src/raw-pipeline/target/release/maple-cli")
 sys.path.insert(0, f"{ROOT}/src/scripts")
 import compare_images
-WORK = os.environ.get("MAPLE_FIT_WORK", "/tmp/maple-acr-auto-fit"); os.makedirs(WORK, exist_ok=True)
+WORK = os.environ.get("MAPLE_FIT_WORK", "/tmp/maple-acr-auto-fit")
 os.makedirs(WORK, exist_ok=True)
 
 def render(stem, raw, t, tint, ref="wb_auto"):
