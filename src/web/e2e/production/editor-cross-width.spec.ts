@@ -121,8 +121,16 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   expect(overflow.scrollWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.innerWidth);
 }
 
-async function expectInViewport(locator: Locator, label: string): Promise<void> {
+async function expectInViewport(
+  locator: Locator,
+  label: string,
+  scroll: 'none' | 'into-view' = 'none',
+): Promise<void> {
   await expect(locator, label).toBeVisible();
+  // The phone dock is a horizontally scrolling bar; its entries count as
+  // reachable once scrolled into view. Everything else must be on screen
+  // without scrolling.
+  if (scroll === 'into-view') await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   const size = locator.page().viewportSize()!;
   expect(box, `${label} has a box`).not.toBeNull();
@@ -139,8 +147,13 @@ async function expectPrimaryActionsReachable(page: Page): Promise<void> {
     await expectInViewport(page.getByRole('button', { name, exact: true }), name);
   }
   const dock = page.getByRole('navigation', { name: 'Editor tools' });
+  const scrolls = (await page.locator('pro-tool-dock.dock-host--horizontal').count()) > 0;
   for (const name of DOCK) {
-    await expectInViewport(dock.getByRole('button', { name, exact: true }), `dock ${name}`);
+    await expectInViewport(
+      dock.getByRole('button', { name, exact: true }),
+      `dock ${name}`,
+      scrolls ? 'into-view' : 'none',
+    );
   }
   await expectInViewport(page.getByRole('slider', { name: 'Exposure' }), 'Exposure slider');
 }
@@ -287,11 +300,13 @@ for (const viewport of VIEWPORTS) {
       await expect(compare).toHaveAttribute('aria-pressed', 'true');
       await compare.click();
       await expect(compare).toHaveAttribute('aria-pressed', 'false');
-      // Export.
+      // Export — Escape closes the modal, and only the modal (the router
+      // lets an open dialog own the key rather than leaving the editor).
       await page.getByRole('button', { name: 'Export', exact: true }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(page.url()).toContain('/edit/');
       // Navigate: Back returns to the Preview for this image; Edit re-enters.
       await page.getByRole('button', { name: 'Back to Library', exact: true }).click();
       await expect(page).toHaveURL(/\/view\//);
@@ -321,11 +336,11 @@ for (const viewport of VIEWPORTS) {
 }
 
 /** 200% browser zoom halves the CSS viewport and doubles the pixel ratio. */
-async function zoomedPage(browser: Browser, viewport: Viewport): Promise<Page> {
+async function zoomedPage(browser: Browser, viewport: Viewport, baseURL: string): Promise<Page> {
   const context = await browser.newContext({
     viewport: { width: viewport.width / 2, height: viewport.height / 2 },
     deviceScaleFactor: 2,
-    baseURL: browser.contexts()[0]?.pages()[0]?.url() ? undefined : undefined,
+    baseURL,
   });
   return context.newPage();
 }
@@ -333,12 +348,10 @@ async function zoomedPage(browser: Browser, viewport: Viewport): Promise<Page> {
 for (const viewport of VIEWPORTS.filter((v) => v.dockColumn)) {
   test(`200% browser zoom: every primary action still reachable — ${viewport.name}`, async ({
     browser,
-    baseURL,
   }, testInfo) => {
     hostedOnly(testInfo);
-    const page = await zoomedPage(browser, viewport);
+    const page = await zoomedPage(browser, viewport, String(testInfo.project.use.baseURL));
     try {
-      await page.goto(baseURL!);
       await openEditor(page);
       await expectPrimaryActionsReachable(page);
       await page.getByRole('button', { name: 'Info', exact: true }).click();
@@ -356,16 +369,16 @@ for (const viewport of VIEWPORTS.filter((v) => v.dockColumn)) {
   });
 }
 
-test('touch: tools and compare by tap — phone', async ({ browser, baseURL }, testInfo) => {
+test('touch: tools and compare by tap — phone', async ({ browser }, testInfo) => {
   hostedOnly(testInfo);
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
     isMobile: true,
+    baseURL: String(testInfo.project.use.baseURL),
   });
   const page = await context.newPage();
   try {
-    await page.goto(baseURL!);
     await openEditor(page);
     const dock = page.getByRole('navigation', { name: 'Editor tools' });
     const color = dock.getByRole('button', { name: 'Color', exact: true });
