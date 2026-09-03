@@ -12,6 +12,16 @@ pub enum Error {
     #[error("rawler failed to decode {path}: {reason}")]
     Decode { path: PathBuf, reason: String },
 
+    /// A panic raised while decoding or reading `path` — a `rawler`
+    /// `assert!` on inconsistent on-file metadata, or an out-of-range read
+    /// in our own TIFF walks — caught at the `decode_for_pano` /
+    /// `read_pano_metadata` boundary (#3230) and surfaced as a per-frame
+    /// error instead of unwinding into the caller (which, for
+    /// `maple-cli pano stitch` running as the Self Hosted job-runner
+    /// subprocess, meant a dead process rather than a failed frame).
+    #[error("panicked while decoding {path}: {reason}")]
+    DecodePanicked { path: PathBuf, reason: String },
+
     #[error("unsupported CFA pattern: {0:?}")]
     UnsupportedCfa(String),
 

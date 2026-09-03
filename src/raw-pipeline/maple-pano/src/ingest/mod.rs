@@ -381,6 +381,38 @@ fn ext_hint(path: &Path) -> String {
 mod tests {
     use super::*;
 
+    /// #3230: a DNG rawler only rejects via an `assert!` (here a 2×2
+    /// `BlackLevelRepeatDim` against a single `BlackLevel` value) must come
+    /// out of `ingest_bytes` as a typed `PanoError::RawDecode` wrapping the
+    /// raw-core decode error — the per-frame failure `maple-cli pano
+    /// stitch` reports — not as a panic through the ingest boundary.
+    #[test]
+    fn rawler_rejected_dng_is_a_typed_pano_error() {
+        let bytes = raw_core::test_support::synth_dng::SyntheticGreyDng {
+            black_level_repeat_dim: Some((2, 2)),
+            ..Default::default()
+        }
+        .write_to_bytes();
+        let err = ingest_bytes(&bytes, "dng").expect_err("rejected DNG must fail");
+        match &err {
+            PanoError::RawDecode { context, source } => {
+                assert_eq!(context, "<bytes>.dng");
+                assert!(
+                    matches!(
+                        source,
+                        raw_core::Error::Decode { .. } | raw_core::Error::DecodePanicked { .. }
+                    ),
+                    "expected a decode error from raw-core, got {source:?}"
+                );
+                assert!(
+                    err.to_string().contains("panic"),
+                    "the caught panic should be in the message: {err}"
+                );
+            }
+            other => panic!("expected PanoError::RawDecode, got {other:?}"),
+        }
+    }
+
     #[test]
     fn validity_mask_filled_true_counts_every_pixel() {
         // 65 bits forces a partial tail word — the masking path.
