@@ -169,7 +169,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli },
-                new string[] { "local_adjustments" },
+                new string[] { "local_adjustments", "mask_rasters" },
                 new CapabilityEvidenceSource[] {  },
                 new CapabilityEvidenceSource[] {  },
                 CapabilityReleaseState.Core),

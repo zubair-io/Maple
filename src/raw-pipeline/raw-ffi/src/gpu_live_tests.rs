@@ -63,7 +63,11 @@ pub(super) fn cpu_reference(
     // Local adjustments (#1698) — develop's 12b slot. Empty on the mild and
     // aggressive models here, so this reference is unchanged for them; the
     // sibling `gpu_live_local_adjustment_tests.rs` drives it non-empty.
-    raw_core::stages::local_adjustments::apply(&mut img, &model.local_adjustments);
+    raw_core::stages::local_adjustments::apply(
+        &mut img,
+        &model.local_adjustments,
+        &model.mask_rasters,
+    );
     raw_core::stages::sharpen::apply(
         &mut img,
         model.sharpen_amount,
@@ -396,6 +400,9 @@ pub(super) fn direct_raw_gpu(
         texture: model.texture,
         dehaze: model.dehaze,
         local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
+        // No fixture in this file sets a bitmap mask, so `model.mask_rasters`
+        // is always empty.
+        mask_rasters: Vec::new(),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,

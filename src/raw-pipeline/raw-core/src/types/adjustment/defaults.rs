@@ -132,6 +132,7 @@ impl Default for AdjustmentModel {
             // `papp:Profile="Neutral"` (AgX scene-referred view transform).
             profile: Profile::Auto,
             local_adjustments: Vec::new(),
+            mask_rasters: Vec::new(),
             inpaint_removals: Vec::new(),
             // Per-#436: `PerChannel` is the pre-existing behavior. Default
             // chosen for backward compatibility — `RatioPreserving` is opt-in.

@@ -120,6 +120,20 @@ fn mask_to_json(m: &Mask) -> Value {
             "feather": feather,
             "invert": invert,
         }),
+        // Bitmap and Everywhere (#3271) postdate this legacy format — it has
+        // no production caller (module doc) and no reader arm for either
+        // (`mask_from_json`'s `_ => Ok(None)` already skips both by kind),
+        // so these two arms exist only so the match stays exhaustive. The
+        // raster's pixels never belong in this JSON wire regardless — a
+        // bitmap mask's persisted identity is its recipe + digest, encoded
+        // only by the canonical XMP writer (`crs:MaskGroupBasedCorrections`).
+        Mask::Bitmap { ref recipe, .. } => json!({
+            "type": "bitmap",
+            "digest": recipe.digest,
+        }),
+        Mask::Everywhere => json!({
+            "type": "everywhere",
+        }),
     }
 }
 

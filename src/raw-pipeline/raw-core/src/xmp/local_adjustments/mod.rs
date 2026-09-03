@@ -74,11 +74,12 @@
 //! in a third-party renderer", not exact re-derivation of Maple's UI state
 //! from arbitrary foreign masks.
 //!
-//! **Cross-type order.** Adobe's schema keeps linear and radial corrections
-//! in two separate top-level arrays, so a document with layers interleaved
-//! in the model (linear, radial, linear, …) round-trips through the wire
-//! form as two contiguous runs (all linear, then all radial) rather than
-//! preserving cross-type interleaving. No UI writes this format yet, so nothing
+//! **Cross-type order.** Adobe's schema keeps linear, radial and (#3271)
+//! bitmap/everywhere corrections in three separate top-level arrays, so a
+//! document with layers interleaved in the model (linear, radial, linear,
+//! …) round-trips through the wire form as contiguous per-type runs (all
+//! linear, then all radial, then all group) rather than preserving
+//! cross-type interleaving. No UI writes this format yet, so nothing
 //! observes that reordering today; it is called out here so it isn't
 //! rediscovered as a bug later.
 //!
@@ -127,9 +128,14 @@ pub use serialize::serialize_local_adjustments;
 
 const LINEAR_CONTAINER: &str = "crs:GradientBasedCorrections";
 const RADIAL_CONTAINER: &str = "crs:CircularGradientBasedCorrections";
+/// Bitmap and Everywhere masks (#3271) — Lightroom 11+'s own container for
+/// its AI masks, so a reader that doesn't understand `papp:MaskSource`
+/// still sees a structurally valid correction.
+const GROUP_CONTAINER: &str = "crs:MaskGroupBasedCorrections";
 const MASKS: &str = "crs:CorrectionMasks";
 const MASK_WHAT_LINEAR: &str = "Mask/Gradient";
 const MASK_WHAT_RADIAL: &str = "Mask/CircularGradient";
+const MASK_WHAT_IMAGE: &str = "Mask/Image";
 
 /// Mask-container flavor. Private to this module tree; `parse` and
 /// `serialize` reach it via `super::Kind`, since a private item is visible
@@ -138,6 +144,9 @@ const MASK_WHAT_RADIAL: &str = "Mask/CircularGradient";
 enum Kind {
     Linear,
     Radial,
+    /// `crs:MaskGroupBasedCorrections` (#3271) — `Mask::Bitmap` /
+    /// `Mask::Everywhere` layers.
+    Group,
 }
 
 fn is_seq(name: &str) -> bool {
@@ -188,6 +197,7 @@ impl LocalAdjustmentsWalker {
             self.container = match name {
                 LINEAR_CONTAINER => Some(Kind::Linear),
                 RADIAL_CONTAINER => Some(Kind::Radial),
+                GROUP_CONTAINER => Some(Kind::Group),
                 _ => None,
             };
             return Ok(self.container.is_some());
@@ -322,16 +332,17 @@ impl LocalAdjustmentsWalker {
             }
             return;
         }
-        if name == LINEAR_CONTAINER || name == RADIAL_CONTAINER {
+        if name == LINEAR_CONTAINER || name == RADIAL_CONTAINER || name == GROUP_CONTAINER {
             self.container = None;
         }
     }
 
-    /// Consume the walker, returning every layer collected across both
+    /// Consume the walker, returning every layer collected across all three
     /// containers in document order (all `GradientBasedCorrections` layers,
-    /// then all `CircularGradientBasedCorrections` layers, matching
-    /// whichever container the document listed first — Maple's own writer
-    /// always emits linear before radial, see [`serialize_local_adjustments`]).
+    /// then all `CircularGradientBasedCorrections` layers, then all
+    /// `MaskGroupBasedCorrections` layers, matching whichever containers the
+    /// document listed and in what order — Maple's own writer always emits
+    /// linear, then radial, then group, see [`serialize_local_adjustments`]).
     pub(super) fn finish(self) -> Vec<LocalAdjustment> {
         self.finished
     }
