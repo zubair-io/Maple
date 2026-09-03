@@ -34,6 +34,54 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// init when not dormant; stopped on `invalidate()`. nil while
     /// dormant. See `ApnsPushRegistrar`'s doc comment.
     private var apnsRegistrar: ApnsPushRegistrar?
+    /// Runs only after the APNs-confirmation task has stopped `changeFeed`
+    /// — periodically re-checks whether push is STILL usable, since an
+    /// operator can disable the Settings -> Network toggle or the
+    /// server's MAPLE_APNS_* credentials can be removed/expire at ANY
+    /// point after this extension made its one-way decision to stop SSE.
+    /// A File Provider domain's extension process is kept warm by the OS
+    /// for a long time once registered, so without this a process that
+    /// made that call before the operator flipped push back off could be
+    /// stuck with no live freshness channel until its next relaunch.
+    /// Cancelled in `invalidate()`. Guarded by `apnsStateLock`.
+    private var apnsMonitorTask: Task<Void, Never>?
+    /// The APNs-confirmation task kicked off from `init(domain:)` — see
+    /// its own comment at the call site. Tracked (Copilot review on
+    /// #3246) so `invalidate()` can cancel it: without a stored
+    /// reference, `invalidate()` had no way to stop it, so a confirmation
+    /// that was already past its network waits when `invalidate()` ran
+    /// could still go on to stop `changeFeed` and start
+    /// `apnsMonitorTask` — AFTER teardown. Guarded by `apnsStateLock`.
+    private var apnsConfirmationTask: Task<Void, Never>?
+    /// Set once by `invalidate()`, read by `apnsConfirmedAndNotInvalidated`
+    /// as its LAST step, after every network wait, so a concurrent
+    /// `invalidate()` landing anywhere during those waits still prevents
+    /// the confirmation task from acting afterward. Guarded by
+    /// `apnsStateLock`.
+    private var isInvalidated = false
+    /// Guards `isInvalidated`, `apnsConfirmationTask`, and
+    /// `apnsMonitorTask` above — all three are read AND written from
+    /// both background `Task` closures (this process's cooperative
+    /// thread pool) and from `invalidate()` (called by the OS on a queue
+    /// of its own choosing), so unsynchronized access is a real data
+    /// race (Jules review on #3246): without a shared lock,
+    /// `invalidate()` could land between the confirmation task's
+    /// "am I still valid?" check and its `apnsMonitorTask` assignment,
+    /// see a still-nil task, and fail to cancel the one created
+    /// microseconds later — leaking it forever. `beginMonitoring(_:)`,
+    /// `setInvalidatedAndCancelApnsTasks()`, and `isInvalidatedNow()` are
+    /// the only places that touch these three fields under the lock —
+    /// each holds it for its ENTIRE synchronous body, never across an
+    /// `await` — matching `WorkingSet`/`ChangeFeedClient`'s existing
+    /// `NSLock` convention in this same directory (an actor is a heavier
+    /// fit here since `invalidate()` is a synchronous protocol
+    /// requirement, not async). The one exception is
+    /// `apnsConfirmationTask`'s single assignment in `init(domain:)`:
+    /// that runs before the OS has a reference to this instance, so no
+    /// concurrent `invalidate()` call is possible yet, and it's safe
+    /// unlocked — same reasoning any other constructor-time-only
+    /// assignment would use.
+    private let apnsStateLock = NSLock()
 
     /// Page size used when streaming a parent listing to resolve a single
     /// child by name (subdir lookup in `item(for:)`, sidecar→assetID lookup
@@ -246,14 +294,65 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // `changeFeed?.stop()` (not nil-ing the property) matches how
         // `invalidate()` already tears it down — calling `.stop()` twice
         // (once here, once later from `invalidate()`) is a safe no-op the
-        // second time.
-        Task { [weak self, apnsRegistrationClient] in
+        // second time. Stored in `apnsConfirmationTask` so `invalidate()`
+        // can cancel it (see that property's doc comment).
+        apnsConfirmationTask = Task { [weak self, apnsRegistrationClient] in
             guard let self else { return }
-            guard await apnsRegistrationClient.isServerPushConfigured() else { return }
-            guard await apnsRegistrationClient.waitUntilRegistered() else {
-                self.log.notice("APNs enabled server-side but this device's token wasn't confirmed within the timeout — keeping SSE fallback active")
-                return
+            guard await self.apnsConfirmedAndNotInvalidated(registrationClient: apnsRegistrationClient)
+            else { return }
+            // `beginMonitoring` re-checks `isInvalidated` and assigns
+            // `apnsMonitorTask` atomically under `apnsStateLock` — the
+            // SAME lock `invalidate()` uses — closing the gap between
+            // the confirmation above and this commit (see
+            // `apnsStateLock`'s doc comment). The monitor loop itself is
+            // built as a plain closure, NOT a call to an instance
+            // method via `self?.method(...)`: `await self?.foo()`
+            // retains `self` strongly for that whole async call, and
+            // with an unbounded loop inside (this one runs until push
+            // stops being usable, potentially for the extension
+            // process's entire lifetime), that would defeat the `weak
+            // self` capture and keep this instance alive indefinitely
+            // regardless of `invalidate()` (Jules review on #3246).
+            // Re-deriving `self` from the weak capture on every
+            // iteration, and never across the `Task.sleep`, keeps the
+            // retention bounded to each synchronous step.
+            let started = self.beginMonitoring {
+                Task { [weak self, apnsRegistrationClient] in
+                    while !Task.isCancelled {
+                        guard await apnsRegistrationClient.isServerPushConfigured() else {
+                            // Re-check cancellation HERE, right after the
+                            // await, not just at the top of the loop
+                            // (Copilot review on #3246): invalidate()
+                            // cancelling this task while it's inside the
+                            // isServerPushConfigured() await above isn't
+                            // observed until this point, and without this
+                            // guard the SSE fallback would still restart
+                            // after teardown.
+                            guard let self, !Task.isCancelled else { return }
+                            self.log.notice(
+                                "APNs push no longer configured server-side — restarting SSE fallback"
+                            )
+                            self.changeFeed?.start()
+                            return
+                        }
+                        guard self != nil else { return }
+                        try? await Task.sleep(nanoseconds: Self.apnsAvailabilityRecheckNs)
+                    }
+                }
             }
+            guard started else { return }
+            // Re-check right before actually stopping SSE (Copilot review
+            // on #3246): `beginMonitoring` above already started the
+            // monitor task running concurrently, so if push became
+            // unusable in the narrow window between the confirmation
+            // check earlier in this function and this point, skip the
+            // stop rather than race the monitor's own restart — leaving
+            // SSE running is always the safe choice over risking the
+            // extension ending up with no live channel at all.
+            // `ChangeFeedClient.start()` is idempotent (`guard task ==
+            // nil`), so it's safe even if the monitor task's own check
+            // also observes this and calls it.
+            guard await apnsRegistrationClient.isServerPushConfigured() else { return }
             self.changeFeed?.stop()
             self.log.notice("APNs push confirmed active for this device — stopped SSE fallback")
         }
@@ -269,7 +368,85 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 code: NSFileProviderError.notAuthenticated.rawValue)
     }
 
+    /// Testable seam (Copilot review on #3246): holds the ENTIRE guarded
+    /// decision of whether the SSE fallback should be stopped, in terms of
+    /// a `registrationClient` a test CAN fake — `init(domain:)`'s real
+    /// call site can't be driven directly since it reads live
+    /// TokenStore/FileProviderConfig state. Returns `true` only when the
+    /// operator's toggle + credentials are confirmed, THIS device's own
+    /// registration succeeded, AND `invalidate()` has not already run.
+    /// `isInvalidated` is checked LAST, after both network waits, so a
+    /// concurrent `invalidate()` landing anywhere during those waits still
+    /// makes this return `false` — the caller must not stop `changeFeed`
+    /// or start `apnsMonitorTask` on a `false` result. (The call site
+    /// additionally re-checks under `apnsStateLock` before actually
+    /// committing to that decision — see `beginMonitoring(_:)`'s doc
+    /// comment for why a second, atomic check is needed on top of this
+    /// one.)
+    func apnsConfirmedAndNotInvalidated(registrationClient: ApnsDeviceRegistrationClient) async -> Bool {
+        guard await registrationClient.isServerPushConfigured() else { return false }
+        guard await registrationClient.waitUntilRegistered() else {
+            log.notice(
+                "APNs enabled server-side but this device's token wasn't confirmed within the timeout — keeping SSE fallback active"
+            )
+            return false
+        }
+        return !isInvalidatedNow()
+    }
+
+    /// Synchronous on purpose — calling `NSLock.lock()`/`.unlock()`
+    /// directly inside an `async` function body triggers a "unavailable
+    /// from asynchronous contexts" warning (a hard error under the
+    /// Swift 6 language mode) even when, as here, the lock is never held
+    /// across an `await`. Wrapping it in this plain synchronous method
+    /// and calling that from `apnsConfirmedAndNotInvalidated` avoids the
+    /// warning without changing the actual locking behavior.
+    private func isInvalidatedNow() -> Bool {
+        apnsStateLock.lock()
+        defer { apnsStateLock.unlock() }
+        return isInvalidated
+    }
+
+    /// How often the monitor loop started from `init(domain:)` re-checks
+    /// `GET /api/apns/config` once the SSE fallback has already been
+    /// stopped. One cheap request on this cadence is a negligible cost
+    /// next to the battery this whole feature exists to save — see
+    /// `apnsMonitorTask`'s doc comment for why the check is needed at
+    /// all. The loop checks immediately on entry — NOT after the first
+    /// sleep — since push could already have stopped being usable in the
+    /// gap between the confirmation task's own check and the monitor
+    /// starting; it sleeps this long BETWEEN polls after that.
+    static let apnsAvailabilityRecheckNs: UInt64 = 30 * 60 * 1_000_000_000  // 30 min
+
+    /// Atomically checks `isInvalidated` and, if it's still `false`,
+    /// builds and assigns `apnsMonitorTask` via `makeTask` — under the
+    /// SAME lock `setInvalidatedAndCancelApnsTasks()` uses, so
+    /// `invalidate()` can never land in the gap between the check and
+    /// the assignment (see `apnsStateLock`'s doc comment for the race
+    /// this closes). `makeTask` must be synchronous — just `Task { ... }`,
+    /// which schedules and returns immediately — never call anything
+    /// that awaits here, since this runs under the lock. Returns
+    /// `false` (without calling `makeTask`) if already invalidated.
+    private func beginMonitoring(_ makeTask: () -> Task<Void, Never>) -> Bool {
+        apnsStateLock.lock()
+        defer { apnsStateLock.unlock() }
+        guard !isInvalidated else { return false }
+        apnsMonitorTask = makeTask()
+        return true
+    }
+
+    /// The `invalidate()` half of the same atomic pair as
+    /// `beginMonitoring(_:)` — see `apnsStateLock`'s doc comment.
+    private func setInvalidatedAndCancelApnsTasks() {
+        apnsStateLock.lock()
+        defer { apnsStateLock.unlock() }
+        isInvalidated = true
+        apnsConfirmationTask?.cancel()
+        apnsMonitorTask?.cancel()
+    }
+
     open func invalidate() {
+        setInvalidatedAndCancelApnsTasks()
         changeFeed?.stop()
         apnsRegistrar?.stop()
         log.info("invalidate")
