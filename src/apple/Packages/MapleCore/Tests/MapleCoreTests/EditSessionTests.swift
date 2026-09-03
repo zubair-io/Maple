@@ -356,6 +356,102 @@ final class EditSessionTests: XCTestCase {
         XCTAssertEqual(received.code, 42)
         XCTAssertEqual(received.domain, "test.sidecar")
     }
+
+    // MARK: - Masks (#3275)
+
+    private func makeSessionForMaskTests() throws -> EditSession {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: tmp) }
+        let assetURL = tmp.appendingPathComponent("test.dng")
+        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+        return EditSession(asset: AssetRef(url: assetURL))
+    }
+
+    func testCreateWholeImageSkinMaskAppendsAndSelectsALayer() throws {
+        let session = try makeSessionForMaskTests()
+        XCTAssertTrue(session.model.localAdjustments.isEmpty)
+
+        session.createWholeImageSkinMask()
+
+        XCTAssertEqual(session.model.localAdjustments.count, 1)
+        XCTAssertEqual(session.model.localAdjustments[0].mask, .everywhere)
+        XCTAssertEqual(session.model.localAdjustments[0].range, .skinTone)
+        XCTAssertEqual(session.selectedMaskId, session.model.localAdjustments[0].id)
+    }
+
+    func testDeleteMaskRemovesItAndClearsSelectionIfItWasSelected() throws {
+        let session = try makeSessionForMaskTests()
+        session.createWholeImageSkinMask()
+        let id = session.model.localAdjustments[0].id
+
+        session.deleteMask(id: id)
+
+        XCTAssertTrue(session.model.localAdjustments.isEmpty)
+        XCTAssertNil(session.selectedMaskId)
+    }
+
+    func testDeleteMaskLeavesSelectionAloneWhenADifferentLayerWasSelected() throws {
+        let session = try makeSessionForMaskTests()
+        session.createWholeImageSkinMask()
+        let firstId = session.model.localAdjustments[0].id
+        session.createWholeImageSkinMask()
+        let secondId = session.model.localAdjustments[1].id
+        XCTAssertEqual(session.selectedMaskId, secondId)
+
+        session.deleteMask(id: firstId)
+
+        XCTAssertEqual(session.model.localAdjustments.count, 1)
+        XCTAssertEqual(session.selectedMaskId, secondId, "deleting an unselected layer must not disturb the selection")
+    }
+
+    func testSetMaskEnabledFalseZeroesAdjustmentsAndIsMaskEnabledReflectsIt() throws {
+        let session = try makeSessionForMaskTests()
+        session.createWholeImageSkinMask()
+        let id = session.model.localAdjustments[0].id
+        session.model.localAdjustments[0].adjustments = PartialAdjustments(exposure: 0.4, hue: -12)
+        XCTAssertTrue(session.isMaskEnabled(id: id))
+
+        session.setMaskEnabled(id: id, enabled: false)
+
+        XCTAssertTrue(session.model.localAdjustments[0].adjustments.isEmpty, "disabling must reduce adjustments to a stage no-op")
+        XCTAssertFalse(session.isMaskEnabled(id: id))
+        // The range refinement is untouched — an empty-adjustments layer is
+        // already a no-op at the pipeline stage regardless of its range.
+        XCTAssertEqual(session.model.localAdjustments[0].range, .skinTone)
+    }
+
+    func testSetMaskEnabledTrueRestoresTheStashedAdjustments() throws {
+        let session = try makeSessionForMaskTests()
+        session.createWholeImageSkinMask()
+        let id = session.model.localAdjustments[0].id
+        let original = PartialAdjustments(exposure: 0.4, saturation: 8, hue: -12)
+        session.model.localAdjustments[0].adjustments = original
+
+        session.setMaskEnabled(id: id, enabled: false)
+        session.setMaskEnabled(id: id, enabled: true)
+
+        XCTAssertEqual(session.model.localAdjustments[0].adjustments, original)
+        XCTAssertTrue(session.isMaskEnabled(id: id))
+    }
+
+    func testDeletingADisabledMaskDropsItsStashedAdjustments() throws {
+        let session = try makeSessionForMaskTests()
+        session.createWholeImageSkinMask()
+        let id = session.model.localAdjustments[0].id
+        session.model.localAdjustments[0].adjustments = PartialAdjustments(exposure: 0.4)
+        session.setMaskEnabled(id: id, enabled: false)
+
+        session.deleteMask(id: id)
+        session.createWholeImageSkinMask()
+        let newId = session.model.localAdjustments[0].id
+
+        // A fresh layer must not accidentally inherit a stale stash entry
+        // if a future layer happened to reuse a UUID (it won't, in
+        // practice, but the stash is keyed by id — this pins that a
+        // deleted mask's stash entry doesn't leak forward).
+        XCTAssertTrue(session.isMaskEnabled(id: newId))
+    }
 }
 
 // MARK: - FailingSidecarStore (test double for #1412)

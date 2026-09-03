@@ -201,6 +201,18 @@ enum ToolGlyphShapes {
                 .roundedRect(x: 5.2, y: 2.8, width: 8, height: 8, radius: 2),
                 .roundedRect(x: 2.8, y: 5.2, width: 8, height: 8, radius: 2),
             ]
+        // A lasso loop with a trailing line — the freeform-selection glyph
+        // the disabled placeholder used before #3275 wired this tool up.
+        case .mask:
+            return [.path("M5 4C5 2.3 8 2.3 9.5 3.5C11.5 5 11 7.5 8.5 8C6.5 8.4 4.5 7.2 5 5.5L3 11")]
+        // A bandage strip with two gauze-pad lines. Heal (#1472) has no
+        // real surface yet — this glyph is drawn now purely so the switch
+        // stays exhaustive; it renders on a disabled/inert dock button.
+        case .heal:
+            return [
+                .roundedRect(x: 3, y: 5.5, width: 10, height: 5, radius: 2.5),
+                .path("M6 5.5v5M10 5.5v5"),
+            ]
         }
     }
 }
