@@ -238,6 +238,13 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   // string) is NOT a numeric field — it's serialized/parsed alongside
   // `papp:Profile` in `XmpSerializerService`/`XmpParserService` instead.
   numericField('papp:FilmStrength', 'filmStrength'),
+  // White-balance provenance detail (#2434). `papp:WbSource` is an enum
+  // attribute (xmp-enum-attrs.ts); the sample point and algorithm version
+  // are plain numerics, omitted at their zero defaults like every other
+  // papp: numeric.
+  numericField('papp:WbSampleX', 'wbSampleX'),
+  numericField('papp:WbSampleY', 'wbSampleY'),
+  numericField('papp:WbAlgorithmVersion', 'wbAlgorithmVersion'),
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */

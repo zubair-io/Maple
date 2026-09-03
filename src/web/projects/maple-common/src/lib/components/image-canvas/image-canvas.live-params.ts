@@ -60,6 +60,10 @@ const FAST_PATH_OR_SPECIAL_KEYS = new Set<keyof AdjustmentModel>([
   'crop',
   'localAdjustments',
   'wbScaleVersion',
+  'wbSource',
+  'wbSampleX',
+  'wbSampleY',
+  'wbAlgorithmVersion',
   'sharpenAmount',
   'nrColor',
 ]);

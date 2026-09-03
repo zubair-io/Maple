@@ -101,6 +101,9 @@ function pixelPipelineEnumParts(model: AdjustmentModel): string[] {
   if (model.wbMethod && model.wbMethod !== 'Cat16') {
     parts.push(`papp:WbMethod="${escapeXmpAttr(model.wbMethod)}"`);
   }
+  if (model.wbSource && model.wbSource !== 'AsShot') {
+    parts.push(`papp:WbSource="${escapeXmpAttr(model.wbSource)}"`);
+  }
   if (model.toneCurveMode && model.toneCurveMode !== 'PerChannel') {
     parts.push(`papp:ToneCurveMode="${escapeXmpAttr(model.toneCurveMode)}"`);
   }
