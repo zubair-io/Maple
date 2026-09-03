@@ -190,8 +190,13 @@ pub(crate) fn emit_swift(registry: &SupportRegistry, evidence: &Evidence) -> Str
     s.push_str(&format!(
         "    /// Camera bodies the bundled profile table covers. Each is at\n\
          \x20   /// least `.profiled`; the full list is in docs/camera-support.json.\n\
-         \x20   public static let bundledModelCount: Int = {}\n\n",
-        registry.bundled_models.len()
+         \x20   public static let bundledModelCount: Int = {}\n\
+         \x20   /// The profile data every tier here was computed against.\n\
+         \x20   public static let profileBundleFormat: UInt16 = {}\n\
+         \x20   public static let profileBundleDigest: String = \"{}\"\n\n",
+        registry.bundled_models.len(),
+        registry.profile_bundle_format,
+        registry.profile_bundle_digest,
     ));
     s.push_str("    /// Every body with a physical fixture — the only bodies that can\n");
     s.push_str("    /// ever reach `.qualified`.\n");
@@ -320,6 +325,15 @@ pub(crate) fn emit_ts(registry: &SupportRegistry, evidence: &Evidence) -> String
     s.push_str(&format!(
         "  bundledModelCount: {},\n",
         registry.bundled_models.len()
+    ));
+    s.push_str(&format!(
+        "  profileBundleFormat: {},\n",
+        registry.profile_bundle_format
+    ));
+    s.push_str(&ts_string_prop(
+        2,
+        "profileBundleDigest",
+        &registry.profile_bundle_digest,
     ));
     s.push_str("} as const;\n\n");
     s.push_str("/**\n");
