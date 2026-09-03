@@ -8,6 +8,7 @@
 // them straight through, so a Lightroom-authored curve reached the FFI with
 // knots up to 255× out of range.
 
+using System.Collections.Generic;
 using System.Linq;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services;
