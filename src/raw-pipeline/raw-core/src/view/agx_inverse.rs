@@ -9,14 +9,20 @@
 //!
 //! Forward reference (`view::agx::agx_pixel`):
 //!   inset = INSET·scene → n = max(inset) → sn = sigmoid_curve(n)
-//!   → sig = inset·(sn/n) → out = OUTSET·sig → oklab_gamut_compress(out)
+//!   → sig = inset·(sn/n) → sig' = sig + w(sn)·(sn − sig)   (#1624 path-to-white)
+//!   → out = OUTSET·sig' → oklab_gamut_compress(out)
+//! The path-to-white lerp leaves the max channel at `sn`, so `sn` is read
+//! straight off the inverted outset and the lerp inverts exactly:
+//! `sig = (sig' − w·sn) / (1 − w)` (with `AGX_P2W_AMOUNT < 1` or `sn < 1`
+//! the divisor is positive; at exactly `w = 1` the chroma was fully shed and
+//! the pixel inverts as the neutral it became).
 //! where `sigmoid_curve(x) = sample_lut(MID_NORM + (log_encode(x) - MID_NORM)·slope)`
 //! and `OUTSET = inv(INSET)`.
 
 use crate::color::matrices::M_REC2020_TO_SRGB;
 use crate::view::agx::{
-    lut, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV, AGX_OUTSET_MATRIX,
-    MID_NORM,
+    lut, path_to_white_weight, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY,
+    AGX_MIN_EV, AGX_OUTSET_MATRIX, MID_NORM,
 };
 
 /// Below this, the forward ratio-preserving sigmoid collapsed the pixel to a
@@ -67,12 +73,24 @@ fn inv_lut(y: f32) -> f32 {
 /// `oklab_gamut_compress` is treated as identity (it is for in-gamut pixels).
 pub fn inverse_agx_pixel(display: [f32; 3], slope: f32) -> [f32; 3] {
     // 1) Undo the outset matrix (inv(OUTSET) == INSET).
-    let sig = matrix_mul(&AGX_INSET_MATRIX, display);
-    // 2) Ratio-preserving forward => max channel of `sig` equals sigmoid(norm).
-    let sn = sig[0].max(sig[1]).max(sig[2]);
+    let sig_p2w = matrix_mul(&AGX_INSET_MATRIX, display);
+    // 2) Ratio-preserving forward => max channel of `sig` equals sigmoid(norm),
+    //    and the #1624 path-to-white lerp keeps that max fixed, so `sn` is
+    //    read off directly; then undo the lerp on the other channels.
+    let sn = sig_p2w[0].max(sig_p2w[1]).max(sig_p2w[2]);
     if sn <= RATIO_FLOOR {
         return [0.0, 0.0, 0.0];
     }
+    let w = path_to_white_weight(sn);
+    let sig = if w >= 1.0 {
+        [sn, sn, sn]
+    } else {
+        [
+            (sig_p2w[0] - w * sn) / (1.0 - w),
+            (sig_p2w[1] - w * sn) / (1.0 - w),
+            (sig_p2w[2] - w * sn) / (1.0 - w),
+        ]
+    };
     // 3) Reverse the sigmoid LUT, 4) undo the contrast slope, 5) undo log encode.
     let modulated = inv_lut(sn);
     let norm = (modulated - MID_NORM) / slope + MID_NORM;
@@ -170,6 +188,32 @@ mod tests {
                     back
                 );
             }
+        }
+    }
+
+    /// #1624: a bright saturated colour above the path-to-white knee (where
+    /// the forward lerp is active but not saturated) must still round-trip —
+    /// the inverse undoes the lerp exactly, not just the sigmoid.
+    #[test]
+    fn roundtrip_bright_saturated_colour_through_path_to_white() {
+        let scene = [3.0_f32, 0.9, 0.6];
+        let disp = forward(scene, 0.0);
+        // Precondition: the forward actually engaged the lerp (in-gamut,
+        // so the gamut compress is identity and the round trip is exact).
+        let sig = super::matrix_mul(&AGX_INSET_MATRIX, disp);
+        let sn = sig[0].max(sig[1]).max(sig[2]);
+        let w = path_to_white_weight(sn);
+        assert!(
+            w > 0.0 && w < 1.0,
+            "fixture must engage path-to-white: w={w}"
+        );
+        let back = inverse_agx_pixel(disp, 1.0);
+        for c in 0..3 {
+            let rel = (back[c] - scene[c]).abs() / scene[c];
+            assert!(
+                rel < 0.05,
+                "ch{c} rel err {rel} (back={back:?}, scene={scene:?})"
+            );
         }
     }
 
