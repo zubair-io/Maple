@@ -123,7 +123,7 @@
           [attr.aria-pressed]="commandMenuOpen()"
           [attr.aria-keyshortcuts]="keyshortcuts('commands.menu')"
           data-testid="editor-shell-commands"
-          (click)="commandMenuOpen() ? commandMenuOpen.set(false) : onCommandMenuOpen()"
+          (click)="onCommandMenuToggle()"
         >
           <maple-icon name="search-sliders" [size]="14" color="var(--pro-text-muted)" />
         </button>

@@ -111,8 +111,4 @@ export class ImageCanvasService {
   setPixelScale(v: number): void {
     this.pixelScale.set(Math.min(Math.max(v, 0), MAX_PIXEL_SCALE));
   }
-
-  applyPanDelta(dx: number, dy: number): void {
-    this.pan.update((p) => ({ x: p.x + dx, y: p.y + dy }));
-  }
 }

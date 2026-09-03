@@ -15,6 +15,7 @@
 // Shift+P both pick) and can be pinned by a chord that needs it.
 
 import type { ToolGroup } from '../../editor/tool-model';
+import type { MuiCommandItem } from '../../ui/command-menu/mui-command-menu.component';
 
 export interface KeyChord {
   /** `KeyboardEvent.key` value(s) that fire the chord. */
@@ -339,6 +340,15 @@ export function describeChord(chord: KeyChord): string {
   const key = typeof chord.key === 'string' ? chord.key : chord.key[0];
   const glyph = KEY_GLYPH[key] ?? (key.length === 1 ? key.toUpperCase() : key);
   return `${chord.meta ? '⌘' : ''}${chord.alt ? '⌥' : ''}${chord.shift ? '⇧' : ''}${glyph}`;
+}
+
+/** The command menu's rows: every listed command with its chord(s). */
+export function commandMenuItems(): readonly MuiCommandItem[] {
+  return EDITOR_COMMANDS.filter((c) => c.menu).map((c) => ({
+    id: c.id,
+    label: c.label,
+    shortcut: c.chords.map(describeChord).join(' · '),
+  }));
 }
 
 /** `aria-keyshortcuts` value for a command (WAI-ARIA key names, space-separated). */
