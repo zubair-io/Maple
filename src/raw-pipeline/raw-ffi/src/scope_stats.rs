@@ -17,7 +17,17 @@ pub struct MapleScopeStats {
     pub frame: u64,
     pub total: u32,
     pub _pad: u32,
-    pub bins: [u32; 128 * 128],
+    // 128 * 128 (Rec.709 Cb/Cr histogram bins) — written as the literal
+    // 16384, not the multiplication, because cbindgen can't resolve a
+    // computed array-length expression: it silently falls back to emitting
+    // this whole struct as an OPAQUE forward declaration in the generated
+    // C header (`typedef struct MapleScopeStats MapleScopeStats;`, no
+    // field body at all), which compiles fine on the Rust side but leaves
+    // every C/Swift caller unable to read a single field. Caught by
+    // actually regenerating the header and grepping for the struct body
+    // (#3277) — this is exactly the kind of divergence `cargo test` cannot
+    // see, since it never touches cbindgen's output.
+    pub bins: [u32; 16384],
 }
 
 /// Write `(frame, total, bins)` into `out` if non-null. A null `out` is the
