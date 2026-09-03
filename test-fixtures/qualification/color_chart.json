@@ -1,0 +1,14 @@
+{
+  "backend": "cpu-reference",
+  "command": "bash src/scripts/test_synthetic_color_chart.sh",
+  "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
+  "executed_cases": 7,
+  "expected_cases": 7,
+  "failed_cases": 0,
+  "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+  "pipeline_version": 2,
+  "recorded_at": "2026-09-03T03:54:06Z",
+  "schema_version": 5,
+  "skipped_cases": 0,
+  "source": "color_chart"
+}

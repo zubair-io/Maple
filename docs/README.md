@@ -4,12 +4,13 @@ Every document in this directory describes the code as it is in the tree today. 
 
 ## Start here
 
-| Doc                                    | Read it to…                                                                                                                               |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| [architecture.md](architecture.md)     | See every deploy unit, how the one Rust core reaches each of them, the data model, the two-phase render, and the codegen single-sourcing. |
-| [features.md](features.md)             | Know what the product does today, surface by surface, with a per-platform matrix of what ships where.                                     |
-| [best-practices.md](best-practices.md) | Match house style in Rust, Swift/SwiftUI, Angular, and the Bun API before you write code.                                                 |
-| [testing.md](testing.md)               | Run or add a gate: every CI workflow, every harness script, the colour budget ratchet, and the fixture setup.                             |
+| Doc                                              | Read it to…                                                                                                                               |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [architecture.md](architecture.md)               | See every deploy unit, how the one Rust core reaches each of them, the data model, the two-phase render, and the codegen single-sourcing. |
+| [features.md](features.md)                       | Know what the product does today, surface by surface, with a per-platform matrix of what ships where.                                     |
+| [best-practices.md](best-practices.md)           | Match house style in Rust, Swift/SwiftUI, Angular, and the Bun API before you write code.                                                 |
+| [testing.md](testing.md)                         | Run or add a gate: every CI workflow, every harness script, the colour budget ratchet, and the fixture setup.                             |
+| [capability-registry.md](capability-registry.md) | **Generated** — every editor capability's `core` / `integrated` / `released` state, computed from the qualification evidence on disk.     |
 
 ## Core and pipeline
 
