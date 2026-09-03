@@ -28,6 +28,11 @@
 #                                            qualification/) → Swift + TS +
 #                                            C# + markdown + JSON release
 #                                            summaries (#2430)
+#   - support-tiers (raw_core::support_tiers, judged against the same
+#                                            evidence records plus the
+#                                            bundled profile index) → Swift +
+#                                            TS + markdown + JSON camera /
+#                                            lens support summaries (#2440)
 #
 # Outputs:
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift
@@ -61,6 +66,10 @@
 #   - src/windows/Maple.WinUI/Generated/CapabilityRegistry.g.cs
 #   - docs/capability-registry.md
 #   - docs/capability-registry.json
+#   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CameraSupport+Generated.swift
+#   - src/web/projects/maple-common/src/lib/generated/camera-support.generated.ts
+#   - docs/camera-support.md
+#   - docs/camera-support.json
 #
 # The cbindgen step for the FFI header is handled by
 # `src/apple/scripts/build-xcframework.sh` as part of the xcframework build —
@@ -172,6 +181,24 @@ for target_out in "swift:$CAP_SWIFT_OUT" "ts:$CAP_TS_OUT" "cs:$CAP_CS_OUT" "md:$
     --evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
 done
 
+# --- Camera / lens support tiers (#2440) ----------------------------------
+# The fixture corpus is reviewed Rust; each body's Qualified / Profiled /
+# Matrix-only / Decode-only / Unsupported tier is computed here from the
+# profile resolver's fallback order plus the SAME evidence records the
+# capability registry reads. Losing a colour-harness record therefore
+# demotes camera tiers and capability states together, in the same drift
+# gate, rather than one of them going stale on its own.
+
+TIER_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CameraSupport+Generated.swift"
+TIER_TS_OUT="src/web/projects/maple-common/src/lib/generated/camera-support.generated.ts"
+TIER_MD_OUT="docs/camera-support.md"
+TIER_JSON_OUT="docs/camera-support.json"
+
+for target_out in "swift:$TIER_SWIFT_OUT" "ts:$TIER_TS_OUT" "md:$TIER_MD_OUT" "json:$TIER_JSON_OUT"; do
+  "$BIN" --schema support-tiers --target "${target_out%%:*}" \
+    --evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
+done
+
 echo "codegen.sh: outputs regenerated."
 echo "  - $SWIFT_OUT"
 echo "  - $TS_OUT"
@@ -191,3 +218,7 @@ echo "  - $CAP_TS_OUT"
 echo "  - $CAP_CS_OUT"
 echo "  - $CAP_MD_OUT"
 echo "  - $CAP_JSON_OUT"
+echo "  - $TIER_SWIFT_OUT"
+echo "  - $TIER_TS_OUT"
+echo "  - $TIER_MD_OUT"
+echo "  - $TIER_JSON_OUT"

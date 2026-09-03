@@ -1,5 +1,12 @@
 # Bundled-profile coverage
 
+> **The per-body support tier is generated, not written here.** `docs/camera-support.md`
+> (and `docs/camera-support.json`) carry the computed `qualified` / `profiled` /
+> `matrix-only` / `decode-only` / `unsupported` tier for every fixtured body plus the full
+> bundled-model list, emitted by `tools/codegen.sh` from
+> `raw-core/src/support_tiers/` (#2440). This document keeps what a generator cannot
+> derive: _why_ a body is missing from the bundle, and what would fix it.
+
 This document is the source of truth for which camera bodies the
 third-party-derived profile bundle (`profiles.bin`) covers, which
 bodies are known-missing, and which need a UCM-naming alias to hit.
