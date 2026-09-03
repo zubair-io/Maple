@@ -156,11 +156,14 @@ struct StackedAdjustmentsPanel: View {
 
     // MARK: - Special tools row
 
-    /// Crop and Presets exist as wired `Tool` cases.  Mask / Heal / Curve /
-    /// Optics are called out in the spec but have NO corresponding `Tool` case
-    /// yet — they are rendered as disabled placeholder buttons.  This comment
-    /// intentionally calls them out by name so future contributors know where
-    /// to wire them in when the cases land.
+    /// Crop, Presets and Mask (#3274) exist as wired `Tool` cases and need a
+    /// dedicated button here because arming their GROUP alone wouldn't
+    /// select them specifically (unlike Curve/Film/Lens Corrections, whose
+    /// group-scoped panels `groupSectionBody` below special-cases directly).
+    /// Heal / Optics are called out in the spec but have NO corresponding
+    /// `Tool`-level surface yet — rendered as disabled placeholder buttons.
+    /// This comment intentionally calls them out by name so future
+    /// contributors know where to wire them in when the surface lands.
     private var specialToolsRow: some View {
         HStack(spacing: 8) {
             // Crop — real Tool case, arms the crop overlay.
@@ -186,17 +189,18 @@ struct StackedAdjustmentsPanel: View {
             }
             .accessibilityIdentifier("editor-panel-tool-presets")
 
-            // --- Future special tools (no Tool case yet; disabled placeholders) ---
-            // Mask — gated on a future `Tool.mask` case (not yet in the enum).
+            // Mask — real Tool case since #3274, no primary field.
             SpecialToolButton(
-                icon: .symbol("lasso"),
+                icon: .tool(.mask),
                 label: "Mask",
-                isSelected: false,
-                isEnabled: false, // disabled: Tool.mask does not exist yet
-                action: {}
-            )
+                isSelected: state.armedTool == .mask,
+                isEnabled: true
+            ) {
+                state.arm(tool: .mask)
+            }
             .accessibilityIdentifier("editor-panel-tool-mask")
 
+            // --- Future special tools (no Tool case yet; disabled placeholders) ---
             // Heal — gated on a future `Tool.heal` case.
             SpecialToolButton(
                 icon: .symbol("bandage"),
@@ -293,6 +297,15 @@ struct StackedAdjustmentsPanel: View {
             // same custom-surface swap as Crop.
             if group == state.armedGroup && state.armedTool == .colorGrade {
                 ColorGradingPanel(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+            } else if group == state.armedGroup && state.armedTool == .mask {
+                // Mask's layer list + per-mask sliders (#3275) replace the
+                // Detail group's own slider stack the same way — none of
+                // Detail's other sliders (sharpen, crop, lens corrections,
+                // …) apply to a mask layer, so showing them alongside would
+                // be noise, not signal.
+                MaskPanel(state: state)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
             } else {
