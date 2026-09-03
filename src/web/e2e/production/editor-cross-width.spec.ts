@@ -178,10 +178,16 @@ async function focusedName(page: Page): Promise<string> {
   });
 }
 
-/** Names reached by Tab, in order, until `limit` presses or a repeat. */
+/** Names reached by Tab from the first top-bar action, in order, until
+ *  `limit` presses or the ring wraps back to it. */
 async function tabOrder(page: Page, limit: number): Promise<string[]> {
-  const seen: string[] = [];
-  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  // Walk the ring from a fixed anchor — the first top-bar action. Chrome
+  // resumes Tab from wherever focus last was, and neither a body click nor a
+  // blur reliably rewinds that to the top of the document, so without an
+  // anchor the SAME ring reads rotated depending on what ran before.
+  const anchor = TOP_BAR[0];
+  await page.getByRole('button', { name: anchor, exact: true }).focus();
+  const seen: string[] = [anchor];
   for (let i = 0; i < limit; i++) {
     await page.keyboard.press('Tab');
     const name = await focusedName(page);
@@ -225,6 +231,12 @@ for (const viewport of VIEWPORTS) {
       page,
     }, testInfo) => {
       await openEditor(page);
+      // One edit first: Undo is correctly disabled with an empty history, and
+      // a disabled control takes no focus — so the top bar only reads in full
+      // once there is something to undo.
+      await page.getByRole('slider', { name: 'Exposure' }).focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
       const order = await tabOrder(page, 60);
       // The top bar reads left → right.
       const topBar = TOP_BAR.map((name) => indexOf(order, name));
@@ -307,12 +319,18 @@ for (const viewport of VIEWPORTS) {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);
       expect(page.url()).toContain('/edit/');
-      // Navigate: Back returns to the Preview for this image; Edit re-enters.
+      // Navigate: Back returns to the Preview for this image; Edit re-enters,
+      // with the armed group (Color, above) still armed — so the sliders that
+      // come back are that group's, not Light's.
       await page.getByRole('button', { name: 'Back to Library', exact: true }).click();
       await expect(page).toHaveURL(/\/view\//);
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await expect(page).toHaveURL(/\/edit\//);
-      await expect(page.getByRole('slider', { name: 'Exposure' })).toBeVisible();
+      await expect(dock.getByRole('button', { name: 'Color', exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await expect(page.getByRole('slider', { name: 'Tint', exact: true })).toBeVisible();
       await recordGate(page, testInfo, viewport, 'screen-reader');
     });
 
