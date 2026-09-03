@@ -212,9 +212,9 @@ function emptyResponseDetail(
   ].join(', ');
 }
 
-/** Longest slice of an Ollama error body carried into `last_error`. Long
- * enough for every message Ollama emits today, short enough that a stray
- * HTML error page from a proxy can't bloat the asset row. */
+/** Longest detail (ellipsis included) carried from an Ollama error body
+ * into `last_error`. Long enough for every message Ollama emits today,
+ * short enough that a runaway body can't bloat the asset row. */
 const MAX_ERROR_DETAIL_CHARS = 240;
 
 /**
@@ -244,7 +244,7 @@ async function errorDetail(res: Response): Promise<string> {
   })();
   const detail = message.replace(/\s+/g, ' ').trim();
   return detail.length > MAX_ERROR_DETAIL_CHARS
-    ? `${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}…`
+    ? `${detail.slice(0, MAX_ERROR_DETAIL_CHARS - 1)}…`
     : detail;
 }
 
