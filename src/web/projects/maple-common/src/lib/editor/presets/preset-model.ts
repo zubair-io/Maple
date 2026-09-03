@@ -27,6 +27,7 @@ import {
   type Profile,
   type ToneCurveMode,
   type WbMethod,
+  type WbSource,
 } from '../../generated/adjustment-model.generated';
 // Ranges live in the sibling generated file (#2683 — split out to keep both
 // generated files well under the file-size budget as the schema grows), as
@@ -116,6 +117,9 @@ const allVariantsOf =
  */
 export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
   wb_method: allVariantsOf<WbMethod>()(['Cat16', 'DiagonalRec2020']),
+  // White-balance provenance (#2434) — copyable (a preset says "this look
+  // uses a preset white balance"); its sample point and version are not.
+  wb_source: allVariantsOf<WbSource>()(['AsShot', 'Auto', 'Preset', 'Sampled', 'Manual']),
   highlight_recovery: allVariantsOf<HighlightRecoveryMode>()([
     'Off',
     'Blend',
