@@ -342,6 +342,9 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             display_tone_curve_green_len,
             display_tone_curve_blue_ptr,
             display_tone_curve_blue_len,
+            scope_layer,
+            scope_enabled,
+            scope_out,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),
