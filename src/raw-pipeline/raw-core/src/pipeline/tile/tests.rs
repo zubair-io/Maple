@@ -402,3 +402,45 @@ fn render_scene_linear_tile_rejects_upscale() {
     );
     assert!(r_h.is_err(), "out_h > src_h must error");
 }
+
+/// #1157: `TileWindow` lives in the same buffer-coordinate space as
+/// `crop_to_default` — divide first, then subtract — so a half-res develop of
+/// a sensor with an odd DefaultCrop origin does not land the window one
+/// pixel off, and a crop that collapses after division is the whole frame.
+#[test]
+fn tile_window_mirrors_crop_to_default_coordinates() {
+    use super::region::TileWindow;
+    let mut raw = fake_raw(2048, 1536);
+    raw.crop_rect = Some(crate::image::CropRect {
+        x: 5,
+        y: 3,
+        w: 2000,
+        h: 1500,
+    });
+    // Full quality: origin is the padded crop's offset from the crop origin.
+    let w = TileWindow::for_padded_crop(&raw, 100, 60, 1);
+    assert_eq!(w.origin, (95, 57));
+    assert_eq!(w.full, (2000, 1500));
+    // Preview: `100/2 - 5/2 = 48`, not `(100 - 5)/2 = 47`.
+    let w = TileWindow::for_padded_crop(&raw, 100, 60, 2);
+    assert_eq!(w.origin, (48, 29));
+    assert_eq!(w.full, (1000, 750));
+    // A padded crop that starts before the crop origin is signed.
+    let w = TileWindow::for_padded_crop(&raw, 0, 0, 1);
+    assert_eq!(w.origin, (-5, -3));
+    // A crop that collapses after division is the whole (divided) frame.
+    raw.crop_rect = Some(crate::image::CropRect {
+        x: 7,
+        y: 7,
+        w: 1,
+        h: 1,
+    });
+    let w = TileWindow::for_padded_crop(&raw, 100, 60, 2);
+    assert_eq!(w.origin, (50, 30));
+    assert_eq!(w.full, (1024, 768));
+    // No crop: the sensor is the frame.
+    raw.crop_rect = None;
+    let w = TileWindow::for_padded_crop(&raw, 100, 60, 1);
+    assert_eq!(w.origin, (100, 60));
+    assert_eq!(w.full, (2048, 1536));
+}

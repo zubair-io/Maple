@@ -22,35 +22,36 @@ pub(super) struct TileWindow {
 
 impl TileWindow {
     /// Window for the padded mosaic crop at `(rx, ry)` developed at
-    /// `divisor` (2 for a half-res `Preview`, else 1). Mirrors
-    /// `crop_to_default`'s clamp + degenerate fallback so the frame agrees
-    /// with the whole-image develop of the same raw.
+    /// `divisor` (2 for a half-res `Preview`, else 1). Works in the same
+    /// buffer-coordinate space as `crop_to_default`: every sensor coordinate
+    /// is divided by the divisor FIRST (floor), the crop is clamped to the
+    /// divided buffer, and a crop that collapses to zero after division is
+    /// the whole frame — so the frame this window describes is exactly the
+    /// buffer the whole-image develop hands vignette and local adjustments.
     pub(super) fn for_padded_crop(
         raw: &crate::image::RawImage,
         rx: u32,
         ry: u32,
         divisor: u32,
     ) -> Self {
-        let (cx, cy, cw, ch) = match raw.crop_rect {
+        let qd = divisor.max(1);
+        let (buf_w, buf_h) = (raw.width / qd, raw.height / qd);
+        let (fx, fy, fw, fh) = match raw.crop_rect {
             Some(c) => {
-                let cw = c.w.min(raw.width.saturating_sub(c.x));
-                let ch = c.h.min(raw.height.saturating_sub(c.y));
+                let (cx, cy) = (c.x / qd, c.y / qd);
+                let cw = (c.w / qd).min(buf_w.saturating_sub(cx));
+                let ch = (c.h / qd).min(buf_h.saturating_sub(cy));
                 if cw == 0 || ch == 0 {
-                    (0, 0, raw.width, raw.height)
+                    (0, 0, buf_w, buf_h)
                 } else {
-                    (c.x, c.y, cw, ch)
+                    (cx, cy, cw, ch)
                 }
             }
-            None => (0, 0, raw.width, raw.height),
+            None => (0, 0, buf_w, buf_h),
         };
-        let d = divisor.max(1) as i64;
-        let origin = (
-            ((rx as i64 - cx as i64) / d) as i32,
-            ((ry as i64 - cy as i64) / d) as i32,
-        );
         TileWindow {
-            origin,
-            full: ((cw / divisor.max(1)).max(1), (ch / divisor.max(1)).max(1)),
+            origin: ((rx / qd) as i32 - fx as i32, (ry / qd) as i32 - fy as i32),
+            full: (fw.max(1), fh.max(1)),
         }
     }
 }
