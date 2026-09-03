@@ -143,6 +143,10 @@
   />
 }
 
+<!-- Batch adjustment transfer progress / summary (#2436). Self-gating: the
+     banner renders nothing unless a run is in flight or one has finished. -->
+<app-batch-sync-banner (retryFailed)="onRetryFailedBatch()" />
+
 @if (dragMove.resultSummary(); as summary) {
   <app-drag-move-summary-banner [summary]="summary" (dismiss)="onDismissDragMoveSummary()" />
 }
