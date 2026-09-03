@@ -45,6 +45,9 @@ extension EditSession {
     /// method never reached the store at all. Reviewed in #2556 for the
     /// same reason.
     public func flushPendingSidecarWrite() async {
+        // A flush is a commit boundary (#2432): close the open transaction
+        // so the sidecar describes a recorded action, not a half-gesture.
+        endEdit()
         guard let store = sidecarStore else { return }
         await store.flush()
     }

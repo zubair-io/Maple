@@ -197,7 +197,8 @@ public final class EditorState {
     /// moment B&W engages, so nothing should remain armed on a tool the
     /// pill row no longer shows.
     public func setBlackWhite(_ mode: BlackWhiteMode) {
-        commit()
+        commit(description: mode == .on ? "Black & White on" : "Black & White off")
+        defer { session.endEdit() }
         // Read the armed tool BEFORE the model moves: once `blackWhite`
         // is `.on`, `armedTool` normalises `.hsl` away on its own, so the
         // test below would never fire and the storage would keep pointing
@@ -343,8 +344,12 @@ public final class EditorState {
         let deferred = deferredDisplayValue
         gestureActive = false
         deferredDisplayValue = nil
-        guard let deferred else { return }
-        setArmedDisplayValue(deferred)
+        if let deferred {
+            setArmedDisplayValue(deferred)
+        }
+        // The gesture's release is the transaction's commit boundary
+        // (#2432): the drag bar's touch-down `commit()` opened it.
+        session.endEdit()
     }
 
     /// Abandon a gesture without committing its parked value (the armed
@@ -418,11 +423,13 @@ public final class EditorState {
         }
     }
 
-    /// Snapshot the current model for undo. Call on slider release /
-    /// keyboard shortcut / preset apply (per spec §4 "Undo commit
-    /// boundaries").
-    public func commit() {
-        session.beginEdit()
+    /// Open the edit transaction for a user action (#2432). Call at the
+    /// START of a gesture / keyboard shortcut / discrete edit (per spec §4
+    /// "Undo commit boundaries"); `endGesture()` or `session.endEdit()`
+    /// closes it. The default description names the armed tool so the
+    /// accessibility announcement says what moved.
+    public func commit(kind: EditTransaction.Kind = .adjustment, description: String? = nil) {
+        session.beginEdit(kind: kind, description: description ?? armedTool.displayName)
     }
 
     // MARK: Undo / redo / reset
@@ -446,12 +453,13 @@ public final class EditorState {
         // A reset is an explicit, discrete edit — it always writes through,
         // even for a commit-on-release sub-param (#1153).
         cancelGesture()
-        commit()
+        commit(kind: .reset, description: "Reset \(armedTool.displayName)")
         if let sub = armedSubParam {
             setArmedDisplayValue(sub.defaultDisplayValue)
         } else {
             setArmedDisplayValue(ToolValueMapping.defaultDisplayValue(for: armedTool))
         }
+        session.endEdit()
     }
 
     /// Reset every tool in `group` to its canonical default as a SINGLE
@@ -469,7 +477,8 @@ public final class EditorState {
     public func resetGroup(_ group: ToolGroup) {
         let tools = Tool.tools(in: group).filter(\.isWired)
         guard !tools.isEmpty else { return }
-        commit()
+        commit(kind: .reset, description: "Reset \(group.displayName)")
+        defer { session.endEdit() }
         for tool in tools {
             if ToolValueMapping.displayRange(for: tool) != nil {
                 ToolValueMapping.apply(
@@ -525,8 +534,9 @@ public final class EditorState {
             session.model, applying: preset.fields
         )
         guard applied > 0 else { return false }
-        commit()
+        commit(kind: .preset, description: "Apply preset \(preset.name)")
         session.model = merged
+        session.endEdit()
         return true
     }
 

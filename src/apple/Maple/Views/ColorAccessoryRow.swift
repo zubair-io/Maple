@@ -75,9 +75,10 @@ struct ColorAccessoryRow: View {
             if let cct = session.asShotCCT, let tint = session.asShotTint {
                 Spacer(minLength: 0)
                 Button("As Shot") {
-                    session.beginEdit()
+                    session.beginEdit(description: "As Shot white balance")
                     session.model.temperature = cct
                     session.model.tint = tint
+                    session.endEdit()
                 }
                 .font(.system(size: compactStyle ? 10 : 11, weight: compactStyle ? .medium : .regular))
                 .buttonStyle(.borderless)
