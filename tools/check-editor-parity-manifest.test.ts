@@ -75,7 +75,11 @@ const FEATURES_MD = `
 | AUTO                               | no UI  | yes               | yes          | yes     | no       |
 | Export                             | yes (+HEIC, no resize) | yes | yes        | yes     | no       |
 
-Trailing prose.
+Trailing prose, then an unrelated table that must NOT leak into the matrix:
+
+| Feature | Apple | Web (Self Hosted) | Web (Hosted) |
+| ------- | ----- | ----------------- | ------------ |
+| Leak    | no    | no                | no           |
 `;
 
 const BLOCKS = {
@@ -207,6 +211,7 @@ describe('parsers', () => {
     expect(matrix.get('AUTO')).toEqual({ apple: 'no UI', webSelfHosted: 'yes', webHosted: 'yes' });
     expect(matrix.get('Export')?.apple).toBe('yes (+HEIC, no resize)');
     expect(matrix.has('Thing')).toBe(false);
+    expect(matrix.has('Leak')).toBe(false);
   });
 
   it('maps matrix cells onto reachability', () => {
@@ -254,6 +259,23 @@ describe('checkManifest', () => {
     const rows = replace('tool.contrast', { reachability: { apple: 'released', web: 'absent' } });
     expect(checkManifest(inputs(rows))).toContain(
       'tool.contrast: apple=released web=absent differ with no documented exception',
+    );
+  });
+
+  it('fails an exception that names the wrong side', () => {
+    const rows = replace('shell.auto', {
+      exception: { platform: 'web', rationale: 'swapped', ticket: '#3249' },
+    });
+    expect(checkManifest(inputs(rows))).toContain(
+      "shell.auto: exception.platform is 'web' but reachability is apple=absent web=released — " +
+        'name the side that lacks the capability',
+    );
+    const both = replace('tool.captureSharpen', {
+      exception: { platform: 'both', rationale: 'x', ticket: null },
+    });
+    expect(checkManifest(inputs(both))).toContain(
+      "tool.captureSharpen: exception.platform is 'both' but reachability is apple=released " +
+        'web=absent — name the side that lacks the capability',
     );
   });
 

@@ -67,11 +67,17 @@ export function isSchemaField(field: string): field is SchemaField {
 export function fieldMetadata(field: SchemaField): ToolMetadata {
   const range = ADJUSTMENT_RANGES[field];
   const raw = GENERATED_DEFAULTS[field as keyof typeof GENERATED_DEFAULTS];
+  // Every range-carrying field has a numeric generated default; anything
+  // else is a broken codegen import, and a silent `0` here would become a
+  // wrong reset target (Temp 6500, Sharpen 40, …) — fail loudly instead.
+  if (typeof raw !== 'number') {
+    throw new Error(`tool-metadata: generated default for '${field}' is not a number`);
+  }
   const step = stepForRange(range);
   return {
     field,
     range,
-    defaultValue: typeof raw === 'number' ? raw : 0,
+    defaultValue: raw,
     step,
     decimals: decimalsForStep(step),
     copyGroup: copyGroupForField(field),
