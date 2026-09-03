@@ -24,6 +24,8 @@ import type {
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
+import { dispatchSampleWb } from './raw-pipeline.sample-wb-request';
+import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
 import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 import { developNonRaw } from './raw-pipeline.non-raw-develop';
 import {
@@ -394,6 +396,62 @@ export class RawPipelineService implements OnDestroy {
       ext,
       xmp,
     );
+  }
+
+  // ── Neutral white-balance sampler (#2434) ───────────────────────────────────
+
+  /**
+   * Sample the neutral at a normalised image-relative point and return the
+   * slider pair that renders that surface neutral, plus the version of the
+   * derivation (`wb_algorithm_version`).
+   *
+   * Rejects with a `WbSampleRejected` carrying the reason the click was not
+   * usable (clipped, too dark, outside the image, outside the slider domain)
+   * so the caller can phrase an actionable message rather than a generic
+   * failure. Shares `decodeChain` with `decode()` and the auto-adjust
+   * one-shot: the sampler decodes and develops the same probe AUTO does, so
+   * two of them must not sit in the WASM heap at once.
+   *
+   * @param bytes RAW file bytes (copied; the caller's view is not consumed).
+   * @param ext   Lowercase file extension, e.g. `"dng"`.
+   * @param xmp   Current XMP sidecar text, or `undefined` for a fresh open.
+   * @param nx    Normalised x, `0` = left edge, `1` = right edge.
+   * @param ny    Normalised y, `0` = top edge, `1` = bottom edge.
+   */
+  sampleWhiteBalance(
+    bytes: Uint8Array,
+    ext: string,
+    xmp: string | undefined,
+    nx: number,
+    ny: number,
+  ): Promise<WbSampleResult> {
+    const run = () => this.sampleWhiteBalanceOnce(bytes, ext, xmp, nx, ny);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private sampleWhiteBalanceOnce(
+    bytes: Uint8Array,
+    ext: string,
+    xmp: string | undefined,
+    nx: number,
+    ny: number,
+  ): Promise<WbSampleResult> {
+    try {
+      return dispatchSampleWb(
+        this.ensureWorker(),
+        this.nextId++,
+        this.pending.set.bind(this.pending),
+        bytes,
+        ext,
+        xmp,
+        nx,
+        ny,
+      );
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
   }
 
   /**

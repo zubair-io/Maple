@@ -76,6 +76,10 @@
        active`). The canvas renders the masked result live. -->
   <editor-mask-overlay></editor-mask-overlay>
 
+  <!-- White-balance eyedropper pick target (#2434). Click-through until the
+       WB pad arms it, so it never intercepts a pan or a crop drag. -->
+  <editor-wb-pick-overlay></editor-wb-pick-overlay>
+
   <!-- Before/after divider -->
   @if (canvasSvc.showBeforeAfter()) {
     <div
