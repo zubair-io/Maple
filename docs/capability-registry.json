@@ -796,9 +796,9 @@
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
-        "recorded_at": "2026-09-03T04:10:26Z",
-        "command": "bash -c cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract"
+        "git_sha": "8c5383fec833882e07e43e91ae2413195601c6f8",
+        "recorded_at": "2026-09-03T20:50:05Z",
+        "command": "bash -c cd\\ src/apple/Packages/MapleCore\\ \\&\\&\\ swift\\ test\\ --filter\\ SidecarTransactionContract"
       }
     },
     {
@@ -819,9 +819,9 @@
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
-        "recorded_at": "2026-09-03T04:01:14Z",
-        "command": "bash -c cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts"
+        "git_sha": "8c5383fec833882e07e43e91ae2413195601c6f8",
+        "recorded_at": "2026-09-03T20:49:12Z",
+        "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts"
       }
     },
     {
