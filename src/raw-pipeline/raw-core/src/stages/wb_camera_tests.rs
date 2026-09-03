@@ -23,6 +23,7 @@ fn test_frame(scene_cct: f32, cm: [[f32; 3]; 3]) -> SliderFrame {
         endpoints: None,
         cm_as_shot: Matrix3(cm),
         scene_cct,
+        scene_tint: 0.0,
         render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     }
 }
@@ -311,13 +312,18 @@ fn resolve_target_passes_through_named_preset() {
     assert_eq!(tint, 0.0);
 }
 
-/// `resolve_target` must zero tint for a temperature-only Custom WB
-/// (`temperature_seen` set, `tint_seen` NOT set) — ACR's "absent tint"
-/// convention, matching `white_balance::resolve_wb`'s row for the same
-/// shape.
+/// `resolve_target` must keep the image's own as-shot tint for a
+/// temperature-only Custom WB (`temperature_seen` set, `tint_seen` NOT
+/// set) — #2321: the unauthored half anchors on the frame's as-shot point,
+/// never on `model.tint` (still the numeric default) and never on the
+/// literal on-locus 0 that made a temperature nudge off as-shot a step of
+/// the whole off-locus gap.
 #[test]
-fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
-    let frame = test_frame(5500.0, CANON_5D3_D65_CM);
+fn resolve_target_keeps_as_shot_tint_for_temperature_only_custom_wb() {
+    let frame = SliderFrame {
+        scene_tint: -17.0,
+        ..test_frame(5500.0, CANON_5D3_D65_CM)
+    };
     let model = crate::xmp::AdjustmentModel {
         temperature: 3200.0,
         tint: 42.0, // must be ignored: tint_seen is false
@@ -328,9 +334,30 @@ fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
     let (t, tint) = resolve_target(&model, &frame);
     assert_eq!(t, 3200.0);
     assert_eq!(
-        tint, 0.0,
-        "tint must zero when temperature_seen && !tint_seen"
+        tint, -17.0,
+        "temperature-only Custom WB must keep the frame's as-shot tint"
     );
+}
+
+/// Mirror row (#2321): a tint-only Custom WB (`tint_seen` set,
+/// `temperature_seen` NOT set) keeps the image's own as-shot CCT, not the
+/// literal `AdjustmentModel::default()` 6500 K still sitting in
+/// `model.temperature`.
+#[test]
+fn resolve_target_keeps_as_shot_cct_for_tint_only_custom_wb() {
+    let frame = test_frame(3200.0, CANON_5D3_D65_CM);
+    let model = crate::xmp::AdjustmentModel {
+        tint: 10.0,
+        tint_seen: true,
+        temperature_seen: false,
+        ..crate::xmp::AdjustmentModel::default()
+    };
+    let (t, tint) = resolve_target(&model, &frame);
+    assert_eq!(
+        t, 3200.0,
+        "tint-only Custom WB must keep the frame's as-shot CCT, not 6500 K"
+    );
+    assert_eq!(tint, 10.0);
 }
 
 /// `resolve_target` must substitute the profile's own as-shot reference
@@ -341,7 +368,10 @@ fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
 /// for the full rationale.
 #[test]
 fn resolve_target_seeds_as_shot_from_profile_scene_cct() {
-    let frame = test_frame(5508.0, CANON_5D3_D65_CM);
+    let frame = SliderFrame {
+        scene_tint: 9.0,
+        ..test_frame(5508.0, CANON_5D3_D65_CM)
+    };
     let model = crate::xmp::AdjustmentModel::default();
     assert_eq!(model.temperature, 6500.0, "precondition: literal default");
     assert_eq!(model.tint, 0.0, "precondition: literal default");
@@ -352,7 +382,10 @@ fn resolve_target_seeds_as_shot_from_profile_scene_cct() {
         t, 5508.0,
         "As-Shot model must resolve to the profile's own scene_cct, not 6500K"
     );
-    assert_eq!(tint, 0.0);
+    assert_eq!(
+        tint, 9.0,
+        "As-Shot model must resolve to the frame's own as-shot tint (#2321)"
+    );
 }
 
 /// An explicit Custom WB dialed to exactly `(6500.0, 0.0)` — both `_seen`

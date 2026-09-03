@@ -54,6 +54,7 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
             scene_cct,
         ),
         scene_cct,
+        scene_tint: 0.0,
         render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     };
 
@@ -64,6 +65,7 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         endpoints: None,
         cm_as_shot: m_cold,
         scene_cct,
+        scene_tint: 0.0,
         render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     };
     let g_dual = camera_wb_gain(&dual, as_shot_neutral, 2000.0, 0.0);
@@ -79,6 +81,7 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         endpoints: None,
         cm_as_shot: dual.cm_as_shot,
         scene_cct,
+        scene_tint: 0.0,
         render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     };
     let g_fixed = camera_wb_gain(&fixed, as_shot_neutral, 2000.0, 0.0);
@@ -141,6 +144,7 @@ fn retargeted_render_profile_is_identity_at_frame_as_shot() {
         endpoints: None,
         cm_as_shot: m_warm,
         scene_cct: 4800.0,
+        scene_tint: 0.0,
         render_cm: m_warm,
     };
 
