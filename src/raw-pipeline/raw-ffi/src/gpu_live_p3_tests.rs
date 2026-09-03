@@ -160,6 +160,8 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             // is always empty — matches `mask_registry::layers_and_rasters_from_flat`
             // exactly for a stack with no `Mask::Bitmap` layers.
             mask_rasters: Vec::new(),
+            // This P3-marshalling test doesn't exercise the scope pass.
+            scope: raw_gpu::ScopeRequest::default(),
             vignette_amount: model.vignette_amount,
             vignette_feather: model.vignette_feather,
             grain_amount: model.grain_amount,

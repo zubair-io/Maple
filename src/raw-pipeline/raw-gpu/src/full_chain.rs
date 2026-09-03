@@ -109,6 +109,25 @@ use crate::white_balance::WhiteBalancePass;
 /// a self-contained Vec the caller borrows into `&dyn Pass` at run time.
 pub type BoxedPasses<'a> = Vec<Box<dyn Pass + 'a>>;
 
+/// Which local-adjustment layer's weight the chain should expose to the scope
+/// pass through the alpha lane, and whether the scope pass runs at all
+/// (#3272, spec §4). `layer = -1` means none — alpha stays at the upload's
+/// 1.0, so the scope weighs the whole frame rather than one mask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScopeRequest {
+    pub layer: i32,
+    pub enabled: bool,
+}
+
+impl Default for ScopeRequest {
+    fn default() -> Self {
+        Self {
+            layer: -1,
+            enabled: false,
+        }
+    }
+}
+
 /// The slider + per-image inputs that drive the full chain. One value per GPU
 /// stage, sourced from the same place the CPU oracle reads — so the GPU Vec and
 /// the CPU reference can never disagree on *what* each stage does (only on the
@@ -271,6 +290,11 @@ pub struct FullChainInputs<'a> {
     /// correction. Appended at the struct tail per the append-only
     /// convention.
     pub mask_rasters: Vec<GpuMaskRaster>,
+    /// The vectorscope scope pass request (#3272). `ScopeRequest::default()`
+    /// (disabled) omits the pass entirely — see [`build_live_chain`] /
+    /// [`build_full_chain_passes`]. Appended at the struct tail per the
+    /// append-only convention.
+    pub scope: ScopeRequest,
 }
 
 /// How the GPU-resident image was produced. Drives which leading stages the live
@@ -414,11 +438,11 @@ pub fn build_split<'a>(
     // composition builder: `LocalAdjustmentsPass` needs a non-empty storage
     // buffer to bind, and an empty stack is a true no-op in raw-core too, so
     // there is no "always push it" form to compose.
-    if local_adjustments_are_active(&inputs.local_adjustments) {
-        suffix.push(Box::new(LocalAdjustmentsPass::new(
-            &inputs.local_adjustments,
-            &inputs.mask_rasters,
-        )));
+    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
+        suffix.push(Box::new(
+            LocalAdjustmentsPass::new(&inputs.local_adjustments, &inputs.mask_rasters)
+                .with_scope_layer(inputs.scope.layer),
+        ));
     }
     // Vignette (#1109) — develop's 12c position: after local_adjustments,
     // before sharpen.

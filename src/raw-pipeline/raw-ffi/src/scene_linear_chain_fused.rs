@@ -44,6 +44,7 @@ use crate::error::set_last_error;
 use crate::scene_linear_chain::{
     maple_apply_scene_linear_chain_f32, maple_encode_display_f32, MapleAdjustmentParams,
 };
+use crate::MapleScopeStats;
 
 /// Shared body for both fused entries below. `target_primaries` is the
 /// encode stage's target (`0` = sRGB, `1` = Display P3) — see the module
@@ -225,4 +226,127 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_f32(
         target_primaries,
         out_ptr,
     )
+}
+
+/// The CPU-fallback twin of the GPU live chain's scope pass (#3272, spec
+/// §4/§5.4): run the per-tick chain + sRGB display encode exactly like
+/// [`maple_apply_chain_and_encode_display_f32`], additionally recording one
+/// local-adjustment layer's per-pixel weight and histogramming the ENCODED
+/// output by it — for a host whose live canvas runs on the CPU chain rather
+/// than wgpu (no GPU, or GPU init failed).
+///
+/// Does NOT delegate through [`apply_chain_and_encode_inner`] the way the two
+/// entries above do: that helper calls the EXISTING chain/encode FFI symbols
+/// verbatim, neither of which has a weights channel to thread through. This
+/// entry instead calls straight through to
+/// [`raw_core::pipeline::apply_scene_linear_chain_f32_scoped`] and
+/// `maple_encode_display_f32` — the same two underlying operations, just not
+/// wrapped a second time — so it stays sourced from the identical chain +
+/// encode math, not a re-implementation of either.
+///
+/// `scope_layer < 0`, or `>= model.local_adjustments.len()`, weighs the
+/// whole frame (matches [`raw_gpu::ScopeRequest`]'s `layer: -1` convention,
+/// and `apply_scene_linear_chain_f32_scoped`'s own out-of-range tolerance).
+/// `scope_out` null skips writing stats — mirrors `maple_gpu_live_render`'s
+/// optional-output-pointer contract. The written `frame` is always `1`: this
+/// path is synchronous (no async GPU readback to be "one tick late" about),
+/// so a caller only needs to know a sample landed.
+///
+/// Otherwise identical contract to [`maple_apply_chain_and_encode_display_f32`]
+/// (sRGB target only — a P3-target scoped sibling is not needed today, so it
+/// is not built; `in_ptr`/`out_ptr` sized `4 * width * height` f32 lanes, may
+/// alias).
+///
+/// # Safety
+/// `in_ptr` / `params` / `out_ptr` must be valid for the documented reads (or
+/// null, checked below); `scope_out` valid for the duration of the call, or
+/// null.
+#[no_mangle]
+pub unsafe extern "C" fn maple_apply_chain_and_encode_display_scoped_f32(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    scope_layer: i32,
+    scope_out: *mut MapleScopeStats,
+    out_ptr: *mut f32,
+) -> i32 {
+    let context = "apply_chain_and_encode_display_scoped_f32";
+    if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
+        set_last_error(format!("{context}: null pointer"));
+        return 1;
+    }
+    if width == 0 || height == 0 {
+        set_last_error(format!(
+            "{context}: zero dimension width={width} height={height}"
+        ));
+        return 2;
+    }
+    let lanes = match (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|p| p.checked_mul(4))
+    {
+        Some(n) => n,
+        None => {
+            set_last_error(format!(
+                "{context}: pixel-count overflow width={width} height={height}"
+            ));
+            return 3;
+        }
+    };
+    let p = &*params;
+    let ci = crate::scene_linear_chain::chain_inputs_from_params(p);
+    let opts = ci.options(p.skip_agx != 0);
+    let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
+    let scope_target = if scope_layer >= 0 {
+        Some(scope_layer as usize)
+    } else {
+        None
+    };
+    let (chain_out, weights) = match raw_core::pipeline::apply_scene_linear_chain_f32_scoped(
+        in_slice,
+        width,
+        height,
+        &ci.model,
+        &opts,
+        scope_target,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            set_last_error(format!("{context}: {e}"));
+            return 8;
+        }
+    };
+    if chain_out.len() != lanes {
+        set_last_error(format!(
+            "{context}: chain returned {} lanes, expected {lanes}",
+            chain_out.len()
+        ));
+        return 9;
+    }
+
+    // Encode (sRGB target) directly into the caller's output buffer — same
+    // symbol the unscoped fused entries call.
+    let rc = maple_encode_display_f32(chain_out.as_ptr(), width, height, 0, out_ptr);
+    if rc != 0 {
+        return rc;
+    }
+
+    if !scope_out.is_null() {
+        // SAFETY: rc == 0 means `maple_encode_display_f32` wrote all `lanes`
+        // lanes to `out_ptr` (that entry's own contract; unaffected by this
+        // caller).
+        let encoded = std::slice::from_raw_parts(out_ptr, lanes);
+        let mut img = raw_core::image::Image::new(
+            width,
+            height,
+            raw_core::image::ColorSpace::DisplayEncodedSrgb,
+        );
+        for (i, chunk) in encoded.chunks_exact(4).enumerate() {
+            img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
+        }
+        let hist = raw_core::scope::vectorscope_histogram(&img, weights.as_deref());
+        crate::scope_stats::write_stats(scope_out, 1, hist.total, &hist.bins);
+    }
+    0
 }

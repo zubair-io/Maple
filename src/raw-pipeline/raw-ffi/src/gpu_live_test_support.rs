@@ -281,5 +281,10 @@ pub(super) fn make_params(
         display_tone_curve_green_len: arr.display_green.len(),
         display_tone_curve_blue_ptr: arr.display_blue.as_ptr(),
         display_tone_curve_blue_len: arr.display_blue.len(),
+        // Vectorscope scope pass (#3272) — off by default; `gpu_live_scope_tests.rs`
+        // overrides these on the returned struct, same pattern film look uses above.
+        scope_layer: -1,
+        scope_enabled: 0,
+        scope_out: std::ptr::null_mut(),
     }
 }

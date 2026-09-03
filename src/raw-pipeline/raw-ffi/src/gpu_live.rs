@@ -278,3 +278,9 @@ mod gpu_live_wb_seam_tests;
 #[cfg(test)]
 #[path = "gpu_live_film_tests.rs"]
 mod gpu_live_film_tests;
+// The vectorscope scope-pass FFI round trip (#3272) — split out per the
+// 600-LOC budget; reuses `gpu_live_tests`' `pub(super)` helpers the same way
+// the other siblings above do.
+#[cfg(test)]
+#[path = "gpu_live_scope_tests.rs"]
+mod gpu_live_scope_tests;

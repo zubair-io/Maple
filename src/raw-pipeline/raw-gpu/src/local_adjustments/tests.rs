@@ -251,37 +251,28 @@ fn wgsl_local_adjustments_match_raw_core_per_control_within_1e_4() {
             "radial-invert/exposure",
             radial(0.5, true, only(|a| a.exposure = Some(1.0))),
         ),
-        (
-            "hue+/linear",
-            linear(0.5, only(|a| a.hue = Some(100.0))),
-        ),
+        ("hue+/linear", linear(0.5, only(|a| a.hue = Some(100.0)))),
         (
             "hue-/radial-invert",
             radial(0.4, true, only(|a| a.hue = Some(-65.0))),
         ),
-        (
-            "range-skin+exposure/radial",
-            {
-                let mut l = radial(0.5, false, only(|a| a.exposure = Some(1.5)));
-                l.range = Some(raw_core::types::SKIN_TONE_RANGE);
-                l
-            },
-        ),
-        (
-            "range-blue-band+hue/linear",
-            {
-                let mut l = linear(0.5, only(|a| a.hue = Some(60.0)));
-                l.range = Some(raw_core::types::RangeRefinement::Color {
-                    hue_deg: 250.0,
-                    hue_half_width_deg: 40.0,
-                    chroma_min: 0.02,
-                    l_min: 0.05,
-                    l_max: 0.98,
-                    feather: 0.6,
-                });
-                l
-            },
-        ),
+        ("range-skin+exposure/radial", {
+            let mut l = radial(0.5, false, only(|a| a.exposure = Some(1.5)));
+            l.range = Some(raw_core::types::SKIN_TONE_RANGE);
+            l
+        }),
+        ("range-blue-band+hue/linear", {
+            let mut l = linear(0.5, only(|a| a.hue = Some(60.0)));
+            l.range = Some(raw_core::types::RangeRefinement::Color {
+                hue_deg: 250.0,
+                hue_half_width_deg: 40.0,
+                chroma_min: 0.02,
+                l_min: 0.05,
+                l_max: 0.98,
+                feather: 0.6,
+            });
+            l
+        }),
     ];
 
     for (name, layer) in cases {
@@ -468,17 +459,37 @@ fn transcribed_cat16_constants_match_raw_core() {
 
 /// The inclusion predicate agrees with raw-core's guards: an empty stack and a
 /// stack of control-free layers are both no-ops; one real control engages it.
+/// `-1` (no scope target) throughout — the scope-aware cases are their own
+/// test below.
 #[test]
 fn activity_predicate_matches_the_raw_core_guards() {
-    assert!(!local_adjustments_are_active(&[]));
-    assert!(!local_adjustments_are_active(&layers_to_flat(&[linear(
-        0.5,
-        PartialAdjustments::default()
-    )])));
-    assert!(local_adjustments_are_active(&layers_to_flat(&[
-        linear(0.5, PartialAdjustments::default()),
-        radial(0.5, false, only(|a| a.exposure = Some(0.1))),
-    ])));
+    assert!(!local_adjustments_are_active(&[], -1));
+    assert!(!local_adjustments_are_active(
+        &layers_to_flat(&[linear(0.5, PartialAdjustments::default())]),
+        -1
+    ));
+    assert!(local_adjustments_are_active(
+        &layers_to_flat(&[
+            linear(0.5, PartialAdjustments::default()),
+            radial(0.5, false, only(|a| a.exposure = Some(0.1))),
+        ]),
+        -1
+    ));
+}
+
+/// An in-range scope target keeps an otherwise control-free stack active
+/// (#3272) — the pass still needs to run to write that layer's weight into
+/// alpha, even though every colour lane stays untouched. Out of range (no
+/// such layer) behaves exactly like no target.
+#[test]
+fn activity_predicate_scope_target_keeps_a_control_free_stack_active() {
+    let flat = layers_to_flat(&[linear(0.5, PartialAdjustments::default())]);
+    assert!(!local_adjustments_are_active(&flat, -1));
+    assert!(local_adjustments_are_active(&flat, 0));
+    assert!(
+        !local_adjustments_are_active(&flat, 1),
+        "index 1 doesn't name a real layer in a 1-layer stack"
+    );
 }
 
 /// A truncated wire must render its valid prefix, not panic. The stack crosses

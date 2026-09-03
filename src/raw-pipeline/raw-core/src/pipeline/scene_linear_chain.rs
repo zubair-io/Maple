@@ -388,6 +388,41 @@ pub fn apply_scene_linear_chain_f32(
     model: &AdjustmentModel,
     opts: &ChainOptions<'_>,
 ) -> Result<Vec<f32>> {
+    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, None)
+        .map(|(out, _weights)| out)
+}
+
+/// [`apply_scene_linear_chain_f32`], additionally recording one
+/// local-adjustment layer's per-pixel weight (#3272, spec §4/§5.4) — the CPU
+/// twin of [`crate::stages::local_adjustments::apply_with_scope`], for hosts
+/// driving the scope pass off the CPU fallback. `scope_layer` has the
+/// identical contract: `None`, or an out-of-range index, records nothing
+/// (`Ok((out, None))`); an in-range index always returns `Some(weights)`,
+/// even for a control-less target layer.
+pub fn apply_scene_linear_chain_f32_scoped(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    opts: &ChainOptions<'_>,
+    scope_layer: Option<usize>,
+) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
+    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, scope_layer)
+}
+
+/// Shared implementation behind [`apply_scene_linear_chain_f32`] and
+/// [`apply_scene_linear_chain_f32_scoped`] — every stage but
+/// `local_adjustments` is identical between the two public entries, so the
+/// chain itself is written exactly once rather than risking the two
+/// diverging.
+fn apply_scene_linear_chain_f32_inner(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    opts: &ChainOptions<'_>,
+    scope_layer: Option<usize>,
+) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
     let ChainOptions {
         decoded_temp,
         decoded_tint,
@@ -475,8 +510,13 @@ pub fn apply_scene_linear_chain_f32(
         texture::apply(&mut img, model.texture)
     });
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
-    stage("ffi_chain_local_adjustments", || {
-        local_adjustments::apply(&mut img, &model.local_adjustments, &model.mask_rasters)
+    let scope_weights = stage("ffi_chain_local_adjustments", || {
+        local_adjustments::apply_with_scope(
+            &mut img,
+            &model.local_adjustments,
+            &model.mask_rasters,
+            scope_layer,
+        )
     });
     // Vignette (#1109) — same chain position as develop / the fp16 sibling.
     stage("ffi_chain_vignette", || {
@@ -539,7 +579,7 @@ pub fn apply_scene_linear_chain_f32(
 
     // Pack the result back to f32 RGBA.
     let out = stage("ffi_chain_pack_f32", || endcaps::pack_f32(&img.pixels));
-    Ok(out)
+    Ok((out, scope_weights))
 }
 
 /// Patch-compositing wrappers ([`apply_scene_linear_chain_with_patches`],

@@ -212,6 +212,8 @@ The job sets `MAPLE_REQUIRE_GPU=1`, which turns raw-wasm's developer-friendly "n
 
 **What this does not cover:** lavapipe is a Vulkan/SPIR-V target, so the gate proves raw-core↔WGSL agreement but says nothing about the Metal backend (naga's MSL output, Apple driver rounding) or a browser's real WebGPU implementation.
 
+**Vectorscope scope pass (#3272)** rides the same `cargo test -p raw-gpu` / `cargo test -p raw-ffi --features gpu` invocations above — no new CI command, three new kinds of coverage: the WGSL kernel against `raw_core::scope::vectorscope_histogram_rgba` on a plain frame and one weighted by a `local_adjustments` mask's alpha-lane write (`raw-gpu/src/scope/tests.rs`); an alpha-passthrough gate proving every RGBA pass in an aggressive multi-stage live chain leaves the lane the scope depends on untouched (`raw-gpu/src/live_chain/tests_scope.rs`); and `LiveSession`'s double-buffered async readback — one tick late, never blocking — cross-checked against a full-precision f32 buffer readback, NOT a dithered u8 reconstruction (`raw-gpu/src/live_session/tests_scope.rs`'s module doc explains why the latter isn't a valid oracle for a chroma histogram). The CPU-fallback path (`maple_apply_chain_and_encode_display_scoped_f32`) has its own closed-form gate in `raw-ffi/src/scene_linear_chain_fused_tests.rs`, since it never dithers and so admits an exact expected total.
+
 ### Metal and browser-WebGPU coverage (#2315)
 
 Two more jobs close most of that gap — both **non-required** (`continue-on-error: true`) until they have a track record of their own, since neither has run in CI before:

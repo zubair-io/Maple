@@ -216,6 +216,10 @@ impl Case {
             // `local_adjustments/tests.rs`'s own dedicated gate, not this
             // shared whole-chain oracle.
             mask_rasters: Vec::new(),
+            // Scope-pass parity (#3272) is covered by `scope/tests.rs` and
+            // `live_session/tests_scope.rs`, not this oracle — every `Case`
+            // leaves it disabled.
+            scope: crate::ScopeRequest::default(),
             vignette_amount: self.model.vignette_amount,
             vignette_feather: self.model.vignette_feather,
             grain_amount: self.model.grain_amount,
