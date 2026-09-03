@@ -168,9 +168,20 @@ extension EditorView {
         RoundedRectangle(cornerRadius: MapleTokens.Radius.xs)
             .fill(MapleTokens.surfaceAlt)
             .aspectRatio(3.0 / 2.0, contentMode: .fit)
-            .overlay { downloadOverlay }
             .padding(12)
             .accessibilityIdentifier("editor-canvas-placeholder")
+    }
+
+    /// The grid thumbnail painted above the canvas leaf / placeholder until
+    /// the canvas has real pixels (#2374). Composed in `canvasLayer` so it
+    /// sits over the GPU leaf — which mounts opaque before its first frame —
+    /// and under the download overlay.
+    var seedThumbnail: some View {
+        EditorSeedThumbnail(
+            asset: state.session.asset,
+            source: filmstripSource,
+            visible: !canvasHasOnscreenFrame
+        )
     }
 
     // MARK: - GPU frame-time HUD (validation-only overlay)
@@ -225,8 +236,12 @@ extension EditorView {
         return clamped.formatted(ByteCountFormatStyle(style: .file))
     }
 
+    /// Byte-download progress for a cloud open (#822). Composed in
+    /// `canvasLayer` above the seed thumbnail rather than inside the
+    /// placeholder, so it is visible on the GPU path too — there the leaf
+    /// mounts immediately and the placeholder never shows (#2374).
     @ViewBuilder
-    private var downloadOverlay: some View {
+    var downloadOverlay: some View {
         if let progress = state.session.downloadProgress, progress.isDownloading {
             VStack(spacing: 10) {
                 if let fraction = progress.fraction {

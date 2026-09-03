@@ -502,6 +502,10 @@ struct EditorView: View {
                 } fallback: {
                     canvasPlaceholder
                 }
+                // Seed thumbnail until real pixels land, then the download
+                // progress above it (#2374).
+                seedThumbnail
+                downloadOverlay
                 // Crop overlay (#638): shown while the Crop tool is armed.
                 // The canvas renders UNCROPPED under the overlay.
                 if state.armedTool == .crop {
