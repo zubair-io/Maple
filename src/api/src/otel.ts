@@ -344,7 +344,9 @@ export function installOtelFatalFlush(): void {
     if (dying) return;
     dying = true;
     log.fatal({ err, kind }, 'process dying — flushing telemetry');
-    void flushOtelBeforeExit().finally(() => process.exit(1));
+    void flushOtelBeforeExit()
+      .catch(() => {})
+      .finally(() => process.exit(1));
   };
   process.on('uncaughtException', (err) => die('uncaughtException', err));
   process.on('unhandledRejection', (reason) => die('unhandledRejection', reason));

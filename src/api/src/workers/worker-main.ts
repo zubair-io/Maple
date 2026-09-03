@@ -64,7 +64,8 @@ async function main(): Promise<void> {
     // exporters (bounded) so the last seconds of spans and logs — including
     // the line above — reach the collector instead of dying with the
     // process (#2196). The API process does the same in its own shutdown.
-    await flushOtelBeforeExit();
+    // Best-effort: a rejecting flush must not skip closeDb or the exit.
+    await flushOtelBeforeExit().catch(() => {});
     await closeDb();
     process.exit(0);
   };
