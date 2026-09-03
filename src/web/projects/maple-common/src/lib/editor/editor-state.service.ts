@@ -33,7 +33,7 @@ import {
 } from '../models/adjustment-model';
 import { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
-import { sampledWbPatch, wbSampleRejectionText } from './editor-state.wb-sample';
+import { sampleWhiteBalanceInto } from './editor-state.wb-sample';
 import {
   type ToolGroup,
   type ToolId,
@@ -75,8 +75,10 @@ const HAPTIC_DURATION_MS: Record<HapticEvent, number> = {
 
 @Injectable({ providedIn: 'root' })
 export class EditorStateService {
-  private library = inject(LibraryStateService);
-  private pipeline = inject(RawPipelineService);
+  // Non-private: read through `editor-state.wb-sample.ts`'s structural
+  // `WbSampleHost` (same pattern as `ImageCanvasComponent`'s `GpuPresentHost`).
+  readonly library = inject(LibraryStateService);
+  readonly pipeline = inject(RawPipelineService);
   private serializer = inject(XmpSerializerService);
   private announcer = inject(LiveAnnouncer);
 
@@ -524,10 +526,10 @@ export class EditorStateService {
   }
 
   // ── Neutral white-balance sample (#2434) ─────────────────────────────────
-  // Same lifecycle as AUTO above, and reported through the same two signals:
-  // one in-flight flag so the eyedropper can't be re-armed mid-sample, and
-  // one line of visible feedback. A rejected click is a normal outcome and
-  // says what to pick instead — it is not an error state.
+  // Same lifecycle as AUTO above, through the same two signals: an in-flight
+  // flag so the eyedropper can't be re-armed mid-sample, and one line of
+  // feedback. A rejected click says what to pick instead — not an error
+  // state. Body in `editor-state.wb-sample.ts` (this file is at its budget).
 
   /** True while a white-balance sample is in flight. */
   readonly wbSampleInFlight = signal<boolean>(false);
@@ -539,29 +541,8 @@ export class EditorStateService {
    * Returns whether the sample was applied; a rejected click leaves the
    * model untouched and puts the reason in `autoResult`.
    */
-  async sampleWhiteBalanceAt(id: AssetId, nx: number, ny: number): Promise<boolean> {
-    if (this.wbSampleInFlight()) return false;
-    if (this.imageId() !== id || this.currentAdjustment() == null) return false;
-    this.autoResult.set(null);
-    this.wbSampleInFlight.set(true);
-    try {
-      const bytes = this.library.bytesFor(id) ?? (await this.library.bytesForAsset(id));
-      const asset = this.library.assets().find((a) => a.id === id);
-      const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
-      const sample = await this.pipeline.sampleWhiteBalance(bytes, ext, undefined, nx, ny);
-      if (this.imageId() !== id) return false;
-      this.commit();
-      this.library.updateAdjustment(id, sampledWbPatch(sample, nx, ny));
-      this.autoResult.set(
-        `White balance sampled · ${Math.round(sample.temperature)} K, tint ${Math.round(sample.tint)}`,
-      );
-      return true;
-    } catch (err) {
-      if (this.imageId() === id) this.autoResult.set(wbSampleRejectionText(err));
-      return false;
-    } finally {
-      this.wbSampleInFlight.set(false);
-    }
+  sampleWhiteBalanceAt(id: AssetId, nx: number, ny: number): Promise<boolean> {
+    return sampleWhiteBalanceInto(this, id, nx, ny);
   }
 
   // ── Haptics (web — Vibration API w/ feature detection) ───────────────────

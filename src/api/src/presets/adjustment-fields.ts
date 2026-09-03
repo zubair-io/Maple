@@ -32,6 +32,12 @@
 export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, number]>> = {
   temperature: [2000.0, 12000.0],
   tint: [-150.0, 150.0], // ACR's crs:Tint span (#1870)
+  // White-balance provenance (#2434): the normalised point a sampled pair
+  // was picked at, and the version of the derivation behind it. Metadata,
+  // never a render input — the `wb_source` enum lives in STRING_FIELDS.
+  wb_sample_x: [0.0, 1.0],
+  wb_sample_y: [0.0, 1.0],
+  wb_algorithm_version: [0.0, 1000000.0],
   exposure: [-4.0, 4.0],
   contrast: [-100.0, 100.0],
   brightness: [-100.0, 100.0],
@@ -139,6 +145,9 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
 /** String-valued schema fields (enums on the clients), snake_case. */
 export const STRING_FIELDS: ReadonlySet<string> = new Set([
   'wb_method',
+  // Where the white balance came from (#2434) —
+  // AsShot|Auto|Preset|Sampled|Manual.
+  'wb_source',
   'highlight_recovery',
   'auto_exposure',
   'look',
