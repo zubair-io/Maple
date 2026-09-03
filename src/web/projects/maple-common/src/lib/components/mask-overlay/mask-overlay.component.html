@@ -1,0 +1,40 @@
+<!-- Interactive local-adjustment mask overlay (#1541). Fills the canvas wrap;
+     the image behind renders the masked result live. All geometry is CSS px
+     in the wrap's coordinate space. -->
+<canvas
+  #tint
+  class="tint pointer-events-none absolute"
+  aria-hidden="true"
+  [style.left.px]="footprint().left"
+  [style.top.px]="footprint().top"
+  [style.width.px]="footprint().width"
+  [style.height.px]="footprint().height"
+></canvas>
+<svg
+  class="mask-svg block h-full w-full"
+  [style.cursor]="cursor()"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event); onHover($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  data-testid="mask-overlay"
+  role="group"
+  aria-label="Mask overlay"
+  [attr.aria-description]="description()"
+>
+  @if (mask()) {
+    <path class="mask-shape" [attr.d]="shapePath()" />
+    @for (h of handles(); track h.handle) {
+      <circle
+        class="mask-handle"
+        [class.mask-handle--rotate]="h.handle === 'radialRotate'"
+        [attr.cx]="h.x"
+        [attr.cy]="h.y"
+        [attr.r]="h.r"
+        role="img"
+        [attr.aria-label]="'Mask handle: ' + h.name"
+        [attr.data-testid]="'mask-handle-' + h.handle"
+      />
+    }
+  }
+</svg>
