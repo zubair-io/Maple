@@ -48,9 +48,9 @@ mod abi_layout;
 mod auto_adjustments;
 mod auto_profile;
 mod auto_tone;
-mod white_balance_sample;
 mod buffers;
 mod cancel;
+mod white_balance_sample;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
 // indicator is fed by the stage's own per-row ticks, so raw-core's progress
 // sink gets a C callback registration here.

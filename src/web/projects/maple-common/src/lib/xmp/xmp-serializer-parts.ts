@@ -90,28 +90,28 @@ function lookProfileFilmParts(model: AdjustmentModel): string[] {
  * pipeline enum fields.
  */
 function pixelPipelineEnumParts(model: AdjustmentModel): string[] {
-  const parts: string[] = [];
+  // Table-driven: every one of these is the same rule — write the enum's
+  // value under a `papp:` key unless it is at its default. Adding the
+  // white-balance provenance source (#2434) as a sixth hand-written `if`
+  // took this function past the complexity gate, and the branches carried
+  // no information the table does not.
+  const omitOnDefault: readonly [string, string | undefined, string][] = [
+    ['papp:HotPixelSuppression', model.hotPixelSuppression, 'Off'],
+    ['papp:WbMethod', model.wbMethod, 'Cat16'],
+    ['papp:WbSource', model.wbSource, 'AsShot'],
+    ['papp:ToneCurveMode', model.toneCurveMode, 'PerChannel'],
+  ];
+  const enums = omitOnDefault
+    .filter(([, value, fallback]) => value !== undefined && value !== fallback)
+    .map(([key, value]) => `${key}="${escapeXmpAttr(value as string)}"`);
 
-  if (model.hotPixelSuppression && model.hotPixelSuppression !== 'Off') {
-    parts.push(`papp:HotPixelSuppression="${escapeXmpAttr(model.hotPixelSuppression)}"`);
-  }
-  if (model.lensProfileEnable === 'Off') {
-    parts.push(`crs:LensProfileEnable="0"`);
-  }
-  if (model.wbMethod && model.wbMethod !== 'Cat16') {
-    parts.push(`papp:WbMethod="${escapeXmpAttr(model.wbMethod)}"`);
-  }
-  if (model.wbSource && model.wbSource !== 'AsShot') {
-    parts.push(`papp:WbSource="${escapeXmpAttr(model.wbSource)}"`);
-  }
-  if (model.toneCurveMode && model.toneCurveMode !== 'PerChannel') {
-    parts.push(`papp:ToneCurveMode="${escapeXmpAttr(model.toneCurveMode)}"`);
-  }
-  if (model.blackWhite === 'On') {
-    parts.push('crs:ConvertToGrayscale="True"');
-  }
-
-  return parts;
+  // The two `crs:` spellings are not omit-on-default writes of their own
+  // value — each maps one non-default enum variant onto ACR's boolean key.
+  return [
+    ...enums,
+    ...(model.lensProfileEnable === 'Off' ? ['crs:LensProfileEnable="0"'] : []),
+    ...(model.blackWhite === 'On' ? ['crs:ConvertToGrayscale="True"'] : []),
+  ];
 }
 
 export function enumFieldParts(model: AdjustmentModel): string[] {

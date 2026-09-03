@@ -7,6 +7,8 @@
 // and because the interesting part — what a sample writes — is a pure map
 // from a `WbSampleResult` and a click point to a slider patch.
 
+import type { WritableSignal } from '@angular/core';
+import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { WbSampleResult } from '../raw-pipeline/raw-pipeline.sample-wb.types';
 import { WbSampleRejected } from '../raw-pipeline/raw-pipeline.sample-wb.types';
@@ -52,5 +54,72 @@ export function wbSampleRejectionText(err: unknown): string {
       return 'Pick a point inside the image';
     case 'develop':
       return 'White balance could not be sampled';
+  }
+}
+
+/**
+ * The surface of `EditorStateService` a sample reaches back into. Declared
+ * structurally rather than importing the service, so this module stays a
+ * leaf — the service imports it, not the other way round.
+ */
+export interface WbSampleHost {
+  imageId(): AssetId | null;
+  currentAdjustment(): AdjustmentModel | null;
+  wbSampleInFlight: WritableSignal<boolean>;
+  autoResult: WritableSignal<string | null>;
+  commit(): void;
+  library: {
+    bytesFor(id: AssetId): Uint8Array | undefined;
+    bytesForAsset(id: AssetId): Promise<Uint8Array>;
+    assets(): readonly { id: AssetId; filename: string }[];
+    updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void;
+  };
+  pipeline: {
+    sampleWhiteBalance(
+      bytes: Uint8Array,
+      ext: string,
+      xmp: string | undefined,
+      nx: number,
+      ny: number,
+    ): Promise<WbSampleResult>;
+  };
+}
+
+/**
+ * Sample the neutral at `(nx, ny)` and apply it to `id` as one committed
+ * action. Body of `EditorStateService.sampleWhiteBalanceAt`.
+ *
+ * Every early return is a guard against writing to the wrong image: a second
+ * arm while one sample is in flight, and — because the sample is a round trip
+ * through the worker — the focused image having changed by the time the
+ * result lands.
+ */
+export async function sampleWhiteBalanceInto(
+  host: WbSampleHost,
+  id: AssetId,
+  nx: number,
+  ny: number,
+): Promise<boolean> {
+  if (host.wbSampleInFlight()) return false;
+  if (host.imageId() !== id || host.currentAdjustment() == null) return false;
+  host.autoResult.set(null);
+  host.wbSampleInFlight.set(true);
+  try {
+    const bytes = host.library.bytesFor(id) ?? (await host.library.bytesForAsset(id));
+    const asset = host.library.assets().find((a) => a.id === id);
+    const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
+    const sample = await host.pipeline.sampleWhiteBalance(bytes, ext, undefined, nx, ny);
+    if (host.imageId() !== id) return false;
+    host.commit();
+    host.library.updateAdjustment(id, sampledWbPatch(sample, nx, ny));
+    host.autoResult.set(
+      `White balance sampled · ${Math.round(sample.temperature)} K, tint ${Math.round(sample.tint)}`,
+    );
+    return true;
+  } catch (err) {
+    if (host.imageId() === id) host.autoResult.set(wbSampleRejectionText(err));
+    return false;
+  } finally {
+    host.wbSampleInFlight.set(false);
   }
 }

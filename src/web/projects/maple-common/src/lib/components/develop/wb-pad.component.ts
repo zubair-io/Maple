@@ -104,14 +104,10 @@ export class WbPadComponent {
    */
   readonly provenanceLabel = computed<string>(() => {
     const adj = this.adj();
-    const source = adj?.wbSource ?? 'AsShot';
-    if (source === 'Sampled') {
-      const x = Math.round((adj?.wbSampleX ?? 0) * 100);
-      const y = Math.round((adj?.wbSampleY ?? 0) * 100);
-      const version = adj?.wbAlgorithmVersion ?? 0;
-      return `Sampled at ${x}%, ${y}% · v${version}`;
-    }
-    return source === 'AsShot' ? 'As Shot' : source;
+    if (!adj || adj.wbSource === 'AsShot') return 'As Shot';
+    if (adj.wbSource !== 'Sampled') return adj.wbSource;
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    return `Sampled at ${pct(adj.wbSampleX)}, ${pct(adj.wbSampleY)} · v${adj.wbAlgorithmVersion}`;
   });
 
   /** `mui-pad-2d`'s drag/click value, converted back from `[-1, 1]` into the
