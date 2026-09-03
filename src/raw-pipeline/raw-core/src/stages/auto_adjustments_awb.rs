@@ -192,9 +192,9 @@ impl ProbeSpace {
         let frame = SliderFrame::resolve(raw, &profile);
         let (temperature, tint) =
             wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
-        // `wb_camera::apply`'s identity short-circuit, mirrored exactly.
-        let is_as_shot = (temperature - frame.scene_cct).abs() < 0.5 && tint.abs() < 0.5;
-        let gain = if is_as_shot {
+        // `wb_camera::apply`'s identity short-circuit — the same predicate,
+        // not a copy of it.
+        let gain = if wb_camera::is_as_shot_target(&frame, temperature, tint) {
             [1.0; 3]
         } else {
             wb_camera::camera_wb_gain(&frame, raw.as_shot_neutral, temperature, tint)
