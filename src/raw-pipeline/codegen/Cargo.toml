@@ -9,6 +9,13 @@ license.workspace = true
 name = "codegen"
 path = "src/main.rs"
 
+# Evidence-record writer for the capability registry (#2430); driven by
+# tools/qualification/record.sh.
+[[bin]]
+name = "qualification-record"
+path = "src/qualification_record.rs"
+
 [dependencies]
 raw-core = { path = "../raw-core" }
 clap.workspace = true
+serde_json.workspace = true
