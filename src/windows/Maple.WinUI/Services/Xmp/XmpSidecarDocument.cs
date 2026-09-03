@@ -22,19 +22,22 @@ namespace Maple.WinUI.Services.Xmp
     /// <summary>
     /// One slot in the original child-element order of `rdf:Description`,
     /// captured during parse (#2671) so a rewrite doesn't unconditionally
-    /// reorder passthrough content relative to the modeled tone-curve
-    /// blocks. A slot is either a recognized tone-curve tag
-    /// (`ToneCurveTag` set, e.g. `"papp:SceneLinearToneCurve"`) or the
-    /// index of a <see cref="XmpSidecarDocument.PassthroughNodes"/> entry
-    /// (`PassthroughIndex` set, `ToneCurveTag` null). A tone-curve tag with
-    /// no recorded slot — never seen in the source document, because there
-    /// was no parse at all or the curve was added after loading — falls
+    /// reorder passthrough content relative to the modeled child blocks.
+    /// A slot is either a recognized modeled tag (`ModeledTag` set: a
+    /// tone-curve element such as `"papp:SceneLinearToneCurve"`, or since
+    /// #358 a local-adjustment container such as
+    /// `"crs:GradientBasedCorrections"`) or the index of a
+    /// <see cref="XmpSidecarDocument.PassthroughNodes"/> entry
+    /// (`PassthroughIndex` set, `ModeledTag` null). A modeled tag with no
+    /// recorded slot — never seen in the source document, because there
+    /// was no parse at all or the block was added after loading — falls
     /// back to the writer's pre-#2671 default position: before every
     /// recorded slot, in canonical order.
     /// </summary>
-    public readonly record struct ChildSlot(string? ToneCurveTag, int PassthroughIndex)
+    public readonly record struct ChildSlot(string? ModeledTag, int PassthroughIndex)
     {
         public static ChildSlot ForToneCurve(string tag) => new(tag, -1);
+        public static ChildSlot ForModeled(string tag) => new(tag, -1);
         public static ChildSlot ForPassthrough(int index) => new(null, index);
     }
 
@@ -84,7 +87,7 @@ namespace Maple.WinUI.Services.Xmp
 
         /// <summary>
         /// Original relative order (#2671) of <see cref="PassthroughNodes"/>
-        /// entries against the modeled tone-curve blocks — see
+        /// entries against the modeled child blocks — see
         /// <see cref="ChildSlot"/>. Empty for a document that was never
         /// parsed (a fresh in-memory model), which is also the correct
         /// input for the writer's fallback ordering.

@@ -137,6 +137,13 @@ namespace Maple.WinUI.Models
         public List<CurvePoint> DisplayToneCurveGreen = new();
         public List<CurvePoint> DisplayToneCurveBlue = new();
 
+        // --- Local adjustments (#280/#358): masked, per-region edits. A
+        //     hand-written mirror of raw-core's `LocalAdjustment`, outside
+        //     codegen because it is a nested list (Models/LocalAdjustment.cs).
+        //     Empty = none; the writer emits the crs:GradientBasedCorrections /
+        //     crs:CircularGradientBasedCorrections containers only when set. ---
+        public List<LocalAdjustment> LocalAdjustments = new();
+
         // --- Render / recovery enums ---
         public HighlightRecoveryMode HighlightRecovery = HighlightRecoveryMode.ChromaticAdaptation;
         public ToggleMode AutoExposure = ToggleMode.On;
@@ -163,6 +170,7 @@ namespace Maple.WinUI.Models
             c.DisplayToneCurveRed = new List<CurvePoint>(DisplayToneCurveRed);
             c.DisplayToneCurveGreen = new List<CurvePoint>(DisplayToneCurveGreen);
             c.DisplayToneCurveBlue = new List<CurvePoint>(DisplayToneCurveBlue);
+            c.LocalAdjustments = new List<LocalAdjustment>(LocalAdjustments);
             return c;
         }
     }

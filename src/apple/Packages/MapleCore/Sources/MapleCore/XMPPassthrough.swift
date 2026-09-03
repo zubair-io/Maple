@@ -171,11 +171,11 @@ enum XMPKnownFields {
     ]
 
     /// Child elements of `rdf:Description` the serializer emits from the model
-    /// — the keyword bag, the four point tone curves, and the metadata
-    /// lang-alt / seq blocks. Leaving any of these in the node bucket would
-    /// double-emit it.
+    /// — the keyword bag, the eight point tone curves, the two
+    /// local-adjustment containers (#358), and the metadata lang-alt / seq
+    /// blocks. Leaving any of these in the node bucket would double-emit it.
     static let managedChildElements: Set<String> = Set(
-        ToneCurveXMP.elements + [
+        ToneCurveXMP.elements + LocalAdjustmentXMP.containers + [
             "dc:subject",
             "dc:title", "dc:creator", "dc:description", "dc:rights",
             "xmpRights:UsageTerms",

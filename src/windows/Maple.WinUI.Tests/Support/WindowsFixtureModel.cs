@@ -4,7 +4,7 @@
 // the Windows model actually carries, set to a distinctive non-default
 // value, so the writer's omit-at-default rule can't hide a field this suite
 // forgot to exercise — including the 24 HSL band fields, the 8 GrayMixer
-// bands, and all four tone curves, none of which are allowed to sit at a
+// bands, all eight tone curves and the local-adjustment stack, none of which are allowed to sit at a
 // shared default (an earlier version of this fixture left 28 of these at
 // their compiled-in defaults, which meant an omit-at-default bug in any of
 // them was invisible to `XmpCanonicalEnvelopeTests`, `XmpRoundTripTests`, and
@@ -172,6 +172,14 @@ namespace Maple.WinUI.Tests.Support
             LensCorrectionDistortion = 85,
             LensCorrectionCa = 70,
             LensCorrectionVignetting = 60,
+            // The shared cross-language local-adjustment fixture (#358):
+            // one linear and one radial layer, the same values every
+            // platform's canonical-block literal pins.
+            LocalAdjustments = new List<LocalAdjustment>
+            {
+                XmpLocalAdjustmentsTests.LinearLayer,
+                XmpLocalAdjustmentsTests.RadialLayer,
+            },
         };
 
         /// <summary>The full sidecar: <see cref="BuildAdjustments"/> plus every
