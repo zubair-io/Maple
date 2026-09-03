@@ -100,7 +100,7 @@ test('Hosted editor commits Undo/Redo and Auto as visible, bounded, persistent a
   const auto = page.getByRole('button', { name: 'Auto adjust' });
   await auto.click();
   await expect(auto).toHaveAttribute('aria-busy', 'true');
-  const autoResult = page.locator('.auto-result');
+  const autoResult = page.getByRole('status').filter({ hasText: /Auto/ });
   await expect(autoResult).toHaveAttribute('role', 'status');
   await expect(autoResult).toHaveText(/^\s*Auto applied · Exposure [+-]\d+\.\d{2} EV\s*$/, {
     timeout: 60_000,

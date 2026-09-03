@@ -240,7 +240,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page).toHaveURL(/\/view\//);
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page).toHaveURL(/\/edit\//);
-    await expect(page.locator('.top-name')).toHaveText(TARGET);
+    await expect(page.locator('[data-editor-region="identity"]')).toHaveText(TARGET);
 
     const filmstrip = page.locator('editor-filmstrip');
     if (viewport.hasFilmstrip) {
@@ -259,7 +259,7 @@ for (const viewport of VIEWPORTS) {
 
       await tabTo(page, otherFilmstripAsset);
       await page.keyboard.press('Enter');
-      await expect(page.locator('.top-name')).toHaveText(OTHER_ASSET);
+      await expect(page.locator('[data-editor-region="identity"]')).toHaveText(OTHER_ASSET);
       await expect(otherFilmstripAsset).toHaveAttribute('aria-current', 'true');
       await expect(targetFilmstripAsset).not.toHaveAttribute('aria-current', 'true');
       await expect(otherFilmstripAsset).toMatchAriaSnapshot(
@@ -282,7 +282,7 @@ for (const viewport of VIEWPORTS) {
     await expect(exposure).not.toHaveAttribute('aria-valuenow', before ?? '0');
     expect(page.url()).toBe(selectedUrl);
     const selectedAsset = viewport.hasFilmstrip ? OTHER_ASSET : TARGET;
-    await expect(page.locator('.top-name')).toHaveText(selectedAsset);
+    await expect(page.locator('[data-editor-region="identity"]')).toHaveText(selectedAsset);
     if (viewport.hasFilmstrip) {
       await expect(
         filmstrip.getByRole('button', { name: selectedAsset, exact: true }),

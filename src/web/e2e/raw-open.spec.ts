@@ -37,7 +37,7 @@ test.describe('Hosted — Open a photo', () => {
     await expect(page.getByRole('button', { name: /open a photo/i })).toBeVisible();
 
     // Hidden <input type="file"> is what the CTA drives; upload directly.
-    const fileInput = page.locator('input.landing__file-input');
+    const fileInput = page.locator('input[type=file]').first();
     await fileInput.setInputFiles(FIXTURE);
 
     // Navigation to /edit/:id confirms addImportedAsset ran (the pre-fix bug
