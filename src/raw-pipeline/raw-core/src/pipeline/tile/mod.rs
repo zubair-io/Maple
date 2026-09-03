@@ -6,26 +6,28 @@
 //! histogram isn't representative of the whole scene — but the caller
 //! can thread in the gain a full-image develop already measured, see
 //! [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32`],
-//! #1167; dehaze / vignette / deep denoise / local adjustments / capture
-//! sharpening are rejected loudly at the entry — see the per-function
-//! notes), then trims the overlap, downsamples to the requested output
-//! size, and packs the result as oriented fp16 RGBA.
+//! #1167; dehaze, BM3D deep denoise and OpcodeList3 DNGs are rejected
+//! loudly at the entry — see `guards.rs`), then trims the overlap,
+//! downsamples to the requested output size, and packs the result as
+//! oriented fp16 RGBA.
 //! This makes a 23-tile view of a 100 MP RAW land in ~10 s rather than
 //! ~10 minutes.
 //!
-//! Stencil-sensitive stages constrain the overlap pad: clarity at
-//! radius 40 (3-pass box = exactly 39 px effective tail) is the binding
-//! FIXED stage. Dehaze (radius 67 px) doesn't fit and is errored at the
-//! entry. The highlights/shadows detail mask scales with the frame, so the
-//! pad grows to its reach per render when it is engaged (#2476). See
-//! [`TILE_OVERLAP_PX`], `tile_overlap_px`, and
-//! [`render_scene_linear_tile_from_raw_with_quality`].
+//! The overlap pad is computed per render (#1157, tone-zoom design § 5.3):
+//! the sum of the stencil reaches of the spatial stages the model engages,
+//! on the [`TILE_OVERLAP_PX`] floor — see `overlap.rs`. Point ops whose
+//! field spans the frame (vignette, local adjustments) get the tile's
+//! window in the frame (`region::TileWindow`) instead of an overlap.
 //!
 //! Submodules (split for the file-size budget, #114):
-//! * [`region`]  — pad/clamp/crop/trim geometry helpers.
-//! * [`develop`] — the stripped-down develop chain run on the padded crop.
+//! * [`region`]  — pad/clamp/crop/trim geometry helpers + `TileWindow`.
+//! * [`guards`]  — the rejection set.
+//! * [`overlap`] — the per-render pad calculator.
+//! * [`develop`] — the develop chain run on the padded crop.
 
 mod develop;
+mod guards;
+mod overlap;
 mod region;
 
 #[cfg(test)]
@@ -34,6 +36,8 @@ mod tests;
 mod tests_live_parity;
 #[cfg(test)]
 mod tests_live_parity_gaps;
+#[cfg(test)]
+mod tests_full_parity;
 #[cfg(test)]
 mod tests_render;
 #[cfg(test)]
@@ -48,7 +52,8 @@ use super::{
 };
 
 use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge};
-use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner};
+use overlap::tile_overlap_px;
+use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner, TileWindow};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
 /// clarity's stencil reach (40 px per side: a guided filter at
@@ -66,26 +71,6 @@ use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner};
 /// `clarity::CLARITY_GUIDED_REACH_PX` — if the clarity radius is ever
 /// bumped, the build will refuse until this constant follows.
 pub const TILE_OVERLAP_PX: u32 = 48;
-
-/// Overlap pad for one tile render, in mosaic pixels per edge.
-///
-/// [`TILE_OVERLAP_PX`] covers every fixed-radius stage. The highlights /
-/// shadows detail mask is the one admitted stage whose reach scales with the
-/// image — σ = 15 px · longEdge/2000 per engaged slider, compounding when
-/// both run (`scene_tone_controls::sh_mask_reach_px`) — and since #2476 that
-/// blur is anchored to the full frame's long edge at the tile's develop
-/// resolution rather than to the crop, so its reach is known up front. The
-/// pad grows to the exact reach of the passes that will run, converted back
-/// to mosaic pixels through the demosaic divisor (`Preview` develops at half
-/// resolution, so a developed-pixel reach is twice as many mosaic pixels).
-/// Computed, not guessed: one slider pays one radius, both pay two, neither
-/// pays nothing (tone-zoom design § 5.3, the exact-overlap half of the
-/// stage-class plan; the proxy-plane half for large radii is #1157).
-fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, divisor: u32) -> u32 {
-    use crate::stages::scene_tone_controls::sh_mask_reach_px;
-    let reach_mosaic_px = (sh_mask_reach_px(mask_long_edge, model) as u32).saturating_mul(divisor);
-    TILE_OVERLAP_PX.max(reach_mosaic_px)
-}
 
 // Build-time guard: TILE_OVERLAP_PX must cover the clarity guided-filter
 // reach. If `CLARITY_GUIDED_RADIUS` is raised, the reach (= 2 * radius)
@@ -126,23 +111,13 @@ pub struct TileRect {
 /// - `quality`: `Preview` (half-res quad demosaic) or `Full` (bilinear or
 ///   hamilton_adams per `cfg(feature)`).
 ///
-/// Errors:
-/// - `model.dehaze != 0` → returns `Err` with a "dehaze" message; tiles
-///   are not safe with dehaze active (radius 67 px > overlap pad).
-/// - `model.vignette_amount != 0` → returns `Err` ("vignette"); the
-///   stage is full-frame-anchored and this entry does not thread the
-///   tile window yet (#11). Same fallback contract as dehaze.
+/// Errors (the full set lives in `guards.rs`):
+/// - `model.dehaze != 0` → returns `Err` with a "dehaze" message; dehaze
+///   is global (frame statistics + a radius-60 transmission refine) and
+///   needs a full-frame proxy plane the tile chain does not build.
 /// - `model.deep_denoise != 0` → returns `Err` ("deep denoise"); the
 ///   BM3D reference-patch grid is frame-anchored, so per-tile grids
 ///   would seam (#1105). Same fallback contract as dehaze.
-/// - a non-identity local adjustment → returns `Err` ("local
-///   adjustments"); mask weights evaluate in full-image-normalized
-///   coordinates, which a padded crop cannot reproduce without offset
-///   plumbing (#1084). Same fallback contract as dehaze.
-/// - an active capture-sharpening amount → returns `Err` ("capture
-///   sharpening"); the iterated Richardson–Lucy stencil reaches past the
-///   overlap pad at the σ = 8 helper clamp (#1084). Same fallback
-///   contract as dehaze.
 /// - a DNG carrying OpcodeList3 → returns `Err` ("OpcodeList3"); the
 ///   WarpRectilinear resample gathers from displaced source positions that
 ///   can exceed the overlap pad, and the tile chain does not apply opcodes,
@@ -197,130 +172,7 @@ fn develop_tile_oriented_f32(
         out_w,
         out_h,
     } = rect;
-    if raw.cfa == crate::image::CfaPattern::LinearRgb {
-        return Err(crate::error::Error::Pipeline(
-            "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
-                .into()
-        ));
-    }
-    if matches!(raw.cfa, crate::image::CfaPattern::XTrans(_)) {
-        return Err(crate::error::Error::Pipeline(
-            "tile path does not support Fuji X-Trans RAFs; use the \
-             full-image render entry instead (#420)."
-                .into(),
-        ));
-    }
-    if model.dehaze.abs() > 1e-3 {
-        return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when dehaze != 0 (radius 67 px > overlap pad)".into(),
-        ));
-    }
-    if model.vignette_amount.abs() > 1e-3 {
-        // Vignette (#1109) is a pure point op GIVEN the full-frame window
-        // (`stages::vignette::apply_windowed`), but this entry does not
-        // thread the tile's origin / full dims through its develop chain
-        // yet — wiring that belongs to the stage-class overlap work that
-        // un-gates deep zoom (#11, tone/zoom design § 5.3, crop dep #1113).
-        // Refuse loudly rather than render a wrong (tile-local) ellipse.
-        return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when vignette != 0 (full-frame anchor not threaded; #11)"
-                .into(),
-        ));
-    }
-    // Active BM3D deep denoise → reject loudly, same contract as dehaze
-    // (#1105). The reference-patch grid is anchored at the buffer origin,
-    // so a tile-relative grid would aggregate different groups than the
-    // full-frame render and seam at tile borders. The FFI file/bytes tile
-    // entries pre-check this themselves; gating here as well covers every
-    // core caller (the handle-based FFI entry, maple-cli `tile`). The
-    // threshold matches `bm3d::apply`'s own early-exit (1e-3).
-    if model.deep_denoise.abs() > 1e-3 {
-        return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when deep denoise != 0 \
-             (the BM3D reference-patch grid is frame-anchored; use the \
-             full-image render entry instead). See #1105."
-                .into(),
-        ));
-    }
-    // Non-identity local adjustment → reject loudly, same contract as
-    // dehaze (#1084). Mask weights evaluate in coordinates normalized to
-    // the FULL image; a padded crop would place every mask tile-relative.
-    // The predicate mirrors the stage's own work-skip logic
-    // (`local_adjustments::apply` ignores layers whose `adjustments` carry
-    // no `Some` field), so a model the full chain would no-op on stays
-    // tile-renderable.
-    if model
-        .local_adjustments
-        .iter()
-        .any(|layer| !layer.adjustments.is_empty())
-    {
-        return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when local adjustments are active \
-             (mask coordinates are normalized to the full image; use the \
-             full-image render entry instead). See #1084."
-                .into(),
-        ));
-    }
-    // Active capture sharpening → reject loudly, same contract as dehaze
-    // (#1084). The iterated Richardson–Lucy stencil reaches up to
-    // ~2·iterations·3σ ≈ 96 px at the σ = 8 helper clamp — past
-    // TILE_OVERLAP_PX (48). The predicate reuses the full chain's own
-    // engage condition (`capture_sharpening_params_from_model`), so a
-    // model the full chain would skip the stage for stays tile-renderable.
-    if super::capture_sharpening_helper::capture_sharpening_params_from_model(model).is_some() {
-        return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when capture sharpening is active \
-             (Richardson–Lucy stencil exceeds the overlap pad; use the \
-             full-image render entry instead). See #1084."
-                .into(),
-        ));
-    }
-    // DNG OpcodeList3 present → reject loudly, same fallback contract as
-    // dehaze/vignette (#1932). The full and sized develop chains apply
-    // OpcodeList3 (GainMap / WarpRectilinear) on the demosaiced buffer in
-    // full-sensor ActiveArea coordinates; the tile develop chain never did,
-    // so a DNG shipping OpcodeList3 rendered with spatial/color disagreement
-    // and seams between tiled and full output. WarpRectilinear is a resample
-    // that gathers from source positions displaced by the (unbounded) lens
-    // model — displacement can exceed TILE_OVERLAP_PX, so it is fundamentally
-    // untileable, exactly like dehaze. Rather than apply a subset on a
-    // half-built tile-local coordinate mapping (the coordinate plumbing #1173
-    // still needs for the already-mis-anchored tile PGTM path), refuse here so
-    // opcode-carrying DNGs fall back to the full-image render, which applies
-    // OpcodeList3 correctly — trading tile-render speed for correctness. A
-    // future tile-local GainMap apply (once #1173's coordinate mapping lands)
-    // could re-enable tiling for GainMap-only opcode lists.
-    if raw.opcode_list3.is_some() {
-        return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when the DNG carries OpcodeList3 \
-             (GainMap / WarpRectilinear gain/warp/CA correction; the warp \
-             resample gather exceeds the overlap pad and the tile chain does \
-             not apply opcodes — use the full-image render entry instead). \
-             See #1932."
-                .into(),
-        ));
-    }
-    if out_w > src_w || out_h > src_h {
-        return Err(crate::error::Error::Pipeline(format!(
-            "tile path is downscale-only (no upscale): out {}×{} > src {}×{}",
-            out_w, out_h, src_w, src_h
-        )));
-    }
-    // Aspect-mismatch guard: the trim → downsample path drives a single
-    // long-edge scale (see `target_long_edge` below), so a request whose
-    // aspect differs from the source's aspect would be silently fitted
-    // to a square. Reject mismatched aspect with a clear error; callers
-    // wanting a non-matching aspect should recrop the source rect to
-    // match. Cross-product comparison avoids fp; tolerance is one row /
-    // column of integer rounding (`max(src_w, src_h)`).
-    let cross = (out_w as u64 * src_h as u64).abs_diff(out_h as u64 * src_w as u64);
-    let tol = src_w.max(src_h) as u64;
-    if cross > tol {
-        return Err(crate::error::Error::Pipeline(format!(
-            "tile path requires matching aspect: src {}×{}, out {}×{}",
-            src_w, src_h, out_w, out_h
-        )));
-    }
+    guards::reject_untileable(raw, model, rect)?;
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
     // that's what callers (Apple TileManager, maple-cli `tile` subcommand)
     // know about. Translate to sensor coords before cropping the mosaic.
@@ -332,13 +184,10 @@ fn develop_tile_oriented_f32(
     let (s_x, s_y, s_w, s_h) = raw
         .orientation
         .display_rect_to_sensor(src_x, src_y, src_w, src_h, raw.width, raw.height);
-    // The pad is per render: the fixed stencil bound, grown to the S/H
-    // detail-mask reach when that stage is engaged (#2476).
-    let overlap_px = tile_overlap_px(
-        model,
-        full_frame_long_edge(raw, quality),
-        crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa),
-    );
+    // The pad is per render (#1157): the sum of the stencil reaches of every
+    // spatial stage this model engages, on the fixed floor — see `overlap.rs`.
+    let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
+    let overlap_px = tile_overlap_px(model, full_frame_long_edge(raw, quality), divisor);
     let (rect, (left_pad, top_pad)) =
         pad_and_clamp_mosaic_rect(s_x, s_y, s_w, s_h, overlap_px, raw.width, raw.height);
     // Linearize ONLY the padded crop region — not the full sensor.
@@ -347,6 +196,9 @@ fn develop_tile_oriented_f32(
     // 23 visible tiles → ~10 s total. Bayer phase is preserved because
     // `pad_and_clamp_mosaic_rect` aligns start corners to even.
     let (rx, ry, rw, rh) = rect;
+    // Where this padded crop sits in the developed frame — what vignette and
+    // local adjustments anchor their fields to (#1157).
+    let window = TileWindow::for_padded_crop(raw, rx, ry, divisor);
     let mut mosaic = stage("tile_linearize", || {
         linearize::sensor_linearize_region(raw, rx, ry, rw, rh)
     });
@@ -365,8 +217,11 @@ fn develop_tile_oriented_f32(
         raw,
         model,
         quality,
-        decoded_wb_anchor,
-        ae_gain,
+        develop::TileAnchors {
+            decoded_wb_anchor,
+            ae_gain,
+            window,
+        },
     )?;
 
     // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords
