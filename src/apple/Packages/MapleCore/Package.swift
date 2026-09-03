@@ -99,6 +99,10 @@ let package = Package(
                 // root as `film-luts/`, matching `FilmLutStore`'s
                 // `subdirectory: "film-luts"` lookup.
                 .copy("Fixtures/film-luts"),
+                // Portrait fixture for PersonSkinMaskServiceTests (#3273),
+                // downsized to a 1024px long edge — matching the ~1MP develop
+                // PersonSkinMaskService actually receives in production.
+                .copy("Fixtures/portrait-skin-test.png"),
             ]
         ),
     ],
