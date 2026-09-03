@@ -127,6 +127,23 @@
   padding: 16px 0;
 }
 
+// ── Scopes panel (#2449 — glass card hosting `editor-scopes-panel`) ────────
+.scopes-panel {
+  @extend %dock-side-panel;
+  width: 240px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+// Scopes panel on phone — same `editor-scopes-panel`, floats above the dock
+// like the phone curve panel.
+.phone-scopes-panel {
+  @extend %phone-flyout-panel;
+  padding: 12px;
+  max-height: min(420px, calc(100dvh - 200px));
+  overflow-y: auto;
+}
+
 // ── Curve panel (tablet/desktop — glass card to the left of dock) ──────────
 .curve-panel {
   @extend %dock-side-panel;

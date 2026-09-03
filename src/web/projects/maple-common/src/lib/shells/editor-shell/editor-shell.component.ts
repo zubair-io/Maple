@@ -40,9 +40,12 @@
 // `EditorStateService.setBlackWhite` for undo). HSL's sub-tool chip is
 // hidden while Black & White is On (#276) — see `blackWhiteOn`/`bwMixArmed`
 // below and `ControlCardComponent.subtools()`.
-// Curve, Crop, Presets, and Noise share one dock-side panel anchor and are
-// mutually exclusive there (`onPresetsPanelToggle`/`onCurvePanelToggle`/
-// `onToolChange`); on phone the always-visible slider card floats in that
+// Scopes panel (#2449): glass card hosting `editor-scopes-panel` (the Maple
+// UI four-up scopes organism over the worker's per-frame readback), opened
+// from the top bar's histogram/scopes button on every breakpoint.
+// Curve, Crop, Presets, Scopes and Noise share one dock-side panel anchor and
+// are mutually exclusive there (editor-shell-panels.ts); on phone the
+// always-visible slider card floats in that
 // same anchor slot too. HSL/bwMix/Color Grading project into the control
 // card instead, so it's the card — not a dock-side panel — that must not
 // collide with Curve/Presets/Noise/Crop/Info: the card hides while any of
@@ -77,6 +80,7 @@ import { FilmstripComponent } from '../../components/filmstrip/filmstrip.compone
 import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas.component';
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
 import { HistogramComponent } from '../../components/scopes/histogram.component';
+import { ScopesPanelComponent } from '../../components/scopes/scopes-panel.component';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { ControlCardComponent } from '../../components/editor/control-card.component';
 import { ToolDockComponent } from '../../components/editor/tool-dock.component';
@@ -122,6 +126,13 @@ import {
   onUndoPointerCancel as undoOnPointerCancel,
 } from './editor-shell-undo';
 import { type ToolGroup, type ToolId } from '../../editor/tool-model';
+import {
+  armTool,
+  phoneDockGroupChange,
+  toggleCurve,
+  togglePresets,
+  toggleScopes,
+} from './editor-shell-panels';
 import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
 import { type ChromeState, HOST_CLASS } from './editor-shell.classes';
 import * as sc from './editor-shell.classes';
@@ -135,6 +146,7 @@ import * as sc from './editor-shell.classes';
     FilmstripComponent,
     ImageCanvasComponent,
     HistogramComponent,
+    ScopesPanelComponent,
     ControlCardComponent,
     ToolDockComponent,
     ValueHudComponent,
@@ -278,6 +290,11 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`). */
   readonly presetsOpen = signal<boolean>(false);
 
+  /** True when the scopes panel is open (#2449). Shares the dock-side
+   *  anchor with Curve/Presets — mutually exclusive with both (see
+   *  editor-shell-panels.ts). */
+  readonly scopesOpen = signal<boolean>(false);
+
   /** True when the Info sheet/pane is open (epic #1807 slice 5). Bottom
    *  sheet on phone, right-side pane on tablet/desktop — same split
    *  `PreviewShellComponent` uses for its Info surface. Info has its own
@@ -384,33 +401,13 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Arm a specific dock tool (Crop — #1813 — HSL — epic #1807 slice 4 —
-   *  bwMix — #276 — or Color Grading — #275). Matches the S5 editor's pill
-   *  row (`ToolPillRowComponent.select`): tapping always arms; exiting crop
-   *  is an explicit action (the crop toolbar's Done button), not a second
-   *  tap on the dock entry — HSL/bwMix/Color Grading have no such action
-   *  and simply stay armed until another tool is picked. Crop owns the
-   *  shared dock-side panel anchor Curve/Presets/Noise also use, so arming
-   *  it closes both. HSL/bwMix/Color Grading don't share that anchor — they
-   *  render inside the control card instead — but arming any of them still
-   *  closes Curve/Presets too, because the card itself hides while either
-   *  is open (Critical 1, `.control-card-anchor`'s `@if` guard); closing
-   *  them here is what makes the card (and the tool just armed) visible
-   *  again immediately, rather than leaving the user to close Curve/Presets
-   *  by hand first. */
+  // ── Tool arming + floating panels ─────────────────────────────────────
+  // Curve, Presets, Scopes, Crop and the Noise panel share one dock-side
+  // anchor (and the phone card's slot); the mutual-exclusion rules live in
+  // editor-shell-panels.ts (extracted for the per-file LOC budget).
+
   onToolChange(tool: ToolId): void {
-    if (
-      tool === 'crop' ||
-      tool === 'hsl' ||
-      tool === 'bwMix' ||
-      tool === 'colorGrade' ||
-      tool === 'filmLook'
-    ) {
-      this.curveOpen.set(false);
-      this.presetsOpen.set(false);
-    }
-    this.editorState.armTool(tool);
-    this.editorState.haptic('switch');
+    armTool(this, tool);
   }
 
   /** Toggle Black & White On/Off for the focused asset (#276) — the B&W
@@ -421,54 +418,22 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.setBlackWhite(this.blackWhiteOn() ? 'Off' : 'On');
   }
 
-  /** Toggle the curve panel. No-op while Crop is armed: Crop owns the shared
-   *  dock-side panel anchor with a full-replacement toolbar (no group
-   *  sliders behind it), so Curve can't open over it. HSL, bwMix, and Color
-   *  Grading no longer need to be in this guard (#1807 review, Critical 1):
-   *  they render INSIDE the control card via content projection rather than
-   *  owning the dock-side anchor, and the card itself now hides whenever
-   *  Curve is open (`.control-card-anchor`'s `@if` guard in the template),
-   *  so there is nothing left for Curve to open over. Opening Curve also
-   *  closes Presets, since they share the same dock-side anchor too (the
-   *  mutual-exclusion half that keeps the panels from overlapping — the
-   *  other half is `onPresetsPanelToggle` closing curve when Presets
-   *  opens). */
   onCurvePanelToggle(): void {
-    if (this.cropArmed()) return;
-    this.presetsOpen.set(false);
-    this.curveOpen.update((v) => !v);
+    toggleCurve(this);
   }
 
-  /**
-   * Phone bottom dock (#1807 Task 5): arms the tapped group, closing an open
-   * curve or presets panel first. The slider card is visible by default (no
-   * closeable flyout) and the template hides it whenever `curveOpen()`,
-   * `presetsOpen()`, or `noiseArmed()` is true — that `@if` guard is what
-   * actually keeps the card and the curve/presets panel from rendering on
-   * top of each other (they float in the same anchor slot above the dock,
-   * unlike tablet/desktop where the curve/presets/noise panels live in the
-   * separate `.tool-dock-anchor` column). This handler's own
-   * `curveOpen.set(false)`/`presetsOpen.set(false)` close an already-open
-   * panel so tapping a group tool brings the card back — `onGroupChange`
-   * alone doesn't touch either signal, and Crop/HSL/bwMix/Color Grading
-   * already get the same close via `onToolChange` (review round 2: a
-   * group tap while Presets was open left `presetsOpen` true and the card
-   * hidden underneath it, since only `curveOpen` was cleared here).
-   */
-  onPhoneDockGroupChange(group: ToolGroup): void {
-    this.curveOpen.set(false);
-    this.presetsOpen.set(false);
-    this.onGroupChange(group);
-  }
-
-  /** Toggle the presets panel (#1815). No-op while Crop is armed, and closes
-   *  Curve if open — same shared dock-side-anchor mutual exclusion as
-   *  Curve/Crop. See `onCurvePanelToggle` for why HSL/bwMix/Color Grading
-   *  dropped out of this guard (#1807 review, Critical 1). */
   onPresetsPanelToggle(): void {
-    if (this.cropArmed()) return;
-    this.curveOpen.set(false);
-    this.presetsOpen.update((v) => !v);
+    togglePresets(this);
+  }
+
+  /** Toggle the scopes panel (#2449): histogram · waveform · parade ·
+   *  vectorscope over the live frame's readback. */
+  onScopesPanelToggle(): void {
+    toggleScopes(this);
+  }
+
+  onPhoneDockGroupChange(group: ToolGroup): void {
+    phoneDockGroupChange(this, group);
   }
 
   // ── Undo / redo (top bar) ──────────────────────────────────────────────
