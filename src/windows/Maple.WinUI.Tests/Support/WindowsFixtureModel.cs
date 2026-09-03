@@ -60,6 +60,10 @@ namespace Maple.WinUI.Tests.Support
             ParametricLights = -3,
             ParametricDarks = 2.5,
             ParametricShadows = -1,
+            // Split points (#3223) at the two-platform golden's values.
+            ParametricShadowSplit = 30,
+            ParametricMidtoneSplit = 55.5,
+            ParametricHighlightSplit = 80,
             Vibrance = 15,
             Saturation = -10,
             Clarity = 20,
