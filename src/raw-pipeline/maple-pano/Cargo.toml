@@ -151,6 +151,20 @@ name = "ml_glue"
 path = "tests/ml_glue.rs"
 required-features = ["ml"]
 
+# #3236: the remaining suites that import `testkit` / the ML modules —
+# without the feature they did not compile, which broke a bare
+# `cargo test -p maple-pano` for everyone; with `required-features` Cargo
+# skips them instead.
+[[test]]
+name = "motion_gates"
+path = "tests/motion_gates.rs"
+required-features = ["testkit"]
+
+[[test]]
+name = "ml_smoke"
+path = "tests/ml_smoke.rs"
+required-features = ["ml"]
+
 [dev-dependencies]
 # `SyntheticGreyDng` for the #3230 rejected-DNG ingest gate — a file rawler
 # panics on (caught at the raw-core boundary) must surface as a typed

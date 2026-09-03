@@ -215,8 +215,9 @@ Crate-level gates:
 
 ```bash
 cd src/raw-pipeline
-cargo test -p maple-pano                    # geometry unit tests
-cargo test -p maple-pano --all-features     # adds the testkit-gated solver gates
+cargo test -p maple-pano                    # geometry unit tests (no ML modules, no testkit gates)
+cargo test -p maple-pano --features ml      # + the ALIKED/LightGlue stitch pipeline (skip-passes without models)
+cargo test -p maple-pano --all-features     # + the testkit-gated solver gates — what CI runs
 ```
 
 The `testkit` feature generates synthetic correspondences with exactly known camera parameters, which is what makes the two-view, graph, BA, refine, motion, local-alignment, and composite gate suites real geometry rather than regression snapshots. `tests/ml_smoke.rs` (`--features ml`) runs ALIKED and LightGlue on a synthetic overlapping pair rendered by the crate's own ground-truth renderer and reprojects every match through the known rotations; it skip-passes with an explicit message when models or the ORT dylib are absent, and fails loudly on anything else — digest mismatch, interface drift, geometric garbage.
