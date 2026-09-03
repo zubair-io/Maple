@@ -190,12 +190,12 @@ describe('handles', () => {
 
   it('dragging the body translates both endpoints', () => {
     const moved = dragMaskHandle(linear, 'linearBody', { x: 0.5, y: 0.4 }, { x: 0.4, y: 0.5 });
-    expect(moved).toEqual({
-      kind: 'linear',
-      start: { x: 0.3, y: 0.1 },
-      end: { x: 0.7, y: 0.7 },
-      feather: 0.5,
-    });
+    if (moved.kind !== 'linear') throw new Error('shape changed');
+    expect(moved.start.x).toBeCloseTo(0.3, 12);
+    expect(moved.start.y).toBeCloseTo(0.1, 12);
+    expect(moved.end.x).toBeCloseTo(0.7, 12);
+    expect(moved.end.y).toBeCloseTo(0.7, 12);
+    expect(moved.feather).toBe(0.5);
   });
 
   it('a radius handle projects onto the local axis with a floor; rotation sets the angle', () => {
