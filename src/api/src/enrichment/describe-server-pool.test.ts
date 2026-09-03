@@ -154,3 +154,131 @@ describe('DescribeServerPool', () => {
     ]);
   });
 });
+
+/**
+ * Per-server circuit breaker (#2734). Ollama's model runner crashes
+ * intermittently; the in-flight generation dies and every request for the
+ * next few seconds is refused while the runner reloads. Without a breaker
+ * the stage keeps claiming backlog through that window and every claim
+ * spends one of the asset's attempts on a box that cannot answer.
+ */
+describe('DescribeServerPool — circuit breaker', () => {
+  const serverFault = (url: string) => new RemoteError(`down: ${url}`, true, 500);
+
+  /** A pool whose breakers trip after two consecutive server faults and
+   * cool down quickly enough for a test to wait it out. */
+  function breakerPool(list = servers, openDurationMs = 40) {
+    return new DescribeServerPool(list, (url) => fakeProvider(url), {
+      failureThreshold: 2,
+      openDurationMs,
+    });
+  }
+
+  it('takes a server out of rotation after consecutive server faults', async () => {
+    const pool = breakerPool();
+    const tried: string[][] = [];
+    const call = (failA: boolean) => {
+      const seen: string[] = [];
+      tried.push(seen);
+      return pool.run(async (_provider, server) => {
+        seen.push(server.url);
+        if (failA && server.url === 'http://a:11434') throw serverFault(server.url);
+        return server.url;
+      });
+    };
+    // Two crashes on a: each fails over to b, and the second trips a's breaker.
+    expect(await call(true)).toBe('http://b:11434');
+    expect(await call(true)).toBe('http://b:11434');
+    // a would answer now, but it is tripped — the call goes straight to b.
+    expect(await call(false)).toBe('http://b:11434');
+    expect(tried).toEqual([
+      ['http://a:11434', 'http://b:11434'],
+      ['http://a:11434', 'http://b:11434'],
+      ['http://b:11434'],
+    ]);
+  });
+
+  it('does not count a terminal error against the server', async () => {
+    const pool = breakerPool();
+    for (let i = 0; i < 3; i++) {
+      await pool
+        .run(async () => {
+          throw new RemoteError('bad request', false, 400);
+        })
+        .catch(() => {});
+    }
+    // Three request-side failures in a row and a is still the first pick.
+    expect(await pool.run(async (_p, server) => server.url)).toBe('http://a:11434');
+  });
+
+  it('waits out the cool-down and probes when every server is tripped', async () => {
+    const pool = breakerPool([{ url: 'http://a:11434', concurrency: 2 }], 40);
+    const failing = () =>
+      pool
+        .run(async (_p, server) => {
+          throw serverFault(server.url);
+        })
+        .catch(() => {});
+    await failing();
+    await failing();
+
+    // The only server is open. Rather than failing the call (and spending
+    // the asset's attempt on a box that is reloading), the pool holds it
+    // until the cool-down elapses and runs it as the probe.
+    const started = Date.now();
+    expect(await pool.run(async (_p, server) => server.url)).toBe('http://a:11434');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(35);
+
+    // The successful probe closed the breaker: the next call is immediate.
+    const again = Date.now();
+    expect(await pool.run(async (_p, server) => server.url)).toBe('http://a:11434');
+    expect(Date.now() - again).toBeLessThan(35);
+  });
+
+  it('admits a single probe while half-open, then reopens fully on success', async () => {
+    const pool = breakerPool([{ url: 'http://a:11434', concurrency: 2 }], 20);
+    for (let i = 0; i < 2; i++) {
+      await pool
+        .run(async (_p, server) => {
+          throw serverFault(server.url);
+        })
+        .catch(() => {});
+    }
+    await Bun.sleep(25);
+
+    const gate = deferred();
+    let started = 0;
+    const call = () =>
+      pool.run(async () => {
+        started += 1;
+        await gate.promise;
+        return 'ok';
+      });
+    const calls = [call(), call()];
+    await Bun.sleep(5);
+    // Concurrency is 2, but a half-open server gets exactly one probe.
+    expect(started).toBe(1);
+    gate.release();
+    expect(await Promise.all(calls)).toEqual(['ok', 'ok']);
+    expect(started).toBe(2);
+  });
+
+  it('a failed probe sends the server back to open for another cool-down', async () => {
+    const pool = breakerPool([{ url: 'http://a:11434', concurrency: 1 }], 30);
+    const failing = () =>
+      pool
+        .run(async (_p, server) => {
+          throw serverFault(server.url);
+        })
+        .catch(() => {});
+    await failing();
+    await failing();
+    await Bun.sleep(35);
+    // Probe fails.
+    await failing();
+
+    const started = Date.now();
+    expect(await pool.run(async (_p, server) => server.url)).toBe('http://a:11434');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(25);
+  });
+});
