@@ -5,7 +5,7 @@
 
 use super::{Kind, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
-use crate::types::local_adjustment::{Mask, PartialAdjustments, Point2};
+use crate::types::local_adjustment::{Mask, PartialAdjustments, Point2, RangeRefinement};
 use crate::xmp::parse_xmp_bool;
 use quick_xml::events::BytesStart;
 
@@ -50,6 +50,8 @@ fn attr_f32_required(e: &BytesStart<'_>, key: &str) -> Result<f32> {
 /// One correction's parsed attributes, before the mask is known.
 pub(super) struct CorrectionAttrs {
     pub(super) adjustments: PartialAdjustments,
+    /// The colour-range refinement (#3270), if `papp:RangeKind` is present.
+    pub(super) range: Option<RangeRefinement>,
     /// `false` when `crs:CorrectionActive="False"` — the correction is a
     /// disabled pin and contributes nothing.
     pub(super) active: bool,
@@ -92,10 +94,34 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
     } else {
         scale_adjustments(&raw, amount)
     };
+    let range = parse_range_attrs(e)?;
     Ok(CorrectionAttrs {
         adjustments,
+        range,
         active,
     })
+}
+
+/// Parse the `papp:Range*` attributes (#3270, spec §5.2) off the SAME
+/// `rdf:Description` the sliders live on — not a nested element, so it needs
+/// no walker state. `Ok(None)` when `papp:RangeKind` is absent or an
+/// unrecognized value (forward-compat with a future non-`Color` variant).
+/// Missing numeric fields fall back to the skin preset's own defaults rather
+/// than erroring — a range refinement is a soft "narrow the mask further"
+/// knob, not a positional geometry field where a wrong default silently
+/// mislocates the mask.
+fn parse_range_attrs(e: &BytesStart<'_>) -> Result<Option<RangeRefinement>> {
+    match attr_str(e, "papp:RangeKind")?.as_deref() {
+        Some("Color") => Ok(Some(RangeRefinement::Color {
+            hue_deg: attr_f32(e, "papp:RangeHue")?.unwrap_or(55.0),
+            hue_half_width_deg: attr_f32(e, "papp:RangeHueWidth")?.unwrap_or(25.0),
+            chroma_min: attr_f32(e, "papp:RangeChromaMin")?.unwrap_or(0.02),
+            l_min: attr_f32(e, "papp:RangeLMin")?.unwrap_or(0.15),
+            l_max: attr_f32(e, "papp:RangeLMax")?.unwrap_or(0.95),
+            feather: attr_f32(e, "papp:RangeFeather")?.unwrap_or(0.3),
+        })),
+        _ => Ok(None),
+    }
 }
 
 /// Scale every present field by `amount` — Adobe's own Amount slider has

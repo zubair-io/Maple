@@ -66,6 +66,8 @@ struct Layer {
     adj0: vec4<f32>,   // exposure, contrast, highlights, shadows
     adj1: vec4<f32>,   // whites, blacks, saturation, vibrance
     adj2: vec4<f32>,   // temperature, tint, hue, padding
+    range0: vec4<f32>, // range_kind, hue_deg, hue_half_width_deg, chroma_min
+    range1: vec4<f32>, // l_min, l_max, feather, padding
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -76,6 +78,10 @@ struct Layer {
 // `f32::EPSILON`, the degenerate-geometry threshold the Rust evaluator uses.
 const F32_EPSILON: f32 = 1.1920929e-7;
 const KIND_RADIAL: f32 = 1.0;
+// raw_core::types::local_adjustment::flat::RANGE_KIND_COLOR (#3270).
+const RANGE_KIND_COLOR: f32 = 1.0;
+// raw_core::stages::local_adjustments::range::L_EDGE.
+const RANGE_L_EDGE: f32 = 0.05;
 
 // Presence bits, in the field order of `adj0`/`adj1`/`adj2`.
 const P_EXPOSURE: u32    = 1u;
@@ -213,6 +219,53 @@ fn mask_weight(layer: Layer, p: vec2<f32>) -> f32 {
         return w;
     }
     return linear_weight(layer.geom.xy, layer.geom.zw, feather, p);
+}
+
+// raw_core::stages::hsl::circular_delta_deg — absolute wrapped hue distance.
+fn circular_delta_deg(h: f32, center: f32) -> f32 {
+    var d = abs(h - center) % 360.0;
+    if (d > 180.0) {
+        d = 360.0 - d;
+    }
+    return d;
+}
+
+// raw_core::stages::local_adjustments::range::band_weight. The `half_width`
+// boundary itself always reads 0 — checked first so a zero-width roll-off
+// (`feather == 0`, where `inner == half_width_deg`) doesn't hit the
+// inner-band branch at that exact point.
+fn band_weight(delta_deg: f32, half_width_deg: f32, feather: f32) -> f32 {
+    if (delta_deg >= half_width_deg) {
+        return 0.0;
+    }
+    let inner = half_width_deg * (1.0 - feather);
+    if (delta_deg <= inner) {
+        return 1.0;
+    }
+    let t = (delta_deg - inner) / (half_width_deg - inner);
+    return 0.5 * (1.0 + cos(3.14159265358979323846 * t));
+}
+
+// raw_core::stages::local_adjustments::range::weight. `rgb` is the pixel
+// ENTERING this layer (see the call site in `main`). `layer.range0.x !=
+// RANGE_KIND_COLOR` (i.e. no range set) means "no refinement" — weight 1.
+fn range_weight(layer: Layer, rgb: vec3<f32>) -> f32 {
+    if (layer.range0.x != RANGE_KIND_COLOR) {
+        return 1.0;
+    }
+    let lab = rec2020_to_oklab(rgb);
+    let c = sqrt(lab.y * lab.y + lab.z * lab.z);
+    let c0 = max(layer.range0.w, 1e-6);
+    let chroma_w = smoothstep(c0, 2.0 * c0, c);
+    if (chroma_w <= 0.0) {
+        return 0.0;
+    }
+    let hue = atan2(lab.z, lab.y) * 180.0 / 3.14159265358979323846;
+    let d = circular_delta_deg(hue, layer.range0.y);
+    let hue_w = band_weight(d, max(layer.range0.z, 1e-3), clamp(layer.range1.z, 0.0, 1.0));
+    let l_w = smoothstep(layer.range1.x, layer.range1.x + RANGE_L_EDGE, lab.x)
+        * (1.0 - smoothstep(layer.range1.y - RANGE_L_EDGE, layer.range1.y, lab.x));
+    return chroma_w * hue_w * l_w;
 }
 
 // ── Oklab helpers (identical to the saturation / vibrance kernels) ────────
@@ -536,7 +589,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         if (layer.flags.x == 0.0) {
             continue;   // layer carries no controls; the Rust stage skips it
         }
-        let w = mask_weight(layer, n);
+        let geometric = mask_weight(layer, n);
+        if (geometric <= 0.0) {
+            continue;
+        }
+        // Range refinement (#3270): evaluated on `p`, the pixel ENTERING
+        // this layer (the previous layer's output, or this dispatch's
+        // input for the first layer) — never on this layer's own result.
+        let w = geometric * range_weight(layer, p);
         if (w <= 0.0) {
             continue;
         }

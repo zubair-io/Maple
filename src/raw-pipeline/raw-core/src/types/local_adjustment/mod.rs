@@ -132,11 +132,68 @@ pub enum Mask {
     },
 }
 
+/// A per-pixel refinement multiplied into the primary mask's weight, computed
+/// from the pixel ENTERING the local-adjustments stage (so it never chases
+/// the layer's own edit, and it tracks upstream exposure / white balance).
+/// Spec §5.2. One variant today; Lightroom composes range masks the same
+/// way, as refinements of a primary mask rather than standalone masks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RangeRefinement {
+    /// An Oklab hue band with chroma and lightness gates. Weight is 1 inside
+    /// the inner `(1 − feather)·half_width` of the band, rolls off with a
+    /// raised cosine to 0 at `half_width`, gated by
+    /// `smoothstep(chroma_min, 2·chroma_min, C)` and by the lightness window
+    /// `[l_min, l_max]` with a fixed 0.05 L roll-off on each side.
+    Color {
+        hue_deg: f32,
+        hue_half_width_deg: f32,
+        chroma_min: f32,
+        l_min: f32,
+        l_max: f32,
+        feather: f32,
+    },
+}
+
+/// The skin preset (spec §5.2). `hue_deg = 55°` is the commonly-cited
+/// "skin locus" angle; the other values were the design's starting seed.
+///
+/// Measured against `examples/skin-range-probe.rs` on the two portrait
+/// fixtures (2026-09-03): `test_0002` (studio, near-neutral as-shot WB)
+/// clusters tightly at hue 53–63° (p5–p95), matching this preset closely.
+/// `test_0003` (warm, backlit outdoor light) clusters at hue −48° to +16°
+/// across two different skin patches, with chroma sitting near this
+/// preset's `chroma_min` floor — a real, ~80–100° divergence from
+/// `test_0002`, not a measurement artifact (checked against two separate
+/// regions of the same photo). No single hue band centered anywhere
+/// reasonable covers both without becoming wide enough to admit most
+/// non-green/cyan hues, which would defeat the refinement's purpose.
+///
+/// This preset is therefore deliberately left at its literature-reasonable
+/// seed rather than fit to either fixture: within this epic's design (spec
+/// §5.3), the geometric Vision person/face mask is the primary selector,
+/// and this colour range is a coarse refinement on TOP of it — excluding
+/// obviously non-skin colours (saturated backgrounds, dark clothing) within
+/// the already-geometric person region, not a universal skin detector
+/// expected to be white-balance-invariant on its own. A future per-scene or
+/// per-mask-adjustable range (the eyedropper #362 already plans) is the
+/// right fix for a photo like `test_0003`, not a wider global constant.
+pub const SKIN_TONE_RANGE: RangeRefinement = RangeRefinement::Color {
+    hue_deg: 55.0,
+    hue_half_width_deg: 25.0,
+    chroma_min: 0.02,
+    l_min: 0.15,
+    l_max: 0.95,
+    feather: 0.3,
+};
+
 /// One local-adjustment layer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalAdjustment {
     /// Mask shape — determines the per-pixel weight w ∈ [0, 1].
     pub mask: Mask,
+    /// Refinement multiplied into the mask weight; `None` = the primary mask
+    /// alone.
+    pub range: Option<RangeRefinement>,
     /// Adjustments to apply, scaled by the mask weight.
     pub adjustments: PartialAdjustments,
 }
@@ -151,6 +208,7 @@ impl LocalAdjustment {
                 end,
                 feather: 0.5,
             },
+            range: None,
             adjustments,
         }
     }
@@ -165,6 +223,7 @@ impl LocalAdjustment {
                 feather: 0.5,
                 invert: false,
             },
+            range: None,
             adjustments,
         }
     }

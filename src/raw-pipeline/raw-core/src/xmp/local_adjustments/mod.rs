@@ -116,7 +116,7 @@
 
 use super::AdjustmentModel;
 use crate::error::Result;
-use crate::types::local_adjustment::{LocalAdjustment, Mask, PartialAdjustments};
+use crate::types::local_adjustment::{LocalAdjustment, Mask, PartialAdjustments, RangeRefinement};
 use quick_xml::events::BytesStart;
 
 mod parse;
@@ -153,6 +153,11 @@ fn is_description(name: &str) -> bool {
 /// A correction whose `rdf:Description` is open but not yet closed.
 struct InProgressCorrection {
     adjustments: PartialAdjustments,
+    /// The colour-range refinement (#3270), parsed off the SAME
+    /// `rdf:Description` the sliders live on — `papp:Range*` attributes,
+    /// not a nested element, so it arrives alongside `adjustments` rather
+    /// than through the mask-leaf path below.
+    range: Option<RangeRefinement>,
     active: bool,
     /// `Some` once its `crs:CorrectionMasks` leaf has been recognized.
     mask: Option<Mask>,
@@ -200,6 +205,7 @@ impl LocalAdjustmentsWalker {
                 let attrs = parse_correction_attrs(e)?;
                 self.current = Some(InProgressCorrection {
                     adjustments: attrs.adjustments,
+                    range: attrs.range,
                     active: attrs.active,
                     mask: None,
                 });
@@ -291,6 +297,7 @@ impl LocalAdjustmentsWalker {
                     if let Some(mask) = cur.mask {
                         self.finished.push(LocalAdjustment {
                             mask,
+                            range: cur.range,
                             adjustments: cur.adjustments,
                         });
                     }

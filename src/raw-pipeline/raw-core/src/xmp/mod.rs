@@ -440,6 +440,8 @@ mod tests_lens;
 #[cfg(test)]
 mod tests_local_adjustments;
 #[cfg(test)]
+mod tests_local_adjustments_canonical;
+#[cfg(test)]
 mod tests_metadata;
 #[cfg(test)]
 mod tests_modes;

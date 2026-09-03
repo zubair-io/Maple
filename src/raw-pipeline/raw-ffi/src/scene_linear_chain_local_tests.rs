@@ -53,6 +53,7 @@ fn local_adjustment_wire_reaches_the_cpu_chain() {
             end: Point2::new(1.0, 0.5),
             feather: 0.0,
         },
+        range: None,
         adjustments: PartialAdjustments {
             exposure: Some(1.0),
             ..Default::default()

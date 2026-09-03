@@ -40,9 +40,9 @@ use crate::spatial::{encode_simple, pool_data_storage};
 
 /// Floats per serialized layer. MUST equal
 /// `raw_core::types::local_adjustment::LAYER_FLAT_LEN`; the parity test pins
-/// the two together, and the WGSL `Layer` struct (six `vec4<f32>`) is the same
-/// 96 bytes.
-pub const LAYER_FLAT_LEN: usize = 24;
+/// the two together, and the WGSL `Layer` struct (eight `vec4<f32>`) is the
+/// same 128 bytes.
+pub const LAYER_FLAT_LEN: usize = 32;
 
 /// Index of the presence-bitmask slot within a layer record. A layer whose mask
 /// is zero sets no controls, and both the Rust stage and the kernel skip it.

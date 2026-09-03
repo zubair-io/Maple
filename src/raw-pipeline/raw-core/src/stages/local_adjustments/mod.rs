@@ -44,6 +44,7 @@ use crate::types::{LocalAdjustment, PartialAdjustments};
 
 pub mod hue;
 pub mod mask;
+pub mod range;
 
 /// Apply every `LocalAdjustment` in `layers` to `img`. Layers are applied
 /// in order, each compositing on top of the previous result — there is no
@@ -126,7 +127,19 @@ pub fn apply_windowed(
                 let ny = (origin.1 + y as i32) as f32 * inv_h;
                 for (x, p) in row.iter_mut().enumerate() {
                     let nx = (origin.0 + x as i32) as f32 * inv_w;
-                    let weight = mask::evaluate(&layer.mask, nx, ny);
+                    let geometric = mask::evaluate(&layer.mask, nx, ny);
+                    if geometric <= 0.0 {
+                        continue;
+                    }
+                    // Range refinement (#3270): evaluated on the pixel
+                    // ENTERING this layer (the previous layer's output, or
+                    // the stage's own input for the first layer) — never on
+                    // this layer's own result, so it can't chase its own
+                    // edit, and it tracks upstream exposure / white balance.
+                    let weight = match layer.range.as_ref() {
+                        Some(r) => geometric * range::weight(r, *p),
+                        None => geometric,
+                    };
                     if weight <= 0.0 {
                         continue;
                     }
@@ -265,3 +278,6 @@ fn apply_pixel(p: &mut [f32; 3], a: &PartialAdjustments, w: f32) {
 
 #[cfg(test)]
 mod tests;
+// Hue (#3269) / range-refinement (#3270) tests — sibling file, 600-line budget.
+#[cfg(test)]
+mod tests_hue_range;
