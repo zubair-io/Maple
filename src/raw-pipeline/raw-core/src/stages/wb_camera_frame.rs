@@ -210,6 +210,27 @@ impl SliderFrame {
         }
     }
 
+    /// The slider-frame `(temperature, tint)` of an arbitrary RAW camera
+    /// neutral — the Robertson solve `dcp::estimate_as_shot_cct_tint` runs
+    /// on `as_shot_neutral`, generalised to a neutral measured from the
+    /// image itself (the auto white balance estimate, #2247). Dual-endpoint
+    /// frames interpolate the calibration at the illuminant's own CCT
+    /// (`SetWhiteXY`), which is the unknown, so the solve is a short fixed
+    /// point seeded from the as-shot CCT; a single-CM frame converges in one
+    /// step. Degenerate input (singular CM, non-finite projection) returns
+    /// the frame's own as-shot point at zero tint.
+    pub(crate) fn illuminant_temp_tint(&self, camera_neutral: [f32; 3]) -> (f32, f32) {
+        let solve_at = |cct: f32| {
+            let xyz = self.cm_for_cct(cct).inverse()?.mul_vec(camera_neutral);
+            let sum = xyz[0] + xyz[1] + xyz[2];
+            (sum.is_finite() && sum > 1e-6)
+                .then(|| crate::color::dng_temperature::xy_to_temp_tint(xyz[0] / sum, xyz[1] / sum))
+        };
+        (0..3)
+            .try_fold((self.scene_cct, 0.0_f32), |(cct, _), _| solve_at(cct))
+            .unwrap_or((self.scene_cct, 0.0))
+    }
+
     /// The scene illuminant's XYZ chromaticity in this frame:
     /// `normalize(inv(CM_as_shot) · as_shot_neutral)`. This is the same
     /// quantity `dcp::estimate_as_shot_cct_tint` derives in the render
