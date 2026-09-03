@@ -58,6 +58,15 @@ use crate::image::RawImage;
 /// future iteration can read EXIF lens metadata without touching every
 /// call site again.
 pub fn map_to_bundle_ucm(_raw: &RawImage, source_key: &str) -> Option<&'static str> {
+    alias_for(source_key)
+}
+
+/// The alias table itself, keyed on the source `UniqueCameraModel` string
+/// alone. The support-tier registry (`crate::support_tiers`, #2440) needs
+/// to answer "does the bundle cover this body" without a decoded file, and
+/// the mapping never depended on one — [`map_to_bundle_ucm`] is this
+/// function plus the `RawImage` the resolver happens to have in hand.
+pub fn alias_for(source_key: &str) -> Option<&'static str> {
     match source_key {
         // ── Hasselblad medium-format ──────────────────────────────────
         // The H-series body codes (H2D, H4D, H5D, H6D) carry the sensor
