@@ -44,6 +44,12 @@ interface LogTarget {
   endpoint: string; // no trailing slash
   ingestionKey: string | null;
   serviceNamespace: string;
+  /** How long a record may sit in the buffer before it is POSTed. Set per
+   * process tier by `otel.ts` (#2196): the worker tier hosts native code
+   * that can abort the process with no JS hook, and everything buffered at
+   * that instant is lost — so it runs a much shorter cadence than the API
+   * process. Defaults to `FLUSH_MS`. */
+  flushIntervalMs?: number;
 }
 
 let target: LogTarget | null = null;
@@ -131,7 +137,7 @@ function scheduleFlush(): void {
   flushTimer = setTimeout(() => {
     flushTimer = null;
     void flush();
-  }, FLUSH_MS);
+  }, target?.flushIntervalMs ?? FLUSH_MS);
   // Don't keep the event loop alive purely for a pending flush (so the process
   // can exit between batches). `unref` exists on Node/Bun timers.
   (flushTimer as { unref?: () => void }).unref?.();

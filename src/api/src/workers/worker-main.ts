@@ -7,7 +7,7 @@ import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { getDb, ensureIndexes, closeDb } from '../db/client.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
-import { initOtel } from '../otel.ts';
+import { flushOtelBeforeExit, initOtel, installOtelFatalFlush } from '../otel.ts';
 import {
   resolveObservabilityConfig,
   loadObservabilityConfig,
@@ -15,6 +15,11 @@ import {
 import { child as childLogger } from '../log.ts';
 
 installChildHardening('worker');
+// An uncaught exception or unhandled rejection flushes telemetry before the
+// process exits (#2196). Installed before anything else runs so an early
+// boot failure is covered too; a native abort is beyond any hook and is
+// bounded only by the worker tier's short export cadence (see `otel.ts`).
+installOtelFatalFlush();
 const log = childLogger('worker-main');
 
 async function main(): Promise<void> {
@@ -25,7 +30,7 @@ async function main(): Promise<void> {
     log.warn({ err: e instanceof Error ? e.message : e }, 'ensureIndexes failed — continuing');
   }
   try {
-    await initOtel(resolveObservabilityConfig(await loadObservabilityConfig()));
+    await initOtel(resolveObservabilityConfig(await loadObservabilityConfig()), 'worker');
   } catch (e) {
     log.warn({ err: e }, 'otel init failed');
   }
@@ -54,13 +59,20 @@ async function main(): Promise<void> {
     } catch {
       /* best effort */
     }
+    log.info('worker tier stopped');
+    // SIGTERM is the one death this tier can see coming: drain the batch
+    // exporters (bounded) so the last seconds of spans and logs — including
+    // the line above — reach the collector instead of dying with the
+    // process (#2196). The API process does the same in its own shutdown.
+    await flushOtelBeforeExit();
     await closeDb();
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown());
   process.on('SIGINT', () => void shutdown());
 }
-main().catch((e) => {
+main().catch(async (e) => {
   process.stderr.write(`[worker-main] fatal: ${e instanceof Error ? e.message : e}\n`);
+  await flushOtelBeforeExit();
   process.exit(1);
 });
