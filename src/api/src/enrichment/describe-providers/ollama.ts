@@ -93,7 +93,7 @@ export class OllamaProvider implements DescribeProvider {
       headers: { 'content-type': 'application/json' },
       body,
     });
-    classifyHttp(res, 'Ollama');
+    await classifyHttp(res, 'Ollama');
     const parsed = await parseGenerateBody(res);
     const text = extractGeneratedText(parsed, res.status, opts.model);
     return {
@@ -212,13 +212,51 @@ function emptyResponseDetail(
   ].join(', ');
 }
 
+/** Longest slice of an Ollama error body carried into `last_error`. Long
+ * enough for every message Ollama emits today, short enough that a stray
+ * HTML error page from a proxy can't bloat the asset row. */
+const MAX_ERROR_DETAIL_CHARS = 240;
+
+/**
+ * Ollama's own reason for a non-2xx, from its `{ "error": "…" }` body.
+ *
+ * The status code alone hides the failure that matters most: a crashed
+ * model runner answers `500 {"error":"model runner has unexpectedly
+ * stopped, this may be due to resource limitations or an internal error,
+ * check ollama server logs for details"}`, and every request for the next
+ * few seconds is refused while the runner reloads — which the operator sees
+ * as "Unable to connect" and reads as a network fault (#2734). Carrying the
+ * body into the error message is what lets `stages.describe.last_error`
+ * name the actual cause. Best-effort: an unreadable or non-JSON body still
+ * yields the plain status message.
+ */
+async function errorDetail(res: Response): Promise<string> {
+  const text = await res.text().catch(() => '');
+  const message = (() => {
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown } | null;
+      return typeof parsed?.error === 'string' ? parsed.error : '';
+    } catch {
+      // Not Ollama's JSON envelope (a proxy's HTML error page, an empty
+      // body) — nothing worth putting on the asset row.
+      return '';
+    }
+  })();
+  const detail = message.replace(/\s+/g, ' ').trim();
+  return detail.length > MAX_ERROR_DETAIL_CHARS
+    ? `${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}…`
+    : detail;
+}
+
 /** Shared 4xx/5xx classifier. Same shape across providers — keep them in
- * sync so the worker's retry logic doesn't need per-provider branches. */
-function classifyHttp(res: Response, providerLabel: string): void {
+ * sync so the worker's retry logic doesn't need per-provider branches. The
+ * Ollama variant additionally appends the server's own error body. */
+async function classifyHttp(res: Response, providerLabel: string): Promise<void> {
+  if (res.status < 400) return;
+  const detail = await errorDetail(res);
+  const suffix = detail.length > 0 ? ` — ${detail}` : '';
   if (res.status >= 500) {
-    throw new RemoteError(`${providerLabel} 5xx: ${res.status}`, true, res.status);
+    throw new RemoteError(`${providerLabel} 5xx: ${res.status}${suffix}`, true, res.status);
   }
-  if (res.status >= 400) {
-    throw new RemoteError(`${providerLabel} 4xx: ${res.status}`, false, res.status);
-  }
+  throw new RemoteError(`${providerLabel} 4xx: ${res.status}${suffix}`, false, res.status);
 }
