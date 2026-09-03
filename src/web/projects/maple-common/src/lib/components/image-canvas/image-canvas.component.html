@@ -67,15 +67,14 @@
   <!-- Crop / straighten overlay (#638): shown while the Crop tool is armed. The
        canvas above renders UNCROPPED (crop stripped) + rotated by the straighten
        angle; this draws the interactive crop rectangle. -->
-  @if (cropActive()) {
+  @if (cropSession.active()) {
     <editor-crop-overlay></editor-crop-overlay>
   }
 
   <!-- Mask overlay (#1541): the selected layer's handles + weight tint while
-       the Mask tool is armed. The canvas renders the masked result live. -->
-  @if (maskActive()) {
-    <editor-mask-overlay></editor-mask-overlay>
-  }
+       the Mask tool is armed (it hides itself otherwise — `MaskSessionService.
+       active`). The canvas renders the masked result live. -->
+  <editor-mask-overlay></editor-mask-overlay>
 
   <!-- Before/after divider -->
   @if (canvasSvc.showBeforeAfter()) {

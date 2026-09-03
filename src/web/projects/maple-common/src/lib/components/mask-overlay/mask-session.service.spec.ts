@@ -118,8 +118,25 @@ describe('MaskSessionService (#1541)', () => {
   it('feather is clamped and invert is a no-op on a linear layer', () => {
     session.addLinear();
     session.setFeather(1.7);
+    session.endGesture();
     session.setInverted(true);
     expect(session.selected()!.mask).toMatchObject({ kind: 'linear', feather: 1 });
+    // The no-op invert pushed no undo entry: one undo reverts the feather.
+    editor.undo();
+    expect(session.selected()!.mask).toMatchObject({ kind: 'linear', feather: 0.5 });
+  });
+
+  it('disarming mid-gesture closes it so the next drag gets its own undo entry', () => {
+    session.addLinear();
+    editor.armTool('mask');
+    session.setAdjustment('exposure', 0.5);
+    editor.armTool('exposure');
+    TestBed.flushEffects();
+    editor.armTool('mask');
+    session.setAdjustment('exposure', 1);
+    session.endGesture();
+    editor.undo();
+    expect(session.adjustment('exposure')).toBe(0.5);
   });
 
   it('arming Mask lands on the first layer when nothing is selected', () => {
