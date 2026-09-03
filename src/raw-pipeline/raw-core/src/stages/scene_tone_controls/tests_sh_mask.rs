@@ -374,8 +374,19 @@ fn mask_reach_registered_for_tile_overlap() {
     // Two cascaded masked steps (highlights, then shadows reading the
     // highlights output) — reaches compound: 2 × blur radius. The #11
     // overlap calculator consumes this.
-    assert_eq!(sh_mask_reach_px(2000), 2 * sh_mask_blur_radius(2000));
-    assert_eq!(sh_mask_reach_px(12288), 2 * sh_mask_blur_radius(12288));
+    let mut both = model_default();
+    both.highlights = -40.0;
+    both.shadows = 35.0;
+    assert_eq!(sh_mask_reach_px(2000, &both), 2 * sh_mask_blur_radius(2000));
+    assert_eq!(
+        sh_mask_reach_px(12288, &both),
+        2 * sh_mask_blur_radius(12288)
+    );
+    // One engaged slider runs one pass; a neutral model runs none (#2476).
+    let mut one = model_default();
+    one.shadows = 35.0;
+    assert_eq!(sh_mask_reach_px(12288, &one), sh_mask_blur_radius(12288));
+    assert_eq!(sh_mask_reach_px(12288, &model_default()), 0);
 }
 
 // ----------------------------------------------------------------
@@ -444,7 +455,7 @@ fn mask_anchor_makes_a_crop_render_like_the_whole_frame() {
     // A crop that sits at least the mask's reach inside the frame on every
     // side, so its interior blur sees the same neighbourhood the whole-frame
     // pass did.
-    let reach = sh_mask_reach_px(w as usize);
+    let reach = sh_mask_reach_px(w as usize, &model);
     let (x0, y0, cw, ch) = (100usize, 75usize, 200usize, 150usize);
     assert!(
         reach <= x0.min(y0),

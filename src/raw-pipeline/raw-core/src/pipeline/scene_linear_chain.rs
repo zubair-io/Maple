@@ -77,13 +77,9 @@ pub struct ChainOptions<'a> {
     /// to derive the per-channel sigma. 100 = the hardcoded fallback that
     /// predates noise-profile plumbing.
     pub iso: u32,
-    /// Long edge of the FULL frame at this buffer's pixel scale — the anchor
-    /// for the highlights/shadows detail-mask blur (#2476). `None` means the
-    /// buffer IS the whole frame at some scale (the per-tick viewport decode
-    /// of the DefaultCrop rect — every FFI/WASM caller today), and the stage
-    /// anchors on the buffer's own long edge. A caller running this chain
-    /// over a CROP of the frame (the live-vs-tile parity gate does) passes
-    /// the frame's long edge so the mask radius matches a whole-frame render.
+    /// Full frame's long edge at this buffer's scale — the S/H detail-mask
+    /// anchor (#2476). `None` = the buffer IS the whole frame (every FFI/WASM
+    /// caller); a caller handing in a CROP (the live-vs-tile gate) sets it.
     pub mask_long_edge: Option<u32>,
 }
 
@@ -238,8 +234,7 @@ pub fn apply_scene_linear_chain(
             model.wb_method,
         ),
     });
-    // S/H detail mask anchored to the full frame (#2476) — the buffer's own
-    // long edge unless the caller says it is rendering a crop.
+    // S/H detail mask anchored to the full frame (#2476).
     let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply_with_mask_anchor(&mut img, model, sh_mask_anchor)
@@ -458,8 +453,6 @@ pub fn apply_scene_linear_chain_f32(
             model.wb_method,
         ),
     });
-    // S/H detail mask anchored to the full frame (#2476) — the buffer's own
-    // long edge unless the caller says it is rendering a crop.
     let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply_with_mask_anchor(&mut img, model, sh_mask_anchor)
