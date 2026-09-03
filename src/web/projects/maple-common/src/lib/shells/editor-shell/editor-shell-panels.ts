@@ -46,12 +46,16 @@ export function armTool(shell: EditorShellComponent, tool: ToolId): void {
   shell.editorState.haptic('switch');
 }
 
-/** Toggle one panel, closing the other two; a no-op while Crop owns the anchor. */
+/** Toggle one panel, closing the other two. A no-op while an ARMED TOOL owns
+ *  the anchor: Crop (its toolbar) and Noise (its sub-param panel, mounted
+ *  while the Noise slider is armed) both render there, and neither is a
+ *  toggle this function could close — opening a panel over them would
+ *  stack two cards in one slot. */
 function togglePanel(
   shell: EditorShellComponent,
   panel: 'curveOpen' | 'presetsOpen' | 'scopesOpen',
 ): void {
-  if (shell.cropArmed()) return;
+  if (shell.cropArmed() || shell.noiseArmed()) return;
   const wasOpen = shell[panel]();
   closePanels(shell);
   shell[panel].set(!wasOpen);
