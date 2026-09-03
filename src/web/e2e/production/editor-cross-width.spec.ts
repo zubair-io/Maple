@@ -254,8 +254,14 @@ for (const viewport of VIEWPORTS) {
       expect(viewport.dockColumn ? light < exposure : exposure < light, JSON.stringify(order)).toBe(
         true,
       );
-      // Disabled placeholders never take focus.
-      expect(order.some((n) => n === 'Mask' || n === 'Heal')).toBe(false);
+      // Disabled placeholders never take focus. Which tools ARE placeholders
+      // comes from the manifest, not a hard-coded list — a tool that ships
+      // (Mask, #1541) leaves the manifest and must then be reachable.
+      const placeholders = parityPlaceholders().map((row) => row.name);
+      expect(
+        order.filter((n) => placeholders.includes(n)),
+        JSON.stringify({ order, placeholders }),
+      ).toEqual([]);
       // A focused slider owns its arrow keys; Shift+arrow nudges from anywhere.
       const slider = page.getByRole('slider', { name: 'Exposure' });
       await slider.focus();
