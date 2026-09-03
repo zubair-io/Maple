@@ -7,11 +7,12 @@
 //! (CLAUDE.md § Performance invariants). This cache lets second-and-after
 //! ticks on the same RAW reuse the previously fitted curve.
 //!
-//! Key shapes (see [`CacheKey`]):
-//! - [`CacheKey::Path`] — `(canonical path, mtime, quality)` for native
-//!   callers. Mtime catches "user re-edited and re-exported the RAW out from
+//! Key shapes (see [`CacheKey`]); both carry `(quality, origin)` on top of
+//! the raw identity:
+//! - [`CacheKey::Path`] — `(canonical path, mtime, quality, origin)` for
+//!   native callers. Mtime catches "user re-edited and re-exported the RAW out from
 //!   under us"; the path discriminates between fixtures.
-//! - [`CacheKey::Bytes`] — `(hash, quality)` where the hash is a 64-bit
+//! - [`CacheKey::Bytes`] — `(hash, quality, origin)` where the hash is a 64-bit
 //!   blake3 digest of the first 64 KB + last 64 KB + total length of the
 //!   bytes. Full blake3 of a 50 MB RAW alone is ~50 ms (would defeat the
 //!   cache); prefix+suffix+length is collision-free across distinct RAW
@@ -339,7 +340,9 @@ pub fn insert_lut(key: CacheKey, lut: ColorLut) {
 #[cfg(test)]
 pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
-    TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Test-only: clear the cache. Used by tests that need a known empty
