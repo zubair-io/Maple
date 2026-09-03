@@ -57,8 +57,17 @@ struct VectorscopeHud: View {
         .padding(.trailing, 12)
         .accessibilityIdentifier("editor-vectorscope-hud")
         .accessibilityLabel("Skin tone vectorscope")
-        .accessibilityValue(state.session.scopeSample != nil ? "has data" : "no data")
+        .accessibilityValue(accessibilityValueText)
         .onAppear { state.session.scopeEnabled = true }
         .onDisappear { state.session.scopeEnabled = false }
+    }
+
+    /// Widened beyond a plain has/no-data flag (#3279) so an XCUITest can
+    /// read the scope's actual centroid off the accessibility tree instead
+    /// of a screenshot — see `SkinToneDemoUITests`.
+    private var accessibilityValueText: String {
+        guard let sample = state.session.scopeSample else { return "no data" }
+        guard let centroid = sample.centroidAngleDeg else { return "has data, no centroid" }
+        return "has data, centroid \(String(format: "%.1f", centroid))°"
     }
 }
