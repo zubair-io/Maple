@@ -27,6 +27,9 @@
 //     value around AGX_MID_NORM BEFORE sampling the LUT.
 //   * ratio sigmoid: n = max(R,G,B); if n <= 1e-6 (RATIO_FLOOR) sigmoid the
 //     floor once and return that neutral; else scale RGB by sigmoid(n)/n.
+//   * path-to-white (#1624): sn = max of the sigmoided pixel; w = AMOUNT *
+//     clamp((sn - KNEE)/(1 - KNEE), 0, 1)^POWER, zero at/below the knee;
+//     rgb += w * (sn - rgb). Constants from generated/agx_coeffs.wgsl.
 //   * oklab_gamut_compress (#1621 soft-knee): below the knee (chroma <=
 //     THRESHOLD*hull, EPS_HI=1+1e-5, EPS_LO=-1e-5) passes through; else find
 //     the hull (bracket + 24-iter bisection) and apply the Reinhard soft-knee
@@ -100,6 +103,28 @@ fn agx_ratio_sigmoid(inset: vec3<f32>, slope: f32) -> vec3<f32> {
     let sn = agx_sigmoid_curve(n, slope);
     let ratio = sn / n;
     return inset * ratio;
+}
+
+// Path-to-white weight for a sigmoided max channel. Mirrors raw-core
+// `agx::path_to_white_weight` (#1624): 0 at and below the knee, AMOUNT at 1.
+fn agx_p2w_weight(sn: f32) -> f32 {
+    if (sn <= AGX_P2W_KNEE) {
+        return 0.0;
+    }
+    let t = clamp((sn - AGX_P2W_KNEE) / (1.0 - AGX_P2W_KNEE), 0.0, 1.0);
+    return AGX_P2W_AMOUNT * pow(t, AGX_P2W_POWER);
+}
+
+// Highlight path-to-white on the sigmoided AgX-Base pixel. Mirrors raw-core
+// `agx::path_to_white`: lerp every channel toward the max by the weight; the
+// max is a fixed point so brightness is preserved and neutrals pass through.
+fn agx_path_to_white(sig: vec3<f32>) -> vec3<f32> {
+    let sn = max(max(sig.x, sig.y), sig.z);
+    let w = agx_p2w_weight(sn);
+    if (w <= 0.0) {
+        return sig;
+    }
+    return sig + w * (vec3<f32>(sn, sn, sn) - sig);
 }
 
 // ── Oklab round-trip (rec2020 pair) for gamut compression ────────────────
@@ -233,7 +258,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let inset = mul_agx_inset(px.rgb);
 
     // 2) Ratio-preserving sigmoid (hue invariant).
-    let sig = agx_ratio_sigmoid(inset, slope);
+    let sig0 = agx_ratio_sigmoid(inset, slope);
+
+    // 2b) Highlight path-to-white (#1624).
+    let sig = agx_path_to_white(sig0);
 
     // 3) Outset matrix back to Rec.2020 primaries.
     let outc = mul_agx_outset(sig);
