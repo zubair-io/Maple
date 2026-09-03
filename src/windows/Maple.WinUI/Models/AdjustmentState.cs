@@ -51,6 +51,13 @@ namespace Maple.WinUI.Models
         public double ParametricLights = 0.0;
         public double ParametricDarks = 0.0;
         public double ParametricShadows = 0.0;
+        // ACR's parametric split points (#2320 / #3223): the three axis
+        // positions that bound the four regions above, [0, 100], default
+        // 25/50/75. `crs:Parametric{Shadow,Midtone,Highlight}Split` on the
+        // wire, omitted at their per-field default like every other numeric.
+        public double ParametricShadowSplit = 25.0;   // [0, 100]
+        public double ParametricMidtoneSplit = 50.0;  // [0, 100]
+        public double ParametricHighlightSplit = 75.0; // [0, 100]
 
         // --- Presence / color ---
         public double Vibrance = 0.0;
