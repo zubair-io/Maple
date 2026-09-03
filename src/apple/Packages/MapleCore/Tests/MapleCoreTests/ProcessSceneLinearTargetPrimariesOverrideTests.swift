@@ -18,8 +18,19 @@ import XCTest
 @testable import MapleCore
 
 final class ProcessSceneLinearTargetPrimariesOverrideTests: XCTestCase {
+    // Same `stateLock` convention `CanvasColorSpaceTests` establishes (jules
+    // review on #3192): `CanvasColorSpace.defaultsKey` is process-global, so
+    // every test that mutates it serializes its save/mutate/restore section
+    // against other tests in this file — a real flakiness risk if the
+    // runner ever executes tests in parallel. Safe to use `NSLock` here
+    // (unlike `GpuLiveCpuP3ParityTests`'s helper of the same shape): `body`
+    // below is synchronous and never suspends, so the lock is acquired and
+    // released on the same thread.
+    private static let stateLock = NSLock()
 
     private func withCanvasColorSpace(_ cs: CanvasColorSpace, _ body: () -> Void) {
+        Self.stateLock.lock()
+        defer { Self.stateLock.unlock() }
         let saved = UserDefaults.standard.object(forKey: CanvasColorSpace.defaultsKey)
         UserDefaults.standard.set(cs.rawValue, forKey: CanvasColorSpace.defaultsKey)
         defer {
