@@ -22,11 +22,8 @@ import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
-import {
-  type EditTransaction,
-  type EditTransactionKind,
-  makeEditTransaction,
-} from './edit-transaction';
+import { type EditTransaction, type EditTransactionKind } from './edit-transaction';
+import { EditTransactionRing, UNDO_STACK_CAP } from './edit-transaction-ring';
 import type { AssetId } from '../models/asset';
 import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
 import {
@@ -60,16 +57,7 @@ import {
   subParamsFor,
 } from './tool-sub-param';
 
-/** Cap on the editor's undo/redo ring (per spec §4). */
-export const UNDO_STACK_CAP = 32;
-
-/** An open, not-yet-recorded transaction (#2432). */
-interface PendingEdit {
-  readonly id: number;
-  readonly kind: EditTransactionKind;
-  readonly description: string;
-  readonly before: AdjustmentModel;
-}
+export { UNDO_STACK_CAP };
 
 export type HapticEvent =
   | 'zero-cross' // .light  / vibrate(8)
@@ -116,28 +104,19 @@ export class EditorStateService {
   // announcing it. A still-open transaction is closed by the next boundary
   // (`commit`, `undo`, `redo`, `endEdit`, `bind`), so a caller that only
   // knows the START of a gesture still produces exactly one entry. Mirrors
-  // Apple's `EditSession+UndoRedo.swift`.
-  private readonly _undoStack = signal<EditTransaction[]>([]);
-  private readonly _redoStack = signal<EditTransaction[]>([]);
-  private _pending: PendingEdit | null = null;
-  private _nextTransactionId = 0;
+  // Apple's `EditSession+UndoRedo.swift`; the bookkeeping lives in
+  // `EditTransactionRing`.
+  private readonly ring = new EditTransactionRing();
 
   /** The most recently recorded, undone, or redone transaction. */
-  readonly lastCommittedTransaction = signal<EditTransaction | null>(null);
+  readonly lastCommittedTransaction = this.ring.lastCommitted;
 
-  /** True when an undo entry exists OR the open transaction has already
-   * moved the model (it becomes one at the next boundary). */
-  readonly canUndo = computed(() => {
-    if (this._undoStack().length > 0) return true;
-    const pending = this._pending;
-    const current = this.currentAdjustment();
-    return pending != null && current != null && !sameModel(pending.before, current);
-  });
-  readonly canRedo = computed(() => this._redoStack().length > 0);
+  readonly canUndo = computed(() => this.ring.canUndo(this.currentAdjustment()));
+  readonly canRedo = this.ring.canRedo;
 
   /** The recorded transactions, oldest first. Test / diagnostics seam. */
   undoHistory(): readonly EditTransaction[] {
-    return this._undoStack();
+    return this.ring.history();
   }
 
   // ── Derived: live adjustment + dirty flag ────────────────────────────────
@@ -217,10 +196,7 @@ export class EditorStateService {
   bind(id: AssetId, armed?: { group: ToolGroup; tool: ToolId }): void {
     this.imageId.set(id);
     this.autoResult.set(null);
-    this._pending = null;
-    this._undoStack.set([]);
-    this._redoStack.set([]);
-    this.lastCommittedTransaction.set(null);
+    this.ring.reset();
     this._discardDeferred();
     if (armed) {
       this.armedGroup.set(armed.group);
@@ -238,33 +214,16 @@ export class EditorStateService {
     const adj = this.currentAdjustment();
     if (!adj) return;
     this.endEdit();
-    this._nextTransactionId += 1;
-    this._pending = {
-      id: this._nextTransactionId,
-      kind,
-      description: description ?? TOOL_DISPLAY[this.armedTool()],
-      before: structuredClone(adj),
-    };
-    this._redoStack.set([]);
+    this.ring.open(kind, description ?? TOOL_DISPLAY[this.armedTool()], adj);
   }
 
   /** Close the open transaction. A no-op (model unchanged) records nothing;
    * anything else becomes exactly one undo entry, is handed to the library
    * as the state the sidecar persists, and is announced. */
   endEdit(): void {
-    const pending = this._pending;
     const id = this.imageId();
-    const current = this.currentAdjustment();
-    if (!pending) return;
-    this._pending = null;
-    if (id == null || !current) return;
-    const tx = makeEditTransaction(this.serializer, {
-      ...pending,
-      after: structuredClone(current),
-    });
-    if (!tx) return;
-    this._undoStack.update((stack) => pushCapped(stack, tx));
-    this.lastCommittedTransaction.set(tx);
+    const tx = this.ring.close(this.serializer, this.currentAdjustment());
+    if (!tx || id == null) return;
     // The transaction IS what the sidecar persists (coalesces with the
     // per-tick writes through the same debounce).
     this.library.updateAdjustment(id, tx.after);
@@ -274,20 +233,16 @@ export class EditorStateService {
   /** Abandon the open transaction without recording it. The model keeps
    * whatever the preview ticks wrote. */
   cancelEdit(): void {
-    this._pending = null;
+    this.ring.cancel();
   }
 
   undo(): void {
     const id = this.imageId();
     if (id == null) return;
     this.endEdit();
-    const stack = this._undoStack();
-    if (stack.length === 0) return;
-    const tx = stack[stack.length - 1];
-    this._undoStack.update((s) => s.slice(0, -1));
-    this._redoStack.update((s) => pushCapped(s, tx));
+    const tx = this.ring.popUndo();
+    if (!tx) return;
     this.library.updateAdjustment(id, structuredClone(tx.before));
-    this.lastCommittedTransaction.set(tx);
     void this.announcer.announce(`Undo ${tx.description}`);
   }
 
@@ -295,13 +250,9 @@ export class EditorStateService {
     const id = this.imageId();
     if (id == null) return;
     this.endEdit();
-    const stack = this._redoStack();
-    if (stack.length === 0) return;
-    const tx = stack[stack.length - 1];
-    this._redoStack.update((s) => s.slice(0, -1));
-    this._undoStack.update((s) => pushCapped(s, tx));
+    const tx = this.ring.popRedo();
+    if (!tx) return;
     this.library.updateAdjustment(id, structuredClone(tx.after));
-    this.lastCommittedTransaction.set(tx);
     void this.announcer.announce(`Redo ${tx.description}`);
   }
 
@@ -579,15 +530,6 @@ export class EditorStateService {
       nav.vibrate(HAPTIC_DURATION_MS[event]);
     }
   }
-}
-
-function pushCapped(stack: EditTransaction[], tx: EditTransaction): EditTransaction[] {
-  const next = [...stack, tx];
-  return next.length > UNDO_STACK_CAP ? next.slice(next.length - UNDO_STACK_CAP) : next;
-}
-
-function sameModel(a: AdjustmentModel, b: AdjustmentModel): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {

@@ -28,12 +28,12 @@ extension EditSession {
     /// True when an undo entry exists OR the open transaction has already
     /// moved the model (it will become one at the next boundary).
     public var canUndo: Bool {
-        if !undoStack.isEmpty { return true }
-        guard let pending = pendingEdit else { return false }
+        if !transactions.undoStack.isEmpty { return true }
+        guard let pending = transactions.pending else { return false }
         return pending.before != model
     }
 
-    public var canRedo: Bool { !redoStack.isEmpty }
+    public var canRedo: Bool { !transactions.redoStack.isEmpty }
 
     /// Open a transaction before a user gesture or discrete edit. Closes
     /// any transaction still open (recording it if it changed anything) so
@@ -41,16 +41,17 @@ extension EditSession {
     /// for the app's per-slider `commit()` sites.
     public func beginEdit(kind: EditTransaction.Kind = .adjustment, description: String = "Adjustment") {
         endEdit()
-        nextTransactionID &+= 1
-        pendingEdit = PendingEdit(id: nextTransactionID, kind: kind, description: description, before: model)
-        redoStack.removeAll()
+        transactions.nextID &+= 1
+        transactions.pending = PendingEdit(
+            id: transactions.nextID, kind: kind, description: description, before: model)
+        transactions.redoStack.removeAll()
     }
 
     /// Close the open transaction. A no-op transaction (model unchanged)
     /// records nothing; anything else becomes exactly one undo entry.
     public func endEdit() {
-        guard let pending = pendingEdit else { return }
-        pendingEdit = nil
+        guard let pending = transactions.pending else { return }
+        transactions.pending = nil
         guard let tx = EditTransaction.make(
             id: pending.id, kind: pending.kind, description: pending.description,
             before: pending.before, after: model)
@@ -68,14 +69,14 @@ extension EditSession {
     /// Abandon the open transaction without recording it. The model keeps
     /// whatever the preview ticks wrote (matches the web `cancelGesture`).
     public func cancelEdit() {
-        pendingEdit = nil
+        transactions.pending = nil
     }
 
     public func undo() {
         endEdit()
-        guard let tx = undoStack.popLast() else { return }
-        redoStack.append(tx)
-        trim(&redoStack)
+        guard let tx = transactions.undoStack.popLast() else { return }
+        transactions.redoStack.append(tx)
+        trim(&transactions.redoStack)
         model = tx.before
         lastCommittedTransaction = tx
         announcer.announce("Undo \(tx.description)")
@@ -83,9 +84,9 @@ extension EditSession {
 
     public func redo() {
         endEdit()
-        guard let tx = redoStack.popLast() else { return }
-        undoStack.append(tx)
-        trim(&undoStack)
+        guard let tx = transactions.redoStack.popLast() else { return }
+        transactions.undoStack.append(tx)
+        trim(&transactions.undoStack)
         model = tx.after
         lastCommittedTransaction = tx
         announcer.announce("Redo \(tx.description)")
@@ -98,11 +99,11 @@ extension EditSession {
     }
 
     /// The recorded transactions, oldest first. Test / diagnostics seam.
-    public var undoHistory: [EditTransaction] { undoStack }
+    public var undoHistory: [EditTransaction] { transactions.undoStack }
 
     private func record(_ tx: EditTransaction) {
-        undoStack.append(tx)
-        trim(&undoStack)
+        transactions.undoStack.append(tx)
+        trim(&transactions.undoStack)
         lastCommittedTransaction = tx
     }
 
@@ -119,4 +120,14 @@ struct PendingEdit {
     let kind: EditTransaction.Kind
     let description: String
     let before: AdjustmentModel
+}
+
+/// The session's transaction ring: recorded undo / redo entries, the
+/// transaction opened by `beginEdit` and not yet closed by a boundary, and
+/// the monotonic id counter. Stored on `EditSession` as one value.
+struct EditTransactionRing {
+    var undoStack: [EditTransaction] = []
+    var redoStack: [EditTransaction] = []
+    var pending: PendingEdit?
+    var nextID: UInt64 = 0
 }
