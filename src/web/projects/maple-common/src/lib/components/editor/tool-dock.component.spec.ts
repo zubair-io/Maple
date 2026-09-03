@@ -204,14 +204,25 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(groupEmitted).toBe(false);
   });
 
-  it('disabled entries (Mask/Heal) are non-interactive and show a ticket tooltip', () => {
+  it('disabled entries (Heal) are non-interactive and show a ticket tooltip', () => {
     const fixture = render({});
-    const maskBtn = nativeEl(fixture).querySelector(
-      'button[title^="Mask"]',
+    const healBtn = nativeEl(fixture).querySelector(
+      'button[title^="Heal"]',
     ) as HTMLButtonElement | null;
-    expect(maskBtn).not.toBeNull();
-    expect(maskBtn!.disabled).toBe(true);
-    expect(maskBtn!.title).toBe('Mask — coming in #1541');
+    expect(healBtn).not.toBeNull();
+    expect(healBtn!.disabled).toBe(true);
+    expect(healBtn!.title).toBe('Heal — coming in #1472');
+  });
+
+  it('Mask arms the mask tool directly (#1541)', () => {
+    const fixture = render({});
+    let armed: ToolId | null = null;
+    fixture.componentInstance.toolChange.subscribe((t) => (armed = t));
+    const maskBtn = buttonFor(fixture, 'Mask');
+    expect(maskBtn.disabled).toBe(false);
+    expect(maskBtn.getAttribute('aria-hidden')).toBeNull();
+    maskBtn.click();
+    expect(armed).toBe('mask');
   });
 
   // #2449: the placeholders' label + ticket come from the parity manifest
@@ -483,11 +494,11 @@ describe('Apple 10-entry parity', () => {
 
   it('keeps disabled placeholders out of the accessibility tree', () => {
     const fixture = render({});
-    const maskBtn = buttonFor(fixture, 'Mask');
-    expect(maskBtn.getAttribute('aria-hidden')).toBe('true');
-    expect(maskBtn.getAttribute('tabindex')).toBe('-1');
+    const healBtn = buttonFor(fixture, 'Heal');
+    expect(healBtn.getAttribute('aria-hidden')).toBe('true');
+    expect(healBtn.getAttribute('tabindex')).toBe('-1');
 
     const hidden = nativeEl(fixture).querySelectorAll('button[aria-hidden="true"]');
-    expect(hidden.length).toBe(2); // Mask + Heal
+    expect(hidden.length).toBe(1); // Heal only — Mask is live since #1541
   });
 });

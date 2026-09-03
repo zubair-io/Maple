@@ -37,6 +37,8 @@ import {
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
 import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
+import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
+import { MaskSessionService } from '../mask-overlay/mask-session.service';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
@@ -54,7 +56,7 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
 @Component({
   selector: 'editor-image-canvas',
   standalone: true,
-  imports: [CropOverlayComponent],
+  imports: [CropOverlayComponent, MaskOverlayComponent],
   templateUrl: './image-canvas.component.html',
   styleUrl: './image-canvas.component.scss',
   host: { class: HOST_CLASS },
@@ -81,6 +83,9 @@ export class ImageCanvasComponent
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
   private readonly cropSession = inject(CropSessionService);
+  private readonly maskSession = inject(MaskSessionService);
+  /** Mask overlay (#1541): mounted while the Mask tool is armed. */
+  protected readonly maskActive = computed(() => this.maskSession.active());
   // Read via `this.host.filmLut` in ImageCanvasFilmSync (image-canvas.film.ts),
   // where `this` satisfies `FilmSyncHost` structurally; fallow's dead-code pass
   // doesn't trace property access through a type-only-imported interface field.

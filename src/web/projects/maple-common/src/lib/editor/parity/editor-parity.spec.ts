@@ -83,12 +83,9 @@ describe('editor parity manifest — web tool coverage', () => {
 });
 
 describe('editor parity manifest — placeholders and exceptions', () => {
-  it('keeps the Mask and Heal placeholders disabled with a ticket, never released', () => {
+  it('keeps the Heal placeholder disabled with a ticket, never released (Mask shipped in #1541)', () => {
     const placeholders = parityPlaceholders();
-    expect(placeholders.map((row) => row.id).sort()).toEqual([
-      'shell.placeholder-heal',
-      'shell.placeholder-mask',
-    ]);
+    expect(placeholders.map((row) => row.id).sort()).toEqual(['shell.placeholder-heal']);
     for (const row of placeholders) {
       expect(row.reachability.web).not.toBe('released');
       expect(row.reachability.apple).not.toBe('released');

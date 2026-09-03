@@ -91,6 +91,7 @@ import { ColorGradingPanelComponent } from '../../components/develop/color-gradi
 import { FilmPanelComponent } from '../../components/editor/film-panel.component';
 import { LensCorrectionsPanelComponent } from '../../components/editor/lens-corrections-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
+import { MaskPanelComponent } from '../../components/mask-panel/mask-panel.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
 import { SubParamRowComponent } from '../../editor/sub-param-row.component';
 import { DragBarComponent } from '../../editor/drag-bar.component';
@@ -141,6 +142,7 @@ import * as sc from './editor-shell.classes';
   selector: 'editor-shell',
   standalone: true,
   imports: [
+    MaskPanelComponent,
     NgTemplateOutlet,
     MapleIconComponent,
     FilmstripComponent,
@@ -251,6 +253,12 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  by `CropOverlayComponent`, already mounted inside `editor-image-canvas`
    *  (shared with the S5 editor) and gated on the same `CropSessionService`. */
   readonly cropArmed = computed<boolean>(() => this.editorState.armedTool() === 'crop');
+
+  /** Mask (#1541): the mask panel takes the dock-side slot while armed, the
+   *  same full-replacement swap the crop toolbar makes; the overlay itself
+   *  is mounted inside `editor-image-canvas`, gated on the same
+   *  `MaskSessionService.active` this mirrors. */
+  readonly maskArmed = computed<boolean>(() => this.editorState.armedTool() === 'mask');
 
   /** True while the Noise tool is armed (#1153) — mounts the SAME shared
    *  multi-param panel HSL uses, so the Noise pill's four tiers (Luminance,
