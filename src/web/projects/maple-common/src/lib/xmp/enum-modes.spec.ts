@@ -149,6 +149,59 @@ describe('XMP enum mode fields (#2214)', () => {
     });
   });
 
+  // ── papp:WbSource (#2434) ─────────────────────────────────────────────────
+
+  describe('papp:WbSource', () => {
+    it('parses every variant case-insensitively', () => {
+      for (const [wire, want] of [
+        ['AsShot', 'AsShot'],
+        ['auto', 'Auto'],
+        ['Preset', 'Preset'],
+        ['sampled', 'Sampled'],
+        ['Manual', 'Manual'],
+      ] as const) {
+        const { model } = parser.parseAdjustmentModel(makeSidecar(`papp:WbSource="${wire}"`));
+        expect(model.wbSource).toBe(want);
+      }
+    });
+
+    it('drops unknown values so the field takes its default (AsShot)', () => {
+      const { model } = parser.parseAdjustmentModel(makeSidecar(`papp:WbSource="Eyeballed"`));
+      expect(model.wbSource).toBeUndefined();
+      expect({ ...defaultAdjustmentModel(), ...model }.wbSource).toBe('AsShot');
+    });
+
+    it('round-trips a sampled pair with its point and algorithm version', () => {
+      const m = defaultAdjustmentModel();
+      m.wbSource = 'Sampled';
+      m.wbSampleX = 0.25;
+      m.wbSampleY = 0.75;
+      m.wbAlgorithmVersion = 1;
+      const xml = serializer.serialize(m);
+      expect(xml).toContain('papp:WbSource="Sampled"');
+      expect(xml).toContain('papp:WbSampleX="0.25"');
+      expect(xml).toContain('papp:WbSampleY="0.75"');
+      expect(xml).toContain('papp:WbAlgorithmVersion="1"');
+      const { model } = parser.parseAdjustmentModel(xml);
+      expect(model.wbSource).toBe('Sampled');
+      expect(model.wbSampleX).toBe(0.25);
+      expect(model.wbSampleY).toBe(0.75);
+      expect(model.wbAlgorithmVersion).toBe(1);
+    });
+
+    it('omits every provenance key at the default', () => {
+      const xml = serializer.serialize(defaultAdjustmentModel());
+      for (const key of [
+        'papp:WbSource',
+        'papp:WbSampleX',
+        'papp:WbSampleY',
+        'papp:WbAlgorithmVersion',
+      ]) {
+        expect(xml).not.toContain(key);
+      }
+    });
+  });
+
   // ── papp:ToneCurveMode (#436) ─────────────────────────────────────────────
 
   describe('papp:ToneCurveMode', () => {

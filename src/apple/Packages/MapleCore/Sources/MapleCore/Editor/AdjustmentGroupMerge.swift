@@ -93,6 +93,8 @@ public enum AdjustmentGroupMerge {
             // lands three live strengths and leaves the master switch that
             // gates them behind on the target.
             merged.lensProfileEnable = source.lensProfileEnable
+        case .wbSource:
+            merged.wbSource = source.wbSource
         default:
             break // wb_method, tone_curve_mode, capture_sharpening_radius — no Swift property.
         }
