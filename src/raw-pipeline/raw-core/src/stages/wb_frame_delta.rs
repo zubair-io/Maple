@@ -83,9 +83,11 @@ use crate::{
 
 use super::{camera_wb_gain, retargeted_render_profile, SliderFrame};
 // #2321: the as-shot tint estimator moved into the frame module (it is
-// what `SliderFrame::scene_tint` is built from); re-imported here so the
-// estimator/render invariant tests in `wb_frame_delta_tests` keep
-// addressing it as `super::robertson_as_shot_tint`.
+// what `SliderFrame::scene_tint` is built from); re-imported for the
+// estimator/render invariant tests in `wb_frame_delta_tests`, which keep
+// addressing it as `super::robertson_as_shot_tint`. Test-only — the
+// production path reads the value off `SliderFrame::scene_tint`.
+#[cfg(test)]
 use super::frame::robertson_as_shot_tint;
 use crate::stages::white_balance::{wb_cat16_matrix, xy_to_xyz};
 

@@ -119,7 +119,15 @@
 //! and substitutes the slider frame's own resolved as-shot reference point
 //! `(frame.scene_cct, frame.scene_tint)` so unedited renders are exact
 //! no-ops regardless of how far the camera's true as-shot CCT sits from
-//! 6500K.
+//! 6500K. Checking the numeric pair in addition
+//! to the flags (rather than the flags alone) is what correctly keeps a
+//! named WB preset (e.g. Tungsten, 2850 K / 0 tint — which also leaves both
+//! `_seen` flags `false`, since presets resolve to a `(temp, tint)` pair at
+//! parse time rather than being authored as explicit numeric fields) OUT of
+//! the As-Shot branch: no preset in `xmp::wb_preset`'s table resolves to
+//! exactly `(6500.0, 0.0)`, so every preset's resolved value reaches
+//! [`apply`] as an explicit target, same as `white_balance::resolve_wb`'s
+//! neither-seen row.
 //!
 //! ## The as-shot point carries a tint (#2321)
 //!
@@ -144,15 +152,7 @@
 //! [`camera_wb_gain`] is ≈ `[1, 1, 1]` at the reference point and moves
 //! by O(δ) around it. The fallback CAT16 tier (`white_balance::resolve_wb`)
 //! keeps ACR's literal-zero convention for the temperature-only row — it
-//! has no calibration to estimate an as-shot tint from (#1746). Checking the numeric pair in addition
-//! to the flags (rather than the flags alone) is what correctly keeps a
-//! named WB preset (e.g. Tungsten, 2850 K / 0 tint — which also leaves both
-//! `_seen` flags `false`, since presets resolve to a `(temp, tint)` pair at
-//! parse time rather than being authored as explicit numeric fields) OUT of
-//! the As-Shot branch: no preset in `xmp::wb_preset`'s table resolves to
-//! exactly `(6500.0, 0.0)`, so every preset's resolved value reaches
-//! [`apply`] as an explicit target, same as `white_balance::resolve_wb`'s
-//! neither-seen row.
+//! has no calibration to estimate an as-shot tint from (#1746).
 //!
 //! ## Tile-refine delta anchor ([`apply_delta`])
 //!
@@ -165,14 +165,16 @@
 //! point exactly, or the tile-vs-live-frame seam reappears (the original
 //! #1725 "horizontal band" symptom, for the post-DCP CAT16 path).
 //! [`apply`]'s own identity short-circuit only recognizes ONE reference
-//! point, `(frame.scene_cct, frame.scene_tint)` — insufficient here because a real
-//! camera's as-shot chromaticity can sit far enough off the blackbody
-//! locus that reaching it needs a large tint (measured on a real
-//! Hasselblad H2D-39 bundle profile: the true as-shot point's
-//! ACR-convention tint projects to ≈ −53 at the ACR `kTintScale` (#1893;
-//! −143.5 under the pre-#1893 1e-4 scale, which under the historical
-//! ±100 clamp `apply` literally could not reach), and float rounding of
-//! a seeded pair still lands off the exact short-circuit). [`apply_delta`]
+//! point, `(frame.scene_cct, frame.scene_tint)` — insufficient here
+//! because the anchor the app hands back is its OWN seeded copy of that
+//! pair: it round-trips through the host's slider model (float rounding,
+//! UI quantization to whole kelvin / tint units, or a host frame resolved
+//! by an older build), so it can land outside the short-circuit's 0.5 K /
+//! 0.5-tint tolerance while still being the point the live frame was
+//! decoded at. (Pre-#2321 the gap was structural as well: the reference
+//! point was `(scene_cct, 0)`, and a real as-shot tint — ≈ −53 on the
+//! Hasselblad H2D-39 bundle profile at the ACR `kTintScale`, #1893 —
+//! could never match it.) [`apply_delta`]
 //! solves this the same way `white_balance::apply_delta` does for the
 //! post-DCP path: compare the TARGET's gain against the DECODED ANCHOR's
 //! own gain (both computed by the same [`camera_wb_gain`]), so a target
@@ -428,18 +430,20 @@ pub fn apply(
 /// bit-exact no-op, matching `white_balance::apply_delta`'s contract for
 /// the post-DCP CAT16 path. This matters specifically because
 /// [`apply`]'s own identity short-circuit only recognizes ONE reference
-/// point — `(frame.scene_cct, frame.scene_tint)` — and a real camera's as-shot
-/// chromaticity can sit far enough off the blackbody locus that its
-/// tint (see [`target_xyz`]'s doc) is large (measured on a real
-/// Hasselblad H2D-39 bundle profile: ≈ 53 at the ACR `kTintScale`
-/// (#1893); 144 under the pre-#1893 1e-4 scale, which exceeded the
-/// historical ±100 clamp entirely). An app that hydrates `model.temperature`/`model.tint`
+/// point — `(frame.scene_cct, frame.scene_tint)` — within a 0.5 K /
+/// 0.5-tint tolerance. An app that hydrates `model.temperature`/`model.tint`
 /// to the camera's own estimated as-shot `(cct, tint)` (rather than
 /// leaving the model at the literal numeric default, which is what
-/// [`resolve_target`]'s As-Shot seeding is FOR) needs a decoded/live
-/// buffer's own anchor to compare against directly — comparing to
-/// `frame.scene_cct`'s idealized locus point can never reach identity
-/// for a camera whose as-shot point doesn't sit near that locus.
+/// [`resolve_target`]'s As-Shot seeding is FOR) hands back its OWN copy
+/// of that pair — rounded through the host's slider model, quantized to
+/// whole units by a UI, or resolved by a host frame from an older build —
+/// so it can miss the tolerance while still being exactly the point the
+/// live frame was decoded at. The seam contract needs a bit-exact no-op
+/// at the anchor regardless, so the tile compares against the decoded
+/// buffer's own anchor directly. (Pre-#2321 this was also structural: the
+/// reference point was `(scene_cct, 0)` and a real as-shot tint — ≈ 53 at
+/// the ACR `kTintScale` on the Hasselblad H2D-39 bundle profile, #1893 —
+/// could never reach it.)
 ///
 /// `gain = camera_wb_gain(target) / camera_wb_gain(anchor)` — `as_shot_neutral`
 /// cancels out of the ratio algebraically (both numerator and denominator
