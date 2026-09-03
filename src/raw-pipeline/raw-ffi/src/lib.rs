@@ -48,6 +48,7 @@ mod abi_layout;
 mod auto_adjustments;
 mod auto_profile;
 mod auto_tone;
+mod white_balance_sample;
 mod buffers;
 mod cancel;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
