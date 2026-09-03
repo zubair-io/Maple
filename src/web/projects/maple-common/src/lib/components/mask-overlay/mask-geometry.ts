@@ -302,12 +302,24 @@ export function dragMaskHandle(
       case 'linearEnd':
         return { ...startMask, end: point };
       case 'linearBody': {
-        const dx = point.x - anchor.x;
-        const dy = point.y - anchor.y;
+        // Translate both endpoints by the pointer delta, clamped so neither
+        // leaves the normalized frame (the `LocalMask` contract) — the
+        // gradient stops at the edge rather than sliding off it.
+        const { start, end } = startMask;
+        const dx = clampDelta(
+          point.x - anchor.x,
+          Math.min(start.x, end.x),
+          Math.max(start.x, end.x),
+        );
+        const dy = clampDelta(
+          point.y - anchor.y,
+          Math.min(start.y, end.y),
+          Math.max(start.y, end.y),
+        );
         return {
           ...startMask,
-          start: { x: startMask.start.x + dx, y: startMask.start.y + dy },
-          end: { x: startMask.end.x + dx, y: startMask.end.y + dy },
+          start: { x: start.x + dx, y: start.y + dy },
+          end: { x: end.x + dx, y: end.y + dy },
         };
       }
       default:
@@ -331,6 +343,11 @@ export function dragMaskHandle(
     default:
       return startMask;
   }
+}
+
+/** The largest move toward `delta` that keeps the span `[lo, hi]` inside [0, 1]. */
+function clampDelta(delta: number, lo: number, hi: number): number {
+  return Math.min(1 - hi, Math.max(-lo, delta));
 }
 
 export function maskFeather(mask: LocalMask): number {

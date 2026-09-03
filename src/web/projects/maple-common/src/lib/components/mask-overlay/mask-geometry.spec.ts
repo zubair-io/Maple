@@ -198,6 +198,16 @@ describe('handles', () => {
     expect(moved.feather).toBe(0.5);
   });
 
+  it('dragging the body stops at the frame edge instead of leaving [0, 1]', () => {
+    const moved = dragMaskHandle(linear, 'linearBody', { x: 0.95, y: 0.05 }, { x: 0.4, y: 0.5 });
+    if (moved.kind !== 'linear') throw new Error('shape changed');
+    // +0.55 in x is capped at +0.4 (end.x reaches 1); −0.45 in y at −0.2 (start.y reaches 0).
+    expect(moved.end.x).toBeCloseTo(1, 12);
+    expect(moved.start.x).toBeCloseTo(0.6, 12);
+    expect(moved.start.y).toBeCloseTo(0, 12);
+    expect(moved.end.y).toBeCloseTo(0.6, 12);
+  });
+
   it('a radius handle projects onto the local axis with a floor; rotation sets the angle', () => {
     const mask: LocalMask = {
       kind: 'radial',

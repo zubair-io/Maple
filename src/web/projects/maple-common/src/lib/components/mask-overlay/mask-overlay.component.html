@@ -22,7 +22,7 @@
   aria-label="Mask overlay"
   [attr.aria-description]="description()"
 >
-  @if (mask()) {
+  @if (session.active() && mask()) {
     <path class="mask-shape" [attr.d]="shapePath()" />
     @for (h of handles(); track h.handle) {
       <circle
