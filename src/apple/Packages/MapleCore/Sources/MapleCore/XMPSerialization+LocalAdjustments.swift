@@ -42,25 +42,34 @@ import Foundation
 /// Shared wire-format constants and codecs for the local-adjustment containers.
 enum LocalAdjustmentXMP {
     enum Kind {
-        case linear, radial
+        case linear, radial, group
     }
 
     static let linearContainer = "crs:GradientBasedCorrections"
     static let radialContainer = "crs:CircularGradientBasedCorrections"
-    /// Both containers, in canonical emit order.
-    static let containers = [linearContainer, radialContainer]
+    /// Bitmap and Everywhere masks (#3271) — Lightroom 11+'s own container
+    /// for its AI masks, so a reader that doesn't understand
+    /// `papp:MaskSource` still sees a structurally valid correction.
+    static let groupContainer = "crs:MaskGroupBasedCorrections"
+    /// All three containers, in canonical emit order.
+    static let containers = [linearContainer, radialContainer, groupContainer]
     static let masksElement = "crs:CorrectionMasks"
 
     static func containerKind(_ qual: String) -> Kind? {
         switch qual {
         case linearContainer: return .linear
         case radialContainer: return .radial
+        case groupContainer: return .group
         default: return nil
         }
     }
 
     static func maskWhat(_ kind: Kind) -> String {
-        kind == .linear ? "Mask/Gradient" : "Mask/CircularGradient"
+        switch kind {
+        case .linear: return "Mask/Gradient"
+        case .radial: return "Mask/CircularGradient"
+        case .group: return "Mask/Image"
+        }
     }
 
     /// Slider attribute ↔ model field, in canonical emit order. Every field
@@ -79,7 +88,31 @@ enum LocalAdjustmentXMP {
         ("papp:LocalVibrance", { $0.vibrance }, { $0.vibrance = $1 }),
         ("crs:LocalTemperature", { $0.temperature }, { $0.temperature = $1 }),
         ("crs:LocalTint", { $0.tint }, { $0.tint = $1 }),
+        // Hue (#3269): Maple's slider is ±100, Adobe's `crs:LocalHue` is
+        // ±1 — scaled at the wire boundary, matching raw-core's serializer
+        // (`v / 100`) and parser (`v * 100`). `parseAdjustments`' Amount
+        // dial then applies to the wire value exactly as it does for every
+        // other slider, so the products agree across platforms.
+        ("crs:LocalHue", { $0.hue.map { $0 / 100 } }, { $0.hue = $1 * 100 }),
     ]
+
+    /// The colour-range refinement's `papp:Range*` attributes (#3270), which
+    /// sit on the correction's own `rdf:Description` alongside the sliders.
+    /// Maple-private by design — Adobe has no range-mask schema to borrow —
+    /// so a foreign reader simply ignores them.
+    static func parseRange(_ a: [String: String]) -> RangeRefinement? {
+        guard a["papp:RangeKind"] == "Color",
+              let hue = finite(a, "papp:RangeHue"),
+              let width = finite(a, "papp:RangeHueWidth"),
+              let chromaMin = finite(a, "papp:RangeChromaMin"),
+              let lMin = finite(a, "papp:RangeLMin"),
+              let lMax = finite(a, "papp:RangeLMax"),
+              let feather = finite(a, "papp:RangeFeather")
+        else { return nil }
+        return .color(
+            hueDeg: hue, hueHalfWidthDeg: width, chromaMin: chromaMin,
+            lMin: lMin, lMax: lMax, feather: feather)
+    }
 
     /// RDF structural elements match on local name regardless of the bound
     /// prefix — same rule as `ToneCurveXMP.isListItem`.
@@ -130,6 +163,29 @@ enum LocalAdjustmentXMP {
                 angle: degreesToRadians(finite(a, "crs:Angle") ?? 0),
                 feather: min(1, max(0, featherPct / 100)),
                 invert: bool(a["crs:Flipped"]) ?? false)
+        case .group:
+            // `papp:MaskSource` is what separates Maple's two group-container
+            // masks from a Lightroom AI mask sharing `Mask/Image` — anything
+            // else here stays unrecognized, and the correction is dropped
+            // rather than silently rendered as something it isn't.
+            switch a["papp:MaskSource"] {
+            case "PersonSkin":
+                guard let digest = a["papp:MaskDigest"], !digest.isEmpty else { return nil }
+                let recipe = BitmapRecipe(
+                    person: Int(a["papp:MaskPerson"] ?? "") ?? 0,
+                    facialSkin: bool(a["papp:MaskFacialSkin"]) ?? true,
+                    bodySkin: bool(a["papp:MaskBodySkin"]) ?? true,
+                    model: a["papp:MaskModel"] ?? "",
+                    digest: digest)
+                // The raster itself is a cache derivative keyed by `digest`,
+                // never sidecar state, so the live registry id starts unset
+                // and is resolved after load (see #3294).
+                return .bitmap(recipe: recipe, rasterId: 0)
+            case "Everywhere":
+                return .everywhere
+            default:
+                return nil
+            }
         }
     }
 
@@ -153,6 +209,7 @@ enum LocalAdjustmentXMP {
 struct LocalAdjustmentWalker {
     private struct InProgress {
         var adjustments: PartialAdjustments
+        var range: RangeRefinement?
         var active: Bool
         /// Set once a mask leaf this container models has been seen —
         /// first recognized leaf wins.
@@ -184,6 +241,7 @@ struct LocalAdjustmentWalker {
             } else if inLayerLi, isLocal(qual, "Description") {
                 current = InProgress(
                     adjustments: LocalAdjustmentXMP.parseAdjustments(attributes),
+                    range: LocalAdjustmentXMP.parseRange(attributes),
                     active: LocalAdjustmentXMP.bool(attributes["crs:CorrectionActive"]) ?? true,
                     mask: nil)
             }
@@ -219,7 +277,8 @@ struct LocalAdjustmentWalker {
         if let cur = current {
             guard isLocal(qual, "Description") else { return }
             if cur.active, let mask = cur.mask {
-                finished.append(LocalAdjustment(mask: mask, adjustments: cur.adjustments))
+                finished.append(
+                    LocalAdjustment(mask: mask, range: cur.range, adjustments: cur.adjustments))
             }
             current = nil
             return
@@ -256,6 +315,12 @@ extension XMPSerializer {
         let kinds: [(tag: String, isKind: (LocalMask) -> Bool)] = [
             (LocalAdjustmentXMP.linearContainer, { if case .linear = $0 { return true }; return false }),
             (LocalAdjustmentXMP.radialContainer, { if case .radial = $0 { return true }; return false }),
+            (LocalAdjustmentXMP.groupContainer, {
+                switch $0 {
+                case .bitmap, .everywhere: return true
+                case .linear, .radial: return false
+                }
+            }),
         ]
         return kinds.compactMap { kind -> String? in
             let layers = model.localAdjustments.filter { kind.isKind($0.mask) }
@@ -279,7 +344,7 @@ extension XMPSerializer {
                 // not representable in XMP and is skipped like every slider.
                 guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
                 return "\(i4)\(slider.key)=\"\(fmtNum(value))\""
-            }
+            } + _localAdjustmentRangeLines(layer.range, indent: i4)
             return [
                 "\(i2)<rdf:li>",
                 "\(i3)<rdf:Description",
@@ -295,6 +360,26 @@ extension XMPSerializer {
         }
         return (["\(indent)<\(tag)>", "\(i1)<rdf:Seq>"] + layerLines
             + ["\(i1)</rdf:Seq>", "\(indent)</\(tag)>"]).joined(separator: "\n")
+    }
+
+    /// `papp:Range*` attributes for a colour-range refinement (#3270), in
+    /// the same order raw-core's `serialize_range` emits them. Empty when
+    /// the layer has no refinement, so an unrefined mask is byte-identical
+    /// to the pre-#3270 output.
+    private static func _localAdjustmentRangeLines(
+        _ range: RangeRefinement?, indent: String
+    ) -> [String] {
+        guard case .color(let hue, let width, let chromaMin, let lMin, let lMax, let feather) = range
+        else { return [] }
+        return [
+            "\(indent)papp:RangeKind=\"Color\"",
+            "\(indent)papp:RangeHue=\"\(fmtNum(hue))\"",
+            "\(indent)papp:RangeHueWidth=\"\(fmtNum(width))\"",
+            "\(indent)papp:RangeChromaMin=\"\(fmtNum(chromaMin))\"",
+            "\(indent)papp:RangeLMin=\"\(fmtNum(lMin))\"",
+            "\(indent)papp:RangeLMax=\"\(fmtNum(lMax))\"",
+            "\(indent)papp:RangeFeather=\"\(fmtNum(feather))\"",
+        ]
     }
 
     private static func _localAdjustmentMaskLines(_ mask: LocalMask, indent: String) -> [String] {
@@ -319,6 +404,29 @@ extension XMPSerializer {
                 "\(indent)  crs:Top=\"\(top)\" crs:Left=\"\(left)\" crs:Bottom=\"\(bottom)\" crs:Right=\"\(right)\"",
                 "\(indent)  crs:Angle=\"\(degrees)\" crs:Midpoint=\"50\" crs:Roundness=\"0\"",
                 "\(indent)  crs:Feather=\"\(fmtNum(feather * 100))\" crs:Flipped=\"\(invert ? "True" : "False")\"/>",
+            ]
+        case .bitmap(let recipe, _):
+            // `rasterId` is deliberately NOT written: the raster is a cache
+            // derivative resolved from `papp:MaskDigest` at load time, so a
+            // sidecar stays portable between machines.
+            return [
+                "\(indent)<rdf:li",
+                "\(indent)  crs:What=\"\(LocalAdjustmentXMP.maskWhat(.group))\"",
+                "\(indent)  crs:MaskSubType=\"1\"",
+                "\(indent)  crs:MaskValue=\"1\"",
+                "\(indent)  papp:MaskSource=\"PersonSkin\"",
+                "\(indent)  papp:MaskPerson=\"\(recipe.person)\"",
+                "\(indent)  papp:MaskFacialSkin=\"\(recipe.facialSkin ? "True" : "False")\"",
+                "\(indent)  papp:MaskBodySkin=\"\(recipe.bodySkin ? "True" : "False")\"",
+                "\(indent)  papp:MaskModel=\"\(escapeXMLAttr(recipe.model))\"",
+                "\(indent)  papp:MaskDigest=\"\(escapeXMLAttr(recipe.digest))\"/>",
+            ]
+        case .everywhere:
+            return [
+                "\(indent)<rdf:li",
+                "\(indent)  crs:What=\"\(LocalAdjustmentXMP.maskWhat(.group))\"",
+                "\(indent)  crs:MaskValue=\"1\"",
+                "\(indent)  papp:MaskSource=\"Everywhere\"/>",
             ]
         }
     }

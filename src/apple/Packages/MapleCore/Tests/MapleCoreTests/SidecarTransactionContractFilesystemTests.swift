@@ -72,11 +72,20 @@ final class SidecarTransactionContractFilesystemTests: XCTestCase {
       // an `update(model: vectorModel, ...)` legitimately overwrites it with
       // the vector model's own curve value — exactly like `crs:Exposure2012`
       // already does above — rather than preserving the original bytes.
+      // `crs:MaskGroupBasedCorrections` is excluded the same way: #3274 made
+      // it a MODELED field too (`AdjustmentModel.localAdjustments`), but this
+      // fixture's mask (`Mask/Gradient` inside a MaskGroupBasedCorrections
+      // container — not the shape real Lightroom writes there, which is
+      // always `Mask/Image`) isn't a shape Maple's local-adjustments reader
+      // recognizes, so the correction is dropped rather than preserved in
+      // any form — a recognized-container/unrecognized-mask correction is
+      // dropped, matching raw-core's own already-shipped reader (#3271).
       let onDisk = try String(contentsOf: sidecarURL, encoding: .utf8)
       let sourceNodes = XMPChildElementScanner.descriptionChildren(
         in: SidecarContractVectors.passthroughLadenDocument)
       XCTAssertEqual(sourceNodes.map(\.qName), SidecarContractVectors.passthroughNodeNames)
-      for node in sourceNodes where node.qName != "crs:ToneCurvePV2012" {
+      for node in sourceNodes
+      where node.qName != "crs:ToneCurvePV2012" && node.qName != "crs:MaskGroupBasedCorrections" {
         XCTAssertTrue(
           onDisk.contains(node.source),
           "cycle \(cycle): \(node.qName) must survive verbatim")

@@ -92,9 +92,9 @@ final class XMPPassthroughTests: XCTestCase {
     ]
 
     /// The subset of `lightroomNodeNames` that are STILL genuinely unknown
-    /// after #2232 — everything except the now-structural PV2012 curve.
+    /// after #2232 and #3274 — everything except the now-structural PV2012
+    /// curve and MaskGroupBasedCorrections container.
     static let lightroomPassthroughNodeNames = [
-        "crs:MaskGroupBasedCorrections",
         "crs:Snapshots",
         "xmpMM:History",
     ]
@@ -163,7 +163,8 @@ final class XMPPassthroughTests: XCTestCase {
         // Every genuinely-unknown child element survives byte-for-byte.
         let sourceNodes = XMPChildElementScanner.descriptionChildren(in: Self.lightroomSidecar)
         XCTAssertEqual(sourceNodes.map(\.qName), Self.lightroomNodeNames)
-        for node in sourceNodes where node.qName != "crs:ToneCurvePV2012" {
+        for node in sourceNodes
+        where node.qName != "crs:ToneCurvePV2012" && node.qName != "crs:MaskGroupBasedCorrections" {
             XCTAssertTrue(written.contains(node.source),
                           "\(node.qName) must be re-emitted verbatim")
         }
@@ -173,6 +174,17 @@ final class XMPPassthroughTests: XCTestCase {
         XCTAssertEqual(edited.displayToneCurveLuma.points.count, 3)
         XCTAssertTrue(written.contains("<crs:ToneCurvePV2012>"),
                       "the curve's structural block must still be present")
+        // MaskGroupBasedCorrections (#3274) is also now a MODELED field, but
+        // unlike the curve this fixture's content is NOT a shape Maple's
+        // local-adjustments reader recognizes: `Mask/Gradient` is the shape
+        // real Lightroom writes inside `crs:GradientBasedCorrections`, not
+        // inside `crs:MaskGroupBasedCorrections` (which real Lightroom only
+        // ever populates with `Mask/Image` AI masks). Recognized-container,
+        // unrecognized-mask corrections are dropped, matching raw-core's own
+        // already-shipped local-adjustments reader (#3271) — so this
+        // fixture's correction has no surviving form at all, structural or
+        // otherwise, and `model.localAdjustments` is correctly empty for it.
+        XCTAssertTrue(edited.localAdjustments.isEmpty, "an unrecognized mask-group correction is dropped, not invented")
 
         // …and so do the unknown attributes, including the namespace
         // declarations the preserved subtrees depend on.
@@ -192,13 +204,14 @@ final class XMPPassthroughTests: XCTestCase {
     /// snapshots are ordered stacks, so a re-ordering is a corruption.
     func testUnknownNodeOrderIsPreserved() {
         let passthrough = XMPParser.parsePassthrough(Self.lightroomSidecar)
-        // 3, not 4 — `crs:ToneCurvePV2012` moved off this bucket in #2232
-        // (see `lightroomPassthroughNodeNames`).
-        XCTAssertEqual(passthrough.unknownNodes.count, 3)
+        // 2, not 4 — `crs:ToneCurvePV2012` moved off this bucket in #2232 and
+        // `crs:MaskGroupBasedCorrections` in #3274 (see
+        // `lightroomPassthroughNodeNames`).
+        XCTAssertEqual(passthrough.unknownNodes.count, 2)
         let written = XMPSerializer.serialize(
             model: .default, culling: CullingState(), passthrough: passthrough)
         let positions = passthrough.unknownNodes.compactMap { written.range(of: $0)?.lowerBound }
-        XCTAssertEqual(positions.count, 3, "every node must appear in the output")
+        XCTAssertEqual(positions.count, 2, "every node must appear in the output")
         XCTAssertEqual(positions, positions.sorted(), "node order must match the source")
     }
 
