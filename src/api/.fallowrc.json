@@ -12,7 +12,8 @@
     "src/people/clustering-quality-harness.ts",
     "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",
-    "src/runtime/__fixtures__/stderr-crash-harness.ts"
+    "src/runtime/__fixtures__/stderr-crash-harness.ts",
+    "src/__fixtures__/otel-crash-child.ts"
   ],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
 }
