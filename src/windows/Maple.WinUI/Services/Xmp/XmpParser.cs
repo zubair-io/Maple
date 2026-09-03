@@ -309,6 +309,17 @@ namespace Maple.WinUI.Services.Xmp
                     doc.ChildOrder.Add(ChildSlot.ForToneCurve(tag!));
                     continue;
                 }
+                // Local adjustments (#358): both containers are modeled, so
+                // they hydrate the layer stack — in document order, linear and
+                // radial alike — and never reach the passthrough list, or the
+                // writer would emit them twice.
+                var containerTag = XmpLocalAdjustments.ContainerTagFor(child);
+                if (containerTag is not null)
+                {
+                    doc.Adjustments.LocalAdjustments.AddRange(XmpLocalAdjustments.Parse(child, containerTag));
+                    doc.ChildOrder.Add(ChildSlot.ForModeled(containerTag));
+                    continue;
+                }
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
                 doc.ChildOrder.Add(ChildSlot.ForPassthrough(doc.PassthroughNodes.Count - 1));
             }
@@ -388,7 +399,8 @@ namespace Maple.WinUI.Services.Xmp
             var attrs = desc.Attributes()
                 .Count(a => !a.IsNamespaceDeclaration && CanonicalName(a) is { } n &&
                             n != "rdf:about" && ConsumedAttributes.Contains(n));
-            var children = desc.Elements().Count(c => ToneCurveTagFor(c) is not null);
+            var children = desc.Elements().Count(c =>
+                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null);
             return attrs + children;
         }
 

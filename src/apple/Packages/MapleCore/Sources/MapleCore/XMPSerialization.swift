@@ -47,6 +47,10 @@ public struct XMPParser {
         }
         m = delegate.model
         c = delegate.culling
+        // Local adjustments (#358) — collected by the nested-element walker
+        // rather than the flat attribute switch; see
+        // `XMPSerialization+LocalAdjustments.swift`.
+        m.localAdjustments = delegate.localAdjustments.finish()
         // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
         // document level: an explicit `papp:WbScaleVersion` stamp wins;
         // otherwise a document carrying the Maple `papp:` namespace AND an
@@ -163,6 +167,12 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     /// element / character events.
     var toneCurves = ToneCurveWalker()
 
+    /// Local adjustments (#358) — the canonical `crs:GradientBasedCorrections`
+    /// / `crs:CircularGradientBasedCorrections` containers. Same
+    /// element-event feed as the tone curves; the walk lives in
+    /// `XMPSerialization+LocalAdjustments.swift`.
+    var localAdjustments = LocalAdjustmentWalker()
+
     init(model: AdjustmentModel, culling: CullingState) {
         self.model = model
         self.culling = culling
@@ -197,8 +207,12 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         }
 
         let qual = qName ?? elementName
-        // Point tone curves (#365). Inside a curve subtree there are no Maple
-        // attributes to read, so the whole attribute walk below is skipped.
+        // Local adjustments (#358) and point tone curves (#365): inside
+        // either subtree there are no flat Maple attributes to read, so the
+        // whole attribute walk below is skipped for elements a walker claims.
+        if localAdjustments.start(qual, attributes: attributeDict) {
+            return
+        }
         if toneCurves.start(qual) {
             return
         }
@@ -273,6 +287,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
                 namespaceURI: String?,
                 qualifiedName qName: String?) {
         let qual = qName ?? elementName
+        localAdjustments.end(qual)
         toneCurves.end(qual, into: &model)
         if inDCSubject {
             if Self.isLocalName(qual, "li"), let text = currentLi {
@@ -384,12 +399,17 @@ public struct XMPSerializer {
         // pre-#365 bytes exactly.
         let toneCurvesBlock = _buildToneCurvesBlock(
             model: model, indent: XMPCanonical.childIndent)
+        // Local adjustments (#358) — the canonical mask containers, after
+        // the curves and before the passthrough nodes, the slot the
+        // TypeScript and C# writers use too.
+        let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
+            model: model, indent: XMPCanonical.childIndent)
         // Unknown nested nodes sit last, the slot the TypeScript serializer
         // gives them, so Maple's own children stay grouped ahead of whatever
         // the source document carried.
         let passthroughBlock = _passthroughNodesBlock(
             passthrough, indent: XMPCanonical.childIndent)
-        let children = [keywordsBlock, toneCurvesBlock, passthroughBlock]
+        let children = [keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, passthroughBlock]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
 

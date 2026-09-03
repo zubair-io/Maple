@@ -36,8 +36,8 @@ export function buildKeywordsBlock(
 /**
  * Composes the nested children in their canonical slots: metadata
  * title/creator/description first, then keywords (`dc:subject`), then
- * metadata rights/usageTerms, then any authored tone-curve blocks, then any
- * unknown passthrough nodes. Takes the raw optional `metadata`/`passthrough`
+ * metadata rights/usageTerms, then any authored tone-curve blocks, then the
+ * local-adjustment containers (#358), then any unknown passthrough nodes. Takes the raw optional `metadata`/`passthrough`
  * rather than pre-resolved arrays so the caller (`XmpSerializerService.serialize`)
  * doesn't have to branch on them itself.
  */
@@ -46,6 +46,7 @@ export function composeNestedChildren(params: {
   passthrough: PassthroughBucket | undefined;
   keywordsBlock: string;
   toneCurvesBlock: string;
+  localAdjustmentsBlock: string;
   indent: string;
 }): string {
   const metadataBlocks = params.metadata ? metadataNestedBlocks(params.metadata) : [];
@@ -61,6 +62,7 @@ export function composeNestedChildren(params: {
     params.keywordsBlock,
     rightsUsage.join('\n'),
     params.toneCurvesBlock,
+    params.localAdjustmentsBlock,
     nestedNodes,
   ]
     .filter((b) => b.length > 0)

@@ -58,6 +58,7 @@ const FAST_PATH_OR_SPECIAL_KEYS = new Set<keyof AdjustmentModel>([
   'grainRoughness',
   'whiteBalancePreset',
   'crop',
+  'localAdjustments',
   'wbScaleVersion',
   'sharpenAmount',
   'nrColor',
@@ -98,6 +99,10 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   // `crop` is a nested object — compare structurally; a non-identity crop can't ride
   // the fast path.
   if (!isIdentityCrop(model.crop)) return false;
+  // A local-adjustment layer stack (#358) is a nested list the 19-scalar
+  // params can't carry; a non-empty stack routes to the full `render(xmp)`
+  // path, where raw-core parses the masks straight from the sidecar text.
+  if (model.localAdjustments.length !== 0) return false;
   // Point curves (#366) are nested too. An identity (empty) curve is not an edit;
   // an authored one is a prefix field the fast path would freeze, so it routes to
   // the full path.
