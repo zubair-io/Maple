@@ -33,11 +33,11 @@ mod region;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_full_parity;
+#[cfg(test)]
 mod tests_live_parity;
 #[cfg(test)]
 mod tests_live_parity_gaps;
-#[cfg(test)]
-mod tests_full_parity;
 #[cfg(test)]
 mod tests_render;
 #[cfg(test)]
