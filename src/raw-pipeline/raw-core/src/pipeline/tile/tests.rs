@@ -449,37 +449,45 @@ fn render_scene_linear_tile_rejects_upscale() {
     assert!(r_h.is_err(), "out_h > src_h must error");
 }
 
-/// #2476: the overlap pad grows to the S/H detail-mask reach when either
-/// slider is engaged, converted back to mosaic pixels for a half-res
-/// develop, and stays at the fixed pad otherwise.
+/// #2476: the overlap pad grows to the exact S/H detail-mask reach of the
+/// passes that will run — one radius per engaged slider, converted back to
+/// mosaic pixels for a half-res develop — and stays at the fixed pad
+/// otherwise.
 #[test]
 fn tile_overlap_grows_to_the_sh_mask_reach() {
     use crate::stages::scene_tone_controls::sh_mask_reach_px;
     let neutral = AdjustmentModel::default();
     assert_eq!(tile_overlap_px(&neutral, 12288, 1), TILE_OVERLAP_PX);
 
+    // 100 MP frame at Full: σ ≈ 92 px, radius 276 per masked pass.
     let shadows = AdjustmentModel {
         shadows: 35.0,
         ..AdjustmentModel::default()
     };
-    // 100 MP frame at Full: σ ≈ 92 px, radius 276, two cascaded passes → 552.
     assert_eq!(
         tile_overlap_px(&shadows, 12288, 1),
-        sh_mask_reach_px(12288) as u32
+        sh_mask_reach_px(12288, &shadows) as u32
     );
-    assert_eq!(tile_overlap_px(&shadows, 12288, 1), 552);
-    // Preview develops at half resolution: the reach is measured in
-    // developed pixels, so it is twice as many mosaic pixels.
-    assert_eq!(
-        tile_overlap_px(&shadows, 6144, 2),
-        2 * sh_mask_reach_px(6144) as u32
-    );
-    // A small frame's reach sits inside the fixed pad — no growth.
-    assert_eq!(tile_overlap_px(&shadows, 520, 1), TILE_OVERLAP_PX);
-
+    assert_eq!(tile_overlap_px(&shadows, 12288, 1), 276);
     let highlights = AdjustmentModel {
         highlights: -40.0,
         ..AdjustmentModel::default()
     };
-    assert_eq!(tile_overlap_px(&highlights, 12288, 1), 552);
+    assert_eq!(tile_overlap_px(&highlights, 12288, 1), 276);
+    // Both engaged: the shadows blur reads the highlights output, so the
+    // reaches compound.
+    let both = AdjustmentModel {
+        highlights: -40.0,
+        shadows: 35.0,
+        ..AdjustmentModel::default()
+    };
+    assert_eq!(tile_overlap_px(&both, 12288, 1), 552);
+    // Preview develops at half resolution: the reach is measured in
+    // developed pixels, so it is twice as many mosaic pixels.
+    assert_eq!(
+        tile_overlap_px(&shadows, 6144, 2),
+        2 * sh_mask_reach_px(6144, &shadows) as u32
+    );
+    // A small frame's reach sits inside the fixed pad — no growth.
+    assert_eq!(tile_overlap_px(&both, 520, 1), TILE_OVERLAP_PX);
 }
