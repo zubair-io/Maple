@@ -34,7 +34,22 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-use crate::pipeline::{stage, RenderQuality};
+use crate::pipeline::{
+    develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
+};
+
+/// Long edge of the FULL developed frame at the resolution the tile chain
+/// develops `quality` at — the anchor for every radius that scales with the
+/// image rather than with the buffer (#2476). `native_render_dims` is the
+/// DefaultCrop'd extent the whole-image chains hand their stages at `Full`;
+/// `Preview` divides it exactly as `demosaic::half_res` halves the crop
+/// (integer floor), so a tile and the whole-image develop of the same
+/// `(raw, quality)` derive identical radii.
+pub(super) fn full_frame_long_edge(raw: &RawImage, quality: RenderQuality) -> usize {
+    let (w, h) = native_render_dims(raw);
+    let divisor = effective_quality_divisor(quality, raw.cfa);
+    (w.max(h) / divisor) as usize
+}
 
 /// Run the development chain from a pre-cropped `CameraNativeMosaic`
 /// `Image` (as produced by `linearize::sensor_linearize_region`). Used by
@@ -329,8 +344,16 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             }
         }
     }
+    // The S/H detail mask blurs at σ = 15 px · longEdge/2000 of the FULL
+    // frame, not of this padded crop (#2476) — anchoring on the crop gave
+    // every tile a radius set by its own geometry and a render that
+    // disagreed with the whole-image chain across the entire interior. The
+    // tile entry sizes its overlap pad to the mask's reach at this anchor
+    // (`tile_overlap_px`), so the interior blur sees the same neighbourhood
+    // the whole-image develop does.
+    let mask_long_edge = full_frame_long_edge(raw, quality);
     stage("tile_scene_tone_controls", || {
-        scene_tone_controls::apply(&mut scene, model)
+        scene_tone_controls::apply_with_mask_anchor(&mut scene, model, mask_long_edge)
     });
     // User-authored tone curves (parametric + per-channel) — same chain
     // position as the full path (post-scene_tone_controls, pre-vibrance).
@@ -350,9 +373,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // a deep-zoom tile with any non-default HSL adjustment diverged from the
     // full-resolution preview. Point op with no neighbour gather, so it is
     // trivially tile-safe; identity short-circuits on the all-default model.
-    stage("tile_hsl", || {
-        hsl::apply_model(&mut scene, model)
-    });
+    stage("tile_hsl", || hsl::apply_model(&mut scene, model));
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
     // dehaze intentionally omitted — the tile entry asserts dehaze == 0

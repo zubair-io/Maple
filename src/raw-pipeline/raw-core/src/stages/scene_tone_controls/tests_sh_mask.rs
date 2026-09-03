@@ -377,3 +377,122 @@ fn mask_reach_registered_for_tile_overlap() {
     assert_eq!(sh_mask_reach_px(2000), 2 * sh_mask_blur_radius(2000));
     assert_eq!(sh_mask_reach_px(12288), 2 * sh_mask_blur_radius(12288));
 }
+
+// ----------------------------------------------------------------
+// #2476: the detail mask is anchored to the FULL frame, not to the buffer
+// the stage happens to be handed.
+// ----------------------------------------------------------------
+
+/// A scene with a soft diagonal ramp and one bright bar: enough structure
+/// for the regional-vs-local mix to matter, so a wrong mask radius shows up
+/// as a different render rather than as float noise.
+fn structured_img(w: u32, h: u32) -> Image {
+    let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    for y in 0..h as usize {
+        for x in 0..w as usize {
+            let ramp = 0.02 + 0.9 * (x + y) as f32 / (w + h) as f32;
+            let bar_x = (w as usize / 2 - 20)..(w as usize / 2);
+            let bar = if bar_x.contains(&x) { 1.6 } else { 0.0 };
+            let v = ramp + bar;
+            img.pixels[y * w as usize + x] = [v * 0.9, v, v * 1.1];
+        }
+    }
+    img
+}
+
+fn crop(img: &Image, x0: usize, y0: usize, cw: usize, ch: usize) -> Image {
+    let mut out = Image::new(cw as u32, ch as u32, img.space);
+    let sw = img.width as usize;
+    for y in 0..ch {
+        out.pixels[y * cw..(y + 1) * cw]
+            .copy_from_slice(&img.pixels[(y0 + y) * sw + x0..(y0 + y) * sw + x0 + cw]);
+    }
+    out
+}
+
+fn max_abs_diff_interior(a: &Image, b: &Image, margin: usize) -> f32 {
+    assert_eq!((a.width, a.height), (b.width, b.height));
+    let w = a.width as usize;
+    let h = a.height as usize;
+    let mut worst = 0.0f32;
+    for y in margin..h - margin {
+        for x in margin..w - margin {
+            let (pa, pb) = (a.pixels[y * w + x], b.pixels[y * w + x]);
+            for c in 0..3 {
+                worst = worst.max((pa[c] - pb[c]).abs());
+            }
+        }
+    }
+    worst
+}
+
+#[test]
+fn mask_anchor_makes_a_crop_render_like_the_whole_frame() {
+    // Sized so the frame and the crop land on DIFFERENT box radii
+    // (`gaussian_blur_plane` runs 3 box passes at radius/3): 400 px → radius
+    // 9 → box 3; a 200-px crop → radius 5 → box 1. Smaller frames collapse
+    // both onto box 1 and the buffer-anchored render would coincide by
+    // accident.
+    let (w, h) = (400u32, 300u32);
+    let mut model = model_default();
+    model.highlights = -40.0;
+    model.shadows = 35.0;
+
+    let mut whole = structured_img(w, h);
+    apply(&mut whole, &model);
+
+    // A crop that sits at least the mask's reach inside the frame on every
+    // side, so its interior blur sees the same neighbourhood the whole-frame
+    // pass did.
+    let reach = sh_mask_reach_px(w as usize);
+    let (x0, y0, cw, ch) = (100usize, 75usize, 200usize, 150usize);
+    assert!(
+        reach <= x0.min(y0),
+        "test geometry: reach {} must fit the crop offset",
+        reach
+    );
+    let whole_crop = crop(&whole, x0, y0, cw, ch);
+
+    // Anchored on the full frame: the crop renders as the whole frame did.
+    let mut anchored = crop(&structured_img(w, h), x0, y0, cw, ch);
+    apply_with_mask_anchor(&mut anchored, &model, w as usize);
+    let anchored_diff = max_abs_diff_interior(&anchored, &whole_crop, reach);
+    assert!(
+        anchored_diff <= 1e-5,
+        "full-frame-anchored crop must match the whole-frame render in its \
+         interior: max abs diff {:.3e}",
+        anchored_diff
+    );
+
+    // Anchored on the buffer (the pre-#2476 behaviour, still what `apply`
+    // means for a crop): a 200-px buffer picks a different radius than the
+    // 400-px frame and the render moves — this is the defect, kept visible.
+    assert_ne!(
+        sh_mask_blur_radius(cw.max(ch)) / 3,
+        sh_mask_blur_radius(w as usize) / 3,
+        "test geometry: the crop and the frame must land on different box radii"
+    );
+    let mut buffer_anchored = crop(&structured_img(w, h), x0, y0, cw, ch);
+    apply(&mut buffer_anchored, &model);
+    let buffer_diff = max_abs_diff_interior(&buffer_anchored, &whole_crop, reach);
+    assert!(
+        buffer_diff > 1e-4,
+        "expected the buffer-anchored crop to diverge from the whole frame \
+         (that divergence is #2476); got only {:.3e}",
+        buffer_diff
+    );
+}
+
+#[test]
+fn apply_is_the_whole_frame_anchor() {
+    // `apply(img)` ≡ `apply_with_mask_anchor(img, img's own long edge)` —
+    // bit-exact, so every whole-image chain is unchanged by #2476.
+    let mut model = model_default();
+    model.highlights = 30.0;
+    model.shadows = -20.0;
+    let mut a = structured_img(400, 300);
+    let mut b = structured_img(400, 300);
+    apply(&mut a, &model);
+    apply_with_mask_anchor(&mut b, &model, 400);
+    assert_eq!(a.pixels, b.pixels);
+}
