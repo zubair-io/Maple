@@ -349,6 +349,20 @@ fn describe(raw: &RawImage, model: &AdjustmentModel) {
     let (profile, source) = dcp::profile_for_with_source(raw).unwrap();
     let frame = SliderFrame::resolve(raw, &profile);
     let space = ProbeSpace::resolve(raw, &probe_model);
+    let target =
+        wb_camera::resolve_target_versioned(&probe_model, &frame, &profile, raw.as_shot_neutral);
+    let as_shot_seed = wb_camera::resolve_target(&probe_model, &frame);
+    println!(
+        "target={target:?} seed={as_shot_seed:?} scene_cct={} diff={} seen=({},{}) version={:?} model_wb=({},{}) gain_at_target={:?}",
+        frame.scene_cct,
+        target.0 - frame.scene_cct,
+        probe_model.temperature_seen,
+        probe_model.tint_seen,
+        probe_model.wb_scale_version,
+        probe_model.temperature,
+        probe_model.tint,
+        wb_camera::camera_wb_gain(&frame, raw.as_shot_neutral, target.0, target.1)
+    );
     let n = probe.pixels.len() as f64;
     let mean = probe.pixels.iter().fold([0.0f64; 3], |a, p| {
         [a[0] + p[0] as f64, a[1] + p[1] as f64, a[2] + p[2] as f64]
