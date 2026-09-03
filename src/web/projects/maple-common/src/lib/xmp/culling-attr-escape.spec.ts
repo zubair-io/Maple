@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { cullingParts, escapeXmpAttr } from './xmp-serializer-parts';
+import { hasXmlParseError } from './xmp-dom-utils';
 import type { XmpCulling } from './xmp.types';
 
 const HOSTILE = 'pi"ck&<x>';
@@ -29,7 +30,8 @@ function defaultCulling(): XmpCulling {
 /** Parse strictly and return the `rdf:Description` element, failing on any parser error. */
 function descriptionOf(xml: string): Element {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  expect(doc.getElementsByTagName('parsererror').length).toBe(0);
+  expect(hasXmlParseError(doc)).toBe(false);
+  expect(doc.querySelector('parsererror, parseerror')).toBeNull();
   const desc = doc.getElementsByTagNameNS(
     'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
     'Description',
@@ -82,9 +84,9 @@ describe('hostile culling values survive a serialize → DOM round-trip', () => 
     const xml = serializer.serialize(defaultAdjustmentModel(), undefined, {
       ...defaultCulling(),
       flag: 'pick',
-      colorLabel: 'Red',
+      colorLabel: 'red',
     });
     expect(xml).toContain('papp:Flag="pick"');
-    expect(xml).toContain('papp:ColorLabel="Red"');
+    expect(xml).toContain('papp:ColorLabel="red"');
   });
 });
