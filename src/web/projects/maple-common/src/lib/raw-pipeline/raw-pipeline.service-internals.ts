@@ -9,6 +9,7 @@ import type {
   DecodedSceneLinearImage,
   ExportedFile,
 } from './raw-pipeline.types';
+import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
 
 /**
  * Result of opening a persistent GPU live session (epic #925, P4b-web / #1038):
@@ -89,6 +90,11 @@ export type PendingHandler =
   | {
       kind: 'auto-adjust';
       resolve: (patch: AutoAdjustPatch) => void;
+      reject: (err: Error) => void;
+    }
+  | {
+      kind: 'sample-wb';
+      resolve: (sample: WbSampleResult) => void;
       reject: (err: Error) => void;
     }
   | {
