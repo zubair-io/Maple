@@ -438,7 +438,14 @@
            requirement there — Critical 1 — since that card and the
            dock-side panels turned out to overlap too, just not as
            obviously as phone's single shared anchor slot). -->
-      @if (!cropArmed() && !maskArmed() && !curveOpen() && !presetsOpen() && !scopesOpen() && !noiseArmed()) {
+      @if (
+        !cropArmed() &&
+        !maskArmed() &&
+        !curveOpen() &&
+        !presetsOpen() &&
+        !scopesOpen() &&
+        !noiseArmed()
+      ) {
         <div
           class="phone-card-anchor pointer-events-auto absolute right-3 bottom-[calc(72px+12px+var(--safe-area-inset-bottom))] left-3"
           role="region"
