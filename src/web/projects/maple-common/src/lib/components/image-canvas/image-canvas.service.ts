@@ -24,6 +24,15 @@ export class ImageCanvasService {
   /** Current decoded image pixels — set by ImageCanvasComponent on decode. */
   readonly currentPixels = signal<DecodedImage | null>(null);
 
+  /**
+   * Aspect of the bitmap currently painted, or `null` before the first paint.
+   * A cropped render is a different aspect than the source, so this — not the
+   * asset's stored full-frame dims — is what the draw transform is sized from
+   * (#638). Held here rather than in the component so the white-balance pick
+   * overlay (#2434) can invert the same transform the canvas painted with.
+   */
+  readonly paintedAspect = signal<{ w: number; h: number } | null>(null);
+
   readonly showBeforeAfter = computed(() => this.beforeAfterSplitX() !== null);
 
   toggleBeforeAfter(): void {

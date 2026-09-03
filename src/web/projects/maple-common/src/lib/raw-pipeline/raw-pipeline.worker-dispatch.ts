@@ -18,6 +18,7 @@ import type { BehaviorSubject } from 'rxjs';
 import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
+import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
 
 // Module-local: this was a private method on `RawPipelineService` and has no
 // consumer outside this file. Exporting it would be dead surface area.
@@ -149,6 +150,20 @@ const settleAutoAdjust: Settler<'auto-adjust'> = (msg, handler) => {
   return false;
 };
 
+const settleSampleWb: Settler<'sample-wb'> = (msg, handler) => {
+  if (msg.type === 'sample-wb-success') {
+    handler.resolve(msg.sample);
+    return true;
+  }
+  if (msg.type === 'sample-wb-error') {
+    // The kind survives the boundary: the UI phrases "pick a darker neutral"
+    // from it rather than matching on the message text (#2434).
+    handler.reject(new WbSampleRejected(msg.kind, msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleExport: Settler<'export'> = (msg, handler) => {
   if (msg.type === 'export-success') {
     handler.resolve({
@@ -181,6 +196,8 @@ function settleByKind(msg: WorkerResponse, handler: PendingHandler): boolean {
       return settleSetFilmLut(msg, handler);
     case 'auto-adjust':
       return settleAutoAdjust(msg, handler);
+    case 'sample-wb':
+      return settleSampleWb(msg, handler);
     case 'export':
       return settleExport(msg, handler);
   }

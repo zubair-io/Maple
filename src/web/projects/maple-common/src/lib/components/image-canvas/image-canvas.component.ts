@@ -41,6 +41,7 @@ import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
+import { WbPickOverlayComponent } from './wb-pick-overlay.component';
 import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
@@ -55,7 +56,7 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
 @Component({
   selector: 'editor-image-canvas',
   standalone: true,
-  imports: [CropOverlayComponent, MaskOverlayComponent],
+  imports: [CropOverlayComponent, MaskOverlayComponent, WbPickOverlayComponent],
   templateUrl: './image-canvas.component.html',
   styleUrl: './image-canvas.component.scss',
   host: { class: HOST_CLASS },
@@ -143,8 +144,6 @@ export class ImageCanvasComponent
   renderGeneration = 0;
   // Long edge of the bitmap currently painted; refine runs only when sharper.
   private paintedLongEdge = 0;
-  // Painted aspect keeps cropped renders from stretching to the full-frame rect.
-  private paintedAspect = signal<{ w: number; h: number } | null>(null);
   // Gate the adjustment effect until the cold-open decode has finished and
   // recorded `lastRenderedXmp`. Without this, the synchronous-bytes path sets
   // `currentBytes` before `await decode` yields, so the adjustment effect can
@@ -192,15 +191,13 @@ export class ImageCanvasComponent
     return { pass: p.pass, pct: Math.round(Math.min(1, Math.max(0, p.fraction)) * 100) };
   });
 
-  // Displayed image size + scale in CSS px (the draw transform's geometry).
-  // Pure geometry lives in `image-canvas.draw2d.ts`; this computed only wires
-  // the signals (zoom / asset dims / wrap dims) into it.
-  // Displayed image size: derives from the painted bitmap's aspect (which
-  // reflects the crop) so a cropped result isn't stretched into the full-frame
-  // rect (#638 review); falls back to the asset's stored dims pre-paint.
+  // Displayed image size + scale in CSS px (the draw transform's geometry;
+  // pure math in `image-canvas.draw2d.ts`). Sized from the PAINTED bitmap's
+  // aspect so a cropped result isn't stretched into the full-frame rect
+  // (#638 review); falls back to the asset's stored dims pre-paint.
   private effectivePx = computed(() => {
     const asset = this.state.focusedAsset();
-    const { w, h } = displayDims(this.paintedAspect(), asset?.width, asset?.height);
+    const { w, h } = displayDims(this.canvasSvc.paintedAspect(), asset?.width, asset?.height);
     return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
@@ -265,7 +262,7 @@ export class ImageCanvasComponent
         this.coldOpenDone = false;
         this.canvasSvc.nativeDimensions.set(null);
         this.paintedLongEdge = 0;
-        this.paintedAspect.set(null);
+        this.canvasSvc.paintedAspect.set(null);
         this.byteLoadError.set(null);
 
         const bytes = this.state.bytesFor(a.id);
@@ -432,7 +429,7 @@ export class ImageCanvasComponent
   /** Record the painted bitmap's long edge + aspect (`Render2dHost`). */
   recordPaintedDims(w: number, h: number): void {
     this.paintedLongEdge = Math.max(w, h);
-    this.paintedAspect.set({ w, h });
+    this.canvasSvc.paintedAspect.set({ w, h });
   }
 
   /** Schedule a refine pass (`Render2dHost`). */

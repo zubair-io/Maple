@@ -9,18 +9,22 @@
 // Draggable white puck + crosshair wires to temperature + tint.
 // Kelvin readout ("5260 K") + Tint value in the corner.
 //
-// Eyedropper button: samples a pixel from the canvas (via ImageCanvasService)
-// and computes neutral WB (temperature + tint) via a rough log-ratio heuristic
-// (rgbToWb) — not the Robertson CCT method.
+// Eyedropper button (#2434): arms the canvas's pick overlay, then hands the
+// clicked point to raw-core's neutral sampler through the render worker. The
+// result is applied as one committed, undoable action carrying its own
+// provenance — which point was picked, and which version of the derivation
+// produced the pair. The old in-component `rgbToWb` log-ratio heuristic
+// (single centre pixel, no clip guard) is gone; the pad's own drag/keyboard
+// paths are unchanged.
 
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
-import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { MuiPad2dComponent } from '../../ui/pad-2d/mui-pad-2d.component';
 import type { MuiPad2dValue } from '../../ui/pad-2d/mui-pad-2d.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
-import { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
-import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
+import { xToTemp, tempToX, yToTint, tintToY } from './wb-pad-math';
+import { WbPickService } from '../image-canvas/wb-pick.service';
+import { EditorStateService } from '../../editor/editor-state.service';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 
@@ -43,7 +47,8 @@ function clamp(value: number, min: number, max: number): number {
 })
 export class WbPadComponent {
   private library = inject(LibraryStateService);
-  private canvasSvc = inject(ImageCanvasService);
+  private pick = inject(WbPickService);
+  private editor = inject(EditorStateService);
 
   /** Eyedropper active (sampling mode). */
   readonly eyedropperActive = signal(false);
@@ -91,6 +96,24 @@ export class WbPadComponent {
     return t >= 0 ? `+${t}` : `${t}`;
   });
 
+  /**
+   * Where the current white balance came from (#2434) — the provenance the
+   * sidecar carries, phrased for the panel. A sampled pair names the point
+   * it was picked at (as image percentages) and the version of the
+   * derivation behind it, so two sidecars that disagree can be told apart.
+   */
+  readonly provenanceLabel = computed<string>(() => {
+    const adj = this.adj();
+    const source = adj?.wbSource ?? 'AsShot';
+    if (source === 'Sampled') {
+      const x = Math.round((adj?.wbSampleX ?? 0) * 100);
+      const y = Math.round((adj?.wbSampleY ?? 0) * 100);
+      const version = adj?.wbAlgorithmVersion ?? 0;
+      return `Sampled at ${x}%, ${y}% · v${version}`;
+    }
+    return source === 'AsShot' ? 'As Shot' : source;
+  });
+
   /** `mui-pad-2d`'s drag/click value, converted back from `[-1, 1]` into the
    *  `[0, 1]` fraction `xToTemp`/`yToTint` expect (`(v+1)/2`) — the inverse
    *  of `padValue` above. Pointer-capture drag and click-to-jump both route
@@ -106,29 +129,28 @@ export class WbPadComponent {
 
   // ── Eyedropper ─────────────────────────────────────────────────────────────
 
-  onEyedropperClick(): void {
-    const pixels = this.canvasSvc.currentPixels();
-    if (!pixels) {
+  /**
+   * Arm the canvas pick overlay and apply the sample the user clicks.
+   *
+   * Pressing the button while armed cancels — the same press is the way out
+   * of pick mode, so the cursor can never be stranded in it.
+   */
+  async onEyedropperClick(): Promise<void> {
+    if (this.eyedropperActive()) {
+      this.pick.cancel();
       this.eyedropperActive.set(false);
       return;
     }
-
-    // Sample the centre pixel of the decoded image.
-    // DecodedImage.rgb is a Uint8Array of RGB triplets (no alpha channel).
-    const img = pixels as DecodedImage;
-    const cx = Math.floor(img.width / 2);
-    const cy = Math.floor(img.height / 2);
-    const idx = (cy * img.width + cx) * 3;
-    const r = img.rgb[idx] ?? 128;
-    const g = img.rgb[idx + 1] ?? 128;
-    const b = img.rgb[idx + 2] ?? 128;
-
-    const { temperature, tint } = rgbToWb(r, g, b);
     const id = this.library.focusedAssetId();
-    if (id) {
-      this.library.updateAdjustment(id, { temperature, tint });
+    if (!id) return;
+    this.eyedropperActive.set(true);
+    try {
+      const point = await this.pick.arm();
+      if (!point) return;
+      await this.editor.sampleWhiteBalanceAt(id, point.nx, point.ny);
+    } finally {
+      this.eyedropperActive.set(false);
     }
-    this.eyedropperActive.set(false);
   }
 
   // ── Keyboard ────────────────────────────────────────────────────────────────

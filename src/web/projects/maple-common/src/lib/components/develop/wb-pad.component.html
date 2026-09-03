@@ -24,6 +24,16 @@
     </button>
   </div>
 
+  <!-- White-balance provenance (#2434): what produced the pair above — the
+       camera's own reading, a click on the canvas (with the point and the
+       derivation version), or a manual edit. -->
+  <span
+    class="font-sans text-[10px] text-[color:var(--pro-text-dim)] select-none"
+    data-testid="wb-provenance"
+    aria-label="White balance source"
+    >{{ provenanceLabel() }}</span
+  >
+
   <!-- 2-D pad — mui-pad-2d owns the puck/crosshair chrome and the
        pointer-capture drag; the WB-specific Kelvin/tint domain (and the
        #2412 clamped arrow-key stepping, still `onPadKeyDown` below) stays
