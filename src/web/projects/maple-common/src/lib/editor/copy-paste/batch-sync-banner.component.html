@@ -19,14 +19,14 @@
         ></div>
       </div>
     </div>
-    <button
-      type="button"
-      class="dlg-toast-dismiss"
-      (click)="batch.cancel()"
-      aria-label="Cancel applying settings"
+    <mui-button
+      variant="ghost"
+      size="sm"
+      ariaLabel="Cancel applying settings"
+      testId="batch-sync-cancel"
+      (pressed)="batch.cancel()"
+      >Cancel</mui-button
     >
-      Cancel
-    </button>
   </div>
 } @else if (batch.summaryText(); as summary) {
   <div
@@ -37,22 +37,24 @@
     <div class="flex min-w-0 flex-col gap-0.5">
       <span>{{ summary }}</span>
       @if (batch.failedIds().length > 0) {
-        <button
-          type="button"
-          class="self-start text-[11px] text-error-text underline"
-          (click)="retryFailed.emit()"
+        <mui-button
+          class="self-start"
+          variant="ghost"
+          size="sm"
+          testId="batch-sync-retry"
+          (pressed)="retryFailed.emit()"
+          >Retry failed</mui-button
         >
-          Retry failed
-        </button>
       }
     </div>
-    <button
-      type="button"
-      class="dlg-toast-dismiss"
-      (click)="batch.dismissSummary()"
-      aria-label="Dismiss"
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      ariaLabel="Dismiss"
+      testId="batch-sync-dismiss"
+      (pressed)="batch.dismissSummary()"
+      >✕</mui-button
     >
-      ✕
-    </button>
   </div>
 }
