@@ -8,6 +8,7 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 import {
   EDIT_TRANSACTION_VERSION,
+  type EditTransactionKind,
   classifyInvalidation,
   makeEditTransaction,
   serializeEditTransaction,
@@ -16,7 +17,11 @@ import {
 
 const serializer = new XmpSerializerService();
 
-function tx(before: AdjustmentModel, after: AdjustmentModel, kind = 'adjustment' as const) {
+function tx(
+  before: AdjustmentModel,
+  after: AdjustmentModel,
+  kind: EditTransactionKind = 'adjustment',
+) {
   return makeEditTransaction(serializer, { id: 1, kind, description: 't', before, after });
 }
 

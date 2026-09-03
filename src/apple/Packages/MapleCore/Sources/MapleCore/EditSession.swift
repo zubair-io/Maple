@@ -371,24 +371,13 @@ public final class EditSession {
     /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
     /// `EditSession+UndoRedo.swift`. Internal rather than private so that
     /// sibling file can reach them.
-    @ObservationIgnored var undoStack: [EditTransaction] = []
-    @ObservationIgnored var redoStack: [EditTransaction] = []
-    /// The transaction opened by `beginEdit` and not yet closed by a
-    /// boundary (`endEdit` / next `beginEdit` / `undo` / `redo` / flush).
-    @ObservationIgnored var pendingEdit: PendingEdit?
-    @ObservationIgnored var nextTransactionID: UInt64 = 0
-    /// The render generation of the last frame that actually reached the
-    /// canvas (CPU publish or GPU-live present), `nil` for a generation-less
-    /// render. The stale-render guard's observable: a value older than the
-    /// latest transaction's generation means a stale frame got through.
-    @ObservationIgnored public internal(set) var lastPublishedRenderGeneration: UInt64?
-    /// The most recently recorded, undone, or redone transaction — what
-    /// the UI and tests observe as "the action that just happened".
+    @ObservationIgnored var transactions = EditTransactionRing()
+    /// The most recently recorded, undone, or redone transaction.
     public internal(set) var lastCommittedTransaction: EditTransaction?
-    /// Receives every committed / undone / redone transaction's
-    /// description. Defaults to the system accessibility announcement;
-    /// tests inject a recorder.
+    /// Speaks every committed / undone / redone transaction (tests inject a recorder).
     @ObservationIgnored public var announcer: any EditAnnouncer = AccessibilityEditAnnouncer()
+    /// Generation of the last frame that reached the canvas (the stale-render guard's observable).
+    @ObservationIgnored public internal(set) var lastPublishedRenderGeneration: UInt64?
 
     // MARK: Internals (shared across EditSession+* extensions)
 
