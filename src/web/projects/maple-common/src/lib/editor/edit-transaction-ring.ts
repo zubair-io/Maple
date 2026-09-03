@@ -13,6 +13,7 @@ import {
   type EditTransaction,
   type EditTransactionKind,
   makeEditTransaction,
+  stableStringify,
 } from './edit-transaction';
 
 /** Cap on the editor's undo/redo ring (per spec §4). */
@@ -50,9 +51,10 @@ export class EditTransactionRing {
     return this._undo();
   }
 
-  /** Forget everything (asset switch). */
+  /** Forget everything (asset switch); ids restart at 1 for the new binding. */
   reset(): void {
     this._pending = null;
+    this._nextId = 0;
     this._undo.set([]);
     this._redo.set([]);
     this.lastCommitted.set(null);
@@ -112,5 +114,5 @@ function pushCapped(stack: EditTransaction[], tx: EditTransaction): EditTransact
 }
 
 function sameModel(a: AdjustmentModel, b: AdjustmentModel): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return stableStringify(a) === stableStringify(b);
 }
