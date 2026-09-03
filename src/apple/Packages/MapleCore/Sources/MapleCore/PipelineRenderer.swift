@@ -1831,6 +1831,82 @@ extension PipelineRenderer {
         }
         return output
     }
+
+    /// Sibling of `applyChainAndEncodeDisplay` that ALSO computes a 128×128
+    /// vectorscope histogram over the encoded output, via
+    /// `maple_apply_chain_and_encode_display_scoped_f32` (core plan
+    /// #3272, apple plan #3277). Used by the CPU / non-GPU-live scope
+    /// producer (`EditSession+ScopeCpu.swift`) — the GPU-live path gets its
+    /// scope stats from `GpuLiveSession.present` instead. `scopeLayer`
+    /// selects which local-adjustment layer to scope (`-1` = whole image;
+    /// per-mask scoping isn't wired up on either path yet, so every caller
+    /// today passes `-1`). Discards the re-encoded display bytes the FFI
+    /// also writes to its required out buffer — this caller only wants the
+    /// stats — otherwise identical contract to `applyChainAndEncodeDisplay`.
+    ///
+    /// Returns the already-unpacked `ScopeSample` rather than the raw
+    /// `MapleScopeStats`: that C struct's `bins` is a caller-owned `(ptr,
+    /// len)` pair (#3277 — a 128×128 fixed C array can't import into Swift
+    /// at all), bound here to a buffer local to this call, so handing the
+    /// struct back to the caller would leave `bins_ptr` dangling the moment
+    /// this function returns.
+    public static func applyChainAndEncodeDisplayScoped(
+        inputBytes: Data,
+        width: Int,
+        height: Int,
+        params: MapleAdjustmentParams,
+        scopeLayer: Int32,
+        noiseProfile: [Float]? = nil
+    ) throws -> ScopeSample {
+        guard width > 0, height > 0 else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "applyChainAndEncodeDisplayScoped: zero dimension width=\(width) height=\(height)"
+            )
+        }
+        let lanes = width * height * 4
+        let expectedBytes = lanes * MemoryLayout<Float>.size
+        guard inputBytes.count == expectedBytes else {
+            throw PipelineError.renderFailed(
+                code: 9,
+                message: "applyChainAndEncodeDisplayScoped: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+            )
+        }
+        var output = Data(count: expectedBytes)
+        var stats = MapleScopeStats()
+        var bins = [UInt32](repeating: 0, count: 16384)
+        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+            var p = params
+            if let npBuf {
+                p.noise_profile_ptr = npBuf.baseAddress
+                p.noise_profile_len = UInt32(npBuf.count)
+            }
+            return try bins.withUnsafeMutableBufferPointer { binsBuf -> Int32 in
+                stats.bins_ptr = binsBuf.baseAddress
+                stats.bins_len = UInt32(binsBuf.count)
+                return try output.withUnsafeMutableBytes { outBuf -> Int32 in
+                    let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+                    return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                        let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+                        return withUnsafeMutablePointer(to: &stats) { statsPtr in
+                            maple_apply_chain_and_encode_display_scoped_f32(
+                                inPtr, UInt32(width), UInt32(height),
+                                &p,
+                                scopeLayer,
+                                statsPtr,
+                                outPtr
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return ScopeSample.unpack(bins: bins, total: stats.total, frame: stats.frame)
+    }
 }
 
 // MARK: - MapleRawHandle (Swift wrapper around the opaque C handle)

@@ -89,7 +89,9 @@ extension PipelineRenderer {
         asShotTint: Double? = nil,
         inputShape: UInt32 = 0,
         wbFrame: WbSliderFrame? = nil,
-        targetColorSpace: CanvasColorSpace = .current
+        targetColorSpace: CanvasColorSpace = .current,
+        scopeEnabled: Bool = false,
+        scopeLayer: Int32 = -1
     ) -> MapleGpuLiveParams {
         // Per-field assignment (not a literal init) — the Swift expression type-
         // checker hits its complexity ceiling on a ~40-field literal init, exactly
@@ -325,6 +327,15 @@ extension PipelineRenderer {
         if let wbFrame, wbFrame.isPresent {
             wbFrame.fill(&p)
         }
+
+        // Vectorscope scope pass (#3272/#3277) — appended at the struct
+        // tail. `scope_out` is NOT set here: it's an out-param pointing at
+        // the SESSION's own reused `MapleScopeStats` staging struct, whose
+        // address is only valid for the duration of one FFI call, so it's
+        // bound in `withGpuLiveParams`'s live scope, same reasoning as the
+        // point-tone-curve / Auto Profile arrays above.
+        p.scope_enabled = scopeEnabled ? 1 : 0
+        p.scope_layer = scopeLayer
 
         return p
     }

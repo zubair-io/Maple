@@ -468,6 +468,11 @@ extension EditSession {
       previewIsFullRender = true
       previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
       renderError = nil
+      // #3277: this publish is the CPU-path branch (the GPU-live present
+      // above already `return`ed before reaching here when it handled the
+      // frame) — arm the debounced CPU scope producer. No-ops instantly
+      // when the scope HUD isn't showing.
+      scheduleScopeCpuUpdate()
       histogramState.framePresented()
       editSessionSignposter.emitEvent("CPU frame published")
       editSessionLogger.debug(
