@@ -188,17 +188,23 @@ impl Evidence {
 }
 
 /// `blake3:<hex>` over the concatenated contents of `paths` (repo-relative;
-/// a directory contributes every file under it in sorted path order). CR
-/// bytes are dropped before hashing so a CRLF checkout on Windows hashes
-/// the same corpus as a LF checkout. A missing path is an error — a corpus
-/// that has disappeared is not "unchanged".
+/// a directory contributes every file under it in sorted path order). Text
+/// files have their CR bytes dropped before hashing so a CRLF checkout on
+/// Windows hashes the same corpus as a LF checkout; binary files (any NUL
+/// byte in the first 8 KiB — the `.dng` / `.png` fixtures) are hashed byte
+/// for byte, since a 0x0D there is data, not a line ending. A missing path
+/// is an error — a corpus that has disappeared is not "unchanged".
 pub fn hash_corpus(repo_root: &Path, paths: &[&str]) -> Result<String, String> {
     let mut hasher = blake3::Hasher::new();
     for rel in paths {
         let root = repo_root.join(rel);
         for file in walk_sorted(&root)? {
             let bytes = fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-            let stripped: Vec<u8> = bytes.into_iter().filter(|b| *b != b'\r').collect();
+            let stripped: Vec<u8> = if is_binary(&bytes) {
+                bytes
+            } else {
+                bytes.into_iter().filter(|b| *b != b'\r').collect()
+            };
             let rel_name = file
                 .strip_prefix(repo_root)
                 .unwrap_or(&file)
@@ -211,6 +217,11 @@ pub fn hash_corpus(repo_root: &Path, paths: &[&str]) -> Result<String, String> {
         }
     }
     Ok(format!("blake3:{}", hasher.finalize().to_hex()))
+}
+
+/// Git's own heuristic: a NUL byte in the first 8 KiB means binary.
+fn is_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(8192).any(|b| *b == 0)
 }
 
 fn walk_sorted(path: &Path) -> Result<Vec<PathBuf>, String> {

@@ -492,6 +492,19 @@ fn corpus_hash_is_deterministic_and_crlf_insensitive() {
     assert!(hash_corpus(dir.path(), &["missing.txt"]).is_err());
 }
 
+/// A binary fixture is hashed byte for byte: a 0x0D inside it is data, and
+/// flipping it must change the hash (the CR strip applies to text only).
+#[test]
+fn corpus_hash_keeps_carriage_returns_in_binary_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("fixture.dng");
+    std::fs::write(&bin, [0x49, 0x49, 0x2a, 0x00, 0x0d, 0x0a, 0x01]).unwrap();
+    let with_cr = hash_corpus(dir.path(), &["fixture.dng"]).unwrap();
+    std::fs::write(&bin, [0x49, 0x49, 0x2a, 0x00, 0x0a, 0x01]).unwrap();
+    let without_cr = hash_corpus(dir.path(), &["fixture.dng"]).unwrap();
+    assert_ne!(with_cr, without_cr);
+}
+
 #[test]
 fn evidence_load_reads_records_and_hashes_their_corpora() {
     let dir = tempfile::tempdir().unwrap();
@@ -521,7 +534,9 @@ fn evidence_load_reads_records_and_hashes_their_corpora() {
     // Only the recorded source's corpus is hashed — a hash is only ever
     // compared against a record.
     assert_eq!(evidence.corpus_hashes.len(), 1);
-    assert!(evidence.corpus_hashes.contains_key(&EvidenceSource::GreyDcp));
+    assert!(evidence
+        .corpus_hashes
+        .contains_key(&EvidenceSource::GreyDcp));
     assert_eq!(
         judge(EvidenceSource::GreyDcp, &evidence),
         RecordStatus::Satisfied
