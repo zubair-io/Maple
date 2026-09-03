@@ -126,6 +126,11 @@ fi
 
 CANDIDATES_DIR="$WORKDIR/candidates"
 AUTO_CANDIDATES_DIR="$WORKDIR/auto_candidates"
+# Each diff pass appends its summary JSON here so the final
+# `qualification:` line below can total them for the capability registry's
+# evidence record (#2430, tools/qualification/record.sh).
+export MAPLE_QUAL_SUMMARY="$WORKDIR/qualification-summaries.jsonl"
+: >"$MAPLE_QUAL_SUMMARY"
 mkdir -p "$CANDIDATES_DIR" "$AUTO_CANDIDATES_DIR"
 
 echo "test_color_pipeline: manifest=$MANIFEST"
@@ -418,6 +423,10 @@ summary = {
     "grand_bias_b": (sum(r["bB"] for r in all_rows) / len(all_rows)) if all_rows else None,
 }
 print(json.dumps(summary))
+qual_path = os.environ.get("MAPLE_QUAL_SUMMARY")
+if qual_path:
+    with open(qual_path, "a") as qf:
+        qf.write(json.dumps(summary) + "\n")
 
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY
@@ -606,6 +615,10 @@ summary = {
     "grand_mean_deltaE": (sum(r["mean"] for r in all_rows) / len(all_rows)) if all_rows else None,
 }
 print(json.dumps(summary))
+qual_path = os.environ.get("MAPLE_QUAL_SUMMARY")
+if qual_path:
+    with open(qual_path, "a") as qf:
+        qf.write(json.dumps(summary) + "\n")
 
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY_AUTO
@@ -812,6 +825,10 @@ summary = {
     "grand_mean_deltaE": (sum(r["mean"] for r in all_rows) / len(all_rows)) if all_rows else None,
 }
 print(json.dumps(summary))
+qual_path = os.environ.get("MAPLE_QUAL_SUMMARY")
+if qual_path:
+    with open(qual_path, "a") as qf:
+        qf.write(json.dumps(summary) + "\n")
 
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY_DETAIL
@@ -823,6 +840,19 @@ PY_DETAIL
 # and a batch that produced nothing trips the compared==0 gate instead.
 echo ""
 echo "test_color_pipeline: batch exits: neutral=$batch_neutral_exit auto=$batch_auto_exit; diff passes: neutral=$neutral_exit auto=$auto_exit detail=$detail_exit"
+# Capability-registry evidence line (#2430): one comparison per
+# budgets.json cell across the three passes. `executed` is every comparison
+# made, `failed` every budget breach or diff error; cases a pass skipped by
+# design (a sharpen/nr case in the `down` pass, a non-baseline case in the
+# auto pass) are covered by their own pass, so a genuinely missing
+# comparison shows up as executed < expected in the record, not as a skip.
+python3 - "$MAPLE_QUAL_SUMMARY" <<'PY_QUAL'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+executed = sum(r.get("compared", 0) for r in rows)
+failed = sum(r.get("breaches", 0) + r.get("errors", 0) for r in rows)
+print(f"qualification: executed={executed} failed={failed} skipped=0")
+PY_QUAL
 if [[ "$neutral_exit" -ne 0 ]] || [[ "$auto_exit" -ne 0 ]] || [[ "$detail_exit" -ne 0 ]]; then
   exit 1
 fi

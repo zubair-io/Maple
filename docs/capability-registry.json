@@ -1,0 +1,884 @@
+{
+  "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
+  "build": {
+    "pipeline_output_version": 2,
+    "schema_version": 5
+  },
+  "capabilities": [
+    {
+      "id": "white_balance",
+      "title": "White balance",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [
+        "temperature",
+        "tint",
+        "temperature_seen",
+        "tint_seen",
+        "wb_method",
+        "wb_scale_version"
+      ],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_lavapipe",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "grey_adjustments",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "synthetic_grey",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "grey_dcp",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_chart",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_harness",
+          "status": "missing",
+          "detail": "no record"
+        },
+        {
+          "source": "gpu_chain_parity_metal",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "apple_canvas_golden",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ]
+    },
+    {
+      "id": "tone",
+      "title": "Tone (exposure, contrast, parametric and point curves)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [
+        "exposure",
+        "brightness",
+        "contrast",
+        "highlights",
+        "shadows",
+        "whites",
+        "blacks",
+        "parametric_highlights",
+        "parametric_lights",
+        "parametric_darks",
+        "parametric_shadows",
+        "parametric_shadow_split",
+        "parametric_midtone_split",
+        "parametric_highlight_split",
+        "auto_exposure",
+        "tone_curve_mode",
+        "tone_curve_luma",
+        "tone_curve_red",
+        "tone_curve_green",
+        "tone_curve_blue",
+        "display_tone_curve_luma",
+        "display_tone_curve_red",
+        "display_tone_curve_green",
+        "display_tone_curve_blue"
+      ],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_lavapipe",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "grey_adjustments",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "synthetic_grey",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "grey_dcp",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_chart",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_harness",
+          "status": "missing",
+          "detail": "no record"
+        },
+        {
+          "source": "gpu_chain_parity_metal",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "apple_canvas_golden",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "title": "Color (HSL, B&W mixer, color grading, profile and look)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [
+        "vibrance",
+        "saturation",
+        "hue_adjustment_red",
+        "hue_adjustment_orange",
+        "hue_adjustment_yellow",
+        "hue_adjustment_green",
+        "hue_adjustment_aqua",
+        "hue_adjustment_blue",
+        "hue_adjustment_purple",
+        "hue_adjustment_magenta",
+        "saturation_adjustment_red",
+        "saturation_adjustment_orange",
+        "saturation_adjustment_yellow",
+        "saturation_adjustment_green",
+        "saturation_adjustment_aqua",
+        "saturation_adjustment_blue",
+        "saturation_adjustment_purple",
+        "saturation_adjustment_magenta",
+        "luminance_adjustment_red",
+        "luminance_adjustment_orange",
+        "luminance_adjustment_yellow",
+        "luminance_adjustment_green",
+        "luminance_adjustment_aqua",
+        "luminance_adjustment_blue",
+        "luminance_adjustment_purple",
+        "luminance_adjustment_magenta",
+        "black_white",
+        "gray_mixer_red",
+        "gray_mixer_orange",
+        "gray_mixer_yellow",
+        "gray_mixer_green",
+        "gray_mixer_aqua",
+        "gray_mixer_blue",
+        "gray_mixer_purple",
+        "gray_mixer_magenta",
+        "split_tone_shadow_hue",
+        "split_tone_shadow_saturation",
+        "split_tone_highlight_hue",
+        "split_tone_highlight_saturation",
+        "split_tone_balance",
+        "color_grade_shadow_luminance",
+        "color_grade_midtone_hue",
+        "color_grade_midtone_saturation",
+        "color_grade_midtone_luminance",
+        "color_grade_highlight_luminance",
+        "color_grade_global_hue",
+        "color_grade_global_saturation",
+        "color_grade_global_luminance",
+        "highlight_recovery",
+        "look",
+        "profile"
+      ],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_lavapipe",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "grey_adjustments",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "synthetic_grey",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "grey_dcp",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_chart",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_harness",
+          "status": "missing",
+          "detail": "no record"
+        },
+        {
+          "source": "gpu_chain_parity_metal",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "apple_canvas_golden",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "title": "Detail (sharpening, noise reduction, presence, dehaze, lens)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [
+        "clarity",
+        "texture",
+        "dehaze",
+        "sharpen_amount",
+        "sharpen_radius",
+        "sharpen_detail",
+        "sharpen_masking",
+        "capture_sharpening_amount",
+        "capture_sharpening_sigma",
+        "nr_luminance",
+        "nr_color",
+        "chroma_prefilter",
+        "hot_pixel_suppression",
+        "deep_denoise",
+        "lens_profile_enable",
+        "lens_correction_distortion",
+        "lens_correction_ca",
+        "lens_correction_vignetting",
+        "capture_sharpening_radius"
+      ],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_lavapipe",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "grey_adjustments",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "synthetic_grey",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "grey_dcp",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_chart",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "color_harness",
+          "status": "missing",
+          "detail": "no record"
+        },
+        {
+          "source": "gpu_chain_parity_metal",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "apple_canvas_golden",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ]
+    },
+    {
+      "id": "effects",
+      "title": "Effects (vignette, grain, film looks)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi"],
+      "fields": [
+        "vignette_amount",
+        "vignette_feather",
+        "grain_amount",
+        "grain_size",
+        "grain_roughness",
+        "film_look",
+        "film_strength"
+      ],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_lavapipe",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "grey_adjustments",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_metal",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "apple_canvas_golden",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ]
+    },
+    {
+      "id": "geometry",
+      "title": "Crop and straighten",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": ["crop"],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "apple_canvas_golden",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ]
+    },
+    {
+      "id": "auto_adjustments",
+      "title": "AUTO (exposure + calibrated tone sliders)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["web", "windows"],
+      "storage_adapters": ["api_filesystem", "file_system_access", "indexed_db"],
+      "asset_classes": ["raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [],
+      "integration": [
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        }
+      ],
+      "qualification": []
+    },
+    {
+      "id": "copy_paste_sync",
+      "title": "Copy / paste / sync settings",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [],
+      "integration": [],
+      "qualification": []
+    },
+    {
+      "id": "presets",
+      "title": "Presets",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [],
+      "integration": [],
+      "qualification": []
+    },
+    {
+      "id": "local_adjustments",
+      "title": "Masks / local adjustments",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": [],
+      "storage_adapters": [],
+      "asset_classes": ["raw"],
+      "preview_paths": ["cpu_reference"],
+      "export_paths": ["maple_cli"],
+      "fields": ["local_adjustments"],
+      "integration": [],
+      "qualification": []
+    },
+    {
+      "id": "inpaint_repair",
+      "title": "Repair (local AI inpainting)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple"],
+      "storage_adapters": ["filesystem"],
+      "asset_classes": ["raw"],
+      "preview_paths": ["cpu_reference", "gpu_live"],
+      "export_paths": ["apple_ffi"],
+      "fields": ["inpaint_removals"],
+      "integration": [],
+      "qualification": []
+    },
+    {
+      "id": "sidecar_persistence",
+      "title": "Non-destructive sidecar persistence",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        }
+      ],
+      "qualification": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        }
+      ]
+    },
+    {
+      "id": "export",
+      "title": "Export (JPEG / PNG / TIFF / HEIC)",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web", "windows"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw", "non_raw"],
+      "preview_paths": [],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": [],
+      "integration": [],
+      "qualification": []
+    }
+  ],
+  "evidence_sources": [
+    {
+      "source": "grey_adjustments",
+      "description": "closed-form slider predictors + display gates on the synthetic grey DNG",
+      "covers": [],
+      "accepted_backends": ["cpu-reference"],
+      "expected_cases": 40,
+      "corpus": [
+        "src/raw-pipeline/raw-core/tests/grey_adjustments.rs",
+        "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs"
+      ],
+      "corpus_hash": "blake3:fc275d707aca0f4b687a796e9528d92240dd2d94db65eaa46aad7e2f1255871b",
+      "status": "satisfied",
+      "record": {
+        "backend": "cpu-reference",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:fc275d707aca0f4b687a796e9528d92240dd2d94db65eaa46aad7e2f1255871b",
+        "expected_cases": 40,
+        "executed_cases": 40,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T03:53:44Z",
+        "command": "bash src/scripts/test_grey_adjustments.sh"
+      }
+    },
+    {
+      "source": "synthetic_grey",
+      "description": "neutral-pipeline flatness invariants",
+      "covers": [],
+      "accepted_backends": ["cpu-reference"],
+      "expected_cases": 6,
+      "corpus": ["src/raw-pipeline/raw-core/tests/grey_invariants.rs"],
+      "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
+      "status": "satisfied",
+      "record": {
+        "backend": "cpu-reference",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
+        "expected_cases": 6,
+        "executed_cases": 6,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T03:53:50Z",
+        "command": "bash src/scripts/test_synthetic_grey.sh"
+      }
+    },
+    {
+      "source": "grey_dcp",
+      "description": "DCP code-path coverage (ColorMatrix / ForwardMatrix / PTC)",
+      "covers": [],
+      "accepted_backends": ["cpu-reference"],
+      "expected_cases": 4,
+      "corpus": ["src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs"],
+      "corpus_hash": "blake3:0057c6121e986a89123379cb8252fcdc47dd202b561b6ab35fb2815fe6826c01",
+      "status": "satisfied",
+      "record": {
+        "backend": "cpu-reference",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:0057c6121e986a89123379cb8252fcdc47dd202b561b6ab35fb2815fe6826c01",
+        "expected_cases": 4,
+        "executed_cases": 4,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T03:53:58Z",
+        "command": "bash src/scripts/test_grey_dcp.sh"
+      }
+    },
+    {
+      "source": "color_chart",
+      "description": "synthetic 24-patch colour-chart invariants",
+      "covers": [],
+      "accepted_backends": ["cpu-reference"],
+      "expected_cases": 7,
+      "corpus": ["src/raw-pipeline/raw-core/tests/color_chart_invariants.rs"],
+      "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
+      "status": "satisfied",
+      "record": {
+        "backend": "cpu-reference",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
+        "expected_cases": 7,
+        "executed_cases": 7,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T03:54:06Z",
+        "command": "bash src/scripts/test_synthetic_color_chart.sh"
+      }
+    },
+    {
+      "source": "color_harness",
+      "description": "CIEDE2000 vs ACR references, per budgets.json cell",
+      "covers": [],
+      "accepted_backends": ["cpu-reference"],
+      "expected_cases": 796,
+      "corpus": ["test-fixtures/budgets.json"],
+      "corpus_hash": "blake3:7d706bc589e0a56fec85adcb0ad27c7d716e473115627704818e175596e1ea02",
+      "status": "missing",
+      "record": null
+    },
+    {
+      "source": "sidecar_contract_apple",
+      "description": "Apple cross-adapter sidecar transaction contract suite (#2431)",
+      "covers": ["apple"],
+      "accepted_backends": ["xctest-macos"],
+      "expected_cases": 12,
+      "corpus": [
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift",
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift",
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift",
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift",
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift"
+      ],
+      "corpus_hash": "blake3:5b9f3b88085211d101a5cfda8450fb42bdfc3853fcefe7e86a62e07da99f9dc7",
+      "status": "satisfied",
+      "record": {
+        "backend": "xctest-macos",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:5b9f3b88085211d101a5cfda8450fb42bdfc3853fcefe7e86a62e07da99f9dc7",
+        "expected_cases": 12,
+        "executed_cases": 12,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T04:10:26Z",
+        "command": "bash -c cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract"
+      }
+    },
+    {
+      "source": "sidecar_contract_api",
+      "description": "API sidecar transaction contract (#2431)",
+      "covers": ["web"],
+      "accepted_backends": ["bun"],
+      "expected_cases": 3,
+      "corpus": ["src/api/src/routes/xmp.sidecar-contract.test.ts"],
+      "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
+      "status": "satisfied",
+      "record": {
+        "backend": "bun",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
+        "expected_cases": 3,
+        "executed_cases": 3,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T04:01:14Z",
+        "command": "bash -c cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts"
+      }
+    },
+    {
+      "source": "gpu_chain_parity_lavapipe",
+      "description": "render_bytes_gpu vs render_bytes on Mesa lavapipe (#1973)",
+      "covers": ["web"],
+      "accepted_backends": ["vulkan-lavapipe"],
+      "expected_cases": 16,
+      "corpus": [
+        "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
+        "src/raw-pipeline/raw-wasm/src/gpu_render",
+        "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
+      ],
+      "corpus_hash": "blake3:64ad6b484bb4abc65c0b943d41c38b3d23e153fcb9fb5f866b1772027dd769e9",
+      "status": "missing",
+      "record": null
+    },
+    {
+      "source": "gpu_chain_parity_metal",
+      "description": "render_bytes_gpu vs render_bytes on Metal (#2315)",
+      "covers": ["apple"],
+      "accepted_backends": ["metal"],
+      "expected_cases": 16,
+      "corpus": [
+        "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
+        "src/raw-pipeline/raw-wasm/src/gpu_render",
+        "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
+      ],
+      "corpus_hash": "blake3:64ad6b484bb4abc65c0b943d41c38b3d23e153fcb9fb5f866b1772027dd769e9",
+      "status": "satisfied",
+      "record": {
+        "backend": "metal",
+        "pipeline_version": 2,
+        "schema_version": 5,
+        "corpus_hash": "blake3:64ad6b484bb4abc65c0b943d41c38b3d23e153fcb9fb5f866b1772027dd769e9",
+        "expected_cases": 16,
+        "executed_cases": 16,
+        "failed_cases": 0,
+        "skipped_cases": 0,
+        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
+        "recorded_at": "2026-09-03T04:11:06Z",
+        "command": "bash -c cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render"
+      }
+    },
+    {
+      "source": "apple_canvas_golden",
+      "description": "live SwiftUI canvas vs committed golden (#2366)",
+      "covers": ["apple"],
+      "accepted_backends": ["xcuitest-macos"],
+      "expected_cases": 1,
+      "corpus": [
+        "src/apple/MapleUITests/MapleUITests.swift",
+        "src/apple/MapleUITests/Goldens/test_0017-default.png"
+      ],
+      "corpus_hash": "blake3:0b1c20393127adb0502a8e792c02cb0d245e2d187729630f3fca6552994fa788",
+      "status": "missing",
+      "record": null
+    }
+  ]
+}

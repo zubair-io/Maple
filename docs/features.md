@@ -282,3 +282,5 @@ Web is split into its two deployments because they differ substantially. Every c
 Apple additionally ships four extensions: a macOS **File Provider** that mounts a server library in Finder and an iOS twin that does the same in Files, a **Quick Look** provider that shows the server's pre-baked thumbnail instead of materializing a 150MB RAW on spacebar, and a **widget** that surfaces a photo from the day's generated collection and deep-links back into the app.
 
 Per-platform detail lives in [apple.md](apple.md), [web.md](web.md), and [windows.md](windows.md).
+
+The matrix above says where a feature is _mounted_. Whether an editor capability is _qualified_ on a surface — `core`, `integrated`, or `released`, computed from harness evidence rather than declared — is the generated [capability-registry.md](capability-registry.md); the registry's surface declarations follow this matrix and are the machine-checked form of it for the develop capabilities.

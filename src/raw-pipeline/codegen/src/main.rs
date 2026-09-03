@@ -17,6 +17,12 @@
 //!   Task 6) — the FilmCategory enum/union, the FilmLookEntry shape, and
 //!   the full catalog. Emitter lives in `film_catalog.rs` next to this
 //!   file.
+//! - `capability-registry` (`raw_core::capability_registry::
+//!   CAPABILITY_REGISTRY` + the evidence records under
+//!   `--evidence-dir`, ticket #2430) — every editor capability with its
+//!   computed `core` / `integrated` / `released` state, to Swift, TS, C#,
+//!   and the markdown + JSON release summaries. Emitters live in
+//!   `capability_registry.rs` and `capability_summary.rs`.
 //!
 //! Driven from `tools/codegen.sh`. The codegen-drift CI gate
 //! (`.github/workflows/cross.yml`) runs the script then `git diff
@@ -25,6 +31,8 @@
 mod adjustment;
 mod adjustment_groups;
 mod adjustment_tables;
+mod capability_registry;
+mod capability_summary;
 mod color_matrices;
 mod film_catalog;
 mod ui_tokens;
@@ -34,6 +42,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use raw_core::capability_registry::{Evidence, CAPABILITY_REGISTRY};
 use raw_core::film_catalog::FILM_CATALOG;
 use raw_core::types::ADJUSTMENT_SCHEMA;
 use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS};
@@ -61,6 +70,15 @@ enum Target {
     /// ui-tokens`; closes the Windows codegen gap tracked under milestone
     /// #22 — `Themes/Tokens.xaml` was previously hand-mirrored.
     Xaml,
+    /// C# output. Only valid for `--schema capability-registry` (#2430) —
+    /// the WinUI shell's copy of the registry.
+    Cs,
+    /// Markdown release summary. Only valid for `--schema
+    /// capability-registry` (#2430).
+    Md,
+    /// JSON release summary. Only valid for `--schema capability-registry`
+    /// (#2430).
+    Json,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -81,6 +99,9 @@ enum Schema {
     /// the FilmLookEntry shape, and the full 100-entry catalog (epic #2683,
     /// Task 6).
     FilmCatalog,
+    /// `raw_core::capability_registry::CAPABILITY_REGISTRY` judged against
+    /// the evidence records in `--evidence-dir` (#2430).
+    CapabilityRegistry,
 }
 
 #[derive(Parser, Debug)]
@@ -97,8 +118,30 @@ struct Cli {
     target: Target,
     #[arg(long)]
     out: PathBuf,
+    /// Directory of `<source>.json` evidence records
+    /// (`test-fixtures/qualification/`). Required by `--schema
+    /// capability-registry`; corpus paths resolve against `--repo-root`.
+    #[arg(long)]
+    evidence_dir: Option<PathBuf>,
+    /// Repository root the evidence corpora resolve against (defaults to
+    /// the current directory).
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
 }
 
+fn load_evidence(cli: &Cli) -> Evidence {
+    let Some(dir) = cli.evidence_dir.as_ref() else {
+        eprintln!("codegen: --schema capability-registry needs --evidence-dir");
+        std::process::exit(2);
+    };
+    match Evidence::load(&cli.repo_root, dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("codegen: cannot load evidence: {e}");
+            std::process::exit(2);
+        }
+    }
+}
 
 fn main() {
     let cli = Cli::parse();
@@ -106,7 +149,10 @@ fn main() {
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::TsTables) => emit_ts_tables(ADJUSTMENT_SCHEMA),
-        (Schema::Adjustment, Target::Scss | Target::Wgsl | Target::Xaml) => {
+        (
+            Schema::Adjustment,
+            Target::Scss | Target::Wgsl | Target::Xaml | Target::Cs | Target::Md | Target::Json,
+        ) => {
             eprintln!("codegen: --schema adjustment supports only swift / ts / ts-tables targets");
             std::process::exit(2);
         }
@@ -122,20 +168,65 @@ fn main() {
         (Schema::UiTokens, Target::Xaml) => {
             ui_tokens_xaml::emit_xaml(COLOR_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
         }
-        (Schema::UiTokens, Target::TsTables | Target::Wgsl) => {
+        (
+            Schema::UiTokens,
+            Target::TsTables | Target::Wgsl | Target::Cs | Target::Md | Target::Json,
+        ) => {
             eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");
             std::process::exit(2);
         }
         (Schema::ColorMatrices, Target::Wgsl) => color_matrices::emit_wgsl(),
         (Schema::ColorMatrices, Target::Ts) => color_matrices::emit_ts(),
-        (Schema::ColorMatrices, Target::Swift | Target::Scss | Target::TsTables | Target::Xaml) => {
+        (
+            Schema::ColorMatrices,
+            Target::Swift
+            | Target::Scss
+            | Target::TsTables
+            | Target::Xaml
+            | Target::Cs
+            | Target::Md
+            | Target::Json,
+        ) => {
             eprintln!("codegen: --schema color-matrices supports only the wgsl / ts targets");
             std::process::exit(2);
         }
         (Schema::FilmCatalog, Target::Swift) => film_catalog::emit_swift(FILM_CATALOG),
         (Schema::FilmCatalog, Target::Ts) => film_catalog::emit_ts(FILM_CATALOG),
-        (Schema::FilmCatalog, Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml) => {
+        (
+            Schema::FilmCatalog,
+            Target::TsTables
+            | Target::Scss
+            | Target::Wgsl
+            | Target::Xaml
+            | Target::Cs
+            | Target::Md
+            | Target::Json,
+        ) => {
             eprintln!("codegen: --schema film-catalog supports only the swift / ts targets");
+            std::process::exit(2);
+        }
+        (Schema::CapabilityRegistry, Target::Swift) => {
+            capability_registry::emit_swift(CAPABILITY_REGISTRY, &load_evidence(&cli))
+        }
+        (Schema::CapabilityRegistry, Target::Ts) => {
+            capability_registry::emit_ts(CAPABILITY_REGISTRY, &load_evidence(&cli))
+        }
+        (Schema::CapabilityRegistry, Target::Cs) => {
+            capability_registry::emit_cs(CAPABILITY_REGISTRY, &load_evidence(&cli))
+        }
+        (Schema::CapabilityRegistry, Target::Md) => {
+            capability_summary::emit_md(CAPABILITY_REGISTRY, &load_evidence(&cli))
+        }
+        (Schema::CapabilityRegistry, Target::Json) => {
+            capability_summary::emit_json(CAPABILITY_REGISTRY, &load_evidence(&cli))
+        }
+        (
+            Schema::CapabilityRegistry,
+            Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml,
+        ) => {
+            eprintln!(
+                "codegen: --schema capability-registry supports only the swift / ts / cs / md / json targets"
+            );
             std::process::exit(2);
         }
     };

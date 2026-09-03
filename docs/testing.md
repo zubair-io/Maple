@@ -365,6 +365,39 @@ Two rules the file-operations corpus states explicitly, and every runner honours
 
 ---
 
+## Capability registry and qualification evidence
+
+`docs/capability-registry.md` (human-readable) and `docs/capability-registry.json` (machine-readable) report every editor capability's release state — `core`, `integrated`, or `released` — and are **generated, never edited**: `tools/codegen.sh` emits them, along with the Swift, TypeScript, and C# consumers (`MapleCore/Generated/CapabilityRegistry+Generated.swift`, `maple-common/src/lib/generated/capability-registry.generated.ts`, `Maple.WinUI/Generated/CapabilityRegistry.g.cs`), from two inputs:
+
+- **The registry** — `src/raw-pipeline/raw-core/src/capability_registry/registry.rs`, reviewed Rust. One entry per capability: a permanent snake_case id, an owner, the surfaces it ships on (per [features.md](features.md) § 8), its storage adapters, asset classes, preview and export paths, the `AdjustmentModel` fields it owns (every schema field must be owned by exactly one capability — `capability_registry/tests.rs` enforces it), and the evidence sources it needs for the `integrated` and `released` tiers.
+- **Evidence records** — `test-fixtures/qualification/<source>.json`, one per harness run, written by `tools/qualification/record.sh` and committed. Each carries the backend the suite ran on, the pipeline and sidecar schema versions at the time, a blake3 hash of the source's declared corpus, the declared expected case count, and the executed / failed / skipped counts.
+
+The state rule lives in `capability_registry/evidence.rs` and reads nothing but records. A source is **satisfied** only when its record is on the current `PIPELINE_OUTPUT_VERSION` and schema version, its corpus hash still matches the files the source declares (`EvidenceSource::corpus`), its backend is one the source accepts, `executed == expected` with both non-zero, and nothing failed or was skipped. A capability is `integrated` when every integration-tier source is satisfied **and every declared surface is covered by at least one of them** (`EvidenceSource::covers`); `released` additionally needs the same of its qualification tier. A capability with no surfaces, or no qualification sources, cannot leave `core` / `integrated` respectively — silence is never evidence, and neither is code presence.
+
+That rule is what makes the registry demote on its own. Bumping `PIPELINE_OUTPUT_VERSION`, editing `budgets.json`, adding a test to a corpus, or deleting a record all turn the affected sources unsatisfied on the next `tools/codegen.sh` run, and the `codegen-drift` job then refuses to merge until the demoted outputs are committed. The registry today reports **no capability as `released`**, honestly: no evidence source covers Windows at all, none covers Web at the qualification tier, and the Apple canvas golden (#2366) has no record yet.
+
+Recording evidence:
+
+```bash
+# Run a suite and write its record (the suite's own exit code is not the gate — a red
+# run records failed_cases > 0, which is exactly what demotes the capabilities using it).
+tools/qualification/record.sh grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
+tools/qualification/record.sh sidecar_contract_apple xctest-macos -- \
+  bash -c 'cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract'
+tools/qualification/record.sh gpu_chain_parity_metal metal -- \
+  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render'
+tools/qualification/record.sh color_harness cpu-reference -- bash src/scripts/test_color_pipeline.sh
+
+# Then regenerate the registry and commit both.
+bash tools/codegen.sh
+```
+
+The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harness's own `qualification: executed=… failed=… skipped=…` line, then calls `qualification-record` (`src/raw-pipeline/codegen/src/qualification_record.rs`) to stamp the versions and corpus hash. Sources, accepted backends, expected counts, and corpora are all declared in `capability_registry/mod.rs`; adding a test to a suite means bumping its `expected_cases` there and re-recording in the same PR.
+
+CI keeps the CI-runnable records honest with `record.sh --check`, which re-runs the suite and fails if its counts differ from the committed record: the four synthetic grey gates in `rust-tests`, the API sidecar contract in `api-tests`, and the lavapipe GPU chain parity in `raw-gpu` (which, having no macOS equivalent, writes the record as a `qualification-gpu_chain_parity_lavapipe` artifact for a human to commit when none exists). The Apple contract suite, Metal parity, and the colour harness are recorded locally, and their records go stale the moment their corpus or the pipeline version moves. `codegen-drift` uploads `docs/capability-registry.json` + `.md` as the `capability-release-summary-<sha>` artifact of every run.
+
+---
+
 ## Repo tooling gates
 
 These are the twelve `cross.yml` jobs. Everything here runs on every push to `main` and every PR, with no path filter; two are PR-only because they need a merge base to diff against.
@@ -377,7 +410,7 @@ These are the twelve `cross.yml` jobs. Everything here runs on every push to `ma
 | `budget-headroom` (PR only)        | `bash tools/check-budget-headroom.sh origin/<base>` — fails if the PR **grows** a changed file past 570 LOC. Shrinking is always allowed                                                                                                                                                                                                                                                                                                                   |
 | `allowlist-shrinks-only` (PR only) | The LOC allowlist may not gain entries for a file extension it already covers at the merge base (per-extension, not a flat count — #2747). A language newly brought under the gate may seed its own day-0 violators once; split the file instead of allowlisting further growth                                                                                                                                                                            |
 | `budgets-ratchet-shrinks-only`     | `check_budget_ratchet.py --self-test` always; the merge-base diff on PRs                                                                                                                                                                                                                                                                                                                                                                                   |
-| `codegen-drift`                    | Runs `tools/codegen.sh`, then `git add -N . && git diff --exit-code` so a newly emitted untracked file can't slip past                                                                                                                                                                                                                                                                                                                                     |
+| `codegen-drift`                    | Runs `tools/codegen.sh`, then `git add -N . && git diff --exit-code` so a newly emitted untracked file can't slip past; uploads the capability release summary (#2430) as an artifact                                                                                                                                                                                                                                                                      |
 | `maple-ui-contracts`               | `tools/check-maple-ui-contracts.sh` (preceded by its own self-test) — every `docs/design/maple-ui/components/*.md` carries a `**Tier:**` line and non-empty `Purpose`, `Variants`, `States`, `Tokens used`, `Props`, `Accessibility` sections                                                                                                                                                                                                              |
 | `editor-parity-manifest`           | `bun tools/check-editor-parity-manifest.ts` (preceded by its own `bun test` self-test) — the editor parity manifest (`src/web/projects/maple-common/src/lib/editor/parity/`) names every web `ToolId` and Apple `Tool` case exactly once, documents every native/web reachability difference with an exception (and carries none for a capability released on both), matches both generated range tables, and agrees with the `docs/features.md` §8 matrix |
 | `fallow-audit-web`                 | `fallow audit --base origin/<base>` over `src/web` — dead code, complexity, duplication; fails only on findings the changeset _introduces_                                                                                                                                                                                                                                                                                                                 |

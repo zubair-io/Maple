@@ -44,3 +44,27 @@ jobs:
         env:
           MAPLE_MEILISEARCH_INTEGRATION_URL: http://localhost:7700
         run: bun test src/enrichment/meilisearch-real.integration.test.ts --timeout 30000
+      # Capability-registry evidence check (#2430): the #2431 sidecar
+      # transaction contract (already part of the full `bun test` above) is
+      # re-run through tools/qualification/record.sh --check, which compares
+      # its executed / failed / skipped counts against the committed record
+      # in test-fixtures/qualification/sidecar_contract_api.json — the file
+      # the capability registry cites as this surface's persistence
+      # evidence. A test added or removed without re-recording fails here.
+      # The Rust toolchain is for the record stamper
+      # (src/raw-pipeline/codegen/src/qualification_record.rs), which is
+      # what knows the current pipeline + schema version and corpus hash.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target (record stamper)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: api-qualification-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Sidecar contract evidence check
+        env:
+          MAPLE_MONGO_URI: mongodb://localhost:27017
+          MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
+        run: bash tools/qualification/record.sh --check sidecar_contract_api bun -- bash -c 'cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000'

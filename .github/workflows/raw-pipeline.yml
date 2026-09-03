@@ -47,6 +47,8 @@ on:
       - 'src/scripts/stage_stats*.py'
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
+      - 'test-fixtures/qualification/**'
+      - 'tools/qualification/**'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
@@ -68,6 +70,8 @@ on:
       - 'src/scripts/stage_stats*.py'
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
+      - 'test-fixtures/qualification/**'
+      - 'tools/qualification/**'
       - '.github/workflows/raw-pipeline.yml'
 
 concurrency:
@@ -304,6 +308,30 @@ jobs:
       - name: cargo test -p raw-wasm --features gpu (render_bytes_gpu↔CPU parity)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-wasm --features gpu
+      # Capability-registry evidence for the GPU chain on lavapipe (#2430).
+      # lavapipe only exists on Linux, so this record cannot be produced on a
+      # developer Mac: with a committed record the run is checked against it
+      # (drift fails the job); without one the run writes the record and
+      # uploads it as an artifact for a human to commit. The registry treats
+      # a missing record as "no evidence" — every Web-surfaced capability
+      # stays `core` until the file lands — so the gap is reported, not
+      # hidden. The suite re-runs the gpu_render tests already covered by the
+      # step above; they take seconds against the cached build.
+      - name: GPU chain parity evidence record (lavapipe)
+        run: |
+          cmd="cd src/raw-pipeline && cargo test -p raw-wasm --features gpu gpu_render"
+          if [ -f test-fixtures/qualification/gpu_chain_parity_lavapipe.json ]; then
+            bash tools/qualification/record.sh --check gpu_chain_parity_lavapipe vulkan-lavapipe -- bash -c "$cmd"
+          else
+            bash tools/qualification/record.sh gpu_chain_parity_lavapipe vulkan-lavapipe -- bash -c "$cmd"
+            echo "::warning::no committed test-fixtures/qualification/gpu_chain_parity_lavapipe.json — download the qualification-gpu_chain_parity_lavapipe artifact from this run and commit it (docs/testing.md § Capability registry)."
+          fi
+      - name: Upload the lavapipe evidence record
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-gpu_chain_parity_lavapipe
+          path: test-fixtures/qualification/gpu_chain_parity_lavapipe.json
+          if-no-files-found: error
 
   # Metal-backend parity gate (#2315). `raw-gpu` above proves raw-core↔WGSL
   # agreement through naga's SPIR-V output on lavapipe — it says nothing about
@@ -411,14 +439,23 @@ jobs:
       - name: cargo test -p raw-core (fixture-free)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features test-support
-      - name: Synthetic grey gate (test_synthetic_grey.sh)
-        run: bash src/scripts/test_synthetic_grey.sh
-      - name: Synthetic color-chart gate (test_synthetic_color_chart.sh)
-        run: bash src/scripts/test_synthetic_color_chart.sh
-      - name: Grey adjustments gate (test_grey_adjustments.sh)
-        run: bash src/scripts/test_grey_adjustments.sh
-      - name: Grey DCP gate (test_grey_dcp.sh)
-        run: bash src/scripts/test_grey_dcp.sh
+      # Each synthetic gate runs through tools/qualification/record.sh --check
+      # (#2430): the gate itself is unchanged, and afterwards its executed /
+      # failed / skipped counts are compared against the committed evidence
+      # record in test-fixtures/qualification/<source>.json that the capability
+      # registry (docs/capability-registry.md) is generated from. A suite that
+      # gained or lost a case, or whose corpus changed, fails here until the
+      # record is re-recorded locally (same script without --check) and
+      # committed — so the registry can never cite a run that no longer
+      # matches the code.
+      - name: Synthetic grey gate (test_synthetic_grey.sh) + evidence check
+        run: bash tools/qualification/record.sh --check synthetic_grey cpu-reference -- bash src/scripts/test_synthetic_grey.sh
+      - name: Synthetic color-chart gate (test_synthetic_color_chart.sh) + evidence check
+        run: bash tools/qualification/record.sh --check color_chart cpu-reference -- bash src/scripts/test_synthetic_color_chart.sh
+      - name: Grey adjustments gate (test_grey_adjustments.sh) + evidence check
+        run: bash tools/qualification/record.sh --check grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
+      - name: Grey DCP gate (test_grey_dcp.sh) + evidence check
+        run: bash tools/qualification/record.sh --check grey_dcp cpu-reference -- bash src/scripts/test_grey_dcp.sh
       - name: banding_check.py unit tests
         run: python3 src/scripts/banding_check_test.py
       - name: Banding second-difference gate (test_banding.sh, #1627/#1733)
