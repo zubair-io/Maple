@@ -30,6 +30,9 @@ describe('MaskSessionService (#1541)', () => {
       ],
     });
     editor = TestBed.inject(EditorStateService);
+    // The undo ring is keyed on the editor's bound image, same as the
+    // editor-state spec binds it.
+    editor.imageId.set('asset-1');
     session = TestBed.inject(MaskSessionService);
   });
 
@@ -57,7 +60,9 @@ describe('MaskSessionService (#1541)', () => {
   it('radial default uses the image aspect', () => {
     session.addRadial();
     const mask = session.selected()!.mask;
-    expect(mask.kind === 'radial' && mask.radii.y / mask.radii.x).toBeCloseTo(4000 / 6000, 12);
+    // radii.y is pre-corrected by the image aspect (w/h = 1.5) so the
+    // default reads as a circle on screen.
+    expect(mask.kind === 'radial' && mask.radii.y / mask.radii.x).toBeCloseTo(1.5, 12);
   });
 
   it('remove moves selection to the nearest survivor', () => {
