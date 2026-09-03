@@ -28,11 +28,11 @@
 // other without claiming an equivalence Windows can't back up yet.
 //
 // The tone-curve points are the two-platform golden's wire-domain values
-// verbatim (`docs/xmp-canonical-format.md` § "Tone curves": Windows stores
-// curve points already in the `[0, 255]` wire domain, unlike Apple/TS which
-// store `[0, 1]` and rescale at the serializer boundary), so the same
-// `rdf:li` text this fixture produces is directly comparable to the golden
-// document's.
+// divided by 255 (`docs/xmp-canonical-format.md` § "Tone curves": every
+// platform, Windows included since #3234, stores curve points in `[0, 1]`
+// and rescales at the serializer boundary), written as `wire / 255.0` so
+// the `rdf:li` text this fixture produces stays directly comparable to the
+// golden document's.
 
 using System.Collections.Generic;
 using Maple.WinUI.Models;
@@ -135,31 +135,31 @@ namespace Maple.WinUI.Tests.Support
             GrayMixerMagenta = 40,
             ToneCurveLuma = new List<CurvePoint>
             {
-                new(0, 0), new(127.5, 140.25), new(255, 255),
+                new(0, 0), new(127.5 / 255.0, 140.25 / 255.0), new(1, 1),
             },
             ToneCurveRed = new List<CurvePoint>
             {
-                new(0, 0), new(64, 90), new(255, 255),
+                new(0, 0), new(64 / 255.0, 90 / 255.0), new(1, 1),
             },
             ToneCurveGreen = new List<CurvePoint>
             {
-                new(0, 20), new(160, 150), new(255, 255),
+                new(0, 20 / 255.0), new(160 / 255.0, 150 / 255.0), new(1, 1),
             },
-            ToneCurveBlue = new List<CurvePoint> { new(0, 0), new(255, 204) },
+            ToneCurveBlue = new List<CurvePoint> { new(0, 0), new(1, 204 / 255.0) },
             ToneCurveMode = ToneCurveMode.RatioPreserving,
             DisplayToneCurveLuma = new List<CurvePoint>
             {
-                new(0, 0), new(128, 150), new(255, 255),
+                new(0, 0), new(128 / 255.0, 150 / 255.0), new(1, 1),
             },
             DisplayToneCurveRed = new List<CurvePoint>
             {
-                new(0, 0), new(96, 110), new(255, 255),
+                new(0, 0), new(96 / 255.0, 110 / 255.0), new(1, 1),
             },
             DisplayToneCurveGreen = new List<CurvePoint>
             {
-                new(0, 10), new(180, 170), new(255, 255),
+                new(0, 10 / 255.0), new(180 / 255.0, 170 / 255.0), new(1, 1),
             },
-            DisplayToneCurveBlue = new List<CurvePoint> { new(0, 0), new(255, 214) },
+            DisplayToneCurveBlue = new List<CurvePoint> { new(0, 0), new(1, 214 / 255.0) },
             HighlightRecovery = HighlightRecoveryMode.Blend,
             AutoExposure = ToggleMode.Off,
             Look = LookMode.Neutral,

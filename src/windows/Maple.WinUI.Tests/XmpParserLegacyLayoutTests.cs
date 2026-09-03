@@ -72,8 +72,10 @@ namespace Maple.WinUI.Tests
             Assert.NotNull(doc);
 
             Assert.Equal(2, doc!.Adjustments.ToneCurveLuma.Count);
+            // Wire [0, 255] → model [0, 1] (#3234): 127.5 → 0.5, 140.25 → 0.55.
             Assert.Equal(new CurvePoint(0, 0), doc.Adjustments.ToneCurveLuma[0]);
-            Assert.Equal(new CurvePoint(127.5, 140.25), doc.Adjustments.ToneCurveLuma[1]);
+            Assert.Equal(0.5, doc.Adjustments.ToneCurveLuma[1].X, precision: 12);
+            Assert.Equal(0.55, doc.Adjustments.ToneCurveLuma[1].Y, precision: 12);
         }
 
         [Fact]
