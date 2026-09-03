@@ -38,7 +38,6 @@ import {
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
 import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
-import { MaskSessionService } from '../mask-overlay/mask-session.service';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
@@ -82,10 +81,7 @@ export class ImageCanvasComponent
   readonly gpuFallback = inject(GpuFallbackNoticeService);
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
-  private readonly cropSession = inject(CropSessionService);
-  private readonly maskSession = inject(MaskSessionService);
-  /** Mask overlay (#1541): mounted while the Mask tool is armed. */
-  protected readonly maskActive = computed(() => this.maskSession.active());
+  protected readonly cropSession = inject(CropSessionService);
   // Read via `this.host.filmLut` in ImageCanvasFilmSync (image-canvas.film.ts),
   // where `this` satisfies `FilmSyncHost` structurally; fallow's dead-code pass
   // doesn't trace property access through a type-only-imported interface field.
@@ -211,10 +207,8 @@ export class ImageCanvasComponent
   // ── Crop tool (#638; helpers in image-canvas.crop.ts) ───────────────────────
   // While Crop is armed the canvas shows the image UNCROPPED (crop stripped from
   // the render model) + rotated by the straighten angle; `CropOverlayComponent`
-  // draws the interactive rect. Exiting re-renders the cropped result.
-  /** True while the crop overlay should be shown (Crop pill armed). */
-  protected readonly cropActive = computed(() => this.cropSession.active());
-
+  // draws the interactive rect (mounted on `cropSession.active()`). Exiting
+  // re-renders the cropped result.
   /** CSS transform for the live straighten preview (rotate only). */
   protected readonly cropCanvasTransform = computed<string>(() => {
     const a = this.state.focusedAsset();
