@@ -37,3 +37,6 @@ pub mod vignette;
 pub mod wb_camera;
 pub mod white_balance;
 pub mod white_balance_auto;
+/// Neutral white-balance sampler (#2434): AUTO's probe and judgement, at a
+/// user-picked point.
+pub mod white_balance_sample;

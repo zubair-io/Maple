@@ -64,6 +64,37 @@ impl Default for WhiteBalancePreset {
     }
 }
 
+/// Where the model's white balance came from (#2434) — the provenance a
+/// front end shows next to the temperature/tint pair, and what lets a
+/// re-derivation of the sampler math (`WB_ALGORITHM_VERSION`) tell an old
+/// sidecar's stored reading from a fresh one.
+///
+/// XMP wire: `papp:WbSource="AsShot"|"Auto"|"Preset"|"Sampled"|"Manual"`,
+/// omitted at the default (`AsShot`). `Sampled` is the only source whose
+/// `wb_sample_x` / `wb_sample_y` are meaningful; `Auto` and `Sampled` are the
+/// two whose `wb_algorithm_version` is non-zero. Metadata only: nothing in
+/// the develop chain reads it, so it never changes rendered pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WbSource {
+    /// The camera's own reading (the model's temperature/tint are the
+    /// display seed, not authored values).
+    AsShot,
+    /// `compute_auto_adjustments`'s estimate, applied as one committed action.
+    Auto,
+    /// A named illuminant preset (`WhiteBalancePreset`'s daylight vocabulary).
+    Preset,
+    /// A neutral sampled from the image at `(wb_sample_x, wb_sample_y)`.
+    Sampled,
+    /// Dragged or typed by the user.
+    Manual,
+}
+
+impl Default for WbSource {
+    fn default() -> Self {
+        Self::AsShot
+    }
+}
+
 /// WB slider-scale version carried by a parsed sidecar (#1780).
 ///
 /// #1756 changed what stored `crs:Temperature` / `crs:Tint` numbers MEAN:
