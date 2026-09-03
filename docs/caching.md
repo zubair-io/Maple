@@ -121,6 +121,8 @@ Thumbnail loading is additionally gated at **4 concurrent loads** (`state/librar
 
 The render worker (`raw-pipeline/raw-pipeline.worker.ts`) holds **no decode cache** — every request is one-shot decode-post-free. What it does retain is a single live GPU session (`raw-pipeline/raw-pipeline.session-handler.ts`): one image open at a time, opening a new one replaces the resident session, and operations are serialized through a chain because the wasm-bindgen `&mut self` borrow spans a whole render promise.
 
+The tile path's per-render overlap pad and its frame window (`raw-core/src/pipeline/tile/overlap.rs`, `region::TileWindow`, #1157) are computed from the model and the rect on every call and hold no state: they add no cache, and they do not change what `TileKey` or the `NativeDetailRenderer` handle key on — a tile for the same `(asset, sidecar mtime, zoom bucket, tile)` still renders from the same inputs, just with a pad sized to the model's engaged stages.
+
 There is **no deep-zoom tile cache on web**. The editor renders a full-frame canvas via the GPU live session or a 2D decode fallback; the only tiles in the codebase are MapLibre basemap tiles, cached by MapLibre and the HTTP layer.
 
 ### Service worker
