@@ -128,26 +128,22 @@ pub fn sh_mask_blur_radius(long_edge: usize) -> usize {
     ((3.0 * sigma).round() as usize).max(1)
 }
 
-/// Effective spatial reach of this stage, in pixels per side at the rendered
-/// resolution, for `long_edge` the FULL frame's long edge at that resolution
-/// — the tile entry's overlap calculator (`pipeline::tile`, #2476; tone-zoom
-/// design § 5.3) consumes this to size the pad when [`sh_mask_engaged`].
+/// Effective spatial reach of this stage for `model`, in pixels per side at
+/// the rendered resolution, for `long_edge` the FULL frame's long edge at
+/// that resolution — the tile entry's overlap calculator (`pipeline::tile`,
+/// #2476; tone-zoom design § 5.3) consumes this to size its pad.
 ///
-/// Two cascaded masked steps run when both sliders are active: highlights
-/// blurs the live luma plane (reach ≈ `sh_mask_blur_radius` per side — three
-/// box passes of radius/3 each reach radius/3, summing to ≈ radius), and the
-/// shadows blur then reads the *highlights output*, so the reaches compound
-/// rather than overlap: total = 2 × blur radius.
-pub fn sh_mask_reach_px(long_edge: usize) -> usize {
-    2 * sh_mask_blur_radius(long_edge)
-}
-
-/// Whether `model` runs either masked step — the same engage thresholds
-/// [`apply`] uses for its `highlights` / `shadows` passes, exported so the
-/// tile entry sizes its overlap from the stage's own predicate rather than a
-/// copy of it.
-pub fn sh_mask_engaged(model: &AdjustmentModel) -> bool {
-    model.highlights.abs() >= 1e-3 || model.shadows.abs() >= 1e-3
+/// Each engaged slider runs one masked pass whose blur reaches ≈
+/// `sh_mask_blur_radius` per side (three box passes of radius/3 each reach
+/// radius/3, summing to ≈ radius). When both are engaged the shadows blur
+/// reads the *highlights output*, so the reaches compound rather than
+/// overlap: 2 × radius. One slider → 1 × radius; neither → 0. The engage
+/// thresholds are the ones [`apply`] uses for its own pass flags, so the
+/// reach is exact for the passes that will actually run.
+pub fn sh_mask_reach_px(long_edge: usize, model: &AdjustmentModel) -> usize {
+    let passes =
+        usize::from(model.highlights.abs() >= 1e-3) + usize::from(model.shadows.abs() >= 1e-3);
+    passes * sh_mask_blur_radius(long_edge)
 }
 
 /// Shadows multiplier at luma `y` (#1103, spec § 4.2). `s_amount` = slider/100.
