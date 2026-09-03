@@ -16,6 +16,7 @@ import type {
   LensProfileEnable,
   ToneCurveMode,
   WbMethod,
+  WbSource,
 } from '../generated/adjustment-model.generated';
 
 /**
@@ -24,6 +25,9 @@ import type {
  * missing variant a compile error when codegen adds one, so this parser
  * can't silently lag raw-core's `xmp/mod.rs` match arms.
  */
+/** `papp:WbSource` vocabulary (#2434) — matched case-insensitively like the other papp: enums. */
+const WB_SOURCES: readonly WbSource[] = ['AsShot', 'Auto', 'Preset', 'Sampled', 'Manual'];
+
 const HIGHLIGHT_RECOVERY_MODES = Object.keys({
   Off: true,
   Blend: true,
@@ -105,6 +109,10 @@ const ENUM_ATTRIBUTE_PARSERS: Record<string, EnumAttributeParser> = {
 
   // Tone-curve application mode (#436; TS wiring #2214). Case-insensitive,
   // unknown values dropped → default ('PerChannel').
+  'papp:WbSource': (v) => {
+    const parsed = WB_SOURCES.find((s) => s.toLowerCase() === v.toLowerCase());
+    return parsed !== undefined ? { wbSource: parsed } : undefined;
+  },
   'papp:ToneCurveMode': (v) => {
     const lower = v.toLowerCase();
     const parsed: ToneCurveMode | undefined =

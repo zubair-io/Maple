@@ -29,8 +29,12 @@ import {
   type WbMethod,
 } from '../../generated/adjustment-model.generated';
 // Ranges live in the sibling generated file (#2683 — split out to keep both
-// generated files well under the file-size budget as the schema grows).
-import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
+// generated files well under the file-size budget as the schema grows), as
+// does raw-core's non-copyable-field list (#2434).
+import {
+  ADJUSTMENT_NON_COPYABLE_FIELDS,
+  ADJUSTMENT_RANGES,
+} from '../../generated/adjustment-tables.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 
 /** Preset document schema version this client writes. */
@@ -148,6 +152,14 @@ export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look'
 // ── Capture (save-preset) ─────────────────────────────────────────────────
 
 /**
+ * raw-core's `NON_COPYABLE_FIELDS` — fields a preset must never carry,
+ * because they describe one specific image rather than a look (#2434: a
+ * white-balance sample point is a coordinate in one image's raster, and its
+ * algorithm version records how that one pair was derived).
+ */
+const NON_COPYABLE = new Set<string>(ADJUSTMENT_NON_COPYABLE_FIELDS);
+
+/**
  * Capture the current model's NON-DEFAULT generated fields as a sparse
  * preset `fields` map (canonical snake_case keys). Web-only extensions
  * (e.g. `whiteBalancePreset`) are not schema fields and are never
@@ -157,6 +169,7 @@ export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look'
 export function capturePresetFields(adj: AdjustmentModel): PresetFields {
   const fields: PresetFields = {};
   for (const key of Object.keys(GENERATED_DEFAULTS) as (keyof GeneratedAdjustmentModel)[]) {
+    if (NON_COPYABLE.has(camelToSnakeField(key))) continue;
     const value = adj[key];
     // Structured fields (the four `toneCurve*` point curves, #366) are not
     // preset values: `PresetFields` is a flat scalar map on both the client

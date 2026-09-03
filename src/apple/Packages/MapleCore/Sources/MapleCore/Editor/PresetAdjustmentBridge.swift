@@ -153,7 +153,12 @@ extension AdjustmentModel.FieldName {
         // Swift property at all yet (see the file header) — they map to nil
         // here too, and fall through to `default` in `PresetAdjustments`
         // below.
-        case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
+        // #2434 provenance detail: raw-core's NON_COPYABLE_FIELDS — a look
+        // must not carry one image's sample point or derivation version, so
+        // they are invisible to presets and to the group merge, like the
+        // deprecated `captureSharpeningRadius` alias above.
+        case .wbSampleX, .wbSampleY, .wbAlgorithmVersion: return nil
+        case .wbMethod, .wbSource, .highlightRecovery, .autoExposure, .look, .profile,
              .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
             return nil
         // Film-look id (epic #2683) — a free-form string, not a numeric
@@ -299,6 +304,8 @@ public enum PresetAdjustments {
                 fields[field.rawValue] = .string(model.look.rawValue)
             case .profile where model.profile != defaults.profile:
                 fields[field.rawValue] = .string(model.profile.rawValue)
+            case .wbSource where model.wbSource != defaults.wbSource:
+                fields[field.rawValue] = .string(model.wbSource.rawValue)
             // Hot/dead-pixel suppression (#1106) — enum decode-product field.
             case .hotPixelSuppression
                 where model.hotPixelSuppression != defaults.hotPixelSuppression:
@@ -394,6 +401,10 @@ public enum PresetAdjustments {
             // (`FilmLutStore`), matching the XMP parser's `papp:FilmLook`.
             case .filmLook:
                 merged.filmLook = rawValue
+                applied += 1
+            case .wbSource:
+                guard let source = WbSource(rawValue: rawValue) else { continue }
+                merged.wbSource = source
                 applied += 1
             default:
                 continue

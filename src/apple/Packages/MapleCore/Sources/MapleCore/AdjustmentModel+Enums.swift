@@ -151,3 +151,20 @@ public enum ToneCurveMode: String, Codable, Sendable, Hashable, CaseIterable {
     case perChannel = "PerChannel"
     case ratioPreserving = "RatioPreserving"
 }
+
+// MARK: - WbSource
+
+/// Where the model's white balance came from (#2434). Mirrors
+/// `raw_core::types::adjustment::WbSource`. XMP key `papp:WbSource`;
+/// `.asShot` omits the attribute on write. Provenance only — nothing in the
+/// develop chain reads it, so it never changes rendered pixels. `.sampled`
+/// is the only source whose `wbSampleX` / `wbSampleY` mean anything;
+/// `.auto` and `.sampled` are the two that carry a non-zero
+/// `wbAlgorithmVersion`.
+public enum WbSource: String, Codable, Sendable, Hashable, CaseIterable {
+    case asShot = "AsShot"
+    case auto = "Auto"
+    case preset = "Preset"
+    case sampled = "Sampled"
+    case manual = "Manual"
+}

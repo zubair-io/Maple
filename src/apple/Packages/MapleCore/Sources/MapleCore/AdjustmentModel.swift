@@ -48,6 +48,16 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// `papp:WbMethod` on write. See `WbMethod`'s doc comment for the two
     /// variants' math.
     public var wbMethod: WbMethod  // default .cat16
+    /// White-balance provenance (#2434) — see `WbSource`. Metadata, never a
+    /// render input; `.asShot` omits `papp:WbSource` on write.
+    public var wbSource: WbSource  // default .asShot
+    /// Normalised image-relative point the white balance was sampled at,
+    /// meaningful only while `wbSource == .sampled`. XMP `papp:WbSampleX/Y`.
+    public var wbSampleX: Double  // 0..1, default 0
+    public var wbSampleY: Double  // 0..1, default 0
+    /// Estimator version behind an `.auto` / `.sampled` pair
+    /// (`WB_ALGORITHM_VERSION` in raw-core); 0 when nothing was derived.
+    public var wbAlgorithmVersion: Double  // default 0
 
     // Basic tone
     public var exposure: Double  // -4..+4 EV, default 0
@@ -333,6 +343,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         tint: Double = 0,
         wbScaleVersion: Int = 5,
         wbMethod: WbMethod = .cat16,
+        wbSource: WbSource = .asShot,
+        wbSampleX: Double = 0,
+        wbSampleY: Double = 0,
+        wbAlgorithmVersion: Double = 0,
         exposure: Double = 0,
         brightness: Double = 0,
         contrast: Double = 0,
@@ -440,6 +454,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.tint = tint
         self.wbScaleVersion = wbScaleVersion
         self.wbMethod = wbMethod
+        self.wbSource = wbSource
+        self.wbSampleX = wbSampleX
+        self.wbSampleY = wbSampleY
+        self.wbAlgorithmVersion = wbAlgorithmVersion
         self.exposure = exposure
         self.brightness = brightness
         self.contrast = contrast
