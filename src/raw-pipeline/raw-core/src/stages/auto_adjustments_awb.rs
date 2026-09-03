@@ -140,7 +140,10 @@ pub(crate) struct ProbeSpace {
     /// Per-channel sensor clip ceiling in the judging space.
     ceilings: [f32; 3],
     /// Where a scene-neutral surface under the camera's as-shot illuminant
-    /// lands in the judging space — the gate's seed.
+    /// lands in the judging space — the gate's seed. The probe's own WB gain
+    /// on a calibrated body (identity when the probe rendered As Shot);
+    /// plain neutral in the post-DCP tier, whose Bradford adaptation already
+    /// renders the as-shot white as `[1, 1, 1]`.
     prior: [f32; 3],
     /// Scene-linear luma of a neutral surface at the sensor's clip point:
     /// the develop scale, `2^BaselineExposure`.
