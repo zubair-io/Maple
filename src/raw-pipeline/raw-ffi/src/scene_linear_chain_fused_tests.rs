@@ -436,12 +436,14 @@ fn scoped_fused_entry_histograms_the_encoded_output_weighted_by_the_target_layer
     params.local_adjustments_len = flat.len();
 
     let mut out = vec![0f32; input.len()];
-    let mut stats = Box::new(MapleScopeStats {
+    let mut bins = vec![0u32; 128 * 128];
+    let mut stats = MapleScopeStats {
         frame: 0,
         total: 0,
         _pad: 0,
-        bins: [0; 128 * 128],
-    });
+        bins_ptr: bins.as_mut_ptr(),
+        bins_len: bins.len() as u32,
+    };
     let rc = unsafe {
         maple_apply_chain_and_encode_display_scoped_f32(
             input.as_ptr(),
@@ -449,7 +451,7 @@ fn scoped_fused_entry_histograms_the_encoded_output_weighted_by_the_target_layer
             height,
             &params,
             0, // the (only) layer
-            &mut *stats,
+            &mut stats,
             out.as_mut_ptr(),
         )
     };
@@ -460,7 +462,7 @@ fn scoped_fused_entry_histograms_the_encoded_output_weighted_by_the_target_layer
         stats.total, expected_total,
         "half the frame at weight 1, half at weight 0, no feather ambiguity"
     );
-    let whole: u64 = stats.bins.iter().map(|b| *b as u64).sum();
+    let whole: u64 = bins.iter().map(|b| *b as u64).sum();
     assert_eq!(whole, stats.total as u64, "bins must sum to total");
 }
 

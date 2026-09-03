@@ -40,15 +40,17 @@ fn live_render_writes_scope_stats_one_tick_late_when_enabled() {
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(&model, &curve, &lut);
     let mut params = make_params(&model, WbMethod::Cat16, 9, &arr);
-    let mut stats = Box::new(MapleScopeStats {
+    let mut bins = vec![0u32; 128 * 128];
+    let mut stats = MapleScopeStats {
         frame: 0,
         total: 0,
         _pad: 0,
-        bins: [0; 128 * 128],
-    });
+        bins_ptr: bins.as_mut_ptr(),
+        bins_len: bins.len() as u32,
+    };
     params.scope_layer = -1;
     params.scope_enabled = 1;
-    params.scope_out = &mut *stats;
+    params.scope_out = &mut stats;
 
     let mut out = vec![0u8; (w * h * 3) as usize];
     assert_eq!(
@@ -63,7 +65,7 @@ fn live_render_writes_scope_stats_one_tick_late_when_enabled() {
     );
     assert_eq!(stats.frame, 1, "tick-1 sample delivered on tick 2");
     assert!(stats.total > 0);
-    let whole: u64 = stats.bins.iter().map(|b| *b as u64).sum();
+    let whole: u64 = bins.iter().map(|b| *b as u64).sum();
     assert_eq!(whole, stats.total as u64, "bins must sum to total");
 
     unsafe { maple_gpu_live_close(&mut handle) };
