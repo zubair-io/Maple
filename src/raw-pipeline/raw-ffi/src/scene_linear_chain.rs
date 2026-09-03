@@ -269,7 +269,7 @@ pub struct MapleAdjustmentParams {
     //     the Rust side copies it out and does NOT free the pointer. ---
     pub local_adjustments_ptr: *const f32,
     /// Number of f32 elements at `local_adjustments_ptr`. Must be a multiple of
-    /// 24; a trailing partial record is dropped rather than rejected.
+    /// 32; a trailing partial record is dropped rather than rejected.
     pub local_adjustments_len: usize,
 }
 

@@ -102,6 +102,7 @@ fn make_layers(n: usize) -> Vec<LocalAdjustment> {
                         end: Point2::new(0.9, 0.85),
                         feather: 0.6,
                     },
+                    range: None,
                     adjustments: full.clone(),
                 }
             } else {
@@ -113,6 +114,7 @@ fn make_layers(n: usize) -> Vec<LocalAdjustment> {
                         feather: 0.5,
                         invert: false,
                     },
+                    range: None,
                     adjustments: full.clone(),
                 }
             }

@@ -98,6 +98,7 @@ fn linear(feather: f32, adjustments: PartialAdjustments) -> LocalAdjustment {
             end: Point2::new(0.9, 0.8),
             feather,
         },
+        range: None,
         adjustments,
     }
 }
@@ -111,6 +112,7 @@ fn radial(feather: f32, invert: bool, adjustments: PartialAdjustments) -> LocalA
             feather,
             invert,
         },
+        range: None,
         adjustments,
     }
 }
@@ -218,6 +220,29 @@ fn wgsl_local_adjustments_match_raw_core_per_control_within_1e_4() {
             "hue-/radial-invert",
             radial(0.4, true, only(|a| a.hue = Some(-65.0))),
         ),
+        (
+            "range-skin+exposure/radial",
+            {
+                let mut l = radial(0.5, false, only(|a| a.exposure = Some(1.5)));
+                l.range = Some(raw_core::types::SKIN_TONE_RANGE);
+                l
+            },
+        ),
+        (
+            "range-blue-band+hue/linear",
+            {
+                let mut l = linear(0.5, only(|a| a.hue = Some(60.0)));
+                l.range = Some(raw_core::types::RangeRefinement::Color {
+                    hue_deg: 250.0,
+                    hue_half_width_deg: 40.0,
+                    chroma_min: 0.02,
+                    l_min: 0.05,
+                    l_max: 0.98,
+                    feather: 0.6,
+                });
+                l
+            },
+        ),
     ];
 
     for (name, layer) in cases {
@@ -312,6 +337,7 @@ fn zero_weight_region_is_bit_exact() {
             end: Point2::new(1.0, 0.5),
             feather: 0.0,
         },
+        range: None,
         adjustments: all_controls(),
     }];
     let gpu = run_gpu(&ctx, &input, w, h, &layers);
@@ -349,13 +375,13 @@ fn alpha_is_untouched() {
 }
 
 /// The flat-wire stride the kernel's `Layer` struct assumes must be the one
-/// raw-core writes. Six `vec4<f32>` members = 96 bytes = 24 floats; if
+/// raw-core writes. Eight `vec4<f32>` members = 128 bytes = 32 floats; if
 /// raw-core ever changed its record length the storage buffer would be read
 /// with the wrong stride and every layer past the first would be garbage.
 #[test]
 fn flat_stride_matches_raw_core() {
     assert_eq!(LAYER_FLAT_LEN, CORE_LEN);
-    assert_eq!(LAYER_FLAT_LEN * std::mem::size_of::<f32>(), 96);
+    assert_eq!(LAYER_FLAT_LEN * std::mem::size_of::<f32>(), 128);
 }
 
 /// The transcribed CAT16 constants must be the ones raw-core uses. The kernel
