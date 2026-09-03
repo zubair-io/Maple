@@ -34,7 +34,13 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // The JSON report is what `scripts/check-e2e-count.ts` reads to assert an
+  // exact, non-zero test count for the required gates (#2451).
+  reporter: [
+    ['list'],
+    ['html', { open: 'never' }],
+    ['json', { outputFile: 'test-results/production-chrome/results.json' }],
+  ],
   timeout: 120_000,
   expect: { timeout: 30_000 },
   outputDir: 'test-results/production-chrome',
