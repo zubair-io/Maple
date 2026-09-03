@@ -12,8 +12,8 @@ import {
   type ToolId,
   TOOL_GROUP_DISPLAY,
   TOOL_DISPLAY,
-  displayRange,
 } from '../../editor/tool-model';
+import { toolMetadata } from '../../editor/tool-metadata';
 
 /** `"Color · Saturation"` — the small caption above the HUD value. */
 export function hudEyebrowText(group: ToolGroup, tool: ToolId): string {
@@ -21,17 +21,16 @@ export function hudEyebrowText(group: ToolGroup, tool: ToolId): string {
 }
 
 /**
- * The HUD's big value string. Tools whose display range tops out at 4 or less
- * (exposure, in stops) are fine-grained enough to want two decimals; the rest
- * read as whole numbers. Positive values carry an explicit `+` so a slider at
- * `+15` never looks like it might be `-15`.
+ * The HUD's big value string. Readout decimals come from the generated
+ * metadata (`tool-metadata.ts`, #2448) — the EV range is fine-grained enough
+ * to want two decimals, the rest read as whole numbers — so the HUD and the
+ * control card's step can't disagree. Positive values carry an explicit `+`
+ * so a slider at `+15` never looks like it might be `-15`.
  */
 export function hudValueLabel(value: number, tool: ToolId): string {
-  const range = displayRange(tool);
-  if (!range) return String(Math.round(value));
-  const step = range[1] <= 4 ? 0.01 : 1;
-  const decimals = step < 0.1 ? 2 : step < 1 ? 1 : 0;
-  const formatted = value.toFixed(decimals);
+  const meta = toolMetadata(tool);
+  if (!meta) return String(Math.round(value));
+  const formatted = value.toFixed(meta.decimals);
   return value > 0 ? `+${formatted}` : formatted;
 }
 

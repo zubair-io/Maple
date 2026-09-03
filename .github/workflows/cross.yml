@@ -27,6 +27,8 @@
 #   * gitleaks              — installed direct from GitHub releases; scans only
 #                             the commits this PR/push introduces (#839).
 #   * maple-ui-contracts    — component-contract docs have all required sections filled.
+#   * editor-parity-manifest — the editor parity manifest matches both tool enums, the
+#                              generated ranges and docs/features.md §8 (#2448).
 #
 # Per-subsystem workflows (rust / swift / web / api) land **with** the first
 # refactor commit of each subsystem, not preemptively — see #114.
@@ -480,6 +482,30 @@ jobs:
 
       - name: Check component-contract docs
         run: bash tools/check-maple-ui-contracts.sh
+
+  # #2448: the editor surface + interaction parity manifest
+  # (src/web/.../editor/parity/editor-parity-manifest.ts) must agree with the
+  # tree — every web ToolId and Apple Tool case has one row, every native/web
+  # difference carries a documented exception (and no exception outlives its
+  # gap), field-backed rows match BOTH generated range tables, and the
+  # docs/features.md §8 matrix cells match. Same "data must match code"
+  # shape as maple-ui-contracts above; Bun because the checker imports the
+  # generated TypeScript tables directly rather than re-parsing them.
+  editor-parity-manifest:
+    name: editor-parity-manifest (editor surface matches the parity manifest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run manifest checker self-test
+        run: bun test tools/check-editor-parity-manifest.test.ts
+
+      - name: Check the parity manifest against the tree
+        run: bun tools/check-editor-parity-manifest.ts
 
   fallow-audit-web:
     name: fallow-audit-web (dead code / complexity / dupes, changed files)
