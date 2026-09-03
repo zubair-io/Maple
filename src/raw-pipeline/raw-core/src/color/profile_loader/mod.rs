@@ -165,6 +165,24 @@ static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new
 /// after the UCM alias table lands; test_0004 / Hasselblad H5D-40 is
 /// the only color-renderable miss — see [`ucm_mapping`] +
 /// `profiles/COVERAGE.md`).
+/// Every `UniqueCameraModel` the bundle carries a profile for, sorted.
+///
+/// The support-tier registry (`crate::support_tiers`, #2440) reads this to
+/// answer "does real calibration data exist for this body" without a
+/// decoded `RawImage` — the same table [`lookup_profile`] keys into, so the
+/// registry cannot claim coverage the resolver would not actually find.
+/// Ignores `MAPLE_DISABLE_BUNDLED_PROFILES`: that switch is a per-render
+/// diagnostic, not a statement about what ships.
+pub fn bundled_camera_models() -> Vec<&'static str> {
+    let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
+    let mut keys: Vec<&'static str> = table
+        .keys()
+        .map(|k| k.unique_camera_model.as_str())
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
 pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     if std::env::var("MAPLE_DISABLE_BUNDLED_PROFILES").as_deref() == Ok("1") {
         return None;

@@ -74,6 +74,7 @@ pub mod ui_tokens;
 /// evidence behind its `Core` / `Integrated` / `Released` state (#2430).
 /// Emitted to Swift / TS / C# and the release summary by `tools/codegen.sh`.
 pub mod capability_registry;
+pub mod support_tiers;
 
 pub mod version;
 pub use version::PIPELINE_OUTPUT_VERSION;
