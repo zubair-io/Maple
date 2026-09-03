@@ -21,7 +21,7 @@ use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_qua
 use crate::pipeline::{stage, RenderQuality};
 use crate::stages::{color_grade, grain};
 use crate::types::adjustment::{AutoExposureMode, Profile};
-use crate::view::auto_profile::cache::CacheKey;
+use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
 use crate::view::auto_profile::preview::ExtractedPreview;
@@ -149,6 +149,21 @@ fn auto_fit_max_long_edge(raw: &RawImage, preview: &ExtractedPreview) -> Option<
 /// Downsample the embedded JPEG to `max_long_edge` (the fit's develop target) so
 /// the fit pairs a SMALL (developed-RAW, JPEG) couple. No-op for `None` (small
 /// sensor) or already-small previews; parity-gated on `baseline_auto` ΔE (#1647).
+/// The [`FitOrigin`] a render at `max_long_edge` fits under (#3233 /
+/// #3235). [`run_auto_profile_stage`] fits from the scene it is rendering
+/// (or from a side develop at the same size), so its artifacts depend on
+/// that size; a sensor the standalone proxy fit also develops at native
+/// resolution (≤ [`AUTO_FIT_SIZED_SENSOR_LE`]) yields the same pixels for a
+/// native-resolution render, and that one case keeps sharing the
+/// [`FitOrigin::Standalone`] entry with the GPU-live / LUT-bake entries.
+pub(super) fn render_fit_origin(sensor_long_edge: u32, max_long_edge: Option<u32>) -> FitOrigin {
+    let native_is_canonical = sensor_long_edge <= AUTO_FIT_SIZED_SENSOR_LE;
+    match max_long_edge {
+        None if native_is_canonical => FitOrigin::Standalone,
+        other => FitOrigin::Render(other),
+    }
+}
+
 fn downsample_preview_for_fit(
     mut preview: ExtractedPreview,
     max_long_edge: Option<u32>,
@@ -217,10 +232,16 @@ pub fn fit_profile_curve_from_raw(
     }
     // Mirror the cache lookup in the render path so a hit on either path
     // serves the other without re-fitting.
+    // Curve-only origin (#3233): this entry's artifact is a display-CDF
+    // curve with no residual, which is not what the pair producers store
+    // under the standalone key (acr2 keeps an IDENTITY curve there and puts
+    // everything in the LUT) — sharing the key handed either side the
+    // other's artifact depending on who fitted first.
     let auto_cache_key = match &raw_source {
         RawInput::Path(p) => CacheKey::from_path(p, quality),
         RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes, quality)),
-    };
+    }
+    .map(|k| k.with_origin(FitOrigin::CurveOnly));
     if let Some(c) = auto_cache_key.as_ref().and_then(auto_profile::cache::get) {
         return Some(c);
     }
