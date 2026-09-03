@@ -1,0 +1,58 @@
+<!-- Batch adjustment transfer (#2436): in-flight progress with Cancel, then
+     the finished run's summary with Retry failed. -->
+@if (progressText(); as text) {
+  <div
+    class="dlg-toast border-[0.5px] border-border bg-surface text-text-main"
+    role="progressbar"
+    aria-label="Applying settings"
+    data-testid="batch-sync-progress"
+    [attr.aria-valuemin]="0"
+    [attr.aria-valuemax]="100"
+    [attr.aria-valuenow]="batch.percent()"
+  >
+    <div class="flex min-w-0 flex-col gap-1">
+      <span>{{ text }}</span>
+      <div class="h-[3px] w-40 overflow-hidden rounded-full bg-white/15">
+        <div
+          class="h-full rounded-full bg-white/80 transition-[width] duration-100"
+          [style.width.%]="batch.percent()"
+        ></div>
+      </div>
+    </div>
+    <button
+      type="button"
+      class="dlg-toast-dismiss"
+      (click)="batch.cancel()"
+      aria-label="Cancel applying settings"
+    >
+      Cancel
+    </button>
+  </div>
+} @else if (batch.summaryText(); as summary) {
+  <div
+    class="dlg-toast border-[0.5px] border-border bg-surface text-text-main"
+    role="status"
+    data-testid="batch-sync-summary"
+  >
+    <div class="flex min-w-0 flex-col gap-0.5">
+      <span>{{ summary }}</span>
+      @if (batch.failedIds().length > 0) {
+        <button
+          type="button"
+          class="self-start text-[11px] text-error-text underline"
+          (click)="retryFailed.emit()"
+        >
+          Retry failed
+        </button>
+      }
+    </div>
+    <button
+      type="button"
+      class="dlg-toast-dismiss"
+      (click)="batch.dismissSummary()"
+      aria-label="Dismiss"
+    >
+      ✕
+    </button>
+  </div>
+}
