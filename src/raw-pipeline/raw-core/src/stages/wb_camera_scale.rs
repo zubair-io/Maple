@@ -25,7 +25,7 @@
 //! 1. `(T₁, t₁) = white_balance::resolve_wb(model)` — the exact effective
 //!    pair the pre-#1756 develop chain fed `white_balance::apply`.
 //!    `(6500, 0)` was that path's identity, so it maps straight to the V2
-//!    identity `(frame.scene_cct, 0)`.
+//!    identity `(frame.scene_cct, frame.scene_tint)` (#2321).
 //! 2. `D = dcp::camera_to_rec2020_matrix(profile)` — the develop chain's
 //!    linear camera→Rec.2020 rendering transform (FM or Bradford path,
 //!    same dispatch `apply_colorimetry` uses). `w = D·(1,1,1)` is the
@@ -136,7 +136,7 @@ fn convert_v1_target(
     // as-shot. Map it to the V2 as-shot reference so `wb_camera::apply`'s
     // own short-circuit keeps unedited-WB renders bit-identical.
     if (t1 - 6500.0).abs() < 0.5 && tint1.abs() < 0.5 {
-        return Some((frame.scene_cct, 0.0));
+        return Some((frame.scene_cct, frame.scene_tint));
     }
     let d = dcp::camera_to_rec2020_matrix(profile).ok()?;
     let d_inv = d.inverse()?;
