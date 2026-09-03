@@ -7,7 +7,7 @@ in-process; the standalone CLI below wraps it.
 
 Usage:
     compare_images.py <candidate.png> <reference.png> [--zones] [--hue-bins N]
-                       [--source-primaries {srgb,p3}]
+                       [--source-primaries {srgb,p3}] [--roi mask.png]
     compare_images.py --self-test
 
 Output (stdout, single-line JSON), global block always present:
@@ -29,6 +29,11 @@ converting through it) — so the candidate is rotated P3 -> sRGB primaries
 before the diff runs, same references, same metric, same budgets. Default
 `srgb` is a no-op: existing callers see byte-identical behaviour.
 
+`--roi mask.png` (#3278) restricts every statistic — including zones/hue
+bins — to pixels where a grayscale mask (resized nearest-neighbour to the
+reference's dims) exceeds 127/255. `n_pixels` then reports the ROI's pixel
+count, not the frame's. Omitted (default) is a no-op over the whole frame.
+
 Exit code 0 on success, non-zero on any error.
 """
 
@@ -37,6 +42,7 @@ import json
 import os
 import sys
 import tempfile
+from typing import Optional
 
 import numpy as np
 from PIL import Image
@@ -84,7 +90,7 @@ def _lab(srgb: np.ndarray) -> np.ndarray:
     return colour.XYZ_to_Lab(colour.sRGB_to_XYZ(srgb))
 
 
-def _zone_stats(dE, ref_lab, cand, ref) -> dict:
+def _zone_stats(dE, ref_lab, cand, ref, roi: Optional[np.ndarray] = None) -> dict:
     L = ref_lab[..., 0].ravel()
     dEf = dE.ravel()
     cf = cand.reshape(-1, 3)
@@ -92,6 +98,8 @@ def _zone_stats(dE, ref_lab, cand, ref) -> dict:
     zones = {}
     for name, lo, hi in zip(ZONE_NAMES, ZONE_EDGES[:-1], ZONE_EDGES[1:]):
         m = (L >= lo) & (L < hi)
+        if roi is not None:
+            m = m & roi.ravel()
         n = int(m.sum())
         if n == 0:
             zones[name] = {"n": 0}
@@ -107,7 +115,7 @@ def _zone_stats(dE, ref_lab, cand, ref) -> dict:
     return zones
 
 
-def _hue_stats(dE, cand_lab, ref_lab, n_bins: int) -> dict:
+def _hue_stats(dE, cand_lab, ref_lab, n_bins: int, roi: Optional[np.ndarray] = None) -> dict:
     a = ref_lab[..., 1].ravel()
     b = ref_lab[..., 2].ravel()
     C = np.hypot(a, b)
@@ -116,6 +124,11 @@ def _hue_stats(dE, cand_lab, ref_lab, n_bins: int) -> dict:
     db = (cand_lab[..., 2] - ref_lab[..., 2]).ravel()
 
     neu = C < NEUTRAL_CHROMA
+    if roi is not None:
+        # ROI restricts BOTH the neutral bucket and every chromatic hue bin
+        # below (`diff()`'s own contract) — not just the per-bin `m`, or the
+        # neutral bucket would silently count pixels outside the ROI.
+        neu = neu & roi.ravel()
     if neu.any():
         neutral = {"n": int(neu.sum()), "mean_deltaE": float(dEf[neu].mean()),
                    "a_shift": float(da[neu].mean()), "b_shift": float(db[neu].mean())}
@@ -125,6 +138,8 @@ def _hue_stats(dE, cand_lab, ref_lab, n_bins: int) -> dict:
     hue = np.degrees(np.arctan2(b, a)) % 360.0
     width = 360.0 / n_bins
     chromatic = ~neu
+    if roi is not None:
+        chromatic = chromatic & roi.ravel()
     bins = []
     for i in range(n_bins):
         lo, hi = i * width, (i + 1) * width
@@ -142,7 +157,8 @@ def _hue_stats(dE, cand_lab, ref_lab, n_bins: int) -> dict:
 
 
 def diff(cand_path: str, ref_path: str, *, zones: bool = False,
-         hue_bins: int = 0, source_primaries: str = "srgb") -> dict:
+         hue_bins: int = 0, source_primaries: str = "srgb",
+         roi_path: Optional[str] = None) -> dict:
     """ΔE2000 + per-channel bias of candidate vs reference, optionally with
     per-tonal-zone and per-hue-angle breakdowns. Candidate is Lanczos-resized
     to the reference dims. All binning is on the reference's Lab.
@@ -151,7 +167,15 @@ def diff(cand_path: str, ref_path: str, *, zones: bool = False,
     (see `p3_to_srgb_primaries`) before anything else runs, so every
     downstream computation — resize, Lab, ΔE, bias, zones, hue bins — sees
     an sRGB-primaries candidate exactly as it would for a plain sRGB
-    render. `"srgb"` (default) is a no-op."""
+    render. `"srgb"` (default) is a no-op.
+
+    `roi_path`, when set, is a grayscale PNG resized (nearest-neighbour) to
+    the reference's dims; every statistic below is computed only over
+    pixels where the resized mask exceeds 127/255. `n_pixels` reports the
+    ROI's pixel count. Zones/hue-bins (if requested) are ALSO restricted to
+    the ROI — a shadow-zone stat with the ROI on means "shadow pixels
+    inside the ROI," not "shadow pixels in the whole frame."
+    """
     if source_primaries not in ("srgb", "p3"):
         raise ValueError(f"source_primaries must be 'srgb' or 'p3', got {source_primaries!r}")
     ref_im = Image.open(ref_path).convert("RGB")
@@ -163,22 +187,39 @@ def diff(cand_path: str, ref_path: str, *, zones: bool = False,
     if source_primaries == "p3":
         cand = p3_to_srgb_primaries(cand)
 
+    roi_mask: Optional[np.ndarray] = None
+    if roi_path is not None:
+        roi_im = Image.open(roi_path).convert("L")
+        if roi_im.size != ref_im.size:
+            roi_im = roi_im.resize(ref_im.size, Image.NEAREST)
+        roi_mask = np.asarray(roi_im, dtype=np.uint8) > 127
+        if not roi_mask.any():
+            raise ValueError(f"ROI {roi_path!r} selects zero pixels at the reference's size")
+
     cand_lab = _lab(cand)
     ref_lab = _lab(ref)
     dE = colour.delta_E(cand_lab, ref_lab, method="CIE 2000")
-    bias = (cand - ref).mean(axis=(0, 1))
+
+    if roi_mask is not None:
+        dE_flat = dE[roi_mask]
+        bias = (cand[roi_mask] - ref[roi_mask]).mean(axis=0)
+        n_pixels = int(roi_mask.sum())
+    else:
+        dE_flat = dE.ravel()
+        bias = (cand - ref).mean(axis=(0, 1))
+        n_pixels = int(cand.shape[0] * cand.shape[1])
 
     out = {
-        "mean_deltaE": float(np.mean(dE)),
-        "p95_deltaE": float(np.percentile(dE, 95)),
-        "max_deltaE": float(np.max(dE)),
+        "mean_deltaE": float(np.mean(dE_flat)),
+        "p95_deltaE": float(np.percentile(dE_flat, 95)),
+        "max_deltaE": float(np.max(dE_flat)),
         "bias_r": float(bias[0]), "bias_g": float(bias[1]), "bias_b": float(bias[2]),
-        "n_pixels": int(cand.shape[0] * cand.shape[1]),
+        "n_pixels": n_pixels,
     }
     if zones:
-        out["zones"] = _zone_stats(dE, ref_lab, cand, ref)
+        out["zones"] = _zone_stats(dE, ref_lab, cand, ref, roi=roi_mask)
     if hue_bins:
-        out["hue_bins"] = _hue_stats(dE, cand_lab, ref_lab, hue_bins)
+        out["hue_bins"] = _hue_stats(dE, cand_lab, ref_lab, hue_bins, roi=roi_mask)
     return out
 
 
@@ -255,10 +296,38 @@ def _self_test() -> int:
               f"{result_unrotated['mean_deltaE']:.4f})",
               result_unrotated["mean_deltaE"] > result["mean_deltaE"] + 1.0)
 
+    # 6. An ROI restricted to the left half of a two-tone image reports
+    #    statistics computed ONLY over that half — proving the mask actually
+    #    gates which pixels enter the metric, not just that it's accepted.
+    with tempfile.TemporaryDirectory(prefix="compare_images_selftest_roi_") as tmp:
+        ref_path = os.path.join(tmp, "ref.png")
+        cand_path = os.path.join(tmp, "cand.png")
+        roi_path = os.path.join(tmp, "roi.png")
+        h, w = 16, 16
+        ref_arr = np.zeros((h, w, 3), dtype=np.uint8)
+        ref_arr[:, :w // 2] = [200, 50, 50]   # left half: red-ish
+        ref_arr[:, w // 2:] = [50, 50, 200]   # right half: blue-ish
+        cand_arr = ref_arr.copy()
+        cand_arr[:, :w // 2] = [50, 50, 200]  # left half is WRONG (big ΔE)
+        # right half matches — so an ROI over the right half alone should
+        # report near-zero error even though the whole-frame diff is large.
+        Image.fromarray(ref_arr, "RGB").save(ref_path)
+        Image.fromarray(cand_arr, "RGB").save(cand_path)
+        roi_arr = np.zeros((h, w), dtype=np.uint8)
+        roi_arr[:, w // 2:] = 255
+        Image.fromarray(roi_arr, "L").save(roi_path)
+
+        whole = diff(cand_path, ref_path)
+        roi = diff(cand_path, ref_path, roi_path=roi_path)
+        check(f"whole-frame diff is large (got {whole['mean_deltaE']:.2f})", whole["mean_deltaE"] > 15)
+        check(f"ROI-restricted diff is near zero (got {roi['mean_deltaE']:.2f})", roi["mean_deltaE"] < 1.0)
+        check(f"ROI n_pixels is half the frame (got {roi['n_pixels']}, want {h * w // 2})",
+              roi["n_pixels"] == h * w // 2)
+
     if failures:
         print(f"compare_images.py self-test: FAIL ({len(failures)}): {', '.join(failures)}")
         return 1
-    print("compare_images.py self-test: PASS (5 checks)")
+    print("compare_images.py self-test: PASS (6 checks)")
     return 0
 
 
@@ -275,6 +344,9 @@ def main() -> int:
     p.add_argument("--self-test", action="store_true",
                     help="Run the synthetic P3-rotation self-test and exit; "
                          "ignores candidate/reference.")
+    p.add_argument("--roi", type=str, default=None,
+                    help="Grayscale PNG restricting the diff to pixels > 127 "
+                         "(resized nearest-neighbour to the reference's dims).")
     args = p.parse_args()
     if args.self_test:
         return _self_test()
@@ -282,7 +354,8 @@ def main() -> int:
         p.error("candidate and reference are required unless --self-test is set")
     try:
         out = diff(args.candidate, args.reference, zones=args.zones,
-                   hue_bins=args.hue_bins, source_primaries=args.source_primaries)
+                   hue_bins=args.hue_bins, source_primaries=args.source_primaries,
+                   roi_path=args.roi)
     except Exception as e:  # noqa: BLE001 — CLI surfaces error as JSON
         print(json.dumps({"error": str(e)}))
         return 2
