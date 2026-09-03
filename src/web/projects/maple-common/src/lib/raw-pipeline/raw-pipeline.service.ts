@@ -418,6 +418,7 @@ export class RawPipelineService implements OnDestroy {
    * @param nx    Normalised x, `0` = left edge, `1` = right edge.
    * @param ny    Normalised y, `0` = top edge, `1` = bottom edge.
    */
+  // fallow-ignore-next-line unused-class-member
   sampleWhiteBalance(
     bytes: Uint8Array,
     ext: string,

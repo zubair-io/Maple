@@ -1,6 +1,6 @@
 // What a committed white-balance sample writes, and what a rejected one says (#2434).
 
-import { sampledWbPatch, wbSampleRejectionText } from './editor-state.wb-sample';
+import { manualWbPatch, sampledWbPatch, wbSampleRejectionText } from './editor-state.wb-sample';
 import { WbSampleRejected, parseWbSampleError } from '../raw-pipeline/raw-pipeline.sample-wb.types';
 
 describe('sampledWbPatch (#2434)', () => {
@@ -53,5 +53,20 @@ describe('parseWbSampleError (#2434)', () => {
       message: 'RuntimeError: unreachable',
     });
     expect(parseWbSampleError('')).toEqual({ kind: 'develop', message: '' });
+  });
+});
+
+describe('manualWbPatch (#2434, #3309 review)', () => {
+  it('claims the edit and drops provenance the new pair did not come from', () => {
+    // Dragging the pad after a sample must not keep reading "Sampled at …":
+    // the coordinate no longer explains the value on screen.
+    expect(manualWbPatch(5200, 8)).toEqual({
+      temperature: 5200,
+      tint: 8,
+      wbSource: 'Manual',
+      wbSampleX: 0,
+      wbSampleY: 0,
+      wbAlgorithmVersion: 0,
+    });
   });
 });

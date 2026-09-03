@@ -21,6 +21,23 @@ import { WbSampleRejected } from '../raw-pipeline/raw-pipeline.sample-wb.types';
  * `wbSource` moves to `Sampled`, which is what the UI reads back to say the
  * white balance came from a click rather than the camera.
  */
+/**
+ * The patch a manual temperature/tint edit writes alongside the new pair:
+ * the provenance stops claiming a source that no longer produced the value.
+ * The sample point and version are cleared with it — a coordinate that no
+ * longer explains the pair is worse than none (Copilot review on #3309).
+ */
+export function manualWbPatch(temperature: number, tint: number): Partial<AdjustmentModel> {
+  return {
+    temperature,
+    tint,
+    wbSource: 'Manual',
+    wbSampleX: 0,
+    wbSampleY: 0,
+    wbAlgorithmVersion: 0,
+  };
+}
+
 export function sampledWbPatch(
   sample: WbSampleResult,
   nx: number,
@@ -68,6 +85,9 @@ export interface WbSampleHost {
   wbSampleInFlight: WritableSignal<boolean>;
   autoResult: WritableSignal<string | null>;
   commit(): void;
+  /** Serialises a model to sidecar text — how the current edit state reaches
+   *  the sampler's probe develop. */
+  serializer: { serialize(model: AdjustmentModel): string };
   library: {
     bytesFor(id: AssetId): Uint8Array | undefined;
     bytesForAsset(id: AssetId): Promise<Uint8Array>;
@@ -108,7 +128,13 @@ export async function sampleWhiteBalanceInto(
     const bytes = host.library.bytesFor(id) ?? (await host.library.bytesForAsset(id));
     const asset = host.library.assets().find((a) => a.id === id);
     const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
-    const sample = await host.pipeline.sampleWhiteBalance(bytes, ext, undefined, nx, ny);
+    // The sampler develops its own probe from this model, so it must be the
+    // model the canvas painted with: the click point is normalised against
+    // the PAINTED raster, and a crop makes that a different raster than the
+    // full frame (Copilot review on #3309).
+    const model = host.currentAdjustment();
+    const xmp = model ? host.serializer.serialize(model) : undefined;
+    const sample = await host.pipeline.sampleWhiteBalance(bytes, ext, xmp, nx, ny);
     if (host.imageId() !== id) return false;
     host.commit();
     host.library.updateAdjustment(id, sampledWbPatch(sample, nx, ny));
