@@ -93,11 +93,14 @@ pub fn vignette_gain(px: u32, py: u32, full: (u32, u32), e0: f32, e1: f32, ev: f
 /// `full` the full image dimensions. The whole-image entry [`apply`] is
 /// `origin = (0, 0)`, `full = (img.width, img.height)`; a tile render
 /// passes its rect so the gain field is identical to the full-frame one.
+/// `origin` is signed because a tile's padded crop may start before the
+/// frame's DefaultCrop origin (#1157) — those pixels simply sit outside the
+/// ellipse's frame and take whatever gain the field has there.
 pub fn apply_windowed(
     img: &mut Image,
     amount: f32,
     feather: f32,
-    origin: (u32, u32),
+    origin: (i32, i32),
     full: (u32, u32),
 ) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
@@ -112,11 +115,11 @@ pub fn apply_windowed(
 
     let w = img.width as usize;
     for (row_idx, row) in img.pixels.chunks_exact_mut(w).enumerate() {
-        let py = origin.1 + row_idx as u32;
+        let py = origin.1 + row_idx as i32;
         let ny = (py as f32 + 0.5) * inv_half_h - 1.0;
         let ny2 = ny * ny;
         for (col_idx, p) in row.iter_mut().enumerate() {
-            let px = origin.0 + col_idx as u32;
+            let px = origin.0 + col_idx as i32;
             let nx = (px as f32 + 0.5) * inv_half_w - 1.0;
             let r = (nx * nx + ny2).sqrt();
             let m = smoothstep(e0, e1, r);
@@ -259,7 +262,7 @@ mod tests {
         // A 10×8 tile at (24, 18).
         let (tx, ty, tw, th) = (24u32, 18u32, 10u32, 8u32);
         let mut tile = grey_image(tw, th, 0.25);
-        apply_windowed(&mut tile, -80.0, 35.0, (tx, ty), (w, h));
+        apply_windowed(&mut tile, -80.0, 35.0, (tx as i32, ty as i32), (w, h));
 
         for y in 0..th {
             for x in 0..tw {

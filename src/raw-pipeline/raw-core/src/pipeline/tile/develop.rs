@@ -5,10 +5,9 @@
 //! themselves architecturally (see the per-stage notes at each chain
 //! position):
 //!
-//! * dehaze, vignette, deep_denoise, local_adjustments,
-//!   capture_sharpening — rejected loudly at the tile entry
-//!   (`super::render_scene_linear_tile_from_raw_with_quality`) so the
-//!   host falls back to the full-image render (#1084, #1105, #1109),
+//! * dehaze and deep_denoise — rejected loudly at the tile entry
+//!   (`super::guards`) so the host falls back to the full-image render
+//!   (#1105; dehaze awaits a full-frame proxy plane),
 //! * auto_exposure — a tile is a sub-region, so its own histogram isn't
 //!   representative of the whole scene; this chain never recomputes the
 //!   anchor gain per-tile (#1167). Instead it accepts the scalar
@@ -34,9 +33,25 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
+use super::region::TileWindow;
 use crate::pipeline::{
+    capture_sharpening_helper::capture_sharpening_params_from_model,
     develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
 };
+use crate::stages::{capture_sharpening, local_adjustments, vignette};
+
+/// The per-render values the tile entry threads into the chain besides the
+/// mosaic and the model: the host-measured anchors (WB delta anchor, #1725;
+/// auto-exposure gain, #1167) and the tile's window in the frame (#1157).
+pub(super) struct TileAnchors {
+    /// See [`develop_scene_linear_from_padded_mosaic`].
+    pub decoded_wb_anchor: Option<(f32, f32)>,
+    /// See [`develop_scene_linear_from_padded_mosaic`].
+    pub ae_gain: f32,
+    /// Where the padded crop sits in the developed frame — the anchor for
+    /// vignette's ellipse and the local-adjustment masks.
+    pub window: TileWindow,
+}
 
 /// Long edge of the FULL developed frame at the resolution the tile chain
 /// develops `quality` at — the anchor for every radius that scales with the
@@ -91,9 +106,13 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
+    anchors: TileAnchors,
 ) -> Result<crate::image::Image> {
+    let TileAnchors {
+        decoded_wb_anchor,
+        ae_gain,
+        window,
+    } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
             "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
@@ -250,12 +269,17 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // runs (and the FFI file/bytes tile entries pre-check it as well — see
     // `raw-ffi/src/model.rs::deep_denoise_active`).
     //
-    // capture_sharpening intentionally omitted — the iterated Richardson–
-    // Lucy stencil reaches up to ~2·iterations·3σ ≈ 96 px at the σ = 8
-    // helper clamp, past TILE_OVERLAP_PX (48). The tile entry errors before
-    // this fn runs when the model carries an active capture-sharpening
-    // amount — same loud-rejection contract as dehaze (#1084).
-    //
+    // Capture sharpening (#1157) — same chain position as the full develop
+    // (after the chroma prefilter, before the scene anchor). The iterated
+    // Richardson–Lucy stencil reaches `iterations × 2 × ⌈3σ⌉` px (96 at the
+    // σ = 8 clamp), which the tile entry's overlap calculator pads for
+    // (`capture_sharpening::stencil_reach_px`), so the padded crop's interior
+    // sees the same neighbourhood the whole-image pass does.
+    if let Some(params) = capture_sharpening_params_from_model(model) {
+        stage("tile_capture_sharpening", || {
+            capture_sharpening::apply_capture_sharpening(&mut scene, &params)
+        });
+    }
     // Per-image scene-anchor gain (#1167). A tile's own histogram is not
     // representative of the whole scene, so this chain never RECOMPUTES the
     // anchor — `ae_gain` is a scalar the caller already measured from a
@@ -373,20 +397,34 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_hsl", || hsl::apply_model(&mut scene, model));
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
-    // dehaze intentionally omitted — the tile entry asserts dehaze == 0
-    // before this function runs (radius 67 px > TILE_OVERLAP_PX overlap pad).
+    // dehaze intentionally omitted — global statistics plus a radius-60
+    // transmission refine; the tile entry rejects `dehaze != 0` before this
+    // function runs, until the full-frame proxy plane exists (§ 5.3).
     //
-    // local_adjustments intentionally omitted — mask weights evaluate in
-    // coordinates normalized to the FULL image (`mask::evaluate(nx, ny)`
-    // with `nx = x / (w-1)`), so running the stage on a padded crop would
-    // place every mask relative to the tile instead of the image. Wiring it
-    // needs mask-coordinate offset plumbing; until then the tile entry
-    // rejects any model with a non-identity local adjustment — same loud
-    // contract as dehaze (#1084).
-    //
-    // vignette intentionally omitted — full-frame-anchored radial gain
-    // (#1109); the tile entry rejects `vignette_amount != 0` until the
-    // tile window is threaded through (`apply_windowed`, #11).
+    // Local adjustments and vignette (#1157): both are point ops GIVEN the
+    // tile's window in the frame — mask weights evaluate in coordinates
+    // normalised to the FULL frame and the vignette ellipse is centred on
+    // it — so they take `window` (origin + frame extent at this develop
+    // resolution) and reproduce the whole-image field exactly. Same chain
+    // positions as the full develop: after texture (where dehaze would sit),
+    // before sharpen.
+    stage("tile_local_adjustments", || {
+        local_adjustments::apply_windowed(
+            &mut scene,
+            &model.local_adjustments,
+            window.origin,
+            window.full,
+        )
+    });
+    stage("tile_vignette", || {
+        vignette::apply_windowed(
+            &mut scene,
+            model.vignette_amount,
+            model.vignette_feather,
+            window.origin,
+            window.full,
+        )
+    });
     stage("tile_sharpen", || {
         sharpen::apply(
             &mut scene,

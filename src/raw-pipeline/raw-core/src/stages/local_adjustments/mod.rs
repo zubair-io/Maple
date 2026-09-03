@@ -49,6 +49,23 @@ pub mod mask;
 /// `img` must be `SceneLinearRec2020` (the working space between `dehaze`
 /// and `sharpen`).
 pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
+    let full = (img.width, img.height);
+    apply_windowed(img, layers, (0, 0), full);
+}
+
+/// [`apply`] for a buffer that is a WINDOW of the full frame (#1157): mask
+/// weights evaluate in coordinates normalised to `full`, with the buffer's
+/// pixel `(x, y)` sitting at frame pixel `origin + (x, y)`. The whole-frame
+/// entry is `origin = (0, 0)`, `full = (img.width, img.height)`, for which
+/// the per-pixel float sequence is unchanged (`0 + x` is `x`), so it is
+/// bit-identical to the pre-#1157 stage. `origin` is signed because a tile's
+/// padded crop may start before the frame's DefaultCrop origin.
+pub fn apply_windowed(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    origin: (i32, i32),
+    full: (u32, u32),
+) {
     if layers.is_empty() {
         return;
     }
@@ -59,6 +76,7 @@ pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
     if w == 0 || h == 0 {
         return;
     }
+    let (full_w, full_h) = (full.0 as usize, full.1 as usize);
     // Normalized-coordinate denominators. For the common case (dim > 1),
     // using `(dim - 1)` so the first pixel maps to 0.0 and the last pixel
     // maps to 1.0 exactly — important for mask endpoints that sit on image
@@ -68,8 +86,16 @@ pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
     // along that axis, which is consistent with the smoothstep falloff
     // — a one-pixel-tall or one-pixel-wide image isn't a useful target
     // for local adjustments, and we don't want to divide by zero.
-    let inv_w = if w > 1 { 1.0 / (w as f32 - 1.0) } else { 0.0 };
-    let inv_h = if h > 1 { 1.0 / (h as f32 - 1.0) } else { 0.0 };
+    let inv_w = if full_w > 1 {
+        1.0 / (full_w as f32 - 1.0)
+    } else {
+        0.0
+    };
+    let inv_h = if full_h > 1 {
+        1.0 / (full_h as f32 - 1.0)
+    } else {
+        0.0
+    };
 
     // Row-parallel per layer (#1698). `mask::evaluate` is a pure function of
     // `(mask, nx, ny)` and `apply_pixel` reads and writes exactly one pixel,
@@ -93,9 +119,9 @@ pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
             .par_chunks_mut(w)
             .enumerate()
             .for_each(|(y, row)| {
-                let ny = y as f32 * inv_h;
+                let ny = (origin.1 + y as i32) as f32 * inv_h;
                 for (x, p) in row.iter_mut().enumerate() {
-                    let nx = x as f32 * inv_w;
+                    let nx = (origin.0 + x as i32) as f32 * inv_w;
                     let weight = mask::evaluate(&layer.mask, nx, ny);
                     if weight <= 0.0 {
                         continue;
