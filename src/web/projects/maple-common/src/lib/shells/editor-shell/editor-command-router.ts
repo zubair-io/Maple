@@ -25,6 +25,7 @@
 // consumes both, it does not add a second scheduler.
 
 import type { EditorShellComponent } from './editor-shell.component';
+import { wheelBurstActive } from './editor-shell-wheel';
 import { type ToolGroup, type ToolId, groupOf, visibleToolsInGroup } from '../../editor/tool-model';
 import {
   type EditorIntent,
@@ -106,9 +107,12 @@ export function bind(shell: EditorShellComponent, intent: EditorIntent): BoundIn
   return { intent, assetId: shell.state.focusedAssetId() };
 }
 
-/** True while any continuous value gesture is in flight. */
+/** True while any continuous value gesture is in flight — a scrub, a slider
+ *  drag, or a wheel burst whose undo transaction is still open. */
 function gestureInFlight(shell: EditorShellComponent): boolean {
-  return shell.scrubbing() || shell.editorState.gestureActive();
+  return (
+    shell.scrubbing() || shell.editorState.gestureActive() || wheelBurstActive(shell.wheelNudge)
+  );
 }
 
 type Handler<K extends EditorIntent['kind']> = (
