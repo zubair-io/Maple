@@ -10,7 +10,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="Maple Aperture">
+    Title="Maple">
 
     <Grid Background="{StaticResource MapleBg}" KeyboardAcceleratorPlacementMode="Hidden">
 
@@ -174,7 +174,7 @@
                  and interaction-free — SetTitleBar routes all input here to
                  the system move/maximize handling. -->
             <Grid x:Name="TitleBarDragRegion" Grid.Column="1" Background="Transparent">
-                <mui:MuiText Text="Maple Aperture" Variant="ToolLabel" ColorRole="Muted"
+                <mui:MuiText Text="Maple" Variant="ToolLabel" ColorRole="Muted"
                              HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Grid>
         </Grid>
