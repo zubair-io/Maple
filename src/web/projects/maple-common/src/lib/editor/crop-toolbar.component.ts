@@ -110,10 +110,14 @@ export class CropToolbarComponent {
     this.editor.endEdit();
   }
 
-  /** Open one transaction at the start of a straighten drag (#2432); the
-   * next boundary (another commit, undo, image switch) closes it. */
+  /** One transaction per straighten drag (#2432): opened here, closed at
+   * release by `onStraightenEnd`. */
   protected onStraightenStart(): void {
     this.editor.commit('crop', 'Straighten');
+  }
+
+  protected onStraightenEnd(): void {
+    this.editor.endEdit();
   }
 
   protected onStraighten(angle: number): void {

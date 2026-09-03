@@ -65,18 +65,31 @@ public enum InvalidationScope: String, Equatable, Sendable {
 
     /// The fields whose change forces a re-decode (the decode-product
     /// family, see `AdjustmentModel`'s doc comment on `lensProfileEnable`).
-    private static func decodeInputs(_ m: AdjustmentModel) -> [Double] {
-        [
-            m.chromaPrefilter,
-            m.deepDenoise,
-            Double(m.hotPixelSuppression.rawValue.hashValue),
-            Double(m.lensProfileEnable.rawValue.hashValue),
-            m.lensCorrectionDistortion,
-            m.lensCorrectionCa,
-            m.lensCorrectionVignetting,
-            m.captureSharpeningAmount,
-            m.captureSharpeningSigma,
-        ]
+    /// Compared field by field — no hashing, so two values can never be
+    /// mistaken for equal.
+    private static func decodeInputs(_ m: AdjustmentModel) -> DecodeInputs {
+        DecodeInputs(
+            chromaPrefilter: m.chromaPrefilter,
+            deepDenoise: m.deepDenoise,
+            hotPixelSuppression: m.hotPixelSuppression,
+            lensProfileEnable: m.lensProfileEnable,
+            lensCorrectionDistortion: m.lensCorrectionDistortion,
+            lensCorrectionCa: m.lensCorrectionCa,
+            lensCorrectionVignetting: m.lensCorrectionVignetting,
+            captureSharpeningAmount: m.captureSharpeningAmount,
+            captureSharpeningSigma: m.captureSharpeningSigma)
+    }
+
+    private struct DecodeInputs: Equatable {
+        let chromaPrefilter: Double
+        let deepDenoise: Double
+        let hotPixelSuppression: HotPixelSuppressionMode
+        let lensProfileEnable: LensProfileEnable
+        let lensCorrectionDistortion: Double
+        let lensCorrectionCa: Double
+        let lensCorrectionVignetting: Double
+        let captureSharpeningAmount: Double
+        let captureSharpeningSigma: Double
     }
 }
 

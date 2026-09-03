@@ -66,8 +66,9 @@ const DECODE_INPUT_KEYS = [
   'captureSharpeningSigma',
 ] as const satisfies readonly (keyof AdjustmentModel)[];
 
-/** JSON with recursively sorted object keys — a canonical, comparable form. */
-function stableStringify(value: unknown): string {
+/** JSON with recursively sorted object keys — a canonical, comparable form
+ * (key insertion order never affects equality). */
+export function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   if (value !== null && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
