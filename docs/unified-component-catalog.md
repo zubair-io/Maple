@@ -10,7 +10,7 @@ Colour, spacing, radius, and type tokens are not authored per platform. They liv
 
 ## Contracts
 
-Twenty-five components have a written behavioural contract under `docs/design/maple-ui/components/` — every atom, plus List Row and Select. Each contract states the tier and then the sections `tools/check-maple-ui-contracts.sh` requires: **Purpose**, **Variants**, **States**, **Tokens used**, **Props**, **Accessibility**. A missing or empty section fails the `maple-ui-contracts` job in `.github/workflows/cross.yml` (which also runs the checker's own self-test, `tools/check-maple-ui-contracts.test.sh`).
+Twenty-six components have a written behavioural contract under `docs/design/maple-ui/components/` — every atom, plus List Row, Select, and Vectorscope (the first Molecules-L1 contract, and the first in the histogram/waveform/parade "data plot" family — see that contract's Accessibility section for why the rest of the family stays uncontracted). Each contract states the tier and then the sections `tools/check-maple-ui-contracts.sh` requires: **Purpose**, **Variants**, **States**, **Tokens used**, **Props**, **Accessibility**. A missing or empty section fails the `maple-ui-contracts` job in `.github/workflows/cross.yml` (which also runs the checker's own self-test, `tools/check-maple-ui-contracts.test.sh`).
 
 ```bash
 bash tools/check-maple-ui-contracts.sh
@@ -84,50 +84,50 @@ Nothing depends on anything else. Every atom has a contract.
 
 Built only from atoms. Web: `lib/ui/<name>/`, re-exported through `molecules1-lane-a.ts` and `molecules1-lane-b.ts`. Apple: `Molecules/`. Windows: `MapleUI/Molecules/`.
 
-| Component           | Web | Apple | Windows | Contract                                              |
-| ------------------- | :-: | :---: | :-----: | ----------------------------------------------------- |
-| 2-D Pad             |  ✓  |   ✓   |    ✓    | —                                                     |
-| Audio Player        |  ✓  |   ✓   |    ✓    | —                                                     |
-| Avatar Group        |  ✓  |   ✓   |    ✓    | —                                                     |
-| Banner              |  ✓  |   ✓   |    ✓    | —                                                     |
-| Bubble Menu         |  ✓  |   ✓   |    ✓    | —                                                     |
-| Chip Row            |  ✓  |   ✓   |    ✓    | —                                                     |
-| Code Block          |  ✓  |   ✓   |    ✓    | —                                                     |
-| Collapsible         |  ✓  |   ✓   |    ✓    | —                                                     |
-| Color Wheel         |  ✓  |   ✓   |    ✓    | —                                                     |
-| Command Menu        |  ✓  |   ✓   |    ✓    | —                                                     |
-| Connection Graph    |  ✓  |   ✓   |    ✓    | —                                                     |
-| Context Menu        |  ✓  |   ✓   |    ✓    | —                                                     |
-| Curve Plot          |  ✓  |   ✓   |    ✓    | —                                                     |
-| Drag Bar            |  ✓  |   ✓   |    ✓    | —                                                     |
-| Drag Preview        |  ✓  |   ✓   |    ✓    | —                                                     |
-| Empty State         |  ✓  |   ✓   |    ✓    | —                                                     |
-| Form Field          |  ✓  |   ✓   |    ✓    | —                                                     |
-| Frame-time HUD      |  ✓  |   ✓   |    ✓    | —                                                     |
-| Heatmap Layer       |  ✓  |   ✓   |    ✓    | —                                                     |
-| Histogram           |  ✓  |   ✓   |    ✓    | —                                                     |
-| Inline Rename Field |  ✓  |   ✓   |    ✓    | —                                                     |
-| Label-Value Grid    |  ✓  |   ✓   |    ✓    | —                                                     |
-| List Row            |  ✓  |   ✓   |    ✓    | [list-row.md](design/maple-ui/components/list-row.md) |
-| Living Slider       |  ✓  |   ✓   |    ✓    | —                                                     |
-| Map Annotation      |  ✓  |   ✓   |    ✓    | —                                                     |
-| Page Header         |  ✓  |   ✓   |    ✓    | —                                                     |
-| Parade              |  ✓  |   ✓   |    ✓    | —                                                     |
-| Popover             |  ✓  |   ✓   |    ✓    | —                                                     |
-| Preview Image       |  ✓  |   ✓   |    ✓    | —                                                     |
-| Rating & Flags      |  ✓  |   ✓   |    ✓    | —                                                     |
-| Search Bar          |  ✓  |   ✓   |    ✓    | —                                                     |
-| Slider              |  ✓  |   ✓   |    ✓    | —                                                     |
-| Suggestion Menu     |  ✓  |   ✓   |    ✓    | —                                                     |
-| Tabs                |  ✓  |   ✓   |    ✓    | —                                                     |
-| Toast Container     |  ✓  |   ✓   |    ✓    | —                                                     |
-| Toolbar             |  ✓  |   ✓   |    ✓    | —                                                     |
-| Tree Row            |  ✓  |   ✓   |    ✓    | —                                                     |
-| Value Chip          |  ✓  |   ✓   |    ✓    | —                                                     |
-| Value HUD           |  ✓  |   ✓   |    ✓    | —                                                     |
-| Vectorscope         |  ✓  |   ✓   |    ✓    | —                                                     |
-| Video Player        |  ✓  |   ✓   |    ✓    | —                                                     |
-| Waveform            |  ✓  |   ✓   |    ✓    | —                                                     |
+| Component           | Web | Apple | Windows | Contract                                                    |
+| ------------------- | :-: | :---: | :-----: | ----------------------------------------------------------- |
+| 2-D Pad             |  ✓  |   ✓   |    ✓    | —                                                           |
+| Audio Player        |  ✓  |   ✓   |    ✓    | —                                                           |
+| Avatar Group        |  ✓  |   ✓   |    ✓    | —                                                           |
+| Banner              |  ✓  |   ✓   |    ✓    | —                                                           |
+| Bubble Menu         |  ✓  |   ✓   |    ✓    | —                                                           |
+| Chip Row            |  ✓  |   ✓   |    ✓    | —                                                           |
+| Code Block          |  ✓  |   ✓   |    ✓    | —                                                           |
+| Collapsible         |  ✓  |   ✓   |    ✓    | —                                                           |
+| Color Wheel         |  ✓  |   ✓   |    ✓    | —                                                           |
+| Command Menu        |  ✓  |   ✓   |    ✓    | —                                                           |
+| Connection Graph    |  ✓  |   ✓   |    ✓    | —                                                           |
+| Context Menu        |  ✓  |   ✓   |    ✓    | —                                                           |
+| Curve Plot          |  ✓  |   ✓   |    ✓    | —                                                           |
+| Drag Bar            |  ✓  |   ✓   |    ✓    | —                                                           |
+| Drag Preview        |  ✓  |   ✓   |    ✓    | —                                                           |
+| Empty State         |  ✓  |   ✓   |    ✓    | —                                                           |
+| Form Field          |  ✓  |   ✓   |    ✓    | —                                                           |
+| Frame-time HUD      |  ✓  |   ✓   |    ✓    | —                                                           |
+| Heatmap Layer       |  ✓  |   ✓   |    ✓    | —                                                           |
+| Histogram           |  ✓  |   ✓   |    ✓    | —                                                           |
+| Inline Rename Field |  ✓  |   ✓   |    ✓    | —                                                           |
+| Label-Value Grid    |  ✓  |   ✓   |    ✓    | —                                                           |
+| List Row            |  ✓  |   ✓   |    ✓    | [list-row.md](design/maple-ui/components/list-row.md)       |
+| Living Slider       |  ✓  |   ✓   |    ✓    | —                                                           |
+| Map Annotation      |  ✓  |   ✓   |    ✓    | —                                                           |
+| Page Header         |  ✓  |   ✓   |    ✓    | —                                                           |
+| Parade              |  ✓  |   ✓   |    ✓    | —                                                           |
+| Popover             |  ✓  |   ✓   |    ✓    | —                                                           |
+| Preview Image       |  ✓  |   ✓   |    ✓    | —                                                           |
+| Rating & Flags      |  ✓  |   ✓   |    ✓    | —                                                           |
+| Search Bar          |  ✓  |   ✓   |    ✓    | —                                                           |
+| Slider              |  ✓  |   ✓   |    ✓    | —                                                           |
+| Suggestion Menu     |  ✓  |   ✓   |    ✓    | —                                                           |
+| Tabs                |  ✓  |   ✓   |    ✓    | —                                                           |
+| Toast Container     |  ✓  |   ✓   |    ✓    | —                                                           |
+| Toolbar             |  ✓  |   ✓   |    ✓    | —                                                           |
+| Tree Row            |  ✓  |   ✓   |    ✓    | —                                                           |
+| Value Chip          |  ✓  |   ✓   |    ✓    | —                                                           |
+| Value HUD           |  ✓  |   ✓   |    ✓    | —                                                           |
+| Vectorscope         |  ✓  |   ✓   |    ✓    | [vectorscope.md](design/maple-ui/components/vectorscope.md) |
+| Video Player        |  ✓  |   ✓   |    ✓    | —                                                           |
+| Waveform            |  ✓  |   ✓   |    ✓    | —                                                           |
 
 42 elements, complete on all three platforms.
 
