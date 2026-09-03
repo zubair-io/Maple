@@ -7,9 +7,11 @@
  * here runs `__fixtures__/otel-crash-child.ts` as a real Bun process
  * against a local collector and counts what arrived:
  *
- *   - a native abort with the API tier's 2 s log cadence loses the record
- *     — there is no hook to flush from, so the answer is "no";
- *   - the same abort under a short cadence (the worker tier's lever) gets
+ *   - a hook-less death (the fixture SIGKILLs itself — the shape of a native
+ *     abort, without Bun's SIGABRT crash handler) with the API tier's 2 s
+ *     log cadence loses the record — there is no hook to flush from, so the
+ *     answer is "no";
+ *   - the same death under a short cadence (the worker tier's lever) gets
  *     the record out beforehand;
  *   - an uncaught exception and a SIGTERM — the deaths JS can still see —
  *     flush before exiting.
@@ -71,14 +73,14 @@ async function runChild(
 const arrived = (bodies: string[], needle: string) => bodies.some((b) => b.includes(needle));
 
 describe('telemetry across a process death (#2196)', () => {
-  it('a native abort under the 2 s cadence loses the buffered record', async () => {
+  it('a hook-less death (SIGKILL, the native-abort shape) under the 2 s cadence loses the buffered record', async () => {
     const run = await runChild('abort', 2_000);
     // Died by signal, not by a JS-level exit.
     expect(run.signalCode).toBe('SIGKILL');
     expect(arrived(run.bodies, MARKER)).toBe(false);
   }, 20_000);
 
-  it('a native abort under a short cadence had already exported the record', async () => {
+  it('a hook-less death (SIGKILL) under a short cadence had already exported the record', async () => {
     const run = await runChild('abort', 50);
     expect(run.signalCode).toBe('SIGKILL');
     expect(arrived(run.bodies, MARKER)).toBe(true);
