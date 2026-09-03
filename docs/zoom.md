@@ -105,11 +105,11 @@ The pad is why a tile render is fast rather than a full develop: the core linear
 
 Three model conditions are rejected at the entry (`tile/guards.rs`) with an `Err`, which the FFI maps to code `10` and the Apple caller turns into a whole-image fallback:
 
-| Rejected when                 | Why                                                                                                                                                                                    |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rejected when                 | Why                                                                                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dehaze != 0`                 | atmospheric light and the dark channel are whole-frame statistics, and the transmission map is refined by a radius-60 guided filter — a full-frame proxy plane is the only correct tile form |
-| `deep_denoise != 0`           | BM3D's reference-patch grid is frame-anchored; per-tile grids would seam                                                                                                               |
-| the DNG carries `OpcodeList3` | `WarpRectilinear` gathers from displaced positions past the pad, and the tile chain doesn't apply opcodes at all — tiled output would disagree with, and seam against, the full render |
+| `deep_denoise != 0`           | BM3D's reference-patch grid is frame-anchored; per-tile grids would seam                                                                                                                     |
+| the DNG carries `OpcodeList3` | `WarpRectilinear` gathers from displaced positions past the pad, and the tile chain doesn't apply opcodes at all — tiled output would disagree with, and seam against, the full render       |
 
 Two format conditions are rejected the same way: LinearRaw DNGs and Fuji X-Trans RAFs both go to the whole-image entry.
 
