@@ -237,11 +237,11 @@ pub fn build_live_split<'a>(
     }
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. See the gate-predicate note in the module docs.
-    if local_adjustments_are_active(&inputs.local_adjustments) {
-        suffix.push(Box::new(LocalAdjustmentsPass::new(
-            &inputs.local_adjustments,
-            &inputs.mask_rasters,
-        )));
+    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
+        suffix.push(Box::new(
+            LocalAdjustmentsPass::new(&inputs.local_adjustments, &inputs.mask_rasters)
+                .with_scope_layer(inputs.scope.layer),
+        ));
     }
     // Vignette (#1109) — develop's 12c position (after local_adjustments,
     // before sharpen). Same `apply` predicate as the raw-core stage's identity
@@ -435,7 +435,7 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if inputs.dehaze.abs() >= SLIDER_EPS {
         m |= 1 << 8;
     }
-    if local_adjustments_are_active(&inputs.local_adjustments) {
+    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
         m |= 1 << 16;
     }
     if inputs.vignette_amount.abs() >= SLIDER_EPS {
@@ -485,3 +485,9 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_gating.rs"]
 mod tests_gating;
+// The scope-pass alpha-lane contract (#3272) lives in its own file (600-LOC
+// budget); reuses `tests::run_live_chain` (`pub(super)` there). Same split
+// shape as `tests_gating`.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_scope.rs"]
+mod tests_scope;

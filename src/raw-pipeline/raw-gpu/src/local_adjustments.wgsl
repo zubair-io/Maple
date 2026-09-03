@@ -54,7 +54,7 @@ struct Params {
     buf_width: u32,    // buffer row stride in pixels
     origin_x: u32,     // buffer's left edge in full-image pixels
     origin_y: u32,     // buffer's top edge in full-image pixels
-    _pad0: u32,
+    scope_layer: i32,  // scope-target layer index (#3272), or -1 for none
     inv_w: f32,        // 1 / (full_width - 1), or 0 when full_width == 1
     inv_h: f32,        // 1 / (full_height - 1), or 0 when full_height == 1
 };
@@ -624,25 +624,35 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let n = vec2<f32>(f32(x) * params.inv_w, f32(y) * params.inv_h);
 
     var p = px.rgb;
+    // Alpha carries the scope-target layer's weight instead of the upload's
+    // untouched 1.0 when a target is set (#3272); every other RGBA pass in
+    // the chain preserves whatever lands here unchanged (pinned by a test in
+    // `live_chain/tests.rs`), so the scope pass at the end of the view tail
+    // reads this same value.
+    var alpha = px.a;
     // Layers composite in order, in registers — see the module header for why
     // this is identical to the Rust stage's per-layer whole-image passes.
     for (var li: u32 = 0u; li < params.layer_count; li = li + 1u) {
         let layer = layers[li];
-        if (layer.flags.x == 0.0) {
-            continue;   // layer carries no controls; the Rust stage skips it
+        let is_scope_target = params.scope_layer >= 0 && li == u32(params.scope_layer);
+        if (layer.flags.x == 0.0 && !is_scope_target) {
+            continue;   // layer carries no controls and isn't the scope target
         }
         let geometric = mask_weight(layer, n);
-        if (geometric <= 0.0) {
-            continue;
+        var w = 0.0;
+        if (geometric > 0.0) {
+            // Range refinement (#3270): evaluated on `p`, the pixel ENTERING
+            // this layer (the previous layer's output, or this dispatch's
+            // input for the first layer) — never on this layer's own result.
+            w = geometric * range_weight(layer, p);
         }
-        // Range refinement (#3270): evaluated on `p`, the pixel ENTERING
-        // this layer (the previous layer's output, or this dispatch's
-        // input for the first layer) — never on this layer's own result.
-        let w = geometric * range_weight(layer, p);
-        if (w <= 0.0) {
+        if (is_scope_target) {
+            alpha = w;
+        }
+        if (layer.flags.x == 0.0 || w <= 0.0) {
             continue;
         }
         p = apply_pixel(p, layer, w);
     }
-    output_buf[i] = vec4<f32>(p, px.a);
+    output_buf[i] = vec4<f32>(p, alpha);
 }

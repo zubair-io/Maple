@@ -269,6 +269,7 @@ mod present_web_colorspace;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
+mod scope;
 mod sharpen;
 mod spatial;
 mod srgb_gamma;
@@ -298,7 +299,7 @@ pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rg
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use film_lut::{apply_film_lut, film_lut_flat_len, FilmLutPass};
 pub use full_chain::{
-    build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape,
+    build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape, ScopeRequest,
 };
 pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
@@ -314,6 +315,7 @@ pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass, SceneToneOptions};
+pub use scope::{encode_vectorscope, unpack_scope, ScopeStats, SCOPE_HIST_BYTE_LEN};
 pub use sharpen::SharpenPass;
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,

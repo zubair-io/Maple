@@ -41,7 +41,7 @@ use crate::stages::saturation;
 use crate::stages::scene_tone_controls::{highlights_mult, shadows_mult, smoothstep, LUMA_REC2020};
 use crate::stages::vibrance;
 use crate::stages::white_balance;
-use crate::types::{LocalAdjustment, MaskRaster, PartialAdjustments};
+use crate::types::{LocalAdjustment, Mask, MaskRaster, PartialAdjustments, RangeRefinement};
 
 pub mod hue;
 pub mod mask;
@@ -58,7 +58,8 @@ pub mod range;
 /// entry evaluates to weight 0, not a global correction.
 ///
 /// `img` must be `SceneLinearRec2020` (the working space between `dehaze`
-/// and `sharpen`).
+/// and `sharpen`). Thin wrapper over [`apply_with_scope`] with no scope
+/// target, discarding the (never-computed) weights.
 pub fn apply(img: &mut Image, layers: &[LocalAdjustment], rasters: &[Arc<MaskRaster>]) {
     let full = (img.width, img.height);
     apply_windowed(img, layers, rasters, (0, 0), full);
@@ -78,15 +79,81 @@ pub fn apply_windowed(
     origin: (i32, i32),
     full: (u32, u32),
 ) {
+    apply_core(img, layers, rasters, origin, full, None);
+}
+
+/// Mask geometry × range refinement at one pixel, in `[0, 1]` — the exact
+/// per-pixel weight [`apply_pixel`] scales its edit by. Shared by the
+/// ordinary loop below and the scope-recording loop in [`apply_core`] so
+/// the two can never disagree on the weight for the same input; the WGSL
+/// kernel (`raw-gpu/src/local_adjustments.wgsl`) reimplements this same
+/// sequence as its own parity-gated twin.
+#[inline]
+fn combined_weight(
+    mask: &Mask,
+    raster: Option<&MaskRaster>,
+    range: Option<&RangeRefinement>,
+    nx: f32,
+    ny: f32,
+    p: &[f32; 3],
+) -> f32 {
+    let geometric = mask::evaluate(mask, raster, nx, ny);
+    if geometric <= 0.0 {
+        return 0.0;
+    }
+    // Range refinement (#3270): evaluated on the pixel ENTERING this layer
+    // (the previous layer's output, or the stage's own input for the first
+    // layer) — never on this layer's own result, so it can't chase its own
+    // edit, and it tracks upstream exposure / white balance.
+    match range {
+        Some(r) => geometric * range::weight(r, *p),
+        None => geometric,
+    }
+}
+
+/// [`apply`], additionally recording one layer's per-pixel weight (#3272,
+/// spec §4/§5.4) — the value the vectorscope's scope pass weighs the
+/// display-encoded histogram by, letting the UI show "just this mask's
+/// colours" without a second render.
+///
+/// `scope_layer` names a layer by its index in `layers`. `None`, or an
+/// index `>= layers.len()`, records nothing and returns `None` — same
+/// contract as an absent scope target having no effect on the render.
+/// `Some(li)` where `li` is in range ALWAYS returns `Some(weights)`
+/// (`weights.len() == img.width * img.height`), even when that layer's
+/// `PartialAdjustments` are all `None`: unlike every other layer, a
+/// control-less scope-target layer is NOT skipped, because its weight is
+/// still wanted (the "select a mask, see nothing change but the scope"
+/// state right after Create, before any slider moves).
+pub fn apply_with_scope(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+    scope_layer: Option<usize>,
+) -> Option<Vec<f32>> {
+    let full = (img.width, img.height);
+    apply_core(img, layers, rasters, (0, 0), full, scope_layer)
+}
+
+/// The one loop both public entries share: windowed coordinates (#1157) and
+/// optional scope-weight recording (#3272).
+fn apply_core(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+    origin: (i32, i32),
+    full: (u32, u32),
+    scope_layer: Option<usize>,
+) -> Option<Vec<f32>> {
     if layers.is_empty() {
-        return;
+        return None;
     }
     img.assert_space(ColorSpace::SceneLinearRec2020);
 
     let w = img.width as usize;
     let h = img.height as usize;
     if w == 0 || h == 0 {
-        return;
+        return None;
     }
     let (full_w, full_h) = (full.0 as usize, full.1 as usize);
     // Normalized-coordinate denominators. For the common case (dim > 1),
@@ -109,6 +176,10 @@ pub fn apply_windowed(
         0.0
     };
 
+    let mut weights: Option<Vec<f32>> = scope_layer
+        .filter(|&li| li < layers.len())
+        .map(|_| vec![0.0f32; w * h]);
+
     // Row-parallel per layer (#1698). `mask::evaluate` is a pure function of
     // `(mask, nx, ny)` and `apply_pixel` reads and writes exactly one pixel,
     // so rows are independent and the per-pixel float sequence is unchanged —
@@ -121,43 +192,60 @@ pub fn apply_windowed(
     // hoist. Layers stay SEQUENTIAL: each layer composites on top of the
     // previous layer's result, so they cannot be fused or reordered.
     //
-    // No allocation: `par_chunks_mut` borrows the existing pixel buffer, and
-    // rayon's thread pool is process-global and already warm.
-    for layer in layers {
-        if layer.adjustments.is_empty() {
+    // No allocation PER LAYER: `par_chunks_mut` borrows the existing pixel
+    // buffer (and the weights buffer, when recording), and rayon's thread
+    // pool is process-global and already warm. The one allocation this
+    // function can make is the weights buffer itself, made ONCE above, not
+    // per layer or per pixel.
+    for (li, layer) in layers.iter().enumerate() {
+        let is_scope_target = Some(li) == scope_layer;
+        if layer.adjustments.is_empty() && !is_scope_target {
             continue;
         }
         // Resolved ONCE per layer, outside the pixel loop — `mask::resolve`
         // is a linear scan of `rasters`, and every pixel in this layer's
         // pass wants the SAME raster.
         let raster = mask::resolve(&layer.mask, rasters);
-        img.pixels
-            .par_chunks_mut(w)
-            .enumerate()
-            .for_each(|(y, row)| {
-                let ny = (origin.1 + y as i32) as f32 * inv_h;
-                for (x, p) in row.iter_mut().enumerate() {
-                    let nx = (origin.0 + x as i32) as f32 * inv_w;
-                    let geometric = mask::evaluate(&layer.mask, raster, nx, ny);
-                    if geometric <= 0.0 {
-                        continue;
+        if is_scope_target {
+            let weight_buf = weights
+                .as_mut()
+                .expect("scope_layer in range implies weights was allocated above");
+            img.pixels
+                .par_chunks_mut(w)
+                .zip(weight_buf.par_chunks_mut(w))
+                .enumerate()
+                .for_each(|(y, (row, weight_row))| {
+                    let ny = (origin.1 + y as i32) as f32 * inv_h;
+                    for (x, p) in row.iter_mut().enumerate() {
+                        let nx = (origin.0 + x as i32) as f32 * inv_w;
+                        let weight =
+                            combined_weight(&layer.mask, raster, layer.range.as_ref(), nx, ny, p);
+                        weight_row[x] = weight;
+                        if weight <= 0.0 || layer.adjustments.is_empty() {
+                            continue;
+                        }
+                        apply_pixel(p, &layer.adjustments, weight);
                     }
-                    // Range refinement (#3270): evaluated on the pixel
-                    // ENTERING this layer (the previous layer's output, or
-                    // the stage's own input for the first layer) — never on
-                    // this layer's own result, so it can't chase its own
-                    // edit, and it tracks upstream exposure / white balance.
-                    let weight = match layer.range.as_ref() {
-                        Some(r) => geometric * range::weight(r, *p),
-                        None => geometric,
-                    };
-                    if weight <= 0.0 {
-                        continue;
+                });
+        } else {
+            img.pixels
+                .par_chunks_mut(w)
+                .enumerate()
+                .for_each(|(y, row)| {
+                    let ny = (origin.1 + y as i32) as f32 * inv_h;
+                    for (x, p) in row.iter_mut().enumerate() {
+                        let nx = (origin.0 + x as i32) as f32 * inv_w;
+                        let weight =
+                            combined_weight(&layer.mask, raster, layer.range.as_ref(), nx, ny, p);
+                        if weight <= 0.0 {
+                            continue;
+                        }
+                        apply_pixel(p, &layer.adjustments, weight);
                     }
-                    apply_pixel(p, &layer.adjustments, weight);
-                }
-            });
+                });
+        }
     }
+    weights
 }
 
 /// Per-pixel adjustment application.
