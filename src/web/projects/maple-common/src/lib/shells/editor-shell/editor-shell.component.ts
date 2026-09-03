@@ -305,7 +305,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // Keys, the ⌘K command menu, the wheel and the before/after button all
   // resolve to intents executed there.
   readonly commandRouter: CommandRouterState = newCommandRouterState();
-  private readonly _wheel: WheelNudgeState = newWheelNudgeState();
+  readonly wheelNudge: WheelNudgeState = newWheelNudgeState();
   readonly commandMenuOpen = signal<boolean>(false);
   readonly commandMenuItems: readonly MuiCommandItem[] = commandMenuItems();
   protected keyshortcuts = (id: string) => ariaKeyshortcuts(id);
@@ -320,7 +320,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** Plain wheel at fit zoom nudges the armed tool (editor-shell-wheel.ts). */
   onCanvasWheel(e: WheelEvent): void {
-    onCanvasWheel(this, this._wheel, e);
+    onCanvasWheel(this, this.wheelNudge, e);
   }
 
   onComparePointerDown(e: PointerEvent): void {
@@ -378,7 +378,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     cleanupScrub(this, this._scrub);
     undoOnPointerCancel(this._undo);
     cancelCompare(this, this.commandRouter);
-    cleanupWheel(this, this._wheel);
+    cleanupWheel(this, this.wheelNudge);
     teardownPointerMove(this._chrome);
     // Editor-teardown persist trigger (#2018): leaving the editor (SPA
     // navigation, not just a hard tab close) is one of the write policy's

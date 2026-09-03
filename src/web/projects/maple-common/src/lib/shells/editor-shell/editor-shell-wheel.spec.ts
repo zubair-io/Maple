@@ -14,6 +14,7 @@ import {
   newWheelNudgeState,
   onCanvasWheel,
   unitFor,
+  wheelBurstActive,
 } from './editor-shell-wheel';
 
 function makeShell(
@@ -139,6 +140,35 @@ describe('onCanvasWheel', () => {
     // Sub-detent events extend the burst rather than each looking like a new
     // one, so the detent they add up to is still its first undo entry.
     expect(mocks.editorState.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the burst as in flight only until it goes idle', () => {
+    const { shell } = makeShell();
+    const state = newWheelNudgeState();
+    expect(wheelBurstActive(state, 1000)).toBe(false);
+    onCanvasWheel(shell, state, wheel(-DETENT_PX), 1000);
+    expect(wheelBurstActive(state, 1000)).toBe(true);
+    expect(wheelBurstActive(state, 1000 + BURST_MS)).toBe(true);
+    expect(wheelBurstActive(state, 1000 + BURST_MS + 1)).toBe(false);
+  });
+
+  it('opens a new undo entry for a detent that lands after the commit-on-release flush', () => {
+    vi.useFakeTimers();
+    try {
+      const { shell, mocks } = makeShell({ commitsOnRelease: true });
+      const state = newWheelNudgeState();
+      onCanvasWheel(shell, state, wheel(-DETENT_PX), 1000);
+      expect(mocks.editorState.commit).toHaveBeenCalledTimes(1);
+      // The flush closes the transaction, so the burst it belonged to is over
+      // even though the next detent is still inside BURST_MS.
+      vi.advanceTimersByTime(FLUSH_MS + 10);
+      expect(mocks.editorState.endGesture).toHaveBeenCalledTimes(1);
+      expect(wheelBurstActive(state, 1000 + FLUSH_MS + 10)).toBe(false);
+      onCanvasWheel(shell, state, wheel(-DETENT_PX), 1000 + FLUSH_MS + 10);
+      expect(mocks.editorState.commit).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('parks commit-on-release fields for the burst and flushes after the idle delay', () => {
