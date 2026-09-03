@@ -88,9 +88,10 @@ struct CropToolbar: View {
         guard let ratio = CropAspect.resolveAspect(
             state.cropAspectPreset, imgW: imgW, imgH: imgH
         ) else { return }
-        state.commit()
+        state.commit(kind: .crop, description: "Crop aspect")
         let angle = state.session.model.crop.angle
         state.session.model.crop = CropGeometry.centeredCropForAspect(ratio, imgW, imgH, angle)
+        state.session.endEdit()
     }
 
     // MARK: - Straighten
@@ -101,7 +102,9 @@ struct CropToolbar: View {
             set: { newValue in
                 if !straightenEditing {
                     straightenEditing = true
-                    state.commit() // one undo snapshot at the start of the drag
+                    // One transaction per drag (#2432): opened here, closed
+                    // by `onEditingChanged(false)` below.
+                    state.commit(kind: .crop, description: "Straighten")
                 }
                 var crop = state.session.model.crop
                 crop.angle = min(max(newValue, straightenMin), straightenMax)
@@ -116,7 +119,10 @@ struct CropToolbar: View {
                 value: binding,
                 in: straightenMin...straightenMax,
                 onEditingChanged: { editing in
-                    if !editing { straightenEditing = false }
+                    if !editing {
+                        straightenEditing = false
+                        state.session.endEdit()
+                    }
                 }
             )
             .accessibilityLabel("Straighten")
@@ -172,8 +178,9 @@ struct CropToolbar: View {
 
     private func reset() {
         guard canReset else { return }
-        state.commit()
+        state.commit(kind: .crop, description: "Reset crop")
         state.session.model.crop = .identity
         state.setCropAspect(.free)
+        state.session.endEdit()
     }
 }

@@ -179,9 +179,9 @@ struct CropOverlay: View {
                 }
                 guard var d = drag else { return }
                 if !d.committed {
-                    // One undo entry per gesture — snapshot before the first
-                    // mutation lands.
-                    state.commit()
+                    // One transaction per gesture (#2432) — opened before the
+                    // first mutation lands, closed in `onEnded` below.
+                    state.commit(kind: .crop, description: "Crop")
                     d.committed = true
                     drag = d
                 }
@@ -204,6 +204,7 @@ struct CropOverlay: View {
             }
             .onEnded { _ in
                 drag = nil
+                state.session.endEdit()
             }
     }
 

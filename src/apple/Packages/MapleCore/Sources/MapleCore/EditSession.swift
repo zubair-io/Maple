@@ -81,7 +81,10 @@ public final class EditSession {
             // (mirrors the web overlay). The sidecar write below still runs
             // so the rect persists. Leaving crop (cropEditingActive → false)
             // re-renders via its own `didSet`.
-            let onlyCropChanged = onlyCropFieldChanged(from: oldValue, to: model)
+            // Same classifier the transaction ring uses (#2432), so the
+            // per-tick render decision and the committed transaction's
+            // `invalidation` can never disagree.
+            let onlyCropChanged = InvalidationScope.classify(from: oldValue, to: model) == .crop
             if !(cropEditingActive && onlyCropChanged) {
                 _scheduleRender(phase: .fast)
             }
@@ -89,18 +92,6 @@ public final class EditSession {
                 Task { await store.update(model: model, culling: culling) }
             }
         }
-    }
-    /// True when `b` differs from `a` ONLY in the `crop` field — used by
-    /// `model`'s `didSet` to skip the render on a crop-handle drag while the
-    /// crop tool is armed (#638). Compares by zeroing the crop on both: if
-    /// the crop-stripped models are equal, the only delta was the crop.
-    private func onlyCropFieldChanged(from a: AdjustmentModel, to b: AdjustmentModel) -> Bool {
-        guard a.crop != b.crop else { return false }
-        var aStripped = a
-        var bStripped = b
-        aStripped.crop = .identity
-        bStripped.crop = .identity
-        return aStripped == bStripped
     }
 
     public var culling: CullingState {
@@ -380,8 +371,19 @@ public final class EditSession {
     /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
     /// `EditSession+UndoRedo.swift`. Internal rather than private so that
     /// sibling file can reach them.
-    @ObservationIgnored var undoStack: [AdjustmentModel] = []
-    @ObservationIgnored var redoStack: [AdjustmentModel] = []
+    @ObservationIgnored var undoStack: [EditTransaction] = []
+    @ObservationIgnored var redoStack: [EditTransaction] = []
+    /// The transaction opened by `beginEdit` and not yet closed by a
+    /// boundary (`endEdit` / next `beginEdit` / `undo` / `redo` / flush).
+    @ObservationIgnored var pendingEdit: PendingEdit?
+    @ObservationIgnored var nextTransactionID: UInt64 = 0
+    /// The most recently recorded, undone, or redone transaction — what
+    /// the UI and tests observe as "the action that just happened".
+    public internal(set) var lastCommittedTransaction: EditTransaction?
+    /// Receives every committed / undone / redone transaction's
+    /// description. Defaults to the system accessibility announcement;
+    /// tests inject a recorder.
+    @ObservationIgnored public var announcer: any EditAnnouncer = AccessibilityEditAnnouncer()
 
     // MARK: Internals (shared across EditSession+* extensions)
 
