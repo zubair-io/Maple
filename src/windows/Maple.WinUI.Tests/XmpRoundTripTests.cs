@@ -162,7 +162,7 @@ namespace Maple.WinUI.Tests
             Assert.Equal(0.5, curve[1].X, precision: 12);
             Assert.Equal(0.55, curve[1].Y, precision: 12);
 
-            Assert.Equal(authored, XmpWriter.Serialize(parsed));
+            Assert.Equal(authored, XmpWriter.Serialize(parsed!));
         }
 
         [Fact]
