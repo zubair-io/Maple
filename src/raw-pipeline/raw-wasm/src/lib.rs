@@ -52,6 +52,7 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
+pub mod white_balance_sample;
 /// wasm32 CPU develop memory budget (#2661) — the clamp every CPU render
 /// entry applies so a large-sensor develop cannot exhaust the 4 GiB wasm32
 /// heap, plus the `DEFAULT_TARGET_LONG_EDGE` the GPU one-shot entry and its
