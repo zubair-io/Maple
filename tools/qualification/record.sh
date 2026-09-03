@@ -50,7 +50,14 @@ OUT="$REPO_ROOT/test-fixtures/qualification/${source_id}.json"
 LOG="$(mktemp "${TMPDIR:-/tmp}/qualification-${source_id}.XXXXXX")"
 trap 'rm -f "$LOG"' EXIT
 
-echo "qualification: running [$source_id] on [$backend]: $*"
+# Shell-escaped argv: the log line and the record's `command` field show
+# the exact command executed, quoting intact (`bash -c 'cd … && …'` stays
+# one argument), so a CI log can be correlated with — and re-run as — the
+# committed record.
+command_text="$(printf '%q ' "$@")"
+command_text="${command_text% }"
+
+echo "qualification: running [$source_id] on [$backend]: $command_text"
 suite_exit=0
 "$@" 2>&1 | tee "$LOG" || suite_exit=${PIPESTATUS[0]}
 echo "qualification: suite exited $suite_exit"
@@ -118,10 +125,6 @@ fi
 
 git_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "")"
 recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-# Shell-escaped argv so the recorded command keeps its quoting and is
-# re-runnable as written (`bash -c 'cd … && …'` stays one argument).
-command_text="$(printf '%q ' "$@")"
-command_text="${command_text% }"
 
 "$BIN" \
   --source "$source_id" \
