@@ -256,6 +256,18 @@ extension XMPSerializer {
         if model.wbMethod != .cat16 {
             attrs.append(("papp:WbMethod", model.wbMethod.rawValue))
         }
+        // White-balance provenance (#2434): omit-on-default; the sample point
+        // travels only with a sampled source, the version only when derived.
+        if model.wbSource != .asShot {
+            attrs.append(("papp:WbSource", model.wbSource.rawValue))
+        }
+        if model.wbSource == .sampled {
+            attrs.append(("papp:WbSampleX", fmtNum(model.wbSampleX)))
+            attrs.append(("papp:WbSampleY", fmtNum(model.wbSampleY)))
+        }
+        if model.wbAlgorithmVersion != 0 {
+            attrs.append(("papp:WbAlgorithmVersion", fmtNum(model.wbAlgorithmVersion)))
+        }
         // Per-channel point tone-curve mode (#436; wired into Swift by
         // #2216) — the default `.perChannel` is omitted.
         if model.toneCurveMode != .perChannel {

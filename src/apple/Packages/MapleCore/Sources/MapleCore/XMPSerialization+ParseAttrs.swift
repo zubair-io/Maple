@@ -150,6 +150,15 @@ extension _XMPParserDelegate {
         // "CAT16" spelling for the CAT16 variant (`xmp/fields.rs`), folded
         // in here by the same lowercase match. Unknown values keep the
         // current model value (default `.cat16`).
+        // White-balance provenance (#2434). Case-insensitive like the other
+        // papp: enums; unknown values keep the default (`.asShot`).
+        case "papp:WbSource":
+            if let source = WbSource.allCases.first(where: { $0.rawValue.lowercased() == value.lowercased() }) {
+                model.wbSource = source
+            }
+        case "papp:WbSampleX":          model.wbSampleX = d(value) ?? model.wbSampleX
+        case "papp:WbSampleY":          model.wbSampleY = d(value) ?? model.wbSampleY
+        case "papp:WbAlgorithmVersion": model.wbAlgorithmVersion = d(value) ?? model.wbAlgorithmVersion
         case "papp:WbMethod":
             switch value.lowercased() {
             case "cat16":           model.wbMethod = .cat16
