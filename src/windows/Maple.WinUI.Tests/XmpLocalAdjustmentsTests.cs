@@ -100,8 +100,10 @@ namespace Maple.WinUI.Tests
 
         public void Dispose()
         {
+            // Best-effort cleanup of a temp directory: nothing here may fail
+            // the test run (Copilot review on #3258).
             try { Directory.Delete(_dir, recursive: true); }
-            catch (IOException) { /* best-effort cleanup */ }
+            catch (Exception) { /* best-effort cleanup */ }
         }
 
         private static string Sidecar(string children) => string.Join("\n", new[]
