@@ -172,13 +172,27 @@ describe('EditorStateService transactions', () => {
     expect(model().exposure).toBe(1);
   });
 
-  it('assigns monotonic transaction ids', () => {
+  it('assigns monotonic transaction ids that restart per binding', () => {
     for (let i = 1; i <= 3; i++) {
       svc.commit();
       lib.updateAdjustment(ID, { exposure: i });
       svc.endEdit();
     }
     expect(svc.undoHistory().map((t) => t.id)).toEqual([1, 2, 3]);
+    svc.bind('asset-2');
+    svc.commit();
+    lib.updateAdjustment('asset-2', { exposure: 1 });
+    svc.endEdit();
+    expect(svc.undoHistory().map((t) => t.id)).toEqual([1]);
+  });
+
+  it('does not report a pending edit for a key-order-only model difference', () => {
+    svc.commit();
+    const current = model();
+    // Same values, keys re-ordered: not a change.
+    const reordered = Object.fromEntries(Object.entries(current).reverse()) as AdjustmentModel;
+    lib.updateAdjustment(ID, reordered);
+    expect(svc.canUndo()).toBe(false);
   });
 
   it('announces committed, undone and redone changes', () => {

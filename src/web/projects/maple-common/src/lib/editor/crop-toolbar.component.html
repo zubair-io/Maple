@@ -8,6 +8,7 @@
     (angleChanged)="onStraighten($event)"
     straightenTestId="crop-straighten"
     (straightenDragStart)="onStraightenStart()"
+    (straightenDragEnd)="onStraightenEnd()"
     resetTestId="crop-reset"
     [resetDisabled]="!canReset()"
     (resetRequested)="reset()"
