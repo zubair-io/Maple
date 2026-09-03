@@ -160,7 +160,7 @@ pub(super) fn render_fit_origin(sensor_long_edge: u32, max_long_edge: Option<u32
     let native_is_canonical = sensor_long_edge <= AUTO_FIT_SIZED_SENSOR_LE;
     // The sized develop never upscales, so a cap at or above the sensor's
     // long edge IS the native develop — key it that way rather than as one
-    // entry per requested cap (Copilot review on #3286).
+    // entry per requested cap (#3233 / #3235).
     let effective_cap = max_long_edge.filter(|&cap| cap < sensor_long_edge);
     match effective_cap {
         None if native_is_canonical => FitOrigin::Standalone,
@@ -234,13 +234,12 @@ pub fn fit_profile_curve_from_raw(
     if model.profile != Profile::Auto {
         return None;
     }
-    // Mirror the cache lookup in the render path so a hit on either path
-    // serves the other without re-fitting.
-    // Curve-only origin (#3233): this entry's artifact is a display-CDF
-    // curve with no residual, which is not what the pair producers store
-    // under the standalone key (acr2 keeps an IDENTITY curve there and puts
-    // everything in the LUT) — sharing the key handed either side the
-    // other's artifact depending on who fitted first.
+    // Same LRU as the render path, but under its OWN origin (#3233): this
+    // entry's artifact is a display-CDF curve with no residual, which is
+    // not what the pair producers store under the standalone key (acr2
+    // keeps an IDENTITY curve there and puts everything in the LUT) — when
+    // the two shared a key, whichever fitted first served the other its
+    // artifact. A hit here is therefore only ever a previous curve-only fit.
     let auto_cache_key = match &raw_source {
         RawInput::Path(p) => CacheKey::from_path(p, quality),
         RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes, quality)),
