@@ -21,12 +21,12 @@ use std::ffi::{c_char, CStr};
 /// Returns 0 on success. Error codes mirror `maple_render_file_scene_linear`
 /// plus:
 ///   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
-///   - 10: model not tile-compatible — dehaze (radius 67 exceeds the
-///          overlap pad), vignette (full-frame anchor not threaded, #1109
-///          / #11), BM3D deep denoise (frame-anchored patch grid, #1105),
-///          a non-identity local adjustment (full-image-normalized mask
-///          coords, #1084), or active capture sharpening (RL stencil
-///          exceeds the overlap pad, #1084). Caller should fall back to
+///   - 10: model not tile-compatible — dehaze (whole-frame statistics +
+///          a radius-60 transmission refine; needs a full-frame proxy
+///          plane), BM3D deep denoise (frame-anchored patch grid, #1105),
+///          or a DNG carrying OpcodeList3 (#1932). Vignette, local
+///          adjustments and capture sharpening tile since #1157 (windowed
+///          point ops + computed overlap). Caller should fall back to
 ///          fit-zoom rendering.
 ///   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
 ///   - 12: `(out_w, out_h)` aspect does not match `(src_w, src_h)` —
