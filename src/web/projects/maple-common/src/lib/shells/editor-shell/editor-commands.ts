@@ -355,16 +355,18 @@ export function commandMenuItems(): readonly MuiCommandItem[] {
 export function ariaKeyshortcuts(id: string): string | null {
   const command = EDITOR_COMMANDS.find((c) => c.id === id);
   if (!command) return null;
+  // `meta` matches ⌘ or Ctrl (chordMatches), so announce both variants.
   return command.chords
-    .map((chord) => {
+    .flatMap((chord) => {
       const key = typeof chord.key === 'string' ? chord.key : chord.key[0];
-      const parts = [
-        ...(chord.meta ? ['Meta'] : []),
+      const tail = [
         ...(chord.alt ? ['Alt'] : []),
         ...(chord.shift ? ['Shift'] : []),
         key.length === 1 ? key.toUpperCase() : key,
       ];
-      return parts.join('+');
+      return chord.meta
+        ? [['Meta', ...tail].join('+'), ['Control', ...tail].join('+')]
+        : [tail.join('+')];
     })
     .join(' ');
 }
