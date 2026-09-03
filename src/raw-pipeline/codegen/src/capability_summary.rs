@@ -108,7 +108,7 @@ pub(crate) fn emit_md(registry: &[Capability], evidence: &Evidence) -> String {
     s.trim_end().to_owned() + "\n"
 }
 
-fn md_list<'a>(label: &str, items: impl Iterator<Item = &'a str>) -> String {
+pub(crate) fn md_list<'a>(label: &str, items: impl Iterator<Item = &'a str>) -> String {
     let quoted: Vec<String> = items.map(|i| format!("`{i}`")).collect();
     if quoted.is_empty() {
         format!("- {label}: none\n")
@@ -117,7 +117,7 @@ fn md_list<'a>(label: &str, items: impl Iterator<Item = &'a str>) -> String {
     }
 }
 
-fn md_findings(label: &str, findings: &[Finding]) -> String {
+pub(crate) fn md_findings(label: &str, findings: &[Finding]) -> String {
     if findings.is_empty() {
         return format!("- {label}: none declared\n");
     }
@@ -138,7 +138,7 @@ fn md_findings(label: &str, findings: &[Finding]) -> String {
 
 /// A tiny ordered JSON tree — `serde_json::Value` sorts object keys, and
 /// the summary wants declaration order.
-enum J {
+pub(crate) enum J {
     Str(String),
     Num(u64),
     Null,
@@ -146,7 +146,7 @@ enum J {
     Obj(Vec<(&'static str, J)>),
 }
 
-fn strs<'a>(items: impl Iterator<Item = &'a str>) -> J {
+pub(crate) fn strs<'a>(items: impl Iterator<Item = &'a str>) -> J {
     J::Arr(items.map(|s| J::Str(s.to_owned())).collect())
 }
 
@@ -264,7 +264,7 @@ pub(crate) fn emit_json(registry: &[Capability], evidence: &Evidence) -> String 
     out
 }
 
-fn json_string(s: &str) -> String {
+pub(crate) fn json_string(s: &str) -> String {
     serde_json::to_string(s).expect("string serializes")
 }
 
@@ -272,7 +272,7 @@ fn json_string(s: &str) -> String {
 /// the whole line — `used` columns already on it (indent + key) plus the
 /// array and a trailing comma — fits in 100 columns, otherwise one element
 /// per line.
-fn print_json(v: &J, indent: usize, used: usize, out: &mut String) {
+pub(crate) fn print_json(v: &J, indent: usize, used: usize, out: &mut String) {
     let pad = " ".repeat(indent);
     let inner = " ".repeat(indent + 2);
     match v {
