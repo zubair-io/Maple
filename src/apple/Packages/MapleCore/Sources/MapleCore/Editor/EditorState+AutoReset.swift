@@ -19,7 +19,8 @@ extension EditorState {
     /// (`commit()` then a single `session.model` write, mirroring
     /// `applyPreset`). (#1372)
     public func resetToFactoryDefaults() {
-        commit()
+        commit(kind: .reset, description: "Reset all adjustments")
+        defer { session.endEdit() }
         var m = AdjustmentModel.default
         m.crop = session.model.crop // preserve crop / rotation
         if let cct = session.asShotCCT, let tint = session.asShotTint {
@@ -73,7 +74,8 @@ extension EditorState {
         func clamp(_ v: Double, _ r: ClosedRange<Double>) -> Double {
             min(max(v, r.lowerBound), r.upperBound)
         }
-        commit()
+        commit(kind: .auto, description: "Auto adjustments")
+        defer { session.endEdit() }
         var m = session.model
         // AUTO applies EXPOSURE + the five calibrated tone sliders (#2255).
         // White balance is intentionally NOT touched: single-image gray-world
