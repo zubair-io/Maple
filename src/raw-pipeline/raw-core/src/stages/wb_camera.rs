@@ -284,7 +284,7 @@ pub fn resolve_target(model: &AdjustmentModel, frame: &SliderFrame) -> (f32, f32
 /// point `(scene_cct, scene_tint)`, within the 0.5 K / 0.5-tint tolerance
 /// `stages::white_balance::apply` uses — the single identity test [`apply`]
 /// and [`retargeted_render_profile`] share (#2321).
-fn is_as_shot_target(frame: &SliderFrame, temperature: f32, tint: f32) -> bool {
+pub(crate) fn is_as_shot_target(frame: &SliderFrame, temperature: f32, tint: f32) -> bool {
     (temperature - frame.scene_cct).abs() < 0.5 && (tint - frame.scene_tint).abs() < 0.5
 }
 
