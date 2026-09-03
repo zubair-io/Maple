@@ -169,6 +169,15 @@ public final class GpuLiveDriver {
   /// `session.gpuLiveDriver?.frameStats`.
   public let frameStats = GpuFrameTimeStats()
 
+  /// The most recent vectorscope scope sample `present` reported — `nil`
+  /// until the first one lands (scope disabled, or the one-tick-late FFI
+  /// contract hasn't produced a sample yet). Same "driver-owned, read by
+  /// the view after the fact" shape as `frameStats`; `presentViaGpuLive`
+  /// mirrors a fresh value onto `EditSession.scopeSample`, so a readback
+  /// miss correctly leaves the PREVIOUS sample in place rather than
+  /// flashing to nothing every tick scope stats didn't happen to update.
+  public private(set) var lastScopeSample: ScopeSample?
+
   /// Cancel flag of the most-recent present. The CPU path drops a stale
   /// render at the `renderedPreview =` generation gate; the GPU present has
   /// no such gate — once `present_chain_to_surface` runs, it's on screen. So
@@ -343,6 +352,8 @@ public final class GpuLiveDriver {
     asShotCCT: Double? = nil,
     asShotTint: Double? = nil,
     wbFrame: WbSliderFrame? = nil,
+    scopeEnabled: Bool = false,
+    scopeLayer: Int32 = -1,
     onError: (Error) -> Void
   ) async -> Bool {
     guard !Task.isCancelled else { return false }
@@ -390,30 +401,38 @@ public final class GpuLiveDriver {
     let cancel = CancelFlag()
     inFlightCancel = cancel
     do {
-      let elapsedMs = try await withTaskCancellationHandler {
+      let result = try await withTaskCancellationHandler {
         try await s.present(
           model: model, layer: layer, cancel: cancel,
           asShotCCT: asShotCCT, asShotTint: asShotTint,
           inputShape: self.inputShape,
           surfaceGeneration: submittedSurfaceGeneration,
           wbFrame: wbFrame,
-          targetColorSpace: colorSpace
+          targetColorSpace: colorSpace,
+          scopeEnabled: scopeEnabled,
+          scopeLayer: scopeLayer
         )
       } onCancel: {
         cancel.requestCancel()
       }
       withExtendedLifetime(cancel) {}
-      guard let elapsedMs, !Task.isCancelled, revision == sessionRevision,
+      guard let result, !Task.isCancelled, revision == sessionRevision,
         submittedSurfaceGeneration == surfaceGeneration, layer === self.layer
       else {
         gpuDriverLog.debug("GPU present did not publish a current frame")
         return false
       }
-      gpuDriverLog.notice("GPU-TRACE driver.present OK \(elapsedMs)ms")
+      gpuDriverLog.notice("GPU-TRACE driver.present OK \(result.elapsedMs)ms")
       if let dims = sessionDims {
         lastPresentedKey = (submittedSurfaceGeneration, dims.width, dims.height)
       }
-      if GpuHudFlag.isEnabled { frameStats.record(elapsedMs) }
+      // Only overwrite on an actual new sample — a one-off readback miss
+      // (the one-tick-late FFI contract) leaves the previous sample in
+      // place rather than flashing to nothing.
+      if let scope = result.scope {
+        lastScopeSample = scope
+      }
+      if GpuHudFlag.isEnabled { frameStats.record(result.elapsedMs) }
       return true
     } catch is CancellationError {
       return false
