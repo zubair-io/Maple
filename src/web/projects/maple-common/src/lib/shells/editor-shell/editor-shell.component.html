@@ -112,8 +112,10 @@
         >{{ assetName() }}</span
       >
 
-      <!-- Command menu (#2450) — ⌘K / ?: every keyboard command, discoverable
-           and clickable; picks route through the same command router. -->
+      <!-- Command menu toggle (#2450) — ⌘K / ?: every keyboard command,
+           discoverable and clickable; the palette itself renders at the
+           shell root (below) so it stacks above the chrome layer and the
+           Hosted save notice, and picks route through the command router. -->
       <div class="relative shrink-0">
         <button
           class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
@@ -127,13 +129,6 @@
         >
           <maple-icon name="search-sliders" [size]="14" color="var(--pro-text-muted)" />
         </button>
-        <mui-command-menu
-          [open]="commandMenuOpen()"
-          [commands]="commandMenuItems"
-          placeholder="Type a command"
-          (select)="onCommandMenuSelect($event)"
-          (closeRequested)="commandMenuOpen.set(false)"
-        />
       </div>
 
       <!-- Center spacer -->
@@ -652,6 +647,21 @@
       />
     </mui-sheet-shell>
   }
+
+  <!-- Command palette (#2450) — centred under the top bar, above every
+       other layer (the chrome layer is z-10, the Hosted save notice z-[12]). -->
+  <div
+    class="pointer-events-auto absolute top-[62px] left-1/2 z-[210] -translate-x-1/2"
+    data-testid="editor-shell-command-palette"
+  >
+    <mui-command-menu
+      [open]="commandMenuOpen()"
+      [commands]="commandMenuItems"
+      placeholder="Type a command"
+      (select)="onCommandMenuSelect($event)"
+      (closeRequested)="commandMenuOpen.set(false)"
+    />
+  </div>
 
   <!-- Export options dialog (#943) -->
   <app-export-dialog
