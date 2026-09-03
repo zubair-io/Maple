@@ -74,6 +74,15 @@ impl EvidenceRecord {
                 .and_then(|n| u32::try_from(n).ok())
                 .ok_or_else(|| format!("missing or out-of-range integer field `{k}`"))
         };
+        // Informational fields may be absent or null, but a present value
+        // of the wrong type is still a malformed record.
+        let optional_str = |k: &str| -> Result<String, String> {
+            match v.get(k) {
+                None | Some(Value::Null) => Ok(String::new()),
+                Some(Value::String(s)) => Ok(s.clone()),
+                Some(_) => Err(format!("field `{k}` must be a string when present")),
+            }
+        };
         let source_id = str_field("source")?;
         let source = EvidenceSource::from_id(&source_id)
             .ok_or_else(|| format!("unknown evidence source `{source_id}`"))?;
@@ -87,9 +96,9 @@ impl EvidenceRecord {
             executed_cases: u32_field("executed_cases")?,
             failed_cases: u32_field("failed_cases")?,
             skipped_cases: u32_field("skipped_cases")?,
-            git_sha: str_field("git_sha").unwrap_or_default(),
-            recorded_at: str_field("recorded_at").unwrap_or_default(),
-            command: str_field("command").unwrap_or_default(),
+            git_sha: optional_str("git_sha")?,
+            recorded_at: optional_str("recorded_at")?,
+            command: optional_str("command")?,
         })
     }
 
@@ -139,9 +148,9 @@ pub struct Evidence {
 }
 
 impl Evidence {
-    /// Load every `<source>.json` under `dir` and hash every source's
-    /// corpus under `repo_root`. A missing directory is an empty
-    /// evidence set (every capability stays `Core`); an unparseable
+    /// Load every `<source>.json` under `dir` and hash the corpus (under
+    /// `repo_root`) of every source that has one. A missing directory is an
+    /// empty evidence set (every capability stays `Core`); an unparseable
     /// record or an unhashable corpus is an error.
     pub fn load(repo_root: &Path, dir: &Path) -> Result<Self, String> {
         let mut records = BTreeMap::new();
@@ -163,8 +172,11 @@ impl Evidence {
             }
             records.insert(*source, record);
         }
-        let corpus_hashes = EvidenceSource::ALL
-            .iter()
+        // A corpus hash is only ever compared against a record, so only the
+        // recorded sources are hashed — `tools/codegen.sh` loads evidence
+        // once per emitted target, and the corpora include binary fixtures.
+        let corpus_hashes = records
+            .keys()
             .map(|s| hash_corpus(repo_root, s.corpus()).map(|h| (*s, h)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(Self {
