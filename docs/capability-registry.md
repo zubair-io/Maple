@@ -260,9 +260,9 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - DCP code-path coverage (ColorMatrix / ForwardMatrix / PTC)
 - Covers: none
 - Accepted backends: `cpu-reference`
-- Expected cases: 4
+- Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T03:53:58Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `fc9b994df96840b11cff25d9b513874ad81fa3a2`, recorded 2026-09-03T15:39:55Z
 
 ### `color_chart`
 

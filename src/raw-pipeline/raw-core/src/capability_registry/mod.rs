@@ -433,7 +433,7 @@ impl EvidenceSource {
         match self {
             EvidenceSource::GreyAdjustments => 40,
             EvidenceSource::SyntheticGrey => 6,
-            EvidenceSource::GreyDcp => 4,
+            EvidenceSource::GreyDcp => 5,
             EvidenceSource::ColorChart => 7,
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
