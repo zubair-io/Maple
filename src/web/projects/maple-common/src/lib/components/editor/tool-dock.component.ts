@@ -1,8 +1,8 @@
 // ToolDockComponent — domain wrapper around `mui-tool-dock` (Maple UI
-// organism). Nine Apple-parity entries: Light · Color · Effects · Detail ·
-// Crop · Tone Curve · Presets · Mask · Heal. Same set in both orientations
-// (MobileControlBar.swift:124) — a divider separates the four group buttons
-// from the special tools (ToolDock.swift:34).
+// organism). Ten Apple-parity entries: Light · Color · Effects · Detail ·
+// Crop · Tone Curve · Film · Presets · Mask · Heal — the same set, in the
+// same order, as `ToolDock.swift` (#2449 IA port), in both orientations —
+// a divider separates the four group buttons from the special tools.
 // Light / Color / Effects / Detail switch the active ToolGroup.
 // HSL, B&W and Grade no longer have dock buttons of their own — Apple's dock
 // carries none either. They're reached from the group-parameterised sub-tool
@@ -18,15 +18,21 @@
 // PresetsPanelComponent/PresetsService verbatim from the S5 editor, #1115).
 // Optics is dropped entirely: Apple has no such button, and Mask/Heal already
 // signal that more tools are coming.
-// Mask / Heal are visibly disabled with a tooltip + code comment referencing
-// the milestone ticket — NOT fake panels (CLAUDE.md #6) — and kept out of the
-// accessibility tree entirely via `mui-tool-dock`'s `ariaHidden` entry field
-// (`aria-hidden` + `tabindex="-1"`, no accessible name), mirroring Apple's
-// `DisabledDockPlaceholder.accessibilityHidden(true)`.
+// Film arms the Film tool directly (#2449 — Apple's dock carries a Film
+// entry since #2683 because its slider grid filters field-less tools out;
+// the Effects sub-tool chip reaches the same panel, so both routes exist).
+// Mask / Heal are the parity manifest's disabled placeholders
+// (`parityPlaceholders()`, editor/parity/editor-parity.ts — #2448): the
+// label and the milestone ticket come from the manifest, so "Mask is
+// disabled, see #1541" is said once for every platform. They render
+// visibly disabled with a tooltip — NOT fake panels (CLAUDE.md #6) — and
+// stay out of the accessibility tree entirely via `mui-tool-dock`'s
+// `ariaHidden` entry field (`aria-hidden` + `tabindex="-1"`, no accessible
+// name), mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`.
 //
 // The circle+label+dot glass chrome itself (#3046) now lives in
 // `mui-tool-dock`/`mui-action-button` — this wrapper's own job is building
-// the `MuiToolDockEntry[]` view-model from the nine Apple entries plus the
+// the `MuiToolDockEntry[]` view-model from the ten Apple entries plus the
 // focused asset's `AdjustmentModel`, and translating the dock's generic
 // `toolSelected(id)` press back into the four typed outputs callers already
 // depend on (`groupChange`/`toolChange`/`curvePanelToggle`/`presetsPanelToggle`).
@@ -44,6 +50,7 @@ import {
   type ToolId,
 } from '../../editor/tool-model';
 import { subParamsFor } from '../../editor/tool-sub-param';
+import { parityPlaceholders } from '../../editor/parity/editor-parity';
 import { LibraryStateService } from '../../state/library-state.service';
 import {
   defaultGeneratedAdjustmentModel,
@@ -70,10 +77,14 @@ export interface DockEntry {
   /** If set, clicking this entry switches the active group. */
   group?: ToolGroup;
   /** If set, clicking this entry arms this specific tool (rather than the
-   *  first tool of a group) — used for stub tools with their own affordance,
-   *  e.g. Crop, which is driven by the canvas overlay + crop toolbar rather
-   *  than a group's living-slider stack. */
+   *  first tool of a group) — used for tools with their own affordance,
+   *  e.g. Crop (canvas overlay + crop toolbar) and Film (catalog panel). */
   tool?: ToolId;
+  /** True when arming `tool` REPLACES the group's control surface (Crop's
+   *  toolbar) — the tool's group entry must not also read active then. A
+   *  tool that renders inside the control card (Film) keeps its group lit,
+   *  matching Apple, where the group button follows `armedGroup`. */
+  exclusive?: boolean;
   /** If true, entry is shown but non-interactive (coming in a later milestone). */
   disabled?: boolean;
   /** Code comment indicating the milestone ticket for disabled items. */
@@ -85,46 +96,51 @@ export interface DockEntry {
   divideBefore?: boolean;
 }
 
-const DOCK_ENTRIES: DockEntry[] = [
+/** Icons are presentation, so they stay here; everything else about a
+ *  placeholder (label, disabled, ticket) is read from the parity manifest. */
+const PLACEHOLDER_ICONS: Readonly<Record<string, MapleIconName>> = {
+  'shell.placeholder-mask': 'tool-dehaze',
+  'shell.placeholder-heal': 'tool-texture',
+};
+
+const PLACEHOLDER_ENTRIES: readonly DockEntry[] = parityPlaceholders().map((row) => ({
+  id: row.id.replace(/^shell\.placeholder-/, ''),
+  icon: PLACEHOLDER_ICONS[row.id] ?? 'tool-dehaze',
+  label: row.name,
+  disabled: true,
+  ticket: row.exception?.ticket ?? undefined,
+}));
+
+const DOCK_ENTRIES: readonly DockEntry[] = [
   { id: 'light', icon: 'tool-exposure', label: 'Light', group: 'light' },
   { id: 'color', icon: 'tool-tint', label: 'Color', group: 'color' },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
   { id: 'detail', icon: 'tool-sharpen', label: 'Detail', group: 'detail' },
-  // Divider: groups above, special tools below — mirrors ToolDock.swift:34.
+  // Divider: groups above, special tools below — mirrors ToolDock.swift.
   {
     id: 'crop',
     icon: 'tool-crop',
     label: 'Crop',
     tool: 'crop',
+    exclusive: true,
     divideBefore: true,
   },
   { id: 'curve', icon: 'tool-contrast', label: 'Tone Curve', panel: true },
+  { id: 'film', icon: 'tool-film', label: 'Film', tool: 'filmLook' },
   { id: 'presets', icon: 'tool-presets', label: 'Presets', panel: true },
-  // HSL, B&W and Grade are reached from the Colour sub-tool row inside the
-  // flyout panel (see control-card.component.ts), not from the dock — Apple's
-  // dock carries no button for them either. Optics is dropped: Apple has no
-  // such button and Mask/Heal already signal that more tools are coming.
-  {
-    id: 'mask',
-    icon: 'tool-dehaze',
-    label: 'Mask',
-    disabled: true,
-    ticket: '#1541',
-  },
-  {
-    id: 'heal',
-    icon: 'tool-texture',
-    label: 'Heal',
-    disabled: true,
-    ticket: '#1472',
-  },
+  // HSL, B&W and Grade are reached from the Colour/Effects sub-tool row
+  // inside the control card (see control-card.component.ts), not from the
+  // dock — Apple's dock carries no button for them either. Optics is
+  // dropped: Apple has no such button and Mask/Heal already signal that
+  // more tools are coming.
+  ...PLACEHOLDER_ENTRIES,
 ];
 
-/** Tools that have their own dock entry (Crop) — a group entry must NOT show
- *  active while one of these is armed, even though the tool lives inside
- *  that group (Crop is in `detail`). */
-const DOCK_TOOL_IDS = new Set<ToolId>(
-  DOCK_ENTRIES.map((e) => e.tool).filter((t): t is ToolId => t != null),
+/** Tools whose dock entry REPLACES the group's control surface (Crop) — a
+ *  group entry must NOT show active while one of these is armed, even
+ *  though the tool lives inside that group (Crop is in `detail`). */
+const EXCLUSIVE_TOOL_IDS = new Set<ToolId>(
+  DOCK_ENTRIES.filter((e) => e.exclusive).map((e) => e.tool!),
 );
 
 @Component({
@@ -224,6 +240,12 @@ export class ToolDockComponent {
     // special-cased ahead of that guard (Apple parity: ToolDock.swift:174
     // checks `crop.isIdentity` before its own `isWired` guard).
     if (tool === 'crop') return !isIdentityCrop(adj.crop);
+    // Film (#2683) is a catalog pick (a string id, no sub-param of its own)
+    // plus the Strength scalar — the dot lights whenever a look is chosen,
+    // independent of Strength (ToolDock.swift's GroupDockButton rule).
+    if (tool === 'filmLook') {
+      return adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength;
+    }
     if (!isWired(tool)) return false;
     const subParams = subParamsFor(tool);
     if (subParams.length > 0) {
@@ -275,7 +297,7 @@ export class ToolDockComponent {
     if (entry.panel) return this.panelOpenFor(entry);
     if (entry.tool) return entry.tool === this.activeTool();
     const armed = this.activeTool();
-    if (armed != null && DOCK_TOOL_IDS.has(armed)) return false;
+    if (armed != null && EXCLUSIVE_TOOL_IDS.has(armed)) return false;
     return !!entry.group && entry.group === this.activeGroup();
   }
 
@@ -286,7 +308,7 @@ export class ToolDockComponent {
     return entry.disabled ? `${entry.label} — coming in ${entry.ticket}` : entry.label;
   }
 
-  /** The `MuiToolDockEntry[]` view-model fed to `<mui-tool-dock>` — the nine
+  /** The `MuiToolDockEntry[]` view-model fed to `<mui-tool-dock>` — the ten
    *  Apple entries, each carrying this frame's active/modified/hidden state,
    *  with a divider spliced in ahead of Crop. */
   readonly dockEntries = computed<readonly MuiToolDockEntry[]>(() => {
@@ -324,7 +346,7 @@ export class ToolDockComponent {
   }
 
   /** `<mui-tool-dock>` presses back a bare entry id — resolve it against the
-   *  nine Apple entries and dispatch the same way `onEntryClick` always has. */
+   *  ten Apple entries and dispatch the same way `onEntryClick` always has. */
   onDockToolSelected(id: string): void {
     const entry = DOCK_ENTRIES.find((e) => e.id === id);
     if (entry) this.onEntryClick(entry);
