@@ -12,6 +12,7 @@ A tier is computed, never asserted. The four lower tiers follow the profile reso
 - Pipeline output version: 2
 - Sidecar schema version: 5
 - Bundled camera models: 1406
+- Profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Fixtured bodies: 16 (0 qualified, 14 profiled, 0 matrix-only, 1 decode-only, 1 unsupported)
 
 ## Tiers

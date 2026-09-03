@@ -3,7 +3,9 @@
   "build": {
     "tier_schema_version": 1,
     "pipeline_output_version": 2,
-    "schema_version": 5
+    "schema_version": 5,
+    "profile_bundle_format": 1,
+    "profile_bundle_digest": "blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a"
   },
   "tiers": [
     {

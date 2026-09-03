@@ -55,6 +55,10 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
         registry.bundled_models.len()
     ));
     s.push_str(&format!(
+        "- Profile bundle: format v{}, `{}`\n",
+        registry.profile_bundle_format, registry.profile_bundle_digest
+    ));
+    s.push_str(&format!(
         "- Fixtured bodies: {} ({} qualified, {} profiled, {} matrix-only, {} decode-only, {} unsupported)\n\n",
         registry.bodies.len(),
         count(CameraTier::Qualified),
@@ -199,6 +203,14 @@ pub(crate) fn emit_json(registry: &SupportRegistry, evidence: &Evidence) -> Stri
                     J::Num(build.pipeline_version.into()),
                 ),
                 ("schema_version", J::Num(build.schema_version.into())),
+                (
+                    "profile_bundle_format",
+                    J::Num(registry.profile_bundle_format.into()),
+                ),
+                (
+                    "profile_bundle_digest",
+                    J::Str(registry.profile_bundle_digest.clone()),
+                ),
             ]),
         ),
         ("tiers", J::Arr(tiers)),
