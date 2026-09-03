@@ -240,9 +240,12 @@ export class ToolDockComponent {
     // special-cased ahead of that guard (Apple parity: ToolDock.swift:174
     // checks `crop.isIdentity` before its own `isWired` guard).
     if (tool === 'crop') return !isIdentityCrop(adj.crop);
-    // Film (#2683) is a catalog pick (a string id, no sub-param of its own)
-    // plus the Strength scalar — the dot lights whenever a look is chosen,
-    // independent of Strength (ToolDock.swift's GroupDockButton rule).
+    // Film (#2683) is a catalog pick (a string id, not a sub-param) plus the
+    // Strength scalar. ToolDock.swift's GroupDockButton rule, mirrored
+    // exactly: the dot lights when a look is chosen (whatever Strength is)
+    // OR when Strength has left its default (it is a persisted, copyable
+    // field even with no look chosen — Apple declares it as Film's one
+    // sub-param, so its own sub-param check lights the dot too).
     if (tool === 'filmLook') {
       return adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength;
     }

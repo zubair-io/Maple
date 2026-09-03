@@ -278,6 +278,19 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(fixture.componentInstance.scopesOpen()).toBe(false);
     });
 
+    it('stays closed while the Noise sub-param panel owns the anchor', () => {
+      setup(1440);
+      fixture.componentInstance.onToolChange('noise');
+      fixture.detectChanges();
+      expect(landmark('Noise')).not.toBeNull();
+      byTestId('editor-shell-scopes')!.click();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.scopesOpen()).toBe(false);
+      expect(byTestId('editor-shell-scopes-panel')).toBeNull();
+      fixture.componentInstance.onCurvePanelToggle();
+      expect(fixture.componentInstance.curveOpen()).toBe(false);
+    });
+
     it('reports the no-frame state instead of mounting the organism without pixels', () => {
       setup(1440);
       byTestId('editor-shell-scopes')!.click();
