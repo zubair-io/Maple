@@ -435,7 +435,7 @@ namespace Maple.WinUI
                 Title = "ABOUT",
                 Rows = new[]
                 {
-                    new MuiSettingsSectionRow("version", "Maple Aperture", "info", $"Version {version}"),
+                    new MuiSettingsSectionRow("version", "Maple", "info", $"Version {version}"),
                     new MuiSettingsSectionRow("app-id", "Application ID", null, "app.justmaple.aperture"),
                     new MuiSettingsSectionRow("integration", "Windows integration", null,
                         "Registered for the maple-app:// sign-in callback and RAW file types (first launch)."),
