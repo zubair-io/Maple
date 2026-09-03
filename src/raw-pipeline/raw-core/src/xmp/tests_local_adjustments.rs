@@ -512,3 +512,23 @@ fn parses_the_cross_language_canonical_block() {
         vec![linear_layer(), radial_layer()]
     );
 }
+
+#[test]
+fn local_hue_round_trips_through_crs_local_hue_at_adobe_scale() {
+    let mut model = AdjustmentModel::default();
+    model.local_adjustments = vec![LocalAdjustment::linear(
+        Point2::new(0.1, 0.1),
+        Point2::new(0.9, 0.9),
+        PartialAdjustments {
+            hue: Some(-35.0),
+            ..Default::default()
+        },
+    )];
+    let children = serialize_local_adjustments(&model, INDENT);
+    assert!(
+        children.contains(r#"crs:LocalHue="-0.35""#),
+        "hue is written on Adobe's ±1 scale:\n{children}"
+    );
+    let parsed = parse(&sidecar(&children)).expect("parse");
+    assert_eq!(parsed.local_adjustments[0].adjustments.hue, Some(-35.0));
+}

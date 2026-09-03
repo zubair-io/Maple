@@ -80,6 +80,9 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
         vibrance: attr_f32(e, "papp:LocalVibrance")?,
         temperature: attr_f32(e, "crs:LocalTemperature")?,
         tint: attr_f32(e, "crs:LocalTint")?,
+        // Adobe stores LocalHue on a ±1 scale; Maple's slider is ±100 (#3269).
+        // Pinned to a Lightroom-authored fixture when one exists (spec §11).
+        hue: attr_f32(e, "crs:LocalHue")?.map(|v| v * 100.0),
     };
     // Amount==1 is the overwhelmingly common case (Maple's own writer always
     // emits it); skip the multiply entirely rather than reintroduce float
@@ -111,6 +114,7 @@ fn scale_adjustments(a: &PartialAdjustments, amount: f32) -> PartialAdjustments 
         vibrance: s(a.vibrance),
         temperature: s(a.temperature),
         tint: s(a.tint),
+        hue: s(a.hue),
     }
 }
 

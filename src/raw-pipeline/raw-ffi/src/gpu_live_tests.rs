@@ -142,6 +142,7 @@ fn masked_model() -> AdjustmentModel {
                     vibrance: Some(20.0),
                     temperature: Some(1500.0),
                     tint: Some(6.0),
+                    hue: Some(-20.0),
                 },
             },
             LocalAdjustment {

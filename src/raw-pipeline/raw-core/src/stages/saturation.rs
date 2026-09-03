@@ -52,7 +52,9 @@ const GAMUT_BISECT_ITERS: usize = 24;
 /// Tolerance used when deciding whether the bisected chroma is "in gamut".
 /// We require every Rec.2020 channel to be ≥ -GAMUT_EPS. Tighter than this
 /// and float noise in the Oklab round-trip flips the predicate per-iteration.
-const GAMUT_EPS: f32 = 1e-5;
+/// `pub(crate)`: `stages::local_adjustments::hue` reuses the exact same
+/// soft-knee gamut handling for its own Oklab chroma-preserving rotation.
+pub(crate) const GAMUT_EPS: f32 = 1e-5;
 
 /// Per-pixel saturation with gamut-aware soft-compression on the chroma axis.
 /// Pulled out of `apply` so the unit tests can exercise the per-pixel
@@ -120,7 +122,7 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], scale: f32) -> [f32; 3] {
 /// compressed excess is `d_max * (d / (d + d_max))`, i.e. the standard
 /// rational Reinhard knee with f(0) = 0, f'(0) = 1, f → d_max as d → ∞.
 #[inline]
-fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
+pub(crate) fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
     let c_thresh = GAMUT_KNEE_FRACTION * c_hull;
     if c_target <= c_thresh {
         return c_target;
@@ -139,7 +141,7 @@ fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
 /// is in gamut (true for any L, since L=L, a=b=0 maps to an achromatic
 /// grey in Rec.2020).
 #[inline]
-fn bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
+pub(crate) fn bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
     let mut lo = 0.0f32;
     let mut hi = c_high;
     for _ in 0..GAMUT_BISECT_ITERS {

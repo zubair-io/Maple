@@ -91,6 +91,12 @@ fn serialize_adjustments(a: &PartialAdjustments, indent: &str) -> String {
             out.push_str(&format!("\n{indent}{key}=\"{}\"", fmt2(v)));
         }
     }
+    // Hue (#3269): Maple's slider is ±100, Adobe's crs:LocalHue is ±1 — the
+    // same scale convention every other `crs:Local*` key uses, so it can't
+    // ride the plain loop above.
+    if let Some(h) = a.hue {
+        out.push_str(&format!("\n{indent}crs:LocalHue=\"{}\"", fmt2(h / 100.0)));
+    }
     out
 }
 

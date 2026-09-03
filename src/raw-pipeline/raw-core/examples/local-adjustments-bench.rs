@@ -91,6 +91,7 @@ fn make_layers(n: usize) -> Vec<LocalAdjustment> {
         vibrance: Some(25.0),
         temperature: Some(1200.0),
         tint: Some(8.0),
+        hue: Some(20.0),
     };
     (0..n)
         .map(|i| {

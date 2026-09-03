@@ -17,9 +17,11 @@
 //!    the previous control's output). The global stage's Gaussian regional
 //!    halo mask is the one piece not replicated — a per-pixel function cannot
 //!    see neighbouring pixels; see the note at the call site.
-//! 5. `saturation` — Oklab chroma scale with gamut-aware soft-compression
+//! 5. `hue` — Oklab hue rotation with the saturation stage's soft-knee gamut
+//!    handling, lightness and chroma preserved (#3269, `hue::rotate_pixel`).
+//! 6. `saturation` — Oklab chroma scale with gamut-aware soft-compression
 //!    (`saturation::apply_pixel`).
-//! 6. `vibrance` — low-chroma-weighted Oklab boost with skin-tone protection
+//! 7. `vibrance` — low-chroma-weighted Oklab boost with skin-tone protection
 //!    (`vibrance::apply_pixel`).
 //!
 //! All operators are hue-preserving (uniform RGB scalars, or chroma-only
@@ -33,12 +35,14 @@
 use rayon::prelude::*;
 
 use crate::image::{ColorSpace, Image};
+use crate::stages::hsl::HSL_HUE_MAX_RAD;
 use crate::stages::saturation;
 use crate::stages::scene_tone_controls::{highlights_mult, shadows_mult, smoothstep, LUMA_REC2020};
 use crate::stages::vibrance;
 use crate::stages::white_balance;
 use crate::types::{LocalAdjustment, PartialAdjustments};
 
+pub mod hue;
 pub mod mask;
 
 /// Apply every `LocalAdjustment` in `layers` to `img`. Layers are applied
@@ -238,13 +242,21 @@ fn apply_pixel(p: &mut [f32; 3], a: &PartialAdjustments, w: f32) {
         }
     }
 
-    // 5. Saturation.
+    // 5. Hue — Oklab rotation, lightness/chroma preserving (#3269). Sits
+    //    after the luma-coupled tone controls (which recompute luma from
+    //    RGB and would otherwise see a rotated pixel) and before the two
+    //    chroma moves, so saturation/vibrance act on the final hue.
+    if let Some(hv) = a.hue {
+        *p = hue::rotate_pixel(*p, w * hv / 100.0 * HSL_HUE_MAX_RAD);
+    }
+
+    // 6. Saturation.
     if let Some(s) = a.saturation {
         let scale = 1.0 + (w * s) / 100.0;
         *p = saturation::apply_pixel(*p, scale);
     }
 
-    // 6. Vibrance.
+    // 7. Vibrance.
     if let Some(v) = a.vibrance {
         let amount = (w * v) / 100.0;
         *p = vibrance::apply_pixel(*p, amount);
