@@ -111,6 +111,10 @@ public enum CapabilityRegistry {
                 "tint_seen",
                 "wb_method",
                 "wb_scale_version",
+                "wb_source",
+                "wb_sample_x",
+                "wb_sample_y",
+                "wb_algorithm_version",
             ],
             integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
             qualification: [
