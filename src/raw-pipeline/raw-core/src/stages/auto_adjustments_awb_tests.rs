@@ -335,6 +335,43 @@ fn scene_model() -> AdjustmentModel {
     }
 }
 
+/// CI diagnostic: everything between the synthetic sensor and the pair.
+fn describe(raw: &RawImage, model: &AdjustmentModel) {
+    use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
+    use crate::types::adjustment::AutoExposureMode;
+    let probe_model = AdjustmentModel {
+        auto_exposure: AutoExposureMode::Off,
+        ..model.clone()
+    };
+    let probe =
+        develop_scene_linear_from_raw_with_quality(raw, &probe_model, RenderQuality::Preview)
+            .unwrap();
+    let (profile, source) = dcp::profile_for_with_source(raw).unwrap();
+    let frame = SliderFrame::resolve(raw, &profile);
+    let space = ProbeSpace::resolve(raw, &probe_model);
+    let n = probe.pixels.len() as f64;
+    let mean = probe.pixels.iter().fold([0.0f64; 3], |a, p| {
+        [a[0] + p[0] as f64, a[1] + p[1] as f64, a[2] + p[2] as f64]
+    });
+    let mean = mean.map(|v| (v / n) as f32);
+    let neutral = estimate_neutral(&probe, &space);
+    println!(
+        "source={source:?} scene_white={:?} cm={:?} scene_cct={} ceilings={:?} prior={:?} \
+         probe mean={mean:?} in space={:?} px[0]={:?} px[last]={:?} neutral={neutral:?} \
+         pair={:?} as-shot={:?}",
+        profile.scene_white_xyz,
+        profile.color_matrix,
+        frame.scene_cct,
+        space.ceilings,
+        space.prior,
+        space.to_space.mul_vec(mean),
+        probe.pixels[0],
+        probe.pixels[probe.pixels.len() - 1],
+        neutral.and_then(|nn| space.temp_tint(nn)),
+        dcp::estimate_as_shot_cct_tint(raw)
+    );
+}
+
 fn assert_recommends(a: (f32, f32), want: (f32, f32), what: &str) {
     assert!(
         (a.0 - want.0).abs() < 10.0 && (a.1 - want.1).abs() < 0.5,
@@ -345,6 +382,7 @@ fn assert_recommends(a: (f32, f32), want: (f32, f32), what: &str) {
 #[test]
 fn calibrated_neutral_scene_recommends_the_camera_as_shot_pair() {
     let raw = calibrated_raw(0.0, neutral_scene(AS_SHOT_NEUTRAL));
+    describe(&raw, &scene_model());
     let a = compute_auto_adjustments(&raw, &scene_model()).unwrap();
     let want = dcp::estimate_as_shot_cct_tint(&raw).unwrap();
     assert_recommends((a.temperature, a.tint), want, "neutral scene");
