@@ -1,16 +1,16 @@
 #![cfg(test)]
 //! Sibling of `tests_live_parity.rs` (#1732 leg (c)), split out for the
-//! file-size budget. Two tests that are not part of the parameterised
-//! model sweep:
+//! file-size budget: the IDENTITY half of the contract — at the decode
+//! anchor both paths must reproduce the decode buffer itself, which is the
+//! exact shape of the 2026-07-02 WB band bug this ticket exists because of.
 //!
-//! 1. the IDENTITY half of the contract — at the decode anchor both paths
-//!    must reproduce the decode buffer itself, which is the exact shape of
-//!    the 2026-07-02 WB band bug this ticket exists because of;
-//! 2. the one stage class that does NOT satisfy the contract, pinned as a
-//!    known-gap ceiling rather than hidden by loosening the sweep's budgets.
+//! This file also used to pin the one stage class that did NOT satisfy the
+//! contract — the buffer-anchored highlights/shadows detail mask — as a
+//! known-gap ceiling. #2476 anchored that mask to the full frame, and the
+//! case now lives in the sweep proper at the same ceilings as every other
+//! stage class.
 
-use super::tests_live_parity::{agreement, Harness, MIN_CASE_EFFECT};
-use crate::xmp::AdjustmentModel;
+use super::tests_live_parity::{agreement, Harness};
 
 /// With the slider parked AT the decode anchor, both paths must reproduce
 /// the decode buffer. Before #1725 the tile path applied `resolve_wb` + an
@@ -51,65 +51,5 @@ fn live_and_tile_are_both_identity_at_the_decode_anchor() {
         "the tile path must reproduce the decode buffer at the decode anchor \
          (this is the 2026-07-02 WB band): max abs diff {:.4e}",
         tile_vs_decoded.max_abs
-    );
-}
-
-/// **KNOWN GAP — #2476.** `highlights` / `shadows` run as masked passes whose
-/// detail-mask blur radius is `sh_mask_blur_radius(long_edge)` of *the buffer
-/// the stage was handed*, not of the full image. The live chain is handed a
-/// viewport; the tile chain is handed a crop padded by `TILE_OVERLAP_PX`. So
-/// the two compute different mask radii and render differently — across the
-/// whole tile interior, not just at its seam.
-///
-/// This is a STAGE defect (a full-frame anchor that was never threaded, the
-/// same class as `vignette`, which the tile entry refuses outright per #11),
-/// not a defect in the live-vs-tile chain contract the sweep gates. It is
-/// pinned here instead of folded into that sweep because the ceiling it needs
-/// is ~100x looser than every other case's — one shared budget that
-/// accommodated it would stop gating the rest.
-///
-/// The assertion is an upper bound only, so #2476's fix (which drives the
-/// divergence toward the sweep's numbers) passes this test rather than
-/// breaking it. What it catches is the gap getting WORSE.
-#[test]
-fn masked_highlights_shadows_diverge_on_the_buffer_anchored_mask() {
-    let h = Harness::new();
-    let model = AdjustmentModel {
-        temperature: h.anchor.0,
-        tint: h.anchor.1,
-        highlights: -40.0,
-        shadows: 35.0,
-        sharpen_amount: 0.0,
-        nr_color: 0.0,
-        nr_luminance: 0.0,
-        auto_exposure: crate::xmp::AutoExposureMode::Off,
-        ..AdjustmentModel::default()
-    };
-
-    let a = agreement(&h.live(&model), &h.tile(&model), &h.decoded_tile);
-    eprintln!(
-        "[known gap #2476] masked highlights/shadows live-vs-tile: max_abs \
-         {:.3e}, max_ratio_dev {:.3e} (case moved the image by {:.3e})",
-        a.max_abs, a.max_ratio_dev, a.moved
-    );
-
-    assert!(
-        a.moved > MIN_CASE_EFFECT,
-        "case moved the image by only {:.3e} (< {:.3e}) — the ceiling below \
-         would mean nothing",
-        a.moved,
-        MIN_CASE_EFFECT
-    );
-    assert!(
-        a.max_abs <= 5.0e-2,
-        "the #2476 highlights/shadows mask gap has WIDENED: max abs diff \
-         {:.4e} > 5.0e-2",
-        a.max_abs
-    );
-    assert!(
-        a.max_ratio_dev <= 2.0e-1,
-        "the #2476 highlights/shadows mask gap has WIDENED: max channel-ratio \
-         deviation {:.4e} > 2.0e-1",
-        a.max_ratio_dev
     );
 }

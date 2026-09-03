@@ -309,7 +309,10 @@ fn render_scene_linear_tile_rejects_opcode_list3() {
         },
         RenderQuality::Full,
     );
-    assert!(r.is_err(), "tile path must error when OpcodeList3 is present");
+    assert!(
+        r.is_err(),
+        "tile path must error when OpcodeList3 is present"
+    );
     let msg = format!("{}", r.unwrap_err());
     assert!(
         msg.contains("OpcodeList3"),
@@ -444,4 +447,39 @@ fn render_scene_linear_tile_rejects_upscale() {
         RenderQuality::Full,
     );
     assert!(r_h.is_err(), "out_h > src_h must error");
+}
+
+/// #2476: the overlap pad grows to the S/H detail-mask reach when either
+/// slider is engaged, converted back to mosaic pixels for a half-res
+/// develop, and stays at the fixed pad otherwise.
+#[test]
+fn tile_overlap_grows_to_the_sh_mask_reach() {
+    use crate::stages::scene_tone_controls::sh_mask_reach_px;
+    let neutral = AdjustmentModel::default();
+    assert_eq!(tile_overlap_px(&neutral, 12288, 1), TILE_OVERLAP_PX);
+
+    let shadows = AdjustmentModel {
+        shadows: 35.0,
+        ..AdjustmentModel::default()
+    };
+    // 100 MP frame at Full: σ ≈ 92 px, radius 276, two cascaded passes → 552.
+    assert_eq!(
+        tile_overlap_px(&shadows, 12288, 1),
+        sh_mask_reach_px(12288) as u32
+    );
+    assert_eq!(tile_overlap_px(&shadows, 12288, 1), 552);
+    // Preview develops at half resolution: the reach is measured in
+    // developed pixels, so it is twice as many mosaic pixels.
+    assert_eq!(
+        tile_overlap_px(&shadows, 6144, 2),
+        2 * sh_mask_reach_px(6144) as u32
+    );
+    // A small frame's reach sits inside the fixed pad — no growth.
+    assert_eq!(tile_overlap_px(&shadows, 520, 1), TILE_OVERLAP_PX);
+
+    let highlights = AdjustmentModel {
+        highlights: -40.0,
+        ..AdjustmentModel::default()
+    };
+    assert_eq!(tile_overlap_px(&highlights, 12288, 1), 552);
 }
