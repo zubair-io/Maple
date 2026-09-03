@@ -140,6 +140,22 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
   ...PLACEHOLDER_ENTRIES,
 ];
 
+/** Tools whose "modified" state is not a scalar-vs-default comparison —
+ *  checked ahead of the `isWired` guard in `isToolModified`, which would
+ *  otherwise report every one of them unmodified.
+ *  - Crop is a STUB_TOOLS entry edited through the canvas overlay; the
+ *    genuine edit lives in `AdjustmentModel.crop` (Apple parity:
+ *    ToolDock.swift:174 checks `crop.isIdentity` before its `isWired`).
+ *  - Film (#2683) is a catalog pick (a string id) plus the Strength scalar:
+ *    the dot lights when a look is chosen OR Strength left its default —
+ *    ToolDock.swift's GroupDockButton rule, mirrored exactly.
+ *  - Mask (#1541) is a layer stack: modified once any layer exists. */
+const NON_SCALAR_MODIFIED: Partial<Record<ToolId, (adj: AdjustmentModel) => boolean>> = {
+  crop: (adj) => !isIdentityCrop(adj.crop),
+  filmLook: (adj) => adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength,
+  mask: (adj) => adj.localAdjustments.length > 0,
+};
+
 /** Tools whose dock entry REPLACES the group's control surface (Crop) — a
  *  group entry must NOT show active while one of these is armed, even
  *  though the tool lives inside that group (Crop is in `detail`). */
@@ -237,25 +253,8 @@ export class ToolDockComponent {
    *  Black & White toggle itself, which carries no numeric field of its
    *  own (#276) but still counts as "modified" the moment it's On. */
   private isToolModified(adj: AdjustmentModel, tool: ToolId): boolean {
-    // Crop is a STUB_TOOLS entry — it rejects drag-bar writes and is edited
-    // through the canvas overlay/crop toolbar instead — so the `isWired`
-    // guard below would always report it unmodified. It is a genuine
-    // non-destructive edit stored in `AdjustmentModel.crop`, so it must be
-    // special-cased ahead of that guard (Apple parity: ToolDock.swift:174
-    // checks `crop.isIdentity` before its own `isWired` guard).
-    if (tool === 'crop') return !isIdentityCrop(adj.crop);
-    // Film (#2683) is a catalog pick (a string id, not a sub-param) plus the
-    // Strength scalar. ToolDock.swift's GroupDockButton rule, mirrored
-    // exactly: the dot lights when a look is chosen (whatever Strength is)
-    // OR when Strength has left its default (it is a persisted, copyable
-    // field even with no look chosen — Apple declares it as Film's one
-    // sub-param, so its own sub-param check lights the dot too).
-    if (tool === 'filmLook') {
-      return adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength;
-    }
-    // Mask (#1541): modified once any layer exists — a layer stack has no
-    // scalar to compare against a default.
-    if (tool === 'mask') return adj.localAdjustments.length > 0;
+    const nonScalar = NON_SCALAR_MODIFIED[tool];
+    if (nonScalar) return nonScalar(adj);
     if (!isWired(tool)) return false;
     const subParams = subParamsFor(tool);
     if (subParams.length > 0) {

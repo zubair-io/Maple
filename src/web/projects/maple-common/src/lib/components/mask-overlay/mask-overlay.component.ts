@@ -34,6 +34,7 @@ import { MaskSessionService } from './mask-session.service';
 import type { LocalMask, MaskPoint } from '../../models/local-adjustment';
 import { defaultCrop } from '../../models/adjustment-model';
 import { fitFootprint, type Footprint } from '../crop-overlay/crop-geometry';
+import { focusedImageDims, hostLocalPoint, observeHostSize } from '../crop-overlay/overlay-host';
 import {
   MASK_HANDLE_NAME,
   type MaskCanvasMap,
@@ -96,11 +97,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   private ro?: ResizeObserver;
   private drag: DragState | null = null;
 
-  /** Focused asset's native (display-oriented) dimensions. */
-  private readonly imgDims = computed(() => {
-    const a = this.library.focusedAsset();
-    return { w: a?.width ?? 6240, h: a?.height ?? 4160 };
-  });
+  private readonly imgDims = focusedImageDims(this.library);
 
   private readonly crop = computed(() => {
     const a = this.library.focusedAsset();
@@ -191,16 +188,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    const el = this.host.nativeElement;
-    this.ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        this.wrapW.set(e.contentRect.width);
-        this.wrapH.set(e.contentRect.height);
-      }
-    });
-    this.ro.observe(el);
-    this.wrapW.set(el.clientWidth);
-    this.wrapH.set(el.clientHeight);
+    this.ro = observeHostSize(this.host.nativeElement, this.wrapW, this.wrapH);
   }
 
   ngOnDestroy(): void {
@@ -250,30 +238,50 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   private localPoint(ev: PointerEvent): { px: number; py: number } {
-    const r = this.host.nativeElement.getBoundingClientRect();
-    return { px: ev.clientX - r.left, py: ev.clientY - r.top };
+    return hostLocalPoint(this.host.nativeElement, ev);
+  }
+}
+
+/** Raster size along the footprint's aspect, `TINT_LONG_EDGE` on the long side. */
+function tintRasterSize(fp: Footprint): { width: number; height: number } {
+  const aspect = fp.width > 0 && fp.height > 0 ? fp.width / fp.height : 1.5;
+  return aspect >= 1
+    ? { width: TINT_LONG_EDGE, height: Math.max(1, Math.round(TINT_LONG_EDGE / aspect)) }
+    : { width: Math.max(1, Math.round(TINT_LONG_EDGE * aspect)), height: TINT_LONG_EDGE };
+}
+
+/** Fill `image` with the tint: each raster pixel is a crop-normalized point,
+ *  mapped to full-frame coordinates through the crop map and evaluated with
+ *  the same math the render pipeline runs. */
+function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
+  const { width, height, data } = image;
+  for (let j = 0; j < height; j++) {
+    const v = (j + 0.5) / height;
+    for (let i = 0; i < width; i++) {
+      const p = applyAffine(map.cropToFull, { x: (i + 0.5) / width, y: v });
+      const w = Math.min(1, Math.max(0, evaluateMaskWeight(mask, p.x, p.y)));
+      const base = (j * width + i) * 4;
+      data[base] = TINT_RGB[0];
+      data[base + 1] = TINT_RGB[1];
+      data[base + 2] = TINT_RGB[2];
+      data[base + 3] = Math.round(w * TINT_PEAK_ALPHA * 255);
+    }
   }
 }
 
 /**
  * Rasterise the mask's weight into the tint canvas over the DISPLAYED
- * footprint: each raster pixel is a crop-normalized point, mapped to
- * full-frame coordinates through the crop map and evaluated with the same
- * math the render pipeline runs. Exported for the spec.
+ * footprint, reusing `buffer` when it already has the raster's size (a drag
+ * frame then allocates nothing) and resizing the canvas — which clears and
+ * reallocates its backing store — only when the raster size changes.
  */
-export function drawWeightTint(
+function drawWeightTint(
   canvas: HTMLCanvasElement,
   mask: LocalMask | null,
   map: MaskCanvasMap,
   buffer: ImageData | null = null,
 ): ImageData | null {
-  const fp = map.footprint;
-  const aspect = fp.width > 0 && fp.height > 0 ? fp.width / fp.height : 1.5;
-  const width = aspect >= 1 ? TINT_LONG_EDGE : Math.max(1, Math.round(TINT_LONG_EDGE * aspect));
-  const height = aspect >= 1 ? Math.max(1, Math.round(TINT_LONG_EDGE / aspect)) : TINT_LONG_EDGE;
-  // Resizing a canvas clears and reallocates its backing store — only do it
-  // when the raster size actually changes (a footprint aspect change), not
-  // on every drag frame.
+  const { width, height } = tintRasterSize(map.footprint);
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   const ctx = canvas.getContext('2d');
@@ -286,20 +294,7 @@ export function drawWeightTint(
     buffer && buffer.width === width && buffer.height === height
       ? buffer
       : ctx.createImageData(width, height);
-  const data = image.data;
-  for (let j = 0; j < height; j++) {
-    const v = (j + 0.5) / height;
-    for (let i = 0; i < width; i++) {
-      const u = (i + 0.5) / width;
-      const p = applyAffine(map.cropToFull, { x: u, y: v });
-      const w = Math.min(1, Math.max(0, evaluateMaskWeight(mask, p.x, p.y)));
-      const base = (j * width + i) * 4;
-      data[base] = TINT_RGB[0];
-      data[base + 1] = TINT_RGB[1];
-      data[base + 2] = TINT_RGB[2];
-      data[base + 3] = Math.round(w * TINT_PEAK_ALPHA * 255);
-    }
-  }
+  fillTint(image, mask, map);
   ctx.putImageData(image, 0, 0);
   return image;
 }
