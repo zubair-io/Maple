@@ -71,6 +71,11 @@ namespace Maple.WinUI.Services
             m.Highlights = 0; m.Shadows = 0; m.Whites = 0; m.Blacks = 0;
             m.ParametricHighlights = 0; m.ParametricLights = 0;
             m.ParametricDarks = 0; m.ParametricShadows = 0;
+            // Split points ride the same tone_curves stage as the four
+            // scalars above (#3223, mirror of RawCoreBridge.stripAppleGPUStages).
+            m.ParametricShadowSplit = d.ParametricShadowSplit;
+            m.ParametricMidtoneSplit = d.ParametricMidtoneSplit;
+            m.ParametricHighlightSplit = d.ParametricHighlightSplit;
             m.ToneCurveLuma.Clear(); m.ToneCurveRed.Clear();
             m.ToneCurveGreen.Clear(); m.ToneCurveBlue.Clear();
             m.DisplayToneCurveLuma.Clear(); m.DisplayToneCurveRed.Clear();

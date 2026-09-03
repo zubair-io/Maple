@@ -165,6 +165,84 @@ namespace Maple.WinUI.Tests
             Assert.Equal(authored, XmpWriter.Serialize(parsed!));
         }
 
+        /// <summary>
+        /// ACR's parametric split points (#2320 / #3223): a Lightroom-authored
+        /// sidecar with moved `crs:Parametric{Shadow,Midtone,Highlight}Split`
+        /// (the same 20 / 55 / 80 the raw-core and TypeScript suites use)
+        /// lands on the model and survives a Windows re-save — the values
+        /// used to be dropped on read and silently reset to 25 / 50 / 75.
+        /// </summary>
+        [Fact]
+        public void LightroomSplitPointsSurviveParseAndResave()
+        {
+            const string lightroom = """
+                <?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+                <x:xmpmeta xmlns:x="adobe:ns:meta/">
+                  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                    <rdf:Description rdf:about=""
+                      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+                      crs:Version="15.2"
+                      crs:ProcessVersion="11.0"
+                      crs:ParametricShadows="-100"
+                      crs:ParametricDarks="25"
+                      crs:ParametricLights="-50"
+                      crs:ParametricHighlights="100"
+                      crs:ParametricShadowSplit="20"
+                      crs:ParametricMidtoneSplit="55"
+                      crs:ParametricHighlightSplit="80"/>
+                  </rdf:RDF>
+                </x:xmpmeta>
+                <?xpacket end="w"?>
+                """;
+
+            var parsed = XmpParser.Parse(lightroom);
+            Assert.NotNull(parsed);
+            var a = parsed!.Adjustments;
+            Assert.Equal(20, a.ParametricShadowSplit);
+            Assert.Equal(55, a.ParametricMidtoneSplit);
+            Assert.Equal(80, a.ParametricHighlightSplit);
+
+            var resaved = XmpWriter.Serialize(parsed);
+            Assert.Contains("crs:ParametricShadowSplit=\"20\"", resaved);
+            Assert.Contains("crs:ParametricMidtoneSplit=\"55\"", resaved);
+            Assert.Contains("crs:ParametricHighlightSplit=\"80\"", resaved);
+
+            var reparsed = XmpParser.Parse(resaved);
+            Assert.NotNull(reparsed);
+            AdjustmentStateAssert.Equal(a, reparsed!.Adjustments);
+        }
+
+        /// <summary>
+        /// The split points have non-zero defaults (25 / 50 / 75), so the
+        /// omit-at-default rule compares against those — a fresh model
+        /// writes none of the three, and a fractional value goes through the
+        /// canonical two-decimal codec like raw-core's writer (`55.25`).
+        /// </summary>
+        [Fact]
+        public void SplitPointsOmitAtTheirOwnDefaultsAndKeepFractions()
+        {
+            Assert.DoesNotContain("ParametricShadowSplit", XmpWriter.Serialize(new XmpSidecarDocument()));
+            Assert.DoesNotContain("ParametricMidtoneSplit", XmpWriter.Serialize(new XmpSidecarDocument()));
+            Assert.DoesNotContain("ParametricHighlightSplit", XmpWriter.Serialize(new XmpSidecarDocument()));
+
+            var doc = new XmpSidecarDocument();
+            doc.Adjustments.ParametricShadowSplit = 10;
+            doc.Adjustments.ParametricMidtoneSplit = 55.25;
+            doc.Adjustments.ParametricHighlightSplit = 90;
+            var xml = XmpWriter.Serialize(doc);
+            Assert.Contains("crs:ParametricShadowSplit=\"10\"", xml);
+            Assert.Contains("crs:ParametricMidtoneSplit=\"55.25\"", xml);
+            Assert.Contains("crs:ParametricHighlightSplit=\"90\"", xml);
+
+            // A split left at ITS default stays silent even when a sibling moved.
+            var partial = new XmpSidecarDocument();
+            partial.Adjustments.ParametricMidtoneSplit = 60;
+            var partialXml = XmpWriter.Serialize(partial);
+            Assert.Contains("crs:ParametricMidtoneSplit=\"60\"", partialXml);
+            Assert.DoesNotContain("ParametricShadowSplit", partialXml);
+            Assert.DoesNotContain("ParametricHighlightSplit", partialXml);
+        }
+
         [Fact]
         public void IdentityToneCurveEmitsNoElementAtAll()
         {

@@ -252,7 +252,7 @@ Implementations: `authored_pair_to_v5` in raw-core's white-balance stage, `xmp-w
 
 Two independent mechanisms, both PV2012-shaped.
 
-**Parametric region sliders** are four ordinary `crs:` attributes — `ParametricHighlights`, `ParametricLights`, `ParametricDarks`, `ParametricShadows`. Adobe's three split-point keys (`ParametricShadowSplit`/`MidtoneSplit`/`HighlightSplit`) are _not_ mapped: the model has no fields for them and the curve builder holds the split points as constants.
+**Parametric region sliders** are four ordinary `crs:` attributes — `ParametricHighlights`, `ParametricLights`, `ParametricDarks`, `ParametricShadows`. Adobe's three split-point keys (`ParametricShadowSplit`/`MidtoneSplit`/`HighlightSplit`) map to `parametric_{shadow,midtone,highlight}_split` (#2320; Windows since #3223), `[0, 100]` with per-field defaults 25/50/75 — omitted at _that_ default rather than at 0, and fed to the curve builder and the GPU-live params on every platform.
 
 **Point curves** are the one part of the schema that is not a flat attribute, and there are two independent FAMILIES of them — both structurally modelled, both PV2012-shaped, applied at different points in the pipeline. Eight parent elements in canonical emit order, each wrapping an `rdf:Seq` of `rdf:li` leaves holding `"x, y"` text:
 
