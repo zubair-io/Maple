@@ -5,18 +5,19 @@
 // not-yet-downloaded cloud asset sits in that state for the whole download —
 // so without this the editor is a blank shell with a progress bar. The seed
 // is the same thumbnail the grid / Preview already painted for this asset,
-// so it is normally a cache hit (`ThumbnailDiskCache` for local + PhotoKit
-// refs, `CloudThumbCache` for Maple Cloud refs), and it retires the moment
+// so it is normally a cache hit, and it retires the moment
 // `canvasHasOnscreenFrame` flips, crossfading out on the chrome-hide curve.
 //
 // Independent of any hero/zoom wiring — it keys only on data the editor can
 // fetch itself, so it works on every editor entry point (#2374 proposal),
 // unlike the retired `HeroSeedImage`, which only the iPhone Search tab's
 // overlay ever fed.
+//
+// The fetch/decode lives in `EditorSeedThumbnail+VM.swift` (pattern #192);
+// this file is presentation only.
 
 import SwiftUI
 import MapleCore
-import MapleCloudKit
 
 struct EditorSeedThumbnail: View {
     let asset: AssetRef
@@ -44,25 +45,15 @@ struct EditorSeedThumbnail: View {
         .animation(MapleTokens.Motion.chromeHide, value: visible)
         .allowsHitTesting(false)
         .task(id: asset.id) {
-            image = await Self.load(asset: asset, source: source)
+            // Drop the previous asset's seed before awaiting: `.task(id:)`
+            // reuses this view's state across an id change, so leaving it in
+            // place flashes the last photo's thumbnail over the new one for
+            // the length of the fetch. The cancellation guard is the other
+            // half — the superseded task can still land after its await.
+            image = nil
+            let loaded = await EditorSeedThumbnailVM.load(asset: asset, source: source)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
-    }
-
-    /// The asset's existing thumbnail bytes, decoded. Cloud refs read the
-    /// on-disk `CloudThumbCache` the grid populated (a fresh instance points
-    /// at the same shared directory); everything else goes through the same
-    /// `ThumbnailProvider` route the grid, filmstrip and Preview use. A miss
-    /// simply leaves the canvas as it was — the seed is an enhancement, never
-    /// a gate.
-    static func load(asset: AssetRef, source: (any ImageSource)?) async -> CGImage? {
-        let data: Data?
-        if let catalog = asset.catalog {
-            data = await CloudThumbCache().get(
-                host: catalog.serverID.cacheHostKey, absPath: catalog.absPath)
-        } else {
-            data = await ThumbnailProvider.local()
-                .thumbnail(for: PreviewViewVM.thumbnailSource(for: asset, source: source))
-        }
-        return await ThumbnailDecoder.image(for: data, key: "editor-seed:\(asset.id.uuidString)")
     }
 }
