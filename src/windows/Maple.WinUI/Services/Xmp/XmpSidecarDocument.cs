@@ -209,6 +209,16 @@ namespace Maple.WinUI.Services.Xmp
         public static readonly AdjustmentState Defaults = new();
 
         /// <summary>
+        /// Wire domain of a tone-curve control-point coordinate: PV2012's
+        /// [0, 255] (raw-core `xmp/tone_curves.rs` `WIRE_SCALE`). The model
+        /// (`CurvePoint`) is [0, 1]; the parser divides by this on read and
+        /// the writer multiplies on write, so the scale is applied at this
+        /// boundary only — exactly where raw-core, Swift and TypeScript
+        /// apply it (#3234).
+        /// </summary>
+        public const double CurveWireScale = 255.0;
+
+        /// <summary>
         /// Numeric field table, mirroring `ADJUSTMENT_FIELDS` in `xmp-fields.ts`
         /// (same keys, same model mapping). Emit order is irrelevant — the
         /// writer sorts attributes canonically.

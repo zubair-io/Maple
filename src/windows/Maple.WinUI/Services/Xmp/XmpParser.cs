@@ -335,6 +335,12 @@ namespace Maple.WinUI.Services.Xmp
                 .Select(e => e.Curve(state))
                 .FirstOrDefault();
 
+        /// <summary>
+        /// Decode each `&lt;rdf:li&gt;x, y&lt;/rdf:li&gt;` body from the
+        /// [0, 255] wire domain into a [0, 1] model point (raw-core
+        /// `tone_curves.rs::parse_point`). A malformed entry is dropped
+        /// rather than failing the whole parse.
+        /// </summary>
         private static IEnumerable<CurvePoint> ParseCurvePoints(XElement curveElement)
         {
             var items = curveElement.Descendants()
@@ -347,7 +353,7 @@ namespace Maple.WinUI.Services.Xmp
                 if (TryParseDouble(text[..comma].Trim(), out var x) &&
                     TryParseDouble(text[(comma + 1)..].Trim(), out var y))
                 {
-                    yield return new CurvePoint(x, y);
+                    yield return new CurvePoint(x / XmpSchema.CurveWireScale, y / XmpSchema.CurveWireScale);
                 }
             }
         }
