@@ -114,18 +114,30 @@ export function parseSwiftRanges(source: string): Record<string, Range> {
   );
 }
 
+/** The first contiguous `| … |` block after `start` — a later table in the
+ *  same section is not the matrix and must not leak rows into it. */
+function firstTableBlock(lines: readonly string[]): string[] {
+  const isRow = (line: string) => line.trim().startsWith('|');
+  const first = lines.findIndex(isRow);
+  if (first < 0) return [];
+  const block: string[] = [];
+  for (const line of lines.slice(first)) {
+    if (!isRow(line)) break;
+    block.push(line);
+  }
+  return block;
+}
+
 /**
  * The `## 8. Per-platform matrix` table: row label → the Apple, Web (Self
  * Hosted) and Web (Hosted) cells, located by header name so a reordered
- * or added column cannot silently shift the comparison.
+ * or added column cannot silently shift the comparison. Only the first
+ * table after the heading counts.
  */
 export function parseFeaturesMatrix(markdown: string): Map<string, FeaturesCells> {
   const sectionStart = markdown.indexOf('## 8. Per-platform matrix');
   if (sectionStart < 0) throw new Error('features.md: `## 8. Per-platform matrix` not found');
-  const lines = markdown
-    .slice(sectionStart)
-    .split('\n')
-    .filter((line) => line.trim().startsWith('|'));
+  const lines = firstTableBlock(markdown.slice(sectionStart).split('\n'));
   const cells = (line: string) =>
     line
       .trim()
@@ -241,12 +253,34 @@ function checkToolEnums(inputs: CheckInputs, fail: (msg: string) => void): void 
   compare('apple', inputs.appleToolCases, 'Apple');
 }
 
+const RANK: Readonly<Record<ParityReachability, number>> = { released: 2, partial: 1, absent: 0 };
+
+/** The exception must name the side that actually lacks the capability. */
+function checkExceptionSide(row: ParityCapability, fail: (msg: string) => void): void {
+  const exception = row.exception;
+  if (!exception) return;
+  const { apple, web } = row.reachability;
+  const lacking =
+    exception.platform === 'both'
+      ? apple !== 'released' && web !== 'released'
+      : exception.platform === 'apple'
+        ? RANK[apple] < RANK[web]
+        : RANK[web] < RANK[apple];
+  if (!lacking) {
+    fail(
+      `${row.id}: exception.platform is '${exception.platform}' but reachability is ` +
+        `apple=${apple} web=${web} — name the side that lacks the capability`,
+    );
+  }
+}
+
 function checkReachability(row: ParityCapability, fail: (msg: string) => void): void {
   const { apple, web } = row.reachability;
   const differs = apple !== web;
   if (differs && !row.exception) {
     fail(`${row.id}: apple=${apple} web=${web} differ with no documented exception`);
   }
+  checkExceptionSide(row, fail);
   if (!differs && apple === 'released' && row.exception) {
     fail(`${row.id}: released on both platforms but still carries an exception — remove it`);
   }
