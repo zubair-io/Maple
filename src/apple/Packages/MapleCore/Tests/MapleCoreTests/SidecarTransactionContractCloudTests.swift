@@ -104,9 +104,12 @@ final class SidecarTransactionContractCloudTests: XCTestCase {
         in: SidecarContractVectors.passthroughLadenDocument)
       // `crs:ToneCurvePV2012` excluded — #2232 made it a MODELED field, so
       // it legitimately takes the vector model's own curve value on update
-      // rather than preserving the original document's bytes (see the
-      // filesystem adapter's contract test for the full rationale).
-      for node in sourceNodes where node.qName != "crs:ToneCurvePV2012" {
+      // rather than preserving the original document's bytes. `crs:MaskGroup-
+      // BasedCorrections` excluded the same way (#3274) — its content in this
+      // fixture isn't a shape Maple's local-adjustments reader recognizes
+      // (see the filesystem adapter's contract test for the full rationale).
+      for node in sourceNodes
+      where node.qName != "crs:ToneCurvePV2012" && node.qName != "crs:MaskGroupBasedCorrections" {
         XCTAssertTrue(
           onServerXML.contains(node.source),
           "cycle \(cycle): \(node.qName) must survive verbatim")

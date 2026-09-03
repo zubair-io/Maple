@@ -484,4 +484,29 @@ mod tests {
         assert_eq!(flat[24], RANGE_KIND_NONE);
         assert_eq!(layers_from_flat(&flat, &[])[0].range, None);
     }
+
+    /// Pins layer 0 of `test-fixtures/local-adjustments/layer-stack.json`
+    /// (linear, exposure+shadows) against the same slots
+    /// `LocalAdjustmentFlatTests.testFixtureLayerStackRoundTripsThroughTheFlatWire`
+    /// asserts on the Swift side (#3274) — one JSON fixture, two writers.
+    #[test]
+    fn the_shared_swift_fixture_serializes_to_the_documented_slots() {
+        let layer = LocalAdjustment {
+            mask: Mask::Linear {
+                start: Point2::new(0.1, 0.2),
+                end: Point2::new(0.9, 0.8),
+                feather: 0.4,
+            },
+            range: None,
+            adjustments: PartialAdjustments {
+                exposure: Some(0.5),
+                shadows: Some(-20.0),
+                ..Default::default()
+            },
+        };
+        let flat = layers_to_flat(&[layer]);
+        assert_eq!(&flat[0..5], &[0.1, 0.2, 0.9, 0.8, 0.4]);
+        assert_eq!(flat[12], 0.5); // exposure
+        assert_eq!(flat[15], -20.0); // shadows
+    }
 }

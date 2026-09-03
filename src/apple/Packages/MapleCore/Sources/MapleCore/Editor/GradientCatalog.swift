@@ -268,7 +268,9 @@ public enum GradientCatalog {
         // gradient reads correctly for eight independent per-hue weights,
         // so it's excluded from the gradient-track requirement, the same
         // way colour grading is (#275: colour wheels, not a track).
-        case .crop, .presets, .colorGrade, .bwMix, .filmLook, .lensCorrections:
+        // Mask (#3274) is a full-surface panel swap, not a slider track
+        // (same shape as `.crop`); Heal has no Tool-level surface yet.
+        case .crop, .presets, .colorGrade, .bwMix, .filmLook, .lensCorrections, .mask, .heal:
             return nil
         }
     }

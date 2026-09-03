@@ -33,6 +33,10 @@ test-fixtures/*
 # the Bun test suite, Swift XCTest, and the Windows test project against
 # their own relocate/rename primitives.
 !test-fixtures/file-operations/
+# Exception: the local-adjustments flat-record fixture (#3274) IS committed —
+# one small JSON layer stack, cross-checked byte-for-byte by both raw-core's
+# and MapleCore's flat-record writer tests ("one fixture, two writers").
+!test-fixtures/local-adjustments/
 # Exception: the film-look self-consistency goldens (epic #2683,
 # src/scripts/test_film_looks.sh) ARE committed — six 1024px-long-edge PNGs
 # (~1MB each), downscaled from the full-res candidate before being written
