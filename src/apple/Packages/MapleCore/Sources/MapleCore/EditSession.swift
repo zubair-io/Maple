@@ -149,7 +149,6 @@ public final class EditSession {
   /// Distortion counterpart of `lensCorrectionCaInert` (#3189): no `WarpRectilinear` opcode at all.
   public internal(set) var lensCorrectionDistortionInert: Bool = true
 
-  // `wbDeltaAnchor` moved to `EditSession+Derived.swift` (file-size budget).
 
   // MARK: Render output
 
@@ -286,8 +285,7 @@ public final class EditSession {
     }
   }
 
-  // `effectiveCrop` + `effectiveImageSize` moved to `EditSession+Derived.swift`
-  // (file-size budget, #3275).
+  // `effectiveCrop`/`effectiveImageSize`/`wbDeltaAnchor` → `EditSession+Derived.swift`.
 
   // MARK: Zoom / pan
 
@@ -448,9 +446,7 @@ public final class EditSession {
   @ObservationIgnored public lazy var maskRasterStore = MaskRasterStore(
     directory: maskCacheDirectory())
 
-  /// The mask panel's current selection — drives which row is highlighted,
-  /// which layer's sliders show, and the scope HUD's target. `nil` when no
-  /// mask exists or none is selected.
+  /// The mask panel's selection — the highlighted row, whose sliders show, and the scope HUD's target.
   public var selectedMaskId: UUID?
 
   /// Masks switched off in the panel. Session-only and never persisted:
@@ -458,6 +454,20 @@ public final class EditSession {
   /// renderer (`renderModel`) has these layers' adjustments cleared, so
   /// quitting with a mask disabled loses nothing (#3291 review).
   public internal(set) var disabledMaskIds: Set<UUID> = []
+
+  /// Latest scope sample (#3277); published by the GPU present or `EditSession+ScopeCpu.swift`.
+  public var scopeSample: ScopeSample?
+
+  /// Whether the scope HUD is showing — gates the GPU/CPU producer, not just the view.
+  public var scopeEnabled: Bool = false {
+    didSet {
+      guard scopeEnabled != oldValue else { return }
+      _scheduleRender(phase: .fast)
+    }
+  }
+
+  /// Pending debounced compute — see `EditSession+ScopeCpu.swift`.
+  @ObservationIgnored var scopeCpuTask: Task<Void, Never>?
 
   // MARK: Deep zoom (Plan 3 / Ticket 06 M4) — storage + field docs moved
   // to `DeepZoomState.swift` (#2683 round-2, 570-line headroom gate).

@@ -102,6 +102,24 @@ public actor GpuLiveSession {
   /// have to thread the lattice through the caller's `present` signature.
   private var filmLut: (data: [Float], size: Int, key: UInt32)?
 
+  /// Session-owned, reused staging struct for the vectorscope scope pass
+  /// (#3272/#3277) — allocated once, bound by pointer into `scope_out` on
+  /// every `present` tick that asks for scope stats, matching every other
+  /// FFI-written buffer in this file. `raw-ffi` only writes into it when a
+  /// sample actually landed this tick — see `MapleScopeStats`'s own doc
+  /// comment — so `lastScopeFrame` is what lets `present` tell "the FFI
+  /// just wrote a genuinely new sample" from "unwritten again".
+  ///
+  /// `bins` is a caller-owned `(ptr, len)` pair on the C struct, not an
+  /// inline array — Swift's ClangImporter cannot import a fixed C array
+  /// as large as 128×128 at all (#3277; caught only by an actual `swift
+  /// build`, not by cbindgen or `cargo test`). `scopeBins` is that
+  /// caller-owned buffer, rebound by pointer into `scopeStats.bins_ptr`
+  /// every tick by `withScopeBound`.
+  private var scopeStats = MapleScopeStats()
+  private var scopeBins = [UInt32](repeating: 0, count: 16384)
+  private var lastScopeFrame: UInt64 = 0
+
   /// Cache (or clear, via `data: nil`) the film-look lattice this session
   /// binds on every subsequent `present`/`renderToBuffer` tick. Cheap — an
   /// array reference copy, no FFI call — so it's safe to call on every
@@ -266,8 +284,10 @@ public actor GpuLiveSession {
     inputShape: UInt32 = 0,
     surfaceGeneration: UInt64 = 0,
     wbFrame: WbSliderFrame? = nil,
-    targetColorSpace: CanvasColorSpace = .current
-  ) throws -> Double? {
+    targetColorSpace: CanvasColorSpace = .current,
+    scopeEnabled: Bool = false,
+    scopeLayer: Int32 = -1
+  ) throws -> (elapsedMs: Double, scope: ScopeSample?)? {
     let interval = gpuLiveSignposter.beginInterval(
       "GpuPresentExecution", id: gpuLiveSignposter.makeSignpostID())
     defer { gpuLiveSignposter.endInterval("GpuPresentExecution", interval) }
@@ -277,7 +297,8 @@ public actor GpuLiveSession {
     }
     let params = PipelineRenderer.makeGpuLiveParams(
       from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
-      inputShape: inputShape, wbFrame: wbFrame, targetColorSpace: targetColorSpace
+      inputShape: inputShape, wbFrame: wbFrame, targetColorSpace: targetColorSpace,
+      scopeEnabled: scopeEnabled, scopeLayer: scopeLayer
     )
     let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
     let cancelPtr = cancel?.pointer
@@ -298,7 +319,19 @@ public actor GpuLiveSession {
 
     switch rc {
     case 0:
-      return elapsedMs  // submitted to the surface; completion is asynchronous
+      // One-tick-late by design (`live_session/scope.rs`'s own
+      // contract): only report a sample when `scopeStats.frame`
+      // actually moved since the last call — an unchanged frame means
+      // the FFI polled and found nothing new yet, not that this tick
+      // has no scope data at all.
+      var scope: ScopeSample? = nil
+      if scopeEnabled, scopeStats.frame != lastScopeFrame {
+        lastScopeFrame = scopeStats.frame
+        scope = ScopeSample.unpack(
+          bins: scopeBins, total: scopeStats.total, frame: scopeStats.frame)
+      }
+      // submitted to the surface; completion is asynchronous
+      return (elapsedMs, scope)
     case 4:
       // RC_PRESENT_CANCELLED — a newer edit superseded this present; drop
       // quietly AND report `nil` so a cancelled request never
@@ -425,7 +458,9 @@ public actor GpuLiveSession {
                 p.noise_profile_len = UInt32(np.count)
               }
               p.iso = iso
-              return withFilmLutBound(p) { pp in withAutoProfileBound(pp, body) }
+              return withFilmLutBound(p) { pp in
+                withScopeBound(pp) { ppp in withAutoProfileBound(ppp, body) }
+              }
             }
           }
         }
@@ -433,43 +468,29 @@ public actor GpuLiveSession {
     }
   }
 
-  /// Flatten a `ToneCurve` into the FFI's `[x0, y0, x1, y1, …]` f32 layout.
-  /// The identity (empty) curve flattens to an empty array, which the FFI
-  /// reads as "no curve".
-  ///
-  /// Built into ONE exactly-sized array rather than via
-  /// `flatMap { [Float($0.x), Float($0.y)] }`: the closure form allocates a
-  /// throwaway two-element array per control point and then grows the result
-  /// as it appends, and this runs four times (luma + R/G/B) on every
-  /// `withGpuLiveParams` — i.e. on every live render tick of a curve drag.
-  /// CLAUDE.md § Performance invariants does not allow new allocation inside
-  /// the render loop. `unsafeUninitializedCapacity` gives one allocation of
-  /// the final size and no reallocation.
-  ///
-  /// Internal rather than `private` so `ToneCurveFlattenTests` can pin the
-  /// emitted layout directly — this is the exact interleaving `read_points`
-  /// expects on the FFI side, and it is worth a test of its own.
-  static func flattened(_ curve: ToneCurve) -> [Float] {
-    let points = curve.points
-    guard !points.isEmpty else { return [] }
-    return [Float](unsafeUninitializedCapacity: points.count * 2) { buffer, initialized in
-      for (index, point) in points.enumerated() {
-        buffer[index * 2] = Float(point.x)
-        buffer[index * 2 + 1] = Float(point.y)
-      }
-      initialized = points.count * 2
-    }
-  }
+  // `flattened(_:)` + `bind(_:to:len:)` live in `GpuLiveSession+Flatten.swift`
+  // (file-size budget, #3277).
 
-  /// Point a `(ptr, len)` pair at `buffer`, leaving it NULL/0 when empty.
-  private static func bind(
-    _ buffer: UnsafeBufferPointer<Float>,
-    to ptr: inout UnsafePointer<Float>?,
-    len: inout UInt
-  ) {
-    guard !buffer.isEmpty, let base = buffer.baseAddress else { return }
-    ptr = base
-    len = UInt(buffer.count)
+  /// Bind `scope_out` to the session's own reused `MapleScopeStats` staging
+  /// struct for the duration of `body` — but only when the caller actually
+  /// asked for scope output (`params.scope_enabled`, set by
+  /// `makeGpuLiveParams` before this runs). A null `scope_out` is the "the
+  /// host didn't ask for scope stats on this call" case raw-ffi's own
+  /// `write_stats` already treats as a silent no-op.
+  private func withScopeBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ body: (MapleGpuLiveParams) -> R
+  ) -> R {
+    var p = params
+    guard p.scope_enabled != 0 else { return body(p) }
+    return scopeBins.withUnsafeMutableBufferPointer { binsBuf in
+      scopeStats.bins_ptr = binsBuf.baseAddress
+      scopeStats.bins_len = UInt32(binsBuf.count)
+      return withUnsafeMutablePointer(to: &scopeStats) { sp in
+        p.scope_out = sp
+        return body(p)
+      }
+    }
   }
 
   /// Bind the session's cached film-look lattice (if any, epic #2683,

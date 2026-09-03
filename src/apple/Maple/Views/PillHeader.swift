@@ -23,6 +23,7 @@ struct PillHeader: View {
   let onBack: () -> Void
   let onShare: () -> Void
   let onInfo: () -> Void
+  @Binding var showsScope: Bool
 
   var body: some View {
     FloatingImageHeader(
@@ -113,6 +114,18 @@ struct PillHeader: View {
       .buttonStyle(.plain)
       .accessibilityLabel("Share")
       .accessibilityIdentifier("editor-share")
+
+      // Vectorscope HUD toggle (#3277) — shows/hides the canvas-corner
+      // scope; the HUD itself arms `session.scopeEnabled` on appear.
+      Button { showsScope.toggle() } label: {
+        Image(systemName: "circle.hexagongrid")
+          .font(.system(size: 14, weight: .regular))
+          .foregroundStyle(showsScope ? ProTokens.accent : ProTokens.text)
+          .frame(width: 30, height: 30)
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(showsScope ? "Hide vectorscope" : "Show vectorscope")
+      .accessibilityIdentifier("editor-pill-scope")
 
       // Divider between action buttons and status indicators
       Rectangle()
