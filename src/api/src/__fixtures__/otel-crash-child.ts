@@ -5,11 +5,17 @@
  * collector the test stood up, logs one marker line, and then dies the way
  * the env asks it to:
  *
- *   - `abort`    — `process.abort()`: SIGABRT with no JS hook, the shape of
- *                  a Rust `panic=abort` / onnxruntime `terminate` in the
- *                  worker tier. Whatever the bridge is holding is lost; the
- *                  test measures how much, as a function of the flush
- *                  cadence.
+ *   - `abort`    — kills itself with SIGKILL: a death with no JS hook, the
+ *                  shape of a Rust `panic=abort` / onnxruntime `terminate`
+ *                  in the worker tier. Whatever the bridge is holding is
+ *                  lost; the test measures how much, as a function of the
+ *                  flush cadence. SIGKILL rather than `process.abort()`
+ *                  because Bun's SIGABRT crash handler on the Linux CI
+ *                  runner holds the process — and its stderr pipe — open
+ *                  for ~20 s while it writes a crash report, which is not
+ *                  the property under test; what matters is that no
+ *                  JavaScript runs after the signal, and SIGKILL models
+ *                  that exactly.
  *   - `uncaught` — throws from a timer: the runtime would exit 1 on its
  *                  own, but `installOtelFatalFlush` gets a flush in first.
  *   - `sigterm`  — the graceful path: `flushOtelBeforeExit` then exit 0,
@@ -46,5 +52,5 @@ setTimeout(() => {
     process.kill(process.pid, 'SIGTERM');
     return;
   }
-  process.abort();
+  process.kill(process.pid, 'SIGKILL');
 }, 200);
