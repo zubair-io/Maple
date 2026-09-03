@@ -137,6 +137,20 @@ const MAX_SIGMA_PX_STAGE: f32 = MAX_GAUSSIAN_SIGMA_PX;
 /// never reorders the pixel math, so this is **bit-identical** to the pre-#1089
 /// serial stage (verified in `cancel_tests::never_cancel_is_bit_identical` and
 /// the `RAYON_NUM_THREADS=1` byte-identity test).
+/// Spatial reach of one run of the stage, in pixels per side, for the tile
+/// path's overlap calculator (#1157). Each Richardson–Lucy iteration runs
+/// the PSF forward and then correlates the ratio map back through it — two
+/// Gaussian blurs of `±⌈3σ⌉` taps each — so the reach is
+/// `iterations × 2 × ⌈3σ⌉`: 96 px at the σ = 8 helper clamp with the
+/// default two iterations. A parameter set the stage would no-op on
+/// (`sigma <= 0`, non-finite, over the stage clamp) reaches nothing.
+pub fn stencil_reach_px(params: &CaptureSharpeningParams) -> usize {
+    if !params.sigma.is_finite() || params.sigma <= 0.0 || params.sigma > MAX_SIGMA_PX_STAGE {
+        return 0;
+    }
+    params.iterations as usize * 2 * (3.0 * params.sigma).ceil() as usize
+}
+
 pub fn apply_capture_sharpening(image: &mut Image, params: &CaptureSharpeningParams) {
     // The never-cancel variant can only return `Ok(())` — the early-bail
     // `Err(Cancelled)` paths are unreachable without a host-flipped flag, so

@@ -32,7 +32,7 @@ const MAX_SIGMA_PX: f32 = 8.0;
 ///   path), so this is also the structural "off = no-op" guarantee.
 /// - sigma is clamped to `(0, MAX_SIGMA_PX]` so an out-of-range XMP cannot
 ///   blow up kernel size.
-pub(super) fn capture_sharpening_params_from_model(
+pub(in crate::pipeline) fn capture_sharpening_params_from_model(
     model: &AdjustmentModel,
 ) -> Option<capture_sharpening::CaptureSharpeningParams> {
     if !model.capture_sharpening_amount.is_finite() || !model.capture_sharpening_sigma.is_finite() {

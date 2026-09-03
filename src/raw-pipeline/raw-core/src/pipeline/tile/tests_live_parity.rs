@@ -56,7 +56,7 @@ use crate::xmp::AutoExposureMode;
 /// would have its pad clamped, giving the tile's guided filters a different
 /// neighbourhood than the full-image develop the live buffer came from, and
 /// the diff would measure that clamp instead of the chain contract.
-const RECT: TileRect = TileRect {
+pub(super) const RECT: TileRect = TileRect {
     src_x: 96,
     src_y: 96,
     src_w: 224,
@@ -80,12 +80,12 @@ const RECT: TileRect = TileRect {
 /// bound on "how far a tile-safe stage reaches" — the constant every stage
 /// admitted to the tile path is required to fit inside (see its const
 /// assertion against `clarity::CLARITY_GUIDED_REACH_PX`).
-const COMPARE_MARGIN_PX: usize = TILE_OVERLAP_PX as usize;
+pub(super) const COMPARE_MARGIN_PX: usize = TILE_OVERLAP_PX as usize;
 
 /// The synthetic camera-encoded chart, sized so [`RECT`] plus its overlap
 /// pad fits comfortably inside: 6 × (80 + 8) − 8 = 520 wide, 4 × (80 + 8) − 8
 /// = 344 tall.
-fn camera_chart_raw() -> crate::image::RawImage {
+pub(super) fn camera_chart_raw() -> crate::image::RawImage {
     let chart = SyntheticColorChart {
         patch_size: 80,
         guard: 8,

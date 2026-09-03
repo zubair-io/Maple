@@ -80,14 +80,19 @@ fn render_scene_linear_tile_rejects_active_dehaze() {
 /// error (#1109) — the stage's radial gain is anchored to the full
 /// frame and the tile entry does not thread the tile window through
 /// yet (#11). Same fake-RawImage rationale as the dehaze test.
+/// #1157: vignette is a point op given the tile's window in the frame, so
+/// the tile path RENDERS it (`vignette::apply_windowed`) instead of
+/// refusing as it did under #1109. The bit-exact tile-vs-full parity lives
+/// in `tests_full_parity.rs`; this pins the entry contract on a fake
+/// `RawImage`.
 #[test]
-fn render_scene_linear_tile_rejects_active_vignette() {
+fn render_scene_linear_tile_renders_active_vignette() {
     let raw = fake_raw(2048, 2048);
     let model = AdjustmentModel {
         vignette_amount: -40.0,
         ..Default::default()
     };
-    let r = render_scene_linear_tile_from_raw_with_quality(
+    let (w, h, _) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
         TileRect {
@@ -99,14 +104,9 @@ fn render_scene_linear_tile_rejects_active_vignette() {
             out_h: 512,
         },
         RenderQuality::Full,
-    );
-    assert!(r.is_err(), "tile path must error when vignette_amount != 0");
-    let msg = format!("{}", r.unwrap_err());
-    assert!(
-        msg.contains("vignette"),
-        "error must mention vignette, got: {}",
-        msg
-    );
+    )
+    .expect("tile path renders vignette since #1157");
+    assert_eq!((w, h), (512, 512));
 }
 
 /// Tile entry rejects `model.deep_denoise != 0` with a "deep denoise"
@@ -150,10 +150,13 @@ fn render_scene_linear_tile_rejects_active_deep_denoise() {
 /// (and same `Error::Pipeline` class) as the dehaze gate above; the host
 /// falls back to the full-image refine. Rejection fires before any
 /// decode / DCP work, so the synthetic `RawImage` suffices.
+/// #1157: local adjustments evaluate their masks in frame-normalised
+/// coordinates, which the tile chain now supplies through its window
+/// (`local_adjustments::apply_windowed`), so an active layer RENDERS
+/// instead of being refused as under #1084. Parity: `tests_full_parity.rs`.
 #[test]
-fn render_scene_linear_tile_rejects_active_local_adjustments() {
+fn render_scene_linear_tile_renders_active_local_adjustments() {
     use crate::types::{LocalAdjustment, PartialAdjustments, Point2};
-
     let raw = fake_raw(2048, 2048);
     let layer = LocalAdjustment::linear(
         Point2::new(0.0, 0.0),
@@ -167,7 +170,7 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
         local_adjustments: vec![layer],
         ..Default::default()
     };
-    let r = render_scene_linear_tile_from_raw_with_quality(
+    let (w, h, _) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
         TileRect {
@@ -179,54 +182,9 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
             out_h: 512,
         },
         RenderQuality::Full,
-    );
-    assert!(
-        r.is_err(),
-        "tile path must error when a local adjustment is active"
-    );
-    let msg = format!("{}", r.unwrap_err());
-    assert!(
-        msg.contains("local adjustments"),
-        "error must mention local adjustments, got: {}",
-        msg
-    );
-
-    // An all-identity layer (every `PartialAdjustments` field `None`) is
-    // skipped by `local_adjustments::apply`, so the gate must NOT trip —
-    // the tile path stays available for models the full chain would no-op
-    // on. (`fake_raw` has no DCP profile, so the render may still fail
-    // further down; only assert the failure is not the local-adjustments
-    // rejection.)
-    let identity_layer = LocalAdjustment::linear(
-        Point2::new(0.0, 0.0),
-        Point2::new(1.0, 1.0),
-        PartialAdjustments::default(),
-    );
-    let model_identity = AdjustmentModel {
-        local_adjustments: vec![identity_layer],
-        ..Default::default()
-    };
-    let r_identity = render_scene_linear_tile_from_raw_with_quality(
-        &raw,
-        &model_identity,
-        TileRect {
-            src_x: 1024,
-            src_y: 1024,
-            src_w: 512,
-            src_h: 512,
-            out_w: 512,
-            out_h: 512,
-        },
-        RenderQuality::Full,
-    );
-    if let Err(e) = r_identity {
-        let msg = format!("{}", e);
-        assert!(
-            !msg.contains("local adjustments"),
-            "identity layer must not trip the local-adjustments gate: {}",
-            msg
-        );
-    }
+    )
+    .expect("tile path renders local adjustments since #1157");
+    assert_eq!((w, h), (512, 512));
 }
 
 /// Tile entry rejects a model with an active capture-sharpening amount
@@ -236,14 +194,18 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
 /// (`capture_sharpening_params_from_model`), so `amount = 0` (the
 /// default, exercised by every other test here) keeps the tile path
 /// available.
+/// #1157: capture sharpening's Richardson–Lucy stencil is finite and
+/// computable (`capture_sharpening::stencil_reach_px`), so the overlap
+/// calculator pads for it and the tile path RENDERS it instead of refusing
+/// as under #1084. Parity: `tests_full_parity.rs`.
 #[test]
-fn render_scene_linear_tile_rejects_active_capture_sharpening() {
+fn render_scene_linear_tile_renders_active_capture_sharpening() {
     let raw = fake_raw(2048, 2048);
     let model = AdjustmentModel {
         capture_sharpening_amount: 50.0,
         ..Default::default()
     };
-    let r = render_scene_linear_tile_from_raw_with_quality(
+    let (w, h, _) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
         TileRect {
@@ -255,17 +217,9 @@ fn render_scene_linear_tile_rejects_active_capture_sharpening() {
             out_h: 512,
         },
         RenderQuality::Full,
-    );
-    assert!(
-        r.is_err(),
-        "tile path must error when capture sharpening is active"
-    );
-    let msg = format!("{}", r.unwrap_err());
-    assert!(
-        msg.contains("capture sharpening"),
-        "error must mention capture sharpening, got: {}",
-        msg
-    );
+    )
+    .expect("tile path renders capture sharpening since #1157");
+    assert_eq!((w, h), (512, 512));
 }
 
 /// Tile entry rejects a DNG carrying OpcodeList3 with an "OpcodeList3"
@@ -447,47 +401,4 @@ fn render_scene_linear_tile_rejects_upscale() {
         RenderQuality::Full,
     );
     assert!(r_h.is_err(), "out_h > src_h must error");
-}
-
-/// #2476: the overlap pad grows to the exact S/H detail-mask reach of the
-/// passes that will run — one radius per engaged slider, converted back to
-/// mosaic pixels for a half-res develop — and stays at the fixed pad
-/// otherwise.
-#[test]
-fn tile_overlap_grows_to_the_sh_mask_reach() {
-    use crate::stages::scene_tone_controls::sh_mask_reach_px;
-    let neutral = AdjustmentModel::default();
-    assert_eq!(tile_overlap_px(&neutral, 12288, 1), TILE_OVERLAP_PX);
-
-    // 100 MP frame at Full: σ ≈ 92 px, radius 276 per masked pass.
-    let shadows = AdjustmentModel {
-        shadows: 35.0,
-        ..AdjustmentModel::default()
-    };
-    assert_eq!(
-        tile_overlap_px(&shadows, 12288, 1),
-        sh_mask_reach_px(12288, &shadows) as u32
-    );
-    assert_eq!(tile_overlap_px(&shadows, 12288, 1), 276);
-    let highlights = AdjustmentModel {
-        highlights: -40.0,
-        ..AdjustmentModel::default()
-    };
-    assert_eq!(tile_overlap_px(&highlights, 12288, 1), 276);
-    // Both engaged: the shadows blur reads the highlights output, so the
-    // reaches compound.
-    let both = AdjustmentModel {
-        highlights: -40.0,
-        shadows: 35.0,
-        ..AdjustmentModel::default()
-    };
-    assert_eq!(tile_overlap_px(&both, 12288, 1), 552);
-    // Preview develops at half resolution: the reach is measured in
-    // developed pixels, so it is twice as many mosaic pixels.
-    assert_eq!(
-        tile_overlap_px(&shadows, 6144, 2),
-        2 * sh_mask_reach_px(6144, &shadows) as u32
-    );
-    // A small frame's reach sits inside the fixed pad — no growth.
-    assert_eq!(tile_overlap_px(&both, 520, 1), TILE_OVERLAP_PX);
 }

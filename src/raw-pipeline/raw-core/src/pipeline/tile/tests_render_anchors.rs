@@ -336,3 +336,92 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
         max_rel_err * 100.0
     );
 }
+
+/// #1157: every spatial slider engaged on a real RAW — the ticket's gate,
+/// tile vs whole-image render. The point ops given the window (vignette,
+/// local adjustments) and the stages the computed overlap pads for
+/// (capture sharpening, the S/H detail mask, clarity, texture) are expected
+/// bit-exact; sharpen and NR carry position-dependent float accumulation
+/// (see the sibling tests), so the whole case sits under a float-ordering
+/// ceiling rather than a bit-equality assertion. Fixture-gated; the
+/// fixture-free sibling on the synthetic chart is `tests_full_parity.rs`.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn tile_matches_full_chain_with_all_spatial_sliders() {
+    use crate::types::{LocalAdjustment, Mask, PartialAdjustments, Point2};
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read raw");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+    assert!(raw.crop_rect.is_none(), "fixture grew a DefaultCrop");
+    assert_eq!(raw.orientation, crate::image::ExifOrientation::Normal);
+
+    let model = AdjustmentModel {
+        auto_exposure: crate::xmp::AutoExposureMode::Off,
+        highlights: -35.0,
+        shadows: 30.0,
+        clarity: 25.0,
+        texture: 20.0,
+        capture_sharpening_amount: 60.0,
+        capture_sharpening_sigma: 1.5,
+        vignette_amount: -50.0,
+        vignette_feather: 45.0,
+        local_adjustments: vec![LocalAdjustment {
+            mask: Mask::Radial {
+                center: Point2::new(0.4, 0.45),
+                radii: Point2::new(0.3, 0.25),
+                angle: 0.2,
+                feather: 0.5,
+                invert: false,
+            },
+            adjustments: PartialAdjustments {
+                exposure: Some(0.7),
+                ..PartialAdjustments::default()
+            },
+        }],
+        sharpen_amount: 40.0,
+        nr_luminance: 20.0,
+        nr_color: 25.0,
+        ..AdjustmentModel::default()
+    };
+
+    let (src_x, src_y, side) = (1024u32, 1024u32, 512u32);
+    let (tw, th, tile) = render_scene_linear_tile_from_raw_with_quality_f32(
+        &raw,
+        &model,
+        TileRect {
+            src_x,
+            src_y,
+            src_w: side,
+            src_h: side,
+            out_w: side,
+            out_h: side,
+        },
+        RenderQuality::Full,
+    )
+    .expect("tile render");
+    assert_eq!((tw, th), (side, side));
+
+    let full = crate::pipeline::develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        RenderQuality::Full,
+    )
+    .expect("full develop");
+    let fw = full.width as usize;
+    let mut max_abs = 0.0f32;
+    for ty in 0..side as usize {
+        for tx in 0..side as usize {
+            let fp = full.pixels[(src_y as usize + ty) * fw + src_x as usize + tx];
+            for c in 0..3 {
+                let got = tile[(ty * side as usize + tx) * 4 + c];
+                assert!(got.is_finite(), "non-finite tile lane");
+                max_abs = max_abs.max((fp[c] - got).abs());
+            }
+        }
+    }
+    eprintln!("tile-vs-full all-spatial-sliders parity: max abs diff {max_abs:.3e}");
+    assert!(
+        max_abs <= 1.0e-4,
+        "tile diverges from the full chain with every spatial slider engaged: max abs diff {max_abs:.4e}"
+    );
+}
