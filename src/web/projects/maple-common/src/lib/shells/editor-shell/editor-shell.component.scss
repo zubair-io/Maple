@@ -27,7 +27,10 @@
 // whose exclusivity is documented on its own rule below.
 %dock-side-panel {
   position: absolute;
-  right: 64px; // just left of the dock column
+  // Just left of the dock column — the same 88px the control card anchors
+  // at (`.control-card-anchor`), so no panel overlaps the labelled dock
+  // (#3046 widened it past the 64px this used to assume; #2449).
+  right: 88px;
   top: 50%;
   transform: translateY(-50%);
   background: var(--pro-glass-bg-heavy);
