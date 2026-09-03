@@ -25,6 +25,23 @@ class HostComponent {
   }
 }
 
+// A popover whose content names its own entry point — the Command Menu's
+// search field is the real case.
+@Component({
+  standalone: true,
+  imports: [MuiPopoverComponent],
+  template: `
+    <div style="position: relative">
+      <mui-popover [open]="open()">
+        <input type="text" autofocus />
+      </mui-popover>
+    </div>
+  `,
+})
+class AutofocusHostComponent {
+  readonly open = signal(false);
+}
+
 function render(): ComponentFixture<HostComponent> {
   TestBed.configureTestingModule({ imports: [HostComponent] });
   const fixture = TestBed.createComponent(HostComponent);
@@ -81,6 +98,16 @@ describe('MuiPopoverComponent', () => {
     await Promise.resolve();
     const panel = fixture.nativeElement.querySelector('.mui-popover');
     expect(document.activeElement).toBe(panel);
+  });
+
+  it('gives focus to an [autofocus] child instead of the bare panel', async () => {
+    TestBed.configureTestingModule({ imports: [AutofocusHostComponent] });
+    const fixture = TestBed.createComponent(AutofocusHostComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('input'));
   });
 
   it('stops reacting to document clicks once closed again', async () => {
