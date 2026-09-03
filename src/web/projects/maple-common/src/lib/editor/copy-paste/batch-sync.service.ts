@@ -69,6 +69,12 @@ export class BatchSyncService {
     this.inFlight = true;
     this.cancelRequested = false;
     this.progress.set(null);
+    // Clear the previous run's summary up front: progress stays null until
+    // the first asset finishes, and the banner falls through to the summary
+    // whenever progress is null — so leaving it would show the last run's
+    // result for a moment while this one is already writing, with no Cancel
+    // (Copilot review on #3312).
+    this.lastSummary.set(null);
     try {
       const summary = await runBatchTransfer<AssetId>(
         ids,

@@ -80,6 +80,18 @@ describe('BatchSyncService (#2436)', () => {
     expect(summary?.applied).toEqual(library.writes.map((w) => w.id));
   });
 
+  it('clears the previous run’s summary the moment a new run starts', async () => {
+    // Progress is null until the first asset finishes, and the banner falls
+    // through to the summary when progress is null — a stale result must not
+    // be on screen while a new run is already writing (#3312 review).
+    await svc.apply(['a'], { exposure: 1 });
+    expect(svc.summaryText()).not.toBeNull();
+    const run = svc.apply(['b', 'c'], { exposure: 2 });
+    expect(svc.summaryText()).toBeNull();
+    await run;
+    expect(svc.summaryText()).toBe('2 images updated');
+  });
+
   it('dismissing the summary clears the result row', async () => {
     await svc.apply(['a'], { exposure: 1 });
     expect(svc.summaryText()).not.toBeNull();
