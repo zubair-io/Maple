@@ -158,7 +158,11 @@ fn auto_fit_max_long_edge(raw: &RawImage, preview: &ExtractedPreview) -> Option<
 /// [`FitOrigin::Standalone`] entry with the GPU-live / LUT-bake entries.
 pub(super) fn render_fit_origin(sensor_long_edge: u32, max_long_edge: Option<u32>) -> FitOrigin {
     let native_is_canonical = sensor_long_edge <= AUTO_FIT_SIZED_SENSOR_LE;
-    match max_long_edge {
+    // The sized develop never upscales, so a cap at or above the sensor's
+    // long edge IS the native develop — key it that way rather than as one
+    // entry per requested cap (Copilot review on #3286).
+    let effective_cap = max_long_edge.filter(|&cap| cap < sensor_long_edge);
+    match effective_cap {
         None if native_is_canonical => FitOrigin::Standalone,
         other => FitOrigin::Render(other),
     }
