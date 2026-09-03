@@ -123,12 +123,12 @@ const SHELL: readonly ParityCapability[] = [
   },
   {
     id: 'shell.tool-dock',
-    name: 'Tool dock (4 groups + Crop / Curve / Presets)',
+    name: 'Tool dock (4 groups + Crop / Curve / Film / Presets)',
     group: 'shell',
     order: 40,
     reachability: BOTH,
     presentation: SAME(
-      'Light · Color · Effects · Detail, a divider, then Crop · Tone Curve · Presets · Mask · Heal',
+      'Light · Color · Effects · Detail, a divider, then Crop · Tone Curve · Film · Presets · Mask · Heal — the same ten entries in the same order as ToolDock.swift',
     ),
     interaction: {
       keyboard: '1–4 switch group; Tab + Enter on any entry',
@@ -141,7 +141,7 @@ const SHELL: readonly ParityCapability[] = [
       name: 'Editor tools; entry labels',
       value: 'none',
       state: 'aria-pressed (active), modified dot, disabled + aria-hidden (placeholders)',
-      actions: ['switch group', 'arm Crop', 'toggle Curve / Presets'],
+      actions: ['switch group', 'arm Crop / Film', 'toggle Curve / Presets'],
     },
     participation: NONE,
     exception: null,
@@ -194,11 +194,13 @@ const SHELL: readonly ParityCapability[] = [
   },
   {
     id: 'shell.placeholder-mask',
-    name: 'Mask (disabled placeholder)',
+    name: 'Mask',
     group: 'shell',
     order: 70,
     reachability: { apple: 'absent', web: 'absent' },
-    presentation: SAME('Dimmed dock entry, aria-hidden, tooltip names the ticket'),
+    presentation: SAME(
+      'Dimmed dock entry, aria-hidden, tooltip names the ticket — label and ticket read from this row by tool-dock.component.ts',
+    ),
     interaction: {
       keyboard: 'none — out of the tab order',
       pointer: 'none',
@@ -223,11 +225,13 @@ const SHELL: readonly ParityCapability[] = [
   },
   {
     id: 'shell.placeholder-heal',
-    name: 'Heal (disabled placeholder)',
+    name: 'Heal',
     group: 'shell',
     order: 80,
     reachability: { apple: 'absent', web: 'absent' },
-    presentation: SAME('Dimmed dock entry, aria-hidden, tooltip names the ticket'),
+    presentation: SAME(
+      'Dimmed dock entry, aria-hidden, tooltip names the ticket — label and ticket read from this row by tool-dock.component.ts',
+    ),
     interaction: {
       keyboard: 'none — out of the tab order',
       pointer: 'none',

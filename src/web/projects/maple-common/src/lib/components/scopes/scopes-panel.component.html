@@ -1,0 +1,9 @@
+<!-- Scopes (#2449) — the four-up Maple UI organism over the live frame, or a
+     one-line status while no frame has been read back yet. -->
+@if (sample(); as s) {
+  <mui-scopes-panel [sample]="s" [width]="plotWidth" [height]="plotHeight" />
+} @else {
+  <mui-text variant="chip-label" color="muted" [block]="true" role="status"
+    >Scopes need a live frame</mui-text
+  >
+}

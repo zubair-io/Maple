@@ -1,7 +1,7 @@
 // tool-dock.component.spec.ts — vertical (tablet/desktop) vs horizontal
 // (phone) orientation, group/curve wiring, the Crop entry's tool-arming
-// semantics (#1813), the Presets panel entry (#1815), and the nine-entry
-// Apple-parity shape (#1807 Task 5).
+// semantics (#1813), the Presets panel entry (#1815), the Film entry
+// (#2449), and the ten-entry Apple-parity shape (#1807 Task 5 → #2449).
 //
 // The dock has three entry shapes: `group` entries (arm the group's first
 // tool), `panel` entries (Tone Curve, Presets — toggle a floating panel),
@@ -21,6 +21,7 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { ToolDockComponent } from './tool-dock.component';
+import { parityPlaceholders } from '../../editor/parity/editor-parity';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
@@ -212,6 +213,44 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(maskBtn!.disabled).toBe(true);
     expect(maskBtn!.title).toBe('Mask — coming in #1541');
   });
+
+  // #2449: the placeholders' label + ticket come from the parity manifest
+  // (#2448), so the dock and the manifest can't disagree about what is
+  // unavailable or why.
+  it('reads the disabled placeholders (label + ticket) from the parity manifest', () => {
+    const fixture = render({});
+    const titles = buttons(fixture)
+      .filter((b) => b.disabled)
+      .map((b) => b.title);
+    expect(titles).toEqual(
+      parityPlaceholders().map((row) => `${row.name} — coming in ${row.exception!.ticket}`),
+    );
+  });
+});
+
+// ── Film entry (#2449 IA port — ToolDock.swift carries Film since #2683) ──
+describe('Film entry (#2449)', () => {
+  it('clicking Film emits toolChange("filmLook"), not groupChange', () => {
+    const fixture = render({});
+    const tools: ToolId[] = [];
+    let groupEmitted = false;
+    fixture.componentInstance.toolChange.subscribe((t) => tools.push(t));
+    fixture.componentInstance.groupChange.subscribe(() => (groupEmitted = true));
+    buttonFor(fixture, 'Film').click();
+    expect(tools).toEqual(['filmLook']);
+    expect(groupEmitted).toBe(false);
+  });
+
+  it('Film highlights while filmLook is armed AND Effects stays lit (renders inside the card)', () => {
+    const fixture = render({ activeGroup: 'effects', activeTool: 'filmLook' });
+    expect(buttonFor(fixture, 'Film').getAttribute('aria-pressed')).toBe('true');
+    expect(buttonFor(fixture, 'Effects').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Film does not highlight while another effects tool is armed', () => {
+    const fixture = render({ activeGroup: 'effects', activeTool: 'clarity' });
+    expect(buttonFor(fixture, 'Film').getAttribute('aria-pressed')).toBe('false');
+  });
 });
 
 describe('ToolDockComponent — horizontal (phone) orientation', () => {
@@ -400,8 +439,8 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
   });
 });
 
-describe('Apple 9-entry parity', () => {
-  it('renders exactly the nine Apple entries in order, both orientations', () => {
+describe('Apple 10-entry parity', () => {
+  it('renders exactly the ten Apple entries in order, both orientations', () => {
     const expected = [
       'Light',
       'Color',
@@ -409,6 +448,7 @@ describe('Apple 9-entry parity', () => {
       'Detail',
       'Crop',
       'Tone Curve',
+      'Film',
       'Presets',
       'Mask',
       'Heal',

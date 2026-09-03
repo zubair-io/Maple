@@ -78,11 +78,19 @@
     [class]="chromeLayerOpacityClass()"
   >
     <!-- ── Top bar ────────────────────────────────────────────────── -->
+    <!-- Stable IA regions (#2449): every primary job has one named home on
+         every breakpoint — `data-editor-region` is the hook the cross-width
+         gates (#2451) locate them by; the landmark roles/labels are what
+         assistive tech gets. Same order at phone, tablet and desktop. -->
     <div
       class="pointer-events-auto absolute top-[14px] left-1/2 z-10 flex h-11 max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-1 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur)] md:max-w-[calc(100vw-96px)] md:gap-2 md:bg-[color:var(--pro-glass-bg-heavy)] md:[backdrop-filter:var(--pro-glass-blur-heavy)]"
+      role="toolbar"
+      aria-label="Editor top bar"
+      data-editor-region="top-bar"
     >
       <!-- Back button -->
       <button
+        data-editor-region="navigation"
         class="flex shrink-0 items-center gap-1 rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-2 py-1 outline-none transition-colors duration-[120ms] ease-out appearance-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
         title="Back to Library (Esc)"
         aria-label="Back to Library"
@@ -94,18 +102,38 @@
       <!-- Asset name -->
       <span
         class="max-w-[min(200px,40vw)] shrink overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text)]"
+        data-editor-region="identity"
         >{{ assetName() }}</span
       >
 
       <!-- Center spacer -->
       <div class="shrink-0 grow-0 basis-1"></div>
 
-      <!-- Histogram (tablet/desktop) -->
-      @if (isTabletPlus() && currentAdj()) {
-        <div class="h-[30px] w-[70px] shrink-0 overflow-hidden rounded-md bg-white/5 opacity-90">
-          <editor-histogram class="block h-full w-full" [adjustment]="currentAdj()!" />
-        </div>
-      }
+      <!-- Histogram / scopes (#2449) — the one stable scopes location on
+           every breakpoint: a toggle that opens the scopes panel (histogram
+           · waveform · parade · vectorscope). On tablet/desktop the button
+           IS the live mini histogram; on phone it is an icon. -->
+      <button
+        class="flex h-[30px] shrink-0 cursor-pointer items-center justify-center rounded-md px-0.5 outline-none transition-[background,border-color] duration-[120ms] ease-out appearance-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)] disabled:cursor-default disabled:opacity-40"
+        [class]="iconBtnClass(scopesOpen())"
+        title="Scopes"
+        aria-label="Scopes"
+        [attr.aria-pressed]="scopesOpen()"
+        [disabled]="!hasFocusedAsset()"
+        data-testid="editor-shell-scopes"
+        data-editor-region="scopes"
+        (click)="onScopesPanelToggle()"
+      >
+        @if (isTabletPlus() && currentAdj()) {
+          <div
+            class="pointer-events-none h-[26px] w-[70px] overflow-hidden rounded bg-white/5 opacity-90"
+          >
+            <editor-histogram class="block h-full w-full" [adjustment]="currentAdj()!" />
+          </div>
+        } @else {
+          <maple-icon name="scope" [size]="16" color="var(--pro-text-muted)" />
+        }
+      </button>
 
       <!-- AUTO (#1370 M2) — analyses the RAW and writes exposure +
            autoExposure:'Off' as one undo entry. Lives in the top bar rather
@@ -151,6 +179,7 @@
         aria-label="Toggle before/after"
         [attr.aria-pressed]="canvasSvc.showBeforeAfter()"
         data-testid="editor-shell-before-after"
+        data-editor-region="comparison"
         (click)="canvasSvc.toggleBeforeAfter()"
       >
         <maple-icon name="split" [size]="16" color="var(--pro-text-muted)" />
@@ -178,6 +207,7 @@
         aria-label="Info"
         [attr.aria-pressed]="infoOpen()"
         data-testid="editor-shell-info"
+        data-editor-region="inspector-toggle"
         (click)="infoOpen.update((v) => !v)"
       >
         <maple-icon name="info" [size]="16" color="var(--pro-text-muted)" />
@@ -191,6 +221,7 @@
         title="Export"
         aria-label="Export"
         data-testid="editor-shell-export"
+        data-editor-region="export"
         (click)="exportOpen.set(true)"
       >
         <maple-icon name="export" [size]="14" color="currentColor" />
@@ -201,6 +232,9 @@
     @if (isTabletPlus() && hasMultiplePhotos()) {
       <div
         class="pointer-events-auto absolute top-1/2 left-3 w-[110px] -translate-y-1/2 overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+        role="region"
+        aria-label="Filmstrip"
+        data-editor-region="filmstrip"
       >
         <editor-filmstrip />
       </div>
@@ -208,7 +242,10 @@
 
     <!-- ── Right tool dock (tablet/desktop only) ─────────────────── -->
     @if (isTabletPlus()) {
-      <div class="pointer-events-auto absolute top-1/2 right-3 -translate-y-1/2">
+      <div
+        class="pointer-events-auto absolute top-1/2 right-3 -translate-y-1/2"
+        data-editor-region="tools"
+      >
         <pro-tool-dock
           [activeGroup]="activeGroup()"
           [activeTool]="activeTool()"
@@ -222,10 +259,24 @@
 
         <!-- Curve panel (tone curve + WB pad) — glass card, tablet/desktop only -->
         @if (curveOpen()) {
-          <div class="curve-panel">
+          <div class="curve-panel" role="region" aria-label="Tone curve">
             <pro-tone-curve />
             <div class="mx-2.5 h-[0.5px] bg-[color:var(--pro-border)]"></div>
             <pro-wb-pad />
+          </div>
+        }
+
+        <!-- Scopes panel (#2449) — glass card hosting `editor-scopes-panel`;
+             same shared dock-side anchor as Curve/Presets, so it is mutually
+             exclusive with them (editor-shell-panels.ts). -->
+        @if (scopesOpen()) {
+          <div
+            class="scopes-panel"
+            role="region"
+            aria-label="Scopes"
+            data-testid="editor-shell-scopes-panel"
+          >
+            <editor-scopes-panel />
           </div>
         }
 
@@ -235,7 +286,7 @@
              mounted inside `editor-image-canvas` and gated on the same
              `CropSessionService.active` this panel's visibility mirrors. -->
         @if (cropArmed()) {
-          <div class="crop-panel">
+          <div class="crop-panel" role="region" aria-label="Crop">
             <app-crop-toolbar />
           </div>
         }
@@ -245,7 +296,7 @@
              routes through the identical `PresetsService`/
              `EditorStateService.applyPreset` path the S5 editor uses. -->
         @if (presetsOpen()) {
-          <div class="presets-panel">
+          <div class="presets-panel" role="region" aria-label="Presets">
             <app-presets-panel (applied)="presetsOpen.set(false)" />
           </div>
         }
@@ -263,7 +314,7 @@
              from the colour chip row, so the control card stays mounted
              alongside — unlike HSL/bwMix/Color Grading below. -->
         @if (noiseArmed()) {
-          <div class="subparam-panel">
+          <div class="subparam-panel" role="region" aria-label="Noise">
             <app-value-chip class="pointer-events-none" />
             <div class="w-full overflow-x-auto">
               <app-sub-param-row />
@@ -296,9 +347,19 @@
            anchor slot); this extends the same guard to tablet/desktop, plus
            Info, which has no phone equivalent of the collision (Info is a
            bottom sheet there, not a competing floating panel). -->
-      @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed() && !infoOpen()) {
+      @if (
+        !cropArmed() &&
+        !curveOpen() &&
+        !presetsOpen() &&
+        !scopesOpen() &&
+        !noiseArmed() &&
+        !infoOpen()
+      ) {
         <div
           class="control-card-anchor pointer-events-auto absolute top-1/2 right-[88px] w-[300px] -translate-y-1/2"
+          role="region"
+          aria-label="Tool controls"
+          data-editor-region="tool-controls"
         >
           <pro-control-card
             [activeGroup]="activeGroup()"
@@ -367,9 +428,12 @@
            requirement there — Critical 1 — since that card and the
            dock-side panels turned out to overlap too, just not as
            obviously as phone's single shared anchor slot). -->
-      @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed()) {
+      @if (!cropArmed() && !curveOpen() && !presetsOpen() && !scopesOpen() && !noiseArmed()) {
         <div
           class="phone-card-anchor pointer-events-auto absolute right-3 bottom-[calc(72px+12px+var(--safe-area-inset-bottom))] left-3"
+          role="region"
+          aria-label="Tool controls"
+          data-editor-region="tool-controls"
         >
           <pro-control-card
             [activeGroup]="activeGroup()"
@@ -412,17 +476,30 @@
       <!-- Curve panel (tone curve + WB pad) — same content as tablet/desktop,
            floats above the dock like the phone control card (#1569). -->
       @if (curveOpen()) {
-        <div class="phone-curve-panel">
+        <div class="phone-curve-panel" role="region" aria-label="Tone curve">
           <pro-tone-curve />
           <div class="mx-2.5 h-[0.5px] bg-[color:var(--pro-border)]"></div>
           <pro-wb-pad />
         </div>
       }
 
+      <!-- Scopes panel (#2449) — same `editor-scopes-panel` as tablet/desktop,
+           floats above the dock like the phone curve panel. -->
+      @if (scopesOpen()) {
+        <div
+          class="phone-scopes-panel"
+          role="region"
+          aria-label="Scopes"
+          data-testid="editor-shell-scopes-panel"
+        >
+          <editor-scopes-panel />
+        </div>
+      }
+
       <!-- Crop panel (#1813) — same shared crop toolbar as tablet/desktop,
            floats above the dock like the phone curve panel. -->
       @if (cropArmed()) {
-        <div class="phone-crop-panel">
+        <div class="phone-crop-panel" role="region" aria-label="Crop">
           <app-crop-toolbar />
         </div>
       }
@@ -430,7 +507,7 @@
       <!-- Presets panel (#1815) — same shared presets panel as
            tablet/desktop, floats above the dock like the phone curve panel. -->
       @if (presetsOpen()) {
-        <div class="phone-presets-panel">
+        <div class="phone-presets-panel" role="region" aria-label="Presets">
           <app-presets-panel (applied)="presetsOpen.set(false)" />
         </div>
       }
@@ -439,7 +516,7 @@
            renamed dock-side panel above: HSL's equivalent moved into the
            phone control card's projected `cardBodySubParam` slot above. -->
       @if (noiseArmed()) {
-        <div class="phone-subparam-panel">
+        <div class="phone-subparam-panel" role="region" aria-label="Noise">
           <app-value-chip class="pointer-events-none" />
           <div class="w-full overflow-x-auto">
             <app-sub-param-row />
@@ -451,6 +528,7 @@
       <!-- Bottom horizontal tool dock -->
       <div
         class="pointer-events-auto absolute right-3 bottom-[calc(12px+var(--safe-area-inset-bottom))] left-3"
+        data-editor-region="tools"
       >
         <pro-tool-dock
           orientation="horizontal"
@@ -484,6 +562,9 @@
     @if (infoOpen()) {
       <div
         class="info-pane pointer-events-auto absolute inset-y-0 right-16 z-[15] w-[min(340px,30vw)] overflow-y-auto rounded-[var(--pro-glass-radius-card-desktop)] border-r-[0.5px] border-l-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+        role="region"
+        aria-label="Info"
+        data-editor-region="inspector"
       >
         <app-info-panel
           [asset]="state.focusedAsset()"
@@ -494,7 +575,12 @@
       </div>
     }
   } @else {
-    <mui-sheet-shell [open]="infoOpen()" [detents]="[0.74]" (dismissed)="infoOpen.set(false)">
+    <mui-sheet-shell
+      [open]="infoOpen()"
+      [detents]="[0.74]"
+      data-editor-region="inspector"
+      (dismissed)="infoOpen.set(false)"
+    >
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"

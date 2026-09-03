@@ -392,10 +392,10 @@ const NAVIGATION: readonly ParityCapability[] = [
 ];
 
 const SCOPE_EXCEPTION: ParityException = {
-  platform: 'both',
+  platform: 'apple',
   rationale:
-    'Web has the mui-waveform / mui-parade / mui-vectorscope organisms and the worker scope readback but mounts none of them in the editor (#2449); Apple has neither a view nor a readback path (#3251).',
-  ticket: '#2449',
+    'Apple has neither a scope view beyond the histogram nor a downsampled readback path from RenderActor; web mounts the Maple UI scopes panel over the worker readback (#2449).',
+  ticket: '#3251',
 };
 
 const scope = (id: string, name: string, order: number): ParityCapability => ({
@@ -403,9 +403,18 @@ const scope = (id: string, name: string, order: number): ParityCapability => ({
   name,
   group: 'scopes',
   order,
-  reachability: { apple: 'absent', web: 'absent' },
-  presentation: SAME('Not mounted in the editor on either platform'),
-  interaction: { keyboard: 'none', pointer: 'none', touch: 'none', focus: 'n/a' },
+  reachability: { apple: 'absent', web: 'released' },
+  presentation: {
+    compact: 'Web: Scopes button in the top bar opens a flyout panel above the dock',
+    regular: 'Web: Scopes button (the live histogram) opens a 240px dock-side panel',
+    wide: 'Same as regular',
+  },
+  interaction: {
+    keyboard: 'Tab + Enter on the Scopes toggle',
+    pointer: 'Click the toggle',
+    touch: 'Tap the toggle',
+    focus: 'Static plot; the toggle is an ordinary button',
+  },
   accessibility: { role: 'img', name, value: 'none', state: 'none', actions: ['read'] },
   participation: NONE,
   exception: SCOPE_EXCEPTION,
@@ -419,9 +428,10 @@ const SCOPES: readonly ParityCapability[] = [
     order: 10,
     reachability: BOTH,
     presentation: {
-      compact: 'Not shown in the top bar; the Info sheet carries one',
+      compact:
+        'Scopes button (icon) in the top bar opens the panel, whose first plot is the histogram',
       regular:
-        '70×30 live RGB histogram in the top bar (mui-histogram over the worker scope readback)',
+        '70×26 live RGB histogram in the top bar is the Scopes toggle (mui-histogram over the worker scope readback)',
       wide: 'Same as regular',
     },
     interaction: { keyboard: 'none', pointer: 'none', touch: 'none', focus: 'Static' },
