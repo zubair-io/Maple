@@ -159,6 +159,15 @@ jobs:
         working-directory: src/web
         run: bun run e2e:production-artifacts
 
+      # #2451: the cross-width editor gates run inside the step above, and a
+      # required job whose test count silently drops to zero (a skip, a
+      # renamed file, a project filter) is indistinguishable from a pass.
+      # This reads the run's JSON report and fails unless EXACTLY the expected
+      # number of those tests passed in `chrome-hosted`.
+      - name: Editor cross-width gate count is exact and non-zero
+        working-directory: src/web
+        run: bun run e2e:check-editor-gates
+
       # #2746: a failure here (e.g. welcome-intake.spec.ts's browser-audit
       # assertion) previously left CI showing only the audit's pass/fail
       # verdict — the underlying console/page errors, failed requests, and

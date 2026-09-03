@@ -32,7 +32,7 @@ function collectSpecs(suite: JsonSuite): JsonSpec[] {
 }
 
 /** Passed tests for `specFile` in `project`, with the titles of anything that did not pass. */
-export function countPassed(
+function countPassed(
   report: { suites?: readonly JsonSuite[] },
   specFile: string,
   project: string,
