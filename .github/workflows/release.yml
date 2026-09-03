@@ -1,0 +1,347 @@
+# .github/workflows/release.yml
+#
+# Signed release binaries for the Mac and Windows apps.
+#
+# Deliberately NOT wired to pushes on main: merging is not releasing. A
+# release happens when a `v*` tag is pushed (e.g. `git tag v0.1.0 && git
+# push origin v0.1.0`), which builds, signs, and attaches both binaries to
+# a GitHub Release. `workflow_dispatch` runs the same build for a dry run —
+# artifacts land on the workflow run, but no Release is created.
+#
+# Required repository secrets (see PR description for how to mint each):
+#   macOS signing + notarization
+#     APPLE_TEAM_ID          — 10-char team id
+#     MACOS_CERT_P12_BASE64  — "Developer ID Application" cert + key, base64'd .p12
+#     MACOS_CERT_PASSWORD    — password for the .p12
+#     APPSTORE_KEY_ID        — App Store Connect API key id (notarytool + profiles)
+#     APPSTORE_ISSUER_ID     — App Store Connect issuer id
+#     APPSTORE_PRIVATE_KEY   — contents of the AuthKey_*.p8
+#   Windows Authenticode — Azure Trusted Signing, renamed "Artifact Signing"
+#   (key lives in Azure's HSM; the app registration "maple-ci-signing" holds
+#   the "Artifact Signing Certificate Profile Signer" role on the account)
+#     AZURE_TENANT_ID     — Entra tenant id
+#     AZURE_CLIENT_ID     — app registration (service principal) client id
+#     AZURE_CLIENT_SECRET — client secret for that app registration
+#     AZURE_TS_ENDPOINT   — regional endpoint, e.g. https://eus.codesigning.azure.net/
+#     AZURE_TS_ACCOUNT    — Trusted Signing account name
+#     AZURE_TS_PROFILE    — certificate profile name
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Keep in sync with apple.yml / src/apple/ci_scripts/ci_post_clone.sh.
+env:
+  CBINDGEN_VERSION: '0.29.2'
+
+jobs:
+  macos-app:
+    name: macOS (build, sign, notarize)
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # Signing material first, before the ~40-minute Rust cross-build: a
+      # missing/bad secret fails the job in seconds, not after the expensive
+      # part (macOS runner minutes bill at 10x).
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+            echo "::error::MACOS_CERT_P12_BASE64 secret is not set — cannot sign. See the header comment in release.yml."
+            exit 1
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          KEYCHAIN_PATH="$RUNNER_TEMP/release.keychain-db"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Stage App Store Connect API key
+        env:
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APPSTORE_PRIVATE_KEY" ]; then
+            echo "::error::APPSTORE_PRIVATE_KEY secret is not set — cannot notarize."
+            exit 1
+          fi
+          printf '%s' "$APPSTORE_PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Select newest Xcode
+        run: |
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          echo "Selecting $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP"
+
+      - name: Install Rust toolchain (Apple targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+
+      - name: Cache cbindgen binary
+        id: cbindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install cbindgen
+        if: steps.cbindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+
+      # Same recipe as Xcode Cloud's ci_post_clone.sh: real static libs for
+      # every slice (the ORT iOS dep is vendored in-repo, so this is
+      # self-contained). Release profile is the script default.
+      - name: Build RawPipeline.xcframework (release)
+        run: ./src/apple/scripts/build-xcframework.sh
+
+      - name: Archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          xcodebuild -project src/apple/Maple.xcodeproj \
+            -scheme "Maple Exposure" \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
+            archive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$APPSTORE_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+
+      # developer-id export re-signs the archive with the Developer ID
+      # Application identity imported above; -allowProvisioningUpdates lets
+      # Xcode mint Developer ID provisioning profiles for the app +
+      # embedded extensions (File Provider, QuickLook).
+      - name: Export with Developer ID
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>developer-id</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$APPSTORE_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID"
+
+      - name: Notarize and staple
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find "$RUNNER_TEMP/export" -maxdepth 1 -name '*.app' | head -1)"
+          echo "Notarizing $APP_PATH"
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$APPSTORE_KEY_ID" \
+            --issuer "$APPSTORE_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev-${GITHUB_SHA::8}"
+          mkdir -p "$RUNNER_TEMP/out"
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/out/Maple-macOS-$VERSION.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: ${{ runner.temp }}/out/*.zip
+          if-no-files-found: error
+
+  windows-app:
+    name: Windows x64 (build, sign)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+
+      # No --target flag: the csproj bundles raw_ffi.dll + maple-cli.exe
+      # from target/release/ (not the triple-suffixed dir).
+      - name: Build native core (raw_ffi.dll + maple-cli.exe)
+        run: |
+          cargo build --release --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
+          cargo build --release --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Publish WinUI app (self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish src/windows/Maple.WinUI/Maple.WinUI.csproj `
+            -c Release -r win-x64 --self-contained `
+            -p:Version=${{ steps.version.outputs.version }} `
+            -o publish
+
+      # Stage only OUR binaries for signing — the runtime/framework DLLs in
+      # the publish folder are already Microsoft-signed, and Trusted Signing
+      # signs a whole folder.
+      - name: Stage binaries for signing
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory signing | Out-Null
+          foreach ($f in 'Maple.WinUI.exe', 'raw_ffi.dll', 'maple-cli.exe') {
+            if (-not (Test-Path "publish\$f")) { throw "$f missing from publish output" }
+            Copy-Item "publish\$f" signing\
+          }
+
+      - name: Sign binaries (Azure Trusted Signing)
+        uses: azure/trusted-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TS_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TS_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TS_PROFILE }}
+          files-folder: ${{ github.workspace }}\signing
+          files-folder-filter: exe,dll
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Fold signed binaries back into publish
+        shell: pwsh
+        run: |
+          Copy-Item signing\* publish\ -Force
+          $sig = Get-AuthenticodeSignature publish\Maple.WinUI.exe
+          if ($sig.Status -ne 'Valid') { throw "Maple.WinUI.exe signature is $($sig.Status)" }
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=${{ steps.version.outputs.version }} `
+            /DPublishDir="$env:GITHUB_WORKSPACE\publish" `
+            /DOutputDir="$env:GITHUB_WORKSPACE\installer-out" `
+            src\windows\installer\maple.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+
+      - name: Sign installer (Azure Trusted Signing)
+        uses: azure/trusted-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TS_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TS_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TS_PROFILE }}
+          files-folder: ${{ github.workspace }}\installer-out
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # Portable zip alongside the installer, from the same signed payload
+      # (the shim rides along so PATH-less use still has bin\maple.cmd).
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item installer-out\*.exe out\
+          New-Item -ItemType Directory publish\bin -Force | Out-Null
+          Copy-Item src\windows\installer\maple.cmd publish\bin\maple.cmd
+          Compress-Archive -Path publish\* -DestinationPath "out\Maple-Windows-x64-${{ steps.version.outputs.version }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: out/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    # Dry runs (workflow_dispatch) stop at artifacts — no Release.
+    if: github.ref_type == 'tag'
+    needs: [macos-app, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PRERELEASE_FLAG=""
+          case "$GITHUB_REF_NAME" in *-*) PRERELEASE_FLAG="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Maple $GITHUB_REF_NAME" \
+            --generate-notes \
+            $PRERELEASE_FLAG \
+            dist/*
