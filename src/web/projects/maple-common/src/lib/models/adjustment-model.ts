@@ -25,6 +25,9 @@ export { defaultGeneratedAdjustmentModel } from '../generated/adjustment-model.g
 // Ranges live in the sibling generated file (#2683 — split out to keep both
 // generated files well under the file-size budget as the schema grows).
 export { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
+export type { LocalAdjustment, LocalMask, MaskPoint, PartialAdjustments } from './local-adjustment';
+export { isEmptyPartialAdjustments } from './local-adjustment';
+import type { LocalAdjustment } from './local-adjustment';
 
 /**
  * White balance preset name as recorded in `crs:WhiteBalance` in the XMP
@@ -132,6 +135,15 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
   whiteBalancePreset: WhiteBalancePreset;
   crop: Crop;
   /**
+   * Masked, per-region edits (#280/#358) — a hand-written mirror of
+   * `raw_core::types::LocalAdjustment`, permanently outside codegen because
+   * it is a nested list rather than a flat slider (see
+   * `local-adjustment.ts`). Empty is the default; the sidecar writer emits
+   * the `crs:GradientBasedCorrections` / `crs:CircularGradientBasedCorrections`
+   * containers only for a non-empty stack.
+   */
+  localAdjustments: LocalAdjustment[];
+  /**
    * WB slider-scale version of this model's temperature/tint
    * (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
    * 6500 K identity) — raw-core converts on use; `5` = the Robertson
@@ -156,6 +168,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     ...defaultGeneratedAdjustmentModel(),
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
+    localAdjustments: [],
     wbScaleVersion: 5,
   };
 }
@@ -175,6 +188,8 @@ export function isDefaultAdjustment(m: AdjustmentModel): boolean {
   if (!isIdentityCrop(m.crop)) return false;
   return (Object.keys(d) as Array<keyof AdjustmentModel>).every((k) => {
     if (k === 'crop') return true;
+    // A layer stack is a nested list (#358): default is the empty stack.
+    if (k === 'localAdjustments') return m.localAdjustments.length === 0;
     // Point curves (#366) are nested objects too: strict equality would
     // report every model as edited. Default is the identity (empty) curve.
     if (isToneCurveValue(d[k])) {
