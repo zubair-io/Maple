@@ -54,6 +54,8 @@ describe('EditorStateService transactions', () => {
       ],
     });
     svc = TestBed.inject(EditorStateService);
+    // AUTO reads the asset's bytes before asking the pipeline stub.
+    lib.primeBytes(ID, new Uint8Array([1, 2, 3]));
     svc.bind(ID);
   });
 

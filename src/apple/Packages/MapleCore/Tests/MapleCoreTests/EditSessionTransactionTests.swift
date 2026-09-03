@@ -270,13 +270,20 @@ final class EditSessionTransactionTests: XCTestCase {
             session.lastPublishedRenderGeneration, g0,
             "a stale render published over the newer transaction")
 
-        // The live generation (or anything newer the session scheduled
-        // meanwhile) is what reaches the canvas — never the stale one.
-        await session.decodeAndRender(targetSize: nil, phase: .fast, gen: live)
-        let published = try XCTUnwrap(
-            session.lastPublishedRenderGeneration,
-            "the live render must publish (error: \(String(describing: session.renderError)))")
-        XCTAssertGreaterThanOrEqual(published, live)
+        // The CURRENT generation is what reaches the canvas — never the
+        // stale one. The session may bump the generation on its own while a
+        // render is in flight (a superseded render is dropped, correctly), so
+        // re-read it before each attempt.
+        var published: UInt64?
+        for _ in 0..<3 where published == nil {
+            let current = await session.renderActor.currentGeneration()
+            await session.decodeAndRender(targetSize: nil, phase: .fast, gen: current)
+            published = session.lastPublishedRenderGeneration
+        }
+        let landed = try XCTUnwrap(
+            published, "the live render must publish (error: \(String(describing: session.renderError)))")
+        XCTAssertGreaterThanOrEqual(landed, live)
+        XCTAssertNotEqual(landed, g0)
         XCTAssertTrue(session.renderedPreview != nil || session.gpuFramePresented)
     }
 }
