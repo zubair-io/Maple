@@ -133,7 +133,12 @@ fn awb_too_few_pixels_falls_back_to_as_shot_neutral() {
         *px = [0.001, 0.001, 0.001];
     }
     let raw = make_raw([0.52, 1.0, 0.68]);
-    let want = dcp::estimate_as_shot_cct_tint(&raw).unwrap();
+    let as_shot = dcp::estimate_as_shot_cct_tint(&raw).unwrap();
+    // The fallback is still a slider recommendation: this synthetic body's
+    // as-shot solve reads +154 tint against a -150..150 slider, so what
+    // comes back is that reading pinned to the domain, not the raw pair.
+    let want = into_schema_domain(as_shot);
+    assert_ne!(want, as_shot, "fixture no longer exercises the pin");
     let got = compute_awb(&img, &raw, &probe_model());
     assert!(
         (got.0 - want.0).abs() < 1.0 && (got.1 - want.1).abs() < 1.0,
@@ -268,6 +273,28 @@ fn bound_ignores_a_railed_as_shot_reading() {
     assert_eq!(bounded_by_prior(estimate, railed), estimate);
     let out_of_domain = (15000.0, 0.0);
     assert_eq!(bounded_by_prior(estimate, out_of_domain), estimate);
+}
+
+#[test]
+fn every_recommendation_lands_in_the_slider_domain() {
+    // The recommendation is a slider value on every path, including the two
+    // that are not themselves bounded by the schema: the fallback (the
+    // camera's own reading — test_0004's railed +180 tint) and the band,
+    // which reaches MAX_TINT_MOVE past the edge from an in-domain prior.
+    let (t_lo, t_hi) = schema_range("temperature");
+    let (tint_lo, tint_hi) = schema_range("tint");
+    let railed_as_shot = (9659.0, 179.8);
+    assert!(!in_schema_domain(railed_as_shot));
+    assert_eq!(into_schema_domain(railed_as_shot), (9659.0, tint_hi));
+
+    let at_the_edge = (5000.0, tint_hi);
+    let over = bounded_by_prior((5000.0, tint_hi + 200.0), at_the_edge);
+    assert!(over.1 > tint_hi, "the band alone overshoots: {}", over.1);
+    assert_eq!(into_schema_domain(over).1, tint_hi);
+
+    assert_eq!(into_schema_domain((t_lo - 1000.0, 0.0)).0, t_lo);
+    assert_eq!(into_schema_domain((t_hi + 1000.0, 0.0)).0, t_hi);
+    assert_eq!(into_schema_domain((5000.0, tint_lo - 50.0)).1, tint_lo);
 }
 
 // ---- Calibrated tier: the whole develop chain, end to end ----
