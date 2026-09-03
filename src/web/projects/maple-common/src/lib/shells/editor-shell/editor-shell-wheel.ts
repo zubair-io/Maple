@@ -32,11 +32,20 @@ export interface WheelNudgeState {
   lastAt: number;
   lastTool: ToolId | null;
   lastSubParam: string | null;
+  /** Asset the burst is nudging — a focus switch always starts a new burst. */
+  lastAssetId: string | null;
   flushTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export function newWheelNudgeState(): WheelNudgeState {
-  return { accumulatedPx: 0, lastAt: 0, lastTool: null, lastSubParam: null, flushTimer: null };
+  return {
+    accumulatedPx: 0,
+    lastAt: 0,
+    lastTool: null,
+    lastSubParam: null,
+    lastAssetId: null,
+    flushTimer: null,
+  };
 }
 
 /** Whole detents represented by this event (positive = increase). */
@@ -70,12 +79,17 @@ export function onCanvasWheel(
 
   const tool = editorState.armedTool();
   const subParam = editorState.armedSubParamId();
+  const assetId = editorState.imageId();
   const newBurst =
-    tool !== state.lastTool || subParam !== state.lastSubParam || now - state.lastAt > BURST_MS;
+    tool !== state.lastTool ||
+    subParam !== state.lastSubParam ||
+    assetId !== state.lastAssetId ||
+    now - state.lastAt > BURST_MS;
   if (newBurst) editorState.commit();
   state.lastAt = now;
   state.lastTool = tool;
   state.lastSubParam = subParam;
+  state.lastAssetId = assetId;
 
   const commitsOnRelease = editorState.armedCommitsOnRelease();
   if (commitsOnRelease) editorState.beginGesture();

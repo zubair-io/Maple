@@ -25,6 +25,7 @@ function makeShell(
     editorState: {
       armedTool: signal('exposure'),
       armedSubParamId: signal<string | null>(null),
+      imageId: signal<string | null>('a.dng'),
       armedToolAcceptsValueEdits: () => opts.accepts ?? true,
       armedCommitsOnRelease: () => opts.commitsOnRelease ?? false,
       armedInternalValue: () => value,
@@ -110,6 +111,9 @@ describe('onCanvasWheel', () => {
     mocks.editorState.armedSubParamId.set('deep');
     onCanvasWheel(shell, state, wheel(-DETENT_PX), 1000 + BURST_MS * 2 + 20);
     expect(mocks.editorState.commit).toHaveBeenCalledTimes(4);
+    mocks.editorState.imageId.set('b.dng');
+    onCanvasWheel(shell, state, wheel(-DETENT_PX), 1000 + BURST_MS * 2 + 30);
+    expect(mocks.editorState.commit).toHaveBeenCalledTimes(5);
   });
 
   it('parks commit-on-release fields for the burst and flushes after the idle delay', () => {
