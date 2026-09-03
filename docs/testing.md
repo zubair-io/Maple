@@ -396,6 +396,14 @@ The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harnes
 
 CI keeps the CI-runnable records honest with `record.sh --check`, which re-runs the suite and fails if its counts differ from the committed record: the four synthetic grey gates in `rust-tests`, the API sidecar contract in `api-tests`, and the lavapipe GPU chain parity in `raw-gpu` (which, having no macOS equivalent, writes the record as a `qualification-gpu_chain_parity_lavapipe` artifact for a human to commit when none exists). The Apple contract suite, Metal parity, and the colour harness are recorded locally, and their records go stale the moment their corpus or the pipeline version moves. `codegen-drift` uploads `docs/capability-registry.json` + `.md` as the `capability-release-summary-<sha>` artifact of every run.
 
+### Camera and lens support tiers
+
+The same evidence records drive a second generated registry: `docs/camera-support.md` and `docs/camera-support.json`, with the Swift and TypeScript consumers `MapleCore/Generated/CameraSupport+Generated.swift` and `maple-common/src/lib/generated/camera-support.generated.ts`. It answers "how well does Maple support this camera" with five tiers — `qualified`, `profiled`, `matrix-only`, `decode-only`, `unsupported` — plus a **separate** lens axis that never follows from the camera tier.
+
+The four lower tiers are a total function of which branch `color::dcp::profile_for_with_source` takes for a file, so they cannot be hand-set: a bundle hit or a complete embedded profile is `profiled`, an embedded matrix alone is `matrix-only`, the synthetic D65 fallback is `decode-only`, and a file that does not decode is `unsupported`. Promotion to `qualified` needs a physical fixture **and** every qualification suite covering that body satisfied under the rule above — which is why the registry reports **no camera as `qualified`** today: the colour harness has no committed record. Committing one promotes fourteen bodies in the next `tools/codegen.sh` run; letting it go stale demotes them again, in the same `codegen-drift` gate that guards the capability registry.
+
+Which physical fixture is which body — its lookup key, the resolver branch it takes, whether it carries lens corrections — is reviewed Rust in `raw-core/src/support_tiers/mod.rs`, and every one of those declarations is checked against a real decode by the fixture-gated `support_tiers::fixture_tests` (skip-passes without `test-fixtures/raws/`). `raw-core/src/color/profiles/COVERAGE.md` remains the human notes on _why_ a body is missing from the bundle; the tier table itself is generated.
+
 ---
 
 ## Repo tooling gates

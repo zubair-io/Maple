@@ -35,6 +35,8 @@ mod capability_registry;
 mod capability_summary;
 mod color_matrices;
 mod film_catalog;
+mod support_tiers;
+mod support_tiers_summary;
 mod ui_tokens;
 mod ui_tokens_xaml;
 
@@ -44,6 +46,7 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use raw_core::capability_registry::{Evidence, CAPABILITY_REGISTRY};
 use raw_core::film_catalog::FILM_CATALOG;
+use raw_core::support_tiers::SupportRegistry;
 use raw_core::types::ADJUSTMENT_SCHEMA;
 use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS};
 
@@ -102,6 +105,10 @@ enum Schema {
     /// `raw_core::capability_registry::CAPABILITY_REGISTRY` judged against
     /// the evidence records in `--evidence-dir` (#2430).
     CapabilityRegistry,
+    /// `raw_core::support_tiers` — the camera / lens support tiers, computed
+    /// from the same evidence records plus the bundled profile index
+    /// (#2440).
+    SupportTiers,
 }
 
 #[derive(Parser, Debug)]
@@ -131,7 +138,7 @@ struct Cli {
 
 fn load_evidence(cli: &Cli) -> Evidence {
     let Some(dir) = cli.evidence_dir.as_ref() else {
-        eprintln!("codegen: --schema capability-registry needs --evidence-dir");
+        eprintln!("codegen: this schema needs --evidence-dir");
         std::process::exit(2);
     };
     match Evidence::load(&cli.repo_root, dir) {
@@ -226,6 +233,31 @@ fn main() {
         ) => {
             eprintln!(
                 "codegen: --schema capability-registry supports only the swift / ts / cs / md / json targets"
+            );
+            std::process::exit(2);
+        }
+        (Schema::SupportTiers, Target::Swift) => {
+            let evidence = load_evidence(&cli);
+            support_tiers::emit_swift(&SupportRegistry::compute(&evidence), &evidence)
+        }
+        (Schema::SupportTiers, Target::Ts) => {
+            let evidence = load_evidence(&cli);
+            support_tiers::emit_ts(&SupportRegistry::compute(&evidence), &evidence)
+        }
+        (Schema::SupportTiers, Target::Md) => {
+            let evidence = load_evidence(&cli);
+            support_tiers_summary::emit_md(&SupportRegistry::compute(&evidence), &evidence)
+        }
+        (Schema::SupportTiers, Target::Json) => {
+            let evidence = load_evidence(&cli);
+            support_tiers_summary::emit_json(&SupportRegistry::compute(&evidence), &evidence)
+        }
+        (
+            Schema::SupportTiers,
+            Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml | Target::Cs,
+        ) => {
+            eprintln!(
+                "codegen: --schema support-tiers supports only the swift / ts / md / json targets"
             );
             std::process::exit(2);
         }
