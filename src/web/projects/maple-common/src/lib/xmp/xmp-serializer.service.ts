@@ -37,6 +37,23 @@ import {
   resolveExtraNamespaces,
 } from './xmp-serializer-children';
 
+/**
+ * Numeric fields a model withholds regardless of their value — the two cases
+ * where writing the number would assert something the sidecar does not mean.
+ *
+ * `temperature`/`tint` at As Shot are the DISPLAY seed, not an authored pair
+ * (see `_adjustmentParts`). `wbSampleX`/`wbSampleY` are the point a sampled
+ * white balance was picked at, so they travel only with a `Sampled` source —
+ * the same gate raw-core and Swift apply. Without it a stale coordinate left
+ * in the model (a pasted look carries `wb_source` but not the point, which is
+ * non-copyable) would leak into a Preset/Manual/Auto sidecar and claim
+ * provenance the pair does not have (#2434, review on #3309).
+ */
+function fieldIsWithheld(modelKey: string, model: AdjustmentModel, wbIsAsShot: boolean): boolean {
+  if (wbIsAsShot && (modelKey === 'temperature' || modelKey === 'tint')) return true;
+  return (modelKey === 'wbSampleX' || modelKey === 'wbSampleY') && model.wbSource !== 'Sampled';
+}
+
 @Injectable({ providedIn: 'root' })
 export class XmpSerializerService {
   /**
@@ -221,17 +238,7 @@ export class XmpSerializerService {
     const fieldParts: string[] = [];
     const emittedKeys = new Set<string>();
     for (const f of ADJUSTMENT_FIELDS) {
-      if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
-      // The sample point travels only with a sampled source (#2434), the
-      // same gate raw-core and Swift apply. Without it a stale coordinate
-      // left in the model would leak into a Preset/Manual/Auto sidecar and
-      // claim provenance the pair does not have (Copilot review on #3309).
-      if (
-        model.wbSource !== 'Sampled' &&
-        (f.modelKey === 'wbSampleX' || f.modelKey === 'wbSampleY')
-      ) {
-        continue;
-      }
+      if (fieldIsWithheld(f.modelKey, model, wbIsAsShot)) continue;
       const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
       // A `NaN`/`Infinity`/`-Infinity` model value (a corrupted in-memory
