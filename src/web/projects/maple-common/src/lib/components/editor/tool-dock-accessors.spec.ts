@@ -53,7 +53,8 @@ describe('ToolDockComponent — dockEntries() view-model', () => {
   it('title: plain label enabled, label + ticket disabled', () => {
     renderFor('light', null);
     expect(itemFor(fixture, 'light').title).toBe('Light');
-    expect(itemFor(fixture, 'mask').title).toBe('Mask — coming in #1541');
+    expect(itemFor(fixture, 'mask').title).toBe('Mask');
+    expect(itemFor(fixture, 'heal').title).toBe('Heal — coming in #1472');
   });
 
   it('enabled entries stay in the accessibility tree (not hidden, labeled)', () => {
@@ -66,7 +67,7 @@ describe('ToolDockComponent — dockEntries() view-model', () => {
 
   it('disabled entries are hidden from the a11y tree', () => {
     renderFor('light', null);
-    const item = itemFor(fixture, 'mask');
+    const item = itemFor(fixture, 'heal');
     expect(item.ariaHidden).toBe(true);
     expect(item.disabled).toBe(true);
   });
