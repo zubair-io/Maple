@@ -54,6 +54,10 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
     // Detail
     case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections, crop, presets
+    // Mask (#3274) — a full-surface swap, not a primary-field drag bar; see
+    // `isWired` below. Heal is gated behind #1472 with no Tool-level surface
+    // yet, per CLAUDE.md #6's deliberate-staging exception.
+    case mask, heal
 
     public var group: ToolGroup {
         switch self {
@@ -65,7 +69,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
             return .effects
         case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
-             .crop, .presets:
+             .crop, .presets, .mask, .heal:
             return .detail
         }
     }
@@ -101,6 +105,8 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .lensCorrections: return "Lens"
         case .crop:           return "Crop"
         case .presets:        return "Presets"
+        case .mask:           return "Mask"
+        case .heal:           return "Heal"
         }
     }
 
@@ -149,6 +155,13 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     public var isWired: Bool {
         switch self {
         case .crop:
+            return false
+        // Mask (#3274) is wired via LocalAdjustment, not a single scalar
+        // field — its own panel (not this pipe) writes
+        // model.localAdjustments; Heal is gated behind #1472 with no
+        // Tool-level surface yet, per CLAUDE.md #6's deliberate-staging
+        // exception.
+        case .mask, .heal:
             return false
         default:
             return true

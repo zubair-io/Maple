@@ -103,6 +103,12 @@ let package = Package(
                 // downsized to a 1024px long edge — matching the ~1MP develop
                 // PersonSkinMaskService actually receives in production.
                 .copy("Fixtures/portrait-skin-test.png"),
+                // Shared layer-stack fixture (#3274) — the same JSON
+                // test-fixtures/local-adjustments/layer-stack.json pins
+                // raw-core's flat-record writer against; kept in this repo's
+                // copy verbatim (`cp`, not a symlink — SPM resources don't
+                // follow symlinks reliably across platforms).
+                .copy("Fixtures/layer-stack.json"),
             ]
         ),
     ],
