@@ -128,13 +128,6 @@ const MAX_MIRED_MOVE: f32 = 80.0;
 /// reference set is 32 (test_0008).
 const MAX_TINT_MOVE: f32 = 35.0;
 
-/// An as-shot reading this far out is not a prior: `estimate_as_shot_cct_tint`
-/// rails to ±180 on a body whose calibration the frame cannot invert
-/// (test_0004, `RawlerFallback`), and bounding to that would pin the
-/// recommendation to garbage. Such a reading is ignored and the estimate
-/// stands on its own.
-const PRIOR_MAX_TINT: f32 = 100.0;
-
 /// The space a probe pixel is judged in: post-gain camera RGB on a calibrated
 /// body (where the sensor's clip ceilings are per-channel constants and the
 /// slider frame lives), the probe's own Rec.2020 otherwise.
@@ -363,16 +356,19 @@ fn estimate_neutral(probe: &Image, space: &ProbeSpace) -> Option<[f32; 3]> {
 }
 
 /// Clamp `estimate` to within [`MAX_MIRED_MOVE`] / [`MAX_TINT_MOVE`] of the
-/// camera's as-shot reading `prior`, when that reading is usable
-/// ([`PRIOR_MAX_TINT`], finite, inside the slider domain). The move is
-/// clamped, not damped: an estimate inside the bound is returned as-is, so
-/// a real cast the camera under-corrected is still corrected in full.
+/// camera's as-shot reading `prior`. The move is clamped, not damped: an
+/// estimate inside the band is returned as-is, so a real cast the camera
+/// under-corrected is still corrected in full.
+///
+/// A reading outside the slider domain is not a prior:
+/// `estimate_as_shot_cct_tint` rails to +180 tint on a body whose
+/// calibration the frame cannot invert (test_0004, `RawlerFallback`), and
+/// bounding to that would pin the recommendation to garbage. Such a reading
+/// is ignored and the estimate stands on its own.
 fn bounded_by_prior(estimate: (f32, f32), prior: (f32, f32)) -> (f32, f32) {
     let (t_lo, t_hi) = schema_range("temperature");
-    let prior_usable = prior.0.is_finite()
-        && prior.1.is_finite()
-        && (t_lo..=t_hi).contains(&prior.0)
-        && prior.1.abs() <= PRIOR_MAX_TINT;
+    let (tint_lo, tint_hi) = schema_range("tint");
+    let prior_usable = (t_lo..=t_hi).contains(&prior.0) && (tint_lo..=tint_hi).contains(&prior.1);
     if !prior_usable {
         return estimate;
     }
