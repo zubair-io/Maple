@@ -43,6 +43,7 @@ import {
   defaultDisplayValue,
   isWired,
 } from '../../editor/tool-model';
+import { toolMetadata } from '../../editor/tool-metadata';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
@@ -241,11 +242,11 @@ export class ControlCardComponent {
     return displayRange(tool)?.[1] ?? 100;
   }
 
+  /** Keyboard / drag quantum, derived from the generated range
+   *  (`tool-metadata.ts`, #2448): hundredths for the EV range, 50 K
+   *  detents for Kelvin, one for everything else. */
   stepFor(tool: ToolId): number {
-    // Exposure is float; most others are integer
-    if (tool === 'exposure') return 0.01;
-    if (tool === 'temp') return 50;
-    return 1;
+    return toolMetadata(tool)?.step ?? 1;
   }
 
   labelFor(tool: ToolId): string {
