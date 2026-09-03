@@ -177,8 +177,13 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       if (this.session.active()) this.canvasSvc.zoomToFit();
     });
-    // Redraw the weight tint whenever the selected mask or the geometry moves.
+    // Redraw the weight tint whenever the selected mask or the geometry
+    // moves — but only while the tool is armed. The overlay stays mounted and
+    // the selection survives disarming, so without this gate a resize, a crop
+    // edit or an undo would rasterise a tint nobody can see. `active()` is
+    // read first, so re-arming re-runs the effect and repaints immediately.
     effect(() => {
+      if (!this.session.active()) return;
       const mask = this.mask();
       const map = this.map();
       const canvas = this.tintCanvas()?.nativeElement;
