@@ -408,3 +408,67 @@ fn local_tone_controls_are_sequential() {
     );
 }
 
+#[test]
+fn apply_with_scope_returns_the_target_layers_weights_even_when_it_has_no_controls() {
+    let empty = LocalAdjustment {
+        mask: Mask::Radial {
+            center: Point2::new(0.0, 0.5),
+            radii: Point2::new(0.5, 10.0),
+            angle: 0.0,
+            feather: 0.0,
+            invert: false,
+        },
+        range: None,
+        adjustments: PartialAdjustments::default(),
+    };
+    let mut img = flat_image(4, 1, 0.3);
+    let snapshot = img.pixels.clone();
+    let weights = apply_with_scope(&mut img, &[empty], &[], Some(0)).expect("weights");
+    assert_eq!(
+        img.pixels, snapshot,
+        "a control-less layer still moves no pixels"
+    );
+    assert_eq!(weights.len(), 4);
+    assert_eq!(weights[0], 1.0);
+    assert_eq!(weights[3], 0.0);
+}
+
+#[test]
+fn apply_with_scope_out_of_range_target_yields_none() {
+    let mut img = flat_image(2, 1, 0.3);
+    assert!(apply_with_scope(&mut img, &[], &[], Some(3)).is_none());
+}
+
+/// The empty-layers early return isn't what makes the previous test pass —
+/// a genuinely out-of-range index against a non-empty stack must also
+/// record nothing, not panic on an out-of-bounds index into `layers`.
+#[test]
+fn apply_with_scope_out_of_range_target_against_real_layers_yields_none() {
+    let layer = LocalAdjustment {
+        mask: Mask::Linear {
+            start: Point2::new(0.0, 0.0),
+            end: Point2::new(1.0, 0.0),
+            feather: 0.0,
+        },
+        range: None,
+        adjustments: PartialAdjustments {
+            exposure: Some(1.0),
+            ..Default::default()
+        },
+    };
+    let mut img = flat_image(4, 1, 0.3);
+    let with_apply_only = {
+        let mut clean = flat_image(4, 1, 0.3);
+        apply(&mut clean, std::slice::from_ref(&layer), &[]);
+        clean.pixels
+    };
+    let weights = apply_with_scope(&mut img, std::slice::from_ref(&layer), &[], Some(1));
+    assert!(
+        weights.is_none(),
+        "index 1 is out of range for a 1-layer stack"
+    );
+    assert_eq!(
+        img.pixels, with_apply_only,
+        "an out-of-range scope target must not change what gets applied"
+    );
+}

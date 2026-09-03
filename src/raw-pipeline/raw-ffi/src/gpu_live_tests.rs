@@ -403,6 +403,9 @@ pub(super) fn direct_raw_gpu(
         // No fixture in this file sets a bitmap mask, so `model.mask_rasters`
         // is always empty.
         mask_rasters: Vec::new(),
+        // This file's fixtures don't exercise the scope pass — see
+        // `gpu_live_scope_tests.rs` for that.
+        scope: raw_gpu::ScopeRequest::default(),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,

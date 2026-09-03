@@ -21,8 +21,10 @@ use crate::scene_linear_chain::{
     MapleAdjustmentParams,
 };
 use crate::scene_linear_chain_fused::{
-    maple_apply_chain_and_encode_display_f32, maple_apply_chain_and_encode_display_target_f32,
+    maple_apply_chain_and_encode_display_f32, maple_apply_chain_and_encode_display_scoped_f32,
+    maple_apply_chain_and_encode_display_target_f32,
 };
+use crate::MapleScopeStats;
 
 /// Same field set as `scene_linear_chain_tests::default_params` (this crate
 /// doesn't expose that helper across the test-module boundary) — a fully
@@ -405,5 +407,88 @@ fn fused_target_p3_matches_two_step_p3_and_differs_from_srgb() {
         diff > 1e-3,
         "P3-target and sRGB-target fused outputs are near-identical ({diff}) on a \
          saturated wide-gamut input — target_primaries looks inert"
+    );
+}
+
+/// The scoped fused entry (#3272) histograms the ENCODED output weighted by
+/// the target layer's mask — a hard-step (unfeathered) linear mask means
+/// every pixel's weight is EXACTLY 0.0 or 1.0, no dither-adjacent rounding
+/// ambiguity, so the expected total is an exact closed form: `(pixels the
+/// mask covers) * WEIGHT_SCALE`.
+#[test]
+fn scoped_fused_entry_histograms_the_encoded_output_weighted_by_the_target_layer() {
+    let (width, height) = (8u32, 4u32);
+    let input = synthetic_input(width as usize, height as usize);
+    let mut params = default_params();
+
+    // Hard-step mask: x < width/2 weighs 0, x >= width/2 weighs 1.
+    let layer = raw_core::types::LocalAdjustment {
+        mask: raw_core::types::Mask::Linear {
+            start: raw_core::types::Point2::new(0.0, 0.5),
+            end: raw_core::types::Point2::new(1.0, 0.5),
+            feather: 0.0,
+        },
+        range: None,
+        adjustments: Default::default(),
+    };
+    let flat = raw_core::types::layers_to_flat(&[layer]);
+    params.local_adjustments_ptr = flat.as_ptr();
+    params.local_adjustments_len = flat.len();
+
+    let mut out = vec![0f32; input.len()];
+    let mut stats = Box::new(MapleScopeStats {
+        frame: 0,
+        total: 0,
+        _pad: 0,
+        bins: [0; 128 * 128],
+    });
+    let rc = unsafe {
+        maple_apply_chain_and_encode_display_scoped_f32(
+            input.as_ptr(),
+            width,
+            height,
+            &params,
+            0, // the (only) layer
+            &mut *stats,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0, "scoped fused call failed");
+    assert_eq!(stats.frame, 1, "the CPU path always reports frame 1");
+    let expected_total = (width / 2 * height) * 255;
+    assert_eq!(
+        stats.total, expected_total,
+        "half the frame at weight 1, half at weight 0, no feather ambiguity"
+    );
+    let whole: u64 = stats.bins.iter().map(|b| *b as u64).sum();
+    assert_eq!(whole, stats.total as u64, "bins must sum to total");
+}
+
+/// A null `scope_out` behaves exactly like the unscoped fused entry: the
+/// chain + encode still run and `out_ptr` is still written, just no stats.
+#[test]
+fn scoped_fused_entry_with_null_scope_out_still_encodes() {
+    let (width, height) = (4u32, 3u32);
+    let input = synthetic_input(width as usize, height as usize);
+    let params = default_params();
+
+    let mut out = vec![0f32; input.len()];
+    let rc = unsafe {
+        maple_apply_chain_and_encode_display_scoped_f32(
+            input.as_ptr(),
+            width,
+            height,
+            &params,
+            -1,
+            std::ptr::null_mut(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+
+    let two_step = run_two_step(&input, width, height, &params);
+    assert_eq!(
+        out, two_step,
+        "a scoped call with no scope target must still byte-match the unscoped two-step sequence"
     );
 }

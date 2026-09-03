@@ -311,4 +311,17 @@ pub struct MapleGpuLiveParams {
     pub display_tone_curve_green_len: usize,
     pub display_tone_curve_blue_ptr: *const f32,
     pub display_tone_curve_blue_len: usize,
+    // --- Vectorscope scope statistics (#3272, spec §4/§5.4). Appended at the
+    //     struct tail per the offset-stable ABI convention. `scope_layer` −1
+    //     = no target (the scope weighs the whole frame); `scope_enabled`
+    //     0 skips the pass entirely; `scope_out` null ⇒ never written. A
+    //     zeroed tail (a stale host) reads as layer 0 + disabled + null:
+    //     disabled wins, so the chain stays byte-identical to pre-#3272
+    //     output and the pass is never even encoded. `scope_out`, once
+    //     written, is one tick BEHIND the frame `maple_gpu_live_render` /
+    //     `maple_gpu_present_chain` just produced — see
+    //     `raw_gpu::LiveSession::take_scope_stats`. ---
+    pub scope_layer: i32,
+    pub scope_enabled: u8,
+    pub scope_out: *mut crate::MapleScopeStats,
 }

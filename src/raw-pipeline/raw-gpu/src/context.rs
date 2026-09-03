@@ -283,6 +283,12 @@ pub struct GpuContext {
     /// [`GpuContext::dither_pipeline`]. Unlike every other pipeline its output is
     /// not f32, so it runs as a terminal encode, not a ping-pong chain `Pass`.
     pub(crate) dither_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled vectorscope-scope pipeline (`scope_vectorscope.wgsl`,
+    /// #3272). Runs at the end of the view tail, before dither: a mask-weighted
+    /// Rec.709 Cb/Cr histogram of the display-encoded chain buffer, into a
+    /// 128×128+1 `u32` integer-atomics buffer. Standalone kernel (no Oklab /
+    /// matrices). Built on first use via [`GpuContext::vectorscope_pipeline`].
+    pub(crate) vectorscope_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// The dims/signature-keyed live-render resource pool (epic #925 P4b-core /
     /// #1027). Pools per-dispatch uniforms / bind groups + spatial scratch planes
     /// so a same-signature re-render allocates ZERO new GPU resources (the
@@ -414,6 +420,7 @@ impl GpuContext {
             cs_multiply_pipeline: OnceCell::new(),
             cs_apply_pipeline: OnceCell::new(),
             dither_pipeline: OnceCell::new(),
+            vectorscope_pipeline: OnceCell::new(),
             frame_pool: RefCell::new(FramePool::default()),
         })
     }

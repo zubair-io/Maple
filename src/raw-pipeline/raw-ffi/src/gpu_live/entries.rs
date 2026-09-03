@@ -85,6 +85,16 @@ pub unsafe extern "C" fn maple_gpu_live_render(
         }
         let out_slice = std::slice::from_raw_parts_mut(out_ptr, expected);
         out_slice.copy_from_slice(&out);
+
+        // Vectorscope scope stats (#3272) — the PREVIOUS tick's sample, if its
+        // async map has completed by now; see `LiveSession::take_scope_stats`.
+        // Never fails the render: a missed sample just means the host's scope
+        // UI is one tick behind, not that the render itself failed.
+        if p.scope_enabled != 0 {
+            if let Some(stats) = inner.session.take_scope_stats(ctx) {
+                crate::scope_stats::write_stats(p.scope_out, stats.frame, stats.total, &stats.bins);
+            }
+        }
         0
     })
 }

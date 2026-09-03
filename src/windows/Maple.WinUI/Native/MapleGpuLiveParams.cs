@@ -171,6 +171,17 @@ namespace Maple.WinUI.Native
         public float* display_tone_curve_blue_ptr;
         public nuint display_tone_curve_blue_len;
 
+        // Vectorscope scope statistics (#3272, raw-ffi's mask_registry/scope_stats
+        // work). Left at the struct default (0 / 0 / null) by every builder below —
+        // Windows does not yet drive the scope pass — which reads as "disabled",
+        // the same "zeroed tail = pre-#3272 behaviour" convention every other
+        // tail field on this mirror already follows. `scope_out` is untyped
+        // (`void*`, not a `MapleScopeStats*`) because that struct has no C# mirror
+        // yet — nothing here ever writes through it while it stays null.
+        public int scope_layer;
+        public byte scope_enabled;
+        public void* scope_out;
+
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
         /// The wb_frame block is applied separately (WriteWbFrame) and the

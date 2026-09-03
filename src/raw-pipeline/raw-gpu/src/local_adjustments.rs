@@ -84,12 +84,18 @@ pub struct GpuMaskRaster {
 /// Whether the stage does anything for this flat layer stack — the predicate
 /// that decides pass inclusion.
 ///
-/// This mirrors `raw_core::stages::local_adjustments::apply`'s two guards
-/// together: the whole-stage `layers.is_empty()` early return, and the
-/// per-layer `layer.adjustments.is_empty()` skip. A stack of layers that all
-/// carry empty `PartialAdjustments` is a true no-op, so the pass is omitted
-/// rather than dispatched to copy the buffer.
-pub fn local_adjustments_are_active(layers_flat: &[f32]) -> bool {
+/// This mirrors `raw_core::stages::local_adjustments::apply_with_scope`'s
+/// guards: the whole-stage `layers.is_empty()` early return, the per-layer
+/// `layer.adjustments.is_empty()` skip, and (#3272) the scope-target
+/// exception — an in-range `scope_layer` keeps the pass included even when
+/// EVERY layer is control-less, because the scope pass still wants that
+/// layer's weight written to alpha. `scope_layer` uses the same `-1` = "no
+/// target" convention as [`crate::ScopeRequest`].
+pub fn local_adjustments_are_active(layers_flat: &[f32], scope_layer: i32) -> bool {
+    let layer_count = (layers_flat.len() / LAYER_FLAT_LEN) as i32;
+    if scope_layer >= 0 && scope_layer < layer_count {
+        return true;
+    }
     layers_flat
         .chunks_exact(LAYER_FLAT_LEN)
         .any(|layer| layer[PRESENT_SLOT] != 0.0)
@@ -105,7 +111,9 @@ struct Params {
     buf_width: u32,
     origin_x: u32,
     origin_y: u32,
-    _pad0: u32,
+    /// The scope-target layer index (#3272), or `-1` for none — see
+    /// [`crate::ScopeRequest`]. Was `_pad0`; same 32 bytes overall.
+    scope_layer: i32,
     inv_w: f32,
     inv_h: f32,
 }
@@ -145,6 +153,9 @@ pub struct LocalAdjustmentsPass {
     /// empty — a stack with no bitmap layers still needs a bound buffer, so
     /// an unused plane is `vec![0.0]`.
     plane: Vec<f32>,
+    /// The scope-target layer index (#3272), or `-1` for none. Set via
+    /// [`Self::with_scope_layer`] — `new` always leaves it at `-1`.
+    scope_layer: i32,
 }
 
 impl LocalAdjustmentsPass {
@@ -189,7 +200,22 @@ impl LocalAdjustmentsPass {
         if plane.is_empty() {
             plane.push(0.0);
         }
-        Self { layers_flat, plane }
+        Self {
+            layers_flat,
+            plane,
+            scope_layer: -1,
+        }
+    }
+
+    /// Record `layer`'s per-pixel weight (mask × range) into the output
+    /// alpha lane instead of the upload's untouched 1.0 (#3272). `layer` is
+    /// an index into the layer stack passed to [`Self::new`]; out-of-range
+    /// silently behaves as "no target" (matches
+    /// `raw_core::stages::local_adjustments::apply_with_scope`'s tolerance
+    /// for an index that doesn't name a real layer).
+    pub fn with_scope_layer(mut self, layer: i32) -> Self {
+        self.scope_layer = layer;
+        self
     }
 }
 
@@ -221,7 +247,7 @@ impl Pass for LocalAdjustmentsPass {
             buf_width: width,
             origin_x: 0,
             origin_y: 0,
-            _pad0: 0,
+            scope_layer: self.scope_layer,
             inv_w: inv_extent(width),
             inv_h: inv_extent(height),
         };

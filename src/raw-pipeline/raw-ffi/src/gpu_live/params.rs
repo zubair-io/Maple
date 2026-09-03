@@ -399,6 +399,18 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             ),
             blue: read_points(p.display_tone_curve_blue_ptr, p.display_tone_curve_blue_len),
         },
+        // Vectorscope scope pass (#3272). `scope_enabled == 0` forces `layer`
+        // to -1 regardless of what `p.scope_layer` holds, so a disabled
+        // request can never accidentally look "targeted" — matching
+        // `ScopeRequest::default()`'s own `{ layer: -1, enabled: false }`.
+        scope: raw_gpu::ScopeRequest {
+            layer: if p.scope_enabled != 0 {
+                p.scope_layer
+            } else {
+                -1
+            },
+            enabled: p.scope_enabled != 0,
+        },
     }
 }
 
