@@ -43,6 +43,9 @@ describe('XMP numeric round-trip', () => {
     // The temperature/tint values here are authored, not the As-Shot display
     // seed — mark the model Custom or the serializer omits them (#1892).
     (writable as unknown as AdjustmentModel).whiteBalancePreset = 'Custom';
+    // Same shape for the WB sample point (#2434): it travels only with a
+    // Sampled source, so the round-trip has to declare one.
+    (writable as unknown as AdjustmentModel).wbSource = 'Sampled';
     const out = roundTrip(writable as unknown as AdjustmentModel);
     ADJUSTMENT_FIELDS.forEach((f, i) => {
       expect(out[f.modelKey]).toBe(i + 1);

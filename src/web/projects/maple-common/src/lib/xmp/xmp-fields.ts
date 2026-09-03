@@ -241,7 +241,8 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   // White-balance provenance detail (#2434). `papp:WbSource` is an enum
   // attribute (xmp-enum-attrs.ts); the sample point and algorithm version
   // are plain numerics, omitted at their zero defaults like every other
-  // papp: numeric.
+  // papp: numeric. The point additionally travels ONLY with a sampled
+  // source — `XmpSerializerService` gates it, mirroring raw-core and Swift.
   numericField('papp:WbSampleX', 'wbSampleX'),
   numericField('papp:WbSampleY', 'wbSampleY'),
   numericField('papp:WbAlgorithmVersion', 'wbAlgorithmVersion'),

@@ -222,6 +222,16 @@ export class XmpSerializerService {
     const emittedKeys = new Set<string>();
     for (const f of ADJUSTMENT_FIELDS) {
       if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
+      // The sample point travels only with a sampled source (#2434), the
+      // same gate raw-core and Swift apply. Without it a stale coordinate
+      // left in the model would leak into a Preset/Manual/Auto sidecar and
+      // claim provenance the pair does not have (Copilot review on #3309).
+      if (
+        model.wbSource !== 'Sampled' &&
+        (f.modelKey === 'wbSampleX' || f.modelKey === 'wbSampleY')
+      ) {
+        continue;
+      }
       const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
       // A `NaN`/`Infinity`/`-Infinity` model value (a corrupted in-memory

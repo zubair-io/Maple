@@ -8,7 +8,13 @@
 // letterbox (outside the painted image) cancels rather than sampling a pixel
 // that isn't there.
 
-import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  inject,
+} from '@angular/core';
 import { ImageCanvasService } from './image-canvas.service';
 import { WbPickService } from './wb-pick.service';
 import { normalisedImagePoint } from './image-canvas.wb-pick';
@@ -41,9 +47,11 @@ export class WbPickOverlayComponent {
     this.pick.resolve(point);
   }
 
-  /** Escape leaves pick mode without sampling. */
+  /** Escape leaves pick mode without sampling, from anywhere on the page —
+   *  the overlay takes no focus, so it cannot rely on its own keydown. */
+  @HostListener('document:keydown', ['$event'])
   protected onKeydown(e: KeyboardEvent): void {
-    if (e.key !== 'Escape') return;
+    if (!this.pick.active() || e.key !== 'Escape') return;
     e.preventDefault();
     this.pick.cancel();
   }
