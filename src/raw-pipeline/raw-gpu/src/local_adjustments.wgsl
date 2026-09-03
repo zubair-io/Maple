@@ -65,7 +65,7 @@ struct Layer {
     flags: vec4<f32>,  // presence bitmask, padding
     adj0: vec4<f32>,   // exposure, contrast, highlights, shadows
     adj1: vec4<f32>,   // whites, blacks, saturation, vibrance
-    adj2: vec4<f32>,   // temperature, tint, padding
+    adj2: vec4<f32>,   // temperature, tint, hue, padding
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -88,6 +88,11 @@ const P_SATURATION: u32  = 64u;
 const P_VIBRANCE: u32    = 128u;
 const P_TEMPERATURE: u32 = 256u;
 const P_TINT: u32        = 512u;
+const P_HUE: u32         = 1024u;
+
+// raw_core::stages::hsl::HSL_HUE_MAX_RAD (30°) — the local `hue` control's
+// full-deflection rotation, shared with the HSL stage's own constant.
+const HSL_HUE_MAX_RAD: f32 = 0.5235987755982988;
 
 // ── Stage-local constants, verbatim from raw-core ─────────────────────────
 // Rec.2020 luma weights (scene_tone_controls::LUMA_REC2020) and the
@@ -312,6 +317,33 @@ fn vibrance_pixel(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     return oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));
 }
 
+// raw_core::stages::local_adjustments::hue::rotate_pixel — Oklab hue rotation
+// with the saturation kernel's soft-knee gamut handling. No `.max(c)` floor on
+// the compressed chroma (the hull narrows at the rotated hue).
+fn hue_rotate_pixel(rgb: vec3<f32>, delta_rad: f32) -> vec3<f32> {
+    let lab = rec2020_to_oklab(rgb);
+    let l = lab.x;
+    let a = lab.y;
+    let b = lab.z;
+    let c = sqrt(a * a + b * b);
+    if (c < 1e-6) {
+        return rgb;
+    }
+    let a_hat = a / c;
+    let b_hat = b / c;
+    let cos_dh = cos(delta_rad);
+    let sin_dh = sin(delta_rad);
+    let rot_a = a_hat * cos_dh - b_hat * sin_dh;
+    let rot_b = a_hat * sin_dh + b_hat * cos_dh;
+    let hue_target = oklab_to_rec2020(vec3<f32>(l, rot_a * c, rot_b * c));
+    if (min(hue_target.r, min(hue_target.g, hue_target.b)) >= -GAMUT_EPS) {
+        return hue_target;
+    }
+    let c_hull = bisect_gamut_hull(l, rot_a, rot_b, c);
+    let c_out = soft_compress(c, c_hull);
+    return oklab_to_rec2020(vec3<f32>(l, rot_a * c_out, rot_b * c_out));
+}
+
 // ── CAT16 white balance (raw_core::stages::white_balance) ─────────────────
 //
 // The local temperature/tint are RELATIVE offsets from the D65 anchor and the
@@ -470,7 +502,12 @@ fn apply_pixel(rgb: vec3<f32>, layer: Layer, w: f32) -> vec3<f32> {
         }
     }
 
-    // 5. Saturation, then 6. vibrance — both Oklab chroma moves.
+    // 5. Hue — Oklab rotation (raw-core step 5).
+    if ((present & P_HUE) != 0u) {
+        p = hue_rotate_pixel(p, w * layer.adj2.z / 100.0 * HSL_HUE_MAX_RAD);
+    }
+
+    // 6. Saturation, then 7. vibrance — both Oklab chroma moves.
     if ((present & P_SATURATION) != 0u) {
         p = saturation_pixel(p, 1.0 + (w * layer.adj1.z) / 100.0);
     }
