@@ -10,10 +10,12 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject, output } from '@angular/core';
 import { BatchSyncService } from './batch-sync.service';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-batch-sync-banner',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './batch-sync-banner.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
