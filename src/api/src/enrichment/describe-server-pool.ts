@@ -52,7 +52,7 @@ const log = childLogger('describe:pool');
  * crash trips this on the spot, while a lone timeout on a cold model load
  * does not take a healthy box out of rotation.
  */
-export const BREAKER_FAILURE_THRESHOLD = 2;
+const BREAKER_FAILURE_THRESHOLD = 2;
 /**
  * How long a tripped server sits out before one probe call is allowed.
  * Ollama reloads gemma4:12b in ~17 s on the reference host (see the timeout
@@ -60,7 +60,7 @@ export const BREAKER_FAILURE_THRESHOLD = 2;
  * headroom and is far shorter than the per-asset retry ladder, so a call
  * that waits here still lands well inside its own attempt.
  */
-export const BREAKER_OPEN_MS = 30_000;
+const BREAKER_OPEN_MS = 30_000;
 
 interface PoolSlot {
   readonly server: DescribeServerConfig;
