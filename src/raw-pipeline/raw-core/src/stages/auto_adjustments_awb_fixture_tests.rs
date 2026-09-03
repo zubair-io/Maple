@@ -1,7 +1,9 @@
 //! Fixture-tier gate for the auto white balance estimate (#2247) — the
-//! assertion the synthetic tests cannot make: that the estimate agrees with
-//! the camera's own reading on real photographs, and that it is a fixed
-//! point of the develop chain it feeds.
+//! assertions the synthetic tests cannot make: that on real photographs the
+//! recommendation stays inside its band around the camera's reading, moves
+//! toward ACR's Auto rather than away from it, carries information (it is
+//! not the as-shot reading with extra steps), and is a fixed point of the
+//! develop chain it feeds.
 //!
 //! #2247's failure mode was a tint railed 80 units from the as-shot value
 //! on frames that carried no cast at all. Sign-and-clamp testing cannot see
@@ -13,55 +15,177 @@ use crate::stages::auto_adjustments::compute_auto_adjustments;
 use crate::test_support::fixtures::{decode_raw, REFERENCE_RAWS};
 use crate::types::adjustment::AutoExposureMode;
 
-/// Tint may not stray further than this from the camera's as-shot reading.
-/// The reference set's own spread (printed by the test) sits well inside;
-/// the shipped estimator's −83.6 on test_0017 is 87 units out.
-const TINT_TOLERANCE: f32 = 20.0;
+/// ACR's own Auto white balance on the reference set, as `(fixture, K, tint)`
+/// in ACR's slider frame — the frame `stages::wb_camera` renders in (#1894).
+///
+/// PROVENANCE. ACR writes only `crs:WhiteBalance="Auto"` into the
+/// `wb_auto.xmp` sidecars, never the pair it resolved, so the numbers are
+/// recovered from the renders: `src/scripts/fit_acr_auto_wb.py` renders each
+/// fixture at a candidate pair (`maple-cli render --profile neutral`), diffs
+/// it against `test-fixtures/references/<stem>/down/wb_auto.png` with
+/// `compare_images.py`, and Newton-steps temperature on the blue-minus-red
+/// bias and tint on the green-minus-mean bias until the three channel
+/// biases agree (a pure exposure/tone residual, no cast). Fixtures without
+/// a `wb_auto` reference (test_0019, test_0020) and the fixture whose
+/// calibration cannot be inverted (test_0004, as-shot rails to +180 tint)
+/// are absent. Re-run the script when the reference set changes.
+const ACR_AUTO: &[(&str, f32, f32)] = &[
+    ("test_0000.DNG", 6536.0, -0.8),
+    ("test_0002.dng", 5134.0, -24.6),
+    ("test_0003.CR2", 8288.0, -12.3),
+    ("test_0005.RAF", 6019.0, 18.3),
+    ("test_0006.DNG", 3729.0, 10.4),
+    ("test_0007.DNG", 2859.0, 10.7),
+    ("test_0008.RAF", 5511.0, 7.9),
+    ("test_0009.CR2", 6234.0, 0.4),
+    ("test_0010.CR2", 7974.0, 41.0),
+    ("test_0011.ARW", 7279.0, 2.6),
+    ("test_0012.raf", 6718.0, 6.0),
+    ("test_0013.DNG", 7318.0, 5.1),
+    ("test_0014.NEF", 7101.0, 15.5),
+    ("test_0015.dng", 4466.0, -107.2),
+    ("test_0017.dng", 4599.0, 5.5),
+    ("test_0018.dng", 5620.0, -1.8),
+];
 
-/// Temperature band, as |log2(auto / as-shot)| — half a stop of reciprocal
-/// CCT either way. ACR's Auto on the same set moves cooler on most frames
-/// by less than this.
-const CCT_TOLERANCE_LOG2: f32 = 0.5;
+/// Slack on the band assertions: f32 through two reciprocal conversions.
+const BAND_SLACK: f32 = 0.5;
 
-/// The per-fixture table the PR quotes, and the agreement gate.
-#[test]
-#[cfg_attr(not(feature = "fixtures"), ignore)]
-fn auto_wb_agrees_with_the_camera_as_shot_reading_across_the_reference_set() {
+/// AUTO's mean mired distance to ACR's Auto must be at most this fraction of
+/// the as-shot reading's. Measured 0.65 when the bound was calibrated
+/// (28.2 vs 43.3 mired); the headroom absorbs fixture-set churn, not a
+/// regression of the estimator.
+const ACR_MIRED_RATIO_MAX: f32 = 0.85;
+
+/// AUTO's mean tint distance to ACR's Auto may not exceed the as-shot
+/// reading's by more than this. Measured 2.1 units BETTER (10.9 vs 13.0).
+const ACR_TINT_SLACK: f32 = 1.0;
+
+/// A move this large (mired) counts as "AUTO said something": at least half
+/// the set must clear it, or the estimate has collapsed onto the prior.
+const INFORMATIVE_MIRED: f32 = 5.0;
+
+fn mired(k: f32) -> f32 {
+    1.0e6 / k
+}
+
+struct Row {
+    name: &'static str,
+    shot: (f32, f32),
+    auto: (f32, f32),
+}
+
+fn rows() -> Vec<Row> {
     println!(
-        "{:<14}{:>10}{:>8}{:>10}{:>8}{:>8}{:>10}",
-        "fixture", "shot K", "tint", "auto K", "tint", "Δtint", "log2 ΔK"
+        "{:<14}{:>10}{:>8}{:>10}{:>8}{:>9}{:>8}",
+        "fixture", "shot K", "tint", "auto K", "tint", "Δmired", "Δtint"
     );
-    let violations: Vec<String> = REFERENCE_RAWS
+    REFERENCE_RAWS
         .iter()
-        .filter_map(|name| {
+        .map(|name| {
             let raw = decode_raw(name);
-            let (shot_k, shot_tint) = dcp::estimate_as_shot_cct_tint(&raw).unwrap();
+            let shot = dcp::estimate_as_shot_cct_tint(&raw).unwrap();
             let a = compute_auto_adjustments(&raw, &AdjustmentModel::default()).unwrap();
-            let d_tint = a.tint - shot_tint;
-            let d_log2 = (a.temperature / shot_k).log2();
+            let auto = (a.temperature, a.tint);
             println!(
-                "{:<14}{:>10.0}{:>8.1}{:>10.0}{:>8.1}{:>8.1}{:>10.3}",
-                name, shot_k, shot_tint, a.temperature, a.tint, d_tint, d_log2
+                "{:<14}{:>10.0}{:>8.1}{:>10.0}{:>8.1}{:>9.1}{:>8.1}",
+                name,
+                shot.0,
+                shot.1,
+                auto.0,
+                auto.1,
+                mired(auto.0) - mired(shot.0),
+                auto.1 - shot.1
             );
             assert!(
-                a.temperature.is_finite() && a.tint.is_finite(),
-                "{name}: non-finite recommendation {a:?}"
+                auto.0.is_finite() && auto.1.is_finite(),
+                "{name}: non-finite recommendation {auto:?}"
             );
-            let out_of_band = d_tint.abs() > TINT_TOLERANCE || d_log2.abs() > CCT_TOLERANCE_LOG2;
-            out_of_band.then(|| {
-                format!(
-                    "{name}: auto {:.0} K / {:.1} vs as-shot {shot_k:.0} K / {shot_tint:.1}",
-                    a.temperature, a.tint
-                )
-            })
+            Row { name, shot, auto }
         })
+        .collect()
+}
+
+/// The per-fixture table the PR quotes, and the band: on every fixture whose
+/// as-shot reading is a usable prior, the recommendation sits within
+/// `MAX_MIRED_MOVE` / `MAX_TINT_MOVE` of it — the #2247 railing (−83.6
+/// against +3.9 on test_0017) is 87 units out.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn auto_wb_stays_inside_its_band_around_the_camera_reading() {
+    let (t_lo, t_hi) = schema_range("temperature");
+    let (tint_lo, tint_hi) = schema_range("tint");
+    let violations: Vec<String> = rows()
+        .iter()
+        .filter(|r| (t_lo..=t_hi).contains(&r.shot.0) && (tint_lo..=tint_hi).contains(&r.shot.1))
+        .filter(|r| {
+            (mired(r.auto.0) - mired(r.shot.0)).abs() > MAX_MIRED_MOVE + BAND_SLACK
+                || (r.auto.1 - r.shot.1).abs() > MAX_TINT_MOVE + BAND_SLACK
+        })
+        .map(|r| format!("{}: auto {:?} vs as-shot {:?}", r.name, r.auto, r.shot))
         .collect();
     assert!(
         violations.is_empty(),
-        "{} fixture(s) outside the as-shot agreement band (tint ±{TINT_TOLERANCE}, \
-         CCT ±{CCT_TOLERANCE_LOG2} log2): {}",
+        "{} fixture(s) outside the band (±{MAX_MIRED_MOVE} mired, ±{MAX_TINT_MOVE} tint): {}",
         violations.len(),
         violations.join("; ")
+    );
+}
+
+/// Calibration against the reference renderer: across the set, AUTO must land
+/// closer to ACR's Auto than the as-shot reading does on temperature, and no
+/// worse on tint — and it must actually move, on at least half the fixtures.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn auto_wb_moves_toward_acr_auto_and_carries_information() {
+    let rows = rows();
+    let acr = |name: &str| {
+        ACR_AUTO
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .map(|(_, k, t)| (*k, *t))
+    };
+    let scored: Vec<(&Row, (f32, f32))> = rows
+        .iter()
+        .filter_map(|r| acr(r.name).map(|a| (r, a)))
+        .collect();
+    assert_eq!(
+        scored.len(),
+        ACR_AUTO.len(),
+        "every ACR_AUTO row must match a fixture"
+    );
+    let n = scored.len() as f32;
+    let mean =
+        |f: &dyn Fn(&Row, (f32, f32)) -> f32| scored.iter().map(|(r, a)| f(r, *a)).sum::<f32>() / n;
+    let shot_mired = mean(&|r, a| (mired(r.shot.0) - mired(a.0)).abs());
+    let auto_mired = mean(&|r, a| (mired(r.auto.0) - mired(a.0)).abs());
+    let shot_tint = mean(&|r, a| (r.shot.1 - a.1).abs());
+    let auto_tint = mean(&|r, a| (r.auto.1 - a.1).abs());
+    println!(
+        "distance to ACR Auto — mired: as-shot {shot_mired:.1}, AUTO {auto_mired:.1}; \
+         tint: as-shot {shot_tint:.1}, AUTO {auto_tint:.1}"
+    );
+    assert!(
+        auto_mired <= ACR_MIRED_RATIO_MAX * shot_mired,
+        "AUTO is not closer to ACR's Auto than the camera's own reading on temperature: \
+         {auto_mired:.1} vs {shot_mired:.1} mired (max ratio {ACR_MIRED_RATIO_MAX})"
+    );
+    assert!(
+        auto_tint <= shot_tint + ACR_TINT_SLACK,
+        "AUTO's tint moved away from ACR's Auto: {auto_tint:.1} vs as-shot {shot_tint:.1}"
+    );
+    let informative = rows
+        .iter()
+        .filter(|r| (mired(r.auto.0) - mired(r.shot.0)).abs() > INFORMATIVE_MIRED)
+        .count();
+    println!(
+        "moved more than {INFORMATIVE_MIRED} mired on {informative}/{} fixtures",
+        rows.len()
+    );
+    assert!(
+        informative * 2 >= rows.len(),
+        "AUTO moved on only {informative}/{} fixtures — the estimate has collapsed onto the prior",
+        rows.len()
     );
 }
 
