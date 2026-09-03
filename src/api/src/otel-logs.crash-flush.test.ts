@@ -74,13 +74,13 @@ describe('telemetry across a process death (#2196)', () => {
   it('a native abort under the 2 s cadence loses the buffered record', async () => {
     const run = await runChild('abort', 2_000);
     // Died by signal, not by a JS-level exit.
-    expect(run.exitCode === 0 && run.signalCode === null).toBe(false);
+    expect(run.signalCode).toBe('SIGKILL');
     expect(arrived(run.bodies, MARKER)).toBe(false);
   }, 20_000);
 
   it('a native abort under a short cadence had already exported the record', async () => {
     const run = await runChild('abort', 50);
-    expect(run.exitCode === 0 && run.signalCode === null).toBe(false);
+    expect(run.signalCode).toBe('SIGKILL');
     expect(arrived(run.bodies, MARKER)).toBe(true);
   }, 20_000);
 
