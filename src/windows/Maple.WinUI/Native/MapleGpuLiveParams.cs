@@ -145,13 +145,12 @@ namespace Maple.WinUI.Native
         public uint film_lut_key;
         public float* film_lut_ptr;
         public nuint film_lut_len;
-        // Parametric tone-curve split points (#3152) — ACR default 25/50/75.
-        // Left unset (all 0.0) below: raw-ffi's `inputs_from_params` treats
-        // the WHOLE TRIPLE being exactly 0.0 as "host predates this field"
-        // and substitutes the canonical defaults (see gpu_live.rs), so a
-        // zeroed struct here is the correct legacy-equivalent behavior
-        // until the Windows model carries its own split-point fields
-        // (#3223).
+        // Parametric tone-curve split points (#3152) — ACR default 25/50/75,
+        // populated from the model's `Parametric*Split` fields (#3223).
+        // raw-ffi's `inputs_from_params` treats the WHOLE TRIPLE being
+        // exactly 0.0 as "host predates this field" and substitutes the
+        // canonical defaults, so a genuine 0 in one of the three is still
+        // expressible as long as the other two aren't also 0.
         public float parametric_shadow_split;
         public float parametric_midtone_split;
         public float parametric_highlight_split;
@@ -195,6 +194,9 @@ namespace Maple.WinUI.Native
                 parametric_darks = (float)m.ParametricDarks,
                 parametric_lights = (float)m.ParametricLights,
                 parametric_highlights = (float)m.ParametricHighlights,
+                parametric_shadow_split = (float)m.ParametricShadowSplit,
+                parametric_midtone_split = (float)m.ParametricMidtoneSplit,
+                parametric_highlight_split = (float)m.ParametricHighlightSplit,
                 tone_curve_mode = m.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
                 vibrance = (float)m.Vibrance,
                 saturation = (float)m.Saturation,
