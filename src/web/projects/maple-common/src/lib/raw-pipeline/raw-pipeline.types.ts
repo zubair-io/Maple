@@ -312,6 +312,14 @@ export interface DeepDenoiseProgress {
   fraction: number;
 }
 
+// Neutral WB sampler (#2434): its shapes live in a sibling file (this one is
+// at its size budget); the unions below carry them.
+import type {
+  SampleWbRequest,
+  SampleWbSuccess,
+  SampleWbError,
+} from './raw-pipeline.sample-wb.types';
+
 export type WorkerResponse =
   | DecodeSuccess
   | DecodeError
@@ -326,6 +334,8 @@ export type WorkerResponse =
   | DeepDenoiseProgress
   | AutoAdjustSuccess
   | AutoAdjustError
+  | SampleWbSuccess
+  | SampleWbError
   | ExportSuccess
   | ExportError;
 
@@ -469,6 +479,7 @@ export type WorkerRequest =
   | CloseSessionRequest
   | SetFilmLutRequest
   | AutoAdjustRequest
+  | SampleWbRequest
   | ExportRequest;
 
 export interface DecodedImage {

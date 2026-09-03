@@ -29,6 +29,7 @@ import { ensureReady } from './raw-pipeline.worker-handlers';
 import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
+import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
 import {
   handleOpenSession,
   handleRenderSession,
@@ -103,6 +104,13 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       return;
     case 'auto-adjust':
       await handleAutoAdjust(req);
+      return;
+    // Neutral WB sampler (#2434) — one-shot, same shape as auto-adjust; the
+    // handler owns its own error reply (a rejected sample is a normal
+    // outcome, not a worker failure).
+    case 'sample-wb':
+      await ensureReady();
+      handleSampleWb(req);
       return;
     case 'export':
       await handleExport(req);
