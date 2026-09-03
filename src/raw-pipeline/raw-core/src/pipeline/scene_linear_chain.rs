@@ -77,6 +77,14 @@ pub struct ChainOptions<'a> {
     /// to derive the per-channel sigma. 100 = the hardcoded fallback that
     /// predates noise-profile plumbing.
     pub iso: u32,
+    /// Long edge of the FULL frame at this buffer's pixel scale — the anchor
+    /// for the highlights/shadows detail-mask blur (#2476). `None` means the
+    /// buffer IS the whole frame at some scale (the per-tick viewport decode
+    /// of the DefaultCrop rect — every FFI/WASM caller today), and the stage
+    /// anchors on the buffer's own long edge. A caller running this chain
+    /// over a CROP of the frame (the live-vs-tile parity gate does) passes
+    /// the frame's long edge so the mask radius matches a whole-frame render.
+    pub mask_long_edge: Option<u32>,
 }
 
 impl Default for ChainOptions<'_> {
@@ -89,6 +97,7 @@ impl Default for ChainOptions<'_> {
             target_primaries: TargetPrimaries::Srgb,
             noise_profile: None,
             iso: 100,
+            mask_long_edge: None,
         }
     }
 }
@@ -160,6 +169,7 @@ pub fn apply_scene_linear_chain(
         target_primaries,
         noise_profile,
         iso,
+        mask_long_edge,
     } = *opts;
     use crate::stages::{
         clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
@@ -228,8 +238,11 @@ pub fn apply_scene_linear_chain(
             model.wb_method,
         ),
     });
+    // S/H detail mask anchored to the full frame (#2476) — the buffer's own
+    // long edge unless the caller says it is rendering a crop.
+    let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     stage("ffi_chain_scene_tone_controls", || {
-        scene_tone_controls::apply(&mut img, model)
+        scene_tone_controls::apply_with_mask_anchor(&mut img, model, sh_mask_anchor)
     });
     stage("ffi_chain_tone_curves", || {
         tone_curves::apply(&mut img, model)
@@ -388,6 +401,7 @@ pub fn apply_scene_linear_chain_f32(
         target_primaries,
         noise_profile,
         iso,
+        mask_long_edge,
     } = *opts;
     use crate::stages::{
         clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
@@ -444,8 +458,11 @@ pub fn apply_scene_linear_chain_f32(
             model.wb_method,
         ),
     });
+    // S/H detail mask anchored to the full frame (#2476) — the buffer's own
+    // long edge unless the caller says it is rendering a crop.
+    let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     stage("ffi_chain_scene_tone_controls", || {
-        scene_tone_controls::apply(&mut img, model)
+        scene_tone_controls::apply_with_mask_anchor(&mut img, model, sh_mask_anchor)
     });
     stage("ffi_chain_tone_curves", || {
         tone_curves::apply(&mut img, model)

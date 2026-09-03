@@ -162,6 +162,9 @@ pub(super) struct Harness {
     /// The develop-produced buffer, cropped to [`RECT`] — path (b)'s input
     /// and the identity reference.
     pub(super) decoded_tile: Vec<f32>,
+    /// Long edge of the whole developed frame: what the live chain must
+    /// anchor the S/H detail mask on when handed the [`RECT`] crop (#2476).
+    frame_long_edge: u32,
 }
 
 impl Harness {
@@ -185,6 +188,7 @@ impl Harness {
             frame,
             anchor,
             decoded_tile,
+            frame_long_edge: decoded.width.max(decoded.height),
         }
     }
 
@@ -196,6 +200,10 @@ impl Harness {
     /// at the same boundary. This is the ONE place the two paths are directly
     /// comparable — past the view transform the tile path has no output at
     /// all to compare against.
+    ///
+    /// `mask_long_edge` tells the chain it is being handed a crop of the
+    /// frame, so the S/H detail mask anchors on the frame (#2476) — the
+    /// production callers hand the chain the whole frame and pass `None`.
     pub(super) fn live(&self, model: &AdjustmentModel) -> Vec<f32> {
         apply_scene_linear_chain_f32(
             &self.decoded_tile,
@@ -207,6 +215,7 @@ impl Harness {
                 decoded_tint: self.anchor.1,
                 wb_frame: Some(&self.frame),
                 skip_agx: true,
+                mask_long_edge: Some(self.frame_long_edge),
                 ..ChainOptions::default()
             },
         )
@@ -347,13 +356,14 @@ struct Case {
 /// run — their guided-filter reach (≤ 40 px) fits inside `TILE_OVERLAP_PX`, so
 /// they are genuinely expected to agree, and the combined case exercises that.
 ///
-/// `highlights` / `shadows` are deliberately ABSENT here and covered by the
-/// separate known-gap test below: their detail mask is anchored to the buffer
-/// it is handed rather than to the full image, so the two paths compute
-/// different mask radii and diverge by two orders of magnitude more than
-/// everything else. That is a stage defect, not a chain-contract defect —
-/// tracked as #2476. Folding it into this set would have forced a ceiling
-/// loose enough to stop gating the other four.
+/// `highlights` / `shadows` run as MASKED passes whose blur radius scales
+/// with the frame. Until #2476 that radius was taken from the buffer each
+/// chain was handed — a viewport on one side, a padded crop on the other —
+/// so the two paths computed different radii and diverged by two orders of
+/// magnitude more than everything else (3.4e-2, pinned as a known-gap
+/// ceiling in the sibling file). The stage now anchors on the full frame's
+/// long edge and the tile entry pads to the mask's reach, so the case sits
+/// in this set at the same class of ceiling as the rest.
 ///
 /// Budgets are per-case measured ceilings with roughly 2× headroom, not a
 /// single global slop number. The headroom covers cross-architecture float
@@ -405,6 +415,19 @@ fn cases(anchor: (f32, f32)) -> Vec<Case> {
             },
             max_abs: 2.3e-4,
             max_ratio_dev: 5.2e-4,
+        },
+        Case {
+            name: "masked highlights/shadows (full-frame mask anchor, #2476)",
+            model: AdjustmentModel {
+                highlights: -40.0,
+                shadows: 35.0,
+                ..base.clone()
+            },
+            // Measured 1.5e-4 / 2.8e-4 — the same class as the point-op
+            // cases, down from the 3.4e-2 / 1.3e-1 the buffer-anchored mask
+            // produced.
+            max_abs: 3.1e-4,
+            max_ratio_dev: 5.6e-4,
         },
         Case {
             name: "combined at non-default WB (+ clarity/texture)",
@@ -480,6 +503,5 @@ fn live_chain_matches_tile_develop_across_models() {
 }
 
 // The identity half of the contract (both paths must be a no-op at the
-// decode anchor) and the #2476 known-gap ceiling live in the sibling
-// `tests_live_parity_gaps.rs`, split out for the file-size budget; they
-// reuse the `pub(super)` `Harness` above.
+// decode anchor) lives in the sibling `tests_live_parity_gaps.rs`, split out
+// for the file-size budget; it reuses the `pub(super)` `Harness` above.

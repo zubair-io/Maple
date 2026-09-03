@@ -15,8 +15,11 @@
 //!
 //! Stencil-sensitive stages constrain the overlap pad: clarity at
 //! radius 40 (3-pass box = exactly 39 px effective tail) is the binding
-//! stage. Dehaze (radius 67 px) doesn't fit and is errored at the entry.
-//! See [`TILE_OVERLAP_PX`] and [`render_scene_linear_tile_from_raw_with_quality`].
+//! FIXED stage. Dehaze (radius 67 px) doesn't fit and is errored at the
+//! entry. The highlights/shadows detail mask scales with the frame, so the
+//! pad grows to its reach per render when it is engaged (#2476). See
+//! [`TILE_OVERLAP_PX`], `tile_overlap_px`, and
+//! [`render_scene_linear_tile_from_raw_with_quality`].
 //!
 //! Submodules (split for the file-size budget, #114):
 //! * [`region`]  — pad/clamp/crop/trim geometry helpers.
@@ -28,11 +31,11 @@ mod region;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_render;
-#[cfg(test)]
 mod tests_live_parity;
 #[cfg(test)]
 mod tests_live_parity_gaps;
+#[cfg(test)]
+mod tests_render;
 #[cfg(test)]
 mod tests_render_anchors;
 
@@ -44,7 +47,7 @@ use super::{
     orient::apply_orientation_f32_rgba, stage, RenderQuality,
 };
 
-use develop::develop_scene_linear_from_padded_mosaic;
+use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge};
 use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
@@ -63,6 +66,29 @@ use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner};
 /// `clarity::CLARITY_GUIDED_REACH_PX` — if the clarity radius is ever
 /// bumped, the build will refuse until this constant follows.
 pub const TILE_OVERLAP_PX: u32 = 48;
+
+/// Overlap pad for one tile render, in mosaic pixels per edge.
+///
+/// [`TILE_OVERLAP_PX`] covers every fixed-radius stage. The highlights /
+/// shadows detail mask is the one admitted stage whose reach scales with the
+/// image — σ = 15 px · longEdge/2000, cascaded twice
+/// (`scene_tone_controls::sh_mask_reach_px`) — and since #2476 that blur is
+/// anchored to the full frame's long edge at the tile's develop resolution
+/// rather than to the crop, so its reach is known up front. When either
+/// slider is engaged the pad grows to that reach, converted back to mosaic
+/// pixels through the demosaic divisor (`Preview` develops at half
+/// resolution, so a developed-pixel reach is twice as many mosaic pixels).
+/// Computed, not guessed: a model with both sliders at zero pays nothing
+/// (tone-zoom design § 5.3, the exact-overlap half of the stage-class plan;
+/// the proxy-plane half for large radii is #1157).
+fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, divisor: u32) -> u32 {
+    use crate::stages::scene_tone_controls::{sh_mask_engaged, sh_mask_reach_px};
+    if !sh_mask_engaged(model) {
+        return TILE_OVERLAP_PX;
+    }
+    let reach_mosaic_px = (sh_mask_reach_px(mask_long_edge) as u32).saturating_mul(divisor);
+    TILE_OVERLAP_PX.max(reach_mosaic_px)
+}
 
 // Build-time guard: TILE_OVERLAP_PX must cover the clarity guided-filter
 // reach. If `CLARITY_GUIDED_RADIUS` is raised, the reach (= 2 * radius)
@@ -309,8 +335,15 @@ fn develop_tile_oriented_f32(
     let (s_x, s_y, s_w, s_h) = raw
         .orientation
         .display_rect_to_sensor(src_x, src_y, src_w, src_h, raw.width, raw.height);
+    // The pad is per render: the fixed stencil bound, grown to the S/H
+    // detail-mask reach when that stage is engaged (#2476).
+    let overlap_px = tile_overlap_px(
+        model,
+        full_frame_long_edge(raw, quality),
+        crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa),
+    );
     let (rect, (left_pad, top_pad)) =
-        pad_and_clamp_mosaic_rect(s_x, s_y, s_w, s_h, TILE_OVERLAP_PX, raw.width, raw.height);
+        pad_and_clamp_mosaic_rect(s_x, s_y, s_w, s_h, overlap_px, raw.width, raw.height);
     // Linearize ONLY the padded crop region — not the full sensor.
     // For a 100 MP RAW (~12288×8192) the per-tile cost was ~480 ms;
     // a 512+overlap region is ~582×582 px, ~10 ms. ~50× speedup with

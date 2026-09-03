@@ -129,8 +129,9 @@ pub fn sh_mask_blur_radius(long_edge: usize) -> usize {
 }
 
 /// Effective spatial reach of this stage, in pixels per side at the rendered
-/// resolution — FOR THE FUTURE TILE-OVERLAP CALCULATOR (#11 / tone-zoom
-/// design § 5.3): every spatial stage registers `effective_radius(scale)`.
+/// resolution, for `long_edge` the FULL frame's long edge at that resolution
+/// — the tile entry's overlap calculator (`pipeline::tile`, #2476; tone-zoom
+/// design § 5.3) consumes this to size the pad when [`sh_mask_engaged`].
 ///
 /// Two cascaded masked steps run when both sliders are active: highlights
 /// blurs the live luma plane (reach ≈ `sh_mask_blur_radius` per side — three
@@ -139,6 +140,14 @@ pub fn sh_mask_blur_radius(long_edge: usize) -> usize {
 /// rather than overlap: total = 2 × blur radius.
 pub fn sh_mask_reach_px(long_edge: usize) -> usize {
     2 * sh_mask_blur_radius(long_edge)
+}
+
+/// Whether `model` runs either masked step — the same engage thresholds
+/// [`apply`] uses for its `highlights` / `shadows` passes, exported so the
+/// tile entry sizes its overlap from the stage's own predicate rather than a
+/// copy of it.
+pub fn sh_mask_engaged(model: &AdjustmentModel) -> bool {
+    model.highlights.abs() >= 1e-3 || model.shadows.abs() >= 1e-3
 }
 
 /// Shadows multiplier at luma `y` (#1103, spec § 4.2). `s_amount` = slider/100.
@@ -249,7 +258,10 @@ pub(crate) fn blacks_lift_delta(y: f32, b_add_pos: f32) -> f32 {
 /// small negatives (this stage must pass them through, see the
 /// `scene_referred_does_not_clip_negatives_introduced_upstream` test) and
 /// `sqrt(-x)` would poison the mask with NaN.
-fn masked_multiplier_pass(img: &mut Image, mult_of_y: impl Fn(f32) -> f32) {
+///
+/// `radius` is the caller's — [`apply_with_mask_anchor`] derives it from the
+/// full frame's long edge, never from this buffer's (#2476).
+fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32) -> f32) {
     let w = img.width as usize;
     let h = img.height as usize;
     let luma_plane: Vec<f32> = img
@@ -257,7 +269,6 @@ fn masked_multiplier_pass(img: &mut Image, mult_of_y: impl Fn(f32) -> f32) {
         .iter()
         .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
-    let radius = sh_mask_blur_radius(w.max(h));
     let yb = gaussian_blur_plane(&luma_plane, w, h, radius);
 
     for (i, p) in img.pixels.iter_mut().enumerate() {
@@ -285,7 +296,31 @@ fn masked_multiplier_pass(img: &mut Image, mult_of_y: impl Fn(f32) -> f32) {
 /// step — blurring per step is what keeps the grey-card predictors a simple
 /// left-to-right composition). Step order and per-step sequential-luma
 /// semantics are unchanged: each step sees the previous step's output.
+///
+/// The S/H detail mask is anchored to THIS buffer's long edge, which is
+/// correct exactly when the buffer is the whole frame at some pixel scale —
+/// the full, sized, and live/refine chains. A caller handing in a crop of
+/// the frame must use [`apply_with_mask_anchor`] instead (#2476).
 pub fn apply(img: &mut Image, model: &AdjustmentModel) {
+    let long_edge = img.width.max(img.height) as usize;
+    apply_with_mask_anchor(img, model, long_edge)
+}
+
+/// [`apply`] with the S/H detail-mask blur anchored to `mask_long_edge` —
+/// the long edge of the FULL frame at this buffer's pixel scale — instead of
+/// to the buffer itself (#2476).
+///
+/// The mask blur is σ = 15 px · longEdge / 2000 (tone-zoom design § 4.2): a
+/// fixed fraction of the image, so fast-phase, refine, and export agree. That
+/// only holds when "longEdge" is the image, not the container. The tile
+/// chain hands this stage a crop padded by the tile overlap, and anchoring
+/// on that crop made the mask scale a function of tile geometry — the same
+/// `(image, model)` rendered with two different radii, across the whole tile
+/// interior and not just at its seam (measured at 3.4e-2 scene-linear
+/// against ≤ 2.4e-4 for every other stage class in the live-vs-tile gate).
+/// Passing the full frame's long edge, scaled to the crop's develop
+/// resolution, gives every chain one radius.
+pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_long_edge: usize) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
 
     // Identity short-circuit: if every field this stage touches is zero,
@@ -327,6 +362,8 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     // shapes depending on sign — see comment block at the call site.
     let b_amount = model.blacks / 100.0; // -1..+1
     let b_add_pos = B_LIFT_MAX * model.blacks / 100.0;
+    // Detail-mask blur radius from the FULL frame's long edge (#2476).
+    let mask_radius = sh_mask_blur_radius(mask_long_edge);
 
     // 1 + 1b. Exposure, then brightness — point ops.
     if apply_exposure || apply_brightness {
@@ -362,12 +399,14 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     // 2. Highlights — masked pass (#1103). The luma the multiplier (and its
     //    regional blur) sees is the post-exposure/brightness state.
     if apply_highlights {
-        masked_multiplier_pass(img, |y| highlights_mult(y, h_amount, h_denom, h_expand));
+        masked_multiplier_pass(img, mask_radius, |y| {
+            highlights_mult(y, h_amount, h_denom, h_expand)
+        });
     }
 
     // 3. Shadows — masked pass (#1103), reading the post-highlights state.
     if apply_shadows {
-        masked_multiplier_pass(img, |y| shadows_mult(y, s_amount));
+        masked_multiplier_pass(img, mask_radius, |y| shadows_mult(y, s_amount));
     }
 
     // 4 + 5. Whites, then blacks — point ops (unchanged from pre-#1103).

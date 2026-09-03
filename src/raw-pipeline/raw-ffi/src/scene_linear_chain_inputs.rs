@@ -36,6 +36,9 @@ impl<'a> ChainInputs<'a> {
             target_primaries: self.primaries,
             noise_profile: self.noise_profile,
             iso: self.iso,
+            // The per-tick buffer is the whole frame at viewport scale, so the
+            // S/H detail mask anchors on the buffer itself (#2476).
+            mask_long_edge: None,
         }
     }
 }
