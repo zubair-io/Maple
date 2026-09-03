@@ -139,6 +139,11 @@ pub struct SupportRegistry {
     /// Each is at least [`Profiled`](CameraTier::Profiled) by construction:
     /// the bundle entry *is* the calibration.
     pub bundled_models: Vec<&'static str>,
+    /// The profile bundle's binary format version.
+    pub profile_bundle_format: u16,
+    /// `blake3:<hex>` over the profile bundle's bytes — the profile version
+    /// every entry in this registry was computed against.
+    pub profile_bundle_digest: String,
 }
 
 impl SupportRegistry {
@@ -149,6 +154,7 @@ impl SupportRegistry {
     /// has not been re-recorded demotes both registries together rather
     /// than one of them silently disagreeing with the other.
     pub fn compute(evidence: &Evidence) -> Self {
+        let bundle_version = crate::color::profile_loader::bundled_profile_version();
         let classified: Vec<BodyClassification> = FIXTURED_BODIES
             .iter()
             .map(|body| classify_body(body, evidence))
@@ -157,6 +163,8 @@ impl SupportRegistry {
             schema_version: SUPPORT_TIER_SCHEMA_VERSION,
             bodies: collapse_indistinguishable(classified),
             bundled_models: crate::color::profile_loader::bundled_camera_models(),
+            profile_bundle_format: bundle_version.0,
+            profile_bundle_digest: bundle_version.1,
         }
     }
 

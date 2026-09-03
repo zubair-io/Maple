@@ -73,6 +73,10 @@ final class CameraSupportRegistryTests: XCTestCase {
             .profiled
         )
         XCTAssertGreaterThan(CameraSupportRegistry.bundledModelCount, 1_000)
+        // Every tier here was computed against a specific profile bundle;
+        // regenerating it regenerates this file.
+        XCTAssertEqual(CameraSupportRegistry.profileBundleFormat, 1)
+        XCTAssertTrue(CameraSupportRegistry.profileBundleDigest.hasPrefix("blake3:"))
     }
 
     func testAMeasuredBodyLosesItsPromotionWhenTheFileResolvesWorse() {

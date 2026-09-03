@@ -31,6 +31,10 @@ describe('camera support registry', () => {
   it('was generated for the pipeline version the web caches key on', () => {
     expect(CAMERA_SUPPORT_BUILD.pipelineOutputVersion).toBe(PIPELINE_OUTPUT_VERSION);
     expect(CAMERA_SUPPORT_BUILD.bundledModelCount).toBeGreaterThan(1000);
+    // Every tier here was computed against a specific profile bundle;
+    // regenerating it regenerates this file.
+    expect(CAMERA_SUPPORT_BUILD.profileBundleFormat).toBe(1);
+    expect(CAMERA_SUPPORT_BUILD.profileBundleDigest).toMatch(/^blake3:[0-9a-f]{64}$/);
   });
 
   it('explains every tier and lens state, distinctly', () => {

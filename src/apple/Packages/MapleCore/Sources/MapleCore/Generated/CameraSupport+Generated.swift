@@ -95,6 +95,9 @@ public enum CameraSupportRegistry {
     /// Camera bodies the bundled profile table covers. Each is at
     /// least `.profiled`; the full list is in docs/camera-support.json.
     public static let bundledModelCount: Int = 1406
+    /// The profile data every tier here was computed against.
+    public static let profileBundleFormat: UInt16 = 1
+    public static let profileBundleDigest: String = "blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a"
 
     /// Every body with a physical fixture — the only bodies that can
     /// ever reach `.qualified`.
