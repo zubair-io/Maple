@@ -28,7 +28,7 @@ Three decode-path details are worth knowing:
 - **`LinearizationTable` is not applied by Maple.** rawler already applies it inside the decoder; `raw_core::linearize` documents this explicitly so nobody double-remaps it.
 - **Two mosaic shapes.** `CfaPattern::LinearRgb` marks a LinearRaw/DNG-Converter file whose data is already interleaved RGB; it skips the mosaic path entirely via `linearize::linearraw_to_camera_rgb`. `CfaPattern::XTrans` routes to the X-Trans demosaicers. Everything else is Bayer.
 
-DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline/pano/opcodes/` and applied post-demosaic by `pipeline/pano/opcode_apply/`. Three opcodes are implemented: `GainMap` (id 9, a bilinearly-interpolated per-plane gain lattice — vignette/shading), `WarpRectilinear` (id 1, geometric distortion + lateral CA as a full-image inverse-map resample), and `FixVignetteRadial` (id 3). They run in list order, in `ActiveArea`-relative coordinates, and — unlike the DNG SDK — the result is deliberately _not_ clamped to 1.0, because the working space is unbounded. `ProfileGainTableMap` (tag 52525, DNG 1.6 § 6.8; found in a SubIFD by `raw-core/src/dng_ifd_walker.rs`) is a separate stage that runs later, after the gamut conversion.
+DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline/pano/opcodes/` and applied post-demosaic by `pipeline/pano/opcode_apply/`. Three opcodes are implemented: `GainMap` (id 9, a bilinearly-interpolated per-plane gain lattice — vignette/shading), `WarpRectilinear` (id 1, geometric distortion + lateral CA as a full-image inverse-map resample), and `FixVignetteRadial` (id 3). They run in list order, in `ActiveArea`-relative coordinates, and — unlike the DNG SDK — the result is deliberately _not_ clamped to 1.0, because the working space is unbounded. `ProfileGainTableMap` (tag 52525, DNG 1.6 § 6.8; found in a SubIFD by `raw-core/src/dng_ifd_walker.rs`) is parsed onto `RawImage` but not applied: the spec pairs it with the profile's `ProfileToneCurve` as a vendor look layer, which #425 dropped (see `color/profile_gain_table_map.rs` and #2774).
 
 `decode_cache.rs`, `preview.rs` (embedded-JPEG extraction, shared by native and browser), `jpeg.rs`, `png.rs`, `tiff.rs`, `avif.rs` and `icc.rs` round out the I/O surface.
 
@@ -49,25 +49,24 @@ DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline
 | 9   | `wb_camera::apply` (user temperature/tint)  | `stages/wb_camera.rs`                                      | camera-native linear RGB                                                       |
 | 10  | `dcp::apply_colorimetry`                    | `color/dcp.rs`, `color/hsm.rs`                             | camera RGB → linear ProPhoto D50 (CM/FM + HSM) → **scene-linear Rec.2020 D65** |
 | 11  | `highlight_recovery_oklab`                  | `stages/highlight_recovery_oklab.rs`                       | scene-linear Rec.2020, via Oklab                                               |
-| 12  | `profile_gain_table_map`                    | `color/profile_gain_table_map.rs`                          | scene-linear Rec.2020                                                          |
-| 13  | `chroma_prefilter`                          | `stages/chroma_prefilter.rs`                               | scene-linear Rec.2020                                                          |
-| 14  | `deep_denoise` (BM3D)                       | `stages/bm3d/`                                             | scene-linear Rec.2020                                                          |
-| 15  | `capture_sharpening` (Richardson–Lucy)      | `stages/capture_sharpening.rs`                             | scene-linear Rec.2020, luma plane                                              |
-| 16  | `auto_exposure`                             | `stages/auto_exposure/`                                    | scene-linear Rec.2020                                                          |
-| 17  | `white_balance` (CAT16, fallback path only) | `stages/white_balance.rs`                                  | scene-linear Rec.2020                                                          |
-| 18  | `scene_tone_controls`                       | `stages/scene_tone_controls/`                              | scene-linear Rec.2020                                                          |
-| 19  | `tone_curves`                               | `stages/tone_curves/`                                      | scene-linear Rec.2020                                                          |
-| 20  | `vibrance`                                  | `stages/vibrance.rs`                                       | Oklab                                                                          |
-| 21  | `saturation`                                | `stages/saturation.rs`                                     | Oklab                                                                          |
-| 22  | `hsl` (8-band)                              | `stages/hsl.rs`                                            | Oklab                                                                          |
-| 23  | `clarity`                                   | `stages/clarity.rs`                                        | scene-linear Rec.2020, luma guided filter                                      |
-| 24  | `texture`                                   | `stages/texture.rs`                                        | same, finer radius                                                             |
-| 25  | `dehaze`                                    | `stages/dehaze.rs`                                         | scene-linear Rec.2020                                                          |
-| 26  | `local_adjustments`                         | `stages/local_adjustments/`                                | scene-linear Rec.2020                                                          |
-| 27  | `vignette`                                  | `stages/vignette.rs`                                       | scene-linear Rec.2020                                                          |
-| 28  | `sharpen`                                   | `stages/sharpen.rs`                                        | scene-linear Rec.2020, luma-only USM                                           |
-| 29  | `nr_luminance`                              | `stages/noise_reduction.rs` → `stages/nlm.rs`              | Oklab L plane                                                                  |
-| 30  | `nr_color`                                  | same                                                       | Oklab a/b planes                                                               |
+| 12  | `chroma_prefilter`                          | `stages/chroma_prefilter.rs`                               | scene-linear Rec.2020                                                          |
+| 13  | `deep_denoise` (BM3D)                       | `stages/bm3d/`                                             | scene-linear Rec.2020                                                          |
+| 14  | `capture_sharpening` (Richardson–Lucy)      | `stages/capture_sharpening.rs`                             | scene-linear Rec.2020, luma plane                                              |
+| 15  | `auto_exposure`                             | `stages/auto_exposure/`                                    | scene-linear Rec.2020                                                          |
+| 16  | `white_balance` (CAT16, fallback path only) | `stages/white_balance.rs`                                  | scene-linear Rec.2020                                                          |
+| 17  | `scene_tone_controls`                       | `stages/scene_tone_controls/`                              | scene-linear Rec.2020                                                          |
+| 18  | `tone_curves`                               | `stages/tone_curves/`                                      | scene-linear Rec.2020                                                          |
+| 19  | `vibrance`                                  | `stages/vibrance.rs`                                       | Oklab                                                                          |
+| 20  | `saturation`                                | `stages/saturation.rs`                                     | Oklab                                                                          |
+| 21  | `hsl` (8-band)                              | `stages/hsl.rs`                                            | Oklab                                                                          |
+| 22  | `clarity`                                   | `stages/clarity.rs`                                        | scene-linear Rec.2020, luma guided filter                                      |
+| 23  | `texture`                                   | `stages/texture.rs`                                        | same, finer radius                                                             |
+| 24  | `dehaze`                                    | `stages/dehaze.rs`                                         | scene-linear Rec.2020                                                          |
+| 25  | `local_adjustments`                         | `stages/local_adjustments/`                                | scene-linear Rec.2020                                                          |
+| 26  | `vignette`                                  | `stages/vignette.rs`                                       | scene-linear Rec.2020                                                          |
+| 27  | `sharpen`                                   | `stages/sharpen.rs`                                        | scene-linear Rec.2020, luma-only USM                                           |
+| 28  | `nr_luminance`                              | `stages/noise_reduction.rs` → `stages/nlm.rs`              | Oklab L plane                                                                  |
+| 29  | `nr_color`                                  | same                                                       | Oklab a/b planes                                                               |
 
 The develop function returns the scene-linear `Image` (and, on the `_with_gain` entries, the scalar gain auto-exposure applied — the tile path threads that back in so a tile reproduces the full-image anchor).
 
