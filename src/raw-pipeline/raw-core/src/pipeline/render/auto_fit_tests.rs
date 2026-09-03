@@ -77,6 +77,8 @@ fn fit_develop_model_pins_defaults_ignoring_caller_edits() {
 /// read), so no fixture and no cross-test cache interference.
 #[test]
 fn cached_fit_probe_hits_only_when_fully_cached() {
+    // Shares the process-wide cache with `cache_tests` (#3233).
+    let _g = cache::test_lock();
     use crate::view::auto_profile::cache;
     use crate::view::auto_profile::curve::ProfileCurve;
 
@@ -187,5 +189,37 @@ fn fit_is_identical_under_different_caller_models() {
         curve_a, curve_b,
         "fitted curves must be coefficient-identical under different \
          caller models (#1085)"
+    );
+}
+
+/// #3233 / #3235: which cache entry a render's fit lands in. Only a
+/// native-resolution render of a sensor the standalone fit also develops at
+/// native resolution shares the `Standalone` entry; every sized render, and
+/// a native render of a sensor the standalone fit proxies at 1536 px, gets
+/// its own size-keyed entry.
+#[test]
+fn render_fit_origin_keys_on_develop_size() {
+    use crate::view::auto_profile::cache::FitOrigin;
+    // 24 MP body: the standalone fit develops it at native resolution.
+    assert_eq!(render_fit_origin(6000, None), FitOrigin::Standalone);
+    assert_eq!(
+        render_fit_origin(6000, Some(768)),
+        FitOrigin::Render(Some(768))
+    );
+    assert_eq!(
+        render_fit_origin(6000, Some(1280)),
+        FitOrigin::Render(Some(1280))
+    );
+    assert_eq!(
+        render_fit_origin(AUTO_FIT_SIZED_SENSOR_LE, None),
+        FitOrigin::Standalone
+    );
+
+    // 100 MP body: the standalone fit proxies it at 1536 px, so even a
+    // native-resolution render is its own entry.
+    assert_eq!(render_fit_origin(11648, None), FitOrigin::Render(None));
+    assert_eq!(
+        render_fit_origin(11648, Some(1536)),
+        FitOrigin::Render(Some(1536))
     );
 }

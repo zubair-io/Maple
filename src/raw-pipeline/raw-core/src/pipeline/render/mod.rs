@@ -229,6 +229,10 @@ fn render_display_scene(
     // (cache lookup, preview extraction, will-fit probe) is bypassed. Any stale
     // cached value is intentionally ignored so disabled mode cannot leak through.
     let auto_profile_disabled = std::env::var_os("MAPLE_DISABLE_AUTO_PROFILE").is_some();
+    // Keyed on this render's develop size (#3233 / #3235): the fit below
+    // runs on the scene being rendered, so a 768 px render's artifacts are
+    // not a native-resolution render's, and neither is the standalone
+    // proxy fit's unless the develops coincide (`render_fit_origin`).
     let auto_cache_key = if !auto_profile_disabled && model.profile == Profile::Auto {
         match &raw_source {
             Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p, quality),
@@ -237,6 +241,12 @@ fn render_display_scene(
             }
             None => None,
         }
+        .map(|k| {
+            k.with_origin(auto_fit::render_fit_origin(
+                raw.width.max(raw.height),
+                max_long_edge,
+            ))
+        })
     } else {
         None
     };
