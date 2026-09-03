@@ -21,6 +21,10 @@ extension AdjustmentModel {
         case temperature = "temperature"
         case tint = "tint"
         case wbMethod = "wb_method"
+        case wbSource = "wb_source"
+        case wbSampleX = "wb_sample_x"
+        case wbSampleY = "wb_sample_y"
+        case wbAlgorithmVersion = "wb_algorithm_version"
         case exposure = "exposure"
         case brightness = "brightness"
         case contrast = "contrast"
@@ -130,6 +134,12 @@ extension AdjustmentModel {
     public static let temperatureRange: ClosedRange<Double> = 2000.0...12000.0
     /// White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870).
     public static let tintRange: ClosedRange<Double> = -150.0...150.0
+    /// Normalised image-relative x of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleX`.
+    public static let wbSampleXRange: ClosedRange<Double> = 0.0...1.0
+    /// Normalised image-relative y of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleY`.
+    public static let wbSampleYRange: ClosedRange<Double> = 0.0...1.0
+    /// Version of the estimator that produced an 'Auto' or 'Sampled' white balance (#2434; `raw_core::stages::white_balance_sample::WB_ALGORITHM_VERSION`), 0 when the pair was not derived. A re-derivation of the math bumps it so an old sidecar's stored reading is never reinterpreted. XMP key `papp:WbAlgorithmVersion`.
+    public static let wbAlgorithmVersionRange: ClosedRange<Double> = 0.0...1000000.0
     /// Linear exposure in EV stops applied in scene-linear.
     public static let exposureRange: ClosedRange<Double> = -4.0...4.0
     /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics).
@@ -352,6 +362,7 @@ extension AdjustmentGroup {
                 "tint_seen",
                 "wb_method",
                 "wb_scale_version",
+                "wb_source",
             ]
         case .tone:
             return [
@@ -480,4 +491,7 @@ public let adjustmentNonCopyableFields: [String] = [
     "local_adjustments",
     "inpaint_removals",
     "capture_sharpening_radius",
+    "wb_sample_x",
+    "wb_sample_y",
+    "wb_algorithm_version",
 ]

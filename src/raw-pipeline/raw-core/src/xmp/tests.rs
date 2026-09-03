@@ -424,3 +424,83 @@ fn deep_denoise_parse_serialize_roundtrip_and_default_omission() {
     assert_eq!(parsed.deep_denoise, 70.0);
 }
 
+// ---- White-balance provenance (#2434) --------------------------------------
+
+fn wrap_papp(frag: &str) -> String {
+    format!(
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:papp="http://ns.justmaple.app/1.0/"{frag}/>
+          </rdf:RDF>
+        </x:xmpmeta>"#
+    )
+}
+
+#[test]
+fn wb_provenance_omitted_at_default_and_round_trips_a_sampled_pair() {
+    let frag = serialize(&AdjustmentModel::default());
+    for key in ["papp:WbSource", "papp:WbSampleX", "papp:WbSampleY", "papp:WbAlgorithmVersion"] {
+        assert!(!frag.contains(key), "{key} must not be serialized at the default: {frag}");
+    }
+
+    let sampled = AdjustmentModel {
+        wb_source: WbSource::Sampled,
+        wb_sample_x: 0.25,
+        wb_sample_y: 0.75,
+        wb_algorithm_version: 1.0,
+        ..AdjustmentModel::default()
+    };
+    let frag = serialize(&sampled);
+    for key in [
+        r#"papp:WbSource="Sampled""#,
+        r#"papp:WbSampleX="0.25""#,
+        r#"papp:WbSampleY="0.75""#,
+        r#"papp:WbAlgorithmVersion="1""#,
+    ] {
+        assert!(frag.contains(key), "missing {key} in {frag}");
+    }
+    let parsed = parse(&wrap_papp(&frag)).unwrap();
+    assert_eq!(parsed.wb_source, WbSource::Sampled);
+    assert_eq!((parsed.wb_sample_x, parsed.wb_sample_y), (0.25, 0.75));
+    assert_eq!(parsed.wb_algorithm_version, 1.0);
+}
+
+#[test]
+fn wb_provenance_sample_point_travels_only_with_a_sampled_source() {
+    // A Preset / Manual / Auto pair never carries coordinates, even if the
+    // model still holds stale ones from an earlier sample.
+    let preset = AdjustmentModel {
+        wb_source: WbSource::Preset,
+        wb_sample_x: 0.4,
+        wb_sample_y: 0.6,
+        ..AdjustmentModel::default()
+    };
+    let frag = serialize(&preset);
+    assert!(frag.contains(r#"papp:WbSource="Preset""#), "{frag}");
+    assert!(!frag.contains("papp:WbSampleX") && !frag.contains("papp:WbSampleY"), "{frag}");
+    let auto = AdjustmentModel {
+        wb_source: WbSource::Auto,
+        wb_algorithm_version: 1.0,
+        ..AdjustmentModel::default()
+    };
+    let frag = serialize(&auto);
+    assert!(frag.contains(r#"papp:WbSource="Auto" papp:WbAlgorithmVersion="1""#), "{frag}");
+}
+
+#[test]
+fn wb_source_parses_every_variant_and_rejects_the_rest() {
+    for (wire, want) in [
+        ("AsShot", WbSource::AsShot),
+        ("Auto", WbSource::Auto),
+        ("Preset", WbSource::Preset),
+        ("Sampled", WbSource::Sampled),
+        ("Manual", WbSource::Manual),
+        ("manual", WbSource::Manual),
+    ] {
+        let m = parse(&wrap_papp(&format!(r#" papp:WbSource="{wire}""#))).unwrap();
+        assert_eq!(m.wb_source, want, "{wire}");
+    }
+    let err = parse(&wrap_papp(r#" papp:WbSource="Eyeballed""#)).unwrap_err();
+    assert!(err.to_string().contains("unknown WbSource"), "{err}");
+}

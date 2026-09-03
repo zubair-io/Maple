@@ -121,25 +121,31 @@ impl Default for AutoAdjustments {
 ///
 /// Returns `Err` only when the underlying RAW develop fails (e.g. an
 /// unsupported RAW format). On success all fields are finite.
+/// The AE-Off / WB-pinned probe model AUTO analyses: the caller's model so
+/// settings like highlight recovery and profile carry through, with the
+/// three inputs being estimated pinned and every tone slider at rest so the
+/// probe sees the raw scene. Shared with the neutral sampler (#2434), which
+/// must judge pixels in exactly the state AUTO's estimator does.
+pub(crate) fn probe_model(model: &AdjustmentModel) -> AdjustmentModel {
+    AdjustmentModel {
+        auto_exposure: AutoExposureMode::Off,
+        temperature: 6500.0,
+        tint: 0.0,
+        exposure: 0.0,
+        contrast: 0.0,
+        highlights: 0.0,
+        shadows: 0.0,
+        whites: 0.0,
+        blacks: 0.0,
+        ..model.clone()
+    }
+}
+
 pub fn compute_auto_adjustments(
     raw: &RawImage,
     model: &AdjustmentModel,
 ) -> crate::error::Result<AutoAdjustments> {
-    // Build the AE-Off/D65 probe model. Take the caller's model so settings
-    // like highlight_recovery and profile carry through, but pin the three
-    // inputs we're estimating so they don't contaminate the analysis.
-    let mut probe_model = model.clone();
-    probe_model.auto_exposure = AutoExposureMode::Off;
-    probe_model.temperature = 6500.0;
-    probe_model.tint = 0.0;
-    // Also zero all the user adjustments so the probe sees the raw scene
-    // directly (we're recommending these from scratch):
-    probe_model.exposure = 0.0;
-    probe_model.contrast = 0.0;
-    probe_model.highlights = 0.0;
-    probe_model.shadows = 0.0;
-    probe_model.whites = 0.0;
-    probe_model.blacks = 0.0;
+    let probe_model = probe_model(model);
 
     // Develop the probe buffer. Use Preview quality for speed — the
     // statistical estimators (percentiles, average) are not sensitive to

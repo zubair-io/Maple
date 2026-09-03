@@ -237,6 +237,8 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
     // retained for parity A/B (see raw-core::stages::white_balance).
     s.push_str("export type WbMethod = 'Cat16' | 'DiagonalRec2020';\n\n");
 
+    s.push_str("export type WbSource = 'AsShot' | 'Auto' | 'Preset' | 'Sampled' | 'Manual';\n\n");
+
     // Per-image auto-exposure mode (ticket #429). `On` (default) anchors
     // scene mid-gray to 0.18 before AgX so every camera lands at the
     // same point on the sigmoid by default; `Off` skips anchoring for
@@ -319,6 +321,7 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                     // User WB method (#431). New users get proper chromatic
                     // adaptation in CAT16 cone space.
                     "WbMethod" => "Cat16",
+                    "WbSource" => "AsShot",
                     // Per-image auto-exposure (#429). `On` is the new default —
                     // anchor scene mid-gray to 0.18 before AgX.
                     "AutoExposureMode" => "On",
