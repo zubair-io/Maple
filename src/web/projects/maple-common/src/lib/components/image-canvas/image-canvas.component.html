@@ -71,6 +71,12 @@
     <editor-crop-overlay></editor-crop-overlay>
   }
 
+  <!-- Mask overlay (#1541): the selected layer's handles + weight tint while
+       the Mask tool is armed. The canvas renders the masked result live. -->
+  @if (maskActive()) {
+    <editor-mask-overlay></editor-mask-overlay>
+  }
+
   <!-- Before/after divider -->
   @if (canvasSvc.showBeforeAfter()) {
     <div

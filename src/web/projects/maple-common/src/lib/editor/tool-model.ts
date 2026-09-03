@@ -64,6 +64,7 @@ export type ToolId =
   | 'noise'
   | 'colorNR'
   | 'lensCorrections'
+  | 'mask'
   | 'crop'
   | 'presets';
 
@@ -99,6 +100,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   noise: 'Noise',
   colorNR: 'Color NR',
   lensCorrections: 'Lens',
+  mask: 'Mask',
   crop: 'Crop',
   presets: 'Presets',
 };
@@ -115,7 +117,9 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'colorGrade', 'filmLook'],
   // lensCorrections (#2231) joins Detail: DNG-embedded distortion/CA/
   // vignetting scales, decode-product like sharpen/noise/colorNR.
-  detail: ['sharpen', 'noise', 'colorNR', 'lensCorrections', 'crop', 'presets'],
+  // mask (#1541) joins Detail beside crop: like crop it is edited through
+  // the canvas overlay + its own panel, never the drag bar.
+  detail: ['sharpen', 'noise', 'colorNR', 'lensCorrections', 'mask', 'crop', 'presets'],
 };
 
 export const ALL_TOOLS: readonly ToolId[] = Object.values(TOOLS_IN_GROUP).flat();
@@ -155,7 +159,10 @@ export function visibleToolsInGroup(group: ToolGroup, blackWhiteOn: boolean): re
 // entry (canvas-first editor, #1815) opens the presets sheet/popover/panel —
 // it has no drag-bar value, so `fieldFor` stays null and the value pipe is
 // inert.
-const STUB_TOOLS = new Set<ToolId>(['crop']);
+// Mask (#1541) takes the same shape: `AdjustmentModel.localAdjustments` is a
+// layer stack, not a scalar — the canvas overlay + `MaskSessionService` are
+// its whole value pipe, so the drag bar must reject writes for it.
+const STUB_TOOLS = new Set<ToolId>(['crop', 'mask']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);

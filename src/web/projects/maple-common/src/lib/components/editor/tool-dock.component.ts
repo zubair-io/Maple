@@ -21,12 +21,14 @@
 // Film arms the Film tool directly (#2449 — Apple's dock carries a Film
 // entry since #2683 because its slider grid filters field-less tools out;
 // the Effects sub-tool chip reaches the same panel, so both routes exist).
-// Mask / Heal are the parity manifest's disabled placeholders
+// Mask arms the Mask tool directly (#1541 — canvas-first masking; the
+// overlay is `MaskOverlayComponent`, the panel `MaskPanelComponent`).
+// Heal is the parity manifest's disabled placeholder
 // (`parityPlaceholders()`, editor/parity/editor-parity.ts — #2448): the
-// label and the milestone ticket come from the manifest, so "Mask is
-// disabled, see #1541" is said once for every platform. They render
-// visibly disabled with a tooltip — NOT fake panels (CLAUDE.md #6) — and
-// stay out of the accessibility tree entirely via `mui-tool-dock`'s
+// label and the milestone ticket come from the manifest, so "Heal is
+// disabled, see #1472" is said once for every platform. It renders
+// visibly disabled with a tooltip — NOT a fake panel (CLAUDE.md #6) — and
+// stays out of the accessibility tree entirely via `mui-tool-dock`'s
 // `ariaHidden` entry field (`aria-hidden` + `tabindex="-1"`, no accessible
 // name), mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`.
 //
@@ -131,8 +133,10 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
   // HSL, B&W and Grade are reached from the Colour/Effects sub-tool row
   // inside the control card (see control-card.component.ts), not from the
   // dock — Apple's dock carries no button for them either. Optics is
-  // dropped: Apple has no such button and Mask/Heal already signal that
-  // more tools are coming.
+  // dropped: Apple has no such button and Heal already signals that more
+  // tools are coming.
+  // Mask (#1541) — arms the mask overlay + panel directly, like Crop.
+  { id: 'mask', icon: 'tool-dehaze', label: 'Mask', tool: 'mask' },
   ...PLACEHOLDER_ENTRIES,
 ];
 
@@ -249,6 +253,9 @@ export class ToolDockComponent {
     if (tool === 'filmLook') {
       return adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength;
     }
+    // Mask (#1541): modified once any layer exists — a layer stack has no
+    // scalar to compare against a default.
+    if (tool === 'mask') return adj.localAdjustments.length > 0;
     if (!isWired(tool)) return false;
     const subParams = subParamsFor(tool);
     if (subParams.length > 0) {

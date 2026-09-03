@@ -1,0 +1,21 @@
+// mask-overlay.component.scss — the selected layer's shape + handles (#1541).
+// The weight tint is a raster canvas positioned at the footprint (template).
+
+.mask-shape {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+.mask-handle {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.mask-handle--rotate {
+  fill: var(--pro-accent, #c4493a);
+}

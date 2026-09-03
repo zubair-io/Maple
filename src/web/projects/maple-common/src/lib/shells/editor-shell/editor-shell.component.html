@@ -291,6 +291,15 @@
           </div>
         }
 
+        <!-- Mask panel (#1541) — glass card hosting the layer list + the
+             selected layer's controls. The handles + weight tint are
+             `editor-mask-overlay`, mounted inside `editor-image-canvas`. -->
+        @if (maskArmed()) {
+          <div class="mask-panel-anchor">
+            <editor-mask-panel />
+          </div>
+        }
+
         <!-- Presets panel (#1815) — glass card hosting the shared
              `app-presets-panel` (list/save/apply/delete). Applying a preset
              routes through the identical `PresetsService`/
@@ -349,6 +358,7 @@
            bottom sheet there, not a competing floating panel). -->
       @if (
         !cropArmed() &&
+        !maskArmed() &&
         !curveOpen() &&
         !presetsOpen() &&
         !scopesOpen() &&
@@ -428,7 +438,7 @@
            requirement there — Critical 1 — since that card and the
            dock-side panels turned out to overlap too, just not as
            obviously as phone's single shared anchor slot). -->
-      @if (!cropArmed() && !curveOpen() && !presetsOpen() && !scopesOpen() && !noiseArmed()) {
+      @if (!cropArmed() && !maskArmed() && !curveOpen() && !presetsOpen() && !scopesOpen() && !noiseArmed()) {
         <div
           class="phone-card-anchor pointer-events-auto absolute right-3 bottom-[calc(72px+12px+var(--safe-area-inset-bottom))] left-3"
           role="region"
@@ -501,6 +511,14 @@
       @if (cropArmed()) {
         <div class="phone-crop-panel" role="region" aria-label="Crop">
           <app-crop-toolbar />
+        </div>
+      }
+
+      <!-- Mask panel (#1541) — same shared panel as tablet/desktop, floats
+           above the dock like the phone crop panel. -->
+      @if (maskArmed()) {
+        <div class="phone-mask-panel">
+          <editor-mask-panel />
         </div>
       }
 

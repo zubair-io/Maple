@@ -193,37 +193,6 @@ const SHELL: readonly ParityCapability[] = [
     exception: null,
   },
   {
-    id: 'shell.placeholder-mask',
-    name: 'Mask',
-    group: 'shell',
-    order: 70,
-    reachability: { apple: 'absent', web: 'absent' },
-    presentation: SAME(
-      'Dimmed dock entry, aria-hidden, tooltip names the ticket — label and ticket read from this row by tool-dock.component.ts',
-    ),
-    interaction: {
-      keyboard: 'none — out of the tab order',
-      pointer: 'none',
-      touch: 'none',
-      focus: 'Never receives focus',
-    },
-    accessibility: {
-      role: 'none (aria-hidden)',
-      name: 'Mask — coming in #1541 (tooltip only)',
-      value: 'none',
-      state: 'disabled',
-      actions: ['none'],
-    },
-    participation: NONE,
-    disabled: true,
-    exception: {
-      platform: 'both',
-      rationale: 'raw-core has the masking stages; neither platform surfaces a UI (milestone 15).',
-      ticket: '#1541',
-    },
-    featuresRow: 'Masks / local adjustments',
-  },
-  {
     id: 'shell.placeholder-heal',
     name: 'Heal',
     group: 'shell',
