@@ -18,6 +18,9 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <RootNamespace>Maple.WinUI.Tests</RootNamespace>
+    <!-- RenderEngine.cs and the Native\ struct mirrors (linked below) are
+         `unsafe` (raw pointers + `fixed` buffers for the raw-ffi C ABI). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -219,6 +222,13 @@
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
     <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
+    <!-- RenderEngine.cs (#3234) + the Native\ raw-ffi mirrors it needs to
+         compile: plain System.IO / System.Runtime.InteropServices, no WinUI.
+         The `[DllImport("raw_ffi.dll")]` externs in RawFfi.cs are only
+         DECLARATIONS — nothing in this suite invokes them, so no native
+         library is needed at test time. -->
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />

@@ -106,7 +106,9 @@ struct LiveHandleInner {
 /// is intentionally undocumented — treat `*mut c_void` as opaque.
 #[repr(C)]
 pub struct MapleGpuLiveSession {
-    inner: *mut c_void,
+    // `pub(crate)` only so `abi_layout` can `offset_of!` it; still opaque
+    // to hosts.
+    pub(crate) inner: *mut c_void,
 }
 
 /// Open a live-render session: construct a `GpuContext` (Metal on Apple), upload

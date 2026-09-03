@@ -42,6 +42,9 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+// ABI-layout export (#3221): `maple_abi_layout` hands the WinUI test suite
+// the size + field offsets of every hand-mirrored `#[repr(C)]` struct.
+mod abi_layout;
 mod auto_adjustments;
 mod auto_profile;
 mod auto_tone;
