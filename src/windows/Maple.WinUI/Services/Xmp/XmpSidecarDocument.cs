@@ -238,6 +238,11 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:ParametricLights", a => a.ParametricLights, (a, v) => a.ParametricLights = v),
             F("crs:ParametricDarks", a => a.ParametricDarks, (a, v) => a.ParametricDarks = v),
             F("crs:ParametricShadows", a => a.ParametricShadows, (a, v) => a.ParametricShadows = v),
+            // Split points (#3223): non-zero per-field defaults (25/50/75),
+            // handled by the same compare-against-`Defaults` omit rule.
+            F("crs:ParametricShadowSplit", a => a.ParametricShadowSplit, (a, v) => a.ParametricShadowSplit = v),
+            F("crs:ParametricMidtoneSplit", a => a.ParametricMidtoneSplit, (a, v) => a.ParametricMidtoneSplit = v),
+            F("crs:ParametricHighlightSplit", a => a.ParametricHighlightSplit, (a, v) => a.ParametricHighlightSplit = v),
             F("crs:Vibrance", a => a.Vibrance, (a, v) => a.Vibrance = v),
             F("crs:Saturation", a => a.Saturation, (a, v) => a.Saturation = v),
             F("crs:Clarity2012", a => a.Clarity, (a, v) => a.Clarity = v),
