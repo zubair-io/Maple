@@ -6,7 +6,7 @@
 // relocation, no behavior change (#2683 headroom fix, tools/check-budget-
 // headroom.sh's #2311).
 
-import { computed, type ElementRef, type Signal } from '@angular/core';
+import { computed, effect, type ElementRef, type Signal } from '@angular/core';
 import { CanvasZoomGestures } from './image-canvas.zoom-gestures';
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
@@ -59,6 +59,16 @@ export class ImageCanvasZoomHost {
       },
     });
     this.zoomLabel = computed(() => this.gestures.zoomPercent());
+    // Keyboard ⌘= / ⌘- (#2450): the shell's command router posts a bounded
+    // step request; only this host has the geometry to answer it. `seq`
+    // guards against re-running for a request already answered.
+    let answered = 0;
+    effect(() => {
+      const request = this.host.canvasSvc.stepZoomRequest();
+      if (request.seq === 0 || request.seq === answered) return;
+      answered = request.seq;
+      this.gestures.stepZoom(request.direction);
+    });
   }
 
   /**
