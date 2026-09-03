@@ -51,7 +51,8 @@
 //! `f32` represents every integer below 2²⁴ exactly, so the round trip through
 //! the float slot is lossless.
 
-use super::{LocalAdjustment, Mask, PartialAdjustments, Point2, RangeRefinement};
+use super::{BitmapRecipe, LocalAdjustment, Mask, MaskRaster, PartialAdjustments, Point2, RangeRefinement};
+use std::sync::Arc;
 
 /// Floats per serialized layer. Eight WGSL `vec4<f32>` members = 128 bytes.
 pub const LAYER_FLAT_LEN: usize = 32;
@@ -60,6 +61,10 @@ pub const LAYER_FLAT_LEN: usize = 32;
 pub const KIND_LINEAR: f32 = 0.0;
 /// `kind` slot value for [`Mask::Radial`].
 pub const KIND_RADIAL: f32 = 1.0;
+/// `kind` slot value for [`Mask::Bitmap`] (#3271).
+pub const KIND_BITMAP: f32 = 2.0;
+/// `kind` slot value for [`Mask::Everywhere`] (#3271).
+pub const KIND_EVERYWHERE: f32 = 3.0;
 
 /// `range_kind` slot value for "no range refinement."
 pub const RANGE_KIND_NONE: f32 = 0.0;
@@ -160,6 +165,17 @@ fn write_mask(mask: &Mask, slot: &mut [f32]) {
             slot[6] = KIND_RADIAL;
             slot[7] = if invert { 1.0 } else { 0.0 };
         }
+        Mask::Bitmap { raster_id, .. } => {
+            // Only the id rides the flat wire — the recipe's other fields
+            // (person/facial/body/model/digest) are UI + sidecar concerns,
+            // not render-time inputs; the resolved MaskRaster (looked up by
+            // this id) is what `stages::local_adjustments` actually samples.
+            slot[2] = raster_id as f32;
+            slot[6] = KIND_BITMAP;
+        }
+        Mask::Everywhere => {
+            slot[6] = KIND_EVERYWHERE;
+        }
     }
 }
 
@@ -196,17 +212,42 @@ fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
 /// instead of failing the whole render. An unknown `kind` value falls back to
 /// [`Mask::Linear`], matching the C-ABI convention that an unrecognised
 /// discriminant resolves to the zero variant.
-pub fn layers_from_flat(flat: &[f32]) -> Vec<LocalAdjustment> {
+///
+/// `rasters` resolves a `Mask::Bitmap` slot's `raster_id` to the recipe
+/// digest it reports (#3271) — pass `&[]` when the caller has no bitmap
+/// masks registered; the reconstructed layer still carries the raw
+/// `raster_id`, so later `stages::local_adjustments::mask::resolve` calls
+/// against the SAME (or a fuller) `rasters` slice still work even if this
+/// pass didn't have the raster available.
+pub fn layers_from_flat(flat: &[f32], rasters: &[Arc<MaskRaster>]) -> Vec<LocalAdjustment> {
     flat.chunks_exact(LAYER_FLAT_LEN)
         .map(|slot| LocalAdjustment {
-            mask: read_mask(slot),
+            mask: read_mask(slot, rasters),
             range: read_range(slot),
             adjustments: read_adjustments(slot),
         })
         .collect()
 }
 
-fn read_mask(slot: &[f32]) -> Mask {
+fn read_mask(slot: &[f32], rasters: &[Arc<MaskRaster>]) -> Mask {
+    if slot[6] == KIND_EVERYWHERE {
+        return Mask::Everywhere;
+    }
+    if slot[6] == KIND_BITMAP {
+        let raster_id = slot[2] as u32;
+        let digest = rasters
+            .iter()
+            .find(|r| r.id == raster_id)
+            .map(|r| r.digest.clone())
+            .unwrap_or_default();
+        return Mask::Bitmap {
+            recipe: BitmapRecipe {
+                digest,
+                ..Default::default()
+            },
+            raster_id,
+        };
+    }
     if slot[6] == KIND_RADIAL {
         Mask::Radial {
             center: Point2::new(slot[0], slot[1]),
@@ -288,7 +329,7 @@ mod tests {
         let flat = layers_to_flat(&layers);
         assert_eq!(flat[22], -42.5);
         assert_eq!(flat[8] as u32, PRESENT_HUE);
-        assert_eq!(layers_from_flat(&flat)[0].adjustments.hue, Some(-42.5));
+        assert_eq!(layers_from_flat(&flat, &[])[0].adjustments.hue, Some(-42.5));
     }
 
     #[test]
@@ -304,7 +345,7 @@ mod tests {
         }];
         let flat = layers_to_flat(&layers);
         assert_eq!(flat.len(), LAYER_FLAT_LEN);
-        assert_eq!(layers_from_flat(&flat), layers);
+        assert_eq!(layers_from_flat(&flat, &[]), layers);
     }
 
     #[test]
@@ -321,7 +362,7 @@ mod tests {
             adjustments: all_controls(),
         }];
         let flat = layers_to_flat(&layers);
-        assert_eq!(layers_from_flat(&flat), layers);
+        assert_eq!(layers_from_flat(&flat, &[]), layers);
     }
 
     #[test]
@@ -339,7 +380,7 @@ mod tests {
             range: None,
             adjustments: sparse,
         }];
-        let back = layers_from_flat(&layers_to_flat(&layers));
+        let back = layers_from_flat(&layers_to_flat(&layers), &[]);
         assert_eq!(back[0].adjustments.saturation, Some(0.0));
         assert_eq!(back[0].adjustments.vibrance, None);
         assert_eq!(back[0].adjustments.exposure, None);
@@ -382,14 +423,14 @@ mod tests {
                 },
             ),
         ];
-        let back = layers_from_flat(&layers_to_flat(&layers));
+        let back = layers_from_flat(&layers_to_flat(&layers), &[]);
         assert_eq!(back, layers);
     }
 
     #[test]
     fn empty_stack_serializes_to_an_empty_wire() {
         assert!(layers_to_flat(&[]).is_empty());
-        assert!(layers_from_flat(&[]).is_empty());
+        assert!(layers_from_flat(&[], &[]).is_empty());
     }
 
     #[test]
@@ -404,7 +445,7 @@ mod tests {
         )];
         let mut flat = layers_to_flat(&layers);
         flat.extend_from_slice(&[0.0; 5]);
-        assert_eq!(layers_from_flat(&flat).len(), 1);
+        assert_eq!(layers_from_flat(&flat, &[]).len(), 1);
     }
 
     #[test]
@@ -429,7 +470,7 @@ mod tests {
         assert_eq!(LAYER_FLAT_LEN, 32);
         assert_eq!(flat.len(), 32);
         assert_eq!(&flat[24..31], &[1.0, 55.0, 25.0, 0.02, 0.15, 0.95, 0.3]);
-        assert_eq!(layers_from_flat(&flat), vec![layer]);
+        assert_eq!(layers_from_flat(&flat, &[]), vec![layer]);
     }
 
     #[test]
@@ -441,6 +482,6 @@ mod tests {
         );
         let flat = layers_to_flat(&[layer]);
         assert_eq!(flat[24], RANGE_KIND_NONE);
-        assert_eq!(layers_from_flat(&flat)[0].range, None);
+        assert_eq!(layers_from_flat(&flat, &[])[0].range, None);
     }
 }

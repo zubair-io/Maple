@@ -188,7 +188,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Asset classes: `raw`
 - Preview paths: `cpu_reference`
 - Export paths: `maple_cli`
-- Fields: `local_adjustments`
+- Fields: `local_adjustments`, `mask_rasters`
 - Integration evidence: none declared
 - Qualification evidence: none declared
 

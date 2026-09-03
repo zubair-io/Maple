@@ -77,7 +77,7 @@ use crate::display_tone_curve::{DisplayToneCurveInputs, DisplayToneCurvePass};
 use crate::film_lut::FilmLutPass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
-use crate::local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass};
+use crate::local_adjustments::{local_adjustments_are_active, GpuMaskRaster, LocalAdjustmentsPass};
 
 /// The 8-band Oklab pass for these inputs. Built in one place so the live
 /// chain's assembly gate and its stage-mask bit can never disagree about
@@ -159,7 +159,7 @@ pub struct FullChainInputs<'a> {
     pub texture: f32,
     pub dehaze: f32,
     /// Local-adjustment layer stack (#1698), in the flat wire
-    /// `raw_core::types::local_adjustment::flat` defines — 24 floats per layer,
+    /// `raw_core::types::local_adjustment::flat` defines — 32 floats per layer,
     /// which is also the WGSL `array<Layer>` storage layout, so nothing is
     /// re-packed between the FFI boundary and the bind group. Empty (the
     /// default for every caller that has no masks) means the stage is a
@@ -264,6 +264,13 @@ pub struct FullChainInputs<'a> {
     /// Appended at the struct tail per the append-only convention; the
     /// default (all four curves empty) is identity.
     pub display_tone_curves: DisplayToneCurveInputs,
+    /// Rasters a `KIND_BITMAP` record in `local_adjustments` may resolve its
+    /// `raster_id` against (#3271). Empty is the common case (no bitmap mask,
+    /// or none registered yet) — [`LocalAdjustmentsPass::new`] then resolves
+    /// every bitmap record to weight 0 rather than falling back to a global
+    /// correction. Appended at the struct tail per the append-only
+    /// convention.
+    pub mask_rasters: Vec<GpuMaskRaster>,
 }
 
 /// How the GPU-resident image was produced. Drives which leading stages the live
@@ -410,6 +417,7 @@ pub fn build_split<'a>(
     if local_adjustments_are_active(&inputs.local_adjustments) {
         suffix.push(Box::new(LocalAdjustmentsPass::new(
             &inputs.local_adjustments,
+            &inputs.mask_rasters,
         )));
     }
     // Vignette (#1109) — develop's 12c position: after local_adjustments,

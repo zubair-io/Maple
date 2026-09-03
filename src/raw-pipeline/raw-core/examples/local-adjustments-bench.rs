@@ -91,7 +91,7 @@ fn make_layers(n: usize) -> Vec<LocalAdjustment> {
         vibrance: Some(25.0),
         temperature: Some(1200.0),
         tint: Some(8.0),
-        hue: Some(20.0),
+        hue: Some(-15.0),
     };
     (0..n)
         .map(|i| {
@@ -151,7 +151,7 @@ fn main() {
     //     "no allocation inside the render loop" invariant is about. ---
     {
         let mut warm = base.clone();
-        local_adjustments::apply(&mut warm, &layers);
+        local_adjustments::apply(&mut warm, &layers, &[]);
         std::hint::black_box(&warm);
     }
 
@@ -159,7 +159,7 @@ fn main() {
     let mut one = base.clone();
     ALLOC_COUNT.store(0, Ordering::Relaxed);
     ALLOC_BYTES.store(0, Ordering::Relaxed);
-    local_adjustments::apply(&mut one, &layers);
+    local_adjustments::apply(&mut one, &layers, &[]);
     let alloc_count = ALLOC_COUNT.load(Ordering::Relaxed);
     let alloc_bytes = ALLOC_BYTES.load(Ordering::Relaxed);
     std::hint::black_box(&one);
@@ -169,7 +169,7 @@ fn main() {
     for _ in 0..runs {
         let mut scratch = base.clone();
         let t0 = Instant::now();
-        local_adjustments::apply(&mut scratch, &layers);
+        local_adjustments::apply(&mut scratch, &layers, &[]);
         let dt = t0.elapsed();
         std::hint::black_box(&scratch);
         times_ms.push(dt.as_secs_f64() * 1000.0);

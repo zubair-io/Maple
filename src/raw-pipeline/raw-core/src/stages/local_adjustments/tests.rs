@@ -14,7 +14,7 @@ fn flat_image(w: u32, h: u32, v: f32) -> Image {
 fn empty_layers_is_noop() {
     let mut img = flat_image(4, 4, 0.18);
     let snapshot = img.pixels.clone();
-    apply(&mut img, &[]);
+    apply(&mut img, &[], &[]);
     assert_eq!(
         img.pixels, snapshot,
         "empty Vec must leave pixels untouched"
@@ -30,7 +30,7 @@ fn empty_partial_adjustments_is_noop() {
     )];
     let mut img = flat_image(4, 4, 0.18);
     let snapshot = img.pixels.clone();
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     assert_eq!(img.pixels, snapshot);
 }
 
@@ -52,7 +52,7 @@ fn linear_exposure_doubles_at_full_weight_side() {
         },
     }];
     let mut img = flat_image(5, 1, 0.5);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // x=0 (w=0) — unchanged.
     assert!(
         (img.pixels[0][0] - 0.5).abs() < 1e-5,
@@ -87,7 +87,7 @@ fn radial_exposure_doubles_at_center() {
     }];
     // 3x3 image so the centre pixel (1, 1) maps exactly to (0.5, 0.5).
     let mut img = flat_image(3, 3, 0.25);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // Centre pixel: w=1 → doubled.
     assert!(
         (img.pixels[4][0] - 0.5).abs() < 1e-5,
@@ -117,7 +117,7 @@ fn local_temperature_shifts_blue() {
         },
     }];
     let mut img = flat_image(2, 1, 0.5);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // x=1 (w=1) — cooled (blue up, red down).
     assert!(img.pixels[1][2] > 0.5, "B: {}", img.pixels[1][2]);
     assert!(img.pixels[1][0] < 0.5, "R: {}", img.pixels[1][0]);
@@ -140,7 +140,7 @@ fn local_contrast_increases_spread() {
     let mut img = flat_image(3, 1, 0.5);
     img.pixels[0] = [0.1, 0.1, 0.1]; // x=0, w=0 (no change)
     img.pixels[2] = [0.1, 0.1, 0.1]; // x=2, w=1 (contrast up)
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // For Y=0.1 < 0.18, +contrast should crush.
     assert!(img.pixels[2][0] < 0.1, "crushed: {}", img.pixels[2][0]);
     assert!((img.pixels[0][0] - 0.1).abs() < 1e-5);
@@ -162,7 +162,7 @@ fn local_saturation_desaturates() {
     }];
     let mut img = flat_image(2, 1, 0.5);
     img.pixels[1] = [0.8, 0.2, 0.2];
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // x=1 (w=1) — desaturated.
     let p = img.pixels[1];
     assert!((p[0] - p[1]).abs() < 1e-3);
@@ -184,7 +184,7 @@ fn local_shadows_lift() {
         },
     }];
     let mut img = flat_image(2, 1, 0.05);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // x=1 (w=1) — lifted.
     assert!(img.pixels[1][0] > 0.05);
 }
@@ -204,7 +204,7 @@ fn local_blacks_additive_lift() {
         },
     }];
     let mut img = flat_image(2, 1, 0.0);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // x=1 (w=1) — additive lift from 0 should land at 100/400 = 0.25.
     assert!((img.pixels[1][0] - 0.25).abs() < 1e-5);
 }
@@ -233,7 +233,7 @@ fn local_tint_pushes_magenta() {
         ..Default::default()
     });
     let mut img = flat_image(2, 1, 0.5);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     let p = img.pixels[1]; // w=1
     assert!(
         p[1] < p[0] && p[1] < p[2],
@@ -248,7 +248,7 @@ fn local_tint_pushes_magenta() {
         ..Default::default()
     });
     let mut img2 = flat_image(2, 1, 0.5);
-    apply(&mut img2, &layers_neg);
+    apply(&mut img2, &layers_neg, &[]);
     let q = img2.pixels[1];
     assert!(
         q[1] > q[0] && q[1] > q[2],
@@ -265,7 +265,7 @@ fn local_highlights_reduce_bright_tones_and_stay_finite() {
         ..Default::default()
     });
     let mut img = flat_image(2, 1, 0.8);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     assert!(
         img.pixels[1][0] < 0.8,
         "+highlights should reduce Y≈0.8: {}",
@@ -282,7 +282,7 @@ fn local_highlights_reduce_bright_tones_and_stay_finite() {
             ..Default::default()
         });
         let mut hi = flat_image(2, 1, 8.0); // well above the knee
-        apply(&mut hi, &l);
+        apply(&mut hi, &l, &[]);
         let v = hi.pixels[1][0];
         assert!(v.is_finite() && v > 0.0, "highlights={h} above knee: {v}");
     }
@@ -298,7 +298,7 @@ fn local_whites_leave_midtones_and_ramp_toward_one() {
             ..Default::default()
         });
         let mut img = flat_image(2, 1, start);
-        apply(&mut img, &layers);
+        apply(&mut img, &layers, &[]);
         img.pixels[1][0] // w=1 pixel
     };
     // Y=0.5: weight is exactly 0 → unchanged.
@@ -321,7 +321,7 @@ fn local_vibrance_boosts_low_chroma_more_and_spares_neutral() {
     });
     // Pixel 0: w=0 (untouched). Pixel 1: w=1, a near-neutral grey.
     let mut img = flat_image(2, 1, 0.5);
-    apply(&mut img, &layers);
+    apply(&mut img, &layers, &[]);
     // Near-neutral pixel stays neutral (chroma ~ 0 → no boost).
     let n = img.pixels[1];
     assert!(
@@ -342,10 +342,10 @@ fn local_vibrance_boosts_low_chroma_more_and_spares_neutral() {
 
     let mut img_low = flat_image(2, 1, 0.5);
     img_low.pixels[1] = low;
-    apply(&mut img_low, &layers);
+    apply(&mut img_low, &layers, &[]);
     let mut img_high = flat_image(2, 1, 0.5);
     img_high.pixels[1] = high;
-    apply(&mut img_high, &layers);
+    apply(&mut img_high, &layers, &[]);
 
     let gain_low = chroma(img_low.pixels[1]) / c_low_in;
     let gain_high = chroma(img_high.pixels[1]) / c_high_in;
@@ -398,8 +398,8 @@ fn local_tone_controls_are_sequential() {
     ];
     let mut a = flat_image(2, 1, 0.3);
     let mut b = flat_image(2, 1, 0.3);
-    apply(&mut a, &both);
-    apply(&mut b, &stacked);
+    apply(&mut a, &both, &[]);
+    apply(&mut b, &stacked, &[]);
     assert!(
         (a.pixels[1][0] - b.pixels[1][0]).abs() < 1e-5,
         "in-layer h+s must equal stacked h then s (sequential luma): {} vs {}",

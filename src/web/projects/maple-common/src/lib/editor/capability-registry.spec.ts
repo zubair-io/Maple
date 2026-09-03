@@ -15,13 +15,16 @@ import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 
 /** Schema fields raw-core carries that the web `AdjustmentModel` does not
- * mirror: the as-shot interpretation flags (Apple-side sidecar state) and
- * the two model-only layer lists (see the registry's own comments). */
+ * mirror: the as-shot interpretation flags (Apple-side sidecar state), the
+ * model-only layer lists, and the bitmap masks' raster payload (#3271 —
+ * in-process pixel data resolved from the host's registry, never part of
+ * the web model). See the registry's own comments. */
 const RAW_CORE_ONLY_FIELDS: ReadonlySet<string> = new Set([
   'temperature_seen',
   'tint_seen',
   'local_adjustments',
   'inpaint_removals',
+  'mask_rasters',
 ]);
 
 /** Web model keys that are not canonical schema fields: the WB preset

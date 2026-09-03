@@ -434,7 +434,7 @@ public enum CapabilityRegistry {
             assetClasses: [.raw],
             previewPaths: [.cpuReference],
             exportPaths: [.mapleCli],
-            fields: ["local_adjustments"],
+            fields: ["local_adjustments", "mask_rasters"],
             integration: [],
             qualification: [],
             releaseState: .core

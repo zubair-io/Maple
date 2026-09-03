@@ -22,6 +22,24 @@ unsafe fn read_points(ptr: *const f32, len: usize) -> Vec<(f32, f32)> {
     flat.chunks_exact(2).map(|c| (c[0], c[1])).collect()
 }
 
+/// Map a registry-resolved raster list into raw-gpu's own carrier shape
+/// (#3271) — `raw_gpu::GpuMaskRaster` can't be `raw_core::types::MaskRaster`
+/// directly; see that type's doc for why (raw-gpu takes raw-core only as a
+/// dev-dependency).
+fn to_gpu_rasters(
+    rasters: Vec<std::sync::Arc<raw_core::types::MaskRaster>>,
+) -> Vec<raw_gpu::GpuMaskRaster> {
+    rasters
+        .into_iter()
+        .map(|r| raw_gpu::GpuMaskRaster {
+            id: r.id,
+            width: r.width,
+            height: r.height,
+            data: r.data.clone(),
+        })
+        .collect()
+}
+
 /// Read a flat `(ptr, len)` f32 array into an owned `Vec<f32>`. Null/zero ⇒ empty.
 ///
 /// # Safety
@@ -208,6 +226,12 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     let (film_lut_size, film_lut_data) = film_lut_or_off(p);
     let (residual_lut_size, residual_lut_data) = residual_or_identity(p);
 
+    // Local-adjustment flat wire + its bitmap rasters (#3271) — read together
+    // so `local_adjustments` and `mask_rasters` below always describe the
+    // SAME wire snapshot; see `crate::mask_registry::layers_and_rasters_from_flat`.
+    let local_flat = read_floats(p.local_adjustments_ptr, p.local_adjustments_len);
+    let (_, mask_rasters) = crate::mask_registry::layers_and_rasters_from_flat(&local_flat);
+
     FullChainInputs {
         wb_matrix,
         wb_temperature: gate_temperature,
@@ -252,7 +276,12 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         // NULL / zero-length field (every host that has no masks, including
         // one built against a pre-#1698 header) yields an empty stack, which
         // omits the pass entirely.
-        local_adjustments: read_floats(p.local_adjustments_ptr, p.local_adjustments_len),
+        local_adjustments: local_flat,
+        // Every `KIND_BITMAP` record's raster, resolved from the SAME flat
+        // wire against the process-wide registry (#3271) — computed once,
+        // above, and shared with `local_adjustments` so a bitmap record and
+        // its raster are always read from an identical snapshot of the wire.
+        mask_rasters: to_gpu_rasters(mask_rasters),
         vignette_amount: p.vignette_amount,
         vignette_feather: p.vignette_feather,
         grain_amount: p.grain_amount,

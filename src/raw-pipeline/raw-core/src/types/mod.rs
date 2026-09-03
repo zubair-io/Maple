@@ -20,6 +20,6 @@ pub use adjustment::{
 };
 pub use inpaint::{BakeGrade, InpaintPatch, Removal};
 pub use local_adjustment::{
-    layers_from_flat, layers_to_flat, LocalAdjustment, Mask, PartialAdjustments, Point2,
-    RangeRefinement, LAYER_FLAT_LEN, SKIN_TONE_RANGE,
+    layers_from_flat, layers_to_flat, BitmapRecipe, LocalAdjustment, Mask, MaskRaster,
+    PartialAdjustments, Point2, RangeRefinement, LAYER_FLAT_LEN, SKIN_TONE_RANGE,
 };

@@ -9,20 +9,30 @@
 //! itself — the shipping Rust stage, through the test-only dev-dep — rather
 //! than a transcribed CPU twin, so there is nothing that can drift out from
 //! under the kernel.
+//!
+//! The harness below (`buffer_16x12`, `raw_core_local`, `run_gpu`, `only`,
+//! `max_abs_diff`, `all_controls`) is `pub(super)` rather than private:
+//! `tests_bitmap.rs` (#3271, the same file-budget split this file made from
+//! `local_adjustments.rs`) is a SIBLING module, not a child, so it can't
+//! reach these through its own `super::*` — it names them explicitly via
+//! `super::tests::{...}` instead. Keep this visibility if this file grows
+//! another sibling.
 
 use super::*;
 use crate::chain::ChainRunner;
 use crate::image::GpuImage;
 use raw_core::types::{
-    layers_to_flat, LocalAdjustment, Mask, PartialAdjustments, Point2, LAYER_FLAT_LEN as CORE_LEN,
+    layers_to_flat, LocalAdjustment, Mask, MaskRaster, PartialAdjustments, Point2,
+    LAYER_FLAT_LEN as CORE_LEN,
 };
+use std::sync::Arc;
 
 /// A 2-D buffer spanning the tonal range the luma-coupled controls key off:
 /// deep shadow (blacks / shadows), midtone, above the Y = 1 knee (highlights'
 /// shape branch), saturated chroma (the Oklab gamut bisection), and a
 /// slightly-negative channel. Local adjustments are POSITION-dependent, so a
 /// count x 1 strip would only exercise one row of the mask field.
-fn buffer_16x12() -> (Vec<f32>, u32, u32) {
+pub(super) fn buffer_16x12() -> (Vec<f32>, u32, u32) {
     let (w, h) = (16u32, 12u32);
     let mut v = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
@@ -45,13 +55,19 @@ fn buffer_16x12() -> (Vec<f32>, u32, u32) {
 
 /// Run the real Rust stage over a flat interleaved RGBA f32 buffer, carrying
 /// alpha through untouched. This is the ticket's reference.
-fn raw_core_local(buf: &[f32], w: u32, h: u32, layers: &[LocalAdjustment]) -> Vec<f32> {
+pub(super) fn raw_core_local(
+    buf: &[f32],
+    w: u32,
+    h: u32,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+) -> Vec<f32> {
     use raw_core::image::{ColorSpace, Image};
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    raw_core::stages::local_adjustments::apply(&mut img, layers);
+    raw_core::stages::local_adjustments::apply(&mut img, layers, rasters);
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
         out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
@@ -59,14 +75,37 @@ fn raw_core_local(buf: &[f32], w: u32, h: u32, layers: &[LocalAdjustment]) -> Ve
     out
 }
 
-fn run_gpu(ctx: &GpuContext, buf: &[f32], w: u32, h: u32, layers: &[LocalAdjustment]) -> Vec<f32> {
+/// `rasters` are `raw_core::types::MaskRaster` — the SAME reference type
+/// `raw_core_local` samples — converted here into raw-gpu's own
+/// [`GpuMaskRaster`] shape, the boundary this crate's real (non-test) API
+/// actually crosses (see that type's doc for why it can't just be
+/// `MaskRaster`). Keeping the conversion in the test file rather than in
+/// production code is deliberate: no real caller ever holds a
+/// `raw_core::types::MaskRaster` in the wasm/FFI-free part of raw-gpu.
+pub(super) fn run_gpu(
+    ctx: &GpuContext,
+    buf: &[f32],
+    w: u32,
+    h: u32,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+) -> Vec<f32> {
     let img = GpuImage::upload(ctx, buf, w, h);
     let runner = ChainRunner::new(ctx, &img);
-    let pass = LocalAdjustmentsPass::new(&layers_to_flat(layers));
+    let gpu_rasters: Vec<GpuMaskRaster> = rasters
+        .iter()
+        .map(|r| GpuMaskRaster {
+            id: r.id,
+            width: r.width,
+            height: r.height,
+            data: r.data.clone(),
+        })
+        .collect();
+    let pass = LocalAdjustmentsPass::new(&layers_to_flat(layers), &gpu_rasters);
     runner.run_blocking(&[&pass])
 }
 
-fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
+pub(super) fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
     a.iter()
         .zip(b)
         .map(|(x, y)| (x - y).abs())
@@ -117,7 +156,7 @@ fn radial(feather: f32, invert: bool, adjustments: PartialAdjustments) -> LocalA
     }
 }
 
-fn only(set: impl FnOnce(&mut PartialAdjustments)) -> PartialAdjustments {
+pub(super) fn only(set: impl FnOnce(&mut PartialAdjustments)) -> PartialAdjustments {
     let mut a = PartialAdjustments::default();
     set(&mut a);
     a
@@ -125,7 +164,7 @@ fn only(set: impl FnOnce(&mut PartialAdjustments)) -> PartialAdjustments {
 
 /// Every control on one layer, so a stacked case exercises the full
 /// `apply_pixel` body including the per-pixel CAT16 derivation.
-fn all_controls() -> PartialAdjustments {
+pub(super) fn all_controls() -> PartialAdjustments {
     PartialAdjustments {
         exposure: Some(0.6),
         contrast: Some(25.0),
@@ -247,8 +286,8 @@ fn wgsl_local_adjustments_match_raw_core_per_control_within_1e_4() {
 
     for (name, layer) in cases {
         let layers = [layer];
-        let reference = raw_core_local(&input, w, h, &layers);
-        let gpu = run_gpu(&ctx, &input, w, h, &layers);
+        let reference = raw_core_local(&input, w, h, &layers, &[]);
+        let gpu = run_gpu(&ctx, &input, w, h, &layers, &[]);
         let diff = max_abs_diff(&reference, &gpu);
         eprintln!("PARITY vs raw-core local_adjustments [{name}]: max abs diff = {diff:e}");
         assert!(
@@ -280,8 +319,8 @@ fn stacked_layers_match_raw_core_within_the_parity_ceiling() {
             }),
         ),
     ];
-    let reference = raw_core_local(&input, w, h, &layers);
-    let gpu = run_gpu(&ctx, &input, w, h, &layers);
+    let reference = raw_core_local(&input, w, h, &layers, &[]);
+    let gpu = run_gpu(&ctx, &input, w, h, &layers, &[]);
     let (idx, abs_diff, rel_diff) = worst(&reference, &gpu);
     let magnitude = reference[idx].abs();
     eprintln!(
@@ -319,7 +358,7 @@ fn layer_without_controls_is_bit_exact_passthrough() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (input, w, h) = buffer_16x12();
     let layers = [linear(0.5, PartialAdjustments::default())];
-    let gpu = run_gpu(&ctx, &input, w, h, &layers);
+    let gpu = run_gpu(&ctx, &input, w, h, &layers, &[]);
     assert_eq!(gpu, input, "an empty layer must not touch a single pixel");
 }
 
@@ -340,7 +379,7 @@ fn zero_weight_region_is_bit_exact() {
         range: None,
         adjustments: all_controls(),
     }];
-    let gpu = run_gpu(&ctx, &input, w, h, &layers);
+    let gpu = run_gpu(&ctx, &input, w, h, &layers, &[]);
 
     let last_zero_col = ((w - 1) / 2).saturating_sub(1);
     for y in 0..h {
@@ -368,7 +407,7 @@ fn alpha_is_untouched() {
         px.copy_from_slice(&[0.4, 0.25, 0.15, 0.1 + 0.01 * i as f32]);
     }
     let layers = [linear(0.5, all_controls())];
-    let gpu = run_gpu(&ctx, &input, w, h, &layers);
+    let gpu = run_gpu(&ctx, &input, w, h, &layers, &[]);
     for (i, (a, b)) in input.chunks_exact(4).zip(gpu.chunks_exact(4)).enumerate() {
         assert_eq!(a[3], b[3], "alpha at pixel {i} must be carried through");
     }
@@ -461,10 +500,10 @@ fn a_truncated_wire_renders_the_valid_prefix() {
 
     let img = GpuImage::upload(&ctx, &input, w, h);
     let runner = ChainRunner::new(&ctx, &img);
-    let pass = LocalAdjustmentsPass::new(&truncated);
+    let pass = LocalAdjustmentsPass::new(&truncated, &[]);
     let got = runner.run_blocking(&[&pass]);
 
     // Identical to the same stack with no partial tail attached.
-    let clean = run_gpu(&ctx, &input, w, h, &layers);
+    let clean = run_gpu(&ctx, &input, w, h, &layers, &[]);
     assert_eq!(got, clean, "the partial tail record must be dropped");
 }

@@ -215,7 +215,9 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         preview_paths: &[PreviewPath::CpuReference],
         export_paths: &[ExportPath::MapleCli],
         groups: &[],
-        fields: &["local_adjustments"],
+        // `mask_rasters` (#3271) is the bitmap masks' pixel payload —
+        // non-copyable, and owned by this same capability.
+        fields: &["local_adjustments", "mask_rasters"],
         integration: &[],
         qualification: &[],
     },

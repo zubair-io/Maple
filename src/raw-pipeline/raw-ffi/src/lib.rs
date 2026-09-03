@@ -81,6 +81,11 @@ mod gpu_live;
 mod gpu_auto_profile;
 mod handle;
 mod id;
+// Process-wide bitmap-mask raster registry (#3271): `maple_mask_raster_register`
+// / `_release`, plus the internal `resolve_into` / `layers_and_rasters_from_flat`
+// helpers `model` and the chain-params readers use to attach a `Mask::Bitmap`
+// layer's raster. No `gpu` gate — bitmap masks apply on the CPU chain too.
+mod mask_registry;
 mod model;
 mod render;
 mod render_develop;
@@ -141,6 +146,10 @@ pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenois
 pub use filename::MapleFilenameResult;
 pub use handle::MapleRawHandle;
 pub use id::MapleFallbackIdHasher;
+// #3271: cbindgen needs no extra visibility here (both entries are plain
+// scalar-argument externs), but `pub use` keeps them reachable from Rust
+// integration tests the same way `maple_last_error` is below.
+pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // gpu-gated: the live-session FFI structs (absent from the default xcframework).
 #[cfg(feature = "gpu")]

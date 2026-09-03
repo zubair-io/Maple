@@ -3,9 +3,11 @@
 //! competing with this file's own growth for the 570-line headroom budget —
 //! same rationale as `xmp/fields.rs` being split out of `xmp/mod.rs` in #365.
 
-use super::{Kind, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
+use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
-use crate::types::local_adjustment::{Mask, PartialAdjustments, Point2, RangeRefinement};
+use crate::types::local_adjustment::{
+    BitmapRecipe, Mask, PartialAdjustments, Point2, RangeRefinement,
+};
 use crate::xmp::parse_xmp_bool;
 use quick_xml::events::BytesStart;
 
@@ -152,7 +154,9 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
     let what = attr_str(e, "crs:What")?;
     let recognized = matches!(
         (kind, what.as_deref()),
-        (Kind::Linear, Some(MASK_WHAT_LINEAR)) | (Kind::Radial, Some(MASK_WHAT_RADIAL))
+        (Kind::Linear, Some(MASK_WHAT_LINEAR))
+            | (Kind::Radial, Some(MASK_WHAT_RADIAL))
+            | (Kind::Group, Some(MASK_WHAT_IMAGE))
     );
     if !recognized {
         return Ok(None);
@@ -192,5 +196,33 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
                 invert: flipped,
             }))
         }
+        Kind::Group => match attr_str(e, "papp:MaskSource")?.as_deref() {
+            Some("Everywhere") => Ok(Some(Mask::Everywhere)),
+            Some("PersonSkin") => Ok(Some(Mask::Bitmap {
+                recipe: BitmapRecipe {
+                    person: attr_f32(e, "papp:MaskPerson")?.unwrap_or(0.0) as u32,
+                    facial_skin: attr_str(e, "papp:MaskFacialSkin")?
+                        .and_then(|v| parse_xmp_bool(&v))
+                        .unwrap_or(true),
+                    body_skin: attr_str(e, "papp:MaskBodySkin")?
+                        .and_then(|v| parse_xmp_bool(&v))
+                        .unwrap_or(true),
+                    model: attr_str(e, "papp:MaskModel")?.unwrap_or_default(),
+                    digest: attr_str(e, "papp:MaskDigest")?.ok_or_else(|| {
+                        Error::Xmp("Mask/Image PersonSkin is missing papp:MaskDigest".into())
+                    })?,
+                },
+                // Unresolved until `raw-ffi`'s mask-raster registry (a later
+                // ticket) stamps a real id onto the parsed model — resolving
+                // by digest is what makes that work without this parser
+                // needing to know about the registry at all.
+                raster_id: 0,
+            })),
+            // Lightroom's own AI masks (Select Subject, Select Sky, …) carry
+            // Mask/Image with a MaskDigest but no papp: recipe — Maple can't
+            // regenerate them, so skip (forward-compat), matching every
+            // other unrecognized mask kind this reader already tolerates.
+            _ => Ok(None),
+        },
     }
 }

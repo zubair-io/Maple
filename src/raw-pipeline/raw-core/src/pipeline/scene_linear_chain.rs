@@ -261,7 +261,7 @@ pub fn apply_scene_linear_chain(
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
     // Local adjustments (ticket #280). Empty Vec is a bit-identical no-op.
     stage("ffi_chain_local_adjustments", || {
-        local_adjustments::apply(&mut img, &model.local_adjustments)
+        local_adjustments::apply(&mut img, &model.local_adjustments, &model.mask_rasters)
     });
     // Vignette (#1109) — same chain position as develop (after local
     // adjustments, before sharpen). Anchored to this buffer's
@@ -476,7 +476,7 @@ pub fn apply_scene_linear_chain_f32(
     });
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
     stage("ffi_chain_local_adjustments", || {
-        local_adjustments::apply(&mut img, &model.local_adjustments)
+        local_adjustments::apply(&mut img, &model.local_adjustments, &model.mask_rasters)
     });
     // Vignette (#1109) — same chain position as develop / the fp16 sibling.
     stage("ffi_chain_vignette", || {

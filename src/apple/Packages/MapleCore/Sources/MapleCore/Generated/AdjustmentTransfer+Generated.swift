@@ -119,6 +119,7 @@ public let adjustmentTransferModes: [String: AdjustmentTransferMode] = [
     "crop": .assetRelative,
     "local_adjustments": .unsupported,
     "inpaint_removals": .unsupported,
+    "mask_rasters": .unsupported,
     "capture_sharpening_radius": .unsupported,
     "wb_sample_x": .unsupported,
     "wb_sample_y": .unsupported,

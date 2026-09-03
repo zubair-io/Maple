@@ -307,7 +307,9 @@ pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, VIEW_TAIL_PASS_COUNT,
 };
 pub use live_session::LiveSession;
-pub use local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass, LAYER_FLAT_LEN};
+pub use local_adjustments::{
+    local_adjustments_are_active, GpuMaskRaster, LocalAdjustmentsPass, LAYER_FLAT_LEN,
+};
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};

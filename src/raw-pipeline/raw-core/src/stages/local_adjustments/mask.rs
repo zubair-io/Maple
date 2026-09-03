@@ -8,7 +8,8 @@
 //! pre-corrects. The same convention is what Lightroom uses internally; UI
 //! layers stretch/transform on top.
 
-use crate::types::{Mask, Point2};
+use crate::types::{Mask, MaskRaster, Point2};
+use std::sync::Arc;
 
 /// Smoothstep S(t) = 3t² − 2t³, clamped to [0, 1].
 #[inline]
@@ -17,15 +18,39 @@ fn smoothstep(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Compute the mask weight at normalized point (`x`, `y`).
-pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
+/// Resolve the raster a [`Mask::Bitmap`] refers to: by `raster_id` first
+/// (the flat-wire path — the FFI registry stamps a resolved id back onto
+/// the layer), falling back to the recipe's digest (the in-memory /
+/// XMP-parsed path, where no id has been assigned yet). `None` for every
+/// other mask variant, and for a `Bitmap` whose raster is not registered —
+/// an unresolved recipe evaluates to weight 0 (§ [`evaluate`]), never a
+/// silent global correction.
+pub fn resolve<'a>(mask: &Mask, rasters: &'a [Arc<MaskRaster>]) -> Option<&'a MaskRaster> {
+    let Mask::Bitmap { recipe, raster_id } = mask else {
+        return None;
+    };
+    rasters
+        .iter()
+        .find(|r| *raster_id != 0 && r.id == *raster_id)
+        .or_else(|| {
+            rasters
+                .iter()
+                .find(|r| !recipe.digest.is_empty() && r.digest == recipe.digest)
+        })
+        .map(|r| r.as_ref())
+}
+
+/// Compute the mask weight at normalized point (`x`, `y`). `raster` is the
+/// result of [`resolve`] for this mask — irrelevant for every variant
+/// except `Bitmap`, where `None` (unresolved) evaluates to 0.
+pub fn evaluate(mask: &Mask, raster: Option<&MaskRaster>, x: f32, y: f32) -> f32 {
     let p = Point2::new(x, y);
-    match *mask {
+    match mask {
         Mask::Linear {
             start,
             end,
             feather,
-        } => linear_weight(start, end, feather, p),
+        } => linear_weight(*start, *end, *feather, p),
         Mask::Radial {
             center,
             radii,
@@ -33,13 +58,15 @@ pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
             feather,
             invert,
         } => {
-            let w = radial_weight(center, radii, angle, feather, p);
-            if invert {
+            let w = radial_weight(*center, *radii, *angle, *feather, p);
+            if *invert {
                 1.0 - w
             } else {
                 w
             }
         }
+        Mask::Bitmap { .. } => raster.map(|r| r.sample(x, y)).unwrap_or(0.0),
+        Mask::Everywhere => 1.0,
     }
 }
 
@@ -130,11 +157,11 @@ mod tests {
     #[test]
     fn linear_hard_step_at_midpoint() {
         let m = linear_mask();
-        assert_eq!(evaluate(&m, 0.0, 0.5), 0.0);
-        assert_eq!(evaluate(&m, 0.49, 0.5), 0.0);
+        assert_eq!(evaluate(&m, None, 0.0, 0.5), 0.0);
+        assert_eq!(evaluate(&m, None, 0.49, 0.5), 0.0);
         // At exactly t=0.5 the half-open branch returns 1.0.
-        assert_eq!(evaluate(&m, 0.5, 0.5), 1.0);
-        assert_eq!(evaluate(&m, 1.0, 0.5), 1.0);
+        assert_eq!(evaluate(&m, None, 0.5, 0.5), 1.0);
+        assert_eq!(evaluate(&m, None, 1.0, 0.5), 1.0);
     }
 
     #[test]
@@ -146,7 +173,7 @@ mod tests {
             end: Point2::new(1.0, 0.5),
             feather: 1.0,
         };
-        let w = evaluate(&m, 0.5, 0.5);
+        let w = evaluate(&m, None, 0.5, 0.5);
         assert!((w - 0.5).abs() < 1e-5, "midpoint weight: {}", w);
     }
 
@@ -155,7 +182,7 @@ mod tests {
         // Off-axis y point projects to the line. With horizontal gradient,
         // y has no effect on the weight.
         let m = linear_mask();
-        assert_eq!(evaluate(&m, 0.75, 0.0), evaluate(&m, 0.75, 1.0));
+        assert_eq!(evaluate(&m, None, 0.75, 0.0), evaluate(&m, None, 0.75, 1.0));
     }
 
     #[test]
@@ -165,7 +192,7 @@ mod tests {
             end: Point2::new(0.5, 0.5),
             feather: 0.0,
         };
-        assert_eq!(evaluate(&m, 0.5, 0.5), 0.0);
+        assert_eq!(evaluate(&m, None, 0.5, 0.5), 0.0);
     }
 
     fn radial_mask() -> Mask {
@@ -181,9 +208,9 @@ mod tests {
     #[test]
     fn radial_centre_is_one_outside_is_zero() {
         let m = radial_mask();
-        assert!((evaluate(&m, 0.5, 0.5) - 1.0).abs() < 1e-5);
+        assert!((evaluate(&m, None, 0.5, 0.5) - 1.0).abs() < 1e-5);
         // Outside the radius.
-        assert_eq!(evaluate(&m, 0.9, 0.9), 0.0);
+        assert_eq!(evaluate(&m, None, 0.9, 0.9), 0.0);
     }
 
     #[test]
@@ -191,7 +218,7 @@ mod tests {
         // Hard step: at d=1 (exactly on the ellipse boundary) the branch
         // returns 1.0 (`d <= 1.0`).
         let m = radial_mask();
-        assert!((evaluate(&m, 0.75, 0.5) - 1.0).abs() < 1e-5);
+        assert!((evaluate(&m, None, 0.75, 0.5) - 1.0).abs() < 1e-5);
     }
 
     #[test]
@@ -204,11 +231,11 @@ mod tests {
             invert: false,
         };
         // At centre: d=0, w=1.
-        assert!((evaluate(&m, 0.5, 0.5) - 1.0).abs() < 1e-5);
+        assert!((evaluate(&m, None, 0.5, 0.5) - 1.0).abs() < 1e-5);
         // At edge (d=1): w=0.
-        assert!(evaluate(&m, 1.0, 0.5).abs() < 1e-5);
+        assert!(evaluate(&m, None, 1.0, 0.5).abs() < 1e-5);
         // Half-distance d=0.5: smoothstep(0.5) = 0.5, weight = 1 - 0.5 = 0.5.
-        let w = evaluate(&m, 0.75, 0.5);
+        let w = evaluate(&m, None, 0.75, 0.5);
         assert!((w - 0.5).abs() < 1e-5, "midpoint weight: {}", w);
     }
 
@@ -222,9 +249,9 @@ mod tests {
             invert: true,
         };
         // Centre: inverted, w=0.
-        assert!(evaluate(&m, 0.5, 0.5).abs() < 1e-5);
+        assert!(evaluate(&m, None, 0.5, 0.5).abs() < 1e-5);
         // Outside: inverted, w=1.
-        assert!((evaluate(&m, 0.9, 0.9) - 1.0).abs() < 1e-5);
+        assert!((evaluate(&m, None, 0.9, 0.9) - 1.0).abs() < 1e-5);
     }
 
     #[test]
@@ -249,7 +276,61 @@ mod tests {
         // Point (0.5, 0.7): along the y-axis from centre, 0.2 away.
         // Un-rotated ellipse: rx=0.4, ry=0.1 → ry² < 0.2² so outside. w=0.
         // Rotated 90°: now ry=0.4 along the new y-axis, so 0.2 < 0.4. w=1.
-        assert_eq!(evaluate(&m_unrotated, 0.5, 0.7), 0.0);
-        assert!((evaluate(&m_rotated, 0.5, 0.7) - 1.0).abs() < 1e-5);
+        assert_eq!(evaluate(&m_unrotated, None, 0.5, 0.7), 0.0);
+        assert!((evaluate(&m_rotated, None, 0.5, 0.7) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn everywhere_is_weight_one_at_any_point() {
+        assert_eq!(evaluate(&Mask::Everywhere, None, 0.0, 0.0), 1.0);
+        assert_eq!(evaluate(&Mask::Everywhere, None, 0.5, 0.9), 1.0);
+    }
+
+    #[test]
+    fn bitmap_samples_the_resolved_raster() {
+        use crate::types::BitmapRecipe;
+        let raster = Arc::new(MaskRaster::from_u8(3, "0123456789abcdef", 2, 1, &[0, 255]));
+        let m = Mask::Bitmap {
+            recipe: BitmapRecipe::default(),
+            raster_id: 3,
+        };
+        let resolved = resolve(&m, std::slice::from_ref(&raster));
+        assert!((evaluate(&m, resolved, 0.0, 0.0)).abs() < 1e-6);
+        assert!((evaluate(&m, resolved, 1.0, 0.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bitmap_with_no_registered_raster_is_weight_zero() {
+        use crate::types::BitmapRecipe;
+        let m = Mask::Bitmap {
+            recipe: BitmapRecipe::default(),
+            raster_id: 42,
+        };
+        assert_eq!(resolve(&m, &[]), None);
+        assert_eq!(evaluate(&m, None, 0.5, 0.5), 0.0);
+    }
+
+    #[test]
+    fn resolve_falls_back_to_digest_when_id_is_zero() {
+        use crate::types::BitmapRecipe;
+        let raster = Arc::new(MaskRaster::from_u8(9, "aabbccddeeff0011", 1, 1, &[200]));
+        let m = Mask::Bitmap {
+            recipe: BitmapRecipe {
+                digest: "aabbccddeeff0011".into(),
+                ..Default::default()
+            },
+            raster_id: 0,
+        };
+        let resolved = resolve(&m, std::slice::from_ref(&raster));
+        assert!(resolved.is_some());
+        assert!((resolved.unwrap().sample(0.0, 0.0) - 200.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn resolve_returns_none_for_geometric_masks() {
+        let rasters = [Arc::new(MaskRaster::from_u8(1, "0123456789abcdef", 1, 1, &[255]))];
+        assert!(resolve(&linear_mask(), &rasters).is_none());
+        assert!(resolve(&radial_mask(), &rasters).is_none());
+        assert!(resolve(&Mask::Everywhere, &rasters).is_none());
     }
 }

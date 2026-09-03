@@ -156,6 +156,10 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             texture: model.texture,
             dehaze: model.dehaze,
             local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
+            // This fixture never sets a bitmap mask, so `model.mask_rasters`
+            // is always empty — matches `mask_registry::layers_and_rasters_from_flat`
+            // exactly for a stack with no `Mask::Bitmap` layers.
+            mask_rasters: Vec::new(),
             vignette_amount: model.vignette_amount,
             vignette_feather: model.vignette_feather,
             grain_amount: model.grain_amount,
