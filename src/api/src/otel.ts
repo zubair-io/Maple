@@ -39,7 +39,11 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_NAMESPACE } from '@opentelemetry/semantic-conventions';
-import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
+import {
+  BatchSpanProcessor,
+  ParentBasedSampler,
+  TraceIdRatioBasedSampler,
+} from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { MongoDBInstrumentation } from '@opentelemetry/instrumentation-mongodb';
@@ -53,6 +57,36 @@ const log = childLogger('otel');
  * their own service names; `service.namespace` (operator-configurable) groups
  * them. */
 const SERVICE_NAME = 'maple-api';
+
+/** Which process this SDK runs in. Picks the export cadence below. */
+export type OtelTier = 'api' | 'worker';
+
+/**
+ * Export cadence per process tier (#2196).
+ *
+ * The worker tier hosts native code — libraw, onnxruntime, the Rust core —
+ * that can abort the whole process (Rust `panic=abort`, a C++ `terminate`,
+ * `bad_alloc`). SIGABRT/SIGSEGV never reach `process.on(...)`, so there is
+ * no hook from which to flush: whatever the batch processors hold at that
+ * instant dies with the process. The only lever is how much they hold, so
+ * the worker exports on a short cadence and its loss window is bounded by
+ * these numbers rather than by the SDK's 5 s span delay and the log
+ * bridge's 2 s. The API process keeps the defaults: it does not host
+ * native code, and its graceful shutdown drains the exporters.
+ */
+const TIER_EXPORT_CADENCE: Record<OtelTier, { spanDelayMs: number; logFlushMs: number }> = {
+  api: { spanDelayMs: 5_000, logFlushMs: 2_000 },
+  worker: { spanDelayMs: 1_000, logFlushMs: 500 },
+};
+
+/** Upper bound on a dying process waiting for its exporters. A collector
+ * that is slow or down must not turn an exit into a hang; the parent's
+ * respawn logic is waiting on this process. */
+const FLUSH_BEFORE_EXIT_MS = 2_000;
+
+/** Set once by `initOtel`; read by every later (re)start so a hot
+ * reconfigure keeps the tier's cadence. */
+let tier: OtelTier = 'api';
 
 /** The single running SDK, or `null` when telemetry is off. Module-level so
  * `applyOtelConfig` / `shutdownOtel` can tear it down across calls. */
@@ -115,6 +149,11 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
   });
 
   const traceExporter = new OTLPTraceExporter({ url: `${endpoint}/v1/traces`, headers });
+  // Explicit batch processor rather than the SDK's implicit one, so the
+  // tier's export cadence applies (see `TIER_EXPORT_CADENCE`).
+  const spanProcessor = new BatchSpanProcessor(traceExporter, {
+    scheduledDelayMillis: TIER_EXPORT_CADENCE[tier].spanDelayMs,
+  });
 
   // Logs are NOT handled by the NodeSDK. The OTel `instrumentation-pino` bridge
   // is a require-in-the-middle monkey-patch that's unreliable under Bun and only
@@ -127,7 +166,7 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
   return new NodeSDK({
     resource,
     sampler,
-    traceExporter,
+    spanProcessors: [spanProcessor],
     instrumentations,
   });
 }
@@ -152,6 +191,7 @@ function startSdk(c: ResolvedObservabilityConfig): void {
           endpoint: c.endpoint as string,
           ingestionKey: c.ingestion_key,
           serviceNamespace: c.service_namespace,
+          flushIntervalMs: TIER_EXPORT_CADENCE[tier].logFlushMs,
         }
       : null,
   );
@@ -164,6 +204,8 @@ function startSdk(c: ResolvedObservabilityConfig): void {
       logs: c.logs_enabled,
       sample_ratio: c.sample_ratio,
       auth: c.ingestion_key !== null,
+      tier,
+      ...TIER_EXPORT_CADENCE[tier],
     },
     'OpenTelemetry started (shipping to SigNoz)',
   );
@@ -196,7 +238,11 @@ async function stopSdk(): Promise<void> {
  * at startup; idempotent if somehow called twice (a second call with the same
  * config is a no-op via the fingerprint check in `applyOtelConfig`).
  */
-export async function initOtel(resolved: ResolvedObservabilityConfig): Promise<void> {
+export async function initOtel(
+  resolved: ResolvedObservabilityConfig,
+  processTier: OtelTier = 'api',
+): Promise<void> {
+  tier = processTier;
   await applyOtelConfig(resolved);
   if (!shouldRun(resolved)) {
     // Explain the no-op so an operator who set MAPLE_SIGNOZ_ENDPOINT but no
@@ -256,4 +302,43 @@ export async function applyOtelConfig(resolved: ResolvedObservabilityConfig): Pr
 export async function shutdownOtel(): Promise<void> {
   transition = transition.then(stopSdk, stopSdk);
   return transition;
+}
+
+/**
+ * Drain the exporters before the process exits, bounded by
+ * `FLUSH_BEFORE_EXIT_MS` so a slow or absent collector can never turn an
+ * exit into a hang. For the deaths a process can see coming — SIGTERM, an
+ * uncaught exception — this is what gets the last seconds of spans and
+ * logs out of the door (#2196). It cannot help with a native abort, which
+ * never runs another line of JS; see `TIER_EXPORT_CADENCE` for that case.
+ */
+export async function flushOtelBeforeExit(): Promise<void> {
+  await Promise.race([
+    shutdownOtel(),
+    new Promise<void>((resolve) => setTimeout(resolve, FLUSH_BEFORE_EXIT_MS)),
+  ]);
+}
+
+/**
+ * Route the two process deaths JS can still observe — an uncaught
+ * exception and an unhandled rejection — through a telemetry flush before
+ * exiting non-zero. Installing a handler suppresses the runtime's own
+ * stderr report, so the error is written there explicitly first: the
+ * parent folds this process's stderr tail into its structured crash log
+ * (#899), and that report must keep naming the cause.
+ */
+export function installOtelFatalFlush(): void {
+  let dying = false;
+  const die = (kind: string, err: unknown): void => {
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    process.stderr.write(`[${kind}] ${detail}\n`);
+    // A second fatal while the first flush is in flight changes nothing: the
+    // first one exits the process when its flush settles.
+    if (dying) return;
+    dying = true;
+    log.fatal({ err, kind }, 'process dying — flushing telemetry');
+    void flushOtelBeforeExit().finally(() => process.exit(1));
+  };
+  process.on('uncaughtException', (err) => die('uncaughtException', err));
+  process.on('unhandledRejection', (reason) => die('unhandledRejection', reason));
 }
