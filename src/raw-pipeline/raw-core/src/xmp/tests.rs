@@ -489,7 +489,7 @@ fn wb_provenance_sample_point_travels_only_with_a_sampled_source() {
 }
 
 #[test]
-fn wb_source_parses_every_variant_and_rejects_the_rest() {
+fn wb_source_parses_every_variant_and_survives_an_unknown_one() {
     for (wire, want) in [
         ("AsShot", WbSource::AsShot),
         ("Auto", WbSource::Auto),
@@ -501,6 +501,17 @@ fn wb_source_parses_every_variant_and_rejects_the_rest() {
         let m = parse(&wrap_papp(&format!(r#" papp:WbSource="{wire}""#))).unwrap();
         assert_eq!(m.wb_source, want, "{wire}");
     }
-    let err = parse(&wrap_papp(r#" papp:WbSource="Eyeballed""#)).unwrap_err();
-    assert!(err.to_string().contains("unknown WbSource"), "{err}");
+    // A source this build doesn't know is a caption it can't read, not a
+    // reason to throw the sidecar away: the adjustments alongside it must
+    // survive, and the label falls back to the default. Same rule as the
+    // Swift and TS parsers (review on #3309).
+    let m = parse(&wrap_papp(
+        r#" papp:WbSource="Eyeballed" crs:Exposure2012="1.25""#,
+    ))
+    .expect("an unknown provenance label must not fail the parse");
+    assert_eq!(m.wb_source, WbSource::AsShot);
+    assert_eq!(
+        m.exposure, 1.25,
+        "the adjustments survive the unknown label"
+    );
 }
