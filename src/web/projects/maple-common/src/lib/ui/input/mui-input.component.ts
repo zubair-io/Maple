@@ -50,6 +50,11 @@ export class MuiInputComponent {
   /** Forwarded to the native control's `autocomplete` attribute — e.g. `'off'`
    * for a secret field the browser shouldn't offer to save/autofill. */
   readonly autocomplete = input<string | null>(null);
+  /** Marks this field as the entry point of the surface that contains it.
+   * `mui-popover` moves focus here on open instead of onto its own panel
+   * (the Command Menu's search field), which is also what the native
+   * attribute means for a field present at page load. */
+  readonly autofocus = input<boolean>(false);
   /** Presence triggers the Error state; the string renders as helper text. */
   readonly error = input<string | null>(null);
   readonly ariaLabel = input<string | null>(null);

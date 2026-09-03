@@ -105,6 +105,9 @@ describe('editor parity manifest — placeholders and exceptions', () => {
 
   it('answers reachability queries for released and unknown capabilities', () => {
     expect(isReleasedOnWeb('tool.exposure')).toBe(true);
+    // #2450 shipped the scroll-wheel slider nudge on web; pin the manifest
+    // wiring so the capability can't quietly drop back to native-only.
+    expect(isReleasedOnWeb('input.slider-wheel-nudge')).toBe(true);
     expect(isReleasedOnWeb('canvas.deep-zoom-tiles')).toBe(false);
     expect(isReleasedOnWeb('nope')).toBe(false);
     expect(parityCapability('canvas.zoom')?.name).toContain('Zoom');

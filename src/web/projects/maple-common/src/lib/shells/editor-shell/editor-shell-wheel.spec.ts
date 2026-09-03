@@ -116,6 +116,31 @@ describe('onCanvasWheel', () => {
     expect(mocks.editorState.commit).toHaveBeenCalledTimes(5);
   });
 
+  it('drops the pixel remainder at a burst boundary so a new burst starts from zero', () => {
+    const { shell, mocks, value } = makeShell();
+    const state = newWheelNudgeState();
+    // Nine tenths of a detent — not enough to move anything.
+    onCanvasWheel(shell, state, wheel(-DETENT_PX * 0.9), 1000);
+    expect(value()).toBe(0);
+    // A different tool is a new burst: the 0.9 belonged to the old one, so
+    // half a detent against the new target must still not fire.
+    mocks.editorState.armedTool.set('contrast');
+    onCanvasWheel(shell, state, wheel(-DETENT_PX * 0.5), 1010);
+    expect(value()).toBe(0);
+    onCanvasWheel(shell, state, wheel(-DETENT_PX * 0.5), 1020);
+    expect(value()).toBe(1);
+  });
+
+  it('keeps accumulating across sub-detent events inside one burst', () => {
+    const { shell, mocks, value } = makeShell();
+    const state = newWheelNudgeState();
+    for (let i = 0; i < 4; i++) onCanvasWheel(shell, state, wheel(-DETENT_PX / 4), 1000 + i * 10);
+    expect(value()).toBe(1);
+    // Sub-detent events extend the burst rather than each looking like a new
+    // one, so the detent they add up to is still its first undo entry.
+    expect(mocks.editorState.commit).toHaveBeenCalledTimes(1);
+  });
+
   it('parks commit-on-release fields for the burst and flushes after the idle delay', () => {
     vi.useFakeTimers();
     try {

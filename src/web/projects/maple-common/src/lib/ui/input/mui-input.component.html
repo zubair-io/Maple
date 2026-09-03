@@ -19,6 +19,7 @@
       [disabled]="disabled()"
       [readOnly]="readOnly()"
       [attr.autocomplete]="autocomplete()"
+      [attr.autofocus]="autofocus() ? '' : null"
       [attr.aria-label]="ariaLabel()"
       [attr.aria-invalid]="error() ? 'true' : null"
       [attr.aria-describedby]="error() ? 'mui-input-error' : null"
