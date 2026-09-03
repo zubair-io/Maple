@@ -4,11 +4,14 @@
 //! # Input
 //!
 //! The probe buffer `compute_auto_adjustments` develops: scene-linear
-//! Rec.2020, `auto_exposure: Off`, white balance pinned to 6500 K / 0. On a
-//! calibrated body that pin is a camera-space target (`stages::wb_camera`),
-//! so a scene-neutral surface reads neutral only when the scene illuminant
-//! was D65 — the residual cast of the neutral population IS the illuminant
-//! estimate.
+//! Rec.2020, `auto_exposure: Off`, white balance pinned to 6500 K / 0. What
+//! that pin renders as depends on the tier: post-DCP CAT16 treats it as
+//! identity; on a calibrated body `wb_camera::resolve_target` reads a
+//! never-authored 6500 K / 0 (the `_seen` flags clear) as As Shot and an
+//! authored one as a literal 6500 K camera-space target. Either way the
+//! residual cast of the neutral population, measured against whatever the
+//! chain applied, IS the illuminant estimate — [`ProbeSpace`] resolves the
+//! same target through the same function and undoes the same gain.
 //!
 //! # What #2247 found, and how this module answers it
 //!
