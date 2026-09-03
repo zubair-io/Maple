@@ -1,0 +1,15 @@
+// mask-panel.component.scss — the mask layer list + per-layer controls
+// (#1541). Layout is Tailwind in the template; this only scopes the panel's
+// scrollable height so a long control stack never pushes the dock off-screen.
+
+:host {
+  display: block;
+  width: 300px;
+  max-height: min(560px, calc(100dvh - 120px));
+  overflow-y: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

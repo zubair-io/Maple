@@ -17,12 +17,14 @@ import type { EditorShellComponent } from './editor-shell.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 
 /** Tools whose control surface lives in (or replaces) the control card:
- *  Crop replaces it with the crop toolbar; the rest render inside it via
+ *  Crop replaces it with the crop toolbar, Mask with the mask panel; the
+ *  rest render inside it via
  *  content projection (`cardBodySubParam` / `cardBodyGrade` /
  *  `cardBodyFilm` / `cardBodyLens`). Arming any of them closes the open
  *  panel so the card is visible again. */
 const CARD_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>([
   'crop',
+  'mask',
   'hsl',
   'bwMix',
   'colorGrade',
@@ -47,15 +49,16 @@ export function armTool(shell: EditorShellComponent, tool: ToolId): void {
 }
 
 /** Toggle one panel, closing the other two. A no-op while an ARMED TOOL owns
- *  the anchor: Crop (its toolbar) and Noise (its sub-param panel, mounted
- *  while the Noise slider is armed) both render there, and neither is a
+ *  the anchor: Crop (its toolbar), Mask (its layer panel, #1541) and Noise
+ *  (its sub-param panel, mounted while the Noise slider is armed) all render
+ *  there, and none is a
  *  toggle this function could close — opening a panel over them would
  *  stack two cards in one slot. */
 function togglePanel(
   shell: EditorShellComponent,
   panel: 'curveOpen' | 'presetsOpen' | 'scopesOpen',
 ): void {
-  if (shell.cropArmed() || shell.noiseArmed()) return;
+  if (shell.cropArmed() || shell.maskArmed() || shell.noiseArmed()) return;
   const wasOpen = shell[panel]();
   closePanels(shell);
   shell[panel].set(!wasOpen);
