@@ -313,10 +313,17 @@ export async function shutdownOtel(): Promise<void> {
  * never runs another line of JS; see `TIER_EXPORT_CADENCE` for that case.
  */
 export async function flushOtelBeforeExit(): Promise<void> {
-  await Promise.race([
-    shutdownOtel(),
-    new Promise<void>((resolve) => setTimeout(resolve, FLUSH_BEFORE_EXIT_MS)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, FLUSH_BEFORE_EXIT_MS);
+  });
+  try {
+    await Promise.race([shutdownOtel(), deadline]);
+  } finally {
+    // A flush that finishes early must not leave the deadline timer holding
+    // the event loop open for the remainder of the bound.
+    if (timer !== null) clearTimeout(timer);
+  }
 }
 
 /**
