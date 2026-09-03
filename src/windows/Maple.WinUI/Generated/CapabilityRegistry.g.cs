@@ -52,7 +52,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw, CapabilityAssetClass.NonRaw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference, CapabilityPreviewPath.GpuLive, CapabilityPreviewPath.WasmCpu, CapabilityPreviewPath.WasmGpu },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi, CapabilityExportPath.Wasm, CapabilityExportPath.ApiFfi, CapabilityExportPath.WindowsDll },
-                new string[] { "temperature", "tint", "temperature_seen", "tint_seen", "wb_method", "wb_scale_version" },
+                new string[] { "temperature", "tint", "temperature_seen", "tint_seen", "wb_method", "wb_scale_version", "wb_source", "wb_sample_x", "wb_sample_y", "wb_algorithm_version" },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.SidecarContractApple, CapabilityEvidenceSource.SidecarContractApi, CapabilityEvidenceSource.GpuChainParityLavapipe },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.GreyAdjustments, CapabilityEvidenceSource.SyntheticGrey, CapabilityEvidenceSource.GreyDcp, CapabilityEvidenceSource.ColorChart, CapabilityEvidenceSource.ColorHarness, CapabilityEvidenceSource.GpuChainParityMetal, CapabilityEvidenceSource.AppleCanvasGolden },
                 CapabilityReleaseState.Core),
