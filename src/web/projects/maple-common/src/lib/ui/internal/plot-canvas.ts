@@ -4,7 +4,7 @@
 // (see ../public-api.ts) — these are implementation details the plots share,
 // not a component contract of their own.
 
-import { Directive, type ElementRef, effect, input, viewChild } from '@angular/core';
+import { Directive, type ElementRef, afterRenderEffect, input, viewChild } from '@angular/core';
 
 /** Resolves a `var(--token)` reference against the element's computed
  * style; passes any other string (already a literal color) through as-is. */
@@ -40,15 +40,23 @@ export function beginPlotDraw(
   return { canvasEl, ctx };
 }
 
-/** Registers a signal `effect()` that reads each of `deps` (establishing
- * them as dependencies) and then calls `draw` — the shared "redraw whenever
- * any input/size/color signal changes" constructor wiring every plot
- * molecule's `draw()`-on-`effect()` pattern otherwise repeats verbatim
- * (connection-graph, curve-plot, heatmap-layer, histogram, parade,
- * waveform). Must be called synchronously from a constructor (or another
- * injection context), same as a direct `effect()` call. */
+/** Registers a render-phase effect (`afterRenderEffect`) that reads each of
+ * `deps` (establishing them as dependencies) and then calls `draw` — the
+ * shared "redraw whenever any input/size/color signal changes" constructor
+ * wiring every plot molecule's `draw()`-on-effect pattern otherwise repeats
+ * verbatim (connection-graph, curve-plot, heatmap-layer, histogram, parade,
+ * waveform, vectorscope). Must be called synchronously from a constructor
+ * (or another injection context).
+ *
+ * `afterRenderEffect`, not `effect()` (#2449): a plain effect runs BEFORE
+ * the component's template bindings are applied, so a plot mounted with
+ * its sample already present (a re-opened scopes panel) painted onto the
+ * canvas first and then had its bitmap wiped when the `[attr.width]` /
+ * `[attr.height]` bindings landed — the first mount only looked right
+ * because the live frame arrived later and re-triggered the draw. Drawing
+ * after render puts the paint after the size bindings on every mount. */
 export function watchAndDraw(deps: readonly (() => unknown)[], draw: () => void): void {
-  effect(() => {
+  afterRenderEffect(() => {
     deps.forEach((dep) => dep());
     draw();
   });

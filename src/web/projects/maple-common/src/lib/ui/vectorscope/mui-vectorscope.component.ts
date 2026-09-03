@@ -5,15 +5,8 @@
 // token; dots use the accent token — both resolved from `--color-*` via
 // `getComputedStyle` at draw time (see mui-waveform's `resolveColor`).
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  effect,
-  input,
-  viewChild,
-} from '@angular/core';
-import { beginPlotDraw, resolveColor } from '../internal/plot-canvas';
+import { ChangeDetectionStrategy, Component, ElementRef, input, viewChild } from '@angular/core';
+import { beginPlotDraw, resolveColor, watchAndDraw } from '../internal/plot-canvas';
 
 export interface MuiVectorscopeSample {
   readonly r: number;
@@ -37,12 +30,7 @@ export class MuiVectorscopeComponent {
   readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
 
   constructor() {
-    effect(() => {
-      this.samples();
-      this.size();
-      this.dotColor();
-      this.draw();
-    });
+    watchAndDraw([this.samples, this.size, this.dotColor], () => this.draw());
   }
 
   private draw(): void {
