@@ -165,6 +165,20 @@ static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new
 /// after the UCM alias table lands; test_0004 / Hasselblad H5D-40 is
 /// the only color-renderable miss — see [`ucm_mapping`] +
 /// `profiles/COVERAGE.md`).
+/// The bundle's binary format version and a blake3 digest of its bytes.
+///
+/// The support-tier registry (#2440) stamps this into every generated
+/// output, so an entry says which profile data it was computed against —
+/// regenerating `profiles.bin` changes the digest, changes the generated
+/// registry, and the `codegen-drift` gate then requires the new one to be
+/// committed alongside the new bundle.
+pub fn bundled_profile_version() -> (u16, String) {
+    (
+        FORMAT_VERSION,
+        format!("blake3:{}", blake3::hash(PROFILES_BIN).to_hex()),
+    )
+}
+
 /// Every `UniqueCameraModel` the bundle carries a profile for, sorted.
 ///
 /// The support-tier registry (`crate::support_tiers`, #2440) reads this to
