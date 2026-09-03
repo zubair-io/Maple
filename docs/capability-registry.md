@@ -289,7 +289,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `xctest-macos`
 - Expected cases: 12
 - Corpus: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift`
-- Record: satisfied — 12 of 12 executed, 0 failed, 0 skipped, on `xctest-macos`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T04:10:26Z
+- Record: satisfied — 12 of 12 executed, 0 failed, 0 skipped, on `xctest-macos`, pipeline v2, schema v5, commit `8c5383fec833882e07e43e91ae2413195601c6f8`, recorded 2026-09-03T20:50:05Z
 
 ### `sidecar_contract_api`
 
@@ -298,7 +298,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `bun`
 - Expected cases: 3
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`
-- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T04:01:14Z
+- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v2, schema v5, commit `8c5383fec833882e07e43e91ae2413195601c6f8`, recorded 2026-09-03T20:49:12Z
 
 ### `gpu_chain_parity_lavapipe`
 
