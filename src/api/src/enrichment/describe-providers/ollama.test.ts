@@ -219,6 +219,20 @@ describe('OllamaProvider.describe — failure modes', () => {
     );
   });
 
+  it('caps a runaway error body at 240 characters including the ellipsis', async () => {
+    const { fetchImpl } = mockFetch([{ status: 500, body: { error: 'x'.repeat(1_000) } }]);
+    const provider = new OllamaProvider({ baseUrl: 'http://ollama.test', fetchImpl });
+    let caught: RemoteError | null = null;
+    try {
+      await provider.describe([Buffer.alloc(4)], { systemPrompt: 'p', model: 'llava:latest' });
+    } catch (e) {
+      caught = e as RemoteError;
+    }
+    const detail = caught!.message.replace('Ollama 5xx: 500 — ', '');
+    expect(detail.length).toBe(240);
+    expect(detail.endsWith('…')).toBe(true);
+  });
+
   it('keeps the plain status message when the error body is not the Ollama envelope', async () => {
     const { fetchImpl } = mockFetch([{ status: 502, body: { unexpected: true } }]);
     const provider = new OllamaProvider({ baseUrl: 'http://ollama.test', fetchImpl });
