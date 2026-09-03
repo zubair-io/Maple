@@ -4,6 +4,10 @@ import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-f
 import { DC_NAMESPACE } from './xmp-culling';
 import { METADATA_ATTR_KEYS, METADATA_NAMESPACES, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
 import { parseToneCurveElement, toneCurveElementKey } from './xmp-tone-curves';
+import {
+  localAdjustmentContainerKind,
+  parseLocalAdjustmentsContainer,
+} from './xmp-local-adjustments';
 import { CRS_NAMESPACE, managedXmpName, RDF_NAMESPACE, XMP_NAMESPACE } from './xmp-dom-utils';
 
 /** Attributes fully owned by Maple and therefore excluded from passthrough. */
@@ -132,7 +136,8 @@ const withoutModeledFields = (source: Element): Element => {
   }
   const clonedChildren = Array.from(clone.children);
   Array.from(source.children).forEach((child, index) => {
-    if (toneCurveElementKey(child) || isManagedChild(child)) clonedChildren[index]?.remove();
+    if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
+      clonedChildren[index]?.remove();
   });
   return clone;
 };
@@ -196,6 +201,17 @@ export function collectXmpPassthrough(
     const curveKey = toneCurveElementKey(child);
     if (curveKey) {
       model[curveKey] = parseToneCurveElement(child);
+      continue;
+    }
+    // Local adjustments (#358): both containers are modeled, so they hydrate
+    // the model — in document order, linear and radial alike — and never
+    // reach the passthrough bucket, or the writer would emit them twice.
+    const containerKind = localAdjustmentContainerKind(child);
+    if (containerKind) {
+      model.localAdjustments = [
+        ...(model.localAdjustments ?? []),
+        ...parseLocalAdjustmentsContainer(child, containerKind),
+      ];
       continue;
     }
     if (isManagedChild(child)) continue;

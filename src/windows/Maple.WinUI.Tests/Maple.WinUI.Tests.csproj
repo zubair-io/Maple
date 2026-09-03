@@ -219,6 +219,7 @@
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
     <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
+    <Compile Include="..\Maple.WinUI\Models\LocalAdjustment.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
