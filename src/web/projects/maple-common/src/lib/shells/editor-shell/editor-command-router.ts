@@ -26,7 +26,12 @@
 
 import type { EditorShellComponent } from './editor-shell.component';
 import { type ToolGroup, type ToolId, groupOf, visibleToolsInGroup } from '../../editor/tool-model';
-import { type EditorIntent, commandForKey, isValueWidgetChord } from './editor-commands';
+import {
+  type EditorIntent,
+  commandForKey,
+  isValueWidgetChord,
+  EDITOR_COMMANDS,
+} from './editor-commands';
 
 /** A tap shorter than this on the before/after control toggles the latched
  *  split; a longer hold is a momentary peek that ends on release. */
@@ -37,10 +42,12 @@ export const COMPARE_HOLD_MS = 300;
 export interface CommandRouterState {
   /** `performance.now()` of the current before/after press, or null. */
   comparePressedAt: number | null;
+  /** Asset the command menu was opened on, while it is open. */
+  menuAssetId: string | null;
 }
 
 export function newCommandRouterState(): CommandRouterState {
-  return { comparePressedAt: null };
+  return { comparePressedAt: null, menuAssetId: null };
 }
 
 export type FocusContext = 'text' | 'value-widget' | 'menu' | 'none';
@@ -99,6 +106,92 @@ function gestureInFlight(shell: EditorShellComponent): boolean {
   return shell.scrubbing() || shell.editorState.gestureActive();
 }
 
+type Handler<K extends EditorIntent['kind']> = (
+  shell: EditorShellComponent,
+  router: CommandRouterState,
+  intent: Extract<EditorIntent, { kind: K }>,
+) => boolean;
+
+const navigate = (shell: EditorShellComponent, direction: 'prev' | 'next'): boolean => {
+  const fid = shell.state.focusedAssetId();
+  if (!fid || gestureInFlight(shell)) return false;
+  const target = direction === 'prev' ? shell.state.peekPrev(fid) : shell.state.peekNext(fid);
+  if (target) shell.navigateToAsset(target);
+  return target !== null;
+};
+
+const withAsset = (shell: EditorShellComponent, act: (fid: string) => void): boolean => {
+  const fid = shell.state.focusedAssetId();
+  if (!fid) return false;
+  act(fid);
+  return true;
+};
+
+/** One handler per intent kind — each a few lines, so the table reads as
+ *  the contract and no single function carries the whole switch. */
+const HANDLERS: { [K in EditorIntent['kind']]: Handler<K> } = {
+  'nav.back': (shell) => (shell.goBack(), true),
+  'nav.prev': (shell) => navigate(shell, 'prev'),
+  'nav.next': (shell) => navigate(shell, 'next'),
+  'sidecar.flush': (shell) => (void shell.state.flushPendingXmpWrites(), true),
+  'history.undo': (shell) => (shell.editorState.undo(), true),
+  'history.redo': (shell) => (shell.editorState.redo(), true),
+  'clipboard.copy': (shell) => {
+    const id = shell.editorState.imageId();
+    const model = shell.editorState.currentAdjustment();
+    if (id == null || model == null) return false;
+    shell.clipboard.copyFrom(id, shell.assetName(), model);
+    return true;
+  },
+  'tool.cycle': (shell, _r, intent) => (cycleTool(shell, intent.direction, intent.byGroup), true),
+  'tool.group': (shell, _r, intent) => (shell.onGroupChange(intent.group), true),
+  'value.nudge': (shell, _r, intent) => {
+    if (!shell.editorState.armedToolAcceptsValueEdits()) return false;
+    const cur = shell.editorState.armedInternalValue();
+    shell.editorState.commit();
+    shell.editorState.setArmedInternalValue(
+      Math.min(100, Math.max(-100, cur + intent.direction * 10)),
+    );
+    return true;
+  },
+  'value.reset-group': (shell) => (shell.controlCard?.resetGroup(), true),
+  'asset.rating': (shell, _r, intent) =>
+    withAsset(shell, (fid) => shell.state.setRating(fid, intent.rating)),
+  'asset.flag': (shell, _r, intent) =>
+    withAsset(shell, (fid) => {
+      const current = shell.state.focusedAsset()?.flag;
+      const flag =
+        current === intent.flag && intent.flag !== 'unflagged' ? 'unflagged' : intent.flag;
+      shell.state.setFlag(fid, flag);
+    }),
+  'compare.press': (shell, router) => {
+    if (router.comparePressedAt !== null) return false;
+    router.comparePressedAt = performance.now();
+    shell.canvasSvc.beginPeekBefore();
+    return true;
+  },
+  'compare.release': (shell, router) => {
+    if (router.comparePressedAt === null) return false;
+    const held = performance.now() - router.comparePressedAt;
+    router.comparePressedAt = null;
+    shell.canvasSvc.endPeekBefore();
+    if (held < COMPARE_HOLD_MS) shell.canvasSvc.toggleBeforeAfter();
+    return true;
+  },
+  'zoom.fit': (shell) => (shell.canvasSvc.zoomToFit(), true),
+  'zoom.100': (shell) => (shell.canvasSvc.zoomTo100(), true),
+  'zoom.step': (shell, _r, intent) => (shell.canvasSvc.requestStepZoom(intent.direction), true),
+  'chrome.sidebar': (shell) => (shell.state.toggleSidebar(), true),
+  'chrome.inspector': (shell) => (shell.state.toggleInspector(), true),
+  'panel.scopes': (shell) => (shell.onScopesPanelToggle(), true),
+  'commands.menu': (shell, router) => {
+    const open = !shell.commandMenuOpen();
+    router.menuAssetId = open ? shell.state.focusedAssetId() : null;
+    shell.commandMenuOpen.set(open);
+    return true;
+  },
+};
+
 /**
  * Execute a bound intent. Returns `false` when the router refused it — the
  * asset changed since it was resolved, or a gesture owns the editor.
@@ -109,103 +202,38 @@ export function executeIntent(
   bound: BoundIntent,
 ): boolean {
   const { intent } = bound;
-  const stale = bound.assetId !== shell.state.focusedAssetId();
-  // Asset-bound intents must land on the asset they were resolved for.
-  if (stale && intent.kind !== 'nav.back' && intent.kind !== 'commands.menu') return false;
-  const fid = shell.state.focusedAssetId();
+  const assetBound = intent.kind !== 'nav.back' && intent.kind !== 'commands.menu';
+  if (assetBound && bound.assetId !== shell.state.focusedAssetId()) return false;
+  return (HANDLERS[intent.kind] as Handler<typeof intent.kind>)(shell, router, intent);
+}
 
-  switch (intent.kind) {
-    case 'nav.back':
-      shell.goBack();
-      return true;
-    case 'nav.prev':
-    case 'nav.next': {
-      if (!fid || gestureInFlight(shell)) return false;
-      const target =
-        intent.kind === 'nav.prev' ? shell.state.peekPrev(fid) : shell.state.peekNext(fid);
-      if (target) shell.navigateToAsset(target);
-      return target !== null;
-    }
-    case 'sidecar.flush':
-      void shell.state.flushPendingXmpWrites();
-      return true;
-    case 'history.undo':
-      shell.editorState.undo();
-      return true;
-    case 'history.redo':
-      shell.editorState.redo();
-      return true;
-    case 'clipboard.copy': {
-      const id = shell.editorState.imageId();
-      const model = shell.editorState.currentAdjustment();
-      if (id == null || model == null) return false;
-      shell.clipboard.copyFrom(id, shell.assetName(), model);
-      return true;
-    }
-    case 'tool.cycle':
-      cycleTool(shell, intent.direction, intent.byGroup);
-      return true;
-    case 'tool.group':
-      shell.onGroupChange(intent.group);
-      return true;
-    case 'value.nudge': {
-      if (!shell.editorState.armedToolAcceptsValueEdits()) return false;
-      const cur = shell.editorState.armedInternalValue();
-      const next = Math.min(100, Math.max(-100, cur + intent.direction * 10));
-      shell.editorState.commit();
-      shell.editorState.setArmedInternalValue(next);
-      return true;
-    }
-    case 'value.reset-group':
-      shell.controlCard?.resetGroup();
-      return true;
-    case 'asset.rating':
-      if (!fid) return false;
-      shell.state.setRating(fid, intent.rating);
-      return true;
-    case 'asset.flag': {
-      if (!fid) return false;
-      const asset = shell.state.focusedAsset();
-      const flag =
-        asset?.flag === intent.flag && intent.flag !== 'unflagged' ? 'unflagged' : intent.flag;
-      shell.state.setFlag(fid, flag);
-      return true;
-    }
-    case 'compare.press':
-      if (router.comparePressedAt !== null) return false;
-      router.comparePressedAt = performance.now();
-      shell.canvasSvc.beginPeekBefore();
-      return true;
-    case 'compare.release': {
-      if (router.comparePressedAt === null) return false;
-      const held = performance.now() - router.comparePressedAt;
-      router.comparePressedAt = null;
-      shell.canvasSvc.endPeekBefore();
-      if (held < COMPARE_HOLD_MS) shell.canvasSvc.toggleBeforeAfter();
-      return true;
-    }
-    case 'zoom.fit':
-      shell.canvasSvc.zoomToFit();
-      return true;
-    case 'zoom.100':
-      shell.canvasSvc.zoomTo100();
-      return true;
-    case 'zoom.step':
-      shell.canvasSvc.requestStepZoom(intent.direction);
-      return true;
-    case 'chrome.sidebar':
-      shell.state.toggleSidebar();
-      return true;
-    case 'chrome.inspector':
-      shell.state.toggleInspector();
-      return true;
-    case 'panel.scopes':
-      shell.onScopesPanelToggle();
-      return true;
-    case 'commands.menu':
-      shell.commandMenuOpen.update((open) => !open);
-      return true;
-  }
+/** The command menu picked `id`: run it for the asset the menu was opened
+ *  on — a pick after a filmstrip switch is a stale command and is refused. */
+export function selectMenuCommand(
+  shell: EditorShellComponent,
+  router: CommandRouterState,
+  id: string,
+): boolean {
+  const command = EDITOR_COMMANDS.find((c) => c.id === id);
+  const assetId = router.menuAssetId;
+  shell.commandMenuOpen.set(false);
+  router.menuAssetId = null;
+  return command ? executeIntent(shell, router, { intent: command.intent, assetId }) : false;
+}
+
+/** The before/after button's press: capture the pointer so a drag-off
+ *  release still lands here, then the same press intent the keys use. */
+export function comparePointerDown(
+  shell: EditorShellComponent,
+  router: CommandRouterState,
+  e: PointerEvent,
+): void {
+  (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
+  executeIntent(shell, router, bind(shell, { kind: 'compare.press' }));
+}
+
+export function comparePointerUp(shell: EditorShellComponent, router: CommandRouterState): void {
+  executeIntent(shell, router, bind(shell, { kind: 'compare.release' }));
 }
 
 /** Cycle the armed tool within its group; `byGroup` cycles the group. */
