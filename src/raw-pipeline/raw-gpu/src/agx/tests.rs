@@ -47,6 +47,15 @@ fn agx_buffer() -> Vec<f32> {
             buf.extend_from_slice(&[base[0] * scale, base[1] * scale, base[2] * scale, 1.0]);
         }
     }
+    // #1624 path-to-white: bright saturated colours whose sigmoided max lands
+    // above the knee (partial weight) and at the shoulder (full weight), so
+    // the lerp — and its `pow` — is parity-checked rather than only the
+    // below-knee identity branch the rows above exercise.
+    for base in hues {
+        for scale in [12.0f32, 40.0, 150.0] {
+            buf.extend_from_slice(&[base[0] * scale, base[1] * scale, base[2] * scale, 1.0]);
+        }
+    }
     buf
 }
 

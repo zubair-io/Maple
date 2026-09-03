@@ -58,6 +58,17 @@ pub const AGX_SHOULDER_POWER: f32 = 3.25;
 /// Size of the per-channel sigmoid LUT embedded in agx_lut.bin.
 pub const AGX_LUT_SIZE: usize = 512;
 
+/// Highlight path-to-white (#1624), applied in AgX-Base space between
+/// the ratio-preserving sigmoid and the outset matrix. With
+/// `sn = max(R, G, B)` of the sigmoided pixel (display-linear):
+/// `w = AMOUNT * clamp((sn - KNEE) / (1 - KNEE), 0, 1)^POWER` and
+/// `rgb += w * (sn - rgb)`. Identity below the knee; chroma → 0 as the
+/// pixel approaches display white. Tuned on the ACR harness — see the
+/// generator's frozen block for the sweep.
+pub const AGX_P2W_AMOUNT: f32 = 1.0;
+pub const AGX_P2W_KNEE: f32 = 0.7;
+pub const AGX_P2W_POWER: f32 = 2.0;
+
 /// Inset matrix: scene-linear Rec.2020 → AgX-Base-Rec.2020. The AgX-Base primaries are constructed by pushing each Rec.2020 primary AWAY from D65 by scale 1/(1-0.20) = 1.25 along the (primary - white) chromaticity ray (the gamut triangle widens by 25%); the resulting Rec.2020 -> AgX-Base RGB->RGB transform is per-channel desaturating on saturated inputs, which is the AgX inset behaviour. Computed by `src/scripts/derive_agx_lut.py::derive_inset_outset()`; construction mirrors `AgX_compressed_matrix(compression=0.20)` in https://github.com/sobotka/AgX-S2O3/blob/main/AgX.py L17-50. Row sums are 1.0 (numerically), so neutral triples pass through the inset unchanged — load-bearing for mid-gray preservation.
 #[rustfmt::skip]
 pub const AGX_INSET_MATRIX: [[f32; 3]; 3] = [
@@ -78,4 +89,4 @@ pub const AGX_OUTSET_MATRIX: [[f32; 3]; 3] = [
 /// (due to coefficient edits or LUT recompute), bump this. It is
 /// propagated into RenderedPreviewCache's viewTransformVersion
 /// so every cached preview re-renders on the next cold open.
-pub const AGX_VERSION: u32 = 8;
+pub const AGX_VERSION: u32 = 9;
