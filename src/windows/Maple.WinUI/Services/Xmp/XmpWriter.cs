@@ -231,10 +231,11 @@ namespace Maple.WinUI.Services.Xmp
         }
 
         /// <summary>
-        /// One `papp:SceneLinearToneCurve*` block (#365), or null for an
-        /// identity (empty) curve — "identity is silence". Coordinates are
-        /// stored on the Windows model in the wire domain `[0, 255]`
-        /// already, so they go straight through the number codec.
+        /// One `papp:SceneLinearToneCurve*` / `crs:ToneCurvePV2012*` block
+        /// (#365, #2232), or null for an identity (empty) curve — "identity
+        /// is silence". Coordinates live on the model in `[0, 1]` and are
+        /// rescaled into the `[0, 255]` wire domain here, then go through
+        /// the canonical number codec (raw-core `tone_curves.rs::fmt_coord`).
         /// </summary>
         private static string? ToneCurveBlock(string tag, List<CurvePoint> points)
         {
@@ -245,13 +246,17 @@ namespace Maple.WinUI.Services.Xmp
                     $"{ChildIndent}  <rdf:Seq>",
                 }
                 .Concat(points.Select(p =>
-                    $"{ChildIndent}    <rdf:li>{XmpSchema.FormatNumber(p.X)}, {XmpSchema.FormatNumber(p.Y)}</rdf:li>"))
+                    $"{ChildIndent}    <rdf:li>{WireCoord(p.X)}, {WireCoord(p.Y)}</rdf:li>"))
                 .Concat(new[]
                 {
                     $"{ChildIndent}  </rdf:Seq>",
                     $"{ChildIndent}</{tag}>",
                 }));
         }
+
+        /// <summary>Model coordinate `[0, 1]` → wire text in `[0, 255]`.</summary>
+        private static string WireCoord(double v) =>
+            XmpSchema.FormatNumber(v * XmpSchema.CurveWireScale);
 
         // ── Document assembly ───────────────────────────────────────────────
 

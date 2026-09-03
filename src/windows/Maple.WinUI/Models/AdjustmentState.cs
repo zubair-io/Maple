@@ -9,7 +9,13 @@ namespace Maple.WinUI.Models
     public enum ToneCurveMode { PerChannel, RatioPreserving }
     public enum ToggleMode { Off, On }
 
-    /// <summary>One point of a tone curve; sidecar storage is linear (x, y) in [0, 255].</summary>
+    /// <summary>One control point of a point tone curve, (x, y) in
+    /// [0, 1] × [0, 1] — the same model domain raw-core's `ToneCurve`,
+    /// Swift's `ToneCurvePoint` and the TypeScript model use, and the domain
+    /// the raw-ffi curve entries (`MapleToneCurves`, `MapleGpuLiveParams`)
+    /// consume. The sidecar wire form is PV2012's [0, 255]; the ×255 rescale
+    /// happens ONLY at the XMP boundary (`XmpSchema.CurveWireScale`), never
+    /// on the model (#3234).</summary>
     public readonly record struct CurvePoint(double X, double Y);
 
     /// <summary>Crop rect + straighten angle (#2582), mirroring raw-core's
