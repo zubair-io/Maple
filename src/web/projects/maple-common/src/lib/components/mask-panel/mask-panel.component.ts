@@ -24,7 +24,7 @@ import type { LocalAdjustment, LocalMask, PartialAdjustments } from '../../model
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
 
 /** One of the ten local controls, with the range its global twin uses. */
-export interface MaskControl {
+interface MaskControl {
   id: keyof PartialAdjustments;
   label: string;
   min: number;
@@ -32,7 +32,7 @@ export interface MaskControl {
   step: number;
 }
 
-export const MASK_CONTROLS: readonly MaskControl[] = [
+const MASK_CONTROLS: readonly MaskControl[] = [
   { id: 'exposure', label: 'Exposure', min: -4, max: 4, step: 0.05 },
   { id: 'contrast', label: 'Contrast', min: -100, max: 100, step: 1 },
   { id: 'highlights', label: 'Highlights', min: -100, max: 100, step: 1 },
@@ -48,11 +48,11 @@ export const MASK_CONTROLS: readonly MaskControl[] = [
   { id: 'tint', label: 'Tint', min: -150, max: 150, step: 1 },
 ];
 
-export function maskLayerTitle(mask: LocalMask, index: number): string {
+function maskLayerTitle(mask: LocalMask, index: number): string {
   return `${mask.kind === 'linear' ? 'Linear' : 'Radial'} ${index + 1}`;
 }
 
-export function maskLayerSubtitle(layer: LocalAdjustment): string | null {
+function maskLayerSubtitle(layer: LocalAdjustment): string | null {
   const edited = MASK_CONTROLS.filter((c) => layer.adjustments[c.id] !== undefined).length;
   const parts = [
     layer.mask.kind === 'radial' && layer.mask.invert ? 'inverted' : null,
