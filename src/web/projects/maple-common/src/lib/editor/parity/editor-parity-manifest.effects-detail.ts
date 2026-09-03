@@ -211,6 +211,44 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     },
   }),
   panelTool({
+    id: 'mask',
+    name: 'Mask',
+    group: 'detail',
+    order: 65,
+    // Local adjustments are outside the copy/paste field groups
+    // (`NON_COPYABLE_FIELDS` in raw-core's schema).
+    copyPaste: null,
+    preview: 'live',
+    presentation: {
+      compact:
+        'Mask dock entry arms the tool: canvas overlay (selected layer handles + weight tint) + mask panel (layer list, add linear/radial, feather, invert, ten local sliders) above the bottom dock',
+      regular: 'Mask dock entry arms the tool: canvas overlay + 300px mask panel beside the dock',
+      wide: 'Same as regular',
+    },
+    interaction: {
+      keyboard:
+        'Layer rows and add/delete/reset via Tab + Enter; the feather and local sliders take arrow keys',
+      pointer: 'Drag a gradient endpoint / body, or an ellipse center / radius / rotation pin',
+      touch: 'Same drags; sliders take long-press fine mode',
+      focus:
+        'The overlay owns the canvas pointer stream while armed; the drag bar refuses value edits',
+    },
+    accessibility: {
+      role: 'group (overlay, one img per handle) + list (layers, button rows) + slider (feather + ten controls) + checkbox (invert)',
+      name: 'Mask overlay; Mask handle: <handle>; Linear N / Radial N; Feather; Invert; the ten local control names',
+      value: 'aria-valuenow per slider; aria-current on the selected layer row',
+      state: 'one undo entry per drag; add / remove / invert / reset commit their own',
+      actions: [
+        'add a linear or radial mask',
+        'select / delete a layer',
+        'drag a handle',
+        'adjust a local control',
+        'reset the layer',
+      ],
+    },
+    featuresRow: 'Local adjustments (linear + radial masks)',
+  }),
+  panelTool({
     id: 'crop',
     name: 'Crop',
     group: 'detail',
