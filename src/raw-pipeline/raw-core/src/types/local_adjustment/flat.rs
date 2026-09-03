@@ -7,10 +7,10 @@
 //!   chain), following the same append-only convention every other
 //!   variable-length field on those structs uses, and
 //! * the **GPU storage buffer** — `raw-gpu`'s `local_adjustments.wgsl` binds
-//!   this exact array as `array<Layer>`, where `Layer` is six `vec4<f32>`
-//!   members. That is why the stride is 24 floats (96 bytes) with explicit
-//!   padding slots rather than a tight 22: WGSL gives a `vec4<f32>` a 16-byte
-//!   alignment, so a struct of six of them has no interior padding only at
+//!   this exact array as `array<Layer>`, where `Layer` is eight `vec4<f32>`
+//!   members. That is why the stride is 32 floats (128 bytes) with explicit
+//!   padding slots rather than a tight 31: WGSL gives a `vec4<f32>` a 16-byte
+//!   alignment, so a struct of eight of them has no interior padding only at
 //!   this stride.
 //!
 //! ## Slot map (per layer, [`LAYER_FLAT_LEN`] floats)
@@ -29,6 +29,9 @@
 //! 20..22  temperature, tint
 //! 22     hue        Oklab hue rotation (#3269), presence bit 10
 //! 23     (padding, written as 0)
+//! 24     range_kind RANGE_KIND_NONE (0) | RANGE_KIND_COLOR (1) — #3270
+//! 25..31  hue_deg, hue_half_width_deg, chroma_min, l_min, l_max, feather
+//! 31     (padding, written as 0)
 //! ```
 //!
 //! ## Why a presence bitmask rather than a sentinel value
@@ -48,15 +51,20 @@
 //! `f32` represents every integer below 2²⁴ exactly, so the round trip through
 //! the float slot is lossless.
 
-use super::{LocalAdjustment, Mask, PartialAdjustments, Point2};
+use super::{LocalAdjustment, Mask, PartialAdjustments, Point2, RangeRefinement};
 
-/// Floats per serialized layer. Six WGSL `vec4<f32>` members = 96 bytes.
-pub const LAYER_FLAT_LEN: usize = 24;
+/// Floats per serialized layer. Eight WGSL `vec4<f32>` members = 128 bytes.
+pub const LAYER_FLAT_LEN: usize = 32;
 
 /// `kind` slot value for [`Mask::Linear`].
 pub const KIND_LINEAR: f32 = 0.0;
 /// `kind` slot value for [`Mask::Radial`].
 pub const KIND_RADIAL: f32 = 1.0;
+
+/// `range_kind` slot value for "no range refinement."
+pub const RANGE_KIND_NONE: f32 = 0.0;
+/// `range_kind` slot value for [`RangeRefinement::Color`].
+pub const RANGE_KIND_COLOR: f32 = 1.0;
 
 /// Presence bits, in the field order the `adj*` slots use. Bit `i` set means
 /// slot `12 + i` carries a real value; clear means the control is `None` and
@@ -80,8 +88,46 @@ pub fn layers_to_flat(layers: &[LocalAdjustment]) -> Vec<f32> {
     for (layer, slot) in layers.iter().zip(out.chunks_exact_mut(LAYER_FLAT_LEN)) {
         write_mask(&layer.mask, slot);
         write_adjustments(&layer.adjustments, slot);
+        write_range(layer.range, slot);
     }
     out
+}
+
+fn write_range(range: Option<RangeRefinement>, slot: &mut [f32]) {
+    match range {
+        None => slot[24] = RANGE_KIND_NONE,
+        Some(RangeRefinement::Color {
+            hue_deg,
+            hue_half_width_deg,
+            chroma_min,
+            l_min,
+            l_max,
+            feather,
+        }) => {
+            slot[24] = RANGE_KIND_COLOR;
+            slot[25] = hue_deg;
+            slot[26] = hue_half_width_deg;
+            slot[27] = chroma_min;
+            slot[28] = l_min;
+            slot[29] = l_max;
+            slot[30] = feather;
+        }
+    }
+}
+
+fn read_range(slot: &[f32]) -> Option<RangeRefinement> {
+    if slot[24] == RANGE_KIND_COLOR {
+        Some(RangeRefinement::Color {
+            hue_deg: slot[25],
+            hue_half_width_deg: slot[26],
+            chroma_min: slot[27],
+            l_min: slot[28],
+            l_max: slot[29],
+            feather: slot[30],
+        })
+    } else {
+        None
+    }
 }
 
 fn write_mask(mask: &Mask, slot: &mut [f32]) {
@@ -154,6 +200,7 @@ pub fn layers_from_flat(flat: &[f32]) -> Vec<LocalAdjustment> {
     flat.chunks_exact(LAYER_FLAT_LEN)
         .map(|slot| LocalAdjustment {
             mask: read_mask(slot),
+            range: read_range(slot),
             adjustments: read_adjustments(slot),
         })
         .collect()
@@ -252,6 +299,7 @@ mod tests {
                 end: Point2::new(0.875, 0.75),
                 feather: 0.375,
             },
+            range: None,
             adjustments: all_controls(),
         }];
         let flat = layers_to_flat(&layers);
@@ -269,6 +317,7 @@ mod tests {
                 feather: 0.5,
                 invert: true,
             },
+            range: None,
             adjustments: all_controls(),
         }];
         let flat = layers_to_flat(&layers);
@@ -287,6 +336,7 @@ mod tests {
                 end: Point2::new(1.0, 1.0),
                 feather: 0.5,
             },
+            range: None,
             adjustments: sparse,
         }];
         let back = layers_from_flat(&layers_to_flat(&layers));
@@ -304,6 +354,7 @@ mod tests {
                 end: Point2::new(1.0, 0.5),
                 feather: 0.0,
             },
+            range: None,
             adjustments: all_controls(),
         }];
         let flat = layers_to_flat(&layers);
@@ -354,5 +405,42 @@ mod tests {
         let mut flat = layers_to_flat(&layers);
         flat.extend_from_slice(&[0.0; 5]);
         assert_eq!(layers_from_flat(&flat).len(), 1);
+    }
+
+    #[test]
+    fn record_is_32_floats_and_range_rides_slots_24_to_30() {
+        let mut layer = LocalAdjustment::linear(
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            PartialAdjustments {
+                exposure: Some(0.5),
+                ..Default::default()
+            },
+        );
+        layer.range = Some(RangeRefinement::Color {
+            hue_deg: 55.0,
+            hue_half_width_deg: 25.0,
+            chroma_min: 0.02,
+            l_min: 0.15,
+            l_max: 0.95,
+            feather: 0.3,
+        });
+        let flat = layers_to_flat(&[layer.clone()]);
+        assert_eq!(LAYER_FLAT_LEN, 32);
+        assert_eq!(flat.len(), 32);
+        assert_eq!(&flat[24..31], &[1.0, 55.0, 25.0, 0.02, 0.15, 0.95, 0.3]);
+        assert_eq!(layers_from_flat(&flat), vec![layer]);
+    }
+
+    #[test]
+    fn absent_range_reads_back_as_none() {
+        let layer = LocalAdjustment::linear(
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            PartialAdjustments::default(),
+        );
+        let flat = layers_to_flat(&[layer]);
+        assert_eq!(flat[24], RANGE_KIND_NONE);
+        assert_eq!(layers_from_flat(&flat)[0].range, None);
     }
 }
