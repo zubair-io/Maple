@@ -291,17 +291,23 @@ pub(super) fn set_field(
         // changes sign vs the legacy diagonal-gain path, but #431 is
         // the documented switchover; users who need the old behaviour
         // opt in via `papp:WbMethod="DiagonalRec2020"`.
-        // White-balance provenance (#2434). `papp:WbSource` is strict like
-        // the other papp: enums; the sample point and algorithm version are
-        // plain numerics.
+        // White-balance provenance (#2434). Deliberately NOT strict, unlike
+        // every other `papp:` enum here: those change how the image renders,
+        // so a value this build cannot honour is a real reason to refuse the
+        // sidecar rather than silently develop it wrong. `wb_source` renders
+        // nothing — it is a label on where the pair came from. Hard-failing
+        // it would mean a sidecar written by a future build that adds a
+        // source loses EVERY adjustment on open, to protect a caption. So an
+        // unrecognised value falls back to the default, matching what the
+        // Swift and TS parsers do (review on #3309). The sample point and
+        // algorithm version are plain numerics.
         "papp:WbSource" => {
             m.wb_source = match value {
-                "AsShot" | "asshot" => WbSource::AsShot,
                 "Auto" | "auto" => WbSource::Auto,
                 "Preset" | "preset" => WbSource::Preset,
                 "Sampled" | "sampled" => WbSource::Sampled,
                 "Manual" | "manual" => WbSource::Manual,
-                other => return Err(Error::Xmp(format!("unknown WbSource: {}", other))),
+                _ => WbSource::AsShot,
             };
         }
         "papp:WbSampleX" => m.wb_sample_x = v()?,
