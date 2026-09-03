@@ -2,17 +2,18 @@
      the pick is armed, so the canvas's own pan/zoom gestures are untouched
      otherwise; Escape leaves pick mode without sampling. -->
 @if (pick.active()) {
+  <!-- Not role="button": activation needs pointer coordinates, so there is
+       no keyboard equivalent to announce (Copilot review on #3309). The
+       instruction below is the live region assistive tech reads, and Escape
+       is handled on the document so it works without focusing anything. -->
   <div
     class="pointer-events-auto absolute inset-0 z-[9] cursor-crosshair"
-    role="button"
-    tabindex="0"
-    aria-label="Click a neutral surface to set white balance"
     data-testid="wb-pick-overlay"
     (click)="onClick($event)"
-    (keydown)="onKeydown($event)"
   >
     <div
       class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border-[0.5px] border-white/15 bg-black/60 px-3 py-1 font-sans text-[11px] text-white/80 backdrop-blur-[6px]"
+      role="status"
     >
       Click a neutral surface · Esc to cancel
     </div>

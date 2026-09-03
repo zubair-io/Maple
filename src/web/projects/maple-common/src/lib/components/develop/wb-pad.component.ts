@@ -24,6 +24,7 @@ import type { MuiPad2dValue } from '../../ui/pad-2d/mui-pad-2d.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { xToTemp, tempToX, yToTint, tintToY } from './wb-pad-math';
 import { WbPickService } from '../image-canvas/wb-pick.service';
+import { manualWbPatch } from '../../editor/editor-state.wb-sample';
 import { EditorStateService } from '../../editor/editor-state.service';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
@@ -106,6 +107,10 @@ export class WbPadComponent {
     const adj = this.adj();
     if (!adj || adj.wbSource === 'AsShot') return 'As Shot';
     if (adj.wbSource !== 'Sampled') return adj.wbSource;
+    // A pasted look can carry the source without the point — the point and
+    // the version are non-copyable. Version 0 means "nothing derived this",
+    // so say only what is true (Copilot review on #3309).
+    if (adj.wbAlgorithmVersion === 0) return 'Sampled';
     const pct = (v: number) => `${Math.round(v * 100)}%`;
     return `Sampled at ${pct(adj.wbSampleX)}, ${pct(adj.wbSampleY)} · v${adj.wbAlgorithmVersion}`;
   });
@@ -120,7 +125,7 @@ export class WbPadComponent {
     if (!id) return;
     const temp = xToTemp((v.x + 1) / 2);
     const tint = yToTint((v.y + 1) / 2);
-    this.library.updateAdjustment(id, { temperature: temp, tint });
+    this.library.updateAdjustment(id, manualWbPatch(temp, tint));
   }
 
   // ── Eyedropper ─────────────────────────────────────────────────────────────
@@ -170,31 +175,31 @@ export class WbPadComponent {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        this.library.updateAdjustment(id, {
-          temperature: clamp(temp - TEMP_STEP, TEMP_MIN, TEMP_MAX),
-          tint,
-        });
+        this.library.updateAdjustment(
+          id,
+          manualWbPatch(clamp(temp - TEMP_STEP, TEMP_MIN, TEMP_MAX), tint),
+        );
         break;
       case 'ArrowRight':
         e.preventDefault();
-        this.library.updateAdjustment(id, {
-          temperature: clamp(temp + TEMP_STEP, TEMP_MIN, TEMP_MAX),
-          tint,
-        });
+        this.library.updateAdjustment(
+          id,
+          manualWbPatch(clamp(temp + TEMP_STEP, TEMP_MIN, TEMP_MAX), tint),
+        );
         break;
       case 'ArrowDown':
         e.preventDefault();
-        this.library.updateAdjustment(id, {
-          temperature: temp,
-          tint: clamp(tint - TINT_STEP, TINT_MIN, TINT_MAX),
-        });
+        this.library.updateAdjustment(
+          id,
+          manualWbPatch(temp, clamp(tint - TINT_STEP, TINT_MIN, TINT_MAX)),
+        );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        this.library.updateAdjustment(id, {
-          temperature: temp,
-          tint: clamp(tint + TINT_STEP, TINT_MIN, TINT_MAX),
-        });
+        this.library.updateAdjustment(
+          id,
+          manualWbPatch(temp, clamp(tint + TINT_STEP, TINT_MIN, TINT_MAX)),
+        );
         break;
     }
   }

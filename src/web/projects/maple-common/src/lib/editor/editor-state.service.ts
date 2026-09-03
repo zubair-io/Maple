@@ -79,7 +79,7 @@ export class EditorStateService {
   // `WbSampleHost` (same pattern as `ImageCanvasComponent`'s `GpuPresentHost`).
   readonly library = inject(LibraryStateService);
   readonly pipeline = inject(RawPipelineService);
-  private serializer = inject(XmpSerializerService);
+  readonly serializer = inject(XmpSerializerService); // read via WbSampleHost
   private announcer = inject(LiveAnnouncer);
 
   // ── Identity / arming ────────────────────────────────────────────────────
@@ -532,7 +532,8 @@ export class EditorStateService {
   // state. Body in `editor-state.wb-sample.ts` (this file is at its budget).
 
   /** True while a white-balance sample is in flight. */
-  readonly wbSampleInFlight = signal<boolean>(false);
+  // fallow-ignore-next-line unused-class-member
+  readonly wbSampleInFlight = signal<boolean>(false); // read via WbSampleHost
 
   /**
    * Sample the neutral at a normalised image point and apply the resulting
