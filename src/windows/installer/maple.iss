@@ -66,10 +66,12 @@ begin
   Result := Pos(';' + Uppercase(Param) + ';', ';' + Uppercase(OrigPath) + ';') = 0;
 end;
 
-// Strip {app}\bin back out of the user PATH on uninstall.
+// Strip {app}\bin back out of the user PATH on uninstall: split on ';',
+// drop our entry (and empty segments), rejoin. Rebuilding beats positional
+// deletion — no stray separators regardless of where the entry sits.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  OrigPath, BinDir: string;
+  OrigPath, NewPath, Entry, BinDir: string;
   P: Integer;
 begin
   if CurUninstallStep <> usPostUninstall then
@@ -77,11 +79,26 @@ begin
   if not RegQueryStringValue(HKCU, 'Environment', 'Path', OrigPath) then
     exit;
   BinDir := ExpandConstant('{app}\bin');
-  P := Pos(';' + Uppercase(BinDir) + ';', ';' + Uppercase(OrigPath) + ';');
-  if P = 0 then
-    exit;
-  // P is 1-based into the ';'-wrapped string; translate to a delete on the
-  // unwrapped original (remove the entry plus one of its separators).
-  Delete(OrigPath, P, Length(BinDir) + 1);
-  RegWriteExpandStringValue(HKCU, 'Environment', 'Path', OrigPath);
+  NewPath := '';
+  while OrigPath <> '' do
+  begin
+    P := Pos(';', OrigPath);
+    if P = 0 then
+    begin
+      Entry := OrigPath;
+      OrigPath := '';
+    end
+    else
+    begin
+      Entry := Copy(OrigPath, 1, P - 1);
+      Delete(OrigPath, 1, P);
+    end;
+    if (Entry <> '') and (CompareText(Entry, BinDir) <> 0) then
+    begin
+      if NewPath <> '' then
+        NewPath := NewPath + ';';
+      NewPath := NewPath + Entry;
+    end;
+  end;
+  RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
 end;
