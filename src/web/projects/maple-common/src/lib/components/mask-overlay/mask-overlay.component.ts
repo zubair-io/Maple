@@ -76,7 +76,12 @@ interface HandleView {
   standalone: true,
   templateUrl: './mask-overlay.component.html',
   styleUrl: './mask-overlay.component.scss',
-  host: { class: 'absolute inset-0 z-[8] [touch-action:none]' },
+  host: {
+    class: 'absolute inset-0 z-[8] [touch-action:none]',
+    // Always mounted by the canvas; hidden (and out of the pointer stream)
+    // unless the Mask tool is armed.
+    '[class.hidden]': '!session.active()',
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
@@ -165,14 +170,23 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     return mask.invert ? 'Inverted radial mask' : 'Radial mask';
   });
 
+  /** One reusable raster buffer for the tint — re-sized only when the
+   *  footprint aspect changes, so a drag frame allocates nothing. */
+  private tintBuffer: ImageData | null = null;
+
   constructor() {
+    // Mask editing is fit-zoom-only (M3): the footprint maps 1:1 onto the
+    // painted image only at fit + zero pan, so arming the tool snaps there.
+    effect(() => {
+      if (this.session.active()) this.canvasSvc.zoomToFit();
+    });
     // Redraw the weight tint whenever the selected mask or the geometry moves.
     effect(() => {
       const mask = this.mask();
       const map = this.map();
       const canvas = this.tintCanvas()?.nativeElement;
       if (!canvas) return;
-      drawWeightTint(canvas, mask, map);
+      this.tintBuffer = drawWeightTint(canvas, mask, map, this.tintBuffer);
     });
   }
 
@@ -187,9 +201,6 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     this.ro.observe(el);
     this.wrapW.set(el.clientWidth);
     this.wrapH.set(el.clientHeight);
-    // Mask editing is fit-zoom-only (M3): the footprint maps 1:1 onto the
-    // painted image only at fit + zero pan.
-    this.canvasSvc.zoomToFit();
   }
 
   ngOnDestroy(): void {
@@ -254,18 +265,27 @@ export function drawWeightTint(
   canvas: HTMLCanvasElement,
   mask: LocalMask | null,
   map: MaskCanvasMap,
-): void {
+  buffer: ImageData | null = null,
+): ImageData | null {
   const fp = map.footprint;
   const aspect = fp.width > 0 && fp.height > 0 ? fp.width / fp.height : 1.5;
   const width = aspect >= 1 ? TINT_LONG_EDGE : Math.max(1, Math.round(TINT_LONG_EDGE * aspect));
   const height = aspect >= 1 ? Math.max(1, Math.round(TINT_LONG_EDGE / aspect)) : TINT_LONG_EDGE;
-  canvas.width = width;
-  canvas.height = height;
+  // Resizing a canvas clears and reallocates its backing store — only do it
+  // when the raster size actually changes (a footprint aspect change), not
+  // on every drag frame.
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  ctx.clearRect(0, 0, width, height);
-  if (!mask) return;
-  const image = ctx.createImageData(width, height);
+  if (!ctx) return buffer;
+  if (!mask) {
+    ctx.clearRect(0, 0, width, height);
+    return buffer;
+  }
+  const image =
+    buffer && buffer.width === width && buffer.height === height
+      ? buffer
+      : ctx.createImageData(width, height);
   const data = image.data;
   for (let j = 0; j < height; j++) {
     const v = (j + 0.5) / height;
@@ -281,4 +301,5 @@ export function drawWeightTint(
     }
   }
   ctx.putImageData(image, 0, 0);
+  return image;
 }

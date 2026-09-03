@@ -244,59 +244,41 @@ export function internalValueFromDisplay(tool: ToolId, d: number): number {
   return (d / r[1]) * 100;
 }
 
+/** Primary `AdjustmentModel` field per wired tool. A lookup table rather
+ *  than a switch so adding a tool is one row, not one more branch
+ *  (fallow's cyclomatic gate). S5 effects (#1109 / #1110 / #275) map to
+ *  each tool's primary sub-param. Tools absent here have no single
+ *  primary drag-bar field: hsl (24 sub-params via the chip row), bwMix
+ *  (#276: toggle + 8 gray-mixer sub-params), crop (a stub, #638), mask (a
+ *  layer stack, #1541) and presets (value-less, #1115) — `fieldFor` returns
+ *  null for them so no single XMP field is written and no modified-dot
+ *  fires at this level. */
+const PRIMARY_FIELD: Partial<Record<ToolId, keyof AdjustmentModel>> = {
+  exposure: 'exposure',
+  brightness: 'brightness',
+  contrast: 'contrast',
+  highlights: 'highlights',
+  shadows: 'shadows',
+  whites: 'whites',
+  blacks: 'blacks',
+  temp: 'temperature',
+  tint: 'tint',
+  vibrance: 'vibrance',
+  saturation: 'saturation',
+  clarity: 'clarity',
+  texture: 'texture',
+  dehaze: 'dehaze',
+  sharpen: 'sharpenAmount',
+  noise: 'nrLuminance',
+  colorNR: 'nrColor',
+  vignette: 'vignetteAmount',
+  grain: 'grainAmount',
+  colorGrade: 'splitToneBalance',
+};
+
 /** Field name on AdjustmentModel for a wired tool. `null` for stubs. */
 export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
-  switch (tool) {
-    case 'exposure':
-      return 'exposure';
-    case 'brightness':
-      return 'brightness';
-    case 'contrast':
-      return 'contrast';
-    case 'highlights':
-      return 'highlights';
-    case 'shadows':
-      return 'shadows';
-    case 'whites':
-      return 'whites';
-    case 'blacks':
-      return 'blacks';
-    case 'temp':
-      return 'temperature';
-    case 'tint':
-      return 'tint';
-    case 'vibrance':
-      return 'vibrance';
-    case 'saturation':
-      return 'saturation';
-    case 'clarity':
-      return 'clarity';
-    case 'texture':
-      return 'texture';
-    case 'dehaze':
-      return 'dehaze';
-    case 'sharpen':
-      return 'sharpenAmount';
-    case 'noise':
-      return 'nrLuminance';
-    case 'colorNR':
-      return 'nrColor';
-    // S5 effects (#1109 / #1110 / #275) — wired; the drag bars drive
-    // each tool's primary sub-param.
-    case 'vignette':
-      return 'vignetteAmount';
-    case 'grain':
-      return 'grainAmount';
-    case 'colorGrade':
-      return 'splitToneBalance';
-    // hsl has 24 sub-params but no single primary drag-bar field — the
-    // sub-param chip row drives individual fields. bwMix is the same shape
-    // (#276: toggle + 8 gray-mixer sub-params). crop is a stub (#638).
-    // presets is wired but value-less (#1115). All return null so no
-    // single XMP field is written and no modified-dot fires at this level.
-    default:
-      return null;
-  }
+  return PRIMARY_FIELD[tool] ?? null;
 }
 
 /** Canonical raw-core defaults, read once so per-tool default lookups
