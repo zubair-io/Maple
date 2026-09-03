@@ -299,22 +299,8 @@ public final class EditSession {
     }
   }
 
-  /// The crop rect the render path should apply right now: identity while
-  /// the crop tool is armed (show the full frame under the overlay),
-  /// otherwise the model's crop. Mirrors the web `renderModelForCrop`.
-  var effectiveCrop: Crop {
-    cropEditingActive ? .identity : model.crop
-  }
-
-  /// Image extent the canvas / zoom math should anchor to: the CROPPED
-  /// size when a crop is applied (not editing), otherwise the full-frame
-  /// `nativeImageSize`. Keeps fit / 100% / pan and the canvas frame on the
-  /// cropped image. `.zero` until the metadata seed lands (same contract
-  /// as `nativeImageSize`).
-  public var effectiveImageSize: CGSize {
-    guard nativeImageSize != .zero else { return nativeImageSize }
-    return CropImageStage.croppedSize(effectiveCrop, nativeSize: nativeImageSize)
-  }
+  // `effectiveCrop` + `effectiveImageSize` moved to `EditSession+Crop.swift`
+  // (file-size budget, #3275).
 
   // MARK: Zoom / pan
 
@@ -464,6 +450,27 @@ public final class EditSession {
   /// viewport lands and clears this flag either way — the retry fires at
   /// most once per cold-open (#2041).
   @ObservationIgnored var cachedPreviewSeedPendingViewport = false
+
+  // MARK: Masks (#3275)
+
+  /// One per session, matching `gpuLiveDriver`'s lazy-creation pattern.
+  @ObservationIgnored public lazy var personSkinMaskService = PersonSkinMaskService()
+
+  /// One per session. `directory` is resolved once, lazily, from `asset` —
+  /// see `EditSession+Masks.swift`'s `maskCacheDirectory()`.
+  @ObservationIgnored public lazy var maskRasterStore = MaskRasterStore(
+    directory: maskCacheDirectory())
+
+  /// The mask panel's current selection — drives which row is highlighted,
+  /// which layer's sliders show, and the scope HUD's target. `nil` when no
+  /// mask exists or none is selected.
+  public var selectedMaskId: UUID?
+
+  /// Per-session (never persisted to the sidecar) stash of a mask's
+  /// adjustments while `setMaskEnabled(id:enabled:false)` has zeroed them
+  /// out — see that method's doc comment for why "disabled" has no wire
+  /// representation of its own.
+  @ObservationIgnored var maskDisabledStash: [UUID: PartialAdjustments] = [:]
 
   // MARK: Deep zoom (Plan 3 / Ticket 06 M4) — storage + field docs moved
   // to `DeepZoomState.swift` (#2683 round-2, 570-line headroom gate).

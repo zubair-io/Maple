@@ -46,6 +46,11 @@ struct EditorCanvasView: View {
         if state.armedTool == .crop {
           CropOverlay(state: state)
         }
+        // Mask overlay (#3275): the selected bitmap mask's raster,
+        // tinted red, while the Mask tool is armed.
+        if state.armedTool == .mask {
+          MaskOverlay(state: state)
+        }
         if state.whiteBalancePicker.isArmed {
           WhiteBalancePickOverlay(state: state)
             .id(ObjectIdentifier(state.session))
