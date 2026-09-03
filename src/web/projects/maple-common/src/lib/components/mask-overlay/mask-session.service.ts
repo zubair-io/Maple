@@ -23,6 +23,10 @@ import { LibraryStateService } from '../../state/library-state.service';
 import type { LocalAdjustment, LocalMask, PartialAdjustments } from '../../models/local-adjustment';
 import { defaultLinearMask, defaultRadialMask, withMaskFeather } from './mask-geometry';
 
+/** Structural equality for one layer — the model is plain data. */
+const isSameLayer = (a: LocalAdjustment, b: LocalAdjustment): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
+
 @Injectable({ providedIn: 'root' })
 export class MaskSessionService {
   private readonly editor = inject(EditorStateService);
@@ -51,7 +55,12 @@ export class MaskSessionService {
     // Arming the tool with nothing valid selected lands on the first layer,
     // so the panel never opens on "nothing" when layers exist.
     effect(() => {
-      if (!this.active()) return;
+      if (!this.active()) {
+        // Disarming mid-drag unmounts the overlay before its pointerup —
+        // close the gesture so the next drag opens a fresh undo boundary.
+        this.endGesture();
+        return;
+      }
       if (this.selected() === null && this.layers().length > 0) this.selectedIndex.set(0);
     });
   }
@@ -114,14 +123,16 @@ export class MaskSessionService {
     const index = this.selectedIndex();
     const layers = this.layers();
     if (index === null || index < 0 || index >= layers.length) return;
+    // Decide whether anything changes BEFORE touching the undo stack, so a
+    // no-op (invert on a linear layer, a redundant write) pushes nothing.
+    const next = transform(layers[index]);
+    if (next === layers[index] || isSameLayer(next, layers[index])) return;
     if (discrete) {
       this.endGesture();
       this.editor.commit();
     } else {
       this.beginGesture();
     }
-    const next = transform(layers[index]);
-    if (next === layers[index]) return;
     this.write(layers.map((layer, i) => (i === index ? next : layer)));
   }
 
