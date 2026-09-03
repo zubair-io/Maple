@@ -88,6 +88,20 @@ describe('focusContextOf', () => {
     expect(focusContextOf(null, false)).toBe('none');
   });
 
+  it('lets a modal dialog own every key (Escape closes the dialog, not the editor)', () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    const button = document.createElement('button');
+    dialog.append(button);
+    expect(focusContextOf(dialog, false)).toBe('dialog');
+    expect(focusContextOf(button, false)).toBe('dialog');
+    const shell = makeShell();
+    const e = new KeyboardEvent('keydown', { key: 'Escape' });
+    Object.defineProperty(e, 'target', { value: button });
+    expect(resolveKeydown(asShell(shell), e)).toBeNull();
+  });
+
   it("treats the command menu's own search box as the menu, not a text field", () => {
     const menu = document.createElement('mui-command-menu');
     const search = document.createElement('input');
@@ -161,6 +175,22 @@ describe('executeIntent', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a release on another asset ends the peek without latching', () => {
+    const shell = makeShell();
+    const router = newCommandRouterState();
+    executeIntent(asShell(shell), router, { intent: { kind: 'compare.press' }, assetId: 'a.dng' });
+    shell.focused.set('b.dng');
+    expect(
+      executeIntent(asShell(shell), router, {
+        intent: { kind: 'compare.release' },
+        assetId: 'b.dng',
+      }),
+    ).toBe(false);
+    expect(shell.canvasSvc.endPeekBefore).toHaveBeenCalledTimes(1);
+    expect(shell.canvasSvc.toggleBeforeAfter).not.toHaveBeenCalled();
+    expect(router.comparePressedAt).toBeNull();
   });
 
   it('cancelCompare ends a peek without toggling', () => {
@@ -240,7 +270,8 @@ describe('command table', () => {
   it('describes chords for people and for aria-keyshortcuts', () => {
     expect(describeChord({ key: 'z', meta: true, shift: true })).toBe('⌘⇧Z');
     expect(describeChord({ key: 'ArrowRight', shift: true })).toBe('⇧→');
-    expect(ariaKeyshortcuts('history.undo')).toBe('Meta+Z');
+    expect(ariaKeyshortcuts('history.undo')).toBe('Meta+Z Control+Z');
+    expect(ariaKeyshortcuts('chrome.inspector')).toBe('Meta+Alt+D Control+Alt+D');
     expect(ariaKeyshortcuts('compare.press')).toBe('\\');
     expect(ariaKeyshortcuts('nope')).toBeNull();
   });

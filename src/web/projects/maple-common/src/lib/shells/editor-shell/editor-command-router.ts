@@ -42,19 +42,24 @@ export const COMPARE_HOLD_MS = 300;
 export interface CommandRouterState {
   /** `performance.now()` of the current before/after press, or null. */
   comparePressedAt: number | null;
+  /** Asset the before/after press started on — a release for another
+   *  asset ends the peek without toggling its split. */
+  compareAssetId: string | null;
   /** Asset the command menu was opened on, while it is open. */
   menuAssetId: string | null;
 }
 
 export function newCommandRouterState(): CommandRouterState {
-  return { comparePressedAt: null, menuAssetId: null };
+  return { comparePressedAt: null, compareAssetId: null, menuAssetId: null };
 }
 
-export type FocusContext = 'text' | 'value-widget' | 'menu' | 'none';
+export type FocusContext = 'text' | 'value-widget' | 'menu' | 'dialog' | 'none';
 
-/** What the event's target owns. */
+/** What the event's target owns. A modal dialog (the export options) owns
+ *  every key, so Escape closes it rather than leaving the editor. */
 export function focusContextOf(target: EventTarget | null, menuOpen: boolean): FocusContext {
   if (!(target instanceof HTMLElement)) return menuOpen ? 'menu' : 'none';
+  if (target.closest('[aria-modal="true"]')) return 'dialog';
   if (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
@@ -78,7 +83,7 @@ export interface BoundIntent {
  */
 export function resolveKeydown(shell: EditorShellComponent, e: KeyboardEvent): BoundIntent | null {
   const context = focusContextOf(e.target, shell.commandMenuOpen());
-  if (context === 'text') return null;
+  if (context === 'text' || context === 'dialog') return null;
   if (context === 'menu') {
     return e.key === 'Escape' ? bind(shell, { kind: 'commands.menu' }) : null;
   }
@@ -167,16 +172,20 @@ const HANDLERS: { [K in EditorIntent['kind']]: Handler<K> } = {
   'compare.press': (shell, router) => {
     if (router.comparePressedAt !== null) return false;
     router.comparePressedAt = performance.now();
+    router.compareAssetId = shell.state.focusedAssetId();
     shell.canvasSvc.beginPeekBefore();
     return true;
   },
   'compare.release': (shell, router) => {
     if (router.comparePressedAt === null) return false;
     const held = performance.now() - router.comparePressedAt;
+    const sameAsset = router.compareAssetId === shell.state.focusedAssetId();
     router.comparePressedAt = null;
+    router.compareAssetId = null;
     shell.canvasSvc.endPeekBefore();
-    if (held < COMPARE_HOLD_MS) shell.canvasSvc.toggleBeforeAfter();
-    return true;
+    // The press belonged to another image: end the peek, never latch here.
+    if (sameAsset && held < COMPARE_HOLD_MS) shell.canvasSvc.toggleBeforeAfter();
+    return sameAsset;
   },
   'zoom.fit': (shell) => (shell.canvasSvc.zoomToFit(), true),
   'zoom.100': (shell) => (shell.canvasSvc.zoomTo100(), true),
@@ -259,5 +268,6 @@ function cycleTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: bool
 export function cancelCompare(shell: EditorShellComponent, router: CommandRouterState): void {
   if (router.comparePressedAt === null) return;
   router.comparePressedAt = null;
+  router.compareAssetId = null;
   shell.canvasSvc.endPeekBefore();
 }
