@@ -12,46 +12,58 @@ accounting is in the #814 PR.
 
 What follows is the drift that is still real.
 
-## Residual: test_0013 and test_0018 tint (open, not re-baselined)
+## Residual: test_0018 tint (open — attributed, awaiting a reference re-render)
 
 The #814 capture left 14 cases breaching, and they were deliberately **not**
-re-baselined. Their ceilings are frozen at the values `main` already carried,
-so the harness stays red on exactly these and nothing else:
+re-baselined. #2333 attributed both clusters (every number from a private
+release `maple-cli` built at the named commit, run through the harness against
+the references on disk):
 
-| fixture / case                        | metric | budget  | measured  | pass    |
-| ------------------------------------- | ------ | ------- | --------- | ------- |
-| `test_0013/baseline`                  | mean   | 6.20    | 11.72     | neutral |
-| `test_0013/baseline`                  | p95    | 9.30    | 24.37     | neutral |
-| `test_0013/baseline_auto`             | mean   | 5.55    | 6.57      | auto    |
-| `test_0013/{nr,sharpen}_*` (10 cases) | mean   | 6.0–7.6 | 10.7–12.1 | detail  |
-| `test_0018/tint_max`                  | mean   | 17.27   | 22.65     | neutral |
-| `test_0018/tint_min`                  | mean   | 17.26   | 23.92     | neutral |
+**`test_0013` — closed by #3265 (#2774).** The 12-case cluster (`baseline`,
+`baseline_auto`, ten full-res `sharpen_*`/`nr_*`) and its uniform +0.07 / +0.06
+/ +0.05 bias were the DNG 1.6 `ProfileGainTableMap` being applied without its
+`ProfileToneCurve` pair after 45c06eb1c (#1923) made the parser return `Some`.
+The map is a ~1.4-stop shadow/midtone lift that Apple's PTC re-compresses;
+#425 had dropped the PTC, so the lift ran alone. #3265 stops applying the map
+on every path: `baseline` 11.72 / 24.37 / 41.10 → 5.88 / 8.85 / 22.75, grand
+mean over the 33 neutral cases 12.62 → 8.05, all twelve cells green, 124
+provisional slider cells ratcheted down and 13 re-baselined with audited
+`RE-BASELINE:` markers (#2335) in that commit.
 
-Why these are held rather than raised:
+**`test_0018/tint_max` and `tint_min` — attributed to #1893 (185833efc), held
+red.** The only raw-core commit between the #940 re-baseline and #1893 is #1893
+itself, and the bisect is unambiguous:
 
-**`test_0013`** breaches by roughly 2× across every metric, and the breach is
-in the `--profile neutral` and full-res detail passes. Neither pass touches
-Profile::Auto, so the movement cannot be attributed to the Auto Profile
-default that #814 re-baselined for. The whole fixture sits at mean ΔE 10–16
-with a uniformly positive bias (+0.07 / +0.06 / +0.05) — a single systematic
-shift on this scene rather than a per-slider defect. Its `baseline_auto` row
-is much closer to budget (6.57 vs 5.55), so whatever moved is in the neutral
-view-transform path. #911 already declined to re-baseline this fixture for the
-same reason, classifying it as achromatic but highlight-localised and
-therefore not attributable to the #443 look retirement either. Raising it now
-would erase the only remaining evidence.
+| binary    | commit                                              | `tint_max` mean / p95 / max | `tint_min` mean / p95 / max |
+| --------- | --------------------------------------------------- | --------------------------- | --------------------------- |
+| c62a895a2 | #940 re-baseline (2026-07-10), pre-#1893            | 16.45 / 20.29 / 37.87       | 16.44 / 20.74 / 37.38       |
+| 185833efc | #1893 — ACR `kTintScale`, 1/3000 uv per tint unit   | 23.32 / 32.49 / 49.95       | 23.27 / 31.62 / 43.57       |
+| a85406cb1 | #1894 — Robertson slider mapping                    | 22.65 / 31.18 / 48.49       | 23.92 / 32.67 / 43.94       |
+| d6ccd97de | `main` 2026-09-02 (post-#3262, #3265)               | 22.65 / 31.18 / 48.49       | 23.92 / 32.67 / 43.94       |
 
-**`test_0018/tint_max` and `tint_min`** breach by 38–46% on mean against
-ceilings that #1893 _ratcheted down_ and validated ("zero breaches on the full
-harness") when it adopted ACR's kTintScale. `budgets.json` has been touched
-exactly once since (#1936, additive only), so something landed after #1893
-that moved tint rendering without the full harness being re-run — CI has no
-fixtures, so nothing caught it. Attribution needs a bisect across the
-post-#1893 colour work, which is its own ticket.
+The ceilings 17.27 / 17.26 were seeded from the pre-#1893 tint magnitude
+(3.33× smaller) and never re-measured after the scale change; #1893's "zero
+breaches" note did not hold for these two cells at its own commit.
 
-`test_0013`'s 21 previously-ungated slider cases **were** seeded, at today's
-numbers, so they gate against further regression. Those seeds are provisional:
-when the fixture's attribution lands, they ratchet down with it.
+Why this is held rather than fixed or raised: **the tint references are
+degenerate, on every fixture.** `tint_max.png` and `tint_min.png` are
+pixel-identical for all 18 fixtures that have them (max per-pixel difference
+≤ 2 code values, mean 0.00 — the MD5s differ only in PNG metadata), whether
+the sidecar is tint-only (test_0001–test_0018) or carries an explicit
+`crs:Temperature` beside the tint (test_0000). ACR rendered Tint −150 and
++150 to the same image; the 3–18 ΔE these references sit from `baseline` is
+the `WhiteBalance="Custom"` temperature change alone. Every `tint_*` ceiling
+in `budgets.json` therefore gates against "tint ignored", and a renderer
+scores worse the more faithfully it applies the authored tint — which is
+exactly the ordering in the table (weak legacy scale 16.4, ACR-magnitude
+scale 23). Raising the two ceilings would ratify that gate; changing the
+magnitude would move away from ACR's own `kTintScale`. The fix is a reference
+re-render in which ACR honours `crs:Tint` (acceptance: the two PNGs differ),
+followed by re-seeding all 36 `tint_*` cells from that run — tracked on
+#2333.
+
+`test_0013`'s 21 previously-ungated slider cases were seeded provisionally by
+#814 and ratcheted with the attribution in #3265.
 
 ## Closed by the #814 re-baseline
 
@@ -86,5 +98,5 @@ AgX-default capture put it.
 delivers the improvement. #814 is a sanctioned exception to that rule and is
 scoped as one — a re-baseline against pipeline changes that already landed,
 with every raised ceiling named and attributed. A ceiling that rises without
-an attribution is a deleted gate, which is why the 14 cases above are still
-red instead of quietly green.
+an attribution is a deleted gate, which is why the two `test_0018` tint cells
+above are still red instead of quietly green.
