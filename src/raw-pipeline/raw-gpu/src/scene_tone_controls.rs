@@ -103,8 +103,7 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// blur radius (in 3×-box-pass gaussian terms) for the S/H detail mask at a
 /// given long edge. σ = 15 px · longEdge/2000; radius = 3σ (box radius ≈ σ
 /// per Wells 1986). The parity test pins the transcription.
-/// `long_edge` is the FULL frame's (#2476): this chain only renders whole
-/// frames, so that is the buffer's own; the CPU tile path threads its anchor.
+/// `long_edge` is the FULL frame's (#2476) — the buffer's own, here: whole frames only.
 fn sh_mask_blur_radius(long_edge: u32) -> u32 {
     let sigma = SH_MASK_SIGMA_REF_PX * (long_edge as f32) / SH_MASK_REF_LONG_EDGE;
     ((3.0 * sigma).round() as u32).max(1)
