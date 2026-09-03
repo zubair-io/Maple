@@ -23,7 +23,8 @@ import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 import type { AdjustmentModel } from '../../models/adjustment-model';
-import { handleEditorKeydown } from './editor-shell-keyboard';
+import { handleEditorKeydown, handleEditorKeyup } from './editor-shell-keyboard';
+import { newCommandRouterState } from './editor-command-router';
 import type { EditorShellComponent } from './editor-shell.component';
 
 // `handleEditorKeydown` reads `e.target` unconditionally (real keydown events
@@ -64,6 +65,7 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
       toggleSidebar: ReturnType<typeof vi.fn>;
       toggleInspector: ReturnType<typeof vi.fn>;
       flushPendingXmpWrites: ReturnType<typeof vi.fn>;
+      focusedAsset: () => { flag: string } | null;
     };
     editorState: {
       armedGroup: ReturnType<typeof signal<ToolGroup>>;
@@ -75,13 +77,23 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
       setArmedInternalValue: ReturnType<typeof vi.fn>;
       undo: ReturnType<typeof vi.fn>;
       redo: ReturnType<typeof vi.fn>;
+      gestureActive: () => boolean;
+      imageId: () => string | null;
+      armedSubParamId: () => string | null;
     };
     canvasSvc: {
       toggleBeforeAfter: ReturnType<typeof vi.fn>;
       zoomToFit: ReturnType<typeof vi.fn>;
       zoomTo100: ReturnType<typeof vi.fn>;
+      beginPeekBefore: ReturnType<typeof vi.fn>;
+      endPeekBefore: ReturnType<typeof vi.fn>;
+      requestStepZoom: ReturnType<typeof vi.fn>;
     };
     controlCard?: { resetGroup: ReturnType<typeof vi.fn> };
+    commandRouter: ReturnType<typeof newCommandRouterState>;
+    commandMenuOpen: ReturnType<typeof signal<boolean>>;
+    scrubbing: () => boolean;
+    onScopesPanelToggle: ReturnType<typeof vi.fn>;
     goBack: ReturnType<typeof vi.fn>;
     navigateToAsset: ReturnType<typeof vi.fn>;
     onGroupChange: ReturnType<typeof vi.fn>;
@@ -99,6 +111,7 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
         toggleSidebar: vi.fn(),
         toggleInspector: vi.fn(),
         flushPendingXmpWrites: vi.fn(() => Promise.resolve()),
+        focusedAsset: () => ({ flag: 'unflagged' }),
       },
       editorState: {
         armedGroup: signal<ToolGroup>('light'),
@@ -110,13 +123,23 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
         setArmedInternalValue: vi.fn(),
         undo: vi.fn(),
         redo: vi.fn(),
+        gestureActive: () => false,
+        imageId: () => 'a.dng',
+        armedSubParamId: () => null,
       },
       canvasSvc: {
         toggleBeforeAfter: vi.fn(),
         zoomToFit: vi.fn(),
         zoomTo100: vi.fn(),
+        beginPeekBefore: vi.fn(),
+        endPeekBefore: vi.fn(),
+        requestStepZoom: vi.fn(),
       },
       controlCard: { resetGroup: vi.fn() },
+      commandRouter: newCommandRouterState(),
+      commandMenuOpen: signal(false),
+      scrubbing: () => false,
+      onScopesPanelToggle: vi.fn(),
       goBack: vi.fn(),
       navigateToAsset: vi.fn(),
       onGroupChange: vi.fn((g: ToolGroup) => shell.editorState.armedGroup.set(g)),
@@ -344,5 +367,72 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
     Object.defineProperty(div, 'isContentEditable', { value: true });
     dispatch(makeKeyEvent(']', { target: div }));
     expect(shell.onToolChange).not.toHaveBeenCalled();
+  });
+
+  // ── Router additions (#2450) ─────────────────────────────────────────────
+
+  it('\\ press peeks at before; a short release toggles the latched split', () => {
+    dispatch(makeKeyEvent('\\'));
+    expect(shell.canvasSvc.beginPeekBefore).toHaveBeenCalledTimes(1);
+    expect(shell.canvasSvc.toggleBeforeAfter).not.toHaveBeenCalled();
+    handleEditorKeyup(shell as unknown as EditorShellComponent, makeKeyEvent('\\'));
+    expect(shell.canvasSvc.endPeekBefore).toHaveBeenCalledTimes(1);
+    expect(shell.canvasSvc.toggleBeforeAfter).toHaveBeenCalledTimes(1);
+  });
+
+  it('a held \\ (auto-repeat) is one press, and a long hold releases without toggling', () => {
+    vi.useFakeTimers();
+    try {
+      dispatch(makeKeyEvent('b'));
+      const repeat = makeKeyEvent('b');
+      Object.defineProperty(repeat, 'repeat', { value: true });
+      dispatch(repeat);
+      expect(shell.canvasSvc.beginPeekBefore).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(600);
+      handleEditorKeyup(shell as unknown as EditorShellComponent, makeKeyEvent('b'));
+      expect(shell.canvasSvc.endPeekBefore).toHaveBeenCalledTimes(1);
+      expect(shell.canvasSvc.toggleBeforeAfter).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses ArrowRight navigation while a gesture is in flight', () => {
+    shell.state.peekNext.mockReturnValue('b.dng');
+    shell.editorState.gestureActive = () => true;
+    dispatch(makeKeyEvent('ArrowRight'));
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
+    shell.editorState.gestureActive = () => false;
+    shell.scrubbing = () => true;
+    dispatch(makeKeyEvent('ArrowRight'));
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
+  });
+
+  it('⌘= / ⌘- request a bounded step zoom', () => {
+    dispatch(makeKeyEvent('=', { meta: true }));
+    expect(shell.canvasSvc.requestStepZoom).toHaveBeenCalledWith(1);
+    dispatch(makeKeyEvent('-', { meta: true }));
+    expect(shell.canvasSvc.requestStepZoom).toHaveBeenCalledWith(-1);
+  });
+
+  it('⌘K toggles the command menu; while it is open only Escape reaches the router', () => {
+    dispatch(makeKeyEvent('k', { meta: true }));
+    expect(shell.commandMenuOpen()).toBe(true);
+    dispatch(makeKeyEvent('z', { meta: true }));
+    expect(shell.editorState.undo).not.toHaveBeenCalled();
+    dispatch(makeKeyEvent('Escape'));
+    expect(shell.commandMenuOpen()).toBe(false);
+    expect(shell.goBack).not.toHaveBeenCalled();
+  });
+
+  it('H toggles the scopes panel', () => {
+    dispatch(makeKeyEvent('h'));
+    expect(shell.onScopesPanelToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an unclaimed key to the browser (no preventDefault)', () => {
+    const ev = makeKeyEvent('q');
+    dispatch(ev);
+    expect(ev.defaultPrevented).toBe(false);
   });
 });

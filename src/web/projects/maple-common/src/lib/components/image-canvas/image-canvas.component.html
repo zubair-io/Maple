@@ -80,8 +80,8 @@
        WB pad arms it, so it never intercepts a pan or a crop drag. -->
   <editor-wb-pick-overlay></editor-wb-pick-overlay>
 
-  <!-- Before/after divider -->
-  @if (canvasSvc.showBeforeAfter()) {
+  <!-- Before/after divider (hidden during a momentary peek, #2450) -->
+  @if (canvasSvc.latchedBeforeAfter()) {
     <div
       class="absolute top-0 bottom-0 w-0.5 bg-white/80 -translate-x-1/2 cursor-ew-resize z-10"
       [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
