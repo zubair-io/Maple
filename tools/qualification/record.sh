@@ -90,8 +90,16 @@ elif grep -qE 'Executed [0-9]+ tests?, with [0-9]+ failures?' "$LOG"; then
   line="$(grep -E 'Executed [0-9]+ tests?, with [0-9]+ failures?' "$LOG" | tail -n 1)"
   executed="$(sed -E 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\1/' <<<"$line")"
   failed="$(sed -E 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\2/' <<<"$line")"
-  skipped="$(grep -cE ' skipped( |$|:)' "$LOG" || true)"
-  # XCTest counts a skipped test inside "Executed"; a skip is not evidence.
+  # XCTest counts a skipped test inside "Executed" and reports it as
+  # `Test Case '-[Suite test]' skipped (0.001 seconds).` — count only those
+  # per-case lines (not suite-level or reason text), and never let the
+  # subtraction go negative: a skip is not evidence.
+  skipped="$(grep -cE "^Test Case '.*' skipped \(" "$LOG" || true)"
+  skipped=${skipped:-0}
+  if [[ "$skipped" -gt "$executed" ]]; then
+    echo "qualification: parsed more skipped ($skipped) than executed ($executed) tests — refusing to write an invalid record" >&2
+    exit 2
+  fi
   executed=$((executed - skipped))
 else
   echo "qualification: could not find a recognised summary line in the suite output" >&2
@@ -110,6 +118,10 @@ fi
 
 git_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "")"
 recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# Shell-escaped argv so the recorded command keeps its quoting and is
+# re-runnable as written (`bash -c 'cd … && …'` stays one argument).
+command_text="$(printf '%q ' "$@")"
+command_text="${command_text% }"
 
 "$BIN" \
   --source "$source_id" \
@@ -121,5 +133,5 @@ recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   --out "$OUT" \
   --git-sha "$git_sha" \
   --recorded-at "$recorded_at" \
-  --command "$*" \
+  --command "$command_text" \
   $check

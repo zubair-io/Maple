@@ -768,7 +768,7 @@
       "accepted_backends": ["cpu-reference"],
       "expected_cases": 796,
       "corpus": ["test-fixtures/budgets.json"],
-      "corpus_hash": "blake3:7d706bc589e0a56fec85adcb0ad27c7d716e473115627704818e175596e1ea02",
+      "corpus_hash": null,
       "status": "missing",
       "record": null
     },
@@ -835,7 +835,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:64ad6b484bb4abc65c0b943d41c38b3d23e153fcb9fb5f866b1772027dd769e9",
+      "corpus_hash": null,
       "status": "missing",
       "record": null
     },
@@ -876,7 +876,7 @@
         "src/apple/MapleUITests/MapleUITests.swift",
         "src/apple/MapleUITests/Goldens/test_0017-default.png"
       ],
-      "corpus_hash": "blake3:0b1c20393127adb0502a8e792c02cb0d245e2d187729630f3fca6552994fa788",
+      "corpus_hash": null,
       "status": "missing",
       "record": null
     }

@@ -464,6 +464,13 @@ fn record_json_round_trips_and_rejects_malformed_input() {
     assert!(EvidenceRecord::from_json(&missing)
         .unwrap_err()
         .contains("executed_cases"));
+    // Informational fields: absent or null is fine, a wrong type is not.
+    let nulled = text.replace("\"git_sha\": \"0000000\"", "\"git_sha\": null");
+    assert_eq!(EvidenceRecord::from_json(&nulled).unwrap().git_sha, "");
+    let typed = text.replace("\"git_sha\": \"0000000\"", "\"git_sha\": 123");
+    assert!(EvidenceRecord::from_json(&typed)
+        .unwrap_err()
+        .contains("git_sha"));
 }
 
 #[test]
@@ -486,7 +493,7 @@ fn corpus_hash_is_deterministic_and_crlf_insensitive() {
 }
 
 #[test]
-fn evidence_load_reads_records_and_hashes_every_corpus() {
+fn evidence_load_reads_records_and_hashes_their_corpora() {
     let dir = tempfile::tempdir().unwrap();
     let root = repo_root();
     let hash = hash_corpus(root, EvidenceSource::GreyDcp.corpus()).unwrap();
@@ -511,7 +518,10 @@ fn evidence_load_reads_records_and_hashes_every_corpus() {
     .unwrap();
     let evidence = Evidence::load(root, dir.path()).unwrap();
     assert_eq!(evidence.records.len(), 1);
-    assert_eq!(evidence.corpus_hashes.len(), EvidenceSource::ALL.len());
+    // Only the recorded source's corpus is hashed — a hash is only ever
+    // compared against a record.
+    assert_eq!(evidence.corpus_hashes.len(), 1);
+    assert!(evidence.corpus_hashes.contains_key(&EvidenceSource::GreyDcp));
     assert_eq!(
         judge(EvidenceSource::GreyDcp, &evidence),
         RecordStatus::Satisfied
