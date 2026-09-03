@@ -71,22 +71,19 @@ pub const TILE_OVERLAP_PX: u32 = 48;
 ///
 /// [`TILE_OVERLAP_PX`] covers every fixed-radius stage. The highlights /
 /// shadows detail mask is the one admitted stage whose reach scales with the
-/// image — σ = 15 px · longEdge/2000, cascaded twice
-/// (`scene_tone_controls::sh_mask_reach_px`) — and since #2476 that blur is
-/// anchored to the full frame's long edge at the tile's develop resolution
-/// rather than to the crop, so its reach is known up front. When either
-/// slider is engaged the pad grows to that reach, converted back to mosaic
-/// pixels through the demosaic divisor (`Preview` develops at half
+/// image — σ = 15 px · longEdge/2000 per engaged slider, compounding when
+/// both run (`scene_tone_controls::sh_mask_reach_px`) — and since #2476 that
+/// blur is anchored to the full frame's long edge at the tile's develop
+/// resolution rather than to the crop, so its reach is known up front. The
+/// pad grows to the exact reach of the passes that will run, converted back
+/// to mosaic pixels through the demosaic divisor (`Preview` develops at half
 /// resolution, so a developed-pixel reach is twice as many mosaic pixels).
-/// Computed, not guessed: a model with both sliders at zero pays nothing
-/// (tone-zoom design § 5.3, the exact-overlap half of the stage-class plan;
-/// the proxy-plane half for large radii is #1157).
+/// Computed, not guessed: one slider pays one radius, both pay two, neither
+/// pays nothing (tone-zoom design § 5.3, the exact-overlap half of the
+/// stage-class plan; the proxy-plane half for large radii is #1157).
 fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, divisor: u32) -> u32 {
-    use crate::stages::scene_tone_controls::{sh_mask_engaged, sh_mask_reach_px};
-    if !sh_mask_engaged(model) {
-        return TILE_OVERLAP_PX;
-    }
-    let reach_mosaic_px = (sh_mask_reach_px(mask_long_edge) as u32).saturating_mul(divisor);
+    use crate::stages::scene_tone_controls::sh_mask_reach_px;
+    let reach_mosaic_px = (sh_mask_reach_px(mask_long_edge, model) as u32).saturating_mul(divisor);
     TILE_OVERLAP_PX.max(reach_mosaic_px)
 }
 
