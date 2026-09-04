@@ -257,8 +257,7 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     reachability: { apple: 'absent', web: 'released' },
     exception: {
       platform: 'apple',
-      rationale:
-        'The web Mask tool (linear + radial masks over the shared raw-core stage) shipped first. Apple has the Tool case and dock entry from #3274, but its panel lands in #3275 / #3291.',
+      rationale: 'Web shipped first; the Apple panel lands in #3275.',
       ticket: '#355',
     },
   },
@@ -271,22 +270,22 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     field: null,
     reachability: { apple: 'partial', web: 'absent' },
     presentation: {
-      compact: 'Apple: a Detail dock entry that arms nothing — isWired is false',
+      compact: 'Apple: a Detail dock entry that arms nothing',
       regular: 'Same as compact',
-      wide: 'Same as regular',
+      wide: 'Same as compact',
     },
     interaction: {
-      keyboard: 'Tab-reachable dock entry; arming it changes nothing',
-      pointer: 'Click arms the case with no panel behind it',
+      keyboard: 'Tab-reachable; arms nothing',
+      pointer: 'Click arms the case; no panel',
       touch: 'Same as pointer',
-      focus: 'No overlay claims the canvas',
+      focus: 'No canvas overlay',
     },
     accessibility: {
       role: 'button',
       name: 'Heal',
       value: 'none',
       state: 'none',
-      actions: ['arm the dock entry (inert until #1472)'],
+      actions: ['arm it (inert until #1472)'],
     },
     participation: {
       undo: false,
@@ -297,7 +296,7 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     },
     exception: {
       platform: 'both',
-      rationale: 'Apple has the case and glyph as a mount point for #1472; web has no heal tool.',
+      rationale: 'Apple: a #1472 mount point only; web has no heal tool.',
       ticket: '#1472',
     },
   },
