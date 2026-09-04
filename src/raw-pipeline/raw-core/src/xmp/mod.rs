@@ -304,7 +304,7 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // and no provenance (a pasted look copies `wb_source` but not the point
     // or the version — both are non-copyable), and writing `0,0` there would
     // claim a sample that never happened. The version itself rides only with
-    // the two sources that can derive one (review on #3309).
+    // the two sources that can derive one (#3309).
     let derived = model.wb_algorithm_version != 0.0;
     if model.wb_source == WbSource::Sampled && derived {
         out.push_str(&format!(r#" papp:WbSampleX="{}""#, model.wb_sample_x));

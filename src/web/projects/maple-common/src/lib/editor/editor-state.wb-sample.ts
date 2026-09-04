@@ -25,7 +25,7 @@ import { WbSampleRejected } from '../raw-pipeline/raw-pipeline.sample-wb.types';
  * The patch a manual temperature/tint edit writes alongside the new pair:
  * the provenance stops claiming a source that no longer produced the value.
  * The sample point and version are cleared with it — a coordinate that no
- * longer explains the pair is worse than none (Copilot review on #3309).
+ * longer explains the pair is worse than none (#3309).
  */
 export function manualWbPatch(temperature: number, tint: number): Partial<AdjustmentModel> {
   return {
@@ -131,7 +131,7 @@ export async function sampleWhiteBalanceInto(
     // The sampler develops its own probe from this model, so it must be the
     // model the canvas painted with: the click point is normalised against
     // the PAINTED raster, and a crop makes that a different raster than the
-    // full frame (Copilot review on #3309).
+    // full frame (#3309).
     const model = host.currentAdjustment();
     const xmp = model ? host.serializer.serialize(model) : undefined;
     const sample = await host.pipeline.sampleWhiteBalance(bytes, ext, xmp, nx, ny);
