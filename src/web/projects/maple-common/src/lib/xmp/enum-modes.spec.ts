@@ -189,7 +189,7 @@ describe('XMP enum mode fields (#2214)', () => {
       expect(model.wbAlgorithmVersion).toBe(1);
     });
 
-    it('never writes provenance detail the pair was not actually derived from (#3309 review)', () => {
+    it('never writes provenance detail the pair was not actually derived from (#3309)', () => {
       // A `Sampled` source with no derivation version is a label a paste
       // carried, not provenance: writing `0,0` would claim a sample that
       // never happened.
@@ -211,7 +211,7 @@ describe('XMP enum mode fields (#2214)', () => {
       expect(serializer.serialize(manual)).not.toContain('papp:WbAlgorithmVersion');
     });
 
-    it('never writes the sample point without a sampled source (#3309 review)', () => {
+    it('never writes the sample point without a sampled source (#3309)', () => {
       // A stale coordinate left in the model — a pasted look carries the
       // source but not the point — must not leak into the sidecar and claim
       // provenance the pair does not have. Matches raw-core and Swift.

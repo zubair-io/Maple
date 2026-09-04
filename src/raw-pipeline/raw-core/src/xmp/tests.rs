@@ -490,7 +490,7 @@ fn wb_provenance_sample_point_travels_only_with_a_sampled_source() {
     // A `Sampled` source with no version is a label a paste carried, not
     // provenance — `wb_source` is copyable, the point and the version are
     // not. Writing `0,0` there would claim a sample that never happened
-    // (review on #3309).
+    // (#3309).
     let pasted = AdjustmentModel {
         wb_source: WbSource::Sampled,
         wb_sample_x: 0.4,
@@ -527,7 +527,7 @@ fn wb_source_parses_every_variant_and_survives_an_unknown_one() {
     // A source this build doesn't know is a caption it can't read, not a
     // reason to throw the sidecar away: the adjustments alongside it must
     // survive, and the label falls back to the default. Same rule as the
-    // Swift and TS parsers (review on #3309).
+    // Swift and TS parsers (#3309).
     let m = parse(&wrap_papp(
         r#" papp:WbSource="Eyeballed" crs:Exposure2012="1.25""#,
     ))

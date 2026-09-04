@@ -143,7 +143,7 @@ fn neighbourhood_mean(probe: &Image, nx: f32, ny: f32) -> Option<[f32; 3]> {
     let y1 = ((cy + r) as u32).min(probe.height - 1);
     let (sum, n) = (y0..=y1)
         .flat_map(|y| (x0..=x1).map(move |x| (x, y)))
-        .map(|(x, y)| probe.pixels[(y * probe.width + x) as usize])
+        .map(|(x, y)| probe.pixels[y as usize * probe.width as usize + x as usize])
         .filter(|p| p.iter().all(|v| v.is_finite()))
         .fold(([0.0_f64; 3], 0usize), |(s, n), p| {
             (

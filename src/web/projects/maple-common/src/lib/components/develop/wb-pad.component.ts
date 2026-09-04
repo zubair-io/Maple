@@ -109,7 +109,7 @@ export class WbPadComponent {
     if (adj.wbSource !== 'Sampled') return adj.wbSource;
     // A pasted look can carry the source without the point — the point and
     // the version are non-copyable. Version 0 means "nothing derived this",
-    // so say only what is true (Copilot review on #3309).
+    // so say only what is true (#3309).
     if (adj.wbAlgorithmVersion === 0) return 'Sampled';
     const pct = (v: number) => `${Math.round(v * 100)}%`;
     return `Sampled at ${pct(adj.wbSampleX)}, ${pct(adj.wbSampleY)} · v${adj.wbAlgorithmVersion}`;
@@ -141,7 +141,7 @@ export class WbPadComponent {
     // the sampler's reply the button is still "active" but there is nothing
     // to cancel — the worker request can't be recalled — so a second press
     // there must do nothing rather than re-arm into a sample that would
-    // silently no-op behind the in-flight guard (Copilot review on #3309).
+    // silently no-op behind the in-flight guard (#3309).
     if (this.eyedropperActive()) {
       if (this.pick.active()) {
         this.pick.cancel();
