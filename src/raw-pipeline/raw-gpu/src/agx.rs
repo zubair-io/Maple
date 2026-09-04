@@ -58,11 +58,6 @@ const AGX_MID_GRAY: f32 = 0.18;
 const AGX_MID_NORM: f32 = -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV);
 /// Deep-shadow floor for the ratio scale (raw-core `RATIO_FLOOR`).
 const AGX_RATIO_FLOOR: f32 = 1e-6;
-/// Highlight path-to-white (#1624) — mirror of raw_core `AGX_P2W_*` (and the
-/// generated WGSL consts); the parity test pins them to raw-core.
-const AGX_P2W_AMOUNT: f32 = 1.0;
-const AGX_P2W_KNEE: f32 = 0.7;
-const AGX_P2W_POWER: f32 = 2.0;
 
 type Mat3 = [[f32; 3]; 3];
 
@@ -309,29 +304,6 @@ fn log_encode(channel: f32) -> f32 {
     (log_v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV)
 }
 
-/// Path-to-white weight — mirror of raw_core `agx::path_to_white_weight`.
-fn p2w_weight(sn: f32) -> f32 {
-    if sn <= AGX_P2W_KNEE {
-        return 0.0;
-    }
-    let t = ((sn - AGX_P2W_KNEE) / (1.0 - AGX_P2W_KNEE)).clamp(0.0, 1.0);
-    AGX_P2W_AMOUNT * t.powf(AGX_P2W_POWER)
-}
-
-/// Highlight path-to-white — mirror of raw_core `agx::path_to_white` (#1624).
-fn path_to_white(sig: [f32; 3]) -> [f32; 3] {
-    let sn = sig[0].max(sig[1]).max(sig[2]);
-    let w = p2w_weight(sn);
-    if w <= 0.0 {
-        return sig;
-    }
-    [
-        sig[0] + w * (sn - sig[0]),
-        sig[1] + w * (sn - sig[1]),
-        sig[2] + w * (sn - sig[2]),
-    ]
-}
-
 /// Apply AgX to a single pixel. Line-for-line port of `raw_core` `agx_pixel`.
 fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
     let inset = mul3(&AGX_INSET_MATRIX, scene);
@@ -352,7 +324,6 @@ fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
         let ratio = sn / n;
         [inset[0] * ratio, inset[1] * ratio, inset[2] * ratio]
     };
-    let sig = path_to_white(sig);
 
     let out = mul3(&AGX_OUTSET_MATRIX, sig);
     oklab_gamut_compress(out)

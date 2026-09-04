@@ -68,9 +68,6 @@ def emit_wgsl(
     LUT_SIZE: int,
     inset: list[list[float]],
     outset: list[list[float]],
-    P2W_AMOUNT: float,
-    P2W_KNEE: float,
-    P2W_POWER: float,
 ) -> None:
     """AgX constants as a WGSL module for the raw-gpu kernel (epic #925 P2 /
     #990). Inset/outset matrices (row-`vec3` consts + `mul_*` helpers) plus the
@@ -103,12 +100,6 @@ def emit_wgsl(
         f"const AGX_MID_NORM: f32 = {_wgsl_f(mid_norm)};\n"
         "// Sigmoid LUT entry count (linear-interpolated at runtime).\n"
         f"const AGX_LUT_SIZE: u32 = {LUT_SIZE}u;\n"
-        "// Highlight path-to-white (#1624): w = AMOUNT * clamp((sn - KNEE) /\n"
-        "// (1 - KNEE), 0, 1)^POWER on the sigmoided AgX-Base pixel, rgb += w *\n"
-        "// (max - rgb). Mirror of raw_core AGX_P2W_*.\n"
-        f"const AGX_P2W_AMOUNT: f32 = {_wgsl_f(P2W_AMOUNT)};\n"
-        f"const AGX_P2W_KNEE: f32 = {_wgsl_f(P2W_KNEE)};\n"
-        f"const AGX_P2W_POWER: f32 = {_wgsl_f(P2W_POWER)};\n"
         "\n"
         + _emit_wgsl_matrix(
             "AGX_INSET",
