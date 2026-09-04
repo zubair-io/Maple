@@ -18,6 +18,13 @@
 # step, so merging with a now-stale signature is fine; there is no need
 # to re-derive entitlements or codesign here.
 #
+# Scans the ENTIRE archive, not just Products/Applications, and does not
+# filter by the executable bit: dSYM DWARF binaries (needed for Intel
+# crash symbolication) and some embedded framework/dylib binaries are
+# regular files without the +x bit set, so `file`'s Mach-O detection is
+# the only filter — the performance cost of running it over every file in
+# a release archive is negligible. (jules review, #3331)
+#
 # Usage: merge-universal-archive.sh <arm64.xcarchive> <x86_64.xcarchive> \
 #          <output.xcarchive>
 #
@@ -41,17 +48,10 @@ fi
 rm -rf "$OUT_ARCHIVE"
 cp -R "$ARM64_ARCHIVE" "$OUT_ARCHIVE"
 
-X86_64_APP_DIR="$X86_64_ARCHIVE/Products/Applications"
-OUT_APP_DIR="$OUT_ARCHIVE/Products/Applications"
-
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-# Every Mach-O executable under the (copied) arm64 product tree: the main
-# app binary, each .appex's binary, any embedded command-line tool.
-# -perm -u+x avoids matching plain resource files; `file` confirms Mach-O
-# to exclude scripts/shell wrappers that happen to be executable.
-find "$OUT_APP_DIR" -type f -perm -u+x > "$WORKDIR/candidates.txt"
+find "$OUT_ARCHIVE" -type f > "$WORKDIR/candidates.txt"
 
 MERGED_COUNT=0
 while IFS= read -r OUT_BIN; do
@@ -59,8 +59,8 @@ while IFS= read -r OUT_BIN; do
     continue
   fi
 
-  REL="${OUT_BIN#"$OUT_APP_DIR"/}"
-  X86_64_BIN="$X86_64_APP_DIR/$REL"
+  REL="${OUT_BIN#"$OUT_ARCHIVE"/}"
+  X86_64_BIN="$X86_64_ARCHIVE/$REL"
 
   if [ ! -f "$X86_64_BIN" ]; then
     echo "WARN: no x86_64 counterpart for $REL — leaving arm64-only (unexpected unless this is a build-time-only tool)" >&2
@@ -68,12 +68,16 @@ while IFS= read -r OUT_BIN; do
   fi
 
   echo "=== Merging: $REL ==="
+  # Preserve the original mode: dSYM DWARF binaries and some embedded
+  # libraries are legitimately non-executable regular files, so this must
+  # not force +x on everything the way a blanket chmod would.
+  ORIG_MODE="$(stat -f '%OLp' "$OUT_BIN")"
   MERGED_BIN="$WORKDIR/merged-bin"
   rm -f "$MERGED_BIN"
   lipo -create "$OUT_BIN" "$X86_64_BIN" -output "$MERGED_BIN"
   lipo -info "$MERGED_BIN"
   cp "$MERGED_BIN" "$OUT_BIN"
-  chmod +x "$OUT_BIN"
+  chmod "$ORIG_MODE" "$OUT_BIN"
   MERGED_COUNT=$((MERGED_COUNT + 1))
 done < "$WORKDIR/candidates.txt"
 
