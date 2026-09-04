@@ -39,7 +39,7 @@ final class WbProvenanceXMPTests: XCTestCase {
         // A `.sampled` source with no derivation version is a label a paste
         // carried, not provenance — `wbSource` is copyable, the point and the
         // version are not. Writing `0,0` would claim a sample that never
-        // happened (review on #3309).
+        // happened (#3309).
         var pasted = AdjustmentModel()
         pasted.wbSource = .sampled
         pasted.wbSampleX = 0.4

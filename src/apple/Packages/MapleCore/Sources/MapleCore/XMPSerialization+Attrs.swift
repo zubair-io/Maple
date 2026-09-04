@@ -262,7 +262,7 @@ extension XMPSerializer {
         // pasted look copies `wbSource` but not the point or the version,
         // both non-copyable), and writing `0,0` there would claim a sample
         // that never happened. The version rides only with the two sources
-        // that can derive one (review on #3309).
+        // that can derive one (#3309).
         let derivedWb = model.wbAlgorithmVersion != 0
         if model.wbSource != .asShot {
             attrs.append(("papp:WbSource", model.wbSource.rawValue))

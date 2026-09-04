@@ -56,7 +56,7 @@ describe('parseWbSampleError (#2434)', () => {
   });
 });
 
-describe('manualWbPatch (#2434, #3309 review)', () => {
+describe('manualWbPatch (#2434, #3309)', () => {
   it('claims the edit and drops provenance the new pair did not come from', () => {
     // Dragging the pad after a sample must not keep reading "Sampled at …":
     // the coordinate no longer explains the value on screen.
