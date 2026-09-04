@@ -109,14 +109,7 @@ export class MuiVectorscopeComponent {
     // so drawing from an effect paints and is then immediately wiped. The
     // dependency list is #3276's full set.
     watchAndDraw(
-      [
-        this.samples,
-        this.size,
-        this.dotColor,
-        this.bins,
-        this.showSkinToneLine,
-        this.redAt3OClock,
-      ],
+      [this.samples, this.size, this.dotColor, this.bins, this.showSkinToneLine, this.redAt3OClock],
       () => this.draw(),
     );
   }
