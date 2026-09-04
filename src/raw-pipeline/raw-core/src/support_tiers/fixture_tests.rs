@@ -146,10 +146,12 @@ fn no_camera_fixture_is_missing_from_the_registry() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .filter(|name| name.starts_with("test_"))
         .filter(|name| {
-            std::path::Path::new(name)
-                .extension()
-                .map(|e| RAW_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
-                .unwrap_or(false)
+            std::path::Path::new(name).extension().is_some_and(|ext| {
+                let ext = ext.to_string_lossy();
+                RAW_EXTENSIONS
+                    .iter()
+                    .any(|known| known.eq_ignore_ascii_case(&ext))
+            })
         })
         .filter(|name| {
             !NON_BODY_FIXTURES.contains(&name.as_str())
