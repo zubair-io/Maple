@@ -109,6 +109,23 @@ jobs:
           XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
           echo "Selecting $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP"
+          echo "XCODE_APP=$XCODE_APP" >> "$GITHUB_ENV"
+
+      # A universal (x86_64 + arm64) archive of the full app + extensions,
+      # on top of the four-slice xcframework built two steps down, is a lot
+      # of DerivedData/module-cache. GitHub's macOS image ships several
+      # Xcode versions (several GB each); freeing every one but the version
+      # we actually use reclaims real headroom without touching anything
+      # the build depends on.
+      - name: Reclaim disk (drop unused Xcode versions)
+        run: |
+          df -h / /Users/runner/Library/Developer/Xcode 2>/dev/null || df -h /
+          for app in /Applications/Xcode_*.app; do
+            [ "$app" = "$XCODE_APP" ] && continue
+            echo "Removing $app"
+            sudo rm -rf "$app"
+          done
+          df -h /
 
       - name: Install Rust toolchain (Apple targets)
         uses: dtolnay/rust-toolchain@stable
@@ -136,6 +153,9 @@ jobs:
       # self-contained). Release profile is the script default.
       - name: Build RawPipeline.xcframework (release)
         run: ./src/apple/scripts/build-xcframework.sh
+
+      - name: Disk usage before archive
+        run: df -h /
 
       - name: Archive
         env:
