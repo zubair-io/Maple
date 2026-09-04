@@ -152,10 +152,13 @@ export class EditorStateService {
   /** True between `beginGesture()` and `endGesture()`. */
   private readonly _gestureActive = signal<boolean>(false);
 
-  /** True while a continuous value gesture (drag bar, slider drag, canvas
-   *  scrub, wheel burst) is in flight — the command router refuses
-   *  navigation for its duration so an uncommitted interaction can never
-   *  land on another asset (#2450). */
+  /** True between `beginGesture()` and `endGesture()` — a drag bar or slider
+   *  drag, or a wheel burst on a commit-on-release field, whose value is
+   *  parked rather than written. One of the inputs to the command router's
+   *  navigation guard, which also covers a canvas scrub (`shell.scrubbing()`)
+   *  and a wheel burst on any other tool (`wheelBurstActive`, whose value is
+   *  already written but whose undo transaction is still open) — so this
+   *  alone is NOT "a gesture is in flight" (#2450). */
   readonly gestureActive = computed<boolean>(() => this._gestureActive());
 
   /** True when writes from the armed pair are held until gesture end. */
