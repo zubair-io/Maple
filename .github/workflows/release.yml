@@ -166,35 +166,34 @@ jobs:
       - name: Disk usage before archive
         run: df -h /
 
-      # Confirmed 2026-09-04 via the vm_stat sampler below: this step was
-      # dying from real memory exhaustion (~138MB free at death, on a
-      # runner with ~6-7GB total RAM), not disk (ruled out — 53GB free
-      # right before Archive) and not a normal build failure (no compiler
-      # error, no "** ARCHIVE FAILED **" banner, which xcodebuild always
-      # prints on exit). Building two full architectures (x86_64 + arm64)
-      # for a large dependency tree already pushed close to the edge;
-      # SWIFT_COMPILATION_MODE=wholemodule (the project's Release setting,
-      # project.pbxproj) holds the entire module in memory at once for
-      # cross-file optimization, which is what tips it over.
+      # Confirmed 2026-09-04 via a vm_stat sampler: a single-invocation
+      # universal (arm64+x86_64) archive was dying from real memory
+      # exhaustion (~138MB free at death, on a runner with ~6-7GB total
+      # RAM) — not disk (ruled out, 53GB free right before Archive) and
+      # not a normal build failure (no compiler error, no
+      # "** ARCHIVE FAILED **" banner). Two architectures' worth of
+      # compiling+linking a large dependency tree (GRDB, swift-otel,
+      # NIO/gRPC) in one process exceeded the runner's memory regardless
+      # of Swift compilation mode (#3326's SWIFT_COMPILATION_MODE=
+      # singlefile override reduced compile-time pressure but the build
+      # still died at almost exactly the same elapsed time, pointing at
+      # a resource cost that override doesn't touch).
       #
-      # SWIFT_COMPILATION_MODE=singlefile below overrides that for this
-      # CI archive ONLY — it's a command-line build-setting override, so
-      # the checked-in project is untouched and Xcode Cloud / App Store /
-      # local builds keep whole-module optimization. This GitHub-distributed
-      # build trades some cross-file optimization for materially lower peak
-      # memory; approved as a deliberate tradeoff (not a default CI
-      # mitigation) since it changes the shipped binary's characteristics.
-      # IDEBuildOperationMaxNumberOfConcurrentCompileTasks and the memlog
-      # sampler stay as extra headroom / diagnostics.
-      - name: Archive
+      # Fix: archive each architecture separately (half the memory
+      # footprint each time, at the project's normal wholemodule
+      # optimization — no need for the singlefile tradeoff once only one
+      # arch is in play), then lipo-merge the two into one universal
+      # .xcarchive. merge-universal-archive.sh deliberately does no
+      # re-signing — the "Export with Developer ID" step below already
+      # performs a full codesigning pass over the merged tree.
+      - name: Archive (arm64)
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
-          IDEBuildOperationMaxNumberOfConcurrentCompileTasks: 2
         run: |
           (while true; do
-            { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog.txt"
+            { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog-arm64.txt"
             sleep 20
           done) &
           MEMLOG_PID=$!
@@ -203,24 +202,61 @@ jobs:
           xcodebuild -project src/apple/Maple.xcodeproj \
             -scheme "Maple Exposure" \
             -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
+            -archivePath "$RUNNER_TEMP/Maple-arm64.xcarchive" \
             archive \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            SWIFT_COMPILATION_MODE=singlefile
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
 
-      - name: Upload memory log
+      - name: Archive (x86_64)
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          (while true; do
+            { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog-x86_64.txt"
+            sleep 20
+          done) &
+          MEMLOG_PID=$!
+
+          set +e
+          xcodebuild -project src/apple/Maple.xcodeproj \
+            -scheme "Maple Exposure" \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/Maple-x86_64.xcarchive" \
+            archive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$APPSTORE_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO
+          STATUS=$?
+          kill "$MEMLOG_PID" 2>/dev/null
+          exit $STATUS
+
+      - name: Merge into universal archive
+        run: |
+          ./src/apple/scripts/merge-universal-archive.sh \
+            "$RUNNER_TEMP/Maple-arm64.xcarchive" \
+            "$RUNNER_TEMP/Maple-x86_64.xcarchive" \
+            "$RUNNER_TEMP/Maple.xcarchive"
+
+      - name: Upload memory logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: archive-memlog
-          path: ${{ runner.temp }}/memlog.txt
+          name: archive-memlogs
+          path: |
+            ${{ runner.temp }}/memlog-arm64.txt
+            ${{ runner.temp }}/memlog-x86_64.txt
           if-no-files-found: ignore
 
       # developer-id export re-signs the archive with the Developer ID
