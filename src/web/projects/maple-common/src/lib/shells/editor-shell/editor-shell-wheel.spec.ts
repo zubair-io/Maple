@@ -48,8 +48,12 @@ function wheel(deltaY: number, init: Partial<WheelEventInit> = {}): WheelEvent {
 describe('detentsFor', () => {
   it('turns line-mode ticks into one detent each and accumulates pixel deltas', () => {
     const state = newWheelNudgeState();
+    // One notch is one detent whatever the OS's lines-per-notch setting is:
+    // Firefox sends ±3 lines for a single notch, ±1 when set to one line.
     expect(detentsFor(state, wheel(-3, { deltaMode: 1 }))).toBe(1);
     expect(detentsFor(state, wheel(3, { deltaMode: 1 }))).toBe(-1);
+    expect(detentsFor(state, wheel(-1, { deltaMode: 1 }))).toBe(1);
+    expect(detentsFor(state, wheel(-1, { deltaMode: 2 }))).toBe(1);
     expect(detentsFor(state, wheel(-DETENT_PX / 2))).toBe(0);
     expect(detentsFor(state, wheel(-DETENT_PX / 2))).toBe(1);
     expect(detentsFor(state, wheel(DETENT_PX * 2.5))).toBe(-2);

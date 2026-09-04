@@ -10,6 +10,7 @@ import type { EditorShellComponent } from './editor-shell.component';
 import {
   COMPARE_HOLD_MS,
   cancelCompare,
+  compareActivate,
   executeIntent,
   focusContextOf,
   newCommandRouterState,
@@ -205,6 +206,18 @@ describe('executeIntent', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('activates before/after from a synthesized click (keyboard / AT), not a pointer one', () => {
+    const shell = makeShell();
+    const router = newCommandRouterState();
+    // Enter, Space and an AT "press" action synthesize a click with detail 0
+    // and no pointerdown/up pair — without this the control is mouse-only.
+    compareActivate(asShell(shell), router, new MouseEvent('click', { detail: 0 }));
+    expect(shell.canvasSvc.toggleBeforeAfter).toHaveBeenCalledTimes(1);
+    // A real pointer click already ran the press/release pair; ignore it.
+    compareActivate(asShell(shell), router, new MouseEvent('click', { detail: 1 }));
+    expect(shell.canvasSvc.toggleBeforeAfter).toHaveBeenCalledTimes(1);
   });
 
   it('a release on another asset ends the peek without latching', () => {

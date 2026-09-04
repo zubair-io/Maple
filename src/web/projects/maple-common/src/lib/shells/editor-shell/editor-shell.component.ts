@@ -73,6 +73,7 @@ import {
   type CommandRouterState,
   bind,
   cancelCompare,
+  compareActivate,
   comparePointerDown,
   comparePointerUp,
   executeIntent,
@@ -326,6 +327,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   onComparePointerDown(e: PointerEvent): void {
     comparePointerDown(this, this.commandRouter, e);
   }
+
+  /** Keyboard / AT activation of before/after (`compareActivate` ignores pointer clicks). */
+  onCompareClick = (e: MouseEvent) => compareActivate(this, this.commandRouter, e);
 
   onComparePointerUp(): void {
     comparePointerUp(this, this.commandRouter);
