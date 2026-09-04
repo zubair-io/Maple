@@ -19,7 +19,16 @@ const artifactRoot = resolve(
 // none for a lazy-route or `@defer` chunk, which is only ever reached via a
 // runtime `import()` the builder can't know is coming. Summing those is the
 // actual initial payload; anything else in dist/ is deferred by definition.
-const MAX_EAGER_BYTES = 1_160_000;
+// Raised once, for #2450's editor command surface: the command table, the
+// router and the wheel-nudge handler are reached from a keydown on the
+// canvas, so they cannot be deferred, and Hosted bundles the whole editor
+// shell eagerly because the editor IS the Hosted app. Measured on the same
+// machine, same build: origin/main 1_151_397, #2450 1_162_359 (+10_962).
+// Deferring the palette component was tried and REJECTED — @defer split the
+// eager graph into more chunks and the total came out 774 bytes WORSE. The
+// new ceiling keeps ~600 bytes of slack over the measured figure, so this
+// stays a ratchet: it moves for a measured feature, not for drift.
+const MAX_EAGER_BYTES = 1_163_000;
 const SERVER_ONLY_MARKERS = [
   '/api/metadata/snapshots',
   '/api/pano/stitch',

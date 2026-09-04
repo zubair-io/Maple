@@ -149,17 +149,8 @@ export class EditorStateService {
 
   /** In-flight, uncommitted display value; `null` when nothing is deferred. */
   private readonly _deferredDisplay = signal<number | null>(null);
-  /** True between `beginGesture()` and `endGesture()`. */
-  private readonly _gestureActive = signal<boolean>(false);
-
-  /** True between `beginGesture()` and `endGesture()` — a drag bar or slider
-   *  drag, or a wheel burst on a commit-on-release field, whose value is
-   *  parked rather than written. One of the inputs to the command router's
-   *  navigation guard, which also covers a canvas scrub (`shell.scrubbing()`)
-   *  and a wheel burst on any other tool (`wheelBurstActive`, whose value is
-   *  already written but whose undo transaction is still open) — so this
-   *  alone is NOT "a gesture is in flight" (#2450). */
-  readonly gestureActive = computed<boolean>(() => this._gestureActive());
+  /** A parked value: one input to the router's nav guard, not all of it (#2450). */
+  readonly gestureActive = signal<boolean>(false);
 
   /** True when writes from the armed pair are held until gesture end. */
   readonly armedCommitsOnRelease = computed<boolean>(() => isCommitOnRelease(this.armedSubParam()));
@@ -300,7 +291,7 @@ export class EditorStateService {
    * gesture's target is no longer armed (image switch, tool/sub-param
    * switch), so committing would land on the wrong field. */
   private _discardDeferred(): void {
-    this._gestureActive.set(false);
+    this.gestureActive.set(false);
     this._deferredDisplay.set(null);
   }
 
@@ -318,16 +309,16 @@ export class EditorStateService {
    * scrub). Only meaningful for commit-on-release sub-params; harmless
    * otherwise. Pairs with `endGesture()`. */
   beginGesture(): void {
-    if (this._gestureActive()) return; // idempotent — see Apple's counterpart
+    if (this.gestureActive()) return; // idempotent — see Apple's counterpart
     this._deferredDisplay.set(null);
-    this._gestureActive.set(true);
+    this.gestureActive.set(true);
   }
 
   /** Mark the end of a continuous value gesture and flush the parked value,
    * if any, as the single model write of the whole gesture. */
   endGesture(): void {
     const deferred = this._deferredDisplay();
-    this._gestureActive.set(false);
+    this.gestureActive.set(false);
     this._deferredDisplay.set(null);
     if (deferred != null) this.setArmedDisplayValue(deferred);
     // The gesture's release is the transaction's commit boundary (#2432):
@@ -350,7 +341,7 @@ export class EditorStateService {
   setArmedDisplayValue(value: number): void {
     const id = this.imageId();
     if (id == null || !this.armedToolAcceptsValueEdits()) return;
-    if (this._gestureActive() && this.armedCommitsOnRelease()) {
+    if (this.gestureActive() && this.armedCommitsOnRelease()) {
       this._deferredDisplay.set(value);
       return;
     }
