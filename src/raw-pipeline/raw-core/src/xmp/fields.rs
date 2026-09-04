@@ -299,7 +299,7 @@ pub(super) fn set_field(
         // it would mean a sidecar written by a future build that adds a
         // source loses EVERY adjustment on open, to protect a caption. So an
         // unrecognised value falls back to the default, matching what the
-        // Swift and TS parsers do (review on #3309). The sample point and
+        // Swift and TS parsers do (#3309). The sample point and
         // algorithm version are plain numerics.
         "papp:WbSource" => {
             m.wb_source = match value {
