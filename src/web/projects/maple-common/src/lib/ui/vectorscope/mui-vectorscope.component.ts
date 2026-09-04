@@ -207,6 +207,39 @@ export class MuiVectorscopeComponent {
    * log(1+max)`) rather than linear, so a single dominant bin (the grey
    * axis on most real photos) doesn't crush every other bin down to
    * invisible. Mirrors Apple's `MuiVectorscope.drawDensity` line for line. */
+  /** Largest bin count, or 0 when the grid is empty — the log scale's
+   *  denominator. Split out of `drawDensity` to keep that method within the
+   *  complexity budget the web fallow audit enforces. */
+  private static peakBin(bins: readonly (readonly number[])[]): number {
+    let peak = 0;
+    for (const row of bins) {
+      for (const v of row) {
+        if (v > peak) peak = v;
+      }
+    }
+    return peak;
+  }
+
+  /** Canvas point for bin `(row, col)` of an `n x n` grid over the same
+   *  [-0.5, 0.5] chroma square the scatter path maps. Row 0 is the
+   *  most-positive cr (cr grows UP on screen), hence `0.5 - row / n`. */
+  private static binPoint(
+    row: number,
+    col: number,
+    n: number,
+    cx: number,
+    cy: number,
+    radius: number,
+    rotationDeg: number,
+  ): { readonly x: number; readonly y: number } {
+    let cb = col / n - 0.5;
+    let cr = 0.5 - row / n;
+    if (rotationDeg !== 0) {
+      ({ cb, cr } = rotated(cb, cr, rotationDeg));
+    }
+    return { x: cx + cb * radius * 2, y: cy - cr * radius * 2 };
+  }
+
   private drawDensity(
     ctx: CanvasRenderingContext2D,
     bins: readonly (readonly number[])[],
@@ -216,32 +249,17 @@ export class MuiVectorscopeComponent {
     rotationDeg: number,
   ): void {
     const n = bins.length;
-    if (n === 0) return;
-    let maxCount = 0;
-    for (const row of bins) {
-      for (const v of row) {
-        if (v > maxCount) maxCount = v;
-      }
-    }
-    if (maxCount <= 0) return;
+    const peak = MuiVectorscopeComponent.peakBin(bins);
+    if (n === 0 || peak <= 0) return;
     const cell = (radius * 2) / n;
     const baseColor = resolveColor(this.canvas()!.nativeElement, this.dotColor());
+    const logPeak = Math.log(1 + peak);
     for (let row = 0; row < n; row++) {
       for (let col = 0; col < n; col++) {
         const count = bins[row][col];
         if (count <= 0) continue;
-        const t = Math.log(1 + count) / Math.log(1 + maxCount);
-        // Bin (row, col) covers an n×n grid over the SAME [-0.5, 0.5]
-        // chroma square the scatter path maps — row 0 is the most-positive
-        // cr (cr grows UP on screen, so the top row is HIGH cr, hence
-        // `0.5 - row/n`).
-        let cb = col / n - 0.5;
-        let cr = 0.5 - row / n;
-        if (rotationDeg !== 0) {
-          ({ cb, cr } = rotated(cb, cr, rotationDeg));
-        }
-        const x = cx + cb * radius * 2;
-        const y = cy - cr * radius * 2;
+        const t = Math.log(1 + count) / logPeak;
+        const { x, y } = MuiVectorscopeComponent.binPoint(row, col, n, cx, cy, radius, rotationDeg);
         ctx.fillStyle = withOpacity(baseColor, 0.15 + 0.85 * t);
         ctx.fillRect(x - cell / 2, y - cell / 2, cell, cell);
       }
