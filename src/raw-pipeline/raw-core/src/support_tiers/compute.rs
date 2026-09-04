@@ -69,6 +69,11 @@ pub enum TierReason {
     /// No suite declares this body, so there is nothing that could promote
     /// it. Silence is not evidence.
     NoQualificationDeclared,
+    /// The body declares qualification sources, but its resolver branch
+    /// cannot reach [`Qualified`](CameraTier::Qualified) however good the
+    /// evidence is: measuring a render that has no real calibration behind
+    /// it would qualify the measurement, not the camera.
+    NotPromotableFromResolution(ProfileResolution),
     /// Collapsed to the worst tier of several bodies that share a lookup
     /// key and cannot be told apart from metadata.
     IndistinguishableWith(Vec<&'static str>),
@@ -101,15 +106,23 @@ pub fn classify_body(body: &FixturedBody, evidence: &Evidence) -> BodyClassifica
             status: judge(*source, evidence),
         })
         .collect();
+    // Three distinct ways not to be promoted, and they are not
+    // interchangeable: a body nobody measures, a body that cannot benefit
+    // from being measured, and a body whose measurement did not pass. Only
+    // the last one is a call to action.
     let promotable = base == CameraTier::Profiled;
     let all_satisfied = !findings.is_empty() && findings.iter().all(|f| f.status.is_satisfied());
     let (tier, promotion_reason) = match (promotable, findings.is_empty(), all_satisfied) {
+        (_, true, _) => (base, TierReason::NoQualificationDeclared),
+        (false, _, _) => (
+            base,
+            TierReason::NotPromotableFromResolution(body.resolution),
+        ),
         (true, false, true) => (
             CameraTier::Qualified,
             TierReason::QualifiedBy(body.qualification),
         ),
         (true, false, false) => (base, TierReason::HeldBack(findings.clone())),
-        _ => (base, TierReason::NoQualificationDeclared),
     };
     let base_reason = if body.resolution == ProfileResolution::DecodeFailed {
         TierReason::DecodeUnsupported
