@@ -4,9 +4,23 @@
 #
 # Deliberately NOT wired to pushes on main: merging is not releasing. A
 # release happens when a `v*` tag is pushed (e.g. `git tag v0.1.0 && git
-# push origin v0.1.0`), which builds, signs, and attaches both binaries to
-# a GitHub Release. `workflow_dispatch` runs the same build for a dry run —
+# push origin v0.1.0`), which builds, signs, and publishes to a GitHub
+# Release. `workflow_dispatch` runs the same build for a dry run —
 # artifacts land on the workflow run, but no Release is created.
+#
+# macOS job DISABLED (`if: false`) as of #3332 — see that issue for full
+# handoff context. It builds and signs correctly (Developer ID cert,
+# notarization key, Azure-equivalent steps all proven working) but the
+# Archive step reproducibly dies silently around ~27 minutes in, on
+# EVERY build-shape tried (universal wholemodule, universal singlefile,
+# even a single-architecture build) — the consistency across such
+# different workloads rules out memory/compile-mode as the cause and
+# points at something time-based, most plausibly the App Store Connect
+# API JWT (`-authenticationKeyPath`, used for -allowProvisioningUpdates)
+# expiring at Apple's documented 20-minute lifetime mid-provisioning
+# negotiation. That needs a real Mac to debug interactively — every CI
+# round-trip here costs ~30 minutes with no visibility beyond logs.
+# publish-release only needs windows-app until this is re-enabled.
 #
 # Required repository secrets (see PR description for how to mint each):
 #   macOS signing + notarization
@@ -47,6 +61,10 @@ env:
 jobs:
   macos-app:
     name: macOS (build, sign, notarize)
+    # Disabled — see the header comment and #3332 for why and how to
+    # re-enable once the ~27-minute Archive death is root-caused on a
+    # real Mac.
+    if: false
     runs-on: macos-15
     timeout-minutes: 120
     steps:
@@ -442,8 +460,10 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     # Dry runs (workflow_dispatch) stop at artifacts — no Release.
+    # needs windows-app only while macos-app is disabled (see header
+    # comment) — a skipped job in `needs` would otherwise skip this too.
     if: github.ref_type == 'tag'
-    needs: [macos-app, windows-app]
+    needs: [windows-app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
