@@ -32,12 +32,16 @@ struct EditorSeedThumbnail: View {
     var body: some View {
         ZStack {
             if visible, let image {
-                Image(decorative: image, scale: 1)
+                // Labelled, not `Image(decorative:)`: this is the only thing
+                // on screen while a cloud asset downloads, so a screen reader
+                // announcing "loading preview" is the correct behaviour —
+                // and a decorative image is hidden from the accessibility
+                // tree entirely, taking the UI-test identifier with it.
+                Image(image, scale: 1, label: Text("Loading preview"))
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
                     .transition(.opacity)
-                    .accessibilityLabel("Loading preview")
                     .accessibilityIdentifier("editor-seed-thumbnail")
             }
         }
