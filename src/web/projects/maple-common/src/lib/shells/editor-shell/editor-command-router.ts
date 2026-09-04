@@ -249,6 +249,24 @@ export function comparePointerUp(shell: EditorShellComponent, router: CommandRou
   executeIntent(shell, router, bind(shell, { kind: 'compare.release' }));
 }
 
+/** Keyboard / assistive-tech activation of the before/after control. Enter,
+ *  Space and an AT "press" action synthesize a `click` with no pointerdown/up
+ *  pair, so the pointer handlers alone would make the button dead to anything
+ *  but a mouse or a finger. Press and release as one tap — which latches, the
+ *  same as a short pointer press; a momentary peek stays a pointer/key hold. */
+export function compareActivate(
+  shell: EditorShellComponent,
+  router: CommandRouterState,
+  e: MouseEvent,
+): void {
+  // A real pointer click follows its own pointerdown/up pair, which already
+  // ran the press and release; only a synthesized one (`detail === 0`) needs
+  // this path.
+  if (e.detail !== 0) return;
+  executeIntent(shell, router, bind(shell, { kind: 'compare.press' }));
+  executeIntent(shell, router, bind(shell, { kind: 'compare.release' }));
+}
+
 /** Cycle the armed tool within its group; `byGroup` cycles the group. */
 function cycleTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: boolean): void {
   if (byGroup) {
