@@ -253,13 +253,54 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
       },
       featuresRow: 'Masks / local adjustments',
     }),
-    tool: { web: 'mask', apple: null },
+    tool: { web: 'mask', apple: 'mask' },
     reachability: { apple: 'absent', web: 'released' },
     exception: {
       platform: 'apple',
       rationale:
-        'The web Mask tool (linear + radial masks over the shared raw-core stage) shipped first; the Apple Mask panel is #355 / #3291.',
+        'The web Mask tool (linear + radial masks over the shared raw-core stage) shipped first. Apple has the Tool case and dock entry from #3274, but its panel lands in #3275 / #3291.',
       ticket: '#355',
+    },
+  },
+  {
+    id: 'tool.heal',
+    name: 'Heal',
+    group: 'detail',
+    order: 66,
+    tool: { web: null, apple: 'heal' },
+    field: null,
+    reachability: { apple: 'partial', web: 'absent' },
+    presentation: {
+      compact:
+        'Apple: a Heal entry exists in the Detail dock but arms no surface — Tool.isWired is false, so the control card stays on the previous tool',
+      regular: 'Same as compact',
+      wide: 'Same as regular',
+    },
+    interaction: {
+      keyboard: 'Reachable by Tab like any dock entry; arming it changes nothing',
+      pointer: 'Tap/click arms the case with no panel behind it',
+      touch: 'Same as pointer',
+      focus: 'No overlay claims the canvas pointer stream',
+    },
+    accessibility: {
+      role: 'button (dock entry only)',
+      name: 'Heal',
+      value: 'none — value-less, unwired tool',
+      state: 'none — no model field, so nothing to commit or undo',
+      actions: ['arm the Heal dock entry (inert until #1472 builds its surface)'],
+    },
+    participation: {
+      undo: false,
+      copyPaste: null,
+      history: false,
+      preview: 'none',
+      export: false,
+    },
+    exception: {
+      platform: 'both',
+      rationale:
+        'Heal ships on neither platform: Apple has a Tool case and dock glyph so the inpainting epic has a mount point, but isWired is false and no panel exists; web has no heal tool at all.',
+      ticket: '#1472',
     },
   },
   panelTool({
