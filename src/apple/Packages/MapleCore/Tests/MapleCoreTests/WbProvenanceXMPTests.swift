@@ -35,6 +35,26 @@ final class WbProvenanceXMPTests: XCTestCase {
         let presetXml = XMPSerializer.serialize(model: preset, culling: CullingState())
         XCTAssertTrue(presetXml.contains(#"papp:WbSource="Preset""#))
         XCTAssertFalse(presetXml.contains("papp:WbSampleX"))
+
+        // A `.sampled` source with no derivation version is a label a paste
+        // carried, not provenance — `wbSource` is copyable, the point and the
+        // version are not. Writing `0,0` would claim a sample that never
+        // happened (review on #3309).
+        var pasted = AdjustmentModel()
+        pasted.wbSource = .sampled
+        pasted.wbSampleX = 0.4
+        pasted.wbSampleY = 0.6
+        let pastedXml = XMPSerializer.serialize(model: pasted, culling: CullingState())
+        XCTAssertTrue(pastedXml.contains(#"papp:WbSource="Sampled""#))
+        XCTAssertFalse(pastedXml.contains("papp:WbSampleX"), pastedXml)
+        XCTAssertFalse(pastedXml.contains("papp:WbAlgorithmVersion"), pastedXml)
+
+        // Nor a version stranded on a source that cannot derive one.
+        var manual = AdjustmentModel()
+        manual.wbSource = .manual
+        manual.wbAlgorithmVersion = 1
+        let manualXml = XMPSerializer.serialize(model: manual, culling: CullingState())
+        XCTAssertFalse(manualXml.contains("papp:WbAlgorithmVersion"), manualXml)
     }
 
     func testWbSourceParsesCaseInsensitivelyAndDropsUnknown() throws {

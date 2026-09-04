@@ -189,6 +189,28 @@ describe('XMP enum mode fields (#2214)', () => {
       expect(model.wbAlgorithmVersion).toBe(1);
     });
 
+    it('never writes provenance detail the pair was not actually derived from (#3309 review)', () => {
+      // A `Sampled` source with no derivation version is a label a paste
+      // carried, not provenance: writing `0,0` would claim a sample that
+      // never happened.
+      const pasted = defaultAdjustmentModel();
+      pasted.wbSource = 'Sampled';
+      pasted.wbSampleX = 0.4;
+      pasted.wbSampleY = 0.6;
+      pasted.wbAlgorithmVersion = 0;
+      const pastedXml = serializer.serialize(pasted);
+      expect(pastedXml).toContain('papp:WbSource="Sampled"');
+      expect(pastedXml).not.toContain('papp:WbSampleX');
+      expect(pastedXml).not.toContain('papp:WbAlgorithmVersion');
+
+      // A version left over on a model whose source is no longer derived
+      // must not ride along either.
+      const manual = defaultAdjustmentModel();
+      manual.wbSource = 'Manual';
+      manual.wbAlgorithmVersion = 1;
+      expect(serializer.serialize(manual)).not.toContain('papp:WbAlgorithmVersion');
+    });
+
     it('never writes the sample point without a sampled source (#3309 review)', () => {
       // A stale coordinate left in the model — a pasted look carries the
       // source but not the point — must not leak into the sidecar and claim

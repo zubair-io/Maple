@@ -137,11 +137,19 @@ export class WbPadComponent {
    * of pick mode, so the cursor can never be stranded in it.
    */
   async onEyedropperClick(): Promise<void> {
+    // Cancel only while the pick is genuinely armed. Between the click and
+    // the sampler's reply the button is still "active" but there is nothing
+    // to cancel — the worker request can't be recalled — so a second press
+    // there must do nothing rather than re-arm into a sample that would
+    // silently no-op behind the in-flight guard (Copilot review on #3309).
     if (this.eyedropperActive()) {
-      this.pick.cancel();
-      this.eyedropperActive.set(false);
+      if (this.pick.active()) {
+        this.pick.cancel();
+        this.eyedropperActive.set(false);
+      }
       return;
     }
+    if (this.editor.wbSampleInFlight()) return;
     const id = this.library.focusedAssetId();
     if (!id) return;
     this.eyedropperActive.set(true);
