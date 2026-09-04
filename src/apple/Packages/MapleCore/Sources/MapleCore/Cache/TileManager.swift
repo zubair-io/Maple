@@ -96,9 +96,7 @@ public actor TileManager {
     /// as-shot bake — native-detail tiles rendered under the old anchor
     /// carry the cyan overcool; paired with RenderedPreviewCache
     /// viewTransformVersion=8.
-    /// v6 (2026-09-03, #1624): AgX highlight path-to-white (AGX_VERSION 9);
-    /// paired with RenderedPreviewCache viewTransformVersion=9.
-    public static let viewTransformVersion: UInt32 = 6
+    public static let viewTransformVersion: UInt32 = 5
 
     /// Byte budget for the in-memory tile cache (#2061f). At the default
     /// 512² `.RGBAh` tile geometry (512*512*8 bytes ≈ 2MB/tile) this caps
