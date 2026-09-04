@@ -273,6 +273,12 @@ extension EditorView {
                 }
             }
             .padding(24)
+            // `canvasLayer`'s ZStack is top-aligned (the chrome above the
+            // canvas depends on it), so a bare child pins to the top edge.
+            // Inside the placeholder this used to be an `.overlay`, which
+            // centres by default — fill and centre explicitly to keep the
+            // progress where it has always been.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 }
