@@ -53,9 +53,17 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 find "$OUT_ARCHIVE" -type f > "$WORKDIR/candidates.txt"
 
+# Note: candidates are discovered from the arm64 tree only, so a
+# hypothetical x86_64-exclusive binary with no arm64 counterpart would go
+# unmerged. Not a concern for this project today (verified against
+# project.pbxproj — every macOS target is universal), but worth knowing
+# if that ever changes.
 MERGED_COUNT=0
 while IFS= read -r OUT_BIN; do
-  if ! file "$OUT_BIN" | grep -q "Mach-O"; then
+  # -b (brief): file contents only, no leading "path:" — otherwise a path
+  # that happened to contain the literal substring "Mach-O" would false-
+  # match (jules review, #3331).
+  if ! file -b "$OUT_BIN" | grep -q "Mach-O"; then
     continue
   fi
 
@@ -76,7 +84,12 @@ while IFS= read -r OUT_BIN; do
   rm -f "$MERGED_BIN"
   lipo -create "$OUT_BIN" "$X86_64_BIN" -output "$MERGED_BIN"
   lipo -info "$MERGED_BIN"
-  cp "$MERGED_BIN" "$OUT_BIN"
+  # rm+mv rather than cp: some SwiftPM-cache-derived binaries land in the
+  # archive read-only, and cp onto a read-only destination file fails
+  # with Permission denied — unlinking first only needs the containing
+  # directory to be writable (jules review, #3331).
+  rm -f "$OUT_BIN"
+  mv "$MERGED_BIN" "$OUT_BIN"
   chmod "$ORIG_MODE" "$OUT_BIN"
   MERGED_COUNT=$((MERGED_COUNT + 1))
 done < "$WORKDIR/candidates.txt"
