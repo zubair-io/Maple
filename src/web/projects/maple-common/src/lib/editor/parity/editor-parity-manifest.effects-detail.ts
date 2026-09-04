@@ -254,12 +254,8 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
       featuresRow: 'Masks / local adjustments',
     }),
     tool: { web: 'mask', apple: 'mask' },
-    reachability: { apple: 'absent', web: 'released' },
-    exception: {
-      platform: 'apple',
-      rationale: 'Web shipped first; the Apple panel lands in #3275.',
-      ticket: '#355',
-    },
+    reachability: { apple: 'released', web: 'released' },
+    exception: null,
   },
   {
     id: 'tool.heal',
