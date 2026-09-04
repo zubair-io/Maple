@@ -1,18 +1,53 @@
 {
   "layers": [
     {
-      "mask": { "kind": "linear", "start": [0.1, 0.2], "end": [0.9, 0.8], "feather": 0.4 },
+      "mask": {
+        "kind": "linear",
+        "start": [0.1, 0.2],
+        "end": [0.9, 0.8],
+        "feather": 0.4
+      },
       "range": null,
       "adjustments": { "exposure": 0.5, "shadows": -20.0, "hue": null }
     },
     {
-      "mask": { "kind": "radial", "center": [0.5, 0.4], "radii": [0.25, 0.15], "angle": 0.7853981633974483, "feather": 0.6, "invert": true },
-      "range": { "hueDeg": 55.0, "hueHalfWidthDeg": 25.0, "chromaMin": 0.02, "lMin": 0.15, "lMax": 0.95, "feather": 0.3 },
-      "adjustments": { "contrast": 15.0, "vibrance": -10.0, "temperature": 200.0, "hue": -20.0 }
+      "mask": {
+        "kind": "radial",
+        "center": [0.5, 0.4],
+        "radii": [0.25, 0.15],
+        "angle": 0.7853981633974483,
+        "feather": 0.6,
+        "invert": true
+      },
+      "range": {
+        "hueDeg": 55.0,
+        "hueHalfWidthDeg": 25.0,
+        "chromaMin": 0.02,
+        "lMin": 0.15,
+        "lMax": 0.95,
+        "feather": 0.3
+      },
+      "adjustments": {
+        "contrast": 15.0,
+        "vibrance": -10.0,
+        "temperature": 200.0,
+        "hue": -20.0
+      }
     },
     {
-      "mask": { "kind": "bitmap", "raster_id": 0, "digest": "0011223344556677" },
-      "range": { "hueDeg": 55.0, "hueHalfWidthDeg": 25.0, "chromaMin": 0.02, "lMin": 0.15, "lMax": 0.95, "feather": 0.3 },
+      "mask": {
+        "kind": "bitmap",
+        "raster_id": 0,
+        "digest": "0011223344556677"
+      },
+      "range": {
+        "hueDeg": 55.0,
+        "hueHalfWidthDeg": 25.0,
+        "chromaMin": 0.02,
+        "lMin": 0.15,
+        "lMax": 0.95,
+        "feather": 0.3
+      },
       "adjustments": { "hue": 30.0 }
     },
     {
