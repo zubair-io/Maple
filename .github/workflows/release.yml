@@ -166,19 +166,26 @@ jobs:
       - name: Disk usage before archive
         run: df -h /
 
-      # The last two attempts died silently mid-Archive: no compiler error,
-      # no "** ARCHIVE FAILED **" banner (xcodebuild always prints one on
-      # exit, pass or fail) — meaning the process was killed by signal, not
-      # a normal build failure. Disk is confirmed NOT the cause (53GB free
-      # right before this step, verified 2026-09-04). Memory is the next
-      # candidate: this builds two full architectures (x86_64 + arm64) in
-      # parallel for a large dependency tree, on a runner with limited RAM.
-      # IDEBuildOperationMaxNumberOfConcurrentCompileTasks caps how many
-      # Swift files Xcode compiles at once — lowering it only ever reduces
-      # peak memory, never correctness, so it's safe regardless of whether
-      # this turns out to be the actual cause. The background vm_stat
-      # sampler + artifact upload exists so that if it fails again, the
-      # next iteration has real memory numbers instead of another guess.
+      # Confirmed 2026-09-04 via the vm_stat sampler below: this step was
+      # dying from real memory exhaustion (~138MB free at death, on a
+      # runner with ~6-7GB total RAM), not disk (ruled out — 53GB free
+      # right before Archive) and not a normal build failure (no compiler
+      # error, no "** ARCHIVE FAILED **" banner, which xcodebuild always
+      # prints on exit). Building two full architectures (x86_64 + arm64)
+      # for a large dependency tree already pushed close to the edge;
+      # SWIFT_COMPILATION_MODE=wholemodule (the project's Release setting,
+      # project.pbxproj) holds the entire module in memory at once for
+      # cross-file optimization, which is what tips it over.
+      #
+      # SWIFT_COMPILATION_MODE=incremental below overrides that for this
+      # CI archive ONLY — it's a command-line build-setting override, so
+      # the checked-in project is untouched and Xcode Cloud / App Store /
+      # local builds keep whole-module optimization. This GitHub-distributed
+      # build trades some cross-file optimization for materially lower peak
+      # memory; approved as a deliberate tradeoff (not a default CI
+      # mitigation) since it changes the shipped binary's characteristics.
+      # IDEBuildOperationMaxNumberOfConcurrentCompileTasks and the memlog
+      # sampler stay as extra headroom / diagnostics.
       - name: Archive
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -202,7 +209,8 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            SWIFT_COMPILATION_MODE=incremental
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
