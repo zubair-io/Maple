@@ -177,7 +177,7 @@ jobs:
       # project.pbxproj) holds the entire module in memory at once for
       # cross-file optimization, which is what tips it over.
       #
-      # SWIFT_COMPILATION_MODE=incremental below overrides that for this
+      # SWIFT_COMPILATION_MODE=singlefile below overrides that for this
       # CI archive ONLY — it's a command-line build-setting override, so
       # the checked-in project is untouched and Xcode Cloud / App Store /
       # local builds keep whole-module optimization. This GitHub-distributed
@@ -210,7 +210,7 @@ jobs:
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            SWIFT_COMPILATION_MODE=incremental
+            SWIFT_COMPILATION_MODE=singlefile
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
