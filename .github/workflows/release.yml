@@ -117,15 +117,24 @@ jobs:
       # Xcode versions (several GB each); freeing every one but the version
       # we actually use reclaims real headroom without touching anything
       # the build depends on.
-      - name: Reclaim disk (drop unused Xcode versions)
+      # NOTE: do NOT delete other /Applications/Xcode_*.app bundles here.
+      # Proven to break the build (2026-09-04): GitHub's macOS image shares
+      # SDK content across its bundled Xcode versions, and removing the
+      # "other" ones broke `xcrun --sdk iphoneos` for the one we kept —
+      # this xcframework build compiles iOS slices too, not just macOS
+      # (see build-xcframework.sh's target list).
+      #
+      # The Android SDK GitHub preinstalls is unrelated to anything here
+      # and safe to drop. Beyond that, don't guess again: these df -h
+      # checkpoints (plus the one before Archive, further down) are the
+      # data the next iteration should act on instead of another blind
+      # deletion.
+      - name: Reclaim disk (Android SDK) + usage checkpoint
         run: |
-          df -h / /Users/runner/Library/Developer/Xcode 2>/dev/null || df -h /
-          for app in /Applications/Xcode_*.app; do
-            [ "$app" = "$XCODE_APP" ] && continue
-            echo "Removing $app"
-            sudo rm -rf "$app"
-          done
           df -h /
+          sudo rm -rf /Users/runner/Library/Android/sdk
+          df -h /
+          du -sh /Library/Developer/CoreSimulator 2>/dev/null || true
 
       - name: Install Rust toolchain (Apple targets)
         uses: dtolnay/rust-toolchain@stable
