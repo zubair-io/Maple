@@ -84,10 +84,6 @@ from pathlib import Path
 # so the script run as `__main__` can't trip a circular import. Re-exported
 # below so any external `derive_agx_lut.emit_wgsl` reference still resolves.
 from _agx_emit import emit_wgsl  # noqa: E402  (kept with the other imports)
-from _agx_matrices import (  # noqa: E402  (leaf module; see its docstring)
-    _mat3_inv,
-    _matrix_rgb_to_rgb,
-)
 
 # ── Frozen coefficients (bump AGX_VERSION on any edit) ────────────────────
 MIN_EV       = -10.0
@@ -111,25 +107,6 @@ SHOULDER_POWER = 3.25                              # Sobotka default
 # corners of the wider AgX-Base triangle. Matches AgX-S2O3 default.
 COMPRESSION  = 0.20
 
-# Highlight path-to-white (#1624). After the ratio-preserving sigmoid the
-# pixel's chroma ratio is untouched all the way up the curve, so saturated
-# colors reach the display gamut wall at full chroma and the soft gamut
-# compression (#1621) has to do all the work there. Film and the mature
-# tone mappers shed chroma toward white instead. In AgX-Base space, with
-# `sn = max(R, G, B)` of the sigmoided pixel (display-linear, <= ~1):
-#     w   = P2W_AMOUNT * clamp((sn - P2W_KNEE) / (1 - P2W_KNEE), 0, 1) ^ P2W_POWER
-#     rgb = rgb + w * (sn - rgb)
-# Identity below the knee (mid-gray, all shadow/midtone chroma), full
-# desaturation at display white when AMOUNT = 1. Tuned on the ACR harness
-# (FILTER=baseline sweep, 2026-09-03): the knee at 0.7 display-linear
-# (~sRGB 0.85) keeps every baseline cell inside its budget (a 0.5 knee
-# trips test_0011's 0.0113 bias ceiling) and trims the max-ΔE on the two
-# fixtures with saturated highlights (test_0006 42.0 → 36–38, test_0007
-# 42.0 → 37–39); the 33-case mean is unchanged to 0.02.
-P2W_AMOUNT   = 1.0
-P2W_KNEE     = 0.7
-P2W_POWER    = 2.0
-
 # Version key. Bump whenever the LUT bytes or coefficients change.
 #  v5: Blender 4.x AgX_Default_Contrast polynomial fit (mid-gray → 0.50).
 #  v6: Maple AgX 6th-order polynomial fit (mid-gray → 0.237, ~8% high).
@@ -139,9 +116,7 @@ P2W_POWER    = 2.0
 #      generator to the value already shipped in agx_coeffs.rs (the .rs
 #      had been bumped to 8 without bumping the generator, so a regen
 #      would otherwise downgrade the live RenderedPreviewCache key).
-#  v9: Highlight path-to-white after the ratio-preserving sigmoid (#1624,
-#      P2W_* above). LUT bytes and matrices unchanged.
-AGX_VERSION  = 9
+AGX_VERSION  = 8
 
 
 # ── Sobotka / Jed Smith sigmoid (port of AgX-S2O3 AgX.py L122-L207) ───────
@@ -200,6 +175,57 @@ REC2020_PRIMARIES = (   # (x, y) chromaticities
     (0.131, 0.046),     # B
 )
 D65_WHITE = (0.3127, 0.3290)
+
+
+def _xy_to_XYZ(xy: tuple[float, float], Y: float = 1.0) -> tuple[float, float, float]:
+    x, y = xy
+    return (x / y * Y, Y, (1.0 - x - y) / y * Y)
+
+
+def _mat3_mul(A: list[list[float]], B: list[list[float]]) -> list[list[float]]:
+    return [
+        [sum(A[i][k] * B[k][j] for k in range(3)) for j in range(3)]
+        for i in range(3)
+    ]
+
+
+def _mat3_inv(M: list[list[float]]) -> list[list[float]]:
+    """3×3 matrix inverse via cofactor expansion. Inputs come from
+    `_rgb_to_xyz_matrix` (well-conditioned), so we don't bother with
+    pivoting."""
+    a, b, c = M[0]
+    d, e, f = M[1]
+    g, h, i = M[2]
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    inv_det = 1.0 / det
+    return [
+        [ (e * i - f * h) * inv_det, -(b * i - c * h) * inv_det,  (b * f - c * e) * inv_det],
+        [-(d * i - f * g) * inv_det,  (a * i - c * g) * inv_det, -(a * f - c * d) * inv_det],
+        [ (d * h - e * g) * inv_det, -(a * h - b * g) * inv_det,  (a * e - b * d) * inv_det],
+    ]
+
+
+def _rgb_to_xyz_matrix(primaries: tuple, whitepoint: tuple) -> list[list[float]]:
+    """Build RGB→XYZ matrix from primaries + whitepoint (D65)."""
+    # Columns: each primary's (x, y) lifted to (X, 1, Z).
+    M = [[0.0, 0.0, 0.0] for _ in range(3)]
+    XYZs = [_xy_to_XYZ(p, Y=1.0) for p in primaries]
+    for col, xyz in enumerate(XYZs):
+        for row in range(3):
+            M[row][col] = xyz[row]
+    # Scale columns so M @ [1,1,1]^T = whitepoint XYZ.
+    W = _xy_to_XYZ(whitepoint, Y=1.0)
+    M_inv = _mat3_inv(M)
+    S = [sum(M_inv[i][j] * W[j] for j in range(3)) for i in range(3)]
+    # Scale each column j by S[j].
+    return [[M[i][j] * S[j] for j in range(3)] for i in range(3)]
+
+
+def _matrix_rgb_to_rgb(src_primaries, src_white, dst_primaries, dst_white) -> list[list[float]]:
+    """src RGB → dst RGB via XYZ. Both whitepoints assumed D65 (no CAT)."""
+    M_src = _rgb_to_xyz_matrix(src_primaries, src_white)
+    M_dst = _rgb_to_xyz_matrix(dst_primaries, dst_white)
+    return _mat3_mul(_mat3_inv(M_dst), M_src)
 
 
 def _agx_compressed_primaries(primaries, whitepoint, compression=0.20):
@@ -362,17 +388,6 @@ def emit_rs(path: Path) -> None:
         "/// Size of the per-channel sigmoid LUT embedded in agx_lut.bin.\n"
         f"pub const AGX_LUT_SIZE: usize = {LUT_SIZE};\n"
         "\n"
-        "/// Highlight path-to-white (#1624), applied in AgX-Base space between\n"
-        "/// the ratio-preserving sigmoid and the outset matrix. With\n"
-        "/// `sn = max(R, G, B)` of the sigmoided pixel (display-linear):\n"
-        "/// `w = AMOUNT * clamp((sn - KNEE) / (1 - KNEE), 0, 1)^POWER` and\n"
-        "/// `rgb += w * (sn - rgb)`. Identity below the knee; chroma → 0 as the\n"
-        "/// pixel approaches display white. Tuned on the ACR harness — see the\n"
-        "/// generator's frozen block for the sweep.\n"
-        f"pub const AGX_P2W_AMOUNT: f32 = {P2W_AMOUNT:.6};\n"
-        f"pub const AGX_P2W_KNEE: f32 = {P2W_KNEE:.6};\n"
-        f"pub const AGX_P2W_POWER: f32 = {P2W_POWER:.6};\n"
-        "\n"
         f"{fmt_matrix_block('AGX_INSET_MATRIX', inset, inset_doc)}"
         "\n"
         f"{fmt_matrix_block('AGX_OUTSET_MATRIX', outset, outset_doc)}"
@@ -514,9 +529,6 @@ def main() -> int:
             LUT_SIZE=LUT_SIZE,
             inset=inset,
             outset=outset,
-            P2W_AMOUNT=P2W_AMOUNT,
-            P2W_KNEE=P2W_KNEE,
-            P2W_POWER=P2W_POWER,
         )
         print(f"wrote {args.wgsl} (raw-gpu AgX matrices + scalars)")
     if args.apple_bin:

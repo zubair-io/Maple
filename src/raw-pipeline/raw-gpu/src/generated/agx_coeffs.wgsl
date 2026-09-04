@@ -17,12 +17,6 @@ const AGX_MID_GRAY: f32 = 0.18000000715255737f;
 const AGX_MID_NORM: f32 = 0.6060606241226196f;
 // Sigmoid LUT entry count (linear-interpolated at runtime).
 const AGX_LUT_SIZE: u32 = 512u;
-// Highlight path-to-white (#1624): w = AMOUNT * clamp((sn - KNEE) /
-// (1 - KNEE), 0, 1)^POWER on the sigmoided AgX-Base pixel, rgb += w *
-// (max - rgb). Mirror of raw_core AGX_P2W_*.
-const AGX_P2W_AMOUNT: f32 = 1.0f;
-const AGX_P2W_KNEE: f32 = 0.699999988079071f;
-const AGX_P2W_POWER: f32 = 2.0f;
 
 // Inset matrix: scene-linear Rec.2020 -> AgX-Base-Rec.2020 (per-channel desaturating; row sums 1.0). Mirror of raw_core AGX_INSET_MATRIX.
 const AGX_INSET_R0: vec3<f32> = vec3<f32>(0.8591974973678589f, 0.05597524717450142f, 0.0848272368311882f);

@@ -9,54 +9,19 @@
 //!
 //! Forward reference (`view::agx::agx_pixel`):
 //!   inset = INSET·scene → n = max(inset) → sn = sigmoid_curve(n)
-//!   → sig = inset·(sn/n) → sig' = sig + w(sn)·(sn − sig)   (#1624 path-to-white)
-//!   → out = OUTSET·sig' → oklab_gamut_compress(out)
-//! The path-to-white lerp leaves the max channel at `sn`, so `sn` is read
-//! straight off the inverted outset and the lerp inverts exactly:
-//! `sig = (sig' − w·sn) / (1 − w)` — down to the point where that divisor
-//! stops being numerically safe, below which the pixel inverts as the neutral
-//! it had already become. See [`P2W_INVERSE_MIN_RESIDUAL`].
+//!   → sig = inset·(sn/n) → out = OUTSET·sig → oklab_gamut_compress(out)
 //! where `sigmoid_curve(x) = sample_lut(MID_NORM + (log_encode(x) - MID_NORM)·slope)`
 //! and `OUTSET = inv(INSET)`.
 
 use crate::color::matrices::M_REC2020_TO_SRGB;
 use crate::view::agx::{
-    lut, path_to_white_weight, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY,
-    AGX_MIN_EV, AGX_OUTSET_MATRIX, MID_NORM,
+    lut, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV, AGX_OUTSET_MATRIX,
+    MID_NORM,
 };
 
 /// Below this, the forward ratio-preserving sigmoid collapsed the pixel to a
 /// neutral floor and the `sn/n` scale is undefined — invert to black.
 const RATIO_FLOOR: f32 = 1e-6;
-
-/// Smallest `1 - w` the #1624 path-to-white inverse will divide by.
-///
-/// Undoing the forward lerp is `sig = (sig' - w·sn) / (1 - w)`, so the divisor
-/// is an error amplifier of `1 / (1 - w)` acting on `sig'`, which carries f32
-/// round-off of about `2^-24`. The amplified relative error on the recovered
-/// chroma therefore grows without bound as `w → 1`:
-///
-/// ```text
-///   sn        w             1 - w      recovered-chroma rel. err
-///   0.99      0.934444      6.6e-02    9.1e-07
-///   0.999     0.993344      6.7e-03    9.0e-06
-///   0.9999    0.999333      6.7e-04    8.9e-05
-///   0.99999   0.999933      6.7e-05    8.9e-04
-///   0.999999  0.999993      6.7e-06    8.9e-03
-/// ```
-///
-/// Snapping to the neutral instead is not an approximation of convenience —
-/// it is the correct limit. At `w` this close to 1 the forward pass has shed
-/// all but `1 - w` of the pixel's chroma, so the chroma the division is trying
-/// to recover was genuinely destroyed and the inverse is ill-posed. The
-/// question is only which error is smaller, and below this threshold the
-/// snap's error (bounded by `1 - w`, i.e. 1e-3 of the original chroma) is an
-/// order of magnitude *larger* than the amplified noise, while above it the
-/// noise wins and diverges. 1e-3 is where they cross: it caps the amplified
-/// error at ~6e-5 — comfortably inside the 1e-4 CPU↔GPU parity bar — and only
-/// engages for pixels whose sigmoided max exceeds 0.99985, which is already
-/// display white for every bit depth we render.
-const P2W_INVERSE_MIN_RESIDUAL: f32 = 1e-3;
 
 #[inline]
 fn matrix_mul(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
@@ -102,25 +67,12 @@ fn inv_lut(y: f32) -> f32 {
 /// `oklab_gamut_compress` is treated as identity (it is for in-gamut pixels).
 pub fn inverse_agx_pixel(display: [f32; 3], slope: f32) -> [f32; 3] {
     // 1) Undo the outset matrix (inv(OUTSET) == INSET).
-    let sig_p2w = matrix_mul(&AGX_INSET_MATRIX, display);
-    // 2) Ratio-preserving forward => max channel of `sig` equals sigmoid(norm),
-    //    and the #1624 path-to-white lerp keeps that max fixed, so `sn` is
-    //    read off directly; then undo the lerp on the other channels.
-    let sn = sig_p2w[0].max(sig_p2w[1]).max(sig_p2w[2]);
+    let sig = matrix_mul(&AGX_INSET_MATRIX, display);
+    // 2) Ratio-preserving forward => max channel of `sig` equals sigmoid(norm).
+    let sn = sig[0].max(sig[1]).max(sig[2]);
     if sn <= RATIO_FLOOR {
         return [0.0, 0.0, 0.0];
     }
-    let w = path_to_white_weight(sn);
-    let residual = 1.0 - w;
-    let sig = if residual < P2W_INVERSE_MIN_RESIDUAL {
-        [sn, sn, sn]
-    } else {
-        [
-            (sig_p2w[0] - w * sn) / residual,
-            (sig_p2w[1] - w * sn) / residual,
-            (sig_p2w[2] - w * sn) / residual,
-        ]
-    };
     // 3) Reverse the sigmoid LUT, 4) undo the contrast slope, 5) undo log encode.
     let modulated = inv_lut(sn);
     let norm = (modulated - MID_NORM) / slope + MID_NORM;
@@ -219,102 +171,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// #1624: a bright saturated colour above the path-to-white knee (where
-    /// the forward lerp is active but not saturated) must still round-trip —
-    /// the inverse undoes the lerp exactly, not just the sigmoid.
-    #[test]
-    fn roundtrip_bright_saturated_colour_through_path_to_white() {
-        let scene = [3.0_f32, 0.9, 0.6];
-        let disp = forward(scene, 0.0);
-        // Precondition: the forward actually engaged the lerp (in-gamut,
-        // so the gamut compress is identity and the round trip is exact).
-        let sig = super::matrix_mul(&AGX_INSET_MATRIX, disp);
-        let sn = sig[0].max(sig[1]).max(sig[2]);
-        let w = path_to_white_weight(sn);
-        assert!(
-            w > 0.0 && w < 1.0,
-            "fixture must engage path-to-white: w={w}"
-        );
-        let back = inverse_agx_pixel(disp, 1.0);
-        for c in 0..3 {
-            let rel = (back[c] - scene[c]).abs() / scene[c];
-            assert!(
-                rel < 0.05,
-                "ch{c} rel err {rel} (back={back:?}, scene={scene:?})"
-            );
-        }
-    }
-
-    /// #1624 (Jules review): undoing the path-to-white lerp divides by
-    /// `1 - w`, which amplifies f32 round-off without bound as `w → 1`. The
-    /// [`P2W_INVERSE_MIN_RESIDUAL`] guard must keep the inverse finite and
-    /// ordered right up against display white. The band is reached by
-    /// near-NEUTRAL bright pixels, not by saturated ones: the inset matrix is
-    /// per-channel desaturating, so a saturated display colour's `sn` tops out
-    /// near 0.986 (`1 - w` ≈ 0.09) and never gets close to the divisor cliff.
-    #[test]
-    fn inverse_stays_stable_as_path_to_white_saturates() {
-        // Very slightly tinted whites marching toward display white. The last
-        // three entries put `1 - w` at 7.4e-4, 1.4e-4 and 7.5e-5 — inside the
-        // guarded band, where the unguarded divide amplifies round-off by
-        // 1e3–1e4 and reorders the ramp.
-        let ramp = [0.9_f32, 0.99, 0.999, 0.9999, 0.99999, 1.0];
-        let mut prev_luma = f32::NEG_INFINITY;
-        for v in ramp {
-            let display = [v, v * 0.99995, v * 0.9999];
-            let back = inverse_agx_pixel(display, 1.0);
-            for (c, value) in back.iter().enumerate() {
-                assert!(
-                    value.is_finite(),
-                    "ch{c} not finite at v={v}: back={back:?}"
-                );
-            }
-            // Brighter display in => brighter scene out, with no cliff.
-            let luma = back[0].max(back[1]).max(back[2]);
-            assert!(
-                luma > prev_luma,
-                "scene luma not monotone at v={v}: {luma} <= {prev_luma}"
-            );
-            prev_luma = luma;
-        }
-    }
-
-    /// #1624 (Jules review): inside the guarded band the forward pass has
-    /// already shed all but `1 - w` of the chroma, so the inverse returns the
-    /// neutral the pixel had become rather than a noise-amplified
-    /// reconstruction of chroma that no longer survives in the input.
-    #[test]
-    fn inverse_snaps_to_neutral_inside_the_guarded_band() {
-        let display = [0.9999_f32, 0.9999 * 0.99995, 0.9999 * 0.9999];
-        let sig_p2w = super::matrix_mul(&AGX_INSET_MATRIX, display);
-        let sn = sig_p2w[0].max(sig_p2w[1]).max(sig_p2w[2]);
-        let residual = 1.0 - path_to_white_weight(sn);
-        assert!(
-            residual < super::P2W_INVERSE_MIN_RESIDUAL,
-            "fixture must land inside the guarded band: 1-w={residual}"
-        );
-        let back = inverse_agx_pixel(display, 1.0);
-        let lo = back[0].min(back[1]).min(back[2]);
-        let hi = back[0].max(back[1]).max(back[2]);
-        assert!(
-            (hi - lo) <= 1e-5 * hi.max(1.0),
-            "expected a neutral inside the guarded band, got {back:?}"
-        );
-        // A pixel just OUTSIDE the band still inverts with its chroma intact —
-        // the guard must not swallow ordinary bright colours.
-        let outside = [0.999_f32, 0.999 * 0.99995, 0.999 * 0.9999];
-        let sig_o = super::matrix_mul(&AGX_INSET_MATRIX, outside);
-        let sn_o = sig_o[0].max(sig_o[1]).max(sig_o[2]);
-        assert!(1.0 - path_to_white_weight(sn_o) > super::P2W_INVERSE_MIN_RESIDUAL);
-        let back_o = inverse_agx_pixel(outside, 1.0);
-        let spread =
-            back_o[0].max(back_o[1]).max(back_o[2]) - back_o[0].min(back_o[1]).min(back_o[2]);
-        assert!(
-            spread > 1e-3,
-            "chroma must survive outside the band, got {back_o:?}"
-        );
     }
 
     #[test]
