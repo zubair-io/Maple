@@ -87,7 +87,7 @@ public struct MuiProgress: View {
                 Circle()
                     .trim(from: 0, to: 0.25)
                     .stroke(MuiTokens.primary, style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(indeterminatePhase * 360 - 90))
+                    .rotationEffect(.degrees(Double(indeterminatePhase) * 360 - 90))
             }
         }
         .frame(width: ringDiameter, height: ringDiameter)
