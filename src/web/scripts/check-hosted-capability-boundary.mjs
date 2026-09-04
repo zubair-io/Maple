@@ -28,7 +28,13 @@ const artifactRoot = resolve(
 // eager graph into more chunks and the total came out 774 bytes WORSE. The
 // new ceiling keeps ~600 bytes of slack over the measured figure, so this
 // stays a ratchet: it moves for a measured feature, not for drift.
-const MAX_EAGER_BYTES = 1_163_000;
+//
+// Raised again for #3276's vectorscope v2 — the density plot, the six
+// Rec.709 broadcast targets and the skin-tone line all render in the Hosted
+// editor, so the code cannot be deferred any more than the rest of the
+// editor shell can. Measured on one machine, same build: origin/main
+// 1_162_310, this stack 1_164_930 (+2_620). Same ~600 bytes of slack.
+const MAX_EAGER_BYTES = 1_165_600;
 const SERVER_ONLY_MARKERS = [
   '/api/metadata/snapshots',
   '/api/pano/stitch',
