@@ -149,20 +149,7 @@ public final class EditSession {
   /// Distortion counterpart of `lensCorrectionCaInert` (#3189): no `WarpRectilinear` opcode at all.
   public internal(set) var lensCorrectionDistortionInert: Bool = true
 
-  /// The WB delta anchor: the WB actually baked into the buffer. The
-  /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own
-  /// pair when present, else the legacy estimate. NOT 6500/0 (#1976):
-  /// post-#1894 that mislabel overcooled every settled render to cyan.
-  var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
-    if let frame = wbSliderFrame, frame.isPresent {
-      return ImageEditPipeline.AsShotWB(
-        temperature: Double(frame.sceneCCT),
-        tint: Double(frame.asShotTint)
-      )
-    }
-    guard let cct = asShotCCT, let t = asShotTint else { return nil }
-    return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
-  }
+  // `wbDeltaAnchor` moved to `EditSession+Derived.swift` (file-size budget).
 
   // MARK: Render output
 
@@ -299,7 +286,7 @@ public final class EditSession {
     }
   }
 
-  // `effectiveCrop` + `effectiveImageSize` moved to `EditSession+Crop.swift`
+  // `effectiveCrop` + `effectiveImageSize` moved to `EditSession+Derived.swift`
   // (file-size budget, #3275).
 
   // MARK: Zoom / pan
