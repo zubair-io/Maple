@@ -338,11 +338,6 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// full look) omits the attribute on write.
     public var filmStrength: Double  // 0..100, default 100
 
-    /// Local-adjustment layer stack (#3274, spec §6.2) — masks, an optional
-    /// colour-range refinement, and a partial-adjustments set per layer.
-    /// Sidecar round-trip: `crs:GradientBasedCorrections` /
-    /// `crs:CircularGradientBasedCorrections` / `crs:MaskGroupBasedCorrections`
-    /// — `XMPLocalAdjustments.swift`. GPU/CPU wire: `LocalAdjustmentFlat`.
 
     public init(
         temperature: Double = 6500,
