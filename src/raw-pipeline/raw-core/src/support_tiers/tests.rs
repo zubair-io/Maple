@@ -169,6 +169,41 @@ fn a_failed_case_holds_a_body_back_and_says_so() {
         .any(|r| matches!(r, TierReason::HeldBack(_))));
 }
 
+/// Not being promoted has three distinct causes, and the classification
+/// says which one applies rather than collapsing them into "not qualified".
+#[test]
+fn each_way_of_not_being_promoted_is_reported_separately() {
+    let evidence = evidence_satisfying(&[EvidenceSource::ColorHarness]);
+    let registry = SupportRegistry::compute(&evidence);
+    for body in &registry.bodies {
+        let declares = !body.findings.is_empty();
+        let promotable = tier_for_profile_source(body.resolution) == CameraTier::Profiled;
+        let expected_reason = match (declares, promotable) {
+            (false, _) => TierReason::NoQualificationDeclared,
+            (true, false) => TierReason::NotPromotableFromResolution(body.resolution),
+            (true, true) => TierReason::QualifiedBy(&[EvidenceSource::ColorHarness]),
+        };
+        assert!(
+            body.reasons.contains(&expected_reason),
+            "{} ({}) reported {:?}",
+            body.display_name,
+            body.fixture,
+            body.reasons
+        );
+    }
+    // The H5D-40 is the case Copilot caught on #3314: it DOES declare the
+    // colour harness, so "no qualification declared" would have been a lie.
+    let fallback = registry
+        .bodies
+        .iter()
+        .find(|b| b.resolution == ProfileResolution::RawlerFallback)
+        .expect("a rawler-fallback body");
+    assert!(!fallback.findings.is_empty());
+    assert!(!fallback
+        .reasons
+        .contains(&TierReason::NoQualificationDeclared));
+}
+
 /// The Foveon fixture declares no qualification source, so it can never be
 /// promoted — and it is `Unsupported`, not `DecodeOnly`.
 #[test]
