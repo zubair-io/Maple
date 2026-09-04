@@ -486,6 +486,29 @@ fn wb_provenance_sample_point_travels_only_with_a_sampled_source() {
     };
     let frag = serialize(&auto);
     assert!(frag.contains(r#"papp:WbSource="Auto" papp:WbAlgorithmVersion="1""#), "{frag}");
+
+    // A `Sampled` source with no version is a label a paste carried, not
+    // provenance — `wb_source` is copyable, the point and the version are
+    // not. Writing `0,0` there would claim a sample that never happened
+    // (review on #3309).
+    let pasted = AdjustmentModel {
+        wb_source: WbSource::Sampled,
+        wb_sample_x: 0.4,
+        wb_sample_y: 0.6,
+        ..AdjustmentModel::default()
+    };
+    let frag = serialize(&pasted);
+    assert!(frag.contains(r#"papp:WbSource="Sampled""#), "{frag}");
+    assert!(!frag.contains("papp:WbSampleX"), "{frag}");
+    assert!(!frag.contains("papp:WbAlgorithmVersion"), "{frag}");
+
+    // Nor does a version stranded on a source that cannot derive one.
+    let manual = AdjustmentModel {
+        wb_source: WbSource::Manual,
+        wb_algorithm_version: 1.0,
+        ..AdjustmentModel::default()
+    };
+    assert!(!serialize(&manual).contains("papp:WbAlgorithmVersion"));
 }
 
 #[test]
