@@ -166,12 +166,33 @@ jobs:
       - name: Disk usage before archive
         run: df -h /
 
+      # The last two attempts died silently mid-Archive: no compiler error,
+      # no "** ARCHIVE FAILED **" banner (xcodebuild always prints one on
+      # exit, pass or fail) — meaning the process was killed by signal, not
+      # a normal build failure. Disk is confirmed NOT the cause (53GB free
+      # right before this step, verified 2026-09-04). Memory is the next
+      # candidate: this builds two full architectures (x86_64 + arm64) in
+      # parallel for a large dependency tree, on a runner with limited RAM.
+      # IDEBuildOperationMaxNumberOfConcurrentCompileTasks caps how many
+      # Swift files Xcode compiles at once — lowering it only ever reduces
+      # peak memory, never correctness, so it's safe regardless of whether
+      # this turns out to be the actual cause. The background vm_stat
+      # sampler + artifact upload exists so that if it fails again, the
+      # next iteration has real memory numbers instead of another guess.
       - name: Archive
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          IDEBuildOperationMaxNumberOfConcurrentCompileTasks: 2
         run: |
+          (while true; do
+            { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog.txt"
+            sleep 20
+          done) &
+          MEMLOG_PID=$!
+
+          set +e
           xcodebuild -project src/apple/Maple.xcodeproj \
             -scheme "Maple Exposure" \
             -destination 'generic/platform=macOS' \
@@ -182,6 +203,17 @@ jobs:
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+          STATUS=$?
+          kill "$MEMLOG_PID" 2>/dev/null
+          exit $STATUS
+
+      - name: Upload memory log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-memlog
+          path: ${{ runner.temp }}/memlog.txt
+          if-no-files-found: ignore
 
       # developer-id export re-signs the archive with the Developer ID
       # Application identity imported above; -allowProvisioningUpdates lets
