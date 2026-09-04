@@ -106,11 +106,7 @@ public actor RenderedPreviewCache {
     // bump the single-sourced `PIPELINE_OUTPUT_VERSION` (invalidating this
     // cache and the Web thumb cache together); host-side render-semantics
     // fixes like v8 bump this Apple-local integer instead.
-    // v9 (2026-09-03, #1624): paired with TileManager viewTransformVersion=6.
-    // AgX highlight path-to-white (AGX_VERSION 9) — every cached render of a
-    // scene with saturated highlights would otherwise short-circuit to the
-    // pre-#1624 pixels.
-    private let viewTransformVersion: UInt32 = 9
+    private let viewTransformVersion: UInt32 = 8
 
     // MARK: - Configure
 
