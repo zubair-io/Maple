@@ -42,16 +42,25 @@ import {
  * where writing the number would assert something the sidecar does not mean.
  *
  * `temperature`/`tint` at As Shot are the DISPLAY seed, not an authored pair
- * (see `_adjustmentParts`). `wbSampleX`/`wbSampleY` are the point a sampled
- * white balance was picked at, so they travel only with a `Sampled` source —
- * the same gate raw-core and Swift apply. Without it a stale coordinate left
- * in the model (a pasted look carries `wb_source` but not the point, which is
- * non-copyable) would leak into a Preset/Manual/Auto sidecar and claim
- * provenance the pair does not have (#2434, review on #3309).
+ * (see `_adjustmentParts`). The white-balance provenance detail (#2434) is
+ * gated by both halves of what makes it true: a non-zero
+ * `wbAlgorithmVersion` IS the "this pair was derived" flag, and the point
+ * additionally needs a `Sampled` source. A pasted look copies `wbSource` but
+ * not the point or the version — both are non-copyable — so without these
+ * gates a stale coordinate already in the model would leak into a
+ * Preset/Manual sidecar and claim provenance the pair does not have (review
+ * on #3309). Same rule in raw-core and Swift.
  */
 function fieldIsWithheld(modelKey: string, model: AdjustmentModel, wbIsAsShot: boolean): boolean {
   if (wbIsAsShot && (modelKey === 'temperature' || modelKey === 'tint')) return true;
-  return (modelKey === 'wbSampleX' || modelKey === 'wbSampleY') && model.wbSource !== 'Sampled';
+  const derived = model.wbAlgorithmVersion !== 0;
+  if (modelKey === 'wbSampleX' || modelKey === 'wbSampleY') {
+    return model.wbSource !== 'Sampled' || !derived;
+  }
+  if (modelKey === 'wbAlgorithmVersion') {
+    return !(model.wbSource === 'Auto' || model.wbSource === 'Sampled');
+  }
+  return false;
 }
 
 @Injectable({ providedIn: 'root' })

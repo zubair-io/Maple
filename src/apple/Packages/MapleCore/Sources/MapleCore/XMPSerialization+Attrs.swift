@@ -256,16 +256,22 @@ extension XMPSerializer {
         if model.wbMethod != .cat16 {
             attrs.append(("papp:WbMethod", model.wbMethod.rawValue))
         }
-        // White-balance provenance (#2434): omit-on-default; the sample point
-        // travels only with a sampled source, the version only when derived.
+        // White-balance provenance (#2434): omit-on-default. A non-zero
+        // version IS the "this pair was derived" flag — a model carrying
+        // `.sampled` with no version has a source and no provenance (a
+        // pasted look copies `wbSource` but not the point or the version,
+        // both non-copyable), and writing `0,0` there would claim a sample
+        // that never happened. The version rides only with the two sources
+        // that can derive one (review on #3309).
+        let derivedWb = model.wbAlgorithmVersion != 0
         if model.wbSource != .asShot {
             attrs.append(("papp:WbSource", model.wbSource.rawValue))
         }
-        if model.wbSource == .sampled {
+        if model.wbSource == .sampled && derivedWb {
             attrs.append(("papp:WbSampleX", fmtNum(model.wbSampleX)))
             attrs.append(("papp:WbSampleY", fmtNum(model.wbSampleY)))
         }
-        if model.wbAlgorithmVersion != 0 {
+        if derivedWb && (model.wbSource == .auto || model.wbSource == .sampled) {
             attrs.append(("papp:WbAlgorithmVersion", fmtNum(model.wbAlgorithmVersion)))
         }
         // Per-channel point tone-curve mode (#436; wired into Swift by
