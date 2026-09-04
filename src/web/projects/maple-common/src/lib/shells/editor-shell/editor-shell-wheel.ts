@@ -51,7 +51,17 @@ export function newWheelNudgeState(): WheelNudgeState {
   };
 }
 
-/** Whole detents represented by this event (positive = increase). */
+/**
+ * Whole detents represented by this event (positive = increase).
+ *
+ * A line/page-mode event is ONE detent regardless of `deltaY`'s magnitude:
+ * in that mode the delta is the OS's lines-per-notch setting (Firefox sends
+ * ±3 for a single mouse-wheel notch, ±1 if the user set one line per notch),
+ * not a count of user actions. Scaling by it would make one notch move the
+ * slider three units on Firefox and one on Chrome — the opposite of the
+ * one-step-per-tick contract Apple's `WheelNudgeBurst` implements. Trackpads
+ * report pixel mode, which is where the DETENT_PX accumulator applies.
+ */
 export function detentsFor(state: WheelNudgeState, e: WheelEvent): number {
   if (e.deltaY === 0) return 0;
   if (e.deltaMode !== 0) return e.deltaY < 0 ? 1 : -1;
