@@ -271,23 +271,22 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     field: null,
     reachability: { apple: 'partial', web: 'absent' },
     presentation: {
-      compact:
-        'Apple: a Heal entry exists in the Detail dock but arms no surface — Tool.isWired is false, so the control card stays on the previous tool',
+      compact: 'Apple: a Detail dock entry that arms nothing — isWired is false',
       regular: 'Same as compact',
       wide: 'Same as regular',
     },
     interaction: {
-      keyboard: 'Reachable by Tab like any dock entry; arming it changes nothing',
-      pointer: 'Tap/click arms the case with no panel behind it',
+      keyboard: 'Tab-reachable dock entry; arming it changes nothing',
+      pointer: 'Click arms the case with no panel behind it',
       touch: 'Same as pointer',
-      focus: 'No overlay claims the canvas pointer stream',
+      focus: 'No overlay claims the canvas',
     },
     accessibility: {
-      role: 'button (dock entry only)',
+      role: 'button',
       name: 'Heal',
-      value: 'none — value-less, unwired tool',
-      state: 'none — no model field, so nothing to commit or undo',
-      actions: ['arm the Heal dock entry (inert until #1472 builds its surface)'],
+      value: 'none',
+      state: 'none',
+      actions: ['arm the dock entry (inert until #1472)'],
     },
     participation: {
       undo: false,
@@ -298,8 +297,7 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     },
     exception: {
       platform: 'both',
-      rationale:
-        'Heal ships on neither platform: Apple has a Tool case and dock glyph so the inpainting epic has a mount point, but isWired is false and no panel exists; web has no heal tool at all.',
+      rationale: 'Apple has the case and glyph as a mount point for #1472; web has no heal tool.',
       ticket: '#1472',
     },
   },
