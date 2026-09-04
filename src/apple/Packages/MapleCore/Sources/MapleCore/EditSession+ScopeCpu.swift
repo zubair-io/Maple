@@ -69,7 +69,9 @@ extension EditSession {
     /// secondary consumer of the chain. This is a diagnostic readout of the
     /// graded color, not a pixel-parity path, so the as-shot-anchor
     /// precision a real slider frame buys is immaterial here.
-    nonisolated private static func renderScopeSample(
+    /// `internal` rather than `private` so `ScopeCpuProducerTests` can drive
+    /// one compute directly, without waiting out the debounce.
+    nonisolated static func renderScopeSample(
         asset: AssetRef,
         model: AdjustmentModel
     ) async throws -> ScopeSample {
