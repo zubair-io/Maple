@@ -48,4 +48,27 @@ extension GpuLiveSession {
     ptr = base
     len = UInt(buffer.count)
   }
+
+  /// Bind the mask stack into `local_adjustments_ptr`/`_len` for the
+  /// duration of `body`, encoded with the same 32-float record
+  /// `raw_core::types::layers_to_flat` reads (`LocalAdjustmentFlat`).
+  ///
+  /// Per-call rather than session-owned like `filmLut`/`autoProfile`: the
+  /// layer stack is live model state that a slider drag rewrites on the
+  /// tick, so there is nothing stable to cache. #3338 — the live path had
+  /// never populated these fields, so masks changed nothing on screen.
+  func withLocalAdjustmentsBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ model: AdjustmentModel,
+    _ body: (MapleGpuLiveParams) -> R
+  ) -> R {
+    guard !model.localAdjustments.isEmpty else { return body(params) }
+    let flat = LocalAdjustmentFlat.toFlat(model.localAdjustments)
+    return flat.withUnsafeBufferPointer { buf in
+      var p = params
+      p.local_adjustments_ptr = buf.baseAddress
+      p.local_adjustments_len = UInt(buf.count)
+      return body(p)
+    }
+  }
 }

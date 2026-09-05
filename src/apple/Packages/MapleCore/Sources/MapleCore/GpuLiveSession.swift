@@ -459,7 +459,11 @@ public actor GpuLiveSession {
               }
               p.iso = iso
               return withFilmLutBound(p) { pp in
-                withScopeBound(pp) { ppp in withAutoProfileBound(ppp, body) }
+                withScopeBound(pp) { ppp in
+                  withLocalAdjustmentsBound(ppp, model) { pppp in
+                    withAutoProfileBound(pppp, body)
+                  }
+                }
               }
             }
           }
