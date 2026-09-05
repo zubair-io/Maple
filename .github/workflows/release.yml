@@ -185,9 +185,24 @@ jobs:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Install cbindgen
-        if: steps.cbindgen-cache.outputs.cache-hit != 'true'
-        run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+      # Check for the binary, not for a cache hit. A restored cache that
+      # does not actually yield a runnable cbindgen used to skip this step
+      # and fail four minutes later inside build-xcframework.sh with
+      # "ERROR: cbindgen not found — install it first" (first run on the
+      # dedicated build account, v0.0.17-test.1). The cache is an
+      # optimisation; its hit flag is not evidence that the tool is
+      # present, and only the tool being present is.
+      - name: Install cbindgen if missing
+        run: |
+          set -euo pipefail
+          if command -v cbindgen >/dev/null 2>&1 \
+            && [ "$(cbindgen --version | awk '{print $2}')" = "$CBINDGEN_VERSION" ]; then
+            echo "cbindgen $CBINDGEN_VERSION already present: $(command -v cbindgen)"
+            exit 0
+          fi
+          echo "installing cbindgen $CBINDGEN_VERSION"
+          cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+          command -v cbindgen
 
       # Same recipe as Xcode Cloud's ci_post_clone.sh: real static libs for
       # every slice (the ORT iOS dep is vendored in-repo, so this is
