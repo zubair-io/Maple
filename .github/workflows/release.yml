@@ -190,7 +190,7 @@ jobs:
         run: |
           (while true; do
             { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog-arm64.txt"
-            sleep 20
+            sleep 5
           done) &
           MEMLOG_PID=$!
 
@@ -205,7 +205,9 @@ jobs:
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            -jobs 1 \
+            COMPILER_INDEX_STORE_ENABLE=NO
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
@@ -218,7 +220,7 @@ jobs:
         run: |
           (while true; do
             { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog-x86_64.txt"
-            sleep 20
+            sleep 5
           done) &
           MEMLOG_PID=$!
 
@@ -233,7 +235,9 @@ jobs:
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO
+            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+            -jobs 1 \
+            COMPILER_INDEX_STORE_ENABLE=NO
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
