@@ -1020,7 +1020,10 @@ public actor ImageEditPipeline {
         outputBytes = try mapleStage("apply scene-linear chain") {
           try PipelineRenderer.applySceneLinearChain(
             inputBytes: inputBytes, width: w, height: h, params: params,
-            noiseProfile: noiseProfile
+            noiseProfile: noiseProfile,
+            // #3338: the mask stack has to ride every render call — raw-core
+            // applies it inside the scene-linear chain.
+            localAdjustments: model.localAdjustments
           )
         }
       } catch {
@@ -1174,7 +1177,10 @@ public actor ImageEditPipeline {
           try PipelineRenderer.applyChainAndEncodeDisplayTarget(
             inputBytes: inputBytes, width: w, height: h, params: params,
             targetPrimaries: targetPrimaries.wireValue,
-            noiseProfile: noiseProfile
+            noiseProfile: noiseProfile,
+            // #3338: the mask stack has to ride every render call — raw-core
+            // applies it inside the scene-linear chain.
+            localAdjustments: model.localAdjustments
           )
         }
       } catch {

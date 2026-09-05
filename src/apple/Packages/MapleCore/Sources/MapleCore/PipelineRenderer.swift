@@ -1512,7 +1512,8 @@ extension PipelineRenderer {
         width: Int,
         height: Int,
         params: MapleAdjustmentParams,
-        noiseProfile: [Float]? = nil
+        noiseProfile: [Float]? = nil,
+        localAdjustments: [LocalAdjustment] = []
     ) throws -> Data {
         let lanes = width * height * 4
         let expectedBytes = lanes * MemoryLayout<Float>.size
@@ -1526,12 +1527,10 @@ extension PipelineRenderer {
         // `noiseProfile` must outlive the FFI call. Pin it via
         // `withUnsafeBufferPointer` so the closure captures the live pointer;
         // the outer closure chain keeps `noiseProfile` alive for the duration.
-        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
-            var p = params
-            if let npBuf {
-                p.noise_profile_ptr = npBuf.baseAddress
-                p.noise_profile_len = UInt32(npBuf.count)
-            }
+        let rc: Int32 = try withChainPointers(
+            params, noiseProfile: noiseProfile, localAdjustments: localAdjustments
+        ) { bound in
+            var p = bound
             return try output.withUnsafeMutableBytes { outBuf -> Int32 in
                 let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
                 return inputBytes.withUnsafeBytes { inBuf -> Int32 in
@@ -1549,6 +1548,42 @@ extension PipelineRenderer {
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
         return output
+    }
+
+    /// Yield `params` with BOTH borrowed-pointer tails bound for the
+    /// duration of `body`: the noise profile and the local-adjustment layer
+    /// stack, the latter encoded with the same 32-float record
+    /// `raw_core::types::layers_to_flat` reads (`LocalAdjustmentFlat`).
+    ///
+    /// Both arrays are built and kept alive HERE, wrapping the FFI call —
+    /// the struct only borrows them, so anything the caller built and
+    /// returned would dangle before the render ran.
+    ///
+    /// #3338: nothing in the Apple shell ever populated
+    /// `local_adjustments_ptr`/`_len`, so every mask reached raw-core as an
+    /// empty layer list. Masks round-tripped through the model and the
+    /// sidecar and changed no pixels.
+    private static func withChainPointers<R>(
+        _ params: MapleAdjustmentParams,
+        noiseProfile: [Float]?,
+        localAdjustments: [LocalAdjustment],
+        _ body: (MapleAdjustmentParams) throws -> R
+    ) rethrows -> R {
+        let flat = localAdjustments.isEmpty ? [] : LocalAdjustmentFlat.toFlat(localAdjustments)
+        return try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+            try flat.withUnsafeBufferPointer { laBuf in
+                var p = params
+                if let npBuf {
+                    p.noise_profile_ptr = npBuf.baseAddress
+                    p.noise_profile_len = UInt32(npBuf.count)
+                }
+                if !flat.isEmpty {
+                    p.local_adjustments_ptr = laBuf.baseAddress
+                    p.local_adjustments_len = UInt(laBuf.count)
+                }
+                return try body(p)
+            }
+        }
     }
 
     /// Helper: invoke `body` with an `UnsafeBufferPointer<T>?` scoped to
@@ -1712,7 +1747,8 @@ extension PipelineRenderer {
         width: Int,
         height: Int,
         params: MapleAdjustmentParams,
-        noiseProfile: [Float]? = nil
+        noiseProfile: [Float]? = nil,
+        localAdjustments: [LocalAdjustment] = []
     ) throws -> Data {
         // Zero/negative dims must fail HERE, not at the buffer pointers below
         // (PR #2095 review): with width or height 0, `expectedBytes` is 0, an
@@ -1740,12 +1776,10 @@ extension PipelineRenderer {
         // base addresses, so the `baseAddress!` unwraps below cannot trap.
         var output = Data(count: expectedBytes)
         // Same noise-profile pinning pattern as `applySceneLinearChain`.
-        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
-            var p = params
-            if let npBuf {
-                p.noise_profile_ptr = npBuf.baseAddress
-                p.noise_profile_len = UInt32(npBuf.count)
-            }
+        let rc: Int32 = try withChainPointers(
+            params, noiseProfile: noiseProfile, localAdjustments: localAdjustments
+        ) { bound in
+            var p = bound
             return try output.withUnsafeMutableBytes { outBuf -> Int32 in
                 let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
                 return inputBytes.withUnsafeBytes { inBuf -> Int32 in
@@ -1778,7 +1812,8 @@ extension PipelineRenderer {
         height: Int,
         params: MapleAdjustmentParams,
         targetPrimaries: UInt32,
-        noiseProfile: [Float]? = nil
+        noiseProfile: [Float]? = nil,
+        localAdjustments: [LocalAdjustment] = []
     ) throws -> Data {
         guard width > 0, height > 0 else {
             throw PipelineError.renderFailed(
@@ -1806,12 +1841,10 @@ extension PipelineRenderer {
             )
         }
         var output = Data(count: expectedBytes)
-        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
-            var p = params
-            if let npBuf {
-                p.noise_profile_ptr = npBuf.baseAddress
-                p.noise_profile_len = UInt32(npBuf.count)
-            }
+        let rc: Int32 = try withChainPointers(
+            params, noiseProfile: noiseProfile, localAdjustments: localAdjustments
+        ) { bound in
+            var p = bound
             return try output.withUnsafeMutableBytes { outBuf -> Int32 in
                 let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
                 return inputBytes.withUnsafeBytes { inBuf -> Int32 in
@@ -1856,7 +1889,8 @@ extension PipelineRenderer {
         height: Int,
         params: MapleAdjustmentParams,
         scopeLayer: Int32,
-        noiseProfile: [Float]? = nil
+        noiseProfile: [Float]? = nil,
+        localAdjustments: [LocalAdjustment] = []
     ) throws -> ScopeSample {
         guard width > 0, height > 0 else {
             throw PipelineError.renderFailed(
@@ -1875,12 +1909,10 @@ extension PipelineRenderer {
         var output = Data(count: expectedBytes)
         var stats = MapleScopeStats()
         var bins = [UInt32](repeating: 0, count: 16384)
-        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
-            var p = params
-            if let npBuf {
-                p.noise_profile_ptr = npBuf.baseAddress
-                p.noise_profile_len = UInt32(npBuf.count)
-            }
+        let rc: Int32 = try withChainPointers(
+            params, noiseProfile: noiseProfile, localAdjustments: localAdjustments
+        ) { bound in
+            var p = bound
             return try bins.withUnsafeMutableBufferPointer { binsBuf -> Int32 in
                 stats.bins_ptr = binsBuf.baseAddress
                 stats.bins_len = UInt32(binsBuf.count)
