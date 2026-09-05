@@ -264,6 +264,37 @@ final class SceneLinearChainCacheTests: XCTestCase {
         XCTAssertNotEqual(a, b)
     }
 
+    /// The local-adjustment layer stack is in the key (#3338). It was
+    /// absent for as long as the stack never reached the FFI, which made
+    /// the omission harmless and invisible. Once layers started rendering,
+    /// a missing stack in the key meant every mask edit hit the previous
+    /// frame: the Hue slider moved and the canvas did not change one pixel.
+    func testLocalAdjustmentsAreInKey() {
+        let id = UUID()
+        let bare = AdjustmentModel.default
+        var masked = AdjustmentModel.default
+        masked.localAdjustments = [
+            LocalAdjustment(mask: .everywhere, adjustments: PartialAdjustments(hue: 40))
+        ]
+        var moved = AdjustmentModel.default
+        moved.localAdjustments = [
+            LocalAdjustment(mask: .everywhere, adjustments: PartialAdjustments(hue: 41))
+        ]
+
+        func key(_ model: AdjustmentModel) -> SceneLinearChainCache.Key {
+            SceneLinearChainCache.make(
+                assetID: id, model: model,
+                decodedTemperature: 6500, decodedTint: 0,
+                skipAgX: false, width: 1920, height: 1080
+            )
+        }
+
+        XCTAssertNotEqual(key(bare), key(masked), "adding a layer must invalidate the key")
+        XCTAssertNotEqual(
+            key(masked), key(moved),
+            "nudging a per-mask slider by one step must invalidate the key")
+    }
+
     /// Extent (width/height) is in the key — the fast pass renders at
     /// viewport size, the refine pass at full size, both with the
     /// same model. Without the extent in the key, an unchanged-model

@@ -105,7 +105,8 @@ extension EditSession {
             height: floats.height,
             params: params,
             scopeLayer: -1,
-            noiseProfile: noiseProfile
+            noiseProfile: noiseProfile,
+            localAdjustments: model.localAdjustments  // #3338
         )
     }
 }
