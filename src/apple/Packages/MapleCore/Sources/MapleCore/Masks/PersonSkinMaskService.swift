@@ -38,9 +38,24 @@ public struct SkinRasterRequest: Sendable, Equatable {
     }
 }
 
-public enum PersonSkinMaskError: Error, Equatable {
+public enum PersonSkinMaskError: Error, Equatable, LocalizedError {
     case noPersonDetected
     case visionFailed(String)
+
+    /// Without `LocalizedError` the people picker surfaced Foundation's
+    /// fallback rendering of a bare Swift error — literally
+    /// "The operation couldn't be completed. (MapleCore.PersonSkinMaskError
+    /// error 0.)" — to the user. Seen on device while driving the Mask flow.
+    public var errorDescription: String? {
+        switch self {
+        case .noPersonDetected:
+            return "No person was detected in this photo."
+        case .visionFailed(let reason):
+            return reason.isEmpty
+                ? "Person detection failed."
+                : "Person detection failed: \(reason)"
+        }
+    }
 }
 
 public actor PersonSkinMaskService {

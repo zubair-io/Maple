@@ -52,6 +52,28 @@ struct IPhoneLegacyControlBar: View {
                 LensCorrectionsSection(state: state)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 7)
+            } else if state.armedTool == .mask {
+                // Layer list + per-mask sliders replace the drag bar
+                // (#3275): a mask writes `model.localAdjustments`, not a
+                // scalar field, so it has no primary value for the drag bar
+                // to drive — same swap as Tone Curve / Film / Lens.
+                //
+                // iPhone mounts THIS bar, never `MobileControlBar` (see
+                // `EditorView`'s `if isIPhone` branch), so omitting the case
+                // here left the Mask tool arming with no control surface at
+                // all: the dock entry highlighted and the panel never
+                // appeared.
+                // Bounded + scrollable, unlike the other panels above: they
+                // are a few rows tall, while this one stacks a layer list on
+                // ELEVEN sliders. Left to size itself it took ~80% of the
+                // phone screen and squeezed the canvas to a sliver — you
+                // could not see the thing you were masking.
+                ScrollView {
+                    MaskPanel(state: state)
+                }
+                .frame(maxHeight: 300)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 7)
             } else {
                 DragBar(state: state)
                     .padding(.vertical, 7)
