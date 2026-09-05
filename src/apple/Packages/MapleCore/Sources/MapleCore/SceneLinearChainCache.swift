@@ -304,6 +304,14 @@ final class SceneLinearChainCache: @unchecked Sendable {
         h.combine(model.clarity.bitPattern)
         h.combine(model.texture.bitPattern)
         h.combine(model.dehaze.bitPattern)
+        // local_adjustments (#280/#3274) — the mask layer stack, chain order
+        // = after dehaze, before vignette. Excluded until #3338: the stack
+        // never reached the FFI at all, so its absence here was invisible.
+        // The moment layers started rendering, omitting them made every mask
+        // edit a cache HIT on the previous frame — the slider moved and not
+        // one pixel changed. `LocalAdjustment`'s `==`/`hash` deliberately
+        // skip `id`, so re-decoding a sidecar does not churn the key.
+        h.combine(model.localAdjustments)
         // vignette (#1109) — scene-linear radial gain, chain order = after
         // dehaze/local-adjustments, before nr_luminance.
         h.combine(model.vignetteAmount.bitPattern)
