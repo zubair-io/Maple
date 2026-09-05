@@ -8,16 +8,30 @@
 # Release. `workflow_dispatch` runs the same build for a dry run —
 # artifacts land on the workflow run, but no Release is created.
 #
-# macOS job re-enabled (#3332). The ~27-minute silent Archive death was
-# root-caused on a real Mac: the archive itself is fine (an unsigned
-# archive of the same scheme succeeds in 17m41s, peak swift-frontend RSS
-# 2.04 GB), and a SIGNED archive fails in 36 seconds inside
-# MapleFileProvider because its provisioning profile does not carry the
-# Push Notifications capability that #3240's aps-environment entitlement
-# requires (#3244). Provisioning runs concurrently with compilation, so
-# the last log line before the death is whatever was compiling, not what
-# failed. This job stays red until both File Provider App IDs carry that
-# capability in the developer portal — an owner action.
+# The macOS job runs on a SELF-HOSTED runner (#768/#770, label
+# `maple-release`). It is not a preference — the hosted image never once
+# completed this archive across five attempts (#3332): the step died
+# silently around ten minutes in, every time, with no exit status and no
+# error, on a 7 GB machine with no swap. `-jobs 1` and `singlefile` each
+# moved the death by a minute and changed nothing else. The same archive
+# takes 17m41s on the release Mac, which also already holds the signing
+# identity, and its cached Rust target dir removes the ~15-minute
+# cross-build from every run.
+#
+# Two consequences of running on real hardware, both handled below:
+# nothing here may `sudo` (a launchd runner has no password to give), and
+# anything this job changes about the machine — notably the keychain
+# search list — must be put back, pass or fail.
+#
+# SECURITY: this workflow triggers on tag pushes and workflow_dispatch
+# only. Do NOT add a `pull_request` trigger while the job targets a
+# self-hosted runner: that would execute a fork's code on the release
+# Mac. The `if: github.repository` guard is a second line of defence, not
+# the first.
+#
+# (#3244, the App ID missing its Push Notifications capability, is fixed —
+# opening the project in Xcode with the team account registered it and
+# minted the macOS profile.)
 
 name: release
 
@@ -40,11 +54,14 @@ env:
 jobs:
   macos-app:
     name: macOS (build, sign, notarize)
-    # Disabled — see the header comment and #3332 for why and how to
-    # re-enable once the ~27-minute Archive death is root-caused on a
-    # real Mac.
-    runs-on: macos-15
+    # Self-hosted (#768/#770). The hosted 7 GB runner never once completed
+    # this archive; the same archive takes 17m41s on the release Mac, which
+    # already holds the signing identity too. The repository guard below
+    # keeps a fork from ever reaching this machine — this workflow has no
+    # pull_request trigger, and must not gain one while it runs here.
+    runs-on: [self-hosted, macOS, ARM64, maple-release]
     timeout-minutes: 120
+    if: github.repository == 'zubair-io/Maple'
     steps:
       - uses: actions/checkout@v4
 
@@ -91,7 +108,14 @@ jobs:
             -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          # Remember the machine's own search list before prepending ours.
+          # On a hosted runner the VM is discarded either way; on the
+          # release Mac this is a real user session whose keychain list
+          # must be put back (restored by "Restore keychain search list",
+          # which runs even when the archive fails).
+          security list-keychains -d user | tr -d ' "' > "$RUNNER_TEMP/keychains.before"
+          tr '\n' ' ' < "$RUNNER_TEMP/keychains.before" \
+            | xargs security list-keychains -d user -s "$KEYCHAIN_PATH"
           rm "$RUNNER_TEMP/cert.p12"
 
       - name: Stage App Store Connect API key
@@ -100,35 +124,32 @@ jobs:
         run: |
           printf '%s' "$APPSTORE_PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey.p8"
 
+      # Hosted images ship several Xcodes and default to an older one.
+      # A self-hosted Mac has one, already selected, and `sudo` in a
+      # launchd runner has no password to give.
       - name: Select newest Xcode
+        if: runner.environment == 'github-hosted'
         run: |
           XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
           echo "Selecting $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP"
           echo "XCODE_APP=$XCODE_APP" >> "$GITHUB_ENV"
 
-      # A universal (x86_64 + arm64) archive of the full app + extensions,
-      # on top of the four-slice xcframework built two steps down, is a lot
-      # of DerivedData/module-cache. GitHub's macOS image ships several
-      # Xcode versions (several GB each); freeing every one but the version
-      # we actually use reclaims real headroom without touching anything
-      # the build depends on.
-      # NOTE: do NOT delete other /Applications/Xcode_*.app bundles here.
-      # Proven to break the build (2026-09-04): GitHub's macOS image shares
-      # SDK content across its bundled Xcode versions, and removing the
-      # "other" ones broke `xcrun --sdk iphoneos` for the one we kept —
-      # this xcframework build compiles iOS slices too, not just macOS
-      # (see build-xcframework.sh's target list).
+      # Disk was never the problem. #3319 theorised disk exhaustion and
+      # deleted GitHub's preinstalled Android SDK — unrelated to this
+      # project, which has no Android target — and the df checkpoint then
+      # showed 53 GB free right before the failure anyway. #3320 went
+      # further and deleted other Xcode bundles, which broke the build
+      # outright: the hosted image shares SDK content between them, so
+      # `xcrun --sdk iphoneos` stopped resolving for the one kept, and the
+      # xcframework compiles iOS slices too (see build-xcframework.sh).
+      # Reverted in #3323.
       #
-      # The Android SDK GitHub preinstalls is unrelated to anything here
-      # and safe to drop. Beyond that, don't guess again: these df -h
-      # checkpoints (plus the one before Archive, further down) are the
-      # data the next iteration should act on instead of another blind
-      # deletion.
-      - name: Reclaim disk (Android SDK) + usage checkpoint
+      # Both deletions are gone now: the release Mac is not a disposable
+      # VM, and `sudo` has no password in a launchd runner. The checkpoint
+      # stays, because a number is worth having and costs nothing.
+      - name: Disk usage checkpoint
         run: |
-          df -h /
-          sudo rm -rf /Users/runner/Library/Android/sdk
           df -h /
           du -sh /Library/Developer/CoreSimulator 2>/dev/null || true
 
@@ -213,9 +234,7 @@ jobs:
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            -jobs 1 \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            SWIFT_COMPILATION_MODE=singlefile
+            COMPILER_INDEX_STORE_ENABLE=NO
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
 
@@ -259,9 +278,7 @@ jobs:
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
-            -jobs 1 \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            SWIFT_COMPILATION_MODE=singlefile
+            COMPILER_INDEX_STORE_ENABLE=NO
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
@@ -341,6 +358,18 @@ jobs:
           name: macos-app
           path: ${{ runner.temp }}/out/*.zip
           if-no-files-found: error
+
+      # The release Mac is a real user session, not a VM that gets thrown
+      # away, so put its keychain search list back however the job ended.
+      # `always()` is the point: a failed archive must not leave the
+      # machine altered.
+      - name: Restore keychain search list
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          if [ -s "$RUNNER_TEMP/keychains.before" ]; then
+            tr '\n' ' ' < "$RUNNER_TEMP/keychains.before" \
+              | xargs security list-keychains -d user -s
+          fi
 
   windows-app:
     name: Windows x64 (build, sign)
