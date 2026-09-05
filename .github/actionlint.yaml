@@ -1,0 +1,6 @@
+# Custom runner labels actionlint cannot know about.
+# maple-release: the self-hosted macOS release runner (#768/#770) — the
+# hosted 7 GB image never completed the archive (#3332).
+self-hosted-runner:
+  labels:
+    - maple-release
