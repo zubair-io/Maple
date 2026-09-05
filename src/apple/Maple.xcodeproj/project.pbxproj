@@ -893,6 +893,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				APS_ENVIRONMENT = production;
 				CODE_SIGN_ENTITLEMENTS = MapleFileProviderIOS/MapleFileProviderIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -922,6 +923,7 @@
 		2BCB4C79E07F4EE2F790D52D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				CODE_SIGN_ENTITLEMENTS = MapleFileProvider/MapleFileProvider.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -1005,6 +1007,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				APS_ENVIRONMENT = development;
 				CODE_SIGN_ENTITLEMENTS = MapleFileProviderIOS/MapleFileProviderIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1468,6 +1471,7 @@
 		D9B53BCD0622186B6A3981B4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				CODE_SIGN_ENTITLEMENTS = MapleFileProvider/MapleFileProvider.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
