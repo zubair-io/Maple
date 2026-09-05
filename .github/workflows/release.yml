@@ -196,6 +196,12 @@ jobs:
           MEMLOG_PID=$!
 
           set +e
+          # Run xcodebuild under its own log file so the step's own stdout
+          # cannot be what goes missing, and record the exit status
+          # explicitly. Every previous failure ended with no "Process
+          # completed with exit code" line at all — the process vanished
+          # rather than exiting — so the status and the OS's own kill log
+          # are the two things worth capturing (#3332).
           xcodebuild -project src/apple/Maple.xcodeproj \
             -scheme "Maple Exposure" \
             -destination 'generic/platform=macOS' \
@@ -212,6 +218,20 @@ jobs:
             SWIFT_COMPILATION_MODE=singlefile
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
+
+          echo "=== xcodebuild exit status: $STATUS"
+          echo "=== memory-pressure / jetsam kills in the last 30 minutes:"
+          log show --last 30m --style compact \
+            --predicate 'eventMessage CONTAINS "memorystatus" OR eventMessage CONTAINS "jetsam" OR eventMessage CONTAINS "lowswap" OR eventMessage CONTAINS "Terminating"' \
+            2>/dev/null | tail -40 || echo "(log show returned nothing)"
+          echo "=== spindump/crash reports written during this step:"
+          ls -lt ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -20 || true
+          for r in $(ls -t ~/Library/Logs/DiagnosticReports/*.{ips,crash} 2>/dev/null | head -3); do
+            echo "--- $r"; head -40 "$r"
+          done
+          echo "=== final memory state:"
+          vm_stat; sysctl hw.memsize vm.swapusage 2>/dev/null || true
+
           exit $STATUS
 
       - name: Archive (x86_64)
