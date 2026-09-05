@@ -289,14 +289,30 @@ jobs:
           </dict>
           </plist>
           EOF
+          # No -authenticationKey* here, unlike the archive and notarytool.
+          #
+          # A developer-id export needs a Developer ID provisioning profile
+          # for the app and each embedded extension — the App Group,
+          # keychain-sharing and aps-environment entitlements each require
+          # one. Minting those through an API key is "cloud signing", and
+          # Apple gates Developer ID assets more tightly than the rest: an
+          # *Admin* key still gets
+          #
+          #   error: exportArchive No profiles for 'app.justmaple.aperture' were found
+          #   error: exportArchive Cloud signing permission error
+          #
+          # (v0.0.15-test.1 — so this is not a role that can be raised).
+          # This job runs on a Mac signed into Xcode with the team account,
+          # and that account demonstrably can mint these profiles: it
+          # created the macOS FileProvider profile on 2026-09-05 the moment
+          # the project was opened. Dropping the key here lets Xcode use
+          # the local account instead. The archive step keeps the key, and
+          # notarytool below needs it.
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
-            -authenticationKeyID "$APPSTORE_KEY_ID" \
-            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID"
+            -allowProvisioningUpdates
 
       - name: Notarize and staple
         env:
