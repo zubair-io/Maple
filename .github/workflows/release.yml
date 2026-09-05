@@ -189,7 +189,8 @@ jobs:
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           (while true; do
-            { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog-arm64.txt"
+            { date; vm_stat | grep -E "Pages free|Pages occupied by compressor";
+              ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog-arm64.txt"
             sleep 5
           done) &
           MEMLOG_PID=$!
@@ -207,7 +208,8 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             -jobs 1 \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_COMPILATION_MODE=singlefile
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
@@ -219,7 +221,8 @@ jobs:
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           (while true; do
-            { date; vm_stat; echo; } >> "$RUNNER_TEMP/memlog-x86_64.txt"
+            { date; vm_stat | grep -E "Pages free|Pages occupied by compressor";
+              ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog-x86_64.txt"
             sleep 5
           done) &
           MEMLOG_PID=$!
@@ -237,7 +240,8 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
             -jobs 1 \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_COMPILATION_MODE=singlefile
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
           exit $STATUS
