@@ -1,0 +1,10 @@
+# Force LF line endings for Unix-only script types, regardless of the
+# committer's platform or core.autocrlf setting. Several of these scripts are
+# consumed directly by CI (GitHub Actions macOS/Linux runners) and by Xcode
+# Cloud's ci_post_clone.sh mechanism — CRLF line endings break execution
+# there ("bad interpreter", corrupted `while read` loops).
+*.sh text eol=lf
+*.py text eol=lf
+*.bash text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
