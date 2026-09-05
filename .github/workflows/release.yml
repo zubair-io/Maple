@@ -198,27 +198,27 @@ jobs:
       - name: Disk usage before archive
         run: df -h /
 
-      # Confirmed 2026-09-04 via a vm_stat sampler: a single-invocation
-      # universal (arm64+x86_64) archive was dying from real memory
-      # exhaustion (~138MB free at death, on a runner with ~6-7GB total
-      # RAM) — not disk (ruled out, 53GB free right before Archive) and
-      # not a normal build failure (no compiler error, no
-      # "** ARCHIVE FAILED **" banner). Two architectures' worth of
-      # compiling+linking a large dependency tree (GRDB, swift-otel,
-      # NIO/gRPC) in one process exceeded the runner's memory regardless
-      # of Swift compilation mode (#3326's SWIFT_COMPILATION_MODE=
-      # singlefile override reduced compile-time pressure but the build
-      # still died at almost exactly the same elapsed time, pointing at
-      # a resource cost that override doesn't touch).
+      # One universal (arm64 + x86_64) archive, in one invocation.
       #
-      # Fix: archive each architecture separately (half the memory
-      # footprint each time, at the project's normal wholemodule
-      # optimization — no need for the singlefile tradeoff once only one
-      # arch is in play), then lipo-merge the two into one universal
-      # .xcarchive. merge-universal-archive.sh deliberately does no
-      # re-signing — the "Export with Developer ID" step below already
-      # performs a full codesigning pass over the merged tree.
-      - name: Archive (arm64)
+      # The per-architecture split this replaces (#3330/#3331) existed
+      # only to halve peak memory on the 7 GB hosted runner, and it never
+      # worked: five hosted attempts died in the archive regardless
+      # (#3332). On the release Mac the same universal archive builds in
+      # ~18 minutes, so the workaround buys nothing — and it actively
+      # broke the build here, because `lipo` cannot merge a slice that is
+      # the same architecture in both archives:
+      #
+      #   fatal error: lipo: .../libswiftCompatibilitySpan.dylib and
+      #   .../libswiftCompatibilitySpan.dylib have the same architectures
+      #
+      # That Swift back-deployment shim ships as one architecture in both
+      # per-arch archives, so there is nothing to fatten. Building both
+      # slices in a single pass lets Xcode assemble them correctly and
+      # deletes the whole merge stage.
+      #
+      # The memory sampler stays: it is what finally identified the
+      # hosted failure, and it costs one background loop.
+      - name: Archive (universal)
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
@@ -231,93 +231,36 @@ jobs:
 
           (while true; do
             { date; vm_stat | grep -E "Pages free|Pages occupied by compressor";
-              ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog-arm64.txt"
+              ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog.txt"
             sleep 5
           done) &
           MEMLOG_PID=$!
 
           set +e
-          # Run xcodebuild under its own log file so the step's own stdout
-          # cannot be what goes missing, and record the exit status
-          # explicitly. Every previous failure ended with no "Process
-          # completed with exit code" line at all — the process vanished
-          # rather than exiting — so the status and the OS's own kill log
-          # are the two things worth capturing (#3332).
           xcodebuild -project src/apple/Maple.xcodeproj \
             -scheme "Maple Exposure" \
             -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/Maple-arm64.xcarchive" \
+            -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
             archive \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$APPSTORE_KEY_ID" \
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
             COMPILER_INDEX_STORE_ENABLE=NO
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
 
           echo "=== xcodebuild exit status: $STATUS"
-          echo "=== memory-pressure / jetsam kills in the last 30 minutes:"
-          log show --last 30m --style compact \
-            --predicate 'eventMessage CONTAINS "memorystatus" OR eventMessage CONTAINS "jetsam" OR eventMessage CONTAINS "lowswap" OR eventMessage CONTAINS "Terminating"' \
-            2>/dev/null | tail -40 || echo "(log show returned nothing)"
-          echo "=== spindump/crash reports written during this step:"
-          ls -lt ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -20 || true
-          for r in $(ls -t ~/Library/Logs/DiagnosticReports/*.{ips,crash} 2>/dev/null | head -3); do
-            echo "--- $r"; head -40 "$r"
-          done
-          echo "=== final memory state:"
-          vm_stat; sysctl hw.memsize vm.swapusage 2>/dev/null || true
-
           exit $STATUS
-
-      - name: Archive (x86_64)
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
-        run: |
-          (while true; do
-            { date; vm_stat | grep -E "Pages free|Pages occupied by compressor";
-              ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog-x86_64.txt"
-            sleep 5
-          done) &
-          MEMLOG_PID=$!
-
-          set +e
-          xcodebuild -project src/apple/Maple.xcodeproj \
-            -scheme "Maple Exposure" \
-            -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/Maple-x86_64.xcarchive" \
-            archive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
-            -authenticationKeyID "$APPSTORE_KEY_ID" \
-            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO
-          STATUS=$?
-          kill "$MEMLOG_PID" 2>/dev/null
-          exit $STATUS
-
-      - name: Merge into universal archive
-        run: |
-          ./src/apple/scripts/merge-universal-archive.sh \
-            "$RUNNER_TEMP/Maple-arm64.xcarchive" \
-            "$RUNNER_TEMP/Maple-x86_64.xcarchive" \
-            "$RUNNER_TEMP/Maple.xcarchive"
 
       - name: Upload memory logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: archive-memlogs
-          path: |
-            ${{ runner.temp }}/memlog-arm64.txt
-            ${{ runner.temp }}/memlog-x86_64.txt
+          path: ${{ runner.temp }}/memlog.txt
           if-no-files-found: ignore
 
       # developer-id export re-signs the archive with the Developer ID
