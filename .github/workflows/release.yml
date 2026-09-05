@@ -106,8 +106,23 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" \
             -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: \
+          # `codesign:` must be in the partition list, not just
+          # `apple-tool:,apple:`. Without it the imported key's ACL has no
+          # entry for /usr/bin/codesign, so codesign asks a human instead
+          # of signing: on the hosted VM that is an invisible hang, and on
+          # the self-hosted Mac it is a literal "codesign wants to use the
+          # release keychain" dialog on someone's screen (v0.0.13-test.1).
+          # Neither is answerable by CI.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Carry the keychain to later steps: it can relock between them,
+          # and a locked keychain prompts exactly the same way. The
+          # password is a per-run uuidgen value, masked in the log.
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          {
+            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
+            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
+          } >> "$GITHUB_ENV"
           # Remember the machine's own search list before prepending ours.
           # On a hosted runner the VM is discarded either way; on the
           # release Mac this is a real user session whose keychain list
@@ -209,6 +224,11 @@ jobs:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
+          # Unlock immediately before signing: the keychain relocks on its
+          # own timeout, and a locked keychain prompts for a password the
+          # same way a missing ACL entry does.
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
           (while true; do
             { date; vm_stat | grep -E "Pages free|Pages occupied by compressor";
               ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog-arm64.txt"
@@ -310,6 +330,10 @@ jobs:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
+          # This step is the full codesigning pass, so it needs the
+          # keychain unlocked just as much as the archive does.
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
