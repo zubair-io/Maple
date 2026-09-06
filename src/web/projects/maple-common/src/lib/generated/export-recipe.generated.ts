@@ -124,3 +124,13 @@ function recipeDestinationProblem(recipe: ExportRecipe): string | null {
     return null;
   return 'Choose a download with browser naming, or a directory with error, skip, or replace policy';
 }
+
+/** API/browser metadata carries ISO text. Preserve camera wall-clock digits for core EXIF naming. */
+export function exportCaptureTime(value: string | null): string | null {
+  if (value === null) return null;
+  const iso =
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(
+      value,
+    );
+  return iso ? `${iso[1]}:${iso[2]}:${iso[3]} ${iso[4]}:${iso[5]}:${iso[6]}` : value;
+}

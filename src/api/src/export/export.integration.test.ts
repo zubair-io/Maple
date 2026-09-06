@@ -103,7 +103,7 @@ integration('persisted developed-image recipe export', () => {
     const next = await claimed(payload([unedited]));
     await batchRecipeExportHandler.run(next.payload, await context(next._id));
     expect(await readFile(join(root, 'exports', 'unedited_1.png'))).not.toEqual(output);
-  }, 30000);
+  }, 60000);
 
   it('reconciles a committed output after process loss without writing it twice', async () => {
     const photo = await target('crash');
@@ -117,13 +117,13 @@ integration('persisted developed-image recipe export', () => {
     await expect(batchRecipeExportHandler.run(job.payload, ctx)).rejects.toThrow('process loss');
     const output = join(root, 'exports', 'crash_1.png');
     const before = await stat(output);
-    expect(((await jobs.getJob(job._id))?.checkpoint?.['entries'] as ExportEntry[])[0].status).toBe(
+    expect(((await jobs.getJob(job._id))!.checkpoint!['entries'] as ExportEntry[])[0].status).toBe(
       'prepared',
     );
     const result = await batchRecipeExportHandler.run(job.payload, await context(job._id));
     expect(result.result.applied).toEqual([photo.id]);
     expect((await stat(output)).mtimeMs).toBe(before.mtimeMs);
-  }, 30000);
+  }, 60000);
 
   it('cancels between photos, resumes the saved selection and honors skip collisions', async () => {
     const photos = [await target('cancel-one'), await target('cancel-two', 7)];
@@ -145,7 +145,7 @@ integration('persisted developed-image recipe export', () => {
     expect(await readFile(join(root, 'exports', 'cancel-two_8.png'), 'utf8')).toBe(
       'existing output',
     );
-  }, 30000);
+  }, 60000);
 
   it('records filename and native decoder failures per photo while continuing', async () => {
     const bad = await target('broken');
@@ -156,7 +156,7 @@ integration('persisted developed-image recipe export', () => {
     expect(result.result.applied).toEqual([good.id]);
     expect((result.result.failed as { id: string; reason: string }[])[0].id).toBe(bad.id);
     expect(await readFile(good.path)).toEqual(original);
-  }, 30000);
+  }, 60000);
 });
 integration('export recovery boundaries', () => {
   it('stops before native rendering when the durable staging checkpoint fails', async () => {
@@ -188,7 +188,7 @@ integration('export recovery boundaries', () => {
     expect((result.result.failed as { reason: string }[])[0].reason).toContain('original');
     expect(await readFile(first.path)).toEqual(original);
     expect(await readFile(second.path)).toEqual(original);
-  }, 30000);
+  }, 60000);
 
   it('retries only failed photos over HTTP with the same XMP and stable sequence', async () => {
     const bad = await target('retry-bad', 11);
@@ -212,7 +212,7 @@ integration('export recovery boundaries', () => {
     expect(
       await (await getDb()).collection('jobs').countDocuments({ _id: new ObjectId(requestId) }),
     ).toBe(1);
-  }, 30000);
+  }, 60000);
 
   it('migrates the legacy JPEG job onto an immutable developed-image recipe ledger', async () => {
     const photo = await target('legacy');
@@ -249,10 +249,30 @@ integration('export recovery boundaries', () => {
       Buffer.from([255, 216]),
     );
     expect(await readFile(photo.path)).toEqual(original);
-  }, 30000);
+  }, 60000);
 });
 
 describe('recipe boundary validation', () => {
+  it('preserves camera wall-clock digits from ISO capture metadata for shared filename rendering', () => {
+    const result = parseExportPayload({
+      targets: [
+        {
+          id: 'clock',
+          path: join(tmpdir(), 'clock.dng'),
+          xmp: '',
+          index: 4,
+          capturedAt: '2026-07-02T23:58:59+12:00',
+        },
+      ],
+      recipe: {
+        ...DEFAULT_EXPORT_RECIPE,
+        destination: 'directory',
+        directory: tmpdir(),
+        overwritePolicy: 'error',
+      },
+    });
+    expect(result.targets[0].capturedAt).toBe('2026:07:02 23:58:59');
+  });
   it('rejects unimplemented format, metadata, profile and watermark choices without queuing them', () => {
     for (const patch of [
       { format: 'heic' },

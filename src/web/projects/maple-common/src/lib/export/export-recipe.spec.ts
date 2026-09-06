@@ -3,8 +3,10 @@ import {
   DEFAULT_EXPORT_RECIPE,
   parseExportRecipe,
   exportRecipeProblem,
+  exportCaptureTime,
 } from '../generated/export-recipe.generated';
 import { recoverBrowserQueue, recipeSummary, type RecipeQueueRecord } from './export-recipe-store';
+import { runBrowserRecipe } from './browser-recipe-runner';
 
 function interrupted(): RecipeQueueRecord {
   return {
@@ -30,6 +32,29 @@ function interrupted(): RecipeQueueRecord {
   };
 }
 describe('export recipe contract and recovery', () => {
+  it('refuses a missing persisted directory instead of falling back to browser downloads', async () => {
+    const record = interrupted();
+    record.recipe = { ...record.recipe, destination: 'directory', directory: 'missing-folder' };
+    const unexpected = async (): Promise<never> => {
+      throw new Error('A missing destination must be rejected before rendering or delivery');
+    };
+    await expect(
+      runBrowserRecipe(record, {
+        filename: unexpected,
+        render: unexpected,
+        save: unexpected,
+        cancelled: () => false,
+        progress: () => {},
+      }),
+    ).rejects.toThrow('saved destination folder is unavailable');
+  });
+  it('normalizes capture metadata without applying the viewer timezone', () => {
+    expect(exportCaptureTime('2026-07-02T23:58:59.123+12:00')).toBe('2026:07:02 23:58:59');
+    expect(exportCaptureTime('2026-07-02T23:58:59Z')).toBe('2026:07:02 23:58:59');
+    expect(exportCaptureTime('2026:07:02 23:58:59')).toBe('2026:07:02 23:58:59');
+    expect(exportCaptureTime(null)).toBeNull();
+    expect(exportCaptureTime('unknown')).toBe('unknown');
+  });
   it('round-trips every field including explicit null values', () => {
     const recipe = {
       ...DEFAULT_EXPORT_RECIPE,

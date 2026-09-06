@@ -34,7 +34,12 @@ pub fn run(
     let source = fs::canonicalize(raw)?;
     fs::create_dir_all(dir)?;
     let directory = fs::canonicalize(dir)?;
-    let output = directory.join(recipe.filename(stem, None, index)?);
+    let bytes = fs::read(&source)?;
+    let ext = raw.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let captured = raw_core::api::read_exif(&bytes, ext)
+        .ok()
+        .and_then(|exif| exif.captured_at);
+    let output = directory.join(recipe.filename(stem, captured.as_deref(), index)?);
     if output == source || fs::canonicalize(&output).ok().as_ref() == Some(&source) {
         return Err("export destination is the original; choose another directory or name".into());
     }
@@ -54,8 +59,6 @@ pub fn run(
             _ => {}
         }
     }
-    let bytes = fs::read(&source)?;
-    let ext = raw.extension().and_then(|s| s.to_str()).unwrap_or("");
     let decoded = decode_bytes(&bytes, ext)?;
     let resolved_film_dir = film_dir
         .map(Path::to_path_buf)

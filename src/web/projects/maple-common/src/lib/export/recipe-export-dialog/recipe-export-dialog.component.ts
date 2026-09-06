@@ -24,7 +24,12 @@ import { MuiFormFieldComponent } from '../../ui/form-field/mui-form-field.compon
 import { MuiSegmentedToggleComponent } from '../../ui/segmented-toggle/mui-segmented-toggle.component';
 import { MuiProgressComponent } from '../../ui/progress/mui-progress.component';
 import { ExportRecipeQueueService } from '../export-recipe-queue.service';
-import { savedRecipes, saveRecipe, deleteRecipe } from '../export-recipe-store';
+import {
+  savedRecipes,
+  saveRecipe,
+  deleteRecipe,
+  readRecipeDirectory,
+} from '../export-recipe-store';
 import { downloadBlob } from '../download-blob';
 
 @Component({
@@ -52,6 +57,7 @@ export class RecipeExportDialogComponent {
   readonly recipe = signal<ExportRecipe>({ ...DEFAULT_EXPORT_RECIPE });
   readonly recipes = signal<ExportRecipe[]>([]);
   readonly storageError = signal<string | null>(null);
+  readonly directoryName = signal<string | null>(null);
   readonly problem = computed(() => exportRecipeProblem(this.recipe()));
   readonly formats = EXPORT_ENCODERS.map((encoder) => ({
     value: encoder.format,
@@ -63,7 +69,10 @@ export class RecipeExportDialogComponent {
   ];
   readonly destinations = [
     { value: 'download', label: 'Browser downloads' },
-    { value: 'directory', label: 'Server directory' },
+    {
+      value: 'directory',
+      label: this.queue.serverAvailable ? 'Server directory' : 'Chosen folder',
+    },
   ];
   readonly overwriteOptions = [
     { value: 'error', label: 'Stop for collision' },
@@ -85,13 +94,24 @@ export class RecipeExportDialogComponent {
     if (!record) return null;
     const summary = this.queue.summary()!;
     const skipped = record.entries.filter((entry) => entry.status === 'skipped').length;
-    const verb = record.serverJobId ? 'saved' : 'submitted to Downloads';
+    const verb = record.recipe.destination === 'directory' ? 'saved' : 'submitted to Downloads';
     return `${summary.applied.length} ${verb} · ${skipped} skipped · ${summary.failed.length} failed · ${this.queue.remaining()} remaining`;
   });
 
   constructor() {
     effect(() => {
       if (this.visible()) void this.refreshRecipes();
+    });
+    effect(() => {
+      const key = this.recipe().directory;
+      this.directoryName.set(null);
+      if (key && !this.queue.serverAvailable) {
+        void readRecipeDirectory(key)
+          .then((handle) => {
+            if (this.recipe().directory === key) this.directoryName.set(handle?.name ?? null);
+          })
+          .catch((error: unknown) => this.storageError.set(String(error)));
+      }
     });
   }
   patch(patch: Partial<ExportRecipe>): void {
@@ -108,6 +128,22 @@ export class RecipeExportDialogComponent {
       directory: destination === 'directory' ? '' : null,
       overwritePolicy: destination === 'directory' ? 'error' : 'browser',
     });
+  }
+  async chooseDirectory(): Promise<void> {
+    try {
+      const selected = await this.queue.directories.choose();
+      this.patch({
+        destination: 'directory',
+        directory: selected.key,
+        overwritePolicy:
+          this.recipe().overwritePolicy === 'browser' ? 'error' : this.recipe().overwritePolicy,
+      });
+      this.directoryName.set(selected.name);
+      this.storageError.set(null);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError'))
+        this.storageError.set(String(error));
+    }
   }
   async persist(): Promise<void> {
     try {

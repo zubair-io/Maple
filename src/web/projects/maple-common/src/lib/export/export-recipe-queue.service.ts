@@ -13,11 +13,13 @@ import {
   recipeSummary,
   type RecipeQueueRecord,
 } from './export-recipe-store';
-import { downloadBlob } from './download-blob';
+import { runBrowserRecipe } from './browser-recipe-runner';
+import { RecipeDirectoryAccessService } from './recipe-directory-access.service';
 
 @Injectable({ providedIn: 'root' })
 export class ExportRecipeQueueService {
   private readonly render = inject(ExportRecipeRenderService);
+  readonly directories = inject(RecipeDirectoryAccessService);
   private readonly server = inject(EXPORT_RECIPE_SERVER, { optional: true });
   readonly serverAvailable = !!this.server;
   readonly record = signal<RecipeQueueRecord | null>(null);
@@ -31,7 +33,7 @@ export class ExportRecipeQueueService {
   readonly remaining = computed(
     () =>
       this.record()?.entries.filter((entry) =>
-        ['pending', 'rendering', 'delivering'].includes(entry.status),
+        ['pending', 'rendering', 'delivering', 'writing'].includes(entry.status),
       ).length ?? 0,
   );
   private cancelled = false;
@@ -59,17 +61,13 @@ export class ExportRecipeQueueService {
     await this.exclusive(async (latest) => {
       if (
         latest?.entries.some((entry) =>
-          ['pending', 'rendering', 'delivering'].includes(entry.status),
+          ['pending', 'rendering', 'delivering', 'writing'].includes(entry.status),
         )
       )
         throw new Error('Resume the previous export before starting another.');
       const recipe = parseExportRecipe(value);
       const problem = exportRecipeProblem(recipe);
       if (problem) throw new Error(problem);
-      if (recipe.destination === 'directory' && !this.server)
-        throw new Error(
-          'This browser exports to Downloads. Choose Browser downloads, or use a Self Hosted server/CLI for a directory recipe.',
-        );
       const targets = await this.render.capture(assets);
       const id = crypto.randomUUID().replaceAll('-', '').slice(0, 24);
       const record: RecipeQueueRecord = {
@@ -77,9 +75,13 @@ export class ExportRecipeQueueService {
         recipe,
         targets,
         entries: targets.map((target) => ({ id: target.id, status: 'pending' })),
-        serverJobId: recipe.destination === 'directory' ? id : null,
+        serverJobId: recipe.destination === 'directory' && this.server ? id : null,
         cancelled: false,
       };
+      if (recipe.destination === 'directory' && !this.server) {
+        record.directoryHandle = await this.directories.resolve(recipe.directory!);
+        await this.directories.captureSources(targets);
+      }
       await this.execute(record);
     });
   }
@@ -182,37 +184,14 @@ export class ExportRecipeQueueService {
   }
 
   private async runBrowser(record: RecipeQueueRecord): Promise<void> {
-    for (const [index, target] of record.targets.entries()) {
-      if (this.cancelled || this.destroyed) {
-        await this.save({ ...record, cancelled: true });
-        return;
-      }
-      if (record.entries[index].status !== 'pending') continue;
-      record.entries[index] = { id: target.id, status: 'rendering' };
-      await this.save(record);
-      let file;
-      let filename;
-      try {
-        filename = await this.render.filename(target, record.recipe);
-        file = await this.render.render(target, record.recipe);
-      } catch (error) {
-        record.entries[index] = {
-          id: target.id,
-          status: 'failed',
-          reason: error instanceof Error ? error.message : String(error),
-        };
-        await this.save(record);
-        this.reportProgress(record, target.id);
-        continue;
-      }
-      // The durable marker precedes the external download handoff. No reload can auto-duplicate it.
-      record.entries[index] = { id: target.id, status: 'delivering', filename };
-      await this.save(record);
-      downloadBlob(file.blob, filename);
-      record.entries[index] = { id: target.id, status: 'applied', filename };
-      await this.save(record);
-      this.reportProgress(record, target.id);
-    }
+    if (record.directoryHandle) await this.directories.permit(record.directoryHandle);
+    await runBrowserRecipe(record, {
+      filename: (target, recipe) => this.render.filename(target, recipe),
+      render: (target, recipe) => this.render.render(target, recipe),
+      save: (value) => this.save(value),
+      cancelled: () => this.cancelled || this.destroyed,
+      progress: (id) => this.reportProgress(record, id),
+    });
   }
 
   private async pollServer(record: RecipeQueueRecord): Promise<void> {

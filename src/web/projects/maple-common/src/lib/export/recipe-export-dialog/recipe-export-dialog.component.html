@@ -89,13 +89,23 @@
       [disabled]="queue.running()"
     />
     @if (recipe().destination === 'directory') {
-      <mui-form-field
-        label="Existing server directory"
-        [value]="recipe().directory ?? ''"
-        (valueChange)="patch({ directory: $event })"
-        [disabled]="queue.running()"
-        help="Absolute path inside an authorized library root."
-      />
+      @if (queue.serverAvailable) {
+        <mui-form-field
+          label="Existing server directory"
+          [value]="recipe().directory ?? ''"
+          (valueChange)="patch({ directory: $event })"
+          [disabled]="queue.running()"
+          help="Absolute path inside an authorized library root."
+        />
+      } @else {
+        <mui-button variant="ghost" [disabled]="queue.running()" (pressed)="chooseDirectory()">
+          {{ directoryName() ? 'Export folder: ' + directoryName() : 'Choose export folder' }}
+        </mui-button>
+        <mui-text color="muted"
+          >Folder access is saved on this device. After importing a recipe, choose its destination
+          here.</mui-text
+        >
+      }
       <mui-segmented-toggle
         [options]="overwriteOptions"
         [value]="recipe().overwritePolicy"
@@ -103,12 +113,6 @@
         ariaLabel="Existing output policy"
         [disabled]="queue.running()"
       />
-      @if (!queue.serverAvailable) {
-        <mui-text color="warning"
-          >Directory recipes require Self Hosted or the CLI. Choose Browser downloads
-          here.</mui-text
-        >
-      }
     } @else {
       <mui-text color="muted"
         >Your browser controls download naming and collisions. Maple reports handoff, and cannot

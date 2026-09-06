@@ -7,7 +7,11 @@ import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { FilmLutService } from '../film/film-lut.service';
-import { exportRecipeProblem, type ExportRecipe } from '../generated/export-recipe.generated';
+import {
+  exportRecipeProblem,
+  exportCaptureTime,
+  type ExportRecipe,
+} from '../generated/export-recipe.generated';
 import type { Asset } from '../models/asset';
 import type {
   ExportColorSpace,
@@ -37,7 +41,7 @@ export class ExportRecipeRenderService {
       path: this.store.absPathFor(asset.id) ?? null,
       xmp: this.serializer.serialize(models[index], this.xmp.passthroughFor(asset.id)),
       filmLook: models[index].filmLook,
-      capturedAt: asset.capturedAt ?? null,
+      capturedAt: exportCaptureTime(asset.capturedAt ?? null),
       index,
     }));
   }
@@ -56,7 +60,10 @@ export class ExportRecipeRenderService {
     const film = target.filmLook ? await this.films.getLattice(target.filmLook) : null;
     if (target.filmLook && !film)
       throw new Error(`Film look ${target.filmLook} is unavailable. Reconnect and retry.`);
-    const bytes = await this.library.bytesForAsset(target.id).catch((error: unknown) => {
+    const source = target.sourceHandle
+      ? target.sourceHandle.getFile().then(async (file) => new Uint8Array(await file.arrayBuffer()))
+      : this.library.bytesForAsset(target.id);
+    const bytes = await source.catch((error: unknown) => {
       throw new Error(
         `Reopen the source folder and retry ${target.filename}: ${error instanceof Error ? error.message : String(error)}`,
       );
