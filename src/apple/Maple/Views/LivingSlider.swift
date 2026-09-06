@@ -1,59 +1,9 @@
-// LivingSlider.swift — Pro Editor Canvas-first (A1, #1536).
-//
-// A gradient-track slider primitive for the canvas-first editor. Replaces
-// the monochrome `DragBar` on the new pro shell (A2 wires it into the
-// editor; A1 builds the self-contained primitive + preview).
-//
-// Layout:
-//   ┌──────────────────────────────────────────────────────────┐
-//   │  Label                                      +0.35 EV   │  ← label row (12pt)
-//   │  ████████████████│░░░░░░░░░░░░░░░░░░░░░░  ●           │  ← gradient track (8–9pt)
-//   └──────────────────────────────────────────────────────────┘
-//
-// Track:
-//   • `LinearGradient` from the catalog, 8pt tall, `capsule` clipped.
-//   • Inset 0.5pt hairline in `ProTokens.borderHi` (shows contrast vs canvas).
-//   • 1.5pt white zero-notch at the midpoint for bipolar tools.
-//
-// Thumb:
-//   • Circle, diameter = track height + 8pt, white fill, 1pt dark rim.
-//   • Gains a 2pt `ProTokens.accent` ring when `value ≠ defaultValue`.
-//
-// Value label:
-//   • Right-aligned, monospaced tabular, 11pt.
-//   • Accent colour when modified, `ProTokens.textDim` when at default.
-//
-// Gesture:
-//   • `DragGesture(minimumDistance: 0)` — 1:1 value update during drag.
-//   • `onEditingChanged` brackets the first write and release/cancellation;
-//     callers capture the undo baseline before any preview mutation.
-
 import MapleCore
 import SwiftUI
 
-// MARK: - LivingSlider
-
-/// A Pro-palette gradient slider.
-///
-/// - Parameters:
-///   - label:        Short tool name displayed above the track.
-///   - value:        Binding to the current value (in display-range units).
-///   - range:        The full display range of valid values.
-///   - isBipolar:    `true` → zero notch at midpoint; `false` → no notch.
-///   - defaultValue: The canonical default for this field (used to decide
-///                   modified-state styling). Defaults to `0`.
-///   - gradient:     Catalog stops (from `GradientCatalog`). When `nil`
-///                   the track renders a flat neutral fill (graceful
-///                   degradation for unlisted tools).
-///   - displayValue: Pre-formatted string shown as the right-side readout
-///                   (e.g. `"+0.35"`, `"5800 K"`). When omitted the slider
-///                   formats `value` with up to 2 decimal places.
-///   - onCommit:     Optional notification after a completed edit.
-///   - onEditingChanged: Opens an edit before mutation; closes on release/cancel.
+/// One relative slider contract: a transaction per drag or held key, canonical
+/// reset, 0.25× fine drag and accessible value keys (#3250).
 public struct LivingSlider: View {
-
-  // MARK: Inputs
-
   let label: String
   @Binding var value: Double
   let range: ClosedRange<Double>
@@ -61,37 +11,24 @@ public struct LivingSlider: View {
   let defaultValue: Double
   let gradientStops: [GradientStop]?
   let displayValue: String?
-  let onCommit: (() -> Void)?
   let onEditingChanged: ((Bool) -> Void)?
+  let onCommit: (() -> Void)?
 
-  // MARK: Internal state
-
-  /// Keep the baseline through the final release event; GestureState only
-  /// reports cancellation and must not discard the value before onEnded.
-  @State private var dragStartValue: Double?
-  @GestureState private var dragIsActive = false
-  @State private var isEditing = false
-
-  // MARK: Geometry constants
-
-  private let trackHeight: CGFloat = 8
-  private var thumbDiameter: CGFloat { trackHeight + 8 }
-  private let hairlineWidth: CGFloat = 0.5
-  private let zeroNotchWidth: CGFloat = 1.5
-  private let accentRingWidth: CGFloat = 2
-
-  // MARK: Init
+  @Environment(\.isEnabled) private var isEnabled
+  @FocusState private var focused: Bool
+  @GestureState private var dragging = false
+  @State private var dragStart: Double?
+  @State private var dragStartTranslation: CGFloat = 0
+  @State private var lastTranslation: CGFloat = 0
+  @State private var interacting = false
+  @State private var fineMode = false
+  @State private var hapticTick = 0
 
   public init(
-    label: String,
-    value: Binding<Double>,
-    range: ClosedRange<Double>,
-    isBipolar: Bool = false,
-    defaultValue: Double = 0,
-    gradient: [GradientStop]? = nil,
-    displayValue: String? = nil,
-    onCommit: (() -> Void)? = nil,
-    onEditingChanged: ((Bool) -> Void)? = nil
+    label: String, value: Binding<Double>, range: ClosedRange<Double>,
+    isBipolar: Bool = false, defaultValue: Double = 0,
+    gradient: [GradientStop]? = nil, displayValue: String? = nil,
+    onCommit: (() -> Void)? = nil, onEditingChanged: ((Bool) -> Void)? = nil
   ) {
     self.label = label
     self._value = value
@@ -100,313 +37,176 @@ public struct LivingSlider: View {
     self.defaultValue = defaultValue
     self.gradientStops = gradient
     self.displayValue = displayValue
-    self.onCommit = onCommit
     self.onEditingChanged = onEditingChanged
+    self.onCommit = onCommit
   }
-
-  // MARK: Derived
-
-  private var isModified: Bool { abs(value - defaultValue) > 1e-9 }
 
   private var formattedValue: String {
-    if let dv = displayValue { return dv }
-    return LivingSliderMath.format(value: value, range: range)
+    displayValue ?? LivingSliderMath.format(value: value, range: range)
   }
 
-  private func thumbPct(for val: Double) -> Double {
-    if isBipolar {
-      let half = max((range.upperBound - range.lowerBound) / 2, 1e-9)
-      let mid = (range.lowerBound + range.upperBound) / 2
-      return LivingSliderMath.pctBipolar(value: val - mid, halfRange: half)
-    } else {
-      return LivingSliderMath.pctUnipolar(value: val, range: range)
-    }
+  private var gradient: LinearGradient {
+    let stops =
+      gradientStops?.map {
+        Gradient.Stop(color: Color(red: $0.r, green: $0.g, blue: $0.b), location: $0.t)
+      } ?? [
+        Gradient.Stop(color: ProTokens.border, location: 0),
+        Gradient.Stop(color: ProTokens.borderHi, location: 1),
+      ]
+    return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
   }
-
-  private func value(fromPct pct: Double) -> Double {
-    if isBipolar {
-      let half = (range.upperBound - range.lowerBound) / 2
-      let mid = (range.lowerBound + range.upperBound) / 2
-      return mid + LivingSliderMath.valueBipolar(pct: pct, halfRange: half)
-    } else {
-      return LivingSliderMath.valueUnipolar(pct: pct, range: range)
-    }
-  }
-
-  // MARK: SwiftUI colors from GradientStop catalog
-
-  private var swiftUIGradient: LinearGradient {
-    guard let stops = gradientStops, !stops.isEmpty else {
-      // Fallback: flat neutral fill
-      return LinearGradient(
-        colors: [ProTokens.border, ProTokens.borderHi],
-        startPoint: .leading,
-        endPoint: .trailing
-      )
-    }
-    let gradStops: [Gradient.Stop] = stops.map { s in
-      Gradient.Stop(
-        color: Color(red: s.r, green: s.g, blue: s.b),
-        location: s.t
-      )
-    }
-    return LinearGradient(
-      stops: gradStops,
-      startPoint: .leading,
-      endPoint: .trailing
-    )
-  }
-
-  // MARK: Body
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      // Label + value row
+    VStack(spacing: 4) {
       HStack {
-        Text(label)
-          .font(MapleTokens.Typography.toolLabel)
-          .foregroundStyle(ProTokens.textMuted)
-          .accessibilityHidden(true)
-
+        Text(label).font(MapleTokens.Typography.toolLabel).foregroundStyle(ProTokens.textMuted)
         Spacer()
-
-        Text(formattedValue)
-          .font(MapleTokens.Typography.valueChip)
-          .monospacedDigit()
-          .foregroundStyle(isModified ? ProTokens.accent : ProTokens.textDim)
-          .accessibilityHidden(true)
+        Text(formattedValue).font(MapleTokens.Typography.valueChip).monospacedDigit()
+          .foregroundStyle(value == defaultValue ? ProTokens.textDim : ProTokens.accent)
       }
-
-      // Track + thumb
-      GeometryReader { geo in
-        let trackWidth = geo.size.width
-        let thumbPctNow = thumbPct(for: value)
-        // Inset the travel range by thumbRadius so the thumb circle
-        // stays fully inside the track at both extremes (pct 0 and 1).
-        let thumbRadius = thumbDiameter / 2
-        let thumbX = thumbRadius + thumbPctNow * (trackWidth - thumbDiameter)
-
+      .accessibilityHidden(true)
+      GeometryReader { geometry in
+        let width = geometry.size.width
+        let pct = LivingSliderMath.pctUnipolar(value: value, range: range)
         ZStack(alignment: .leading) {
-          // Gradient track
-          Capsule()
-            .fill(swiftUIGradient)
-            .frame(height: trackHeight)
-            .overlay(
-              // Hairline inset border
-              Capsule()
-                .strokeBorder(ProTokens.borderHi, lineWidth: hairlineWidth)
-            )
-            .frame(maxWidth: .infinity)
-
-          // Zero notch (bipolar only)
+          Capsule().fill(gradient).frame(height: 8)
+            .overlay(Capsule().strokeBorder(ProTokens.borderHi, lineWidth: 0.5))
           if isBipolar {
-            let notchX = 0.5 * trackWidth
-            Rectangle()
-              .fill(Color.white.opacity(0.80))
-              .frame(width: zeroNotchWidth, height: trackHeight)
-              .position(x: notchX, y: trackHeight / 2)
+            Rectangle().fill(.white.opacity(0.8)).frame(width: 1.5, height: 8)
+              .position(x: width / 2, y: 8)
           }
-
-          // Thumb
-          Circle()
-            .fill(Color.white)
-            .frame(width: thumbDiameter, height: thumbDiameter)
-            // Dark rim
-            .shadow(color: .black.opacity(0.45), radius: 1, x: 0, y: 0.5)
-            // Accent ring when modified
+          Circle().fill(.white).frame(width: 16, height: 16)
+            .shadow(color: .black.opacity(0.45), radius: 1, y: 0.5)
             .overlay(
-              Circle()
-                .strokeBorder(
-                  isModified ? ProTokens.accent : Color.clear,
-                  lineWidth: accentRingWidth
-                )
+              Circle().strokeBorder(
+                focused || value != defaultValue ? ProTokens.accent : .clear, lineWidth: 2)
             )
-            .position(x: thumbX, y: trackHeight / 2)
-            .accessibilityLabel(label)
-            .accessibilityValue(formattedValue)
-            .accessibilityAdjustableAction { direction in
-              // Use 5% per swipe (range/20) so VoiceOver users
-              // traverse the full range in ~20 gestures rather
-              // than ~100. Fine enough for precision, coarse
-              // enough to be practical.
-              let step = (range.upperBound - range.lowerBound) / 20
-              beginEditing()
-              switch direction {
-              case .increment: value = min(value + step, range.upperBound)
-              case .decrement: value = max(value - step, range.lowerBound)
-              @unknown default: break
-              }
-              // Commit after each VoiceOver step so the undo
-              // boundary is recorded the same way drag does.
-              endEditing()
-            }
+            .position(x: 8 + pct * max(width - 16, 0), y: 8)
         }
-        .frame(height: trackHeight)
-        .contentShape(Rectangle().inset(by: -8))  // larger hit area
-        .gesture(
-          DragGesture(minimumDistance: 0)
-            .updating($dragIsActive) { _, active, _ in active = true }
-            .onChanged { gesture in
-              if dragStartValue == nil { dragStartValue = value }
-              updateDrag(translation: gesture.translation.width, trackWidth: trackWidth)
-            }
-            .onEnded { gesture in
-              // A release can carry a newer location than the last onChanged.
-              updateDrag(translation: gesture.translation.width, trackWidth: trackWidth)
-              endEditing()
-            }
-        )
+        .frame(height: 16).frame(maxHeight: .infinity).contentShape(Rectangle())
+        .gesture(drag(width: max(width - 16, 1)))
+        .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
+        .simultaneousGesture(
+          LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+            enableFineMode()
+            hapticTick += 1
+          })
       }
-      .frame(height: thumbDiameter)  // GeometryReader needs explicit height
+      .frame(height: 28).accessibilityHidden(true)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 6)
-    .onChange(of: dragIsActive) { old, new in
-      // A scroll view or system interruption may cancel without onEnded.
-      if old && !new { endEditing() }
+    .padding(.horizontal, 16).padding(.vertical, 6).frame(minHeight: 44)
+    .contentShape(Rectangle())
+    .focusable(isEnabled).focused($focused).focusEffectDisabled()
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(label).accessibilityValue(formattedValue)
+    .accessibilityHint(
+      "Arrow keys adjust. Double-tap resets. Hold for fine adjustment."
+    )
+    .accessibilityAdjustableAction { direction in
+      guard isEnabled else { return }
+      let delta = direction == .increment ? 1.0 : -1.0
+      update(value + delta * LivingSliderMath.keyboardStep(range: range))
+      finish()
     }
-    .onDisappear { endEditing() }
+    .accessibilityAction(named: "Reset") { reset() }
+    .accessibilityAction(named: "Fine adjustment") { enableFineMode() }
+    .onKeyPress(
+      keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .home, .end],
+      phases: [.down, .repeat, .up]
+    ) { press in
+      guard isEnabled, press.modifiers.intersection([.command, .control, .option]).isEmpty else {
+        return .ignored
+      }
+      if press.phase == .up {
+        finish()
+        return .handled
+      }
+      let next: Double
+      switch press.key {
+      case .home: next = range.lowerBound
+      case .end: next = range.upperBound
+      default:
+        let direction = press.key == .leftArrow || press.key == .downArrow ? -1.0 : 1.0
+        next = value + direction * LivingSliderMath.keyboardStep(range: range)
+      }
+      update(next)
+      return .handled
+    }
+    .onChange(of: focused) { _, hasFocus in if !hasFocus { finish() } }
+    .onChange(of: dragging) { _, active in if !active { finish() } }
+    .onDisappear { finish() }
+    .sensoryFeedback(.selection, trigger: hapticTick)
   }
 
-  private func updateDrag(translation: CGFloat, trackWidth: CGFloat) {
-    guard let startValue = dragStartValue else { return }
-    let span = range.upperBound - range.lowerBound
-    let travelWidth = trackWidth - thumbDiameter
-    guard span > 0, travelWidth > 0 else { return }
-    let newValue = (startValue + translation / travelWidth * span).clamped(to: range)
-    beginEditing()
-    if newValue != value { value = newValue }
+  private func drag(width: CGFloat) -> some Gesture {
+    DragGesture(minimumDistance: 0)
+      .updating($dragging) { _, active, _ in active = true }
+      .onChanged { gesture in
+        guard isEnabled else { return }
+        focused = true
+        if dragStart == nil { dragStart = value }
+        lastTranslation = gesture.translation.width
+        let delta =
+          (lastTranslation - dragStartTranslation) / width
+          * (range.upperBound - range.lowerBound)
+        update((dragStart ?? value) + delta * (fineMode ? 0.25 : 1))
+      }
+      .onEnded { gesture in
+        if let start = dragStart {
+          let delta =
+            (gesture.translation.width - dragStartTranslation) / width
+            * (range.upperBound - range.lowerBound)
+          update(start + delta * (fineMode ? 0.25 : 1))
+        }
+        finish()
+      }
   }
 
-  private func beginEditing() {
-    guard !isEditing else { return }
-    isEditing = true
-    onEditingChanged?(true)
+  private func update(_ proposed: Double) {
+    let next = min(max(proposed, range.lowerBound), range.upperBound)
+    guard next != value else { return }
+    if !interacting {
+      onEditingChanged?(true)
+      interacting = true
+    }
+    if next == range.lowerBound || next == range.upperBound
+      || (value < defaultValue && next >= defaultValue)
+      || (value > defaultValue && next <= defaultValue)
+    {
+      hapticTick += 1
+    }
+    value = next
   }
 
-  private func endEditing() {
-    dragStartValue = nil
-    guard isEditing else { return }
-    isEditing = false
-    onEditingChanged?(false)
-    onCommit?()
+  private func finish() {
+    if interacting {
+      onEditingChanged?(false)
+      onCommit?()
+    }
+    interacting = false
+    dragStart = nil
+    dragStartTranslation = 0
+    lastTranslation = 0
+    fineMode = false
+  }
+
+  private func enableFineMode() {
+    guard !fineMode else { return }
+    // The long press permits a little movement before it recognizes.
+    // Anchor at that already-displayed value so sensitivity changes
+    // affect only subsequent movement, without snapping backward.
+    if dragStart != nil {
+      dragStart = value
+      dragStartTranslation = lastTranslation
+    }
+    fineMode = true
+  }
+
+  private func reset() {
+    guard isEnabled else { return }
+    finish()
+    update(defaultValue)
+    finish()
+    hapticTick += 1
   }
 }
-
-// MARK: - Double clamping helper (file-private)
-
-extension Double {
-  fileprivate func clamped(to range: ClosedRange<Double>) -> Double {
-    min(max(self, range.lowerBound), range.upperBound)
-  }
-}
-
-// MARK: - Previews
-
-#if DEBUG
-  #Preview("LivingSlider — Light group") {
-    @Previewable @State var exposure: Double = 0.0
-    @Previewable @State var contrast: Double = 20.0
-    @Previewable @State var highlights: Double = -30.0
-
-    return VStack(spacing: 0) {
-      LivingSlider(
-        label: "Exposure",
-        value: $exposure,
-        range: -4...4,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.exposure
-      )
-      LivingSlider(
-        label: "Contrast",
-        value: $contrast,
-        range: -100...100,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.contrast
-      )
-      LivingSlider(
-        label: "Highlights",
-        value: $highlights,
-        range: -100...100,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.highlights
-      )
-    }
-    .padding(.vertical, 8)
-    .background(ProTokens.panel)
-  }
-
-  #Preview("LivingSlider — Color group") {
-    @Previewable @State var temp: Double = 6500.0
-    @Previewable @State var tint: Double = 0.0
-    @Previewable @State var vibrance: Double = 0.0
-
-    return VStack(spacing: 0) {
-      LivingSlider(
-        label: "Temp",
-        value: $temp,
-        range: 2000...12000,
-        isBipolar: false,
-        defaultValue: 6500,
-        gradient: GradientCatalog.temp,
-        displayValue: String(format: "%.0f K", temp)
-      )
-      LivingSlider(
-        label: "Tint",
-        value: $tint,
-        range: -100...100,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.tint
-      )
-      LivingSlider(
-        label: "Vibrance",
-        value: $vibrance,
-        range: -100...100,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.vibrance
-      )
-    }
-    .padding(.vertical, 8)
-    .background(ProTokens.panel)
-  }
-
-  #Preview("LivingSlider — Effects group") {
-    @Previewable @State var clarity: Double = 0.0
-    @Previewable @State var vignette: Double = -20.0
-    @Previewable @State var grain: Double = 25.0
-
-    return VStack(spacing: 0) {
-      LivingSlider(
-        label: "Clarity",
-        value: $clarity,
-        range: -100...100,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.clarity
-      )
-      LivingSlider(
-        label: "Vignette",
-        value: $vignette,
-        range: -100...100,
-        isBipolar: true,
-        defaultValue: 0,
-        gradient: GradientCatalog.vignette
-      )
-      LivingSlider(
-        label: "Grain",
-        value: $grain,
-        range: 0...100,
-        isBipolar: false,
-        defaultValue: 0,
-        gradient: GradientCatalog.grain
-      )
-    }
-    .padding(.vertical, 8)
-    .background(ProTokens.panel)
-  }
-#endif

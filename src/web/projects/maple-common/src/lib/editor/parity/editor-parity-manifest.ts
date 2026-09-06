@@ -288,7 +288,7 @@ const HISTORY: readonly ParityCapability[] = [
       'Undo button in the top bar: tap = undo, hold 500ms = redo; one entry per gesture',
     ),
     interaction: {
-      keyboard: 'Web: ⌘Z / ⌘⇧Z. Apple: none (#3250)',
+      keyboard: '⌘Z / ⌘⇧Z (Ctrl on Windows / Linux)',
       pointer: 'Click = undo; press-and-hold = redo (pointer captured so drag-off still resolves)',
       touch: 'Tap / long-press',
       focus: 'Ordinary button',
@@ -308,7 +308,7 @@ const HISTORY: readonly ParityCapability[] = [
     name: 'Undo / redo keyboard shortcut',
     group: 'history',
     order: 20,
-    reachability: { apple: 'absent', web: 'released' },
+    reachability: BOTH,
     presentation: SAME('No visible chrome; documented in the Undo button tooltip'),
     interaction: {
       keyboard: '⌘Z / Ctrl+Z undo, ⌘⇧Z / Ctrl+Shift+Z redo, from anywhere except a text field',
@@ -324,11 +324,7 @@ const HISTORY: readonly ParityCapability[] = [
       actions: ['undo', 'redo'],
     },
     participation: { undo: true, copyPaste: null, history: true, preview: 'live', export: true },
-    exception: {
-      platform: 'apple',
-      rationale: 'Apple undo/redo is tap / long-press only; no editor Commands scene.',
-      ticket: '#3250',
-    },
+    exception: null,
   },
 ];
 

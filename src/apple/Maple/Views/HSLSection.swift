@@ -136,7 +136,11 @@ struct HSLSection: View {
       defaultValue: 0,
       gradient: GradientCatalog.stops(for: .hsl, subParamId: subParamId),
       onEditingChanged: { editing in
-        if editing { state.commit() } else { state.endGesture() }
+        if editing {
+          state.beginSliderInteraction(tool: .hsl, subParamID: subParamId)
+        } else {
+          state.endGesture()
+        }
       }
     )
     .accessibilityIdentifier("editor-hsl-\(subParamId)")
