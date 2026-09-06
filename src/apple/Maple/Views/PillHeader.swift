@@ -48,6 +48,7 @@ struct PillHeader: View {
         .accessibilityIdentifier("editor-pill-histogram")
 
       EditorAutoButton(state: state)
+        .id(ObjectIdentifier(state.session))
 
       // Before/after toggle — shown only when there are edits
       if showBeforeAfter {
