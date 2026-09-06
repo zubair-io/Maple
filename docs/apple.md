@@ -107,7 +107,7 @@ The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it 
 - A fast-phase decode with no usable viewport target caps at a **1500 px long edge** (`fastPhaseFallbackLongEdge`, ≈2 MP).
 - A refine decode escalates demosaic quality when the display genuinely needs more than half-res: `refineDecodeQuality` returns `.preview` while the target is at or below `nativeLongEdge / 2`, and `.amaze` (or `.full`) above it. `.preview` caps its own output at roughly half the native long edge regardless of what the caller asks for, so without the escalation the canvas would upscale 2× then immediately downscale again.
 - `cappedToDelivered` is the downstream safety net, clamping the display target to the extent the decode actually returned.
-- Deep zoom is **off by default** — `EditSession.deepZoomEnabled` is `false`, so refine always uses the whole-image sized FFI even above 1:1, trading speed for freedom from tile-boundary seams. See [zoom](zoom.md).
+- The legacy tile compositor is **off by default** (`EditSession.deepZoomEnabled` is `false`). Local, uncropped RAWs at native zoom first attempt the bounded native-detail path; otherwise refine uses the whole-image sized FFI. The flag gates the legacy tile fallback, not native-detail rendering. See [zoom](zoom.md).
 
 ### Auto profile
 
@@ -123,6 +123,21 @@ The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it 
 | `MAPLE_AMAZE=1` / `=0`                              | force AMaZE demosaic on/off; otherwise the `useAmazeDemosaic` user default, defaulting on |
 | `MAPLE_AUTO1` (or `-MapleAuto1 1`)                  | restore the older Auto-profile fit                                                        |
 | `MAPLE_UITEST_FIXTURE`, `MAPLE_UITEST_FIXTURE_ROOT` | UI-test harness fixture selection                                                         |
+
+### Measuring editor latency
+
+`EditorWorkflowPerfTests` in `Packages/MapleCore/Tests/MapleCoreTests/Performance/` drives the production `EditSession` → `RenderActor` → `GpuLiveDriver` path on an isolated copy of the reference RAW. On macOS it mounts a visible Metal layer. It reports first CPU preview, first GPU submission acknowledgment and interactive develop readiness separately. Exposure, white-balance, contrast and point-curve drags target 60 Hz and report the actual delivered cadence without catch-up bursts. Each input joins its existing scheduling task to obtain its exact generation. The reports include observed publication counts and latency percentiles; cancelled/coalesced requests remain visible in the counts. The same-session check calls `ensureRenderStarted()` again and verifies no new decode; it is not a view remount or image-switch timing. The separate NR-disabled arm is an attribution control, never the normal-quality acceptance result.
+
+```bash
+swift build -c release --build-tests -Xswiftc -enable-testing \
+  --package-path src/apple/Packages/MapleCore
+MAPLE_PERF=1 swift test -c release --skip-build -Xswiftc -enable-testing \
+  --package-path src/apple/Packages/MapleCore --filter EditorWorkflowPerfTests
+```
+
+Build the release xcframework first and finish other builds before recording timing. These measurements start at model input and end at observed acknowledged submission: a 1 ms polling task adds observation latency and can miss publications if it is delayed. They exclude SwiftUI gesture dispatch and compositor scanout. Pair them with Instruments on the normal app: Time Profiler for CPU and actor work, SwiftUI for body invalidations, Metal System Trace for execution/drawable/vsync delays, and File Activity for deferred sidecar writes. `GpuPresentRequest`, `GpuPresentExecution`, and `GpuFrameReadback` Points of Interest separate a caller's wait from native execution and one-shot preview readback.
+
+`MAPLE_GPU_HUD=1` measures host submission, not input-to-visible latency. `MAPLE_GPU_DEBUG=1` replaces the editor with a GPU proof screen; leave it unset for an editor audit. `MAPLE_GPU_LIVE=0` is a separate CPU fallback experiment. `MAPLE_PROFILE=1` enables existing stage timing; unset it to disable (the check is presence-based). Record hardware, thermal state, refresh rate, viewport pixels, profile, fixture, cache state and failed/missed-frame counts with each result. The package benchmark's correctness assertions do not certify a universal 16 ms display budget.
 
 ## Sources
 
