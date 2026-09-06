@@ -215,13 +215,10 @@ struct MiniHistogram<Placeholder: View>: View {
     try? await Task.sleep(for: .milliseconds(350))
     if Task.isCancelled || gen != loadGeneration { return }
 
-    // Snapshot the live edit on the main actor, then compute. `LocalHistogram`
-    // is a `nonisolated async` namespace, so awaiting it directly hops OFF the
-    // main actor for the decode + develop (the UI is never blocked) while
-    // staying STRUCTURED under this `.task`: when the task re-keys on the next
-    // edit, SwiftUI cancels this invocation before starting the new one, so
-    // superseded computes don't run to completion or pile up (a detached task
-    // would do neither — it ignores the parent's cancellation).
+    // Snapshot on MainActor, then compute off it. Cancellation does not
+    // preempt a synchronous native develop: LocalHistogram holds one shared
+    // slot until that work actually finishes and drops cancelled waiters
+    // before they load bytes (#3360).
     let model = session.model
     let culling = session.culling
     do {
@@ -232,10 +229,12 @@ struct MiniHistogram<Placeholder: View>: View {
         asset.isRaw
         ? try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
         : try await LocalHistogram.computeNonRaw(asset: asset, model: model)
-      guard gen == loadGeneration else { return }
+      guard gen == loadGeneration, !Task.isCancelled else { return }
       histogram = result
       loadFailed = false
       shownAssetID = asset.id
+    } catch is CancellationError {
+      return
     } catch {
       guard gen == loadGeneration else { return }
       if histogram == nil { loadFailed = true }

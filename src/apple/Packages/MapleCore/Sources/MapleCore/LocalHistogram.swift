@@ -16,11 +16,33 @@
 
 import CoreImage
 import Foundation
+import os
 
-/// On-device RGB histogram computation for local sources. Stateless namespace;
-/// every call decodes + develops + bins via the Rust FFI and returns the same
-/// `CloudHistogram` wire shape the server produces.
+/// On-device RGB histogram computation for local sources. Heavy work is bounded
+/// across all views and asset types; Swift task cancellation cannot preempt a
+/// synchronous native develop, so the next request must wait for it to finish.
 public enum LocalHistogram {
+  private static let computeSlot = BoundedAsyncSemaphore(value: 1)
+
+  /// Acquire before reading bytes, not just before entering the native renderer.
+  /// Cancelled slider updates leave the queue without loading another RAW. An
+  /// already-running native call retains the permit until it actually returns.
+  private static func withComputeSlot(
+    _ operation: () async throws -> CloudHistogram
+  ) async throws -> CloudHistogram {
+    try await computeSlot.acquire()
+    do {
+      try Task.checkCancellation()
+      let result = try await operation()
+      try Task.checkCancellation()
+      await computeSlot.release()
+      return result
+    } catch {
+      await computeSlot.release()
+      throw error
+    }
+  }
+
   /// Compute an RGB histogram for `asset` under the given edit state, on device.
   ///
   /// Reads the RAW bytes (filesystem URL or PhotoKit bytes provider), serialises
@@ -37,6 +59,22 @@ public enum LocalHistogram {
     model: AdjustmentModel,
     culling: CullingState
   ) async throws -> CloudHistogram {
+    try await withComputeSlot {
+      try await computeRaw(asset: asset, model: model, culling: culling)
+    }
+  }
+
+  private static func computeRaw(
+    asset: AssetRef, model: AdjustmentModel, culling: CullingState
+  ) async throws -> CloudHistogram {
+    let operation = UUID().uuidString
+    let log = Logger(subsystem: "app.justmaple.aperture", category: "HistogramDiagnostic")
+    log.notice(
+      "histogram begin id=\(operation, privacy: .public) cancelled=\(Task.isCancelled) deepDenoise=\(model.deepDenoise) crop=\(String(describing: model.crop), privacy: .public)"
+    )
+    defer {
+      log.notice("histogram end id=\(operation, privacy: .public) cancelled=\(Task.isCancelled)")
+    }
     // Serialise the live model so the histogram tracks the current edit. A
     // sourceless asset has no `.xmp` on disk, so we hand the document text
     // straight to the FFI rather than a path.
@@ -62,6 +100,7 @@ public enum LocalHistogram {
       throw PipelineError.noByteSource
     }
 
+    try Task.checkCancellation()
     return try PipelineRenderer.histogram(
       rawBytes: rawBytes,
       hint: hint,
@@ -101,6 +140,14 @@ public enum LocalHistogram {
     asset: AssetRef,
     model: AdjustmentModel
   ) async throws -> CloudHistogram {
+    try await withComputeSlot {
+      try await computeNonRawImage(asset: asset, model: model)
+    }
+  }
+
+  private static func computeNonRawImage(
+    asset: AssetRef, model: AdjustmentModel
+  ) async throws -> CloudHistogram {
     guard asset.primaryURL != nil || asset.bytesProvider != nil else {
       throw PipelineError.noByteSource
     }
@@ -117,6 +164,7 @@ public enum LocalHistogram {
     else {
       throw PipelineError.renderFailed(code: -1, message: "non-RAW histogram decode failed")
     }
+    try Task.checkCancellation()
     let developed = pipeline.processSceneLinearNonRaw(
       decoded: decoded,
       model: model,
