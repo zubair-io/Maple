@@ -39,7 +39,7 @@ async function recipePayload(raw: Record<string, unknown>): Promise<Record<strin
     const path = doc ? assetAbsPath(doc, roots) : null;
     if (!path) throw new Error(`Cannot resolve original ${id}`);
     const xmp = await snapshot(path);
-    targets.push({ id, path, xmp, index, capturedAt: null });
+    targets.push({ id, path, xmp, index, capturedAt: doc?.exif?.captured_at ?? null });
   }
   const payload = {
     targets,
