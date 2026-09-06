@@ -163,6 +163,38 @@ fn scope_disabled_never_produces_stats() {
     }
 }
 
+#[test]
+fn skipped_scope_readbacks_do_not_block_slot_reuse() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (16u32, 12u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
+    let mut inputs = scope_test_case().gpu_inputs();
+    inputs.scope = ScopeRequest {
+        layer: -1,
+        enabled: true,
+    };
+    let cancel = CancelToken::new();
+    // Finish each map, deliberately consuming nothing as a decimated or
+    // temporarily hidden scope UI may do. Tick 3 must reuse a mapped slot.
+    for _ in 0..6 {
+        session.render_chain_to_f32(&ctx, &inputs, &cancel).unwrap();
+        ctx.device.poll(wgpu::Maintain::Wait);
+    }
+    let stats = session
+        .take_scope_stats(&ctx)
+        .expect("latest previous tick");
+    assert_eq!(stats.frame, 5, "old unconsumed samples are discarded");
+    assert_eq!(stats.total, w * h * 255);
+    assert!(session.take_scope_stats(&ctx).is_none());
+    // Reading one slot must not affect recycling the OTHER unread slot.
+    for _ in 0..2 {
+        session.render_chain_to_f32(&ctx, &inputs, &cancel).unwrap();
+        ctx.device.poll(wgpu::Maintain::Wait);
+    }
+    assert_eq!(session.take_scope_stats(&ctx).unwrap().frame, 7);
+}
+
 /// A half-sized image covers the center quarter of the canvas. Geometry must
 /// move the bitmap's scope weights with its pixels, leaving zero mask weight
 /// in uncovered black borders. Whole-frame scope still counts those borders.
