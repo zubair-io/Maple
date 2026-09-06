@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs';
 
-export const CAMERA_MAKE = 'Maple Test';
-export const CAMERA_MODEL = 'Cold Export Fixture';
-export const LENS_MODEL = 'Prime';
+const CAMERA_MAKE = 'Maple Test';
+const CAMERA_MODEL = 'Cold Export Fixture';
+const LENS_MODEL = 'Prime';
 
 /** Add matching capture metadata to an in-memory copy of the committed 64×64
  * grey DNG. Existing pixel data/IFD offsets stay intact; the original is read-only. */
 export function lensExportFixture(path: string): Uint8Array {
   const original = readFileSync(path);
-  if (original.toString('ascii', 0, 2) !== 'II' || original.readUInt16LE(2) !== 42)
+  if (!original.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 42, 0])))
     throw new Error('Expected the committed little-endian classic TIFF fixture');
   const parts: Buffer[] = [Buffer.from(original)];
   let size = original.length;
