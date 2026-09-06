@@ -36,6 +36,66 @@ final class EditorCommandRouterTests: XCTestCase {
     XCTAssertEqual(state.session.model.exposure, 1)
   }
 
+  func testHeldGlobalNudgeRecordsOneUndoOnRelease() {
+    let router = makeRouter()
+    let session = router.state.session
+    for _ in 0..<5 { run(.nudge(1), router) }
+    let after = session.model.exposure
+    XCTAssertGreaterThan(after, 0)
+    XCTAssertTrue(session.undoHistory.isEmpty)
+    run(.nudgeRelease, router)
+    XCTAssertEqual(session.undoHistory.count, 1)
+    run(.undo, router)
+    XCTAssertEqual(session.model.exposure, 0)
+    run(.redo, router)
+    XCTAssertEqual(session.model.exposure, after)
+    run(.nudge(-1), router)
+    router.finishNudge()
+    XCTAssertEqual(session.undoHistory.count, 2)
+  }
+
+  func testHeldGlobalNudgeDefersDecodeProductUntilRelease() {
+    let router = makeRouter()
+    let state = router.state
+    let deep = Tool.noise.subParams.first { $0.commitsOnRelease }!
+    state.arm(tool: .noise)
+    state.arm(subParamId: deep.id)
+    let before = state.session.model
+    for _ in 0..<3 { run(.nudge(1), router) }
+    XCTAssertEqual(state.session.model, before)
+    XCTAssertNotNil(state.deferredDisplayValue)
+    run(.nudgeRelease, router)
+    XCTAssertNotEqual(state.session.model, before)
+    XCTAssertEqual(state.session.undoHistory.count, 1)
+    run(.undo, router)
+    XCTAssertEqual(state.session.model, before)
+  }
+
+  func testClampOnlyNudgeDoesNotClearRedoOrOpenAnUndoEntry() {
+    let router = makeRouter()
+    for _ in 0..<20 { run(.nudge(-1), router) }
+    run(.nudgeRelease, router)
+    run(.nudge(1), router)
+    run(.nudgeRelease, router)
+    run(.undo, router)
+    let count = router.state.session.undoHistory.count
+    run(.nudge(-1), router)
+    run(.nudgeRelease, router)
+    XCTAssertTrue(router.state.canRedo)
+    XCTAssertEqual(router.state.session.undoHistory.count, count)
+  }
+
+  func testModifiedStyleIgnoresOnlyFloatingPointResidue() {
+    let range = AdjustmentModel.exposureRange
+    XCTAssertFalse(
+      LivingSliderMath.isModified(value: 0.1 + 0.2 - 0.3, defaultValue: 0, range: range))
+    XCTAssertTrue(LivingSliderMath.isModified(value: 0.001, defaultValue: 0, range: range))
+    XCTAssertFalse(
+      LivingSliderMath.isModified(
+        value: 6500 + 1e-10, defaultValue: 6500,
+        range: AdjustmentModel.temperatureRange))
+  }
+
   func testZoomStepsAreBoundedAndKeepTheCenterAnchor() {
     let router = makeRouter()
     let zoom = router.state.zoom

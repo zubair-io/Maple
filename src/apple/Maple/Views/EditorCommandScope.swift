@@ -43,9 +43,17 @@ struct EditorCommandScope: ViewModifier {
       }
       .onKeyPress(phases: [.down, .repeat, .up]) { press in handle(press) }
       .onChange(of: canvasFocused) { _, hasFocus in
-        if !hasFocus { router?.cancelCompare() }
+        if !hasFocus {
+          router?.cancelCompare()
+          router?.finishNudge()
+        }
       }
-      .onChange(of: scenePhase) { _, phase in if phase != .active { router?.cancelCompare() } }
+      .onChange(of: scenePhase) { _, phase in
+        if phase != .active {
+          router?.cancelCompare()
+          router?.finishNudge()
+        }
+      }
       .onDisappear { router?.deactivate() }
   }
 
@@ -53,6 +61,11 @@ struct EditorCommandScope: ViewModifier {
     let key = press.characters.lowercased()
     let compare = key == "b" || key == "\\"
     if compare && press.phase == .up { return perform(.compareRelease) }
+    // Shift may be released before the arrow; its key-up still closes the
+    // burst. A focused slider consumes its own release before reaching us.
+    if press.phase == .up && (press.key == .leftArrow || press.key == .rightArrow) {
+      return perform(.nudgeRelease)
+    }
     guard !EditorTextInput.hasFocus,
       press.modifiers.intersection([.command, .control]).isEmpty
     else { return .ignored }
