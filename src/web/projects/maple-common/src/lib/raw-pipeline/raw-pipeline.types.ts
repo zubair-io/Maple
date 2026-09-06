@@ -37,34 +37,14 @@ export interface DecodeRequest {
    * refine phase). The unsized path stays Full-quality, as today.
    */
   qualityPreview?: boolean;
-  /**
-   * A baked film-look `.mlut` grid (epic #2683, Task 9). The WASM-CPU
-   * fallback's counterpart of the GPU live session's `set-film-lut` upload.
-   * Absent/empty renders with no look applied, regardless of the sidecar's
-   * `film_look`/`film_strength` fields.
-   *
-   * ROUTING GUARANTEE: `handleLegacyDecode` routes ANY unsized request that
-   * carries a non-empty `filmLut` to `render_bytes_with_film` UNCONDITIONALLY
-   * — even on a WebGPU-capable browser with `gpu: true` set, and even on a
-   * GPU-adapter-failure fallback. `render_bytes_gpu` (the one-shot GPU path)
-   * has no film-aware sibling — only the persistent `WebLiveSession` carries
-   * a loaded look — so a filmLut-bearing decode never reaches it; correctness
-   * wins over the GPU path's speed here. A SIZED request (`maxLongEdge` set)
-   * with a `filmLut` routes to `render_bytes_sized_with_film` (`sizedFilm`,
-   * #2719) — the non-WebGPU live canvas's fast/refine phases are sized
-   * requests, so this route is what the editor NEEDS to send a loaded look
-   * through when WebGPU isn't available.
-   *
-   * WIRED (#3171): `RawPipelineService.decode()`'s `filmLut` parameter sets
-   * this field, threaded from `ImageCanvasFilmSync`'s CPU-path cache
-   * (`image-canvas.film.ts`) through `image-canvas.render2d.ts`'s
-   * `runRender2d` whenever the GPU live session isn't the active render
-   * path. Deliberately NOT in `decodeOnce`'s postMessage transfer list —
-   * unlike `bytes` (a one-shot RAW copy), the SAME resolved buffer is
-   * reused across every fast/refine tick until the look changes, so
-   * structured-cloning it (not transferring/detaching it) is what makes
-   * that reuse possible.
-   */
+  /** Baked `.mlut` grid (#2683); absent/empty means no film look, regardless
+   * of the sidecar fields. `handleLegacyDecode` always uses the CPU film
+   * entry when present, even with `gpu: true`: unsized requests use
+   * `render_bytes_with_film`, sized requests `render_bytes_sized_with_film`
+   * (#2719). One-shot GPU has no film-aware entry; WebLiveSession does.
+   * ImageCanvasFilmSync → runRender2d → RawPipelineService.decode supplies
+   * this cache (#3171). Structured-clone it: transferring would detach the
+   * buffer reused by subsequent fast/refine ticks and native patches. */
   filmLut?: ArrayBuffer;
 }
 
