@@ -170,7 +170,7 @@ namespace Maple.WinUI.Services
                         DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
-                        CameraSupport = CameraSupportMetadata.ReadFile(rawPath),
+                        CameraSupport = CameraSupportMetadata.ReadFileBestEffort(rawPath),
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                         FitAutoProfile(decoded, rawPath, tempXmpPath);

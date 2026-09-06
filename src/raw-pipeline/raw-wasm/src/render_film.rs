@@ -9,7 +9,7 @@
 //! a same-crate, different-module caller has to go through the ctor, the
 //! same way `gpu_render.rs` already does.
 
-use crate::render::{as_shot_wb, MapleRender};
+use crate::render::MapleRender;
 use raw_core::xmp as xmp_mod;
 use wasm_bindgen::prelude::*;
 
@@ -34,13 +34,10 @@ pub fn render_bytes_with_film(
     let raw_img =
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+    let ((as_shot_temperature, as_shot_tint), camera_support) =
+        crate::open_metadata::assess(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
-    let camera_support = Some(
-        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
-            .map_err(|e| JsError::new(&e.to_string()))?,
-    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -151,13 +148,10 @@ pub fn render_bytes_sized_with_film(
 
     // As-shot derivation — IDENTICAL to `render_bytes_sized` so a sized cold
     // open seeds the same sliders regardless of whether a look is loaded.
-    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+    let ((as_shot_temperature, as_shot_tint), camera_support) =
+        crate::open_metadata::assess(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
-    let camera_support = Some(
-        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
-            .map_err(|e| JsError::new(&e.to_string()))?,
-    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
