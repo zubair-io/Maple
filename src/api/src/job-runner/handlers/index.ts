@@ -25,7 +25,8 @@ export interface JobHandlerContext {
   jobId: ObjectId;
   /** Durable per-target ledger supplied when a job is reclaimed after restart. */
   checkpoint?: Record<string, unknown>;
-  saveCheckpoint?: (checkpoint: Record<string, unknown>) => Promise<void>;
+  /** entryIndex updates one batch ledger slot after its initial full snapshot. */
+  saveCheckpoint?: (checkpoint: Record<string, unknown>, entryIndex?: number) => Promise<void>;
   /** Notify the runner of progress. Total may be set on the first call
    * and held constant thereafter. */
   reportProgress: (current: number, total: number) => Promise<void>;

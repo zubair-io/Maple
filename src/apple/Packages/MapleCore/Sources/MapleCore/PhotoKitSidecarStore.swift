@@ -35,124 +35,149 @@ import MapleBackup
 // MARK: - PhotoKitSidecarStore
 
 public actor PhotoKitSidecarStore: SidecarStoreProtocol {
-    private let phassetLocalId: String
-    private let sidecars: AppSupportSidecarStore
+  private let phassetLocalId: String
+  private let sidecars: AppSupportSidecarStore
 
-    private var cached: (AdjustmentModel, CullingState)?
-    private var pendingTask: Task<Void, Never>?
-    private var pendingModel: AdjustmentModel?
-    private var pendingCulling: CullingState?
+  private var cached: (AdjustmentModel, CullingState)?
+  private var pendingTask: Task<Void, Never>?
+  private var pendingModel: AdjustmentModel?
+  private var pendingCulling: CullingState?
 
-    /// Fields the stored sidecar carried that Maple does not model (#2233).
-    /// Captured on load and held for the lifetime of the session, same
-    /// shape as `CloudSidecarStore.cachedPassthrough` — there is no disk to
-    /// re-read from at write time the way `XMPSidecarStore` does. Without
-    /// this, `writePending()` serialized with the two-argument
-    /// `XMPSerializer.serialize(model:culling:)` overload (implicit
-    /// `passthrough: .empty`), so any unknown/foreign XML content in a
-    /// PhotoKit-backed sidecar was silently dropped on the first edit.
-    private var cachedPassthrough: XMPPassthrough = .empty
+  /// Fields the stored sidecar carried that Maple does not model (#2233).
+  /// Captured on load and held for the lifetime of the session, same
+  /// shape as `CloudSidecarStore.cachedPassthrough` — there is no disk to
+  /// re-read from at write time the way `XMPSidecarStore` does. Without
+  /// this, `writePending()` serialized with the two-argument
+  /// `XMPSerializer.serialize(model:culling:)` overload (implicit
+  /// `passthrough: .empty`), so any unknown/foreign XML content in a
+  /// PhotoKit-backed sidecar was silently dropped on the first edit.
+  private var cachedPassthrough: XMPPassthrough = .empty
+  private var cachedMetadata = XmpMetadata()
 
-    private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
-    private var nextSubscriberID: UInt64 = 0
+  private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
+  private var nextSubscriberID: UInt64 = 0
 
-    static let debounceInterval: Duration = .milliseconds(750)
+  static let debounceInterval: Duration = .milliseconds(750)
 
-    public init(phassetLocalId: String, sidecars: AppSupportSidecarStore) {
-        self.phassetLocalId = phassetLocalId
-        self.sidecars = sidecars
+  public init(phassetLocalId: String, sidecars: AppSupportSidecarStore) {
+    self.phassetLocalId = phassetLocalId
+    self.sidecars = sidecars
+  }
+
+  /// Convenience initializer that resolves the default App Support root
+  /// (`AppSupportSidecarStore.defaultRoot()`). Throws under the same
+  /// condition `PhotoKitSource.init()` does — an unavailable Application
+  /// Support directory — so callers should handle failure the same way
+  /// they already handle `PhotoKitSource()` failing (surface a load
+  /// error, or fall back to a session-local `EditSession`), rather than
+  /// crashing.
+  public init(phassetLocalId: String) throws {
+    self.init(
+      phassetLocalId: phassetLocalId,
+      sidecars: AppSupportSidecarStore(root: try AppSupportSidecarStore.defaultRoot()))
+  }
+
+  /// Load current model+culling, or defaults if no sidecar exists yet.
+  public func load() async throws -> (AdjustmentModel, CullingState) {
+    try await loadIfPresent() ?? (.default, CullingState())
+  }
+
+  /// Like `load()`, but returns `nil` when no sidecar has ever been
+  /// written for this `phassetLocalId` — lets `EditSession` tell "fresh
+  /// PhotoKit asset" apart from "user has saved edits" the same way it
+  /// already does for `XMPSidecarStore` / `CloudSidecarStore`.
+  public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+    if let cached { return cached }
+    guard let xml = try sidecars.read(phassetLocalId: phassetLocalId),
+      let data = xml.data(using: .utf8)
+    else {
+      return nil
     }
+    let result = try XMPParser.parse(data: data)
+    cached = result
+    cachedPassthrough = XMPParser.parsePassthrough(data: data)
+    cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
+    return result
+  }
 
-    /// Convenience initializer that resolves the default App Support root
-    /// (`AppSupportSidecarStore.defaultRoot()`). Throws under the same
-    /// condition `PhotoKitSource.init()` does — an unavailable Application
-    /// Support directory — so callers should handle failure the same way
-    /// they already handle `PhotoKitSource()` failing (surface a load
-    /// error, or fall back to a session-local `EditSession`), rather than
-    /// crashing.
-    public init(phassetLocalId: String) throws {
-        self.init(
-            phassetLocalId: phassetLocalId,
-            sidecars: AppSupportSidecarStore(root: try AppSupportSidecarStore.defaultRoot()))
+  /// Schedule a debounced write. Resets the 750ms timer on each call.
+  public func update(model: AdjustmentModel, culling: CullingState) {
+    pendingModel = model
+    pendingCulling = culling
+    cached = (model, culling)
+
+    pendingTask?.cancel()
+    pendingTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: PhotoKitSidecarStore.debounceInterval)
+        await self?.writePending()
+      } catch {
+        // Task cancelled — a newer update superseded this one.
+      }
     }
+  }
 
-    /// Load current model+culling, or defaults if no sidecar exists yet.
-    public func load() async throws -> (AdjustmentModel, CullingState) {
-        try await loadIfPresent() ?? (.default, CullingState())
-    }
+  /// Force an immediate flush of any pending write (call before closing).
+  public func flush() async {
+    pendingTask?.cancel()
+    pendingTask = nil
+    await writePending()
+  }
 
-    /// Like `load()`, but returns `nil` when no sidecar has ever been
-    /// written for this `phassetLocalId` — lets `EditSession` tell "fresh
-    /// PhotoKit asset" apart from "user has saved edits" the same way it
-    /// already does for `XMPSidecarStore` / `CloudSidecarStore`.
-    public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
-        if let cached { return cached }
-        guard let xml = try sidecars.read(phassetLocalId: phassetLocalId),
-              let data = xml.data(using: .utf8) else {
-            return nil
+  /// Returns an async stream of errors encountered during background writes.
+  public func errors() -> AsyncStream<Error> {
+    let id = nextSubscriberID
+    nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
+    return AsyncStream { continuation in
+      subscribers[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { [weak self] in
+          await self?.removeSubscriber(id)
         }
-        let result = try XMPParser.parse(data: data)
-        cached = result
-        cachedPassthrough = XMPParser.parsePassthrough(data: data)
-        return result
+      }
     }
+  }
 
-    /// Schedule a debounced write. Resets the 750ms timer on each call.
-    public func update(model: AdjustmentModel, culling: CullingState) {
-        pendingModel = model
-        pendingCulling = culling
-        cached = (model, culling)
+  private func removeSubscriber(_ id: UInt64) {
+    subscribers.removeValue(forKey: id)
+  }
 
-        pendingTask?.cancel()
-        pendingTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: PhotoKitSidecarStore.debounceInterval)
-                await self?.writePending()
-            } catch {
-                // Task cancelled — a newer update superseded this one.
-            }
-        }
+  // MARK: Private
+
+  public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+
+    cached = (model, culling)
+    try await persist(model: model, culling: culling)
+  }
+
+  private func persist(model: AdjustmentModel, culling: CullingState) async throws {
+    // Metadata can change independently of this editor session. Preserve
+    // the current sidecar's foreign XML and IPTC fields at the write boundary.
+    let existing = try sidecars.read(phassetLocalId: phassetLocalId).map { Data($0.utf8) }
+    if let existing {
+      _ = try XMPParser.parse(data: existing)
+      cachedMetadata = XMPParser.parseMetadata(String(decoding: existing, as: UTF8.self))
+      cachedPassthrough = XMPParser.parsePassthrough(data: existing)
     }
+    let xml = XMPSerializer.serialize(
+      model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
+    try sidecars.write(phassetLocalId: phassetLocalId, xmp: xml)
+  }
 
-    /// Force an immediate flush of any pending write (call before closing).
-    public func flush() async {
-        pendingTask?.cancel()
-        pendingTask = nil
-        await writePending()
+  private func writePending() async {
+    guard let model = pendingModel, let culling = pendingCulling else { return }
+    pendingModel = nil
+    pendingCulling = nil
+    do {
+      try await persist(model: model, culling: culling)
+    } catch {
+      for subscriber in subscribers.values {
+        subscriber.yield(error)
+      }
     }
-
-    /// Returns an async stream of errors encountered during background writes.
-    public func errors() -> AsyncStream<Error> {
-        let id = nextSubscriberID
-        nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
-        return AsyncStream { continuation in
-            subscribers[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { [weak self] in
-                    await self?.removeSubscriber(id)
-                }
-            }
-        }
-    }
-
-    private func removeSubscriber(_ id: UInt64) {
-        subscribers.removeValue(forKey: id)
-    }
-
-    // MARK: Private
-
-    private func writePending() async {
-        guard let model = pendingModel, let culling = pendingCulling else { return }
-        pendingModel = nil
-        pendingCulling = nil
-        do {
-            let xml = XMPSerializer.serialize(
-                model: model, culling: culling, passthrough: cachedPassthrough)
-            try sidecars.write(phassetLocalId: phassetLocalId, xmp: xml)
-        } catch {
-            for subscriber in subscribers.values {
-                subscriber.yield(error)
-            }
-        }
-    }
+  }
 }

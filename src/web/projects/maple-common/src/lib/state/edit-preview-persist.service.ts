@@ -88,6 +88,20 @@ export class EditPreviewPersistService {
 
   private readonly _timers = new Map<AssetId, ReturnType<typeof setTimeout>>();
 
+  // Batch edits can mature thousands of idle timers together. Queue before
+  // fetching originals so only one RAW and its decode buffers are live here.
+  private persistChain: Promise<void> = Promise.resolve();
+  private readonly queued = new Set<AssetId>();
+
+  private enqueue(id: AssetId): void {
+    if (this.queued.has(id)) return;
+    this.queued.add(id);
+    this.persistChain = this.persistChain.then(async () => {
+      this.queued.delete(id);
+      await this._persist(id);
+    });
+  }
+
   /**
    * Arm (or re-arm) the idle debounce for `id`. Call on every pixel-affecting
    * edit (`LibraryStateService.updateAdjustment` — NOT the culling mutators;
@@ -101,7 +115,7 @@ export class EditPreviewPersistService {
     if (existing) clearTimeout(existing);
     const timeout = setTimeout(() => {
       this._timers.delete(id);
-      void this._persist(id);
+      this.enqueue(id);
     }, IDLE_PERSIST_DEBOUNCE_MS);
     this._timers.set(id, timeout);
   }
@@ -119,7 +133,7 @@ export class EditPreviewPersistService {
   flushAll(): void {
     for (const [id, timer] of this._timers.entries()) {
       clearTimeout(timer);
-      void this._persist(id);
+      this.enqueue(id);
     }
     this._timers.clear();
   }
