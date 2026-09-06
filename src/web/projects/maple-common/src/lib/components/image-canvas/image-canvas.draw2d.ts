@@ -68,7 +68,7 @@ export function computeViewportTargetLongEdge(wrapW: number, wrapH: number): num
  * `pixelScale` semantics). The stepped zoom levels are CSS scales, so the
  * real scale is `zoom × dpr`; fit derives from the viewport/native ratio.
  */
-export function effectiveRealPixelScale(
+function effectiveRealPixelScale(
   zoom: 'fit' | number,
   nativeW: number,
   nativeH: number,
@@ -220,38 +220,7 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
   const dy = (wrapH / 2 + pan.y) * dpr - dh / 2;
 
   if (bitmap) {
-    // Real decoded pixels.
-    if (split !== null) {
-      const splitPx = Math.round(bw * split);
-      // "Before" half.
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, splitPx, bh);
-      ctx.clip();
-      ctx.drawImage(bitmap, dx, dy, dw, dh);
-      ctx.restore();
-      // "After" half — same image for now (adjustments wired in P6).
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(splitPx, 0, bw - splitPx, bh);
-      ctx.clip();
-      ctx.drawImage(bitmap, dx, dy, dw, dh);
-      // Slight brightness bump to indicate "after processed".
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fillRect(splitPx, 0, bw - splitPx, bh);
-      ctx.restore();
-    } else {
-      ctx.drawImage(bitmap, dx, dy, dw, dh);
-      const detail = inputs.detail;
-      if (detail)
-        ctx.drawImage(
-          detail.bitmap,
-          dx + (detail.rect.x / detail.nativeW) * dw,
-          dy + (detail.rect.y / detail.nativeH) * dh,
-          (detail.rect.width / detail.nativeW) * dw,
-          (detail.rect.height / detail.nativeH) * dh,
-        );
-    }
+    drawBitmap(ctx, bitmap, { dx, dy, dw, dh, bw, bh }, split, inputs.detail);
   } else {
     // Gradient placeholder for mock assets — fills the would-be image rect.
     // The first frame for a URL paints the procedural fallback while the
@@ -264,22 +233,58 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
       : null;
     if (split !== null) {
       const splitPx = Math.round(bw * split);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, splitPx, bh);
-      ctx.clip();
-      drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0);
-      ctx.restore();
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(splitPx, 0, bw - splitPx, bh);
-      ctx.clip();
-      drawGradient(ctx, gradientImg, dx, dy, dw, dh, 15);
-      ctx.restore();
+      drawClipped(ctx, [0, 0, splitPx, bh], () =>
+        drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0),
+      );
+      drawClipped(ctx, [splitPx, 0, bw - splitPx, bh], () =>
+        drawGradient(ctx, gradientImg, dx, dy, dw, dh, 15),
+      );
     } else {
       drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0);
     }
   }
+}
+
+function drawClipped(
+  ctx: CanvasRenderingContext2D,
+  clip: [number, number, number, number],
+  draw: () => void,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(...clip);
+  ctx.clip();
+  draw();
+  ctx.restore();
+}
+
+function drawBitmap(
+  ctx: CanvasRenderingContext2D,
+  bitmap: ImageBitmap,
+  bounds: { dx: number; dy: number; dw: number; dh: number; bw: number; bh: number },
+  split: number | null,
+  detail: DetailOverlay | null | undefined,
+): void {
+  const { dx, dy, dw, dh, bw, bh } = bounds;
+  if (split !== null) {
+    const splitPx = Math.round(bw * split);
+    drawClipped(ctx, [0, 0, splitPx, bh], () => ctx.drawImage(bitmap, dx, dy, dw, dh));
+    drawClipped(ctx, [splitPx, 0, bw - splitPx, bh], () => {
+      ctx.drawImage(bitmap, dx, dy, dw, dh);
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(splitPx, 0, bw - splitPx, bh);
+    });
+    return;
+  }
+  ctx.drawImage(bitmap, dx, dy, dw, dh);
+  if (detail)
+    ctx.drawImage(
+      detail.bitmap,
+      dx + (detail.rect.x / detail.nativeW) * dw,
+      dy + (detail.rect.y / detail.nativeH) * dh,
+      (detail.rect.width / detail.nativeW) * dw,
+      (detail.rect.height / detail.nativeH) * dh,
+    );
 }
 
 /** Paint one gradient-placeholder rect: the cached image when loaded, else

@@ -254,6 +254,7 @@ describe('ImageCanvasComponent zoom wiring (#1100)', () => {
           provide: RawPipelineService,
           useValue: {
             // #1153: the canvas template reads the deep-denoise progress signal.
+            closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
             decode: vi.fn((_b: Uint8Array, _e: string, _x: string | undefined, mle: number) =>
               Promise.resolve({

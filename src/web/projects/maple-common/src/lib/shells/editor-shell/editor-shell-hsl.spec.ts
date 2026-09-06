@@ -145,6 +145,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
           provide: RawPipelineService,
           useValue: {
             // #1153: the canvas template reads the deep-denoise progress signal.
+            closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
             decode: vi.fn(() =>
               Promise.resolve({

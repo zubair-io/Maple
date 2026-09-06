@@ -295,6 +295,7 @@ function renderShell(opts: {
               asShotTint: 0,
             }),
           ),
+          closeNativeDetail: vi.fn(),
           deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
         },
       },

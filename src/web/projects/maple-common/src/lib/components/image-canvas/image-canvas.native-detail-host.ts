@@ -1,6 +1,7 @@
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { isNonRawExtension } from '../../state/raw-extensions';
+import { isIdentityCrop } from '../../models/adjustment-model';
 
 /** The component owns signals; the patch controller owns retained resources. */
 export function createNativeDetail(
@@ -33,15 +34,7 @@ export function createNativeDetail(
         host.canvasSvc.pixelScale() < 1
       )
         return null;
-      const crop = host.state.adjustmentFor(asset.id)().crop;
-      if (
-        crop.left !== 0 ||
-        crop.top !== 0 ||
-        crop.right !== 1 ||
-        crop.bottom !== 1 ||
-        crop.angle !== 0
-      )
-        return null;
+      if (!isIdentityCrop(host.state.adjustmentFor(asset.id)().crop)) return null;
       return {
         nativeW: dims.w,
         nativeH: dims.h,

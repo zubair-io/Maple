@@ -79,7 +79,10 @@ describe('worker native-detail handle lifetime', () => {
     });
     await handleNativeDetail(request());
     expect(fake.patchFree).toHaveBeenCalledOnce();
-    expect(postMessage.mock.lastCall?.[0].type).toBe('native-detail-error');
+    expect(postMessage.mock.lastCall?.[0]).toMatchObject({
+      type: 'native-detail-error',
+      message: 'transfer failed',
+    });
   });
 
   it('does not reopen after close while initialization is still pending', async () => {
