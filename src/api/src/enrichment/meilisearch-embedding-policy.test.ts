@@ -26,6 +26,11 @@ describe('Meilisearch embedding IP policy diagnostics (#3315)', () => {
     }
   });
 
+  it('does not duplicate guidance when an error passes through multiple layers', () => {
+    const explained = explainEmbeddingPolicyError(rejected);
+    expect(explainEmbeddingPolicyError(explained)).toBe(explained);
+  });
+
   it('keeps the upstream search status and code while explaining the remedy', () => {
     const error = new MeilisearchSearchError(
       400,
