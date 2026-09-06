@@ -36,6 +36,8 @@ Directory recipes use explicit **error**, **skip**, or **replace** collision pol
 
 **Queue…** remains available without a selection. It exposes saved runs, resume, retry failed photos and cancellation before publication. Closing a running queue requests cancellation and waits for the current synchronous native render. A process lock serializes queue execution; durable prepared hashes reconcile publication after restart. Final and staging paths are checked against every selected original. Windows uses the same core recipe validation, filename engine and full developed-image export ABI.
 
+The Windows build and published app include the shared `.mlut` files beside the executable in `film-luts`. Export resolves that directory automatically for a film look captured in XMP. A native queue regression applies a bundled black-and-white look, verifies that its JPEG differs from the no-film output, and preserves the original hash and ICC profile.
+
 ## Durable publication
 
 The API extends the existing JobRunner, including lease renewal during long native renders and ownership-fenced checkpoints. The ledger records the unique staging path before native encoding starts, then the prepared output's SHA-256 before publication. Native publication uses an exclusive hard link for error/skip policies or an atomic rename for explicit replacement. Mirror-aware filesystem operations replicate the committed output.
