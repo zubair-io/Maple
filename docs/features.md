@@ -143,6 +143,8 @@ Web and Windows expose an **Auto / Neutral** picker in the editor's Color contro
 
 ### Geometry
 
+Web and Windows expose horizontal and vertical perspective, rotation, aspect, and scale beneath the lens controls. These controls keep the output frame fixed; areas outside the transformed image are black. Their defaults are identity, and resetting manual geometry does not remove the optical profile. Each gesture is undoable. The Geometry transfer group copies these controls as absolute values. See [Imported lens profiles](lens-profiles.md) for optical matching, persistence, and supported surfaces.
+
 `crop` is `{ top, left, bottom, right, angle }` normalized to 0–1 against the display-oriented image, with `angle` in degrees (positive = clockwise). Identity is the full frame at zero rotation, and the whole crop group is omitted from the sidecar in that case. Nine aspect presets ship (`components/crop-overlay/crop-aspect.ts`): Free, Original, 1:1, 3:2, 4:3, 16:9, 2:3, 3:4, 9:16. Crop is edited through an interactive canvas overlay plus a toolbar with a ±45° straighten bar and a reset — never through a value slider.
 
 ### Presets, AUTO, reset, copy/paste
@@ -153,7 +155,7 @@ A **preset** is a named, schema-versioned _sparse_ adjustment model: only the fi
 
 **Reset** restores every develop slider to its factory default, points white balance at the camera's as-shot reading, and returns the profile to Auto — while deliberately preserving crop and rotation.
 
-**Copy / Paste / Sync settings** moves adjustments across a selection. The paste dialog is selective, using the schema's own groups: White Balance, Tone, Color, Detail, Effects, Geometry. Three fields are never copied — local adjustments, inpaint removals, and the deprecated capture-sharpening radius alias. This exists on web and Apple; Windows has no copy/paste of develop settings.
+**Copy / Paste / Sync settings** moves adjustments across a selection. The paste dialog is selective, using the schema's own groups: White Balance, Tone, Color, Detail, Effects, Geometry. Local adjustments, inpaint removals, the deprecated capture-sharpening radius alias, and capture-specific imported lens-profile references are never copied. This exists on web and Apple; Windows has no copy/paste of develop settings.
 
 ### Local adjustments and masks — not surfaced
 
