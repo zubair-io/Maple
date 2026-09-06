@@ -1,14 +1,23 @@
 import XCTest
 
 #if os(macOS)
-  /// Real window resizing around the same edited asset (#3252), using the
-  /// committed gray RAW so this gate never skip-passes for missing local RAWs.
+  /// Resize the same edited image (#3252). This committed RGB fixture exercises
+  /// the live canvas, controls, history and crop geometry in clean checkouts.
+  /// Separate camera RAW harnesses cover decode and color parity.
   final class EditorLayoutUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     func testControlsAndEditSurviveCompactAndRegularResize() throws {
-      let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let driver = try MapleAppDriver.launch(fixtureURL: fixture)
       defer {
+        if let testRun, testRun.failureCount > 0 {
+          let tree = XCTAttachment(string: driver.app.debugDescription)
+          tree.name = "Editor layout accessibility tree"
+          tree.lifetime = .keepAlways
+          add(tree)
+        }
         driver.app.terminate()
         driver.cleanupStagedFixture()
       }
