@@ -10,7 +10,14 @@ import ImageIO
 import UniformTypeIdentifiers
 
 public actor MaskRasterStore {
+    public typealias Raster = (width: Int, height: Int, bytes: [UInt8])
+
     private let directory: URL
+    /// Generation in progress per digest. Actor methods are reentrant at
+    /// every `await`, so without this two concurrent misses for the same
+    /// digest would both run the Vision workload and race the write
+    /// (#3284 review).
+    private var inFlight: [String: Task<Raster, Error>] = [:]
 
     public init(directory: URL) {
         self.directory = directory
@@ -30,18 +37,26 @@ public actor MaskRasterStore {
     public func raster(
         for digest: String,
         model: String,
-        generate: @Sendable () async throws -> (width: Int, height: Int, bytes: [UInt8])
-    ) async throws -> (width: Int, height: Int, bytes: [UInt8]) {
+        generate: @escaping @Sendable () async throws -> Raster
+    ) async throws -> Raster {
         let path = cachedPath(digest: digest)
-        if let cached = readPNG(at: path) {
+        if let cached = Self.readPNG(at: path) {
             return cached
         }
-        let fresh = try await generate()
-        writePNG(fresh, to: path)
-        return fresh
+        if let pending = inFlight[digest] {
+            return try await pending.value
+        }
+        let task = Task<Raster, Error> {
+            let fresh = try await generate()
+            Self.writePNG(fresh, to: path)
+            return fresh
+        }
+        inFlight[digest] = task
+        defer { inFlight[digest] = nil }
+        return try await task.value
     }
 
-    private func readPNG(at url: URL) -> (width: Int, height: Int, bytes: [UInt8])? {
+    private nonisolated static func readPNG(at url: URL) -> Raster? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
@@ -58,7 +73,10 @@ public actor MaskRasterStore {
         return (w, h, bytes)
     }
 
-    private func writePNG(_ raster: (width: Int, height: Int, bytes: [UInt8]), to url: URL) {
+    /// Written to a sibling temp file and renamed into place, so a kill
+    /// mid-write never leaves a truncated PNG that would poison every later
+    /// read (#3284 review).
+    private nonisolated static func writePNG(_ raster: Raster, to url: URL) {
         guard
             let ctx = CGContext(
                 data: nil, width: raster.width, height: raster.height, bitsPerComponent: 8,
@@ -67,10 +85,22 @@ public actor MaskRasterStore {
             )
         else { return }
         raster.bytes.withUnsafeBytes { ctx.data?.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        let tmp = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
         guard let image = ctx.makeImage(),
-            let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+            let dest = CGImageDestinationCreateWithURL(tmp as CFURL, UTType.png.identifier as CFString, 1, nil)
         else { return }
         CGImageDestinationAddImage(dest, image, nil)
-        CGImageDestinationFinalize(dest)
+        guard CGImageDestinationFinalize(dest) else {
+            try? FileManager.default.removeItem(at: tmp)
+            return
+        }
+        let fm = FileManager.default
+        try? fm.removeItem(at: url)
+        do {
+            try fm.moveItem(at: tmp, to: url)
+        } catch {
+            try? fm.removeItem(at: tmp)
+        }
     }
 }
