@@ -52,7 +52,6 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
-pub mod white_balance_sample;
 /// wasm32 CPU develop memory budget (#2661) — the clamp every CPU render
 /// entry applies so a large-sensor develop cannot exhaust the 4 GiB wasm32
 /// heap, plus the `DEFAULT_TARGET_LONG_EDGE` the GPU one-shot entry and its
@@ -66,6 +65,7 @@ pub mod export;
 /// `raw-ffi` so a template renders byte-identically on every surface.
 pub mod filename;
 pub mod id;
+mod open_metadata;
 pub mod preview;
 /// Legacy 8-bit sRGB render surface — `MapleRender`, `render_bytes`,
 /// `render_bytes_sized`, plus the `as_shot_wb` helper shared with every
@@ -83,6 +83,7 @@ mod render_film;
 /// of this file for the file-size budget (#2628); mirrors `raw-ffi`'s own
 /// `scene_linear.rs` grouping.
 pub mod scene_linear;
+pub mod white_balance_sample;
 
 // BM3D deep-denoise progress bridge (#1153) — wasm-only: it hands raw-core's
 // stage progress to a JS callback the render worker re-broadcasts, and the

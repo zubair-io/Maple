@@ -804,7 +804,15 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// constructs `Ok`); the `Result` is threaded through here so callers that
 /// already handle `profile_for`'s signature don't need a second error path.
 pub fn estimate_as_shot_cct_tint(raw: &RawImage) -> crate::Result<(f32, f32)> {
-    let profile = profile_for(raw)?;
+    estimate_as_shot_cct_tint_with_source(raw).map(|(wb, _)| wb)
+}
+
+/// The same display estimate together with its actual resolver provenance.
+/// Hosts can hydrate WB and support metadata without resolving a second profile.
+pub fn estimate_as_shot_cct_tint_with_source(
+    raw: &RawImage,
+) -> crate::Result<((f32, f32), ProfileSource)> {
+    let (profile, source) = profile_for_with_source(raw)?;
     let frame = crate::stages::wb_camera::SliderFrame::resolve(raw, &profile);
     let xyz = frame.scene_illuminant_xyz(raw.as_shot_neutral);
     let sum = xyz[0] + xyz[1] + xyz[2];
@@ -817,7 +825,7 @@ pub fn estimate_as_shot_cct_tint(raw: &RawImage) -> crate::Result<(f32, f32)> {
         // solve.
         crate::color::dng_temperature::temp_tint_to_xy(frame.scene_cct, 0.0)
     };
-    Ok(crate::color::dng_temperature::xy_to_temp_tint(x, y))
+    Ok((crate::color::dng_temperature::xy_to_temp_tint(x, y), source))
 }
 
 /// Same lookup as [`profile_for`], but also returns the [`ProfileSource`]

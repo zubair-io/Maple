@@ -215,15 +215,12 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let raw_img =
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+    let ((as_shot_temperature, as_shot_tint), camera_support) =
+        crate::open_metadata::assess(&raw_img);
     // #3182 — decode-time facts, not view-dependent, so both branches below
     // share the same pair.
     let has_lens_corrections = raw_img.has_lens_corrections();
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
-    let camera_support = Some(
-        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
-            .map_err(|e| JsError::new(&e.to_string()))?,
-    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -312,13 +309,10 @@ pub fn render_bytes_sized(
     // As-shot derivation — IDENTICAL to `render_bytes` so a sized cold open
     // seeds the same sliders. Display-only; a fresh open renders at the
     // As-Shot sentinel, never at a pushed pair (#1892 — see `render_bytes`).
-    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+    let ((as_shot_temperature, as_shot_tint), camera_support) =
+        crate::open_metadata::assess(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
-    let camera_support = Some(
-        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
-            .map_err(|e| JsError::new(&e.to_string()))?,
-    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
