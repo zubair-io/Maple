@@ -85,6 +85,25 @@ pub(crate) fn clamp_develop_long_edge(
     })
 }
 
+/// Export must preserve its requested dimensions. Reuse the measured CPU
+/// develop bound, but reject instead of silently applying the preview clamp.
+/// Called after sensor decode, before any full RGB demosaic/stage allocation.
+pub(crate) fn validate_export_dimensions(
+    native_w: u32,
+    native_h: u32,
+    requested: Option<u32>,
+) -> Result<(), String> {
+    if clamp_develop_long_edge(native_w, native_h, requested) != requested {
+        let ceiling = clamp_develop_long_edge(native_w, native_h, None).unwrap();
+        return Err(format!(
+            "Browser export of {native_w}×{native_h} exceeds the renderer's 4 GiB memory budget. \
+             Choose a maximum long edge of {ceiling} pixels or less, or export full resolution \
+             with Windows, the CLI, or a Self Hosted server directory."
+        ));
+    }
+    Ok(())
+}
+
 /// The develop target the CPU fallback uses for an unsized request — exposed
 /// to the TS worker so its GPU-adapter-failure retry renders through
 /// `render_bytes_sized` at the SAME [`DEFAULT_TARGET_LONG_EDGE`] the failed
@@ -99,6 +118,21 @@ pub fn default_target_long_edge() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_rejects_over_budget_requests_without_changing_the_requested_size() {
+        assert!(validate_export_dimensions(8000, 4000, None).is_ok());
+        assert!(validate_export_dimensions(6000, 4000, Some(6000)).is_ok());
+        for request in [None, Some(12288), Some(8192), Some(4097)] {
+            let error = validate_export_dimensions(12288, 8192, request).unwrap_err();
+            assert!(error.contains("4 GiB"));
+            assert!(error.contains("4096 pixels"));
+        }
+        assert!(validate_export_dimensions(12288, 8192, Some(4096)).is_ok());
+        assert!(validate_export_dimensions(12288, 8192, Some(2048)).is_ok());
+        assert!(validate_export_dimensions(7360, 4912, Some(3680)).is_ok());
+        assert!(validate_export_dimensions(7360, 4912, Some(3681)).is_err());
+    }
 
     /// Sensors at or below the full-develop budget pass through untouched —
     /// both the unsized shape and any explicit request (even one above the

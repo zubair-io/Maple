@@ -270,7 +270,7 @@ Web is split into its two deployments because they differ substantially. Every c
 | Histogram                          | yes                                              | yes               | yes                | yes (+ clipping dots)     | no        |
 | Deep-zoom tiles                    | yes                                              | no                | no                 | no                        | no        |
 | Export                             | yes (+HEIC, no resize)                           | yes               | yes                | yes                       | no        |
-| Batch export                       | no                                               | yes               | yes                | no                        | no        |
+| Batch export                       | no                                               | yes               | yes                | yes                       | no        |
 | Panorama stitch                    | yes                                              | yes               | no                 | yes                       | no        |
 | Rename / batch rename              | yes                                              | yes               | no                 | yes                       | no        |
 | Move / drag to folder              | yes                                              | yes               | no                 | yes                       | no        |
