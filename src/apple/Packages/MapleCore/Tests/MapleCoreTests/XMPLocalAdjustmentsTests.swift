@@ -154,4 +154,17 @@ final class XMPLocalAdjustmentsTests: XCTestCase {
         let (model, _) = try XMPParser.parse(xml)
         XCTAssertTrue(model.localAdjustments.isEmpty)
     }
+
+    /// `LocalAdjustment` has a hand-written `init(from:)` (rasterId is never
+    /// persisted); Swift still synthesizes `encode(to:)` on its own, and
+    /// the two must agree for the JSON fixtures to round-trip.
+    func testLocalAdjustmentEncodesAndDecodesAsJSON() throws {
+        let layer = LocalAdjustment(
+            mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments(saturation: -4, hue: 12.5))
+        let data = try JSONEncoder().encode(layer)
+        let back = try JSONDecoder().decode(LocalAdjustment.self, from: data)
+        XCTAssertEqual(back.mask, layer.mask)
+        XCTAssertEqual(back.range, layer.range)
+        XCTAssertEqual(back.adjustments, layer.adjustments)
+    }
 }
