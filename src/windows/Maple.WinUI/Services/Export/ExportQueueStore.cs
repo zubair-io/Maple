@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Maple.WinUI.Generated;
 
 namespace Maple.WinUI.Services.Export;
@@ -56,6 +58,12 @@ public sealed class ExportQueueStore
 
     public IReadOnlyList<ExportRecipe> Recipes()
     {
+        using var lease = LockRecipes();
+        return ReadRecipes();
+    }
+
+    private IReadOnlyList<ExportRecipe> ReadRecipes()
+    {
         var path = Path.Combine(_root, "recipes.json");
         return File.Exists(path)
             ? JsonSerializer.Deserialize<List<ExportRecipe>>(File.ReadAllText(path), Json)
@@ -65,9 +73,26 @@ public sealed class ExportQueueStore
 
     public void SaveRecipe(ExportRecipe recipe)
     {
+        using var lease = LockRecipes();
         // Unsupported policy values remain intact for interchange; execution validates them.
-        var recipes = Recipes().Where(r => r.Name != recipe.Name).Append(recipe).ToArray();
+        var recipes = ReadRecipes().Where(r => r.Name != recipe.Name).Append(recipe).ToArray();
         WriteAtomic(Path.Combine(_root, "recipes.json"), JsonSerializer.Serialize(recipes, Json));
+    }
+
+    private IDisposable LockRecipes()
+    {
+        // Read and atomic replace are one transaction across app processes. Saving
+        // runs off the UI thread; a short bounded wait lets another window finish.
+        var wait = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                return new FileStream(Path.Combine(_root, "recipes.lock"), FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+            }
+            catch (IOException) when (wait.Elapsed < TimeSpan.FromSeconds(5)) { Thread.Sleep(25); }
+        }
     }
 
     private static void WriteAtomic(string path, string json)
