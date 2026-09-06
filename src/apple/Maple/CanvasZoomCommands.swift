@@ -62,7 +62,6 @@ struct CanvasZoomCommands: Commands {
   }
 
   private func run(_ command: EditorCommandRouter.Command, fallback: () -> Void) {
-    guard !EditorTextInput.hasFocus else { return }
     if let router {
       router.perform(command, assetID: router.state.session.asset.id)
     } else {
