@@ -118,7 +118,7 @@ export async function coldOpen2d(
       assetId,
       lensCorrections.hasLensCorrections,
       lensCorrections.lensCorrectionCaInert,
-      decoded.cameraSupport,
+      decoded.cameraSupport ?? null,
     );
 
     // Open the gate + record what this no-XMP render reflects (the seed's effect

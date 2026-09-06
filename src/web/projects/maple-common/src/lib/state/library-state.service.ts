@@ -264,7 +264,7 @@ export class LibraryStateService {
     id: AssetId,
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
-    cameraSupport?: CameraSupport,
+    cameraSupport?: CameraSupport | null,
   ): void {
     this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert, cameraSupport);
   }
