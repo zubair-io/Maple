@@ -14,6 +14,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { BUILTIN_PRESETS } from './builtin-presets';
 import type { Preset } from './preset-model';
+import { buildApplyPatch } from './preset-model';
 import { PresetsService } from './presets.service';
 
 function wireRow(id: string, name: string, fields: Record<string, number | string>) {
@@ -151,6 +152,21 @@ describe('PresetsService (hosted backend, in-memory store)', () => {
 
   // The hosted backend must never issue HTTP traffic.
   afterEach(() => ctrl.verify());
+
+  it('round-trips imported calibration and unknown fields without applying them', async () => {
+    const fields = {
+      lens_profile: `lcp1-ack:${'a'.repeat(64)}`,
+      future_lens_hint: 'opaque data',
+      exposure: 0.5,
+    };
+    const saved = await svc.save('Imported record', fields);
+    expect(saved).not.toBeNull();
+    await svc.load();
+    const stored = svc.userPresets().find((preset) => preset.id === saved!.id)!;
+    expect(stored.fields).toEqual(fields);
+    expect(buildApplyPatch(stored.fields)).toEqual({ exposure: 0.5 });
+    expect(stored.fields).toEqual(fields);
+  });
 
   it('saves, lists, and deletes through the store without HTTP', async () => {
     await svc.load();
