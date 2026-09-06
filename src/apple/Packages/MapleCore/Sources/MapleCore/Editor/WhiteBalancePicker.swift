@@ -64,6 +64,7 @@ public final class WhiteBalancePicker {
       var sampled = before
       sampled.temperature = result.temperature
       sampled.tint = result.tint
+      sampled.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
       sampled.wbSource = .sampled
       sampled.wbSampleX = point.x
       sampled.wbSampleY = point.y
@@ -84,6 +85,7 @@ public final class WhiteBalancePicker {
     var model = session.model
     model.temperature = temperature
     model.tint = tint
+    model.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
     model.wbSource = .asShot
     model.wbSampleX = 0
     model.wbSampleY = 0
