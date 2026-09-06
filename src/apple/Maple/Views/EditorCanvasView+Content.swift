@@ -1,93 +1,9 @@
-// EditorView+Canvas.swift — the canvas-leaf wiring for EditorView, split out
-// of EditorView.swift (600-line file budget; same extension-file pattern as
-// AppShell+FolderActions.swift / EditSession+Render.swift). Pure relocation;
-// no behavior change.
-//
-// Contains the GPU/CPU leaf branch (with the #1769 a11y label/value sentinel
-// contract), the placeholder, and the download-progress overlay. The layer
-// composition (canvasLayer) lives here alongside its canvas leaves;
-// `useGpuCanvas`, `canvasIsReady`, `canvasLeaf`, and `canvasPlaceholder` are
-// internal (not private) because that composer + the pill header consume them
-// across the file boundary.
-
 import CoreImage
 import MapleCore
+// Canvas content, loading seed, and download progress observation.
 import SwiftUI
 
-extension EditorView {
-
-  // MARK: - Canvas layer
-
-  /// Fit-mode inset applied around the canvas while the Crop tool is
-  /// armed. Without it, a full-frame crop's fit footprint touches the
-  /// viewport edge on the constraining axis, so a corner/edge handle's
-  /// grab tolerance (`CropOverlay`'s `handleTolerance`, 14pt) is
-  /// half-clipped by the gesture region instead of fully reachable.
-  /// `CanvasZoomHost` and `CropOverlay` each resolve their own fit
-  /// footprint from their own `GeometryReader`, so padding this shared
-  /// wrapper keeps both reading the same (smaller) size and the overlay
-  /// stays 1:1 with the painted image.
-  private static let cropViewportMargin: CGFloat = 32
-
-  var canvasLayer: some View {
-    ZStack(alignment: .top) {
-      ZStack(alignment: .top) {
-        CanvasZoomHost(
-          controller: state.zoom,
-          doubleTapBehavior: .toggleFitAnd100,
-          onWheelEditing: { steps, unit in
-            state.wheelNudge(steps: steps, unit: unit)
-          },
-          canvasReady: canvasIsReady,
-          wheelExcludedFrame: wheelExclusionFrame
-        ) {
-          canvasLeaf
-        } fallback: {
-          canvasPlaceholder
-        }
-        // Seed thumbnail until real pixels land, then the download
-        // progress above it (#2374).
-        seedThumbnail
-        downloadOverlay
-        // Crop overlay (#638): shown while the Crop tool is armed.
-        // The canvas renders UNCROPPED under the overlay.
-        if state.armedTool == .crop {
-          CropOverlay(state: state)
-        }
-        if state.whiteBalancePicker.isArmed {
-          WhiteBalancePickOverlay(state: state)
-            .id(ObjectIdentifier(state.session))
-        }
-      }
-      .padding(state.armedTool == .crop ? Self.cropViewportMargin : 0)
-      // Before/after "BEFORE" badge — surfaced while the session is
-      // showing the original (the canvas itself falls back to the
-      // placeholder).
-      if state.session.showingOriginal {
-        VStack {
-          Spacer()
-          Text("BEFORE")
-            .font(.caption.bold())
-            .foregroundStyle(.white)
-            .padding(6)
-            .background(.black.opacity(0.6), in: Capsule())
-            .padding(.bottom, 12)
-        }
-        .allowsHitTesting(false)
-        .accessibilityIdentifier("editor-before-badge")
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(MapleTokens.bg)
-    // Render-path badge and zoom % have moved to PillHeader — the
-    // bottom-trailing GPU/CPU overlay is no longer rendered here.
-    // Compact chrome recede: any tap on the canvas restores chrome.
-    .contentShape(Rectangle())
-    .onTapGesture {
-      guard !isRegular else { return }
-      bumpChrome()
-    }
-  }
+extension EditorCanvasView {
 
   // MARK: - Canvas leaf helpers
 
@@ -257,25 +173,6 @@ extension EditorView {
       source: filmstripSource,
       visible: !canvasHasOnscreenFrame
     )
-  }
-
-  // MARK: - GPU frame-time HUD (validation-only overlay)
-
-  /// The GPU frame-time HUD overlay (#1053). Renders the HUD only when the GPU
-  /// live path is active AND the HUD sub-flag is on (`MAPLE_GPU_HUD=1`); an
-  /// `EmptyView` otherwise. Ported from the legacy `FullImageView` when it was
-  /// retired in #1807 — this is the only on-device way to confirm a slider
-  /// tick renders inside the 16ms budget (device logs aren't capturable on
-  /// the paired Artemis), so the editor needed its own mount point.
-  @ViewBuilder
-  var frameTimeHud: some View {
-    if GpuLiveFlag.isEnabled, GpuHudFlag.isEnabled,
-      let stats = state.session.gpuLiveDriver?.frameStats
-    {
-      GpuFrameTimeHud(stats: stats)
-    } else {
-      EmptyView()
-    }
   }
 
   /// "4.2 MB / 12 MB" or "4.2 MB" when the total is unknown. Adaptive units

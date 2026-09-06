@@ -38,6 +38,8 @@ import QuartzCore
 import os
 
 private let gpuDriverLog = Logger(subsystem: "app.justmaple.aperture", category: "gpu-live-driver")
+private let gpuDriverSignposter = OSSignposter(
+  subsystem: "app.justmaple.aperture", category: .pointsOfInterest)
 
 /// Identity of the pixel buffer currently uploaded to the open
 /// `GpuLiveSession` (#2039, #2049). A same-dims present must still force a
@@ -72,8 +74,9 @@ public struct GpuUploadIdentity: Equatable, Sendable {
 public final class GpuLiveDriver {
   /// The current session (one set of dims). `nil` until the first open; replaced
   /// on a dims change. Held strongly — it owns the uploaded image + GPU buffers.
-  private var session: GpuLiveSession?
+  private(set) var session: GpuLiveSession?
   private var sessionRevision: UInt64 = 0
+  private var sessionPreparation: Task<GpuLiveSession, Error>?
   // Shared teardown barrier: queued replacements retain no f32 readback.
   // Internal so concurrency tests can suspend teardown deterministically.
   var sessionTeardown: Task<Void, Never>?
@@ -193,6 +196,7 @@ public final class GpuLiveDriver {
   /// partial-render splice, with none of #1743's double-present protection.
   public func register(layer: CAMetalLayer) {
     if layer !== self.layer {
+      inFlightCancel?.requestCancel()
       self.layer = layer
       surfaceGeneration &+= 1
       // A newly-registered layer has no colorspace tag applied yet
@@ -228,7 +232,7 @@ public final class GpuLiveDriver {
   public func open(
     width: Int, height: Int, inputShape: UInt32 = 0,
     identity: GpuUploadIdentity, noiseProfile: [Float]? = nil, iso: UInt32 = 0,
-    pixels: () throws -> [Float]
+    pixels: @escaping @Sendable () throws -> [Float]
   ) async throws {
     try Task.checkCancellation()
     guard !isOpen(coveringWidth: width, height: height, identity: identity) else { return }
@@ -239,8 +243,42 @@ public final class GpuLiveDriver {
     try Task.checkCancellation()
     guard revision == sessionRevision else { throw CancellationError() }
     sessionTeardown = nil
-    let s = try GpuLiveSession(
-      pixels: pixels(), width: width, height: height, noiseProfile: noiseProfile, iso: iso)
+    // CI readback and native context/upload creation can take hundreds of ms.
+    // Keep them off MainActor, with one retained preparation behind teardown.
+    let preparation = Task.detached(priority: .userInitiated) {
+      try Task.checkCancellation()
+      let data = try pixels()
+      try Task.checkCancellation()
+      let prepared = try GpuLiveSession(
+        pixels: data, width: width, height: height, noiseProfile: noiseProfile, iso: iso)
+      if Task.isCancelled {
+        await prepared.close()
+        throw CancellationError()
+      }
+      return prepared
+    }
+    sessionPreparation = preparation
+    let s: GpuLiveSession
+    do {
+      s = try await withTaskCancellationHandler {
+        try await preparation.value
+      } onCancel: {
+        preparation.cancel()
+      }
+    } catch {
+      if revision == sessionRevision { sessionPreparation = nil }
+      throw error
+    }
+    // A superseding request owns the preparation's teardown barrier.
+    guard revision == sessionRevision else { throw CancellationError() }
+    if Task.isCancelled {
+      // Keep this completed preparation represented while its actor closes.
+      // A newer open must join cleanup before allocating another upload.
+      beginSessionTeardown()
+      if let teardown = sessionTeardown { await teardown.value }
+      throw CancellationError()
+    }
+    sessionPreparation = nil
     self.session = s
     self.sessionDims = (width, height)
     self.uploadedIdentity = identity
@@ -258,7 +296,11 @@ public final class GpuLiveDriver {
   /// every waiter. Teardown must finish even when its requesting render cancels.
   private func beginSessionTeardown() {
     inFlightCancel?.requestCancel()
-    guard let old = session else { return }
+    let old = session
+    let preparation = sessionPreparation
+    guard old != nil || preparation != nil else { return }
+    preparation?.cancel()
+    sessionPreparation = nil
     session = nil
     sessionDims = nil
     uploadedIdentity = nil
@@ -266,7 +308,10 @@ public final class GpuLiveDriver {
     let previous = sessionTeardown
     sessionTeardown = Task {
       if let previous { await previous.value }
-      await old.close()
+      if let old { await old.close() }
+      if let preparation, let prepared = try? await preparation.value {
+        await prepared.close()
+      }
     }
   }
 
@@ -289,25 +334,30 @@ public final class GpuLiveDriver {
   /// fresh flag for this one, so the last present issued wins. A no-op when
   /// there is no session or no layer yet (the canvas keeps its prior frame).
   /// Surfaces a real GPU/present error through `onError` (device logs aren't
-  /// capturable — the in-app HUD is the only on-device surface).
+  /// capturable — the in-app HUD is the only on-device surface). Returns true
+  /// only for a current frame submitted by this session; cancelled/skipped
+  /// requests must not advance EditSession's preview or histogram generation.
+  @discardableResult
   public func present(
     model: AdjustmentModel,
     asShotCCT: Double? = nil,
     asShotTint: Double? = nil,
     wbFrame: WbSliderFrame? = nil,
     onError: (Error) -> Void
-  ) async {
+  ) async -> Bool {
+    guard !Task.isCancelled else { return false }
     guard let s = session else {
       gpuDriverLog.notice("GPU-TRACE driver.present skipped: no session")
-      return
+      return false
     }
     guard let layer = layer else {
       gpuDriverLog.notice("GPU-TRACE driver.present skipped: no layer")
-      return
+      return false
     }
     // Read ONCE and hand the SAME value to both the layer tag and the
     // params below — see `retagLayerIfNeeded`'s doc for why two
     // independent `.current` reads would race.
+    let revision = sessionRevision
     let colorSpace = CanvasColorSpace.current
     retagLayerIfNeeded(layer, to: colorSpace)
     gpuDriverLog.notice(
@@ -332,37 +382,56 @@ public final class GpuLiveDriver {
         "GPU-TRACE drawableSize diverged (\(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height)) vs \(dims.width)x\(dims.height)) — bumped surface generation to \(self.surfaceGeneration)"
       )
     }
+    let submittedSurfaceGeneration = surfaceGeneration
+    let interval = gpuDriverSignposter.beginInterval(
+      "GpuPresentRequest", id: gpuDriverSignposter.makeSignpostID())
+    defer { gpuDriverSignposter.endInterval("GpuPresentRequest", interval) }
     inFlightCancel?.requestCancel()
     let cancel = CancelFlag()
     inFlightCancel = cancel
     do {
-      let elapsedMs = try await s.present(
-        model: model, layer: layer, cancel: cancel,
-        asShotCCT: asShotCCT, asShotTint: asShotTint,
-        inputShape: self.inputShape,
-        surfaceGeneration: surfaceGeneration,
-        wbFrame: wbFrame,
-        targetColorSpace: colorSpace
-      )
+      let elapsedMs = try await withTaskCancellationHandler {
+        try await s.present(
+          model: model, layer: layer, cancel: cancel,
+          asShotCCT: asShotCCT, asShotTint: asShotTint,
+          inputShape: self.inputShape,
+          surfaceGeneration: submittedSurfaceGeneration,
+          wbFrame: wbFrame,
+          targetColorSpace: colorSpace
+        )
+      } onCancel: {
+        cancel.requestCancel()
+      }
       withExtendedLifetime(cancel) {}
-      if let elapsedMs {
-        gpuDriverLog.notice("GPU-TRACE driver.present OK \(elapsedMs)ms")
-        if let dims = sessionDims {
-          lastPresentedKey = (surfaceGeneration, dims.width, dims.height)
-        }
-      } else {
-        gpuDriverLog.notice("GPU-TRACE driver.present cancelled (returned nil)")
+      guard let elapsedMs, !Task.isCancelled, revision == sessionRevision,
+        submittedSurfaceGeneration == surfaceGeneration, layer === self.layer
+      else {
+        gpuDriverLog.debug("GPU present did not publish a current frame")
+        return false
       }
-      if GpuHudFlag.isEnabled, let elapsedMs {
-        frameStats.record(elapsedMs)
+      gpuDriverLog.notice("GPU-TRACE driver.present OK \(elapsedMs)ms")
+      if let dims = sessionDims {
+        lastPresentedKey = (submittedSurfaceGeneration, dims.width, dims.height)
       }
+      if GpuHudFlag.isEnabled { frameStats.record(elapsedMs) }
+      return true
+    } catch is CancellationError {
+      return false
     } catch let e as GpuLiveError {
+      guard !Task.isCancelled, revision == sessionRevision,
+        submittedSurfaceGeneration == surfaceGeneration, layer === self.layer
+      else { return false }
       gpuDriverLog.notice("GPU-TRACE driver.present THREW: \(e.message, privacy: .public)")
       onError(e)
+      return false
     } catch {
+      guard !Task.isCancelled, revision == sessionRevision,
+        submittedSurfaceGeneration == surfaceGeneration, layer === self.layer
+      else { return false }
       gpuDriverLog.notice(
         "GPU-TRACE driver.present THREW: \(error.localizedDescription, privacy: .public)")
       onError(error)
+      return false
     }
   }
 

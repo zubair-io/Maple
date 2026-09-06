@@ -38,193 +38,201 @@ import SwiftUI
 // MARK: - ToneCurveSection
 
 struct ToneCurveSection: View {
-    @Bindable var state: EditorState
+  @Bindable var state: EditorState
 
-    /// The four curves the channel selector switches between.
-    private struct Channel: Identifiable {
-        let id: String
-        let label: String
-        let keyPath: WritableKeyPath<AdjustmentModel, ToneCurve>
-        let stroke: Color
+  /// The four curves the channel selector switches between.
+  private struct Channel: Identifiable {
+    let id: String
+    let label: String
+    let keyPath: WritableKeyPath<AdjustmentModel, ToneCurve>
+    let stroke: Color
+  }
+
+  /// Which point-curve FAMILY the plot edits (#2232). `.sceneLinear`
+  /// (`papp:SceneLinearToneCurve*`) applies pre-AgX in scene-linear light
+  /// — the original #367 family. `.display` (`crs:ToneCurvePV2012*`)
+  /// applies post-AgX in display-linear `[0, 1]`, independently per
+  /// channel — not luma-coupled, matching Adobe Camera Raw's own
+  /// point-curve behaviour. Both families can be authored on the same
+  /// image at once; this toggle only changes which one the widget is
+  /// currently editing.
+  private enum Family: String, CaseIterable, Identifiable {
+    case sceneLinear, display
+    var id: String { rawValue }
+    var label: String { self == .sceneLinear ? "Scene" : "Display" }
+  }
+
+  private static let sceneLinearChannels: [Channel] = [
+    Channel(id: "luma", label: "Luma", keyPath: \.toneCurveLuma, stroke: ProTokens.accent),
+    Channel(id: "r", label: "R", keyPath: \.toneCurveRed, stroke: ProTokens.curveRed),
+    Channel(id: "g", label: "G", keyPath: \.toneCurveGreen, stroke: ProTokens.curveGreen),
+    Channel(id: "b", label: "B", keyPath: \.toneCurveBlue, stroke: ProTokens.curveBlue),
+  ]
+
+  private static let displayChannels: [Channel] = [
+    Channel(
+      id: "luma", label: "Master", keyPath: \.displayToneCurveLuma, stroke: ProTokens.accent
+    ),
+    Channel(id: "r", label: "R", keyPath: \.displayToneCurveRed, stroke: ProTokens.curveRed),
+    Channel(
+      id: "g", label: "G", keyPath: \.displayToneCurveGreen, stroke: ProTokens.curveGreen
+    ),
+    Channel(id: "b", label: "B", keyPath: \.displayToneCurveBlue, stroke: ProTokens.curveBlue),
+  ]
+
+  /// Which family is active. Local view state, same rationale as
+  /// `selectedChannelID` below — a lens onto the model, not a value
+  /// stored in it.
+  @State private var selectedFamily: Family = .sceneLinear
+
+  /// Which channel the plot edits. Local view state: it is a lens onto the
+  /// model, not a value stored in it, so it deliberately does NOT persist to
+  /// the sidecar.
+  @State private var selectedChannelID = "luma"
+
+  private var channels: [Channel] {
+    selectedFamily == .display ? Self.displayChannels : Self.sceneLinearChannels
+  }
+
+  private var channel: Channel {
+    channels.first { $0.id == selectedChannelID } ?? channels[0]
+  }
+
+  private var points: [ToneCurvePoint] {
+    state.session.model[keyPath: channel.keyPath].points
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      familyRow
+      channelRow
+      curvePlot
+      if selectedFamily == .sceneLinear {
+        regionSliders
+      }
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("editor-tone-curve-section")
+  }
 
-    /// Which point-curve FAMILY the plot edits (#2232). `.sceneLinear`
-    /// (`papp:SceneLinearToneCurve*`) applies pre-AgX in scene-linear light
-    /// — the original #367 family. `.display` (`crs:ToneCurvePV2012*`)
-    /// applies post-AgX in display-linear `[0, 1]`, independently per
-    /// channel — not luma-coupled, matching Adobe Camera Raw's own
-    /// point-curve behaviour. Both families can be authored on the same
-    /// image at once; this toggle only changes which one the widget is
-    /// currently editing.
-    private enum Family: String, CaseIterable, Identifiable {
-        case sceneLinear, display
-        var id: String { rawValue }
-        var label: String { self == .sceneLinear ? "Scene" : "Display" }
-    }
+  var curvePlot: ToneCurvePlot {
+    ToneCurvePlot(
+      points: points,
+      stroke: channel.stroke,
+      channelName: channel.label,
+      session: state.session,
+      onChange: writeCurve,
+      onEditingChanged: { editing in
+        if editing { state.commit() } else { state.endGesture() }
+      }
+    )
+  }
 
-    private static let sceneLinearChannels: [Channel] = [
-        Channel(id: "luma", label: "Luma", keyPath: \.toneCurveLuma, stroke: ProTokens.accent),
-        Channel(id: "r", label: "R", keyPath: \.toneCurveRed, stroke: ProTokens.curveRed),
-        Channel(id: "g", label: "G", keyPath: \.toneCurveGreen, stroke: ProTokens.curveGreen),
-        Channel(id: "b", label: "B", keyPath: \.toneCurveBlue, stroke: ProTokens.curveBlue),
-    ]
+  // MARK: - Family selector
 
-    private static let displayChannels: [Channel] = [
-        Channel(
-            id: "luma", label: "Master", keyPath: \.displayToneCurveLuma, stroke: ProTokens.accent
-        ),
-        Channel(id: "r", label: "R", keyPath: \.displayToneCurveRed, stroke: ProTokens.curveRed),
-        Channel(
-            id: "g", label: "G", keyPath: \.displayToneCurveGreen, stroke: ProTokens.curveGreen
-        ),
-        Channel(id: "b", label: "B", keyPath: \.displayToneCurveBlue, stroke: ProTokens.curveBlue),
-    ]
-
-    /// Which family is active. Local view state, same rationale as
-    /// `selectedChannelID` below — a lens onto the model, not a value
-    /// stored in it.
-    @State private var selectedFamily: Family = .sceneLinear
-
-    /// Which channel the plot edits. Local view state: it is a lens onto the
-    /// model, not a value stored in it, so it deliberately does NOT persist to
-    /// the sidecar.
-    @State private var selectedChannelID = "luma"
-
-    private var channels: [Channel] {
-        selectedFamily == .display ? Self.displayChannels : Self.sceneLinearChannels
-    }
-
-    private var channel: Channel {
-        channels.first { $0.id == selectedChannelID } ?? channels[0]
-    }
-
-    private var points: [ToneCurvePoint] {
-        state.session.model[keyPath: channel.keyPath].points
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            familyRow
-            channelRow
-            ToneCurvePlot(
-                points: points,
-                stroke: channel.stroke,
-                channelName: channel.label,
-                session: state.session,
-                onChange: writeCurve,
-                onCommit: { state.commit() }
-            )
-            if selectedFamily == .sceneLinear {
-                regionSliders
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("editor-tone-curve-section")
-    }
-
-    // MARK: - Family selector
-
-    /// Scene-linear vs display-referred (#2232). Reuses the same
-    /// `ToneCurveChannelChip` the channel row uses below — one visual
-    /// language for "pick one of a small closed set" on this surface,
-    /// rather than introducing a second control style.
-    private var familyRow: some View {
-        HStack(spacing: 4) {
-            ForEach(Family.allCases) { fam in
-                ToneCurveChannelChip(
-                    label: fam.label,
-                    isSelected: fam == selectedFamily,
-                    isModified: false,
-                    tint: ProTokens.accent,
-                    action: {
-                        selectedFamily = fam
-                        selectedChannelID = "luma"
-                    }
-                )
-                .accessibilityIdentifier("editor-tone-curve-family-\(fam.rawValue)")
-            }
-        }
-    }
-
-    // MARK: - Channel selector
-
-    private var channelRow: some View {
-        HStack(spacing: 4) {
-            ForEach(channels) { ch in
-                ToneCurveChannelChip(
-                    label: ch.label,
-                    isSelected: ch.id == selectedChannelID,
-                    isModified: !state.session.model[keyPath: ch.keyPath].isIdentity,
-                    tint: ch.stroke,
-                    action: { selectedChannelID = ch.id }
-                )
-            }
-            Spacer(minLength: 6)
-            Button(action: resetChannel) {
-                Text("Reset curve")
-                    .font(.system(size: 9, weight: .regular))
-                    .foregroundStyle(ProTokens.textMuted)
-            }
-            .buttonStyle(.plain)
-            .disabled(points.isEmpty)
-            .accessibilityLabel("Reset \(channel.label) curve")
-            .accessibilityIdentifier("editor-tone-curve-reset")
-        }
-        // Deliberately NO container identifier here. An `accessibilityIdentifier`
-        // on a plain (non-element) container propagates down and REPLACES the
-        // identifiers of its descendants, so a row id would erase the per-chip
-        // ids the tests query. Observed in the #367 UITest tree, where the
-        // chips came back as five buttons all called `editor-tone-curve-channels`.
-    }
-
-    // MARK: - Parametric region sliders
-
-    private var regionSliders: some View {
-        VStack(spacing: 10) {
-            ForEach(Tool.toneCurve.subParams) { sub in
-                regionSlider(sub)
-            }
-        }
-        // No container identifier — see the note on `channelRow`.
-    }
-
-    private func regionSlider(_ sub: ToolSubParam) -> some View {
-        LivingSlider(
-            label: sub.label,
-            value: Binding(
-                get: { state.session.model[keyPath: sub.keyPath] },
-                set: { newValue in
-                    // Arm before writing so the HUD, the undo burst and
-                    // `resetArmedTool` all target THIS region.
-                    if state.armedTool != .toneCurve { state.arm(tool: .toneCurve) }
-                    if state.armedSubParamId != sub.id { state.arm(subParamId: sub.id) }
-                    state.setArmedDisplayValue(newValue)
-                }
-            ),
-            range: sub.range,
-            isBipolar: true,
-            defaultValue: sub.defaultDisplayValue,
-            onCommit: { state.commit() }
+  /// Scene-linear vs display-referred (#2232). Reuses the same
+  /// `ToneCurveChannelChip` the channel row uses below — one visual
+  /// language for "pick one of a small closed set" on this surface,
+  /// rather than introducing a second control style.
+  private var familyRow: some View {
+    HStack(spacing: 4) {
+      ForEach(Family.allCases) { fam in
+        ToneCurveChannelChip(
+          label: fam.label,
+          isSelected: fam == selectedFamily,
+          isModified: false,
+          tint: ProTokens.accent,
+          action: {
+            selectedFamily = fam
+            selectedChannelID = "luma"
+          }
         )
-        .accessibilityIdentifier("editor-tone-curve-\(sub.id)")
+        .accessibilityIdentifier("editor-tone-curve-family-\(fam.rawValue)")
+      }
     }
+  }
 
-    // MARK: - Writes
+  // MARK: - Channel selector
 
-    /// Write the active channel's curve. No `commit()` here: the plot opens
-    /// the undo boundary once at gesture start, so a drag that forwards many
-    /// writes still collapses to one undo entry.
-    private func writeCurve(_ next: [ToneCurvePoint]) {
-        state.session.model[keyPath: channel.keyPath] = ToneCurve(points: next)
+  private var channelRow: some View {
+    HStack(spacing: 4) {
+      ForEach(channels) { ch in
+        ToneCurveChannelChip(
+          label: ch.label,
+          isSelected: ch.id == selectedChannelID,
+          isModified: !state.session.model[keyPath: ch.keyPath].isIdentity,
+          tint: ch.stroke,
+          action: { selectedChannelID = ch.id }
+        )
+      }
+      Spacer(minLength: 6)
+      Button(action: resetChannel) {
+        Text("Reset curve")
+          .font(.system(size: 9, weight: .regular))
+          .foregroundStyle(ProTokens.textMuted)
+      }
+      .buttonStyle(.plain)
+      .disabled(points.isEmpty)
+      .accessibilityLabel("Reset \(channel.label) curve")
+      .accessibilityIdentifier("editor-tone-curve-reset")
     }
+    // Deliberately NO container identifier here. An `accessibilityIdentifier`
+    // on a plain (non-element) container propagates down and REPLACES the
+    // identifiers of its descendants, so a row id would erase the per-chip
+    // ids the tests query. Observed in the #367 UITest tree, where the
+    // chips came back as five buttons all called `editor-tone-curve-channels`.
+  }
 
-    /// Back to the identity — the EMPTY list, not the corner anchors, so an
-    /// undone edit leaves the sidecar as clean as it found it (#365).
-    private func resetChannel() {
-        state.commit()
-        writeCurve([])
+  // MARK: - Parametric region sliders
+
+  private var regionSliders: some View {
+    VStack(spacing: 10) {
+      ForEach(Tool.toneCurve.subParams) { sub in
+        regionSlider(sub)
+      }
     }
+    // No container identifier — see the note on `channelRow`.
+  }
+
+  private func regionSlider(_ sub: ToolSubParam) -> some View {
+    LivingSlider(
+      label: sub.label,
+      value: Binding(
+        get: { state.session.model[keyPath: sub.keyPath] },
+        set: { newValue in
+          // Arm before writing so the HUD, the undo burst and
+          // `resetArmedTool` all target THIS region.
+          if state.armedTool != .toneCurve { state.arm(tool: .toneCurve) }
+          if state.armedSubParamId != sub.id { state.arm(subParamId: sub.id) }
+          state.setArmedDisplayValue(newValue)
+        }
+      ),
+      range: sub.range,
+      isBipolar: true,
+      defaultValue: sub.defaultDisplayValue,
+      onEditingChanged: { editing in
+        if editing { state.commit() } else { state.endGesture() }
+      }
+    )
+    .accessibilityIdentifier("editor-tone-curve-\(sub.id)")
+  }
+
+  // MARK: - Writes
+
+  /// Write the active channel's curve. No `commit()` here: the plot opens
+  /// the undo boundary once at gesture start, so a drag that forwards many
+  /// writes still collapses to one undo entry.
+  private func writeCurve(_ next: [ToneCurvePoint]) {
+    state.session.model[keyPath: channel.keyPath] = ToneCurve(points: next)
+  }
+
+  /// Back to the identity — the EMPTY list, not the corner anchors, so an
+  /// undone edit leaves the sidecar as clean as it found it (#365).
+  private func resetChannel() {
+    state.commit()
+    writeCurve([])
+  }
 }
 
 // MARK: - ToneCurveChannelChip
@@ -233,49 +241,49 @@ struct ToneCurveSection: View {
 /// a channel carrying a non-identity curve gets a filled dot below it, the
 /// same modified affordance `HSLBandChip` uses.
 private struct ToneCurveChannelChip: View {
-    let label: String
-    let isSelected: Bool
-    let isModified: Bool
-    let tint: Color
-    let action: () -> Void
+  let label: String
+  let isSelected: Bool
+  let isModified: Bool
+  let tint: Color
+  let action: () -> Void
 
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Text(label)
-                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? tint : ProTokens.textDim)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
-                            .fill(isSelected ? ProTokens.accent(0x28) : Color.clear)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
-                            .stroke(isSelected ? tint : Color.clear, lineWidth: 0.5)
-                    )
-                Circle()
-                    .fill(isModified ? tint : Color.clear)
-                    .frame(width: 3, height: 3)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(label) tone curve")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("editor-tone-curve-channel-\(label.lowercased())")
+  var body: some View {
+    Button(action: action) {
+      VStack(spacing: 3) {
+        Text(label)
+          .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+          .foregroundStyle(isSelected ? tint : ProTokens.textDim)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 3)
+          .background(
+            RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
+              .fill(isSelected ? ProTokens.accent(0x28) : Color.clear)
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
+              .stroke(isSelected ? tint : Color.clear, lineWidth: 0.5)
+          )
+        Circle()
+          .fill(isModified ? tint : Color.clear)
+          .frame(width: 3, height: 3)
+      }
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .accessibilityLabel("\(label) tone curve")
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityIdentifier("editor-tone-curve-channel-\(label.lowercased())")
+  }
 }
 
 // MARK: - Preview
 
 #if DEBUG
-#Preview("ToneCurveSection") {
+  #Preview("ToneCurveSection") {
     let state = EditorState(session: EditSession.preview())
     return ToneCurveSection(state: state)
-        .frame(width: 320)
-        .padding()
-        .background(ProTokens.bg)
-}
+      .frame(width: 320)
+      .padding()
+      .background(ProTokens.bg)
+  }
 #endif

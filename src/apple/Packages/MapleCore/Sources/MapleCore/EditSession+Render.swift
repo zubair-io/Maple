@@ -63,6 +63,9 @@ extension EditSession {
   }
 
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
+    guard !Task.isCancelled else { return }
+    let activityID = beginRenderActivity()
+    defer { endRenderActivity(activityID) }
     // Videos are selectable for metadata editing (#1638) but have no still
     // frame to develop. No-op the render rather than feeding container bytes
     // to a decoder — `AssetRef.isRaw` is already false for video (so libraw
@@ -74,10 +77,8 @@ extension EditSession {
     // get the same treatment: metadata-only, no pixels to develop, no
     // decode attempt of any kind.
     if self.asset.isVideo || self.asset.isStub || self.asset.isAudio {
-      isRendering = false
       return
     }
-    isRendering = true
     renderPhase = phase
     // #1153: BM3D is the one develop stage that runs for seconds, and it
     // reports real per-reference-row progress. Publish it for the
@@ -91,6 +92,7 @@ extension EditSession {
     // #1781: adopt the decode-exported WB slider frame BEFORE capturing
     // the model + anchor (this snapshot is also the freshness read).
     let snapshot = await renderActor.snapshot(forAsset: asset)
+    guard !Task.isCancelled else { return }
     adoptDecodedWbFrame(snapshot.wbFrame)
     // #2231: same lifecycle as the WB frame above — the inspector
     // panel's visibility/CA-greying tracks whichever decode is
@@ -256,7 +258,6 @@ extension EditSession {
           decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
           noiseProfile: cachedNoiseProfile, iso: cachedISO
         ) {
-          isRendering = false
           return
         }
         // GPU present declined the frame — fetch (and cache) the CPU-path
@@ -282,7 +283,6 @@ extension EditSession {
         // so a slider tick that cancelled mid-fit can't spawn a stale
         // full filter chain.
         guard !Task.isCancelled else {
-          isRendering = false
           return
         }
         // #3190 review follow-up: `FilmLookCube` is baked/fit in
@@ -290,7 +290,7 @@ extension EditSession {
         // sRGB whenever film is active so it isn't fed P3-gamma
         // bytes it would misinterpret as sRGB-gamma.
         let filmActive = filmLattice != nil && m.filmStrength > 0
-        image = await Task.detached(priority: .userInitiated) {
+        image = try await renderActor.renderCPUPreview {
           let processed = mapleStage(filterStageName) { () -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
@@ -312,7 +312,7 @@ extension EditSession {
           }
           return FilmLookCube.apply(
             to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
-        }.value
+        }
       } else {
         // Both phases decode to their bounded display target so the
         // full-res bitmap is never allocated (#785 fast phase, #1637
@@ -347,7 +347,6 @@ extension EditSession {
           }
         )
         guard !Task.isCancelled else {
-          isRendering = false
           return
         }
         guard let decoded else {
@@ -391,7 +390,6 @@ extension EditSession {
           decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
           noiseProfile: freshNoiseProfile, iso: freshISO
         ) {
-          isRendering = false
           return
         }
         let freshDecodedAtModel = freshSnapshot.decodedAtModel
@@ -412,13 +410,12 @@ extension EditSession {
         // outlived this generation, and the detached render below
         // doesn't inherit cancellation.
         guard !Task.isCancelled else {
-          isRendering = false
           return
         }
         // #3190 review follow-up: same sRGB pin as the cached branch
         // above — `FilmLookCube` assumes sRGB-encoded input.
         let filmActive = filmLattice != nil && m.filmStrength > 0
-        let processed = await Task.detached(priority: .userInitiated) {
+        let processed = try await renderActor.renderCPUPreview {
           let developed = mapleStage(filterStageName) { () -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
@@ -440,7 +437,7 @@ extension EditSession {
           }
           return FilmLookCube.apply(
             to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
-        }.value
+        }
         image = processed
       }
 
@@ -456,15 +453,13 @@ extension EditSession {
 
       guard !Task.isCancelled else {
         editSessionLogger.debug("decodeAndRender gen=\(gen ?? 0) cancelled, dropping result")
-        isRendering = false
         return
       }
       if let gen {
         let live = await renderActor.currentGeneration()
-        if gen != live {
+        if gen != live || Task.isCancelled {
           editSessionLogger.debug(
             "decodeAndRender gen=\(gen) stale (current=\(live)), dropping result")
-          isRendering = false
           return
         }
       }
@@ -474,6 +469,7 @@ extension EditSession {
       previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
       renderError = nil
       histogramState.framePresented()
+      editSessionSignposter.emitEvent("CPU frame published")
       editSessionLogger.debug(
         "decodeAndRender published preview gen=\(gen ?? 0) extent=\(displayImage.extent.width)x\(displayImage.extent.height)"
       )
@@ -508,11 +504,13 @@ extension EditSession {
         // Display preview (#2009): idle/exit persist, local or cloud.
         scheduleDisplayPreviewPersist(thumbSource)
       }
+    } catch is CancellationError {
+      return
     } catch {
+      guard !Task.isCancelled else { return }
       if let gen {
         let live = await renderActor.currentGeneration()
-        if gen != live {
-          isRendering = false
+        if gen != live || Task.isCancelled {
           return
         }
       }
@@ -533,6 +531,5 @@ extension EditSession {
         )
       }
     }
-    isRendering = false
   }
 }
