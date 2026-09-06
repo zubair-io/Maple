@@ -7,9 +7,7 @@ import XCTest
     override func setUpWithError() throws { continueAfterFailure = false }
 
     func testControlsAndEditSurviveCompactAndRegularResize() throws {
-      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/synthetic/grey-l018-rggb.dng")
-      let driver = try MapleAppDriver.launch(fixtureURL: fixture)
+      let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
       defer {
         driver.app.terminate()
         driver.cleanupStagedFixture()
@@ -32,7 +30,7 @@ import XCTest
       let zoom = app.buttons["editor-pill-zoom"]
       let zoomValue = try XCTUnwrap(zoom.value as? String)
 
-      for width: CGFloat in [800, 600, 1100] {
+      for width: CGFloat in [800, 700, 1100] {
         resize(window, width: width, height: 800)
         let dock = app.descendants(matching: .any)
           .matching(identifier: "editor-tool-dock").firstMatch
@@ -64,6 +62,25 @@ import XCTest
       // One undo must still reverse the pre-resize Black & White edit.
       app.buttons["editor-undo"].click()
       XCTAssertEqual(blackWhite.value as? String, initial)
+
+      for width: CGFloat in [700, 1100] {
+        resize(window, width: width, height: 800)
+        app.buttons["editor-dock-tool-crop"].click()
+        XCTAssertTrue(app.buttons["editor-crop-done"].waitForExistence(timeout: 5))
+        let panel = app.descendants(matching: .any)
+          .matching(identifier: "editor-adjustments-panel").firstMatch
+        let clearHandles = XCTNSPredicateExpectation(
+          predicate: NSPredicate { _, _ in
+            let canvas = driver.canvasElement().frame
+            return canvas.width > 50 && canvas.height > 50
+              && (width == 700
+                ? canvas.maxY < panel.frame.minY : canvas.maxX < panel.frame.minX)
+          }, object: nil)
+        XCTAssertEqual(
+          XCTWaiter.wait(for: [clearHandles], timeout: 5), .completed,
+          "Crop handles must clear the inspector after reflow")
+        app.buttons["editor-crop-done"].click()
+      }
     }
 
     private func resize(_ window: XCUIElement, width: CGFloat, height: CGFloat) {
