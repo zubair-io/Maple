@@ -317,13 +317,13 @@ export class ImageCanvasComponent
     // Re-render whenever view or decode state changes.
     const drawEff = effect(
       () => {
-        const _ = this.state.focusedAsset();
-        const __ = this.canvasSvc.pixelScale();
-        const ___ = this.canvasSvc.pan();
-        const ____ = this.canvasSvc.beforeAfterSplitX();
-        const _____ = this.wrapW();
-        const ______ = this.wrapH();
-        const _______ = this.imageBitmap();
+        void this.state.focusedAsset();
+        void this.canvasSvc.pixelScale();
+        void this.canvasSvc.pan();
+        void this.canvasSvc.beforeAfterSplitX();
+        void this.wrapW();
+        void this.wrapH();
+        void this.imageBitmap();
         // `gpuPresent.active()` is tracked via the branch read below. On the GPU
         // live path the OffscreenCanvas holds the pixels (worker-owned); we only
         // CSS-position/scale it (viewport-res, #1080). `draw()` = flag-off path.
@@ -344,11 +344,11 @@ export class ImageCanvasComponent
     // coalesces. GPU live path: no refine (viewport-sized #1080; CSS-upscales).
     const refineViewEff = effect(
       () => {
-        const _ = this.canvasSvc.pixelScale();
-        const __ = this.wrapW();
-        const ___ = this.wrapH();
-        const ____ = this.canvasSvc.pan();
-        const _____ = this.canvasSvc.beforeAfterSplitX();
+        void this.canvasSvc.pixelScale();
+        void this.wrapW();
+        void this.wrapH();
+        void this.canvasSvc.pan();
+        void this.canvasSvc.beforeAfterSplitX();
         if (!this.coldOpenDone || !this.currentBytes || this.gpuPresent.active()) return;
         const a = this.state.focusedAsset();
         if (!a || a.id !== this.currentAssetId) return;
