@@ -67,7 +67,8 @@ final class DocumentOpenRouter {
     if heldScope == url {
       pendingFileURL = url
       docOpenLog.notice(
-        "document re-open \(url.lastPathComponent, privacy: .public) — reusing held security scope")
+        "document re-open \(url.lastPathComponent, privacy: .private) — reusing held security scope"
+      )
       return
     }
     // Different file (or nothing held): release the previous grant before
@@ -79,7 +80,7 @@ final class DocumentOpenRouter {
     heldScope = granted ? url : nil
     pendingFileURL = url
     docOpenLog.notice(
-      "document open \(url.lastPathComponent, privacy: .public) — security-scope granted=\(granted)"
+      "document open \(url.lastPathComponent, privacy: .private) — security-scope granted=\(granted)"
     )
   }
 
