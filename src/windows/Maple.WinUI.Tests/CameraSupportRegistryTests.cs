@@ -42,5 +42,30 @@ namespace Maple.WinUI.Tests
         {
             Assert.Throws<ArgumentException>(() => CameraSupportMetadata.Parse("""{"cameraKey":"x","resolution":"future_tier","lens":"no_correction_data"}"""));
         }
+
+        [Theory]
+        [InlineData("not JSON")]
+        [InlineData("{}")]
+        [InlineData("{\"cameraKey\":12,\"resolution\":\"embedded_cm_only\",\"lens\":\"no_correction_data\"}")]
+        [InlineData("{\"cameraKey\":\"x\",\"resolution\":\"future_tier\",\"lens\":\"no_correction_data\"}")]
+        public void MalformedOrFutureMetadataDoesNotAbortDecode(string json)
+        {
+            Assert.Null(CameraSupportMetadata.ReadBestEffort(() => CameraSupportMetadata.Parse(json)));
+        }
+
+        [Fact]
+        public void NativeAssessmentFailureOrMissingAbiDoesNotAbortDecode()
+        {
+            Assert.Null(CameraSupportMetadata.ReadBestEffort(() => throw new InvalidOperationException("Resolver failed")));
+            Assert.Null(CameraSupportMetadata.ReadBestEffort(() => throw new EntryPointNotFoundException()));
+            Assert.Null(CameraSupportMetadata.ReadBestEffort(() => throw new DllNotFoundException()));
+        }
+
+        [Fact]
+        public void SuccessfulBestEffortReadRetainsTheActualAssessment()
+        {
+            var expected = CameraSupportMetadata.Parse("""{"cameraKey":"Unknown camera","resolution":"embedded_cm_only","lens":"no_correction_data"}""");
+            Assert.Same(expected, CameraSupportMetadata.ReadBestEffort(() => expected));
+        }
     }
 }

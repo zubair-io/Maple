@@ -506,13 +506,10 @@ pub async fn render_bytes_gpu(
         raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // Same display-only as-shot estimate as the CPU cold-open path (#1892).
-    let (as_shot_temperature, as_shot_tint) = crate::as_shot_wb(&raw_img);
+    let ((as_shot_temperature, as_shot_tint), camera_support) =
+        crate::open_metadata::assess(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
-    let camera_support = Some(
-        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
-            .map_err(|e| JsError::new(&e.to_string()))?,
-    );
 
     let model = match &xmp {
         Some(x) => raw_core::xmp::parse(x).map_err(|e| JsError::new(&e.to_string()))?,

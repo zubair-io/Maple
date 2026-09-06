@@ -113,6 +113,8 @@ pub struct WebLiveSession {
     /// like the one-shot `render_bytes` / `render_bytes_gpu` paths do.
     as_shot_temperature: f32,
     as_shot_tint: f32,
+    /// UI-only metadata cached once; failure leaves the rendered session usable.
+    camera_support_json: Option<String>,
     /// The session-resident baked film-look grid (epic #2683, Task 9), decoded
     /// via [`raw_core::film::decode_mlut`] and folded into every tick's
     /// [`raw_gpu::FullChainInputs`] by [`WebLiveSession::present_for_model`].
@@ -192,7 +194,8 @@ impl WebLiveSession {
         // As-shot derivation — IDENTICAL to `render_bytes` / `render_bytes_gpu`
         // (#1892): display-only slider seed; the model itself stays at the
         // parse result (default on a fresh open).
-        let (as_shot_temperature, as_shot_tint) = crate::as_shot_wb(&raw_img);
+        let ((as_shot_temperature, as_shot_tint), camera_support) =
+            crate::open_metadata::assess(&raw_img);
         let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
 
         // Context BEFORE develop: the effective develop target clamps to this
@@ -247,6 +250,7 @@ impl WebLiveSession {
             full_height,
             as_shot_temperature,
             as_shot_tint,
+            camera_support_json: camera_support.map(|support| support.to_json()),
             // No look loaded on open — the editor uploads one on selection via
             // `set_film_lut` (Task 9). Matches the render entries' `film_lut:
             // None` no-op contract.
@@ -423,10 +427,8 @@ impl WebLiveSession {
 
     /// Decode-time resolver provenance, read by the host only when opening.
     #[wasm_bindgen(getter, js_name = cameraSupportJson)]
-    pub fn camera_support_json(&self) -> Result<String, JsError> {
-        raw_core::support_tiers::RenderSupport::resolve(&self.raw_img)
-            .map(|support| support.to_json())
-            .map_err(|e| JsError::new(&e.to_string()))
+    pub fn camera_support_json(&self) -> Option<String> {
+        self.camera_support_json.clone()
     }
 
     /// Whether the retained RAW carries a DNG `OpcodeList3` (#3182).
