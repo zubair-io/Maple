@@ -20,7 +20,7 @@ Calibration selection interpolates in log focal length and reciprocal focus dist
 
 Hosted stores imported bytes in IndexedDB. Windows stores them under `%LOCALAPPDATA%/Maple/LensProfiles`. Self Hosted uploads them to the authenticated server cache and restores missing browser copies from that server. A required profile missing from the available cache produces an explicit error; Maple does not substitute another profile. Back up the original LCP with the photo sidecars when moving a library between independent installations.
 
-Batch sync preserves each target's own profile selection. A source capture's calibration and approximation acceptance are not automatically transferred to another capture. Complete export snapshots retain their authored profile reference.
+Batch sync preserves each target's own profile selection. A source capture's calibration and approximation acceptance are not automatically transferred to another capture. Complete export snapshots retain their authored profile reference. Web, Windows, and Self Hosted restore the exact cached profile before rendering that snapshot, including after a worker or application restart; later editor or sidecar changes do not alter queued optical intent.
 
 No third-party profile pack is redistributed. Import support does not establish a licensed distribution catalog or promote camera qualification tiers. Apple import UI, newer LCP model families, and native detail tiles for warped coordinates are outside this implementation's supported surface.
 
