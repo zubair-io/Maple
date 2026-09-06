@@ -229,7 +229,13 @@ fn develop_tile_oriented_f32(
             crate::stages::hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
         });
     }
-    let scene = develop_scene_linear_from_padded_mosaic(
+    let inner = (
+        left_pad / divisor,
+        top_pad / divisor,
+        s_w / divisor,
+        s_h / divisor,
+    );
+    let developed = develop_scene_linear_from_padded_mosaic(
         &mosaic,
         raw,
         model,
@@ -238,6 +244,7 @@ fn develop_tile_oriented_f32(
             decoded_wb_anchor,
             ae_gain,
             window,
+            inner,
         },
     )?;
 
@@ -247,13 +254,9 @@ fn develop_tile_oriented_f32(
     // so the inner region is at `(left_pad / 2, top_pad / 2)` with size
     // `(s_w / 2, s_h / 2)`. For `Full` quality the chain preserves
     // dimensions, so it's `(left_pad, top_pad)` with `(s_w, s_h)`.
-    let (inner_lp, inner_tp, inner_w, inner_h) = match quality {
-        RenderQuality::Preview => (left_pad / 2, top_pad / 2, s_w / 2, s_h / 2),
-        // `Amaze` preserves dimensions like `Full` — same trim coords.
-        RenderQuality::Full | RenderQuality::Amaze => (left_pad, top_pad, s_w, s_h),
-    };
+    let (inner_lp, inner_tp, inner_w, inner_h) = developed.inner;
     let mut sized = stage("tile_trim_inner", || {
-        trim_image_to_inner(&scene, inner_lp, inner_tp, inner_w, inner_h)
+        trim_image_to_inner(&developed.image, inner_lp, inner_tp, inner_w, inner_h)
     });
 
     let target_long_edge = out_w.max(out_h);

@@ -33,7 +33,7 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-use super::region::TileWindow;
+use super::region::{trim_image_to_inner, TileWindow};
 use crate::pipeline::{
     capture_sharpening_helper::capture_sharpening_params_from_model,
     develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
@@ -51,6 +51,13 @@ pub(super) struct TileAnchors {
     /// Where the padded crop sits in the developed frame — the anchor for
     /// vignette's ellipse and the local-adjustment masks.
     pub window: TileWindow,
+    /// Requested inner rect, relative to the padded developed buffer.
+    pub inner: (u32, u32, u32, u32),
+}
+
+pub(super) struct DevelopedTile {
+    pub image: crate::image::Image,
+    pub inner: (u32, u32, u32, u32),
 }
 
 /// Long edge of the FULL developed frame at the resolution the tile chain
@@ -107,11 +114,12 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     model: &AdjustmentModel,
     quality: RenderQuality,
     anchors: TileAnchors,
-) -> Result<crate::image::Image> {
+) -> Result<DevelopedTile> {
     let TileAnchors {
         decoded_wb_anchor,
         ae_gain,
         window,
+        mut inner,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -425,6 +433,21 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             window.full,
         )
     });
+    // S/H can require hundreds of source pixels of context. Its work is
+    // complete now, as are the frame-anchored point ops. Keep only the sum
+    // of downstream stencil reaches before running the expensive NLM tail.
+    let reach = super::overlap::tail_reach_px(model) as u32;
+    let x = inner.0.saturating_sub(reach);
+    let y = inner.1.saturating_sub(reach);
+    let right = (inner.0 + inner.2 + reach).min(scene.width);
+    let bottom = (inner.1 + inner.3 + reach).min(scene.height);
+    if x != 0 || y != 0 || right != scene.width || bottom != scene.height {
+        scene = stage("tile_trim_consumed_overlap", || {
+            trim_image_to_inner(&scene, x, y, right - x, bottom - y)
+        });
+        inner.0 -= x;
+        inner.1 -= y;
+    }
     stage("tile_sharpen", || {
         sharpen::apply(
             &mut scene,
@@ -450,5 +473,8 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             raw.iso,
         )
     });
-    Ok(scene)
+    Ok(DevelopedTile {
+        image: scene,
+        inner,
+    })
 }

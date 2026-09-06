@@ -53,14 +53,19 @@ pub(super) fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, di
         + scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
         + engaged(model.clarity, clarity::CLARITY_GUIDED_REACH_PX)
         + engaged(model.texture, texture::TEXTURE_GUIDED_REACH_PX)
-        + engaged(
-            model.sharpen_amount,
-            sharpen::stencil_reach_px(model.sharpen_radius),
-        )
-        + engaged(model.nr_luminance, noise_reduction::LUMA_REACH_PX)
-        + engaged(model.nr_color, noise_reduction::CHROMA_REACH_PX);
+        + tail_reach_px(model);
     let mosaic_px = (sum as u32).saturating_mul(divisor);
     TILE_OVERLAP_PX.max(mosaic_px)
+}
+
+/// Remaining reach after texture, local adjustments, and vignette. Earlier
+/// stages have consumed their halo; late NLM need not process those pixels.
+pub(super) fn tail_reach_px(model: &AdjustmentModel) -> usize {
+    engaged(
+        model.sharpen_amount,
+        sharpen::stencil_reach_px(model.sharpen_radius),
+    ) + engaged(model.nr_luminance, noise_reduction::LUMA_REACH_PX)
+        + engaged(model.nr_color, noise_reduction::CHROMA_REACH_PX)
 }
 
 /// A stage's reach counts only when its slider engages it — the same
