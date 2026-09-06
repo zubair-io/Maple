@@ -14,7 +14,7 @@ final class StartupDocumentRoutingTests: XCTestCase {
     try Data().write(to: restored)
     try Data().write(to: requested)
     let browser = BrowseViewModel()
-    let router = DocumentOpenRouter()
+    let router = DocumentOpenRouter.isolatedForTesting()
     let (releaseRestore, continuation) = AsyncStream<Void>.makeStream()
     let restoration = Task { @MainActor in
       for await _ in releaseRestore { break }
@@ -38,7 +38,7 @@ final class StartupDocumentRoutingTests: XCTestCase {
   }
 
   func testLatestDocumentDuringStartupWinsAndWarmReopenIsImmediate() throws {
-    let router = DocumentOpenRouter()
+    let router = DocumentOpenRouter.isolatedForTesting()
     let first = URL(fileURLWithPath: "/tmp/maple-first.dng")
     let latest = URL(fileURLWithPath: "/tmp/maple-latest.dng")
     router.handle(first)
@@ -51,7 +51,7 @@ final class StartupDocumentRoutingTests: XCTestCase {
   }
 
   func testDeepLinkAlsoSurvivesStartupAndConsumesOnce() throws {
-    let router = DeepLinkRouter()
+    let router = DeepLinkRouter.isolatedForTesting()
     router.handle(try XCTUnwrap(URL(string: "maple://image/first")))
     XCTAssertNil(router.consume(afterSourceRestore: false))
     router.handle(try XCTUnwrap(URL(string: "maple://image/latest")))

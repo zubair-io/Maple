@@ -146,7 +146,7 @@ extension AppShell {
   /// grid, do NOT auto-restore the last-viewed image inside it.
   @MainActor
   private func navigateToSource(id: String) {
-    deepLinkLog.info("deep-link source id=\(id, privacy: .public)")
+    deepLinkLog.info("deep-link source id=\(id, privacy: .private)")
     dismissAnyActiveSheet()
     switchToLibraryTab()
 
@@ -190,7 +190,7 @@ extension AppShell {
         connectSavedSMB(share)
         return
       }
-      deepLinkLog.error("deep-link source id=\(id, privacy: .public) not found")
+      deepLinkLog.error("deep-link source id=\(id, privacy: .private) not found")
     }
   }
 
