@@ -316,3 +316,8 @@ pub const NON_COPYABLE_FIELDS: &[&str] = &[
 
 #[cfg(test)]
 mod tests;
+
+mod transfer;
+pub use transfer::{transfer_mode, TransferMode};
+mod transfer_xmp;
+pub use transfer_xmp::{TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS};

@@ -17,6 +17,9 @@ import { DRAG_MOVE_CAPABILITY } from '../drag-move/drag-move-capability';
 import { TrashService } from '../trash/trash.service';
 import { TRASH_CAPABILITY } from '../trash/trash-capability';
 
+import { PERSISTED_BATCH_SYNC } from '../editor/copy-paste/persisted-batch-sync';
+import { SelfHostedBatchSyncService } from '../editor/copy-paste/self-hosted-batch-sync.service';
+
 function serverPersistenceFactory(): ServerWorkspacePersistence {
   const api = inject(BunApiBackendService);
   return {
@@ -50,5 +53,6 @@ export function provideSelfHostedWorkspace(): EnvironmentProviders {
     // import graph should ever reach `TrashService` (and `TrashApiService`
     // through it).
     { provide: TRASH_CAPABILITY, useExisting: TrashService },
+    { provide: PERSISTED_BATCH_SYNC, useExisting: SelfHostedBatchSyncService },
   ]);
 }

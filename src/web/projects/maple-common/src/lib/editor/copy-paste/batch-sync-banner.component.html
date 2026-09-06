@@ -1,3 +1,13 @@
+@if (batch.error() && !progressText() && !batch.summaryText()) {
+  <div class="dlg-toast border-[0.5px] border-border bg-surface text-text-main" role="alert">
+    <span>{{ batch.error() }}</span>
+    @if (batch.needsReconnect()) {
+      <mui-button variant="ghost" size="sm" (pressed)="batch.reconnect()">Reconnect</mui-button>
+    } @else {
+      <mui-button variant="ghost" size="sm" (pressed)="batch.dismissSummary()">Dismiss</mui-button>
+    }
+  </div>
+}
 <!-- Batch adjustment transfer (#2436): in-flight progress with Cancel, then
      the finished run's summary with Retry failed. -->
 @if (progressText(); as text) {
@@ -12,6 +22,9 @@
   >
     <div class="flex min-w-0 flex-col gap-1">
       <span>{{ text }}</span>
+      @if (batch.error(); as error) {
+        <span>{{ error }}</span>
+      }
       <div class="h-[3px] w-40 overflow-hidden rounded-full bg-white/15">
         <div
           class="h-full rounded-full bg-white/80 transition-[width] duration-100"
@@ -36,7 +49,18 @@
   >
     <div class="flex min-w-0 flex-col gap-0.5">
       <span>{{ summary }}</span>
-      @if (batch.failedIds().length > 0) {
+      @if (batch.error(); as error) {
+        <span>{{ error }}</span>
+      }
+      @if (batch.remaining().length > 0) {
+        <mui-button variant="ghost" size="sm" testId="batch-sync-resume" (pressed)="batch.resume()"
+          >Resume {{ batch.remaining().length }} remaining</mui-button
+        >
+      }
+      @for (failure of batch.lastSummary()?.failed ?? []; track failure.id) {
+        <span class="text-xs">{{ failure.id }}: {{ failure.reason }}</span>
+      }
+      @if (batch.failedIds().length > 0 && batch.remaining().length === 0) {
         <mui-button
           class="self-start"
           variant="ghost"

@@ -25,7 +25,7 @@ export class AdjustmentClipboardService {
   readonly hasContents = computed(() => this._entry() !== null);
 
   /**
-   * Snapshot `model` into the clipboard. Deep-copies `crop` so later edits
+   * Snapshot `model` into the clipboard. Deep-copies nested curves and crop so later edits
    * to the source asset's live model (an object owned by `LibraryStore`)
    * can never mutate the clipboard's frozen copy.
    */
@@ -33,7 +33,7 @@ export class AdjustmentClipboardService {
     this._entry.set({
       sourceAssetId,
       sourceLabel,
-      model: { ...model, crop: { ...model.crop } },
+      model: structuredClone(model),
     });
   }
 

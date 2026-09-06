@@ -1227,7 +1227,7 @@ export interface IndexerTaskDoc {
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
-export type JobKind = 'batch_jpeg_export' | 'pano_stitch';
+export type JobKind = 'batch_jpeg_export' | 'pano_stitch' | 'batch_adjustment_sync';
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between
@@ -1235,6 +1235,8 @@ export type JobKind = 'batch_jpeg_export' | 'pano_stitch';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface JobDoc {
+  /** Handler-owned recovery ledger; absent for jobs which do not checkpoint. */
+  checkpoint?: Record<string, unknown>;
   kind: JobKind;
   status: JobStatus;
   /** Job-specific input. Schema is per-kind and validated by the handler. */

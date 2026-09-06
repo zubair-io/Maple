@@ -9,13 +9,14 @@
 //! `quick-xml` for other modules.
 
 pub mod adjustment;
+pub use adjustment::{TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS};
 pub mod inpaint;
 pub mod local_adjustment;
 
 pub use adjustment::{
-    AdjustmentGroup, AdjustmentModel, BlackWhiteMode, Crop, FieldKind, FieldSpec,
-    HighlightRecoveryMode, Profile, ToneCurve, ToneCurveMode, ToneCurvePoint, WbMethod,
-    WbScaleVersion, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
+    transfer_mode, AdjustmentGroup, AdjustmentModel, BlackWhiteMode, Crop, FieldKind, FieldSpec,
+    HighlightRecoveryMode, Profile, ToneCurve, ToneCurveMode, ToneCurvePoint, TransferMode,
+    WbMethod, WbScaleVersion, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
 };
 pub use inpaint::{BakeGrade, InpaintPatch, Removal};
 pub use local_adjustment::{

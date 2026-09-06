@@ -33,6 +33,7 @@ import {
   isCancelRequested,
   markCancelled,
   updateProgress,
+  saveJobCheckpoint,
 } from './jobs.repo.ts';
 import { HANDLERS, type JobHandler, type JobHandlerContext } from './handlers/index.ts';
 
@@ -107,14 +108,17 @@ export class JobRunner {
     const handler = this.handlers[claim.kind];
     if (!handler) {
       const msg = `no handler registered for kind: ${claim.kind}`;
-      await failJob(claim._id, msg, this.now);
+      await failJob(claim._id, msg, this.now, this.workerId);
       return { kind: 'failed', jobId: claim._id.toHexString(), error: msg };
     }
 
     const ctx: JobHandlerContext = {
       jobId: claim._id,
+      checkpoint: claim.checkpoint,
+      saveCheckpoint: (checkpoint) =>
+        saveJobCheckpoint(claim._id, this.workerId, checkpoint, this.leaseMs, this.now),
       reportProgress: async (current, total) => {
-        await updateProgress(claim._id, { current, total }, this.leaseMs, this.now);
+        await updateProgress(claim._id, { current, total }, this.leaseMs, this.now, this.workerId);
       },
       shouldCancel: async () => isCancelRequested(claim._id),
     };
@@ -122,14 +126,14 @@ export class JobRunner {
     try {
       const out = await handler.run(claim.payload, ctx);
       if (out.kind === 'cancelled') {
-        await markCancelled(claim._id, out.result ?? null, this.now);
+        await markCancelled(claim._id, out.result ?? null, this.now, this.workerId);
         return { kind: 'cancelled', jobId: claim._id.toHexString() };
       }
-      await completeJob(claim._id, out.result, this.now);
+      await completeJob(claim._id, out.result, this.now, this.workerId);
       return { kind: 'completed', jobId: claim._id.toHexString() };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await failJob(claim._id, message, this.now);
+      await failJob(claim._id, message, this.now, this.workerId);
       return {
         kind: 'failed',
         jobId: claim._id.toHexString(),
