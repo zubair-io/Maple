@@ -18,15 +18,20 @@ import XCTest
       let badge = app.buttons["canvas-zoom-indicator"]
       XCTAssertTrue(badge.waitForExistence(timeout: 10))
       let fitValue = try XCTUnwrap(badge.value as? String)
+      let imageRect = app.otherElements["canvas-image-rect"]
+      let fitRect = try XCTUnwrap(imageRect.value as? String)
       XCTAssertNotEqual(fitValue, "Zoom 100 percent", "The fixture must fit below actual size.")
       let before = XCTAttachment(screenshot: app.screenshot())
       before.name = "Initial fit"
+      before.lifetime = .keepAlways
       add(before)
 
       app.typeKey("1", modifierFlags: .command)
       assertValue("Zoom 100 percent", on: badge)
+      XCTAssertNotEqual(imageRect.value as? String, fitRect, "Actual Size must reframe the canvas.")
       app.typeKey("0", modifierFlags: .command)
       assertValue(fitValue, on: badge)
+      assertValue(fitRect, on: imageRect)
 
       app.typeKey("1", modifierFlags: .command)
       assertValue("Zoom 100 percent", on: badge)
@@ -44,9 +49,11 @@ import XCTest
       openZoomMenu(in: app)
       app.menuItems["Zoom to Fit"].click()
       assertValue(fitValue, on: badge)
+      assertValue(fitRect, on: imageRect)
 
       let after = XCTAttachment(screenshot: app.screenshot())
       after.name = "Fit restored through View menu"
+      after.lifetime = .keepAlways
       add(after)
 
       app.buttons["editor-back"].click()
@@ -73,7 +80,7 @@ import XCTest
         predicate: NSPredicate(format: "value == %@", value), object: element)
       XCTAssertEqual(
         XCTWaiter.wait(for: [expectation], timeout: 10), .completed,
-        "Expected zoom readout: \(value)", file: file, line: line)
+        "Expected accessibility value: \(value)", file: file, line: line)
     }
   }
 #endif
