@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Maple.WinUI.Generated;
+using Maple.WinUI.Native;
 
 namespace Maple.WinUI.Services
 {
@@ -31,7 +32,7 @@ namespace Maple.WinUI.Services
         {
             var code = CameraSupportNative.maple_camera_support_file(path, out var json);
             if (code != 0)
-                throw new InvalidOperationException($"Camera support could not be assessed (rc={code}).");
+                throw new InvalidOperationException(RawFfi.LastError() ?? $"Camera support could not be assessed (rc={code}).");
             try
             {
                 return Parse(Marshal.PtrToStringUTF8(json) ?? throw new JsonException("Support result missing"));
