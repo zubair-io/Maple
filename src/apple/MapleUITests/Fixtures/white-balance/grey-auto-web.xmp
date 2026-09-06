@@ -11,6 +11,7 @@
       crs:Tint="-0.13"
       crs:Version="11.0"
       crs:WhiteBalance="Auto"
+      papp:Profile="Auto"
       papp:WbAlgorithmVersion="1"
       papp:WbScaleVersion="5"
       papp:WbSource="Auto"/>
