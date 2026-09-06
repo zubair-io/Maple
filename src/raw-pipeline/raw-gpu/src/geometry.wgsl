@@ -15,7 +15,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let uv = (vec2<f32>(f32(index % p.width), f32(index / p.width)) + 0.5) / size;
     let q = vec3<f32>(uv, 1.0);
     let z = dot(p.r2.xyz, q);
-    dst[index] = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    // Alpha carries the selected mask's scope weight, not display opacity.
+    // Uncovered pixels have no source coverage. Present forces opaque alpha
+    // and dither exports RGB only, so these pixels still display as black.
+    dst[index] = vec4<f32>(0.0);
     if z <= 0.000001 { return; }
     let source = vec2<f32>(dot(p.r0.xyz, q), dot(p.r1.xyz, q)) / z;
     if any(source < vec2<f32>(0.0)) || any(source > vec2<f32>(1.0)) { return; }

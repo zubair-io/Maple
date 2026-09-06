@@ -162,3 +162,95 @@ fn scope_disabled_never_produces_stats() {
         assert!(session.take_scope_stats(&ctx).is_none());
     }
 }
+
+/// A half-sized image covers the center quarter of the canvas. Geometry must
+/// move the bitmap's scope weights with its pixels, leaving zero mask weight
+/// in uncovered black borders. Whole-frame scope still counts those borders.
+#[test]
+fn geometry_scope_excludes_uncovered_pixels_from_bitmap_weight() {
+    use crate::local_adjustments::GpuMaskRaster;
+    use raw_core::stages::geometry::Geometry;
+    use raw_core::types::{layers_to_flat, LocalAdjustment, Mask, PartialAdjustments};
+
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (32u32, 24u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
+    let mut inputs = scope_test_case().gpu_inputs();
+    inputs.geometry_inverse = Some(
+        Geometry {
+            scale: 0.5,
+            ..Geometry::default()
+        }
+        .forward(w, h)
+        .unwrap()
+        .inverse()
+        .unwrap()
+        .0,
+    );
+    inputs.local_adjustments = layers_to_flat(&[LocalAdjustment {
+        mask: Mask::Bitmap {
+            recipe: Default::default(),
+            raster_id: 7,
+        },
+        range: None,
+        adjustments: PartialAdjustments::default(),
+    }]);
+    let weight = 128.0 / 255.0;
+    inputs.mask_rasters = vec![GpuMaskRaster {
+        id: 7,
+        width: 2,
+        height: 2,
+        data: vec![weight; 4],
+    }];
+    let byte_len = u64::from(w * h) * 4 * std::mem::size_of::<f32>() as u64;
+    let cancel = CancelToken::new();
+    let mut selected_rgb = None;
+    for layer in [0, -1] {
+        inputs.scope = ScopeRequest {
+            layer,
+            enabled: true,
+        };
+        let index = session
+            .render_chain_to_f32(&ctx, &inputs, &cancel)
+            .unwrap()
+            .unwrap();
+        let frame = read_f32_buffer(&ctx, session.ping_pong_buffer(index), byte_len);
+        for (index, pixel) in frame.chunks_exact(4).enumerate() {
+            let x = index as u32 % w;
+            let y = index as u32 / w;
+            let covered = (w / 4..3 * w / 4).contains(&x) && (h / 4..3 * h / 4).contains(&y);
+            let expected_alpha = if !covered {
+                assert_eq!(&pixel[..3], &[0.0; 3], "uncovered pixels stay black");
+                0.0
+            } else if layer == 0 {
+                weight
+            } else {
+                1.0
+            };
+            assert!((pixel[3] - expected_alpha).abs() < 1e-6);
+        }
+        let rgb: Vec<f32> = frame
+            .chunks_exact(4)
+            .flat_map(|pixel| &pixel[..3])
+            .copied()
+            .collect();
+        if let Some(expected) = &selected_rgb {
+            assert_eq!(
+                &rgb, expected,
+                "scope selection must not change rendered RGB"
+            );
+        } else {
+            selected_rgb = Some(rgb);
+        }
+        session.render_chain_to_f32(&ctx, &inputs, &cancel).unwrap();
+        ctx.device.poll(wgpu::Maintain::Wait);
+        let stats = session.take_scope_stats(&ctx).expect("previous tick scope");
+        let expected_total = if layer == 0 {
+            w * h / 4 * 128
+        } else {
+            w * h * 255
+        };
+        assert_eq!(stats.total, expected_total);
+    }
+}
