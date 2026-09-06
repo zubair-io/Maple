@@ -373,32 +373,17 @@ struct EditorView: View {
     .onDisappear {
       recedeTask?.cancel()
     }
-    // ── Arrow-key group cycling (regular / iPad & Mac only) ────────────
-    // Down = next group (Detail → Light wraps), Up = previous.
-    // `.focusable(isRegular)` makes the ZStack a key-event target when
-    // no child slider has focus.  A focused LivingSlider consuming
-    // `.handled` on its own arrow keys takes priority (innermost first).
-    // CAVEAT TO VERIFY: on macOS focus may not land here after clicking
-    // away from a slider — if so, add `.focusScope` or make the canvas
-    // `.focusable()` as the default target.  On iPadOS this modifier is
-    // load-bearing for hardware-keyboard delivery; confirm on device.
-    .focusable(isRegular)
-    .onKeyPress(.downArrow) {
-      guard isRegular else { return .ignored }
-      let all = ToolGroup.allCases
-      let current = state.armedGroup
-      let next = all[(all.firstIndex(of: current)! + 1) % all.count]
-      withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: next) }
-      return .handled
-    }
-    .onKeyPress(.upArrow) {
-      guard isRegular else { return .ignored }
-      let all = ToolGroup.allCases
-      let current = state.armedGroup
-      let prev = all[(all.firstIndex(of: current)! + all.count - 1) % all.count]
-      withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: prev) }
-      return .handled
-    }
+    .modifier(EditorCommandScope(state: state, navigate: navigateFilmstrip))
+    .id(ObjectIdentifier(state.session))
+  }
+
+  private func navigateFilmstrip(_ direction: Int) {
+    guard let index = filmstripAssets.firstIndex(where: { $0.id == state.session.asset.id }),
+      filmstripAssets.indices.contains(index + direction)
+    else { return }
+    state.cancelGesture()
+    state.session.endEdit()
+    onSelectAsset(filmstripAssets[index + direction])
   }
 
   // MARK: - Chrome recede
