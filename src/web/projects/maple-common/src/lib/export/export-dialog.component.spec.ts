@@ -10,13 +10,17 @@
 // `mui-export-modal.component.spec.ts`'s "exporting phase … suppresses"
 // test.
 
-import { TestBed } from '@angular/core/testing';
+import { DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { ExportDialogComponent } from './export-dialog.component';
 import { ImageExportService } from './image-export.service';
 import type { Asset } from '../models/asset';
 
-async function setup(exportResult?: unknown) {
+async function setup(
+  exportResult?: unknown,
+  deferBlockBehavior = DeferBlockBehavior.Playthrough,
+  visible = true,
+) {
   const exporter = {
     exportAsset: vi.fn(() =>
       exportResult === undefined
@@ -26,6 +30,7 @@ async function setup(exportResult?: unknown) {
   };
   await TestBed.configureTestingModule({
     imports: [ExportDialogComponent],
+    deferBlockBehavior,
     providers: [{ provide: ImageExportService, useValue: exporter }],
   }).compileComponents();
   const fixture = TestBed.createComponent(ExportDialogComponent);
@@ -33,7 +38,7 @@ async function setup(exportResult?: unknown) {
   fixture.componentInstance.dismiss.subscribe(dismiss);
   const asset = { id: 'a', filename: 'a.dng', width: 4000, height: 3000 } as Asset;
   fixture.componentRef.setInput('asset', asset);
-  fixture.componentRef.setInput('visible', true);
+  fixture.componentRef.setInput('visible', visible);
   fixture.detectChanges();
   return { fixture, dismiss, exporter, asset };
 }
@@ -46,6 +51,55 @@ function exportButton(fixture: { nativeElement: Element }): HTMLButtonElement {
 }
 
 describe('ExportDialogComponent', () => {
+  it('loads the options on first open and keeps the selected format when reopened', async () => {
+    const { fixture } = await setup(undefined, DeferBlockBehavior.Playthrough, false);
+    expect(fixture.nativeElement.querySelector('mui-export-modal')).toBeNull();
+
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(exportButton(fixture)).toBeDefined();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBe(document.activeElement);
+
+    fixture.componentInstance.onFormatChange('tiff');
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.format()).toBe('tiff');
+    expect(fixture.nativeElement.querySelectorAll('mui-segmented-toggle').length).toBe(3);
+  });
+
+  it('allows cancelling a slow load and does not reopen after the chunk arrives', async () => {
+    const { fixture, dismiss, exporter } = await setup(undefined, DeferBlockBehavior.Manual);
+    fixture.componentInstance.dismiss.subscribe(() => {
+      fixture.componentRef.setInput('visible', false);
+    });
+    const [block] = await fixture.getDeferBlocks();
+    await block.render(DeferBlockState.Loading);
+    expect(fixture.nativeElement.querySelector('[role="status"]').textContent).toContain('Loading');
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(dismiss).toHaveBeenCalledOnce();
+
+    await block.render(DeferBlockState.Complete);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+    expect(exporter.exportAsset).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed chunk load in a dismissible dialog', async () => {
+    const { fixture, dismiss } = await setup(undefined, DeferBlockBehavior.Manual);
+    const [block] = await fixture.getDeferBlocks();
+    await block.render(DeferBlockState.Error);
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'Could not load export options',
+    );
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(dismiss).toHaveBeenCalledOnce();
+  });
+
   it('includes the value-0 "Full resolution" sentinel the modal contract requires', async () => {
     const { fixture } = await setup();
     const options = fixture.componentInstance.sizeOptions;
