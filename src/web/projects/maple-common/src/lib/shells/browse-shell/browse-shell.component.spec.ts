@@ -24,7 +24,7 @@ describe('BrowseShellComponent capability boundary', () => {
   let originalResizeObserver: unknown;
   let originalIntersectionObserver: unknown;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     clearPreferences();
     const globals = globalThis as {
       ResizeObserver?: unknown;
@@ -40,7 +40,8 @@ describe('BrowseShellComponent capability boundary', () => {
     globals.ResizeObserver = observer;
     globals.IntersectionObserver = observer;
     layout = signal<MapleLayout>('desktop');
-    TestBed.configureTestingModule({
+    await TestBed.configureTestingModule({
+      imports: [BrowseShellComponent],
       providers: [
         provideRouter([]),
         provideHttpClient(),
@@ -48,7 +49,7 @@ describe('BrowseShellComponent capability boundary', () => {
         provideHostedWorkspace(),
         { provide: LayoutService, useValue: { layout } },
       ],
-    });
+    }).compileComponents();
     http = TestBed.inject(HttpTestingController);
   });
 
@@ -142,7 +143,7 @@ describe('BrowseShellComponent capability boundary', () => {
     expect(state.selectedAssetIds().has('asset-1' as never)).toBe(true);
   });
 
-  it('F2 opens the inline-rename field for the focused asset (#2637)', () => {
+  it('F2 opens the inline-rename field for the focused asset (#2637)', async () => {
     // Provides a local fake for ASSET_RENAME_CAPABILITY rather than spying
     // on the shared NOOP_CAPABILITY singleton the token's default factory
     // returns — spying on that module-level object would leak a mock into
@@ -153,7 +154,8 @@ describe('BrowseShellComponent capability boundary', () => {
     clearPreferences();
     const startEditing = vi.fn();
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({
+    await TestBed.configureTestingModule({
+      imports: [BrowseShellComponent],
       providers: [
         provideRouter([]),
         provideHttpClient(),
@@ -175,7 +177,7 @@ describe('BrowseShellComponent capability boundary', () => {
           },
         },
       ],
-    });
+    }).compileComponents();
     http = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(BrowseShellComponent);
     fixture.detectChanges();

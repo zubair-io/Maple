@@ -23,12 +23,22 @@ export interface SyncPayload {
   targets: SyncTarget[];
   patch: XmpTransferPatch;
 }
-export interface SyncEntry {
+interface SyncEntry {
   id: string;
   status: 'prepared' | 'applied' | 'failed';
   beforeHash?: string;
   afterHash?: string;
   reason?: string;
+}
+
+function validBoundedText(value: string, max: number): boolean {
+  return value.length > 0 && value.length <= max && !value.includes('\0');
+}
+function validPhotoPath(value: string): boolean {
+  return validBoundedText(value, 8192) && isAbsolute(value);
+}
+function finished(entry: SyncEntry | null): boolean {
+  return entry?.status === 'applied' || entry?.status === 'failed';
 }
 
 export function parseSyncPayload(raw: Record<string, unknown>): SyncPayload {
@@ -40,12 +50,9 @@ export function parseSyncPayload(raw: Record<string, unknown>): SyncPayload {
       !value ||
       typeof value !== 'object' ||
       typeof value.id !== 'string' ||
-      !value.id.length ||
-      value.id.length > 2048 ||
+      !validBoundedText(value.id, 2048) ||
       typeof value.path !== 'string' ||
-      value.path.length > 8192 ||
-      !isAbsolute(value.path) ||
-      value.path.includes('\0')
+      !validPhotoPath(value.path)
     ) {
       throw new Error('Every photo needs an id and an absolute path');
     }
@@ -77,10 +84,7 @@ async function readSidecar(path: string): Promise<string> {
   return read.data.toString('utf8');
 }
 
-export function syncSummary(
-  targets: readonly SyncTarget[],
-  entries: readonly (SyncEntry | null)[],
-) {
+function syncSummary(targets: readonly SyncTarget[], entries: readonly (SyncEntry | null)[]) {
   return {
     applied: entries.filter((entry) => entry?.status === 'applied').map((entry) => entry!.id),
     failed: entries
@@ -131,17 +135,14 @@ export const batchAdjustmentSyncHandler: JobHandler = {
       await ctx.saveCheckpoint!({ entries, ...syncSummary(payload.targets, entries) });
     };
     await save();
-    await ctx.reportProgress(
-      entries.filter((entry) => entry?.status === 'applied' || entry?.status === 'failed').length,
-      payload.targets.length,
-    );
+    await ctx.reportProgress(entries.filter(finished).length, payload.targets.length);
     for (const [index, target] of payload.targets.entries()) {
       if (await ctx.shouldCancel())
         return {
           kind: 'cancelled',
           result: { ...syncSummary(payload.targets, entries), cancelled: true },
         };
-      if (entries[index]?.status === 'applied' || entries[index]?.status === 'failed') continue;
+      if (finished(entries[index])) continue;
       // Reading/merging failures are per-photo. Ledger failures abort the job:
       // continuing without a durable checkpoint would lose recovery guarantees.
       const prepared = await prepareTarget(target, payload.patch, entries[index]);
