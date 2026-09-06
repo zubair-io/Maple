@@ -66,7 +66,7 @@ public actor RenderActor {
   /// to `RenderActor+DecodedCache.swift` can reach it — actor isolation
   /// is preserved because the extension stays on this actor in-module.
   let pipeline: ImageEditPipeline
-  let rawRenderSource = RawRenderSource()
+  let rawRenderSource: RawRenderSource
 
   // MARK: - Decoded-image cache state (slice 2)
   //
@@ -349,7 +349,7 @@ public actor RenderActor {
   /// `internal` for `RenderActor+TestHooks.swift` — see `renderTask`.
   var refineTask: Task<Void, Never>?
 
-  /// Monotonic generation counter — bumped on every `scheduleRender`
+  /// Monotonic generation counter — bumped by `scheduleRender` and `cancelAll`
   /// (NOT on `scheduleRefine`). The render closure receives its
   /// generation at spawn time and must re-read `currentGeneration()`
   /// (or compare against the captured `gen`) before publishing so
@@ -366,6 +366,12 @@ public actor RenderActor {
 
   public init(pipeline: ImageEditPipeline) {
     self.pipeline = pipeline
+    self.rawRenderSource = RawRenderSource()
+  }
+
+  init(pipeline: ImageEditPipeline, rawRenderSource: RawRenderSource) {
+    self.pipeline = pipeline
+    self.rawRenderSource = rawRenderSource
   }
 
   // MARK: - Slice 1 surface (preserved)
@@ -451,18 +457,8 @@ public actor RenderActor {
     renderGeneration
   }
 
-  /// Schedule a render. Cancels the previous fast + refine tasks,
-  /// bumps the generation counter, and spawns a new task that runs
-  /// `work` immediately (no fast-phase sleep — the cancel-previous
-  /// already short-circuits the storm during a slider drag).
-  ///
-  /// The closure receives the post-bump generation counter; it is
-  /// expected to honour `Task.isCancelled` and to compare against the
-  /// live `currentGeneration()` before writing to MainActor state.
-  ///
-  /// Returns the generation counter so callers that need to coordinate
-  /// follow-up work (e.g. chaining a refine after the fast publish)
-  /// can do so without an extra actor hop.
+  /// Cancel previous fast/refine work and admit the newest generation
+  /// immediately. The work must still check cancellation before publishing.
   @discardableResult
   public func scheduleRender(
     phase: RenderPhase,
@@ -475,25 +471,31 @@ public actor RenderActor {
     editSessionLogger.debug(
       "scheduleRender gen=\(gen) phase=\(String(describing: phase), privacy: .public)"
     )
-    renderTask = Task { [work] in
-      await work(gen)
+    renderTask = Task { [weak self, work] in
+      await self?.runScheduledRender(gen: gen, work: work)
     }
     return gen
   }
 
-  /// Schedule a refine. Cancels the previous refine task and spawns a
-  /// new one that sleeps for `refineDebounceMilliseconds` before
-  /// running `work`. During a continuous flurry of schedules only the
-  /// last one survives the debounce — the slider-drag coalescer.
-  ///
-  /// Does NOT bump `renderGeneration` — pan/zoom and window-resize
-  /// refines must not invalidate the most recent fast publish. The
-  /// closure receives the live generation so it can still bail out if
-  /// a NEWER fast schedule landed after the refine debounce started.
+  private func runScheduledRender(
+    gen: UInt64, work: @Sendable (UInt64) async -> Void
+  ) async {
+    guard gen == renderGeneration, !Task.isCancelled else { return }
+    await work(gen)
+  }
+
+  /// Debounce refine without advancing the render generation. A stale fast
+  /// tail must not cancel the newest generation's already-scheduled refine.
   @discardableResult
   public func scheduleRefine(
+    expectedGeneration: UInt64? = nil,
     work: @escaping @Sendable (UInt64) async -> Void
   ) -> UInt64 {
+    // An old fast pass can resume after a newer pass registered its refine.
+    // Reject it before cancel-previous touches the newer tail (#3363).
+    if let expectedGeneration, expectedGeneration != renderGeneration {
+      return renderGeneration
+    }
     refineTask?.cancel()
     let gen = renderGeneration
     refineTask = Task { [work] in
@@ -542,6 +544,7 @@ public actor RenderActor {
   /// teardown so background work from the previous asset doesn't
   /// continue to spend GPU cycles after the user moved on.
   public func cancelAll() {
+    renderGeneration &+= 1
     renderTask?.cancel()
     refineTask?.cancel()
     renderTask = nil

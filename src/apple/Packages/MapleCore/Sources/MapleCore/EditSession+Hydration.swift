@@ -23,7 +23,7 @@ extension EditSession {
   /// Load model + culling from disk; call once after init.
   ///
   /// Flow:
-  ///   1. Read the file's as-shot WB via ImageIO (cheap — no decode).
+  ///   1. Read the file's as-shot WB off MainActor (metadata only).
   ///   2. Try to load the XMP sidecar.
   ///   3. If the sidecar exists, trust its values (user edits).
   ///   4. If no sidecar, seed `temperature` + `tint` from the as-shot WB
@@ -33,8 +33,8 @@ extension EditSession {
   /// render is scheduled only if the editor has already requested pixels.
   public func loadSidecar() async {
     // (1) As-shot white balance — needed by Browse so the WB chip
-    // shows the correct value without opening the editor. Cheap
-    // (CIRAWFilter property reads, no decode).
+    // shows the correct value without opening the editor. CIRAWFilter
+    // metadata reads still perform source I/O, so use a detached task.
     //
     // `seedNativeImageSizeFromMetadata` is intentionally deferred
     // to `ensureRenderStarted()`. Reading the canonical sensor dims
@@ -44,7 +44,14 @@ extension EditSession {
     // (frame, fit math), so the read can wait until the user
     // actually opens the asset.
     if let url = asset.primaryURL {
-      if let asShot = ImageMetadataReader.readAsShotWB(from: url) {
+      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+      let asShot = await Task.detached(priority: .userInitiated) {
+        let accessing = scope.startAccessingSecurityScopedResource()
+        defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+        return autoreleasepool { ImageMetadataReader.readAsShotWB(from: url) }
+      }.value
+      guard !Task.isCancelled else { return }
+      if let asShot {
         self.asShotCCT = asShot.temperature
         self.asShotTint = asShot.tint
       }
@@ -202,29 +209,16 @@ extension EditSession {
   /// `decodedImage` — the guard above returns early on revisit.
   public func ensureRenderStarted() {
     renderRequested = true
-    if let url = asset.primaryURL {
-      seedNativeImageSizeFromMetadata(url)
-    } else if asset.bytesProvider != nil {
-      // Sourceless / remote asset (Self-Hosted, SMB, PhotoKit) has no URL
-      // to read synchronously. Seed `nativeImageSize` from the bytes at
-      // cold-open — in parallel with the decode — instead of leaving it to
-      // the decode's normalize closure, which only kicks the async seed
-      // AFTER the first present. Without an early seed `nativeImageSize`
-      // stays .zero → `displayFrameInPoints` nil → the canvas shows the
-      // placeholder, so `GpuLiveCanvasView` never mounts, `register(layer:)`
-      // never fires, and the first `presentViaGpuLive` takes the no-layer
-      // reject → CPU fallback. Local files don't hit this — they seed
-      // synchronously above, so their GPU layer is registered before the
-      // decode lands. The async seed is idempotent (guards on `.zero`), so
-      // it no-ops on revisit and races harmlessly with the decode's kick. (#1604)
+    // URL-backed metadata can block on RAW parsing or File Provider I/O
+    // too. Start it asynchronously for every source so click handling and
+    // the immediate thumbnail paint never wait for that work.
+    if nativeImageSize == .zero, nativeSizeTask == nil {
       let seedAsset = asset
       Task { @MainActor [weak self] in
         guard let self else { return }
         await self.seedNativeImageSizeFromMetadataAsync(seedAsset)
-        // Re-present once the size lands (still the current asset): the
-        // canvas leaf has now mounted + registered its layer, so this
-        // render goes through the GPU live path. `.fast` reuses the
-        // in-flight/cached decode — no second decode.
+        // Native dimensions mount the canvas layer. Re-present the shared
+        // decode after layout can register it; no new RAW fetch is needed.
         if self.asset.id == seedAsset.id, self.nativeImageSize != .zero {
           self._scheduleRender(phase: .fast)
         }
@@ -248,31 +242,19 @@ extension EditSession {
     // `renderedPreview` — never overwrites a richer seed.
     seedFromThumbnailIfAvailable()
     editSessionSignposter.emitEvent("open")
-    // Sub-second open strategy: seed `decodedImage` from whatever's
-    // fastest to get hold of (cache hit → embedded JPEG), then kick
-    // the fast-phase filter chain. That unlocks slider interaction
-    // within ~50 ms because `decodeAndRender`'s hot path reuses the
-    // cached decode instead of blocking on `sharedDecode` (~15–20 s
-    // on a 100 MP RAW). The real Rust decode still runs in the
-    // background; when it lands, `sharedDecode` overwrites
-    // `decodedImage` with the full-quality output and a follow-up
-    // `_scheduleRender(.fast)` re-processes the current model against
-    // it — quality silently upgrades without the user losing
-    // responsiveness.
+    // Paint a cached/embedded still while the real scene-linear decode
+    // prepares the interactive viewport. For RAW, a display-encoded seed
+    // cannot satisfy the profile-keyed decode cache: first paint and first
+    // interactive Auto-profile presentation are separate milestones.
     Task { @MainActor [weak self] in
       guard let self else { return }
       await self.openAssetPipelineAsync()
     }
   }
 
-  /// Orchestrates the cold-open path so the fast-phase filter chain
-  /// has a `decodedImage` to work against before the expensive Rust
-  /// decode completes. All three inputs (disk cache, embedded JPEG,
-  /// Rust decode) are attempted; the first one back seeds the cached
-  /// slot so sliders become responsive. Later inputs overwrite the
-  /// slot only when they're strictly better (cache → embedded →
-  /// Rust). Each seed triggers a `_scheduleRender(.fast)` so the view
-  /// upgrades as better sources land.
+  /// Race the scene-linear decode against progressively richer display
+  /// seeds. Seeds improve first paint; the genuine RAW decode and Auto fit
+  /// must finish before the viewport can faithfully apply develop sliders.
   func openAssetPipelineAsync() async {
     // Re-entrancy guard: `ensureRenderStarted()` fires from several sites
     // (EditorView.task / GpuLiveCanvasView layout). A second concurrent
@@ -374,10 +356,9 @@ extension EditSession {
       self._scheduleRender(phase: .fast)
     }
 
-    // Embedded JPEG — camera-baked preview, ~50 ms via ImageIO. Seeds
-    // `decodedImage` so sliders have something to filter against
-    // even if there was no cache hit. Won't overwrite a preceding
-    // cache seed because the guards check `decodedForAssetID`.
+    // Embedded JPEG — camera-baked first paint when no richer cache exists.
+    // Its unknown RAW profile forces a genuine scene-linear decode before
+    // edits are rendered; it never substitutes display pixels for sensor data.
     let embeddedHit = await mapleStageAsync("embedded preview seed") {
       await self.seedFromEmbeddedPreview(for: openedAsset)
     }

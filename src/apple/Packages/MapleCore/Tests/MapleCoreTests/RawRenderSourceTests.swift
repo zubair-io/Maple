@@ -48,4 +48,80 @@ final class RawRenderSourceTests: XCTestCase {
     source = nil
     XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
   }
+  @MainActor
+  func testSessionMetadataDecodeAndProfileShareTheOriginalFetch() async throws {
+    let provider = Provider()
+    let original = AssetRef(
+      displayName: "photo.CR2", hintExtension: "cr2", stableID: "photo",
+      thumbnailProvenance: .smb,
+      bytesProvider: { await provider.bytes() })
+    let session = EditSession(asset: original)
+    let ownedAsset = session.asset
+    XCTAssertEqual(ownedAsset.id, original.id)
+    XCTAssertEqual(ownedAsset.stableID, original.stableID)
+    XCTAssertEqual(ownedAsset.thumbnailProvenance, original.thumbnailProvenance)
+    XCTAssertNil(ownedAsset.primaryURL, "Staging must not change sidecar/source routing")
+
+    async let metadata = ownedAsset.bytesProvider!()
+    async let decode = ownedAsset.bytesProvider!()
+    async let profile = session.renderActor.rawRenderSource.url(for: ownedAsset)
+    let (metadataBytes, decodeBytes, profileURL) = try await (metadata, decode, profile)
+    XCTAssertEqual(metadataBytes, Data([1, 2, 3, 4]))
+    XCTAssertEqual(decodeBytes, metadataBytes)
+    XCTAssertEqual(try Data(contentsOf: profileURL), metadataBytes)
+    let exportBytes = try await ownedAsset.bytesProvider!()
+    XCTAssertEqual(exportBytes, metadataBytes)
+    let count = await provider.count
+    XCTAssertEqual(count, 1, "Metadata, decode, Auto fitting and export must download once")
+  }
+
+  func testFailedRemoteFetchCanRetry() async throws {
+    actor RetryingProvider {
+      var count = 0
+      func bytes() throws -> Data {
+        count += 1
+        if count == 1 { throw URLError(.networkConnectionLost) }
+        return Data([9, 8, 7])
+      }
+    }
+    let provider = RetryingProvider()
+    let original = AssetRef(
+      displayName: "photo.CR2", hintExtension: "cr2",
+      bytesProvider: { try await provider.bytes() })
+    let source = RawRenderSource(asset: original)
+    do {
+      _ = try await source.bytes(for: original)
+      XCTFail("First fetch should fail")
+    } catch { XCTAssertEqual((error as? URLError)?.code, .networkConnectionLost) }
+    let bytes = try await source.bytes(for: original)
+    XCTAssertEqual(bytes, Data([9, 8, 7]))
+    let count = await provider.count
+    XCTAssertEqual(count, 2)
+  }
+
+  @MainActor
+  func testRemoteRawDecodePreservesOriginalSessionIdentity() async throws {
+    var root = URL(fileURLWithPath: #filePath)
+    for _ in 0..<5 { root.deleteLastPathComponent() }
+    let fixture = root.appendingPathComponent("MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+    let bytes = try Data(contentsOf: fixture)
+    let original = AssetRef(displayName: "remote.dng", hintExtension: "dng", stableID: "remote") {
+      bytes
+    }
+    let session = EditSession(asset: original)
+    let image = await session.renderActor.sharedDecode(
+      asset: session.asset, target: CGSize(width: 64, height: 64), profile: .neutral,
+      normalize: { image, asset in
+        XCTAssertEqual(asset.id, original.id)
+        XCTAssertNil(asset.primaryURL, "A temporary decode path must not become original identity")
+        return image
+      })
+    XCTAssertNotNil(image, "The real native RAW decoder must accept the staged path")
+    let snapshot = await session.renderActor.snapshot(forAsset: original)
+    XCTAssertNotNil(snapshot.image)
+    XCTAssertEqual(session.asset.id, original.id)
+    XCTAssertNil(
+      session.asset.sidecarURL, "Remote edits must not be written beside the staged file")
+  }
+
 }
