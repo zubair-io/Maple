@@ -85,10 +85,15 @@ async function prepareItem(
   }
 }
 
-async function publishItem(entry: ExportEntry, recipe: ExportRecipe): Promise<ExportEntry> {
+async function publishItem(
+  entry: ExportEntry,
+  recipe: ExportRecipe,
+  jobId: string,
+  originals: Set<string>,
+): Promise<ExportEntry> {
   if (entry.status !== 'prepared') return entry;
   try {
-    return await publishExport(entry, recipe);
+    return await publishExport(entry, recipe, jobId, originals);
   } catch (error) {
     return { ...entry, status: 'failed', reason: exportFailure(error) };
   }
@@ -122,7 +127,14 @@ export const batchRecipeExportHandler: JobHandler = {
       );
       // Fenced checkpoint precedes filesystem publication, including after a long native render.
       await save();
-      entries[index] = await publishItem(entries[index]!, recipe);
+      if (await ctx.shouldCancel())
+        return { kind: 'cancelled', result: { ...result(), cancelled: true } };
+      entries[index] = await publishItem(
+        entries[index]!,
+        recipe,
+        ctx.jobId.toHexString(),
+        originals,
+      );
       await save();
       await ctx.reportProgress(entries.filter(done).length, targets.length);
     }

@@ -85,22 +85,16 @@ pub fn run(
         &recipe,
         film.as_ref(),
     )?;
-    let temp = output.with_extension(format!(
-        "{}.tmp.{}",
-        output
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("export"),
-        std::process::id()
-    ));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp)?;
+    let mut staging = tempfile::Builder::new()
+        .prefix(".maple-export-")
+        .suffix(".tmp")
+        .tempfile_in(&directory)?;
+    staging.write_all(&exported.bytes)?;
+    staging.as_file().sync_all()?;
+    // Keep the exclusively created file, closing its handle before Windows publication.
+    let (file, temp) = staging.keep()?;
+    drop(file);
     let result = (|| -> Result<bool, Box<dyn std::error::Error>> {
-        file.write_all(&exported.bytes)?;
-        file.sync_all()?;
-        drop(file);
         if recipe.overwrite_policy == "replace" {
             fs::rename(&temp, &output)?;
         } else {

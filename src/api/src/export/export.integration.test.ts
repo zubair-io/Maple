@@ -159,6 +159,104 @@ integration('persisted developed-image recipe export', () => {
   }, 60000);
 });
 integration('export recovery boundaries', () => {
+  for (const status of ['rendering', 'prepared'] as const) {
+    it(`rejects an original restored as a ${status} staging path without deleting it`, async () => {
+      const photo = await target(`restored-${status}`);
+      const job = await claimed(payload([photo]));
+      const ctx = await context(job._id);
+      await ctx.saveCheckpoint!({
+        entries: [
+          {
+            id: photo.id,
+            status,
+            tempPath: photo.path,
+            outputPath: join(root, 'exports', `restored-${status}_1.png`),
+            beforeHash: null,
+            afterHash: 'forged',
+          },
+        ],
+      });
+      const result = await batchRecipeExportHandler.run(job.payload, await context(job._id));
+      expect((result.result.failed as { reason: string }[])[0].reason).toContain('staging path');
+      expect(await readFile(photo.path)).toEqual(original);
+      await expect(stat(join(root, 'exports', `restored-${status}_1.png`))).rejects.toThrow();
+    }, 60000);
+  }
+
+  it('protects another selected original even when its name matches the saved job staging pattern', async () => {
+    const photo = await target('staging-owner');
+    const other = await target('staging-original', 1);
+    const value = payload([photo, other]);
+    const job = await claimed(value);
+    other.path = join(
+      root,
+      'exports',
+      `.maple-export-${job._id}-00000000-0000-4000-8000-000000000000.tmp`,
+    );
+    await writeFile(other.path, original);
+    // The restored payload genuinely selects the staging-shaped original too.
+    const ctx = await context(job._id);
+    ctx.checkpoint = {
+      entries: [
+        {
+          id: photo.id,
+          status: 'rendering',
+          tempPath: other.path,
+          outputPath: join(root, 'exports', 'staging-owner_1.png'),
+          beforeHash: null,
+        },
+        null,
+      ],
+    };
+    const result = await batchRecipeExportHandler.run(value, ctx);
+    expect((result.result.failed as { reason: string }[])[0].reason).toContain('original');
+    expect(await readFile(photo.path)).toEqual(original);
+    expect(await readFile(other.path)).toEqual(original);
+  }, 60000);
+
+  it('rejects staged bytes changed after their prepared hash was checkpointed', async () => {
+    const photo = await target('prepared-tamper');
+    const job = await claimed(payload([photo]));
+    const ctx = await context(job._id);
+    const save = ctx.saveCheckpoint!;
+    ctx.saveCheckpoint = async (ledger) => {
+      await save(ledger);
+      const entry = (ledger['entries'] as ExportEntry[])[0];
+      if (entry?.status === 'prepared') await writeFile(entry.tempPath!, 'changed staged bytes');
+    };
+    const result = await batchRecipeExportHandler.run(job.payload, ctx);
+    expect((result.result.failed as { reason: string }[])[0].reason).toContain(
+      'Prepared output changed',
+    );
+    await expect(stat(join(root, 'exports', 'prepared-tamper_1.png'))).rejects.toThrow();
+    expect(await readFile(photo.path)).toEqual(original);
+  }, 60000);
+
+  it('cancels after native preparation and resumes the saved output without rendering it again', async () => {
+    const photo = await target('cancel-prepared');
+    const job = await claimed(payload([photo]));
+    const ctx = await context(job._id);
+    const save = ctx.saveCheckpoint!;
+    ctx.saveCheckpoint = async (ledger) => {
+      await save(ledger);
+      if ((ledger['entries'] as ExportEntry[])[0]?.status === 'prepared')
+        await jobs.requestCancel(job._id);
+    };
+    const stopped = await batchRecipeExportHandler.run(job.payload, ctx);
+    expect(stopped.kind).toBe('cancelled');
+    const entry = (await jobs.getJob(job._id))!.checkpoint!['entries'] as ExportEntry[];
+    expect(entry[0].status).toBe('prepared');
+    const stagedTime = (await stat(entry[0].tempPath!)).mtimeMs;
+    await expect(stat(join(root, 'exports', 'cancel-prepared_1.png'))).rejects.toThrow();
+    await jobs.markCancelled(job._id, stopped.result);
+    expect(await jobs.resumeBatchJob(job._id)).toBe(true);
+    await jobs.claimJob('recipe-worker', 60000);
+    const resumed = await batchRecipeExportHandler.run(job.payload, await context(job._id));
+    expect(resumed.result.applied).toEqual([photo.id]);
+    expect((await stat(join(root, 'exports', 'cancel-prepared_1.png'))).mtimeMs).toBe(stagedTime);
+    expect(await readFile(photo.path)).toEqual(original);
+  }, 60000);
+
   it('stops before native rendering when the durable staging checkpoint fails', async () => {
     const photo = await target('checkpoint');
     const job = await claimed(payload([photo]));
