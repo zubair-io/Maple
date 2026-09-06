@@ -260,6 +260,7 @@ mod present_web;
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
 mod color_grade;
+mod geometry;
 mod grain;
 mod hsl;
 #[cfg(target_arch = "wasm32")]

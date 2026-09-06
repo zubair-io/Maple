@@ -463,12 +463,13 @@ impl WebLiveSession {
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
         let mut inputs = chain_inputs_for_model(
             &self.raw_img,
+            (self.width, self.height),
             &self.raw,
             &self.ext,
             model,
             self.film_lut.as_ref(),
             self.film_lut_key,
-        );
+        )?;
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not

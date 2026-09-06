@@ -105,6 +105,11 @@ fn schema_f32_defaults_match_struct_default() {
             "lens_correction_distortion" => m.lens_correction_distortion,
             "lens_correction_ca" => m.lens_correction_ca,
             "lens_correction_vignetting" => m.lens_correction_vignetting,
+            "geo_perspective_h" => m.geo_perspective_h,
+            "geo_perspective_v" => m.geo_perspective_v,
+            "geo_rotation" => m.geo_rotation,
+            "geo_aspect" => m.geo_aspect,
+            "geo_scale" => m.geo_scale,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(

@@ -43,6 +43,7 @@ namespace Maple.WinUI
             ("Detail", "tool-sharpen", null),
             ("Tone Curve", "tool-contrast", null),
             ("Crop", "tool-crop", null),
+            ("Geometry", "tool-crop", null),
         };
 
         private void BuildEditRail()

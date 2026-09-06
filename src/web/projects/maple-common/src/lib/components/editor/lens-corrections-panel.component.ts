@@ -38,6 +38,7 @@ import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slid
 import { MuiTextComponent } from '../../ui/text/mui-text.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
+import { GeometryPanelComponent } from './geometry-panel.component';
 
 const DISTORTION_RANGE = ADJUSTMENT_RANGES.lensCorrectionDistortion;
 const CA_RANGE = ADJUSTMENT_RANGES.lensCorrectionCa;
@@ -46,7 +47,7 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 @Component({
   selector: 'lens-corrections-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent, MuiTextComponent],
+  imports: [MuiLivingSliderComponent, MuiTextComponent, GeometryPanelComponent],
   templateUrl: './lens-corrections-panel.component.html',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,

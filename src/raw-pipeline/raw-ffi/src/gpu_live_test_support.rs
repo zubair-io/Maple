@@ -126,6 +126,11 @@ pub(super) fn make_params(
         WbMethod::Cat16 => 0,
     };
     MapleGpuLiveParams {
+        geo_perspective_h: model.geo_perspective_h,
+        geo_perspective_v: model.geo_perspective_v,
+        geo_rotation: model.geo_rotation,
+        geo_aspect: model.geo_aspect,
+        geo_scale: model.geo_scale,
         temperature: model.temperature,
         tint: model.tint,
         wb_method: wb,

@@ -336,6 +336,15 @@ extension XMPSerializer {
         ] where value.rounded() != 100 {
             attrs.append((key, String(format: "%.0f", value)))
         }
+        for (key, value, identity) in [
+            ("papp:GeoPerspectiveH", model.geoPerspectiveH, 0.0),
+            ("papp:GeoPerspectiveV", model.geoPerspectiveV, 0.0),
+            ("papp:GeoRotation", model.geoRotation, 0.0),
+            ("papp:GeoAspect", model.geoAspect, 1.0),
+            ("papp:GeoScale", model.geoScale, 1.0),
+        ] where value.isFinite && value != identity {
+            attrs.append((key, String(format: "%.6f", value)))
+        }
         // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
         // non-identity. CropAngle is independent so a pure straighten emits
         // only the angle without the HasCrop/rect group.

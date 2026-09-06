@@ -42,6 +42,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
     // A neutral-ish chain (dehaze inactive → the single-submit f32 path the present
     // uses). Default inputs keep the signature stable across the two renders.
     let inputs = FullChainInputs {
+        geometry_inverse: None,
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,

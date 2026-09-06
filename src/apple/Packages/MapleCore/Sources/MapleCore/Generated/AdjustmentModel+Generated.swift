@@ -126,6 +126,11 @@ extension AdjustmentModel {
         case lensCorrectionDistortion = "lens_correction_distortion"
         case lensCorrectionCa = "lens_correction_ca"
         case lensCorrectionVignetting = "lens_correction_vignetting"
+        case geoPerspectiveH = "geo_perspective_h"
+        case geoPerspectiveV = "geo_perspective_v"
+        case geoRotation = "geo_rotation"
+        case geoAspect = "geo_aspect"
+        case geoScale = "geo_scale"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -308,6 +313,16 @@ extension AdjustmentModel {
     public static let lensCorrectionCaRange: ClosedRange<Double> = 0.0...100.0
     /// Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.
     public static let lensCorrectionVignettingRange: ClosedRange<Double> = 0.0...100.0
+    /// Horizontal perspective in display framing. XMP key `papp:GeoPerspectiveH`.
+    public static let geoPerspectiveHRange: ClosedRange<Double> = -0.4...0.4
+    /// Vertical perspective in display framing. XMP key `papp:GeoPerspectiveV`.
+    public static let geoPerspectiveVRange: ClosedRange<Double> = -0.4...0.4
+    /// Clockwise rotation in degrees. XMP key `papp:GeoRotation`.
+    public static let geoRotationRange: ClosedRange<Double> = -180.0...180.0
+    /// Area-preserving horizontal/vertical aspect ratio. XMP key `papp:GeoAspect`.
+    public static let geoAspectRange: ClosedRange<Double> = 0.5...2.0
+    /// Centered uniform image scale. XMP key `papp:GeoScale`.
+    public static let geoScaleRange: ClosedRange<Double> = 0.25...4.0
 
     // MARK: - Pipeline-output version (canonical, generated)
 
@@ -479,6 +494,11 @@ extension AdjustmentGroup {
         case .geometry:
             return [
                 "crop",
+                "geo_perspective_h",
+                "geo_perspective_v",
+                "geo_rotation",
+                "geo_aspect",
+                "geo_scale",
             ]
         }
     }

@@ -404,6 +404,17 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             out.push_str(&format!(r#" {key}="{rounded}""#));
         }
     }
+    for (key, value, default) in [
+        ("GeoPerspectiveH", model.geo_perspective_h, 0.0),
+        ("GeoPerspectiveV", model.geo_perspective_v, 0.0),
+        ("GeoRotation", model.geo_rotation, 0.0),
+        ("GeoAspect", model.geo_aspect, 1.0),
+        ("GeoScale", model.geo_scale, 1.0),
+    ] {
+        if value.is_finite() && value != default {
+            out.push_str(&format!(r#" papp:{key}="{value:.6}""#));
+        }
+    }
     // Crop / straighten (#277) — emitted only when non-identity. The rect
     // attributes (`crs:HasCrop` + four edges) are emitted only when the rect
     // itself differs from full-frame. `crs:CropAngle` is independent — it is

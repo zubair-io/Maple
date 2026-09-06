@@ -436,6 +436,11 @@ fn aggressive_gpu_chain_model() -> AdjustmentModel {
         sharpen_masking: 20.0,
         nr_luminance: 30.0,
         nr_color: 40.0,
+        geo_perspective_h: 0.2,
+        geo_perspective_v: -0.15,
+        geo_rotation: 8.0,
+        geo_aspect: 1.2,
+        geo_scale: 0.75,
         ..AdjustmentModel::default()
     }
 }

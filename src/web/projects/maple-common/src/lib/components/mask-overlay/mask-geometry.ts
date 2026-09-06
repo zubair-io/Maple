@@ -135,6 +135,7 @@ export interface MaskCanvasMap {
   footprint: Footprint;
   cropToFull: MaskAffine;
   fullToCrop: MaskAffine;
+  geometry?: import('../editor/geometry-coordinates').GeometryCoordinates;
 }
 
 export function makeMaskCanvasMap(
@@ -148,7 +149,7 @@ export function makeMaskCanvasMap(
 }
 
 export function maskToScreen(map: MaskCanvasMap, p: MaskPoint): { x: number; y: number } {
-  const q = applyAffine(map.fullToCrop, p);
+  const q = applyAffine(map.fullToCrop, map.geometry?.forward(p) ?? p);
   return {
     x: map.footprint.left + q.x * map.footprint.width,
     y: map.footprint.top + q.y * map.footprint.height,
@@ -160,8 +161,13 @@ export function maskFromScreen(map: MaskCanvasMap, px: number, py: number): Mask
   const fp = map.footprint;
   const u = fp.width > 0 ? (px - fp.left) / fp.width : 0;
   const v = fp.height > 0 ? (py - fp.top) / fp.height : 0;
-  const p = applyAffine(map.cropToFull, { x: u, y: v });
+  const p = maskFromNormalizedDisplay(map, { x: u, y: v });
   return { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) };
+}
+
+export function maskFromNormalizedDisplay(map: MaskCanvasMap, point: MaskPoint): MaskPoint {
+  const p = applyAffine(map.cropToFull, point);
+  return map.geometry?.inverse(p) ?? p;
 }
 
 // ── Handles ───────────────────────────────────────────────────────────────

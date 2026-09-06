@@ -100,6 +100,11 @@ export const ADJUSTMENT_RANGES = {
   lensCorrectionDistortion: [0.0, 100.0] as const,
   lensCorrectionCa: [0.0, 100.0] as const,
   lensCorrectionVignetting: [0.0, 100.0] as const,
+  geoPerspectiveH: [-0.4, 0.4] as const,
+  geoPerspectiveV: [-0.4, 0.4] as const,
+  geoRotation: [-180.0, 180.0] as const,
+  geoAspect: [0.5, 2.0] as const,
+  geoScale: [0.25, 4.0] as const,
 } as const;
 
 /**
@@ -269,7 +274,14 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
   {
     id: 'geometry',
     label: 'Geometry',
-    fields: ['crop'],
+    fields: [
+      'crop',
+      'geo_perspective_h',
+      'geo_perspective_v',
+      'geo_rotation',
+      'geo_aspect',
+      'geo_scale',
+    ],
   },
 ];
 

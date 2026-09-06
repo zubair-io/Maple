@@ -125,6 +125,8 @@ enum XMPKnownFields {
         "crs:ColorGradeGlobalHue", "crs:ColorGradeGlobalSat", "crs:ColorGradeGlobalLum",
         "crs:LensProfileEnable", "crs:LensProfileDistortionScale",
         "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
+        "papp:GeoPerspectiveH", "papp:GeoPerspectiveV", "papp:GeoRotation",
+        "papp:GeoAspect", "papp:GeoScale",
         "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom", "crs:CropRight",
         "crs:CropAngle", "crs:CropConstrainToWarp",
     ]

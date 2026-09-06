@@ -34,6 +34,7 @@ use std::time::Instant;
 fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
     use raw_core::view::auto_profile;
     FullChainInputs {
+        geometry_inverse: None,
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,

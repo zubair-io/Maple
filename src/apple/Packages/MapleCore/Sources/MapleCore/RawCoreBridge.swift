@@ -155,6 +155,11 @@ public enum RawCoreBridge {
     public static func stripAppleGPUStages(_ model: AdjustmentModel) -> AdjustmentModel {
         let d = AdjustmentModel()  // canonical defaults
         var m = model
+        m.geoPerspectiveH = 0
+        m.geoPerspectiveV = 0
+        m.geoRotation = 0
+        m.geoAspect = 1
+        m.geoScale = 1
         // White balance — chain applies it from a D65 reference (see above).
         m.temperature = d.temperature
         m.tint = d.tint

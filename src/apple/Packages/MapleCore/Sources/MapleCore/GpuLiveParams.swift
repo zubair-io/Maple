@@ -95,6 +95,11 @@ extension PipelineRenderer {
         // checker hits its complexity ceiling on a ~40-field literal init, exactly
         // as `makeParams` documents for the 18-field `MapleAdjustmentParams`.
         var p = MapleGpuLiveParams()
+        p.geo_perspective_h = Float(model.geoPerspectiveH)
+        p.geo_perspective_v = Float(model.geoPerspectiveV)
+        p.geo_rotation = Float(model.geoRotation)
+        p.geo_aspect = Float(model.geoAspect)
+        p.geo_scale = Float(model.geoScale)
 
         // --- white balance (DELTA when `asShotCCT/asShotTint` are supplied:
         //     the FFI computes `M_net = M_live · M_decoded⁻¹` matching

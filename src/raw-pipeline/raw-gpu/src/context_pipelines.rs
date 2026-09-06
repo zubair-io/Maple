@@ -88,6 +88,16 @@ impl GpuContext {
         })
     }
 
+    pub fn geometry_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.geometry_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "manual-geometry",
+                include_str!("geometry.wgsl"),
+            )
+        })
+    }
+
     /// The cached local-adjustments compute pipeline (#1698).
     ///
     /// The kernel rasterizes each layer's vector mask and applies that layer's

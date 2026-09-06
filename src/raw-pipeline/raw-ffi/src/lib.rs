@@ -57,6 +57,8 @@ mod white_balance_sample;
 // sink gets a C callback registration here.
 mod deep_denoise_progress;
 mod error;
+mod geometry;
+pub use geometry::maple_apply_geometry_f32;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;

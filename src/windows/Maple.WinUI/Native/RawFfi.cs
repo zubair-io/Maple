@@ -13,6 +13,10 @@ namespace Maple.WinUI.Native
     {
         private const string Dll = "raw_ffi.dll";
 
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_apply_geometry_f32(float* pixels, float* scratch, uint width, uint height,
+            float perspectiveH, float perspectiveV, float rotation, float aspect, float scale);
+
         /// <summary>
         /// Guards the hand-mirrored struct layouts against drift from the Rust
         /// declarations (fields are append-only at the tail). Call once at startup.

@@ -15,6 +15,25 @@ namespace Maple.WinUI.Tests
     public class XmpRoundTripTests
     {
         [Fact]
+        public void ManualGeometryRoundTripsWithoutChangingCrop()
+        {
+            var document = WindowsFixtureModel.BuildDocument();
+            document.Adjustments.GeoPerspectiveH = 0.2;
+            document.Adjustments.GeoPerspectiveV = -0.15;
+            document.Adjustments.GeoRotation = 8.5;
+            document.Adjustments.GeoAspect = 1.2;
+            document.Adjustments.GeoScale = 0.75;
+            var parsed = XmpParser.Parse(XmpWriter.Serialize(document));
+            Assert.NotNull(parsed);
+            AdjustmentStateAssert.Equal(document.Adjustments, parsed!.Adjustments);
+            Assert.Equal(0.2, parsed.Adjustments.GeoPerspectiveH);
+            Assert.Equal(-0.15, parsed.Adjustments.GeoPerspectiveV);
+            Assert.Equal(8.5, parsed.Adjustments.GeoRotation);
+            Assert.Equal(1.2, parsed.Adjustments.GeoAspect);
+            Assert.Equal(0.75, parsed.Adjustments.GeoScale);
+        }
+
+        [Fact]
         public void SerializeParseSerializeIsAFixedPoint()
         {
             var original = XmpWriter.Serialize(WindowsFixtureModel.BuildDocument());
