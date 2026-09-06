@@ -52,6 +52,24 @@ public sealed class ExportQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task Concurrent_recipe_saves_preserve_every_distinct_name()
+    {
+        using var ready = new CountdownEvent(4);
+        using var start = new ManualResetEventSlim();
+        var saves = Enumerable.Range(0, 4).Select(index => Task.Factory.StartNew(() =>
+        {
+            var store = new ExportQueueStore(Path.Combine(_root, "ledger"));
+            ready.Signal();
+            if (!start.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException();
+            store.SaveRecipe(Recipe() with { Name = $"recipe-{index}" });
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
+        try { Assert.True(ready.Wait(TimeSpan.FromSeconds(10))); }
+        finally { start.Set(); }
+        await Task.WhenAll(saves);
+        Assert.Equal(new[] { "recipe-0", "recipe-1", "recipe-2", "recipe-3" }, _store.Recipes().Select(r => r.Name).Order());
+    }
+
+    [Fact]
     public async Task Retry_only_failed_keeps_snapshot_indices_and_completed_outputs()
     {
         var inputs = new[] { Input("first"), Input("second"), Input("third") };
