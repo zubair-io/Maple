@@ -1291,6 +1291,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         }
     }
 
@@ -1378,6 +1379,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         };
 
         // Drive the embedded path directly so we don't depend on bundle
@@ -1956,6 +1958,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         };
         let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
         // No embedded matrices on this synthetic raw → RawlerFallback.
@@ -2329,6 +2332,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         }
     }
 

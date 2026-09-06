@@ -60,6 +60,7 @@ mod error;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;
+mod lens_profile;
 // `.mlut` film-look LUT decode FFI (epic #2683, Task 8) — pure marshalling
 // over `raw_core::film::decode_mlut`. No worker-thread dispatch, no GPU gate
 // (the decode is a cheap byte-parse; only the GPU-gated per-tick params and

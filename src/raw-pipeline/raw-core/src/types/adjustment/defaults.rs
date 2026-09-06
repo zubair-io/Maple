@@ -166,6 +166,7 @@ impl Default for AdjustmentModel {
             lens_correction_distortion: 100.0,
             lens_correction_ca: 100.0,
             lens_correction_vignetting: 100.0,
+            lens_profile: String::new(),
         }
     }
 }
