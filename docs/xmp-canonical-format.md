@@ -107,9 +107,11 @@ crs:Version="11.0"  crs:ProcessVersion="11.0"  crs:HasSettings="True"
 
 An imported sidecar's own `crs:Version` / `crs:ProcessVersion` strings are retained rather than overwritten on the Windows side (`XmpSidecarDocument`).
 
+All four writers also always emit `papp:Profile="Auto"` or `papp:Profile="Neutral"` (#2441). This records the render intent explicitly without changing the default: an older sidecar with no profile still reads as Auto, except that legacy `papp:Look="Neutral"` migrates to Neutral. Re-saving makes that interpretation explicit. No new profile token or schema version is needed; all four readers already accept both values.
+
 ### Omit-on-default
 
-Every other field is written **only when it differs from its canonical default**, so a sidecar for an untouched panel stays byte-identical to what a build without that slider produced. Two details matter:
+Every field other than the always-emitted attributes above is written **only when it differs from its canonical default**, so a sidecar for an untouched panel stays byte-identical to what a build without that slider produced. Two details matter:
 
 - The comparison is between _serialized wire forms_, not raw floats. Gating on the raw value would emit `="0"` for a slider sitting at 0.004, churning otherwise-identical sidecars on every save.
 - The write-omit sentinel is sourced from the generated model defaults, not hand-typed. Hand-typed sentinels had previously drifted from the real defaults for `crs:Sharpness` and `crs:SharpenRadius`, which silently dropped a user's "Sharpen Amount = 0" on save and restored 40 on the next load.

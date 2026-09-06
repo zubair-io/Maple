@@ -12,6 +12,7 @@ fn bkey(hash: u64) -> CacheKey {
         hash,
         quality: RenderQuality::Full,
         origin: FitOrigin::Standalone,
+        fit_model_version: AUTO_FIT_MODEL_VERSION,
     }
 }
 
@@ -180,6 +181,7 @@ fn bytes_key_path_and_bytes_variants_never_collide() {
         mtime: SystemTime::UNIX_EPOCH,
         quality: RenderQuality::Full,
         origin: FitOrigin::Standalone,
+        fit_model_version: AUTO_FIT_MODEL_VERSION,
     };
     let bytes_key = bkey(0);
     assert_ne!(path_key, bytes_key);
@@ -288,4 +290,39 @@ fn cross_origin_lookup_misses() {
     assert_eq!(get(&curve_only).map(|c| c.chroma_boost), Some(8.12));
     assert_eq!(get(&sized).map(|c| c.chroma_boost), Some(7.68));
     assert!(get_lut(&curve_only).is_none(), "curve-only never has a LUT");
+}
+
+/// Curve and residual must come from the same fitting-model version,
+/// including after a caller changes the origin of a path or bytes key.
+#[test]
+fn fit_model_version_invalidates_both_artifact_caches() {
+    let _g = test_lock();
+    clear_for_test();
+    clear_lut_for_test();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("model-version.bin");
+    std::fs::write(&path, b"fit-model-version").expect("write");
+    let keys = [
+        CacheKey::from_path(&path, RenderQuality::Full).expect("path key"),
+        CacheKey::from_bytes(b"fit-model-version", RenderQuality::Full),
+    ];
+    for current in keys {
+        let mut older = current.clone();
+        let (CacheKey::Path {
+            fit_model_version, ..
+        }
+        | CacheKey::Bytes {
+            fit_model_version, ..
+        }) = &mut older;
+        assert_eq!(*fit_model_version, AUTO_FIT_MODEL_VERSION);
+        *fit_model_version -= 1;
+        let current = current.with_origin(FitOrigin::Render(Some(768)));
+        let older = older.with_origin(FitOrigin::Render(Some(768)));
+        insert(older.clone(), dummy_curve(4.2));
+        insert_lut(older.clone(), ColorLut::identity(5));
+        assert!(get(&current).is_none(), "old fit curve must miss");
+        assert!(get_lut(&current).is_none(), "old residual LUT must miss");
+        assert!(get(&older).is_some());
+        assert!(get_lut(&older).is_some());
+    }
 }

@@ -288,13 +288,11 @@ extension XMPSerializer {
             attrs.append(("papp:Look", model.look.rawValue))
         }
         // Auto Profile Phase 1 (#536) — canonical render-shaping profile.
-        // Mirrors raw-core's `serialize`: emit only on non-default
-        // (`.auto`). Newly-written sidecars carry `papp:Profile` only;
+        // Mirrors the other writers: always preserve explicit intent (#2441).
+        // Newly-written sidecars carry `papp:Profile` only;
         // older sidecars without it pick up `.auto` automatically, and
         // legacy `papp:Look` migrates into Profile on read.
-        if model.profile != .auto {
-            attrs.append(("papp:Profile", model.profile.rawValue))
-        }
+        attrs.append(("papp:Profile", model.profile.rawValue))
         // Film-look emulation (epic #2683) — the `.mlut` catalog id, emitted
         // only when non-empty (the default "no look" state), same
         // omit-on-default convention as every other papp: field. XML-escaped

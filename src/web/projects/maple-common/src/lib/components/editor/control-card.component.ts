@@ -32,6 +32,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
+import { ProfileSectionComponent } from './profile-section.component';
 import { MapleIconComponent, type MapleIconName } from '../../icons/maple-icon.component';
 import {
   type ToolGroup,
@@ -97,7 +98,7 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
 @Component({
   selector: 'pro-control-card',
   standalone: true,
-  imports: [MuiLivingSliderComponent, MapleIconComponent],
+  imports: [MuiLivingSliderComponent, MapleIconComponent, ProfileSectionComponent],
   templateUrl: './control-card.component.html',
   host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,

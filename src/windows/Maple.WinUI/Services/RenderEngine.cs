@@ -58,8 +58,8 @@ namespace Maple.WinUI.Services
         /// Fields the per-tick chain re-applies must be zeroed in the decode
         /// model or they bake into the base image and double-apply
         /// (mirror of RawCoreBridge.stripAppleGPUStages on Apple).
-        /// Profile is forced Neutral: the CPU chain cannot apply the Auto
-        /// Profile fitted tail, and a Neutral decode keeps output consistent.
+        /// Profile is preserved: decode selects the AE anchor and fits the
+        /// Auto tail that both the GPU and CPU per-tick paths apply.
         /// </summary>
         public static AdjustmentState StripChainStages(AdjustmentState model)
         {
@@ -115,6 +115,16 @@ namespace Maple.WinUI.Services
             // Neutral here measured mean ΔE00 ≈ 19 off the embedded JPEG.
             return m;
         }
+
+        /// <summary>Fields owned by the decoded base, including the profile's
+        /// AE anchor and fitted tail. A slider-only change reuses the base.</summary>
+        public static bool DecodeInputsChanged(AdjustmentState before, AdjustmentState after) =>
+            before.Profile != after.Profile
+            || before.AutoExposure != after.AutoExposure
+            || before.LensProfileEnable != after.LensProfileEnable
+            || Math.Abs(before.LensCorrectionDistortion - after.LensCorrectionDistortion) > 1e-6
+            || Math.Abs(before.CaptureSharpeningAmount - after.CaptureSharpeningAmount) > 1e-6
+            || Math.Abs(before.DeepDenoise - after.DeepDenoise) > 1e-6;
 
         /// <summary>
         /// Decode a RAW into a scene-linear f32 base, honoring the sidecar's

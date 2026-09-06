@@ -64,8 +64,8 @@ function highlightAndExposureParts(model: AdjustmentModel): string[] {
 /**
  * The retired DisplayLookCurve `papp:Look` (#371/#443), its Auto Profile
  * successor `papp:Profile` (#536), and film emulation `papp:FilmLook`
- * (#2683). Each field is emitted only on a non-default value, mirroring the
- * Rust and Swift writers so pre-feature sidecars stay byte-identical.
+ * (#2683). Profile is always explicit (#2441); the retired look and film
+ * fields keep their omit-on-default behavior.
  */
 function lookProfileFilmParts(model: AdjustmentModel): string[] {
   const parts: string[] = [];
@@ -73,9 +73,7 @@ function lookProfileFilmParts(model: AdjustmentModel): string[] {
   if (model.look && model.look !== 'Default') {
     parts.push(`papp:Look="${escapeXmpAttr(model.look)}"`);
   }
-  if (model.profile && model.profile !== 'Auto') {
-    parts.push(`papp:Profile="${escapeXmpAttr(model.profile)}"`);
-  }
+  parts.push(`papp:Profile="${escapeXmpAttr(model.profile ?? 'Auto')}"`);
   if (model.filmLook) {
     parts.push(`papp:FilmLook="${escapeXmpAttr(model.filmLook)}"`);
   }

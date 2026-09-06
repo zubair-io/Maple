@@ -45,12 +45,27 @@ describe('XMP papp:Profile round-trip + papp:Look legacy migration (#562)', () =
     expect(xml).toContain('papp:Profile="Neutral"');
   });
 
-  it('omits papp:Profile when profile is the default ("Auto")', () => {
+  it('writes the default Auto intent explicitly', () => {
     const model = defaultAdjustmentModel();
 
     const xml = serializer.serialize(model);
 
-    expect(xml).not.toContain('papp:Profile=');
+    expect(xml).toContain('papp:Profile="Auto"');
+  });
+
+  it.each([
+    ['', 'Auto'],
+    ['papp:Look="Default"', 'Auto'],
+    ['papp:Look="Neutral"', 'Neutral'],
+    ['papp:Profile="AcrMatch"', 'Auto'],
+  ])('preserves legacy intent when resaving %s', (attrs, expected) => {
+    const parsed = parser.parseAdjustmentModel(makeSidecar(attrs));
+    const model = { ...defaultAdjustmentModel(), ...parsed.model };
+    const xml = serializer.serialize(model);
+    expect(xml).toContain(`papp:Profile="${expected}"`);
+    expect(parser.parseAdjustmentModel(xml).model.profile).toBe(expected);
+    const reopened = { ...defaultAdjustmentModel(), ...parser.parseAdjustmentModel(xml).model };
+    expect(serializer.serialize(reopened)).toBe(xml);
   });
 
   it('parses papp:Profile="Neutral" into model.profile === "Neutral"', () => {

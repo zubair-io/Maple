@@ -143,11 +143,13 @@ namespace Maple.WinUI
             BuildStarRow();
             BuildEditRail();
             BuildGradePanel();
+            BuildProfilePanel();
             BuildCropPanel();
             MaybeStartQualifyRun();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
             {
+                SyncProfilePanel();
                 SyncGradeWheels();
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();
