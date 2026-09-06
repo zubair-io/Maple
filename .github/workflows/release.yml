@@ -399,13 +399,28 @@ jobs:
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export"
 
-      - name: Notarize and staple
+      # Notarize twice, on purpose: once for the app, once for the disk
+      # image that carries it.
+      #
+      # Stapling the app means a copy dragged out of the DMG carries its own
+      # notarization ticket and opens offline. Stapling the DMG means the
+      # download itself is clean the moment it mounts. Only doing the second
+      # leaves the extracted app depending on a Gatekeeper network check,
+      # which is exactly the first-run failure a signed build is meant to
+      # avoid. Each submission is a few minutes and they are sequential
+      # because the DMG must contain the already-stapled app.
+      - name: Notarize, package as DMG, and staple
         env:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           set -euo pipefail
+          # codesign for the DMG needs the identity, same as the export did.
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
           APP_PATH="$(find "$RUNNER_TEMP/export" -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$APP_PATH" ] || { echo "::error::no .app in the export"; exit 1; }
+
           echo "Notarizing $APP_PATH"
           ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
@@ -419,12 +434,40 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev-${GITHUB_SHA::8}"
           mkdir -p "$RUNNER_TEMP/out"
-          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/out/Maple-macOS-$VERSION.zip"
+          DMG="$RUNNER_TEMP/out/Maple-macOS-$VERSION.dmg"
+
+          # The staging folder is the whole window contents: the app, and a
+          # symlink to /Applications so the install is a drag across it.
+          STAGE="$RUNNER_TEMP/dmg"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          ditto "$APP_PATH" "$STAGE/$(basename "$APP_PATH")"
+          ln -s /Applications "$STAGE/Applications"
+
+          hdiutil create -volname "Maple" -srcfolder "$STAGE" \
+            -ov -format UDZO "$DMG"
+
+          # A DMG is signed as its own artifact; the app inside keeps the
+          # signature the export gave it.
+          codesign --sign "Developer ID Application" --timestamp "$DMG"
+          codesign --verify --verbose=2 "$DMG"
+
+          echo "Notarizing $DMG"
+          xcrun notarytool submit "$DMG" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$APPSTORE_KEY_ID" \
+            --issuer "$APPSTORE_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+
+          # What a user's Mac will conclude about this download.
+          spctl -a -t open --context context:primary-signature -vv "$DMG"
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: ${{ runner.temp }}/out/*.zip
+          path: ${{ runner.temp }}/out/*.dmg
           if-no-files-found: error
 
       # The release Mac is a real user session, not a VM that gets thrown
@@ -571,9 +614,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Name what ships. Without a pattern this downloads every artifact
+      # the run produced, and `dist/*` then uploads them all — which is how
+      # `memlog.txt`, the archive memory sampler, became a public download
+      # on v0.0.2 (#3367). Diagnostics stay on the workflow run.
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: '*-app'
           merge-multiple: true
 
       - name: Create release
