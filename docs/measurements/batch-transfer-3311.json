@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-06T17:09:24.168Z",
+  "runtime": "v24.14.0",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M5 Max",
+  "imageCount": 2000,
+  "originalBytes": 3034079453,
+  "extensions": [".jpg", ".cr2", ".heic", ".jpeg"],
+  "operation": "All tone-group values; real LibraryState.updateAdjustment, canonical XMP reread, debounce flush, atomic filesystem close, per-asset durable ledger",
+  "previewScope": "Derived-preview scheduling is live and bounded to one original fetch/decode at a time; completion measures authoritative sidecar commits, not derived preview completion.",
+  "seconds": 97.780270958,
+  "assetsPerSecond": 20.454023908964917,
+  "baselineRssBytes": 241811456,
+  "peakRssBytes": 340623360,
+  "incrementalRssBytes": 98811904,
+  "baselineHeapBytes": 113861576,
+  "peakHeapBytes": 174051584,
+  "eventLoopP99Ms": 162.922495,
+  "eventLoopMaxMs": 439.353343,
+  "budget": {
+    "maximumSeconds": 120,
+    "maximumIncrementalRssBytes": 536870912
+  },
+  "applied": 2000,
+  "failed": 0
+}

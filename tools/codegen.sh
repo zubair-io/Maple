@@ -98,6 +98,10 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment --target ts        --out "$TS_OUT"
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 
+"$BIN" --schema batch-transfer --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/BatchTransfer+Generated.swift"
+"$BIN" --schema batch-transfer --target ts --out "src/web/projects/maple-common/src/lib/generated/batch-transfer.generated.ts"
+"$BIN" --schema batch-transfer-api --target ts --out "src/api/src/generated/batch-transfer.generated.ts"
+
 # Field transfer decisions (#3311), split to preserve generated-file headroom.
 "$BIN" --schema adjustment-transfer --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentTransfer+Generated.swift"
 "$BIN" --schema adjustment-transfer --target ts --out "src/web/projects/maple-common/src/lib/generated/adjustment-transfer.generated.ts"

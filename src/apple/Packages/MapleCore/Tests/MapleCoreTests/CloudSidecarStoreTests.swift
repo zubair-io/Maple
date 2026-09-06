@@ -1,5 +1,6 @@
 // CloudSidecarStoreTests.swift
 import XCTest
+
 @testable import MapleCore
 
 final class CloudSidecarStoreTests: XCTestCase {
@@ -52,8 +53,9 @@ final class CloudSidecarStoreTests: XCTestCase {
   func test_flush_PUTsSerializedXml() async throws {
     let server = URL(string: "https://x")!
     let session = URLSession.stubbedSequence { req in
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 204,
-                                 httpVersion: "HTTP/1.1", headerFields: nil)!
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: req.httpMethod == "GET" ? 404 : 204,
+        httpVersion: "HTTP/1.1", headerFields: nil)!
       return (Data(), resp)
     }
     let store = CloudSidecarStore(
@@ -72,4 +74,46 @@ final class CloudSidecarStoreTests: XCTestCase {
     let xml = String(data: body ?? Data(), encoding: .utf8) ?? ""
     XCTAssertTrue(xml.contains("xmpmeta"))
   }
+  func testConfirmedWritePreservesMetadataAndForeignXMLUpdatedAfterLoad() async throws {
+    let server = URL(string: "https://batch-preservation")!
+    let document = TransferRemoteDocument(
+      XMPSerializer.serialize(model: .default, culling: CullingState()))
+    let session = URLSession.stubbedSequence { request in
+      if request.httpMethod == "GET" {
+        return (
+          Data(document.read().utf8),
+          HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        )
+      }
+      return (
+        Data(),
+        HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+      )
+    }
+    let store = CloudSidecarStore(
+      server: server, assetID: "asset",
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    _ = try await store.load()
+    document.write(XMPPassthroughTests.lightroomSidecar)
+    var model = AdjustmentModel.default
+    model.exposure = 1.75
+    try await store.writeConfirmed(model: model, culling: CullingState(stars: 4))
+    let body = try XCTUnwrap(
+      URLProtocolStub.capturedBodies["https://batch-preservation/api/assets/asset/xmp"])
+    let written = String(decoding: body, as: UTF8.self)
+    XCTAssertEqual(XMPParser.parseMetadata(written), XMPParser.parseMetadata(document.read()))
+    XCTAssertEqual(
+      XMPParser.parsePassthrough(data: body),
+      XMPParser.parsePassthrough(data: Data(document.read().utf8)))
+    XCTAssertEqual(try XMPParser.parse(data: body).0.exposure, 1.75)
+  }
+
+}
+
+private final class TransferRemoteDocument: @unchecked Sendable {
+  private let lock = NSLock()
+  private var xml: String
+  init(_ xml: String) { self.xml = xml }
+  func read() -> String { lock.withLock { xml } }
+  func write(_ value: String) { lock.withLock { xml = value } }
 }

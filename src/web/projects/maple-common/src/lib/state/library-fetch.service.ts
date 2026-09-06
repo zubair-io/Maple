@@ -1244,6 +1244,17 @@ export class LibraryFetch {
     return write;
   }
 
+  /** Await only the selected asset, retaining per-asset batch failures. */
+  flushSidecarWrite(id: AssetId): Promise<void> {
+    if (this.store.backend !== 'self-hosted') return this.xmpStore.flushAsset(id);
+    const timer = this._apiXmpTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this._apiXmpTimers.delete(id);
+    if (this._apiXmpPending.has(id)) return this._flushApiXmpWrite(id);
+    const inFlight = this._apiXmpInFlight.get(id);
+    return inFlight ?? Promise.reject(new Error('No writable sidecar path for this photo.'));
+  }
+
   /**
    * Flush all pending sidecar writes immediately (call from beforeunload).
    * Covers both Hosted (FS Access) and Self-Hosted (Bun API) paths.

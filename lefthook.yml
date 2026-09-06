@@ -42,9 +42,9 @@ pre-commit:
       glob: '*.{ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql}'
       run: |
         if command -v prettier >/dev/null 2>&1; then
-          prettier --check {staged_files}
+          prettier --check --config src/web/.prettierrc {staged_files}
         elif [ -x src/web/node_modules/.bin/prettier ]; then
-          src/web/node_modules/.bin/prettier --check {staged_files}
+          src/web/node_modules/.bin/prettier --check --config src/web/.prettierrc {staged_files}
         else
           echo "lefthook: prettier not installed — skipping (CI will gate)"
         fi
@@ -54,7 +54,7 @@ pre-commit:
       glob: '*.rs'
       run: |
         if command -v rustfmt >/dev/null 2>&1; then
-          rustfmt --edition 2021 --check {staged_files}
+          rustfmt --edition 2021 --config skip_children=true --check {staged_files}
         else
           echo "lefthook: rustfmt not installed — skipping (CI will gate)"
         fi

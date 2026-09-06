@@ -1,138 +1,60 @@
-// BatchSyncService — the Angular face of the batch transfer runner (#2436).
-//
-// Owns the one thing the pure runner deliberately does not: the live state a
-// UI binds to. One run at a time (starting a second while one is in flight is
-// refused rather than interleaved, so the progress row can never describe two
-// runs at once), a cancel flag the runner polls, and the last summary — which
-// is what "Retry failed" re-runs from.
-
-import { Injectable, computed, inject, signal } from '@angular/core';
-import { PERSISTED_BATCH_SYNC } from './persisted-batch-sync';
-import { LibraryStateService } from '../../state/library-state.service';
-import type { AssetId } from '../../models/asset';
+import { Injectable, Injector, computed, inject, signal } from '@angular/core';
+import { PERSISTED_BATCH_SYNC, type PersistedBatchSync } from './persisted-batch-sync';
 import type { AdjustmentModel } from '../../models/adjustment-model';
-import {
-  type BatchProgress,
-  type BatchSummary,
-  batchSummaryText,
-  retryableIds,
-  runBatchTransfer,
-} from './batch-sync';
+import type { AdjustmentTransferRequest } from './adjustment-transfer';
+import { batchSummaryText, type BatchSummary } from './batch-sync';
 
+/** Platform facade. Both deployments persist outcomes; browser I/O loads lazily. */
 @Injectable({ providedIn: 'root' })
 export class BatchSyncService {
-  private readonly library = inject(LibraryStateService);
-  private readonly persisted = inject(PERSISTED_BATCH_SYNC, { optional: true });
-  readonly error = computed(() => this.persisted?.error() ?? null);
-  readonly remaining = computed(() => this.persisted?.remaining() ?? []);
-  readonly needsReconnect = computed(() => this.persisted?.needsReconnect() ?? false);
+  private readonly injector = inject(Injector);
+  private readonly persisted = signal(inject(PERSISTED_BATCH_SYNC, { optional: true }));
+  private readonly initializing = this.initialize();
+  readonly error = computed(() => this.persisted()?.error() ?? null);
+  readonly remaining = computed(() => this.persisted()?.remaining() ?? []);
+  readonly needsReconnect = computed(() => this.persisted()?.needsReconnect() ?? false);
+  readonly progress = computed(() => this.persisted()?.progress() ?? null);
+  readonly lastSummary = computed(() => this.persisted()?.lastSummary() ?? null);
+  readonly running = computed(() => this.progress() !== null);
+  readonly percent = computed(() => {
+    const p = this.progress();
+    return p && p.total > 0 ? Math.round((p.processed / p.total) * 100) : null;
+  });
+  readonly summaryText = computed(() => {
+    const summary = this.lastSummary();
+    return summary ? batchSummaryText(summary) : null;
+  });
+  readonly failedIds = computed(() => this.lastSummary()?.failed.map((f) => f.id) ?? []);
+
+  private async initialize(): Promise<PersistedBatchSync> {
+    if (this.persisted()) return this.persisted()!;
+    const { HostedBatchSyncService } = await import('./hosted-batch-sync.service');
+    const service = this.injector.get(HostedBatchSyncService);
+    this.persisted.set(service);
+    return service;
+  }
+
+  async apply(
+    ids: readonly string[],
+    patch: Partial<AdjustmentModel>,
+    transfer?: AdjustmentTransferRequest,
+  ): Promise<BatchSummary<string> | null> {
+    const runner = this.persisted() ?? (await this.initializing);
+    return runner.apply(ids, patch, transfer);
+  }
+  retryFailed(_patch?: Partial<AdjustmentModel>): Promise<BatchSummary<string> | null> {
+    return this.persisted()?.retryFailed() ?? Promise.resolve(null);
+  }
   resume(): void {
-    void this.persisted?.resume();
+    void this.persisted()?.resume();
   }
   reconnect(): void {
-    void this.persisted?.reconnect();
+    void this.persisted()?.reconnect();
   }
-
-  /** Live progress while a run is in flight; `null` when idle. */
-  private readonly localProgress = signal<BatchProgress<AssetId> | null>(null);
-  readonly progress = computed(() =>
-    this.persisted ? this.persisted.progress() : this.localProgress(),
-  );
-
-  /** The most recent finished run, kept so its failures can be retried. */
-  private readonly localSummary = signal<BatchSummary<AssetId> | null>(null);
-  readonly lastSummary = computed(() =>
-    this.persisted ? this.persisted.lastSummary() : this.localSummary(),
-  );
-
-  private cancelRequested = false;
-  private inFlight = false;
-
-  /** True while a run is in flight. */
-  readonly running = computed(() => this.progress() !== null);
-
-  /** Percent complete, or `null` when idle. */
-  readonly percent = computed<number | null>(() => {
-    const p = this.progress();
-    if (!p || p.total === 0) return null;
-    return Math.round((p.processed / p.total) * 100);
-  });
-
-  /** One line describing the last finished run, or `null` before the first. */
-  readonly summaryText = computed<string | null>(() => {
-    const s = this.lastSummary();
-    return s ? batchSummaryText(s) : null;
-  });
-
-  /** Assets the last run could not write — what `retryFailed` re-runs. */
-  readonly failedIds = computed<readonly AssetId[]>(() => {
-    const s = this.lastSummary();
-    return s ? retryableIds(s) : [];
-  });
-
-  /**
-   * Write `patch` onto every id in `ids`.
-   *
-   * Resolves with the summary, or `null` when a run is already in flight
-   * (the caller's request is refused, not queued). A failure on one asset is
-   * recorded and the run continues; cancelling stops it where it stands and
-   * leaves everything written so far written.
-   */
-  async apply(
-    ids: readonly AssetId[],
-    patch: Partial<AdjustmentModel>,
-  ): Promise<BatchSummary<AssetId> | null> {
-    if (this.persisted) return this.persisted.apply(ids, patch);
-    if (this.inFlight) return null;
-    this.inFlight = true;
-    this.cancelRequested = false;
-    this.localProgress.set(null);
-    // Clear the previous run's summary up front: progress stays null until
-    // the first asset finishes, and the banner falls through to the summary
-    // whenever progress is null — so leaving it would show the last run's
-    // result for a moment while this one is already writing, with no Cancel
-    // (Copilot review on #3312).
-    this.localSummary.set(null);
-    try {
-      const summary = await runBatchTransfer<AssetId>(
-        ids,
-        (id) => this.library.updateAdjustment(id, patch),
-        {
-          onProgress: (p) => this.localProgress.set(p),
-          isCancelled: () => this.cancelRequested,
-        },
-      );
-      this.localSummary.set(summary);
-      return summary;
-    } finally {
-      this.localProgress.set(null);
-      this.inFlight = false;
-    }
-  }
-
-  /** Re-run the last summary's failures with `patch`. */
-  retryFailed(patch?: Partial<AdjustmentModel>): Promise<BatchSummary<AssetId> | null> {
-    if (this.persisted) return this.persisted.retryFailed();
-    if (!patch) return Promise.resolve(null);
-    const ids = this.failedIds();
-    return ids.length === 0 ? Promise.resolve(null) : this.apply(ids, patch);
-  }
-
-  /** Ask the in-flight run to stop after the asset it is on. */
   cancel(): void {
-    if (this.persisted) {
-      this.persisted.cancel();
-      return;
-    }
-    this.cancelRequested = true;
+    this.persisted()?.cancel();
   }
-
-  /** Clear the last summary — dismisses the result row. */
   dismissSummary(): void {
-    if (this.persisted) {
-      this.persisted.dismissSummary();
-      return;
-    }
-    this.localSummary.set(null);
+    this.persisted()?.dismissSummary();
   }
 }

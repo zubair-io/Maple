@@ -20,6 +20,7 @@
         </mui-button>
       </div>
     }
+    <ng-content />
     @for (group of groups(); track group.id) {
       <div class="group flex flex-col gap-1">
         <mui-checkbox

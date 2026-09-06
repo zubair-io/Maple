@@ -14,12 +14,12 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
-import { getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
+import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 
 import { parseExportPayload } from '../export/export-payload.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
 import { batchSyncJobRoutes } from './jobs-batch-sync.ts';
-import { createJobResponse } from './jobs-create.ts';
+import { createdJobResponse } from './jobs-create.ts';
 
 const KNOWN_KINDS: ReadonlySet<JobKind> = new Set([
   'batch_jpeg_export',
@@ -123,13 +123,15 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
           };
         }
       }
-      const created = await createJobResponse({
-        kind: body.kind as JobKind,
-        payload: body.payload as Record<string, unknown>,
-        requestId: body.requestId,
-      });
-      set.status = created.status;
-      return created.body;
+      return createdJobResponse(
+        () =>
+          createJob({
+            kind: body.kind as JobKind,
+            payload: body.payload,
+            requestId: body.requestId,
+          }),
+        set,
+      );
     },
     { body: CreateBody },
   )

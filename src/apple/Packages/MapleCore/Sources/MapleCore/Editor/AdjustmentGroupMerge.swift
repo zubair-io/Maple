@@ -13,12 +13,9 @@
 import Foundation
 
 public enum AdjustmentGroupMerge {
-  /// Returns `target` with every field named by `groups` overwritten from
-  /// `source`. Field names the Swift model doesn't carry (`wb_method`,
-  /// `tone_curve_mode`, the `tone_curve_luma/red/green/blue` point-curve
-  /// fields, `temperature_seen`, `tint_seen`) are silently skipped — the
-  /// same passthrough rule `PresetAdjustments` uses for schema fields a
-  /// newer client version might add. Does not mutate either argument.
+  /// Copy whole generated groups, including neutral values and both curve
+  /// families. Unsupported fields remain the target's own values. Swift
+  /// does not model the Rust-only temperature/tint presence flags.
   public static func merged(
     _ target: AdjustmentModel,
     applying source: AdjustmentModel,
@@ -26,7 +23,7 @@ public enum AdjustmentGroupMerge {
   ) -> AdjustmentModel {
     var merged = target
     for group in groups {
-      for name in group.fieldNames {
+      for name in group.fieldNames where adjustmentTransferModes[name] != .unsupported {
         apply(name, from: source, into: &merged)
       }
     }
@@ -100,8 +97,30 @@ public enum AdjustmentGroupMerge {
       merged.lensProfileEnable = source.lensProfileEnable
     case .wbSource:
       merged.wbSource = source.wbSource
+    case .wbMethod:
+      merged.wbMethod = source.wbMethod
+    case .toneCurveMode:
+      merged.toneCurveMode = source.toneCurveMode
+    case .toneCurveLuma:
+      merged.toneCurveLuma = source.toneCurveLuma
+    case .toneCurveRed:
+      merged.toneCurveRed = source.toneCurveRed
+    case .toneCurveGreen:
+      merged.toneCurveGreen = source.toneCurveGreen
+    case .toneCurveBlue:
+      merged.toneCurveBlue = source.toneCurveBlue
+    case .displayToneCurveLuma:
+      merged.displayToneCurveLuma = source.displayToneCurveLuma
+    case .displayToneCurveRed:
+      merged.displayToneCurveRed = source.displayToneCurveRed
+    case .displayToneCurveGreen:
+      merged.displayToneCurveGreen = source.displayToneCurveGreen
+    case .displayToneCurveBlue:
+      merged.displayToneCurveBlue = source.displayToneCurveBlue
+    case .filmLook:
+      merged.filmLook = source.filmLook
     default:
-      break  // wb_method, tone_curve_mode, capture_sharpening_radius — no Swift property.
+      break  // Presence flags and unsupported capture radius have no Swift value.
     }
   }
 }
