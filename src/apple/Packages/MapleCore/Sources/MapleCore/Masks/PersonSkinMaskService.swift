@@ -10,6 +10,7 @@
 // opinion on decode quality or crop state.
 
 import CoreGraphics
+import Foundation
 import Vision
 
 public struct PersonCandidate: Sendable, Identifiable, Equatable {
@@ -52,7 +53,7 @@ public actor PersonSkinMaskService {
         let request = VNGeneratePersonInstanceMaskRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
-            try handler.perform([request])
+            try await Self.perform(handler, [request])
         } catch {
             throw PersonSkinMaskError.visionFailed(error.localizedDescription)
         }
@@ -77,7 +78,7 @@ public actor PersonSkinMaskService {
         let personRequest = VNGeneratePersonInstanceMaskRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
-            try handler.perform([personRequest])
+            try await Self.perform(handler, [personRequest])
         } catch {
             throw PersonSkinMaskError.visionFailed(error.localizedDescription)
         }
@@ -101,7 +102,7 @@ public actor PersonSkinMaskService {
 
         if !request.facialSkin || !request.bodySkin {
             let faceRequest = VNDetectFaceRectanglesRequest()
-            try? handler.perform([faceRequest])
+            try? await Self.perform(handler, [faceRequest])
             let faceMask = rasterizeFaceBoxes(
                 (faceRequest.results ?? []).map { $0.boundingBox },
                 width: image.width, height: image.height, dilate: 1.2
@@ -117,6 +118,25 @@ public actor PersonSkinMaskService {
 
     // MARK: - Private helpers
 
+    /// `VNImageRequestHandler.perform` is synchronous, CPU-bound and slow
+    /// (hundreds of ms for the instance-mask model). Run inside the actor it
+    /// would pin one of Swift's cooperative-pool threads for that long and
+    /// starve every other task in the app (#3284 review) — so it runs on a
+    /// GCD queue and the actor only awaits the result.
+    private static func perform(_ handler: VNImageRequestHandler, _ requests: [VNRequest]) async throws {
+        let box = UncheckedSendable((handler, requests))
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try box.value.0.perform(box.value.1)
+                    cont.resume()
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     /// Exact top-left-origin normalized bounding box per instance label,
     /// scanned directly from the observation's own labeled pixel buffer
     /// (0 = background, N = the Nth instance). `VNInstanceMaskObservation`
@@ -131,13 +151,22 @@ public actor PersonSkinMaskService {
         let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
         guard let base = CVPixelBufferGetBaseAddress(buffer), w > 0, h > 0 else { return [:] }
 
-        var minX = [Int: Int](), maxX = [Int: Int](), minY = [Int: Int](), maxY = [Int: Int]()
+        // Fixed-size arrays rather than dictionaries: this visits every
+        // pixel of a ~1MP buffer and a hashed lookup per pixel is most of
+        // the scan's cost (#3284 review). Labels are instance indices —
+        // Vision's 8-bit buffers cap them at 255, and no image has more
+        // people than that.
+        let labelCap = 256
+        var minX = [Int](repeating: Int.max, count: labelCap)
+        var maxX = [Int](repeating: Int.min, count: labelCap)
+        var minY = [Int](repeating: Int.max, count: labelCap)
+        var maxY = [Int](repeating: Int.min, count: labelCap)
         func visit(_ label: Int, _ x: Int, _ y: Int) {
-            guard label != 0 else { return }
-            minX[label] = Swift.min(minX[label] ?? x, x)
-            maxX[label] = Swift.max(maxX[label] ?? x, x)
-            minY[label] = Swift.min(minY[label] ?? y, y)
-            maxY[label] = Swift.max(maxY[label] ?? y, y)
+            guard label > 0, label < labelCap else { return }
+            if x < minX[label] { minX[label] = x }
+            if x > maxX[label] { maxX[label] = x }
+            if y < minY[label] { minY[label] = y }
+            if y > maxY[label] { maxY[label] = y }
         }
 
         let pixelFormat = CVPixelBufferGetPixelFormatType(buffer)
@@ -157,8 +186,8 @@ public actor PersonSkinMaskService {
         }
 
         var out = [Int: CGRect]()
-        for label in labels {
-            guard let x0 = minX[label], let x1 = maxX[label], let y0 = minY[label], let y1 = maxY[label] else { continue }
+        for label in labels where label > 0 && label < labelCap && maxX[label] >= minX[label] {
+            let (x0, x1, y0, y1) = (minX[label], maxX[label], minY[label], maxY[label])
             out[label] = CGRect(
                 x: CGFloat(x0) / CGFloat(w),
                 y: CGFloat(y0) / CGFloat(h),
@@ -214,4 +243,12 @@ public actor PersonSkinMaskService {
         }
         return out
     }
+}
+
+/// Carries the non-`Sendable` Vision handler across the GCD hop in
+/// `PersonSkinMaskService.perform`. Sound because the actor awaits the
+/// continuation before touching the handler again — nothing else holds it.
+private struct UncheckedSendable<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }
