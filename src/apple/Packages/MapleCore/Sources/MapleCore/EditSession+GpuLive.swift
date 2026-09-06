@@ -366,8 +366,8 @@ extension EditSession {
   /// The post-prescale pixel dims the GPU session/layer use for `decoded` at
   /// `targetSize` — the exact extent `sceneLinearFloats` produces, computed
   /// WITHOUT a readback so the open/no-op decision is cheap. Runs the same
-  /// `prescaleForDisplay` the readback does (off the pipeline actor) and reads
-  /// the resulting extent. `nil` on a degenerate extent.
+  /// crop calculation as the readback without building its CoreImage graph.
+  /// `nil` on a degenerate extent.
   private static func gpuTargetDims(
     for decoded: CIImage,
     targetSize: CGSize?,
