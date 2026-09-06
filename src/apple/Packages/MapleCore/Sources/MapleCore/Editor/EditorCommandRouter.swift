@@ -9,6 +9,7 @@ public final class EditorCommandRouter {
     case undo, redo, resetGroup, fit, actualSize, zoomIn, zoomOut
     case pan(x: Double, y: Double)
     case nudge(Int)
+    case nudgeRelease
     case group(Int)
     case compareToggle, comparePress, compareRelease
   }
@@ -18,6 +19,9 @@ public final class EditorCommandRouter {
   public private(set) var isActive = true
   private var comparePressedAt: ContinuousClock.Instant?
   private var compareWasLatched = false
+  private var nudgeTransactionID: UInt64?
+  private var nudgeTool: Tool?
+  private var nudgeSubParamID: String?
 
   public init(state: EditorState) {
     self.state = state
@@ -29,6 +33,10 @@ public final class EditorCommandRouter {
   @discardableResult
   public func perform(_ command: Command, assetID: UUID) -> Bool {
     guard isActive, assetID == state.session.asset.id else { return false }
+    switch command {
+    case .nudge, .nudgeRelease: break
+    default: finishNudge()
+    }
     switch command {
     case .undo:
       state.cancelGesture()
@@ -48,9 +56,19 @@ public final class EditorCommandRouter {
       guard state.armedToolAcceptsValueEdits else { return false }
       let next = DragBarMath.clamp(state.armedInternalValue + Double(direction) * 10)
       guard next != state.armedInternalValue else { return true }
-      state.commit()
+      if nudgeTransactionID != state.session.transactions.nextID || nudgeTool != state.armedTool
+        || nudgeSubParamID != state.armedSubParamId
+      {
+        finishNudge()
+        state.commit()
+        state.beginGesture()
+        nudgeTransactionID = state.session.transactions.nextID
+        nudgeTool = state.armedTool
+        nudgeSubParamID = state.armedSubParamId
+      }
       state.setArmedInternalValue(next)
-      state.session.endEdit()
+    case .nudgeRelease:
+      finishNudge()
     case .group(let direction):
       state.endGesture()
       let groups = ToolGroup.allCases
@@ -74,6 +92,19 @@ public final class EditorCommandRouter {
     return true
   }
 
+  /// A held global value key has one boundary, including deferred controls.
+  /// A newer tool/transaction owns its own gesture and must not be closed here.
+  public func finishNudge() {
+    let ownsGesture =
+      nudgeTransactionID != nil
+      && nudgeTransactionID == state.session.transactions.nextID
+      && nudgeTool == state.armedTool && nudgeSubParamID == state.armedSubParamId
+    nudgeTransactionID = nil
+    nudgeTool = nil
+    nudgeSubParamID = nil
+    if ownsGesture { state.endGesture() }
+  }
+
   public func cancelCompare() {
     guard comparePressedAt != nil else { return }
     comparePressedAt = nil
@@ -84,6 +115,7 @@ public final class EditorCommandRouter {
   /// value, and reject every later callback from this view's old identity.
   public func deactivate() {
     cancelCompare()
+    nudgeTransactionID = nil
     state.cancelGesture()
     state.session.endEdit()
     isActive = false
