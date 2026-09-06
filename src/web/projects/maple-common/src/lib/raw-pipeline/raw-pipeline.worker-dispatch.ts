@@ -1,3 +1,4 @@
+import { NativeDetailSupersededError } from './raw-pipeline.native-detail.types';
 // Worker message dispatch — extracted from `raw-pipeline.service.ts` (#2314) so
 // that file stays inside the 600-line hard budget. This was the single largest
 // concern left in the service: the `message` listener's per-response-type routing,
@@ -186,6 +187,16 @@ const settleExport: Settler<'export'> = (msg, handler) => {
 /** Pick the settler for `handler.kind` and report whether it recognised `msg`. */
 function settleByKind(msg: WorkerResponse, handler: PendingHandler): boolean {
   switch (handler.kind) {
+    case 'native-detail':
+      if (msg.type === 'native-detail-success') {
+        handler.resolve({ width: msg.width, height: msg.height, rgb: new Uint8Array(msg.rgb) });
+        return true;
+      }
+      if (msg.type === 'native-detail-error') {
+        handler.reject(msg.superseded ? new NativeDetailSupersededError() : new Error(msg.message));
+        return true;
+      }
+      return false;
     case 'legacy':
       return settleLegacy(msg, handler);
     case 'scene-linear':

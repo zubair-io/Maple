@@ -65,6 +65,11 @@ export interface RenderedLiveSession {
 /** Discriminated union of all pending worker-request handler entries. */
 export type PendingHandler =
   | {
+      kind: 'native-detail';
+      resolve: (pixels: import('./raw-pipeline.native-detail.types').NativeDetailPixels) => void;
+      reject: (error: Error) => void;
+    }
+  | {
       kind: 'legacy';
       resolve: (img: DecodedImage) => void;
       reject: (err: Error) => void;

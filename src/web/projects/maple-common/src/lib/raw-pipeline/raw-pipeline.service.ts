@@ -38,6 +38,8 @@ export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { CanvasColorSpacePref } from './canvas-color-space.pref';
 import { isNonRawExtension } from '../state/raw-extensions';
+import { NativeDetailClient } from './raw-pipeline.native-detail';
+import type { NativeDetailArgs, NativeDetailPixels } from './raw-pipeline.native-detail.types';
 import type {
   OpenedLiveSession,
   PendingHandler,
@@ -111,6 +113,7 @@ export class RawPipelineService implements OnDestroy {
       this.worker.addEventListener('error', (e) => {
         console.error('RawPipelineWorker error:', e.message);
         this.deepDenoiseProgress.set(null);
+        this.detailClient.workerFailed();
         // Reject all pending on worker crash.
         this.pending.forEach(({ reject }) => reject(new Error(`Worker error: ${e.message}`)));
         this.pending.clear();
@@ -130,6 +133,23 @@ export class RawPipelineService implements OnDestroy {
   // abort with `RuntimeError: unreachable`. Queue them here so exactly one
   // decode sits in the worker at any moment.
   private decodeChain: Promise<unknown> = Promise.resolve();
+  private readonly detailClient = new NativeDetailClient(
+    () => this.ensureWorker(),
+    () => this.nextId++,
+    this.pending,
+  );
+
+  renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
+    const revision = this.detailClient.revision();
+    const run = () => this.detailClient.render(args, revision);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  closeNativeDetail(): void {
+    this.detailClient.close();
+  }
 
   /**
    * @param maxLongEdge Cap the render's long edge in REAL (backing-store)
@@ -180,6 +200,7 @@ export class RawPipelineService implements OnDestroy {
     // `develop_non_raw` entry — so this DOES join the serialization gate and
     // DOES cross into the worker, unlike the pre-#3039 version of this
     // comment, which decoded once and never touched WASM again.
+    this.closeNativeDetail();
     const run = isNonRawExtension(ext)
       ? () =>
           developNonRaw(

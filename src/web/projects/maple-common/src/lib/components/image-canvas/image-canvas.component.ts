@@ -51,6 +51,7 @@ import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
+import { createNativeDetail } from './image-canvas.native-detail-host';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
 @Component({
@@ -115,11 +116,16 @@ export class ImageCanvasComponent
   // Fast/refine scheduling lives in `image-canvas.two-phase.ts` (the full
   // phase contract is documented there); this component supplies the host
   // surface (targets, generation, `runRender`).
+  readonly nativeDetail = createNativeDetail(
+    this,
+    () => this.gpuPresent.active() || this.cropSession.active(),
+  );
   private readonly twoPhase = new TwoPhaseRenderScheduler({
     currentGeneration: () => this.renderGeneration,
     fastTargetPx: () => this.fastTargetPx(),
     refineTargetPx: () => this.refineTargetPx(),
     gpuActive: () => this.gpuPresent.active(),
+    tryNativeDetail: (xmp, generation) => this.nativeDetail.render(xmp, generation),
     runRender: (xmp, generation, sizing) => this.runRender(xmp, generation, sizing),
   });
   // Retained focused-asset input; worker decode transfers a copy. Public for
@@ -144,22 +150,11 @@ export class ImageCanvasComponent
   renderGeneration = 0;
   // Long edge of the bitmap currently painted; refine runs only when sharper.
   private paintedLongEdge = 0;
-  // Gate the adjustment effect until the cold-open decode has finished and
-  // recorded `lastRenderedXmp`. Without this, the synchronous-bytes path sets
-  // `currentBytes` before `await decode` yields, so the adjustment effect can
-  // fire in the same flush with the *pre-seed* default model and a null
-  // `lastRenderedXmp` — scheduling a spurious `Some(xmp)` decode that, lacking
-  // crs:Temperature, skips raw-core's As-Shot WB substitution and renders at
-  // the 6500K default. The gate suppresses that pre-seed run and the As-Shot
-  // seed's re-fire; the first genuine edit (post cold open) flows normally.
+  // Cold open seeds As-Shot WB before the adjustment effect may render.
+  // Otherwise the synchronous-byte path can queue a pre-seed 6500K decode.
   private coldOpenDone = false;
-  // The XMP the canvas currently reflects. Cold-open's no-XMP decode records
-  // its post-seed model here so the adjustment effect dedups two
-  // harmless-but-redundant fires: (1) its synchronous first run on asset
-  // switch, and (2) the As-Shot WB seed's model write (which round-trips to the
-  // same white balance raw-core already used on cold open). A genuine edit
-  // changes the serialized XMP and passes the dedup. Public (`GpuPresentHost`)
-  // so the GPU cold-open shares the same dedup key as the 2D path.
+  // Cold open records its seeded model to deduplicate the WB-seed effect.
+  // Genuine edits change this key. Shared with the GPU cold-open host.
   lastRenderedXmp: string | null = null;
 
   // Zoom + gesture wiring (#1100) — extracted to `image-canvas.zoom-host.ts`
@@ -239,6 +234,10 @@ export class ImageCanvasComponent
       () => {
         const a = this.state.focusedAsset();
         if (!a) {
+          this.nativeDetail.reset();
+          this.currentAssetId = null;
+          this.renderGeneration++;
+          this.clearRerenderTimers();
           this.imageBitmap.set(null);
           this.canvasSvc.currentPixels.set(null);
           return;
@@ -255,6 +254,7 @@ export class ImageCanvasComponent
         // bound to that image's dims; a new asset opens a fresh session + canvas).
         this.gpuPresent.teardown();
         this.filmSync.reset();
+        this.nativeDetail.reset();
         this.currentBytes = null;
         this.currentExt = '';
         this.rawOpen.reset();
@@ -362,6 +362,8 @@ export class ImageCanvasComponent
         const _ = this.canvasSvc.pixelScale();
         const __ = this.wrapW();
         const ___ = this.wrapH();
+        const ____ = this.canvasSvc.pan();
+        const _____ = this.canvasSvc.beforeAfterSplitX();
         if (!this.coldOpenDone || !this.currentBytes || this.gpuPresent.active()) return;
         const a = this.state.focusedAsset();
         if (!a || a.id !== this.currentAssetId) return;
@@ -381,6 +383,7 @@ export class ImageCanvasComponent
   }
 
   ngOnDestroy(): void {
+    this.nativeDetail.reset();
     this.ro?.disconnect();
     this.detachGestures?.();
     this.cleanupDecodeEffect?.();
@@ -484,6 +487,7 @@ export class ImageCanvasComponent
     // Bump the generation so any render already in flight (from an earlier
     // edit) drops its result instead of painting stale pixels.
     this.renderGeneration++;
+    this.nativeDetail.reset();
     this.twoPhase.schedule(xmp, this.renderGeneration);
   }
 
@@ -548,6 +552,7 @@ export class ImageCanvasComponent
       canvasH,
       pan: this.canvasSvc.pan(),
       bitmap: this.imageBitmap(),
+      detail: this.nativeDetail.visibleOverlay(),
       split: this.canvasSvc.beforeAfterSplitX(),
       gradientUrl: this.state.focusedAsset()?.thumbnailGradient,
     });

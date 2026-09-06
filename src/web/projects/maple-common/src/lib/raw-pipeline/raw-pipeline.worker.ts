@@ -31,6 +31,7 @@ import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
+import { handleNativeDetail, closeNativeDetail } from './raw-pipeline.native-detail-handler';
 import {
   handleOpenSession,
   handleRenderSession,
@@ -82,6 +83,12 @@ void ensureReady();
 addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   switch (req.type) {
+    case 'native-detail':
+      await handleNativeDetail(req);
+      return;
+    case 'close-native-detail':
+      closeNativeDetail();
+      return;
     case 'decode':
       await handleLegacyDecode(req);
       return;
