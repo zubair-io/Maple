@@ -42,8 +42,11 @@ final class WhiteBalanceAuthoringParityTests: XCTestCase {
     XCTAssertEqual(native.wbScaleVersion, web.wbScaleVersion)
     XCTAssertEqual(native.wbAlgorithmVersion, web.wbAlgorithmVersion)
 
-    let pixels: [Float] = (0..<256).flatMap { index in
-      [Float(index % 16) / 15, Float(index / 16) / 15, Float(index % 7) / 6, 1]
+    let pixels: [Float] = (0..<256).flatMap { index -> [Float] in
+      let red = Float(index % 16) / 15
+      let green = Float(index / 16) / 15
+      let blue = Float(index % 7) / 6
+      return [red, green, blue, 1]
     }
     let gpu = try GpuLiveSession(pixels: pixels, width: 16, height: 16)
     let nativeOutput = try await gpu.renderToBuffer(model: native)

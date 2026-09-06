@@ -96,7 +96,13 @@ public final class WhiteBalancePicker {
     model.wbSampleX = 0
     model.wbSampleY = 0
     model.wbAlgorithmVersion = 0
-    guard model != session.model else { return }
+    // Older models omit the named preset while already carrying As Shot
+    // provenance. Selecting the displayed value must not erase their redo.
+    var previous = session.model
+    if previous.wbSource == .asShot, previous.whiteBalancePreset == .custom {
+      previous.whiteBalancePreset = .asShot
+    }
+    guard model != previous else { return }
     session.beginEdit(description: "As Shot white balance")
     session.model = model
     session.endEdit()

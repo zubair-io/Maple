@@ -146,7 +146,7 @@ final class WhiteBalancePresetTests: XCTestCase {
         XCTAssertEqual(model.tint, -8)
         XCTAssertEqual(model.whiteBalancePreset, preset)
       }
-      let source = #"xmlns:papp="urn:justmaple:photo:1.0" papp:WbSource="Manual""#
+      let source = #"xmlns:papp="\#(XMPCanonical.pappNamespaceURI)" papp:WbSource="Manual""#
       for attrs in ["\(name) \(source)", "\(source) \(name)"] {
         let (model, _) = try XMPParser.parse(xml(attrs))
         XCTAssertEqual(model.wbSource, .manual, "An explicit source wins over the preset name")
