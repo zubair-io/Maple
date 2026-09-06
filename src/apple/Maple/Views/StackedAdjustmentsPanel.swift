@@ -8,12 +8,15 @@ import SwiftUI
 struct StackedAdjustmentsPanel: View {
   @Bindable var state: EditorState
   @Binding var collapsed: Set<ToolGroup>
+  let showsHeader: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     VStack(spacing: 0) {
-      panelHeader
-      Divider()
+      if showsHeader {
+        panelHeader
+        Divider()
+      }
       ScrollView(.vertical) {
         VStack(spacing: 0) {
           if state.armedTool == .crop {

@@ -72,8 +72,12 @@ import XCTest
       app.buttons["editor-undo"].click()
       XCTAssertEqual(blackWhite.value as? String, initial)
 
-      for width: CGFloat in [700, 1100] {
-        resize(window, width: width, height: 800)
+      for size in [
+        CGSize(width: 700, height: 800), CGSize(width: 1100, height: 800),
+        CGSize(width: 700, height: 450),
+      ] {
+        let width = size.width
+        resize(window, width: width, height: size.height)
         app.buttons["editor-dock-tool-crop"].click()
         XCTAssertTrue(app.buttons["editor-crop-done"].waitForExistence(timeout: 5))
         let panel = app.descendants(matching: .any)
@@ -81,7 +85,7 @@ import XCTest
         let clearHandles = XCTNSPredicateExpectation(
           predicate: NSPredicate { _, _ in
             let canvas = driver.canvasElement().frame
-            return canvas.width > 50 && canvas.height > 50
+            return canvas.width > 90 && canvas.height > 90
               && (width == 700
                 ? canvas.maxY < panel.frame.minY : canvas.maxX < panel.frame.minX)
           }, object: panel)

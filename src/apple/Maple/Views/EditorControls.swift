@@ -17,12 +17,20 @@ struct EditorControls: View {
 
   var body: some View {
     GeometryReader { geometry in
+      let shortCrop = isCompact && geometry.size.height < 500 && state.armedTool == .crop
       ScrollViewReader { proxy in
         arrangement {
-          StackedAdjustmentsPanel(state: state, collapsed: $collapsed)
-            .frame(width: isCompact ? nil : 320)
-            .frame(height: isCompact ? min(360, geometry.size.height * 0.40) : nil)
-            .frame(maxHeight: isCompact ? nil : .infinity)
+          StackedAdjustmentsPanel(
+            state: state, collapsed: $collapsed, showsHeader: !shortCrop
+          )
+          .frame(width: isCompact ? nil : 320)
+          // Keep a usable crop canvas in landscape phone windows. The
+          // crop toolbar includes its own Reset and Done actions.
+          .frame(
+            height: isCompact
+              ? (shortCrop ? 96 : min(360, geometry.size.height * 0.40)) : nil
+          )
+          .frame(maxHeight: isCompact ? nil : .infinity)
 
           ToolDock(
             state: state, onPresetsTap: onPresetsTap,
