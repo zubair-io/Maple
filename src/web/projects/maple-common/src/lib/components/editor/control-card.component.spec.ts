@@ -186,6 +186,42 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(updateAdjustment).toHaveBeenCalledTimes(3);
   });
 
+  it('manual Color sliders and resets clear AUTO provenance and preserve the other WB value', () => {
+    const { componentInstance, updateAdjustment } = render({ activeGroup: 'color' });
+    componentInstance.onSliderChange('temp', 5800);
+    expect(updateAdjustment).toHaveBeenLastCalledWith('asset-1', {
+      temperature: 5800,
+      tint: 0,
+      whiteBalancePreset: 'Custom',
+      wbSource: 'Manual',
+      wbSampleX: 0,
+      wbSampleY: 0,
+      wbAlgorithmVersion: 0,
+    });
+    componentInstance.onSliderReset('tint');
+    expect(updateAdjustment).toHaveBeenLastCalledWith(
+      'asset-1',
+      expect.objectContaining({
+        temperature: 6500,
+        tint: 0,
+        whiteBalancePreset: 'Custom',
+        wbSource: 'Manual',
+        wbAlgorithmVersion: 0,
+      }),
+    );
+    componentInstance.resetGroup();
+    expect(updateAdjustment).toHaveBeenLastCalledWith(
+      'asset-1',
+      expect.objectContaining({
+        whiteBalancePreset: 'Custom',
+        wbSource: 'Manual',
+        wbSampleX: 0,
+        wbSampleY: 0,
+        wbAlgorithmVersion: 0,
+      }),
+    );
+  });
+
   it('Undo after a drag restores the pre-gesture value (real EditorStateService)', () => {
     const lib = makeLibraryStub();
     const focusedAssetId = signal<string | null>('asset-1');

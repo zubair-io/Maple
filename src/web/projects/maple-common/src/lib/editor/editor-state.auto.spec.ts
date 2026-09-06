@@ -13,6 +13,7 @@ import { makeLibraryStub, type LibraryStub } from './editor-state.test-helpers';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
+import { AUTO_WB_ALGORITHM_VERSION } from '../generated/white-balance-presets.generated';
 import { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
 
 // Fake RawPipelineService — returns a configurable auto-adjust patch.
@@ -75,7 +76,7 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
     },
   );
 
-  it('writes exposure + the five calibrated tone sliders + autoExposure=Off — leaves white balance untouched (#2255)', async () => {
+  it('writes exposure, calibrated tone and corrected white balance with provenance', async () => {
     pipeline.patch = {
       exposure: 0.5,
       temperature: 5800,
@@ -93,7 +94,6 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
       whites: -10,
       blacks: -5,
     });
-    const before = lib.adjustmentFor(ID)();
     const ok = await svc.applyAuto(ID);
     expect(ok).toBe(true);
     const adj = lib.adjustmentFor(ID)();
@@ -106,9 +106,12 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
     expect(adj.whites).toBeCloseTo(pipeline.patch.whites, 9);
     expect(adj.blacks).toBeCloseTo(pipeline.patch.blacks, 9);
     expect(adj.autoExposure).toBe('Off');
-    // White balance is NOT touched — WB stays at As-Shot.
-    expect(adj.temperature).toBe(before.temperature);
-    expect(adj.tint).toBe(before.tint);
+    expect(adj.temperature).toBe(5800);
+    expect(adj.tint).toBe(5);
+    expect(adj.whiteBalancePreset).toBe('Auto');
+    expect(adj.wbSource).toBe('Auto');
+    expect(adj.wbAlgorithmVersion).toBe(AUTO_WB_ALGORITHM_VERSION);
+    expect(adj.wbScaleVersion).toBe(5);
     expect(svc.autoResult()).toBe('Auto applied · Exposure +0.50 EV');
 
     svc.bind('other-image');

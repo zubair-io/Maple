@@ -228,8 +228,8 @@ final class EditorStateAutoResetTests: XCTestCase {
 
   /// #2255 — #1376's calibrated tone sliders must land in the model
   /// byte-identically to how a user drag would (so undo / sidecar write /
-  /// render invalidation all see them), while white balance stays untouched.
-  func testApplyAutoAppliesExposureAndCalibratedToneLeavingWBUntouched() async {
+  /// render invalidation all see them), including the corrected white balance estimate.
+  func testApplyAutoAppliesExposureToneAndWhiteBalance() async {
     let session = makeFileBackedSession()
     let state = EditorState(session: session)
     state.autoProvider = { _ in
@@ -238,7 +238,7 @@ final class EditorStateAutoResetTests: XCTestCase {
         contrast: 12, highlights: -18, shadows: 22, whites: -6, blacks: -9
       )
     }
-    // Pre-set WB + a tone slider to prove AUTO overwrites tone but leaves WB.
+    // Pre-set WB + tone to prove both recommendations replace the previous values.
     var dirty = session.model
     dirty.contrast = 40
     dirty.temperature = 7000
@@ -255,10 +255,11 @@ final class EditorStateAutoResetTests: XCTestCase {
     XCTAssertEqual(after.shadows, 22, accuracy: 1e-9)
     XCTAssertEqual(after.whites, -6, accuracy: 1e-9)
     XCTAssertEqual(after.blacks, -9, accuracy: 1e-9)
-    // White balance is NOT touched by AUTO (gray-world unreliable) — keeps
-    // the pre-AUTO values.
-    XCTAssertEqual(after.temperature, 7000, accuracy: 1e-9)
-    XCTAssertEqual(after.tint, 12, accuracy: 1e-9)
+    XCTAssertEqual(after.temperature, 5200, accuracy: 1e-9)
+    XCTAssertEqual(after.tint, 8, accuracy: 1e-9)
+    XCTAssertEqual(after.whiteBalancePreset, .auto)
+    XCTAssertEqual(after.wbSource, .auto)
+    XCTAssertEqual(after.wbAlgorithmVersion, autoWhiteBalanceAlgorithmVersion)
     // #1387: AUTO's exposure is measured against an AE-Off probe, so
     // autoExposure must flip alongside exposure — otherwise a
     // Profile.neutral decode double-counts the AE anchor gain.
@@ -302,7 +303,7 @@ final class EditorStateAutoResetTests: XCTestCase {
         + "the recommendation against is the one that actually renders")
   }
 
-  func testApplyAutoClampsExposureAndToneAndIgnoresWB() async {
+  func testApplyAutoClampsExposureToneAndWB() async {
     let session = makeFileBackedSession()
     let state = EditorState(session: session)
     state.autoProvider = { _ in
@@ -319,10 +320,8 @@ final class EditorStateAutoResetTests: XCTestCase {
     XCTAssertEqual(m.shadows, AdjustmentModel.shadowsRange.upperBound, accuracy: 1e-9)
     XCTAssertEqual(m.whites, AdjustmentModel.whitesRange.lowerBound, accuracy: 1e-9)
     XCTAssertEqual(m.blacks, AdjustmentModel.blacksRange.upperBound, accuracy: 1e-9)
-    // WB is not applied — stays at the model default despite the huge
-    // injected temperature/tint.
-    XCTAssertEqual(m.temperature, AdjustmentModel.default.temperature, accuracy: 1e-9)
-    XCTAssertEqual(m.tint, AdjustmentModel.default.tint, accuracy: 1e-9)
+    XCTAssertEqual(m.temperature, AdjustmentModel.temperatureRange.upperBound, accuracy: 1e-9)
+    XCTAssertEqual(m.tint, AdjustmentModel.tintRange.upperBound, accuracy: 1e-9)
   }
 
   func testApplyAutoNoOpWhenOriginalBytesCannotBeRead() async {
@@ -387,6 +386,11 @@ final class EditorStateAutoResetTests: XCTestCase {
     XCTAssertEqual(onDisk.whites, -8, accuracy: 1e-9)
     XCTAssertEqual(onDisk.blacks, -12, accuracy: 1e-9)
     XCTAssertEqual(onDisk.autoExposure, .off)
+    XCTAssertEqual(onDisk.whiteBalancePreset, .auto)
+    XCTAssertEqual(onDisk.wbSource, .auto)
+    XCTAssertEqual(onDisk.wbAlgorithmVersion, autoWhiteBalanceAlgorithmVersion)
+    XCTAssertEqual(onDisk.temperature, applied.temperature)
+    XCTAssertEqual(onDisk.tint, applied.tint)
   }
 }
 

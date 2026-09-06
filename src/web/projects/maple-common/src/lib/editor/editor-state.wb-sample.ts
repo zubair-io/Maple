@@ -31,11 +31,25 @@ export function manualWbPatch(temperature: number, tint: number): Partial<Adjust
   return {
     temperature,
     tint,
+    whiteBalancePreset: 'Custom',
     wbSource: 'Manual',
     wbSampleX: 0,
     wbSampleY: 0,
     wbAlgorithmVersion: 0,
   };
+}
+
+/** A manual slider/reset patch preserves the other WB component and clears stale provenance. */
+export function manualAdjustmentPatch(
+  patch: Partial<AdjustmentModel>,
+  current: AdjustmentModel,
+): Partial<AdjustmentModel> {
+  return patch.temperature !== undefined || patch.tint !== undefined
+    ? {
+        ...patch,
+        ...manualWbPatch(patch.temperature ?? current.temperature, patch.tint ?? current.tint),
+      }
+    : patch;
 }
 
 export function sampledWbPatch(
