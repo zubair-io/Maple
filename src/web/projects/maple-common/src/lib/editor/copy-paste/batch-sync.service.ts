@@ -7,6 +7,7 @@
 // is what "Retry failed" re-runs from.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { PERSISTED_BATCH_SYNC } from './persisted-batch-sync';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { AssetId } from '../../models/asset';
 import type { AdjustmentModel } from '../../models/adjustment-model';
@@ -21,12 +22,28 @@ import {
 @Injectable({ providedIn: 'root' })
 export class BatchSyncService {
   private readonly library = inject(LibraryStateService);
+  private readonly persisted = inject(PERSISTED_BATCH_SYNC, { optional: true });
+  readonly error = computed(() => this.persisted?.error() ?? null);
+  readonly remaining = computed(() => this.persisted?.remaining() ?? []);
+  readonly needsReconnect = computed(() => this.persisted?.needsReconnect() ?? false);
+  resume(): void {
+    void this.persisted?.resume();
+  }
+  reconnect(): void {
+    void this.persisted?.reconnect();
+  }
 
   /** Live progress while a run is in flight; `null` when idle. */
-  readonly progress = signal<BatchProgress<AssetId> | null>(null);
+  private readonly localProgress = signal<BatchProgress<AssetId> | null>(null);
+  readonly progress = computed(() =>
+    this.persisted ? this.persisted.progress() : this.localProgress(),
+  );
 
   /** The most recent finished run, kept so its failures can be retried. */
-  readonly lastSummary = signal<BatchSummary<AssetId> | null>(null);
+  private readonly localSummary = signal<BatchSummary<AssetId> | null>(null);
+  readonly lastSummary = computed(() =>
+    this.persisted ? this.persisted.lastSummary() : this.localSummary(),
+  );
 
   private cancelRequested = false;
   private inFlight = false;
@@ -65,46 +82,57 @@ export class BatchSyncService {
     ids: readonly AssetId[],
     patch: Partial<AdjustmentModel>,
   ): Promise<BatchSummary<AssetId> | null> {
+    if (this.persisted) return this.persisted.apply(ids, patch);
     if (this.inFlight) return null;
     this.inFlight = true;
     this.cancelRequested = false;
-    this.progress.set(null);
+    this.localProgress.set(null);
     // Clear the previous run's summary up front: progress stays null until
     // the first asset finishes, and the banner falls through to the summary
     // whenever progress is null — so leaving it would show the last run's
     // result for a moment while this one is already writing, with no Cancel
     // (Copilot review on #3312).
-    this.lastSummary.set(null);
+    this.localSummary.set(null);
     try {
       const summary = await runBatchTransfer<AssetId>(
         ids,
         (id) => this.library.updateAdjustment(id, patch),
         {
-          onProgress: (p) => this.progress.set(p),
+          onProgress: (p) => this.localProgress.set(p),
           isCancelled: () => this.cancelRequested,
         },
       );
-      this.lastSummary.set(summary);
+      this.localSummary.set(summary);
       return summary;
     } finally {
-      this.progress.set(null);
+      this.localProgress.set(null);
       this.inFlight = false;
     }
   }
 
   /** Re-run the last summary's failures with `patch`. */
-  retryFailed(patch: Partial<AdjustmentModel>): Promise<BatchSummary<AssetId> | null> {
+  retryFailed(patch?: Partial<AdjustmentModel>): Promise<BatchSummary<AssetId> | null> {
+    if (this.persisted) return this.persisted.retryFailed();
+    if (!patch) return Promise.resolve(null);
     const ids = this.failedIds();
     return ids.length === 0 ? Promise.resolve(null) : this.apply(ids, patch);
   }
 
   /** Ask the in-flight run to stop after the asset it is on. */
   cancel(): void {
+    if (this.persisted) {
+      this.persisted.cancel();
+      return;
+    }
     this.cancelRequested = true;
   }
 
   /** Clear the last summary — dismisses the result row. */
   dismissSummary(): void {
-    this.lastSummary.set(null);
+    if (this.persisted) {
+      this.persisted.dismissSummary();
+      return;
+    }
+    this.localSummary.set(null);
   }
 }
