@@ -34,7 +34,9 @@ export function cameraSupportFromJson(json: string | null | undefined): CameraSu
     const ranks = Object.keys(CAMERA_TIER_LABEL);
     const tier =
       measured && ranks.indexOf(resolved) >= ranks.indexOf(TIER_FOR_RESOLUTION[measured.resolution])
-        ? measured.tier
+        ? ranks.indexOf(measured.tier) > ranks.indexOf(resolved)
+          ? measured.tier
+          : resolved
         : resolved;
     return {
       ...value,

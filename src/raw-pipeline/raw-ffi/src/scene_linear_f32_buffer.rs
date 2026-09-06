@@ -80,3 +80,54 @@ pub(crate) fn write_scene_linear_buf_f32(
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::buffers::maple_free_scene_linear_buffer_f32;
+    use crate::scene_linear_f32::maple_render_file_scene_linear_sized_f32;
+    use raw_core::test_support::synth_dng::SyntheticGreyDng;
+    use std::ffi::{CStr, CString};
+
+    #[test]
+    fn decoded_support_is_owned_by_the_pixel_buffer_and_cleared_on_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("support-buffer.dng");
+        SyntheticGreyDng {
+            width: 32,
+            height: 32,
+            ..Default::default()
+        }
+        .write_to(&path)
+        .unwrap();
+        let path = CString::new(path.to_str().unwrap()).unwrap();
+        let mut buffer = MapleSceneLinearBufferF32::empty();
+        unsafe {
+            let rc = maple_render_file_scene_linear_sized_f32(
+                path.as_ptr(),
+                std::ptr::null(),
+                32,
+                1,
+                std::ptr::null(),
+                &mut buffer,
+            );
+            assert_eq!(rc, 0);
+            assert!(buffer.len_bytes > 0);
+            assert!(!buffer.camera_support_json.is_null());
+            let json = CStr::from_ptr(buffer.camera_support_json)
+                .to_str()
+                .unwrap()
+                .to_owned();
+            assert!(
+                json.contains("\"resolution\":\"rawler_fallback\""),
+                "{json}"
+            );
+            assert!(json.contains("\"lens\":\"no_correction_data\""), "{json}");
+            maple_free_scene_linear_buffer_f32(&mut buffer);
+            assert!(buffer.camera_support_json.is_null());
+            assert!(buffer.f32_rgba.is_null());
+            assert_eq!(buffer.len_bytes, 0);
+            maple_free_scene_linear_buffer_f32(&mut buffer);
+        }
+    }
+}

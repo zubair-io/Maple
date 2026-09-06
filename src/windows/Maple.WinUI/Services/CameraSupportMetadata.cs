@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Maple.WinUI.Generated;
-using Maple.WinUI.Native;
+using System.Collections.Generic;
 
 namespace Maple.WinUI.Services
 {
@@ -28,10 +28,6 @@ namespace Maple.WinUI.Services
                 CameraSupportRegistry.ParseLens(root.GetProperty("lens").GetString() ?? ""));
         }
 
-        /// <summary>Worker-thread only. Immediately after decode this reads the
-        /// same native cached RawImage without another file read or decode.</summary>
-        public static CameraSupportMetadata? ReadFileBestEffort(string path) => ReadBestEffort(() => ReadFile(path));
-
         // A decoded image remains usable when the optional native metadata ABI
         // is unavailable or its payload cannot be understood by this host.
         internal static CameraSupportMetadata? ReadBestEffort(Func<CameraSupportMetadata> read)
@@ -46,29 +42,12 @@ namespace Maple.WinUI.Services
             }
         }
 
-        public static CameraSupportMetadata ReadFile(string path)
+        /// <summary>Copies optional metadata before the native decode buffer is freed.</summary>
+        public static CameraSupportMetadata? ReadBuffer(IntPtr json)
         {
-            var code = CameraSupportNative.maple_camera_support_file(path, out var json);
-            if (code != 0)
-                throw new InvalidOperationException(RawFfi.LastError() ?? $"Camera support could not be assessed (rc={code}).");
-            try
-            {
-                return Parse(Marshal.PtrToStringUTF8(json) ?? throw new JsonException("Support result missing"));
-            }
-            finally
-            {
-                CameraSupportNative.maple_free_camera_support(json);
-            }
+            if (json == IntPtr.Zero) return null;
+            return ReadBestEffort(() => Parse(Marshal.PtrToStringUTF8(json) ?? ""));
         }
     }
 
-    internal static class CameraSupportNative
-    {
-        [DllImport("raw_ffi.dll", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int maple_camera_support_file(
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string path, out IntPtr json);
-
-        [DllImport("raw_ffi.dll", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void maple_free_camera_support(IntPtr json);
-    }
 }

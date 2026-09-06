@@ -41,6 +41,7 @@ export class LensCorrectionCapabilities {
   readonly byAsset: WritableSignal<Map<AssetId, LensCorrectionCapability>> = signal(new Map());
 
   /**
+   * Omitted support retains the current assessment; explicit null clears it.
    * Record the decode-time capability for `id` — call from the cold-open
    * call sites (`image-canvas.render2d.ts`'s `coldOpen2d`,
    * `image-canvas.gpu-present.ts`'s session open) right beside their
@@ -50,14 +51,15 @@ export class LensCorrectionCapabilities {
     id: AssetId,
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
-    cameraSupport?: CameraSupport,
+    cameraSupport?: CameraSupport | null,
   ): void {
     this.byAsset.update((map) => {
       const next = new Map(map);
       next.set(id, {
+        ...map.get(id),
         hasLensCorrections,
         lensCorrectionCaInert,
-        ...(cameraSupport ? { cameraSupport } : {}),
+        ...(cameraSupport !== undefined ? { cameraSupport: cameraSupport ?? undefined } : {}),
       });
       return next;
     });

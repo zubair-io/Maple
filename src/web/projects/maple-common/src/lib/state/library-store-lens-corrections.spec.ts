@@ -14,7 +14,7 @@ const ASSET_A = 'asset-a' as AssetId;
 const ASSET_B = 'asset-b' as AssetId;
 
 describe('LensCorrectionCapabilities', () => {
-  it('retains worker-assessed support and clears it when the next decode has none', () => {
+  it('retains support on lens-only updates and clears it explicitly on an unassessed decode', () => {
     const caps = new LensCorrectionCapabilities();
     const support = cameraSupportFromJson(
       JSON.stringify({
@@ -26,7 +26,10 @@ describe('LensCorrectionCapabilities', () => {
     expect(support).toBeDefined();
     caps.seed(ASSET_A, false, true, support);
     expect(caps.for(ASSET_A).cameraSupport).toEqual(support);
-    caps.seed(ASSET_A, false, true);
+    caps.seed(ASSET_A, true, false);
+    expect(caps.for(ASSET_A).cameraSupport).toEqual(support);
+    expect(caps.for(ASSET_B).cameraSupport).toBeUndefined();
+    caps.seed(ASSET_A, false, true, null);
     expect(caps.for(ASSET_A).cameraSupport).toBeUndefined();
   });
 
