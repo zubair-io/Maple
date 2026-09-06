@@ -44,8 +44,12 @@ extension EditSession {
         guard asset.primaryURL != nil || asset.bytesProvider != nil else { return }
         let asset = self.asset
         let m = model
+        // Captured on the MainActor before the hop — `scopeLayerIndex`
+        // reads actor state the detached render cannot touch.
+        let layer = scopeLayerIndex
         do {
-            let sample = try await Self.renderScopeSample(asset: asset, model: m)
+            let sample = try await Self.renderScopeSample(
+                asset: asset, model: m, layerIndex: layer)
             guard !Task.isCancelled, scopeEnabled else { return }
             scopeSample = sample
         } catch {
@@ -73,7 +77,8 @@ extension EditSession {
     /// one compute directly, without waiting out the debounce.
     nonisolated static func renderScopeSample(
         asset: AssetRef,
-        model: AdjustmentModel
+        model: AdjustmentModel,
+        layerIndex: Int32
     ) async throws -> ScopeSample {
         let target = CGSize(width: 1024, height: 1024)
         let pipeline = ImageEditPipeline()
@@ -104,7 +109,7 @@ extension EditSession {
             width: floats.width,
             height: floats.height,
             params: params,
-            scopeLayer: -1,
+            scopeLayer: layerIndex,
             noiseProfile: noiseProfile,
             localAdjustments: model.localAdjustments  // #3338
         )

@@ -68,6 +68,56 @@ enum MuiVectorscopeMath {
         return (cb * cos(rad) - cr * sin(rad), cb * sin(rad) + cr * cos(rad))
     }
 
+    /// The pure RGB each broadcast target is derived from — the same
+    /// triples `targetAngleDeg` feeds through `chromaRec709`, named once so
+    /// the hue ring and the target dots can never disagree about what
+    /// colour a given direction is.
+    static func targetRGB(_ target: VectorscopeTarget) -> (r: Double, g: Double, b: Double) {
+        switch target {
+        case .red: return (1, 0, 0)
+        case .magenta: return (1, 0, 1)
+        case .blue: return (0, 0, 1)
+        case .cyan: return (0, 1, 1)
+        case .green: return (0, 1, 0)
+        case .yellow: return (1, 1, 0)
+        }
+    }
+
+    /// The hue-ring colour at a graticule angle, interpolated between the
+    /// two bracketing broadcast targets in their TRUE (non-uniform)
+    /// angular positions — so the ring's colours line up with the six
+    /// target dots exactly rather than drifting against them. Interpolating
+    /// on a uniform 60° hexagon instead would put, say, pure yellow several
+    /// degrees off its own marker; the targets alternate ~54°/72° gaps (see
+    /// `VectorscopeTarget`) and the ring has to follow that.
+    static func ringRGB(atAngleDeg angle: Double) -> (r: Double, g: Double, b: Double) {
+        let stops = VectorscopeTarget.allCases
+            .map { (angle: normalizedDeg(targetAngleDeg($0)), rgb: targetRGB($0)) }
+            .sorted { $0.angle < $1.angle }
+        let a = normalizedDeg(angle)
+        // The bracketing pair, wrapping past 360° back to the first stop.
+        let upperIndex = stops.firstIndex { $0.angle >= a } ?? 0
+        let lowerIndex = (upperIndex + stops.count - 1) % stops.count
+        let lower = stops[lowerIndex]
+        let upper = stops[upperIndex]
+        let span = normalizedDeg(upper.angle - lower.angle)
+        // Coincident stops cannot happen with the six real targets, but a
+        // zero span would divide by zero — fall back to the lower stop.
+        guard span > 0 else { return lower.rgb }
+        let t = normalizedDeg(a - lower.angle) / span
+        return (
+            lower.rgb.r + (upper.rgb.r - lower.rgb.r) * t,
+            lower.rgb.g + (upper.rgb.g - lower.rgb.g) * t,
+            lower.rgb.b + (upper.rgb.b - lower.rgb.b) * t
+        )
+    }
+
+    /// `angle` folded into `0..<360`.
+    static func normalizedDeg(_ angle: Double) -> Double {
+        let m = angle.truncatingRemainder(dividingBy: 360)
+        return m < 0 ? m + 360 : m
+    }
+
     /// Broadcast-convention skin-tone line angle (spec §11 — a graticule
     /// constant, independent of `RangeRefinement.skinTone`'s Oklab hue).
     static let skinToneLineAngleDeg: Double = 123.0

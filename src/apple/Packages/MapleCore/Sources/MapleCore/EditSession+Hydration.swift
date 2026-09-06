@@ -80,11 +80,16 @@ extension EditSession {
     // (3/4) Build the initial model. As-shot seeding only applies when
     // no sidecar was loaded — once the user has saved edits, their
     // stored temperature wins.
-    let base = Self.initialModel(
+    let seeded = Self.initialModel(
       loadedModel: loadedModel,
       asShotCCT: asShotCCT,
       asShotTint: asShotTint
     )
+    // Bitmap masks come back from XMP with `rasterId: 0` — register
+    // their rasters before the model lands, so `originalModel` and
+    // `model` agree (#3366). Awaited outside the hydration window on
+    // purpose: this can run Vision on a cache miss.
+    let base = await rehydratedMaskRasters(in: seeded)
 
     let previousModel = model
     isHydratingInitialState = true

@@ -43,12 +43,12 @@ impl LiveSession {
         &self,
         ctx: &GpuContext,
         mut encoder: wgpu::CommandEncoder,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<(Vec<u8>, wgpu::SubmissionIndex), String> {
         let dims = self.image.dims();
         let packed_byte_len = (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
-        ctx.queue.submit(Some(encoder.finish()));
+        let submission = ctx.queue.submit(Some(encoder.finish()));
         let packed = limits::map_packed_readback(ctx, &self.readback).await?;
-        Ok(unpack_rgb_u8(&packed))
+        Ok((unpack_rgb_u8(&packed), submission))
     }
 }
