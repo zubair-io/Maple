@@ -45,17 +45,17 @@ pub fn emit_ts() -> String {
         ));
     }
     out.push_str("\nexport const DEFAULT_EXPORT_RECIPE: ExportRecipe = {\n");
-    let defaults = serde_json::to_value(ExportRecipe::default()).expect("recipe defaults");
-    for f in RECIPE_FIELDS {
-        out.push_str(&format!(
-            "  {}: {},\n",
-            f.name,
-            defaults[f.name].to_string().replace('"', "'")
-        ));
-    }
+    append_defaults(&mut out, &ExportRecipe::default());
     out.push_str("};\n");
     out.push_str(&include_str!("export_recipe_validation.ts").replace("\r\n", "\n"));
     out
+}
+
+fn append_defaults(out: &mut String, recipe: &ExportRecipe) {
+    let defaults = serde_json::to_value(recipe).expect("recipe defaults");
+    for f in RECIPE_FIELDS {
+        out.push_str(&format!("  {}: {},\n", f.name, defaults[f.name]));
+    }
 }
 
 pub fn emit_swift() -> String {
@@ -117,6 +117,26 @@ pub fn emit_cs() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn defaults_preserve_json_string_escaping_in_typescript_literals() {
+        let recipe = ExportRecipe {
+            name: "Photographer's \"proof\"\\folder\nnext line".into(),
+            ..Default::default()
+        };
+        let mut output = String::new();
+        append_defaults(&mut output, &recipe);
+        let literal = output
+            .lines()
+            .find_map(|line| line.strip_prefix("  name: "))
+            .unwrap()
+            .strip_suffix(',')
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<String>(literal).unwrap(),
+            recipe.name
+        );
+    }
+
     #[test]
     fn every_surface_contains_all_recipe_fields() {
         for f in RECIPE_FIELDS {
