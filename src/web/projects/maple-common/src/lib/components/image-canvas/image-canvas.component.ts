@@ -458,8 +458,14 @@ export class ImageCanvasComponent
   }
 
   /** Record the session reply's native dims (#1080) for the refine/zoom math. */
-  recordNativeDims(w: number, h: number): void {
-    if (w && h) this.canvasSvc.nativeDimensions.set({ w, h });
+  recordNativeDims(w: number, h: number, sourceOrientation = 1): void {
+    if (w && h)
+      this.canvasSvc.nativeDimensions.set({
+        w,
+        h,
+        sourceOrientation,
+        assetId: this.currentAssetId,
+      });
   }
 
   /**

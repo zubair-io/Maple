@@ -113,6 +113,7 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     lensCorrectionCaInert: session.lensCorrectionCaInert,
     cameraSupport: cameraSupportFromJson(session.cameraSupportJson),
     lensProfile: lensProfileFromJson(session.lensProfileJson),
+    sourceOrientation: session.sourceOrientation,
     // The TRUTH the browser configured after the one-time display-p3 retag
     // `open` did (read back via `getConfiguration()`), never an assumption.
     colorSpace: session.colorSpace,

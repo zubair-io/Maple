@@ -64,6 +64,7 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       height: h,
       nativeWidth: w,
       nativeHeight: h,
+      sourceOrientation: 8,
       rgb: rgb.buffer,
       asShotTemperature: 5500,
       asShotTint: 0,
@@ -74,6 +75,7 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
 
     const decoded = await promise;
     expect(decoded.width).toBe(w);
+    expect(decoded.sourceOrientation).toBe(8);
     expect(decoded.height).toBe(h);
     expect(decoded.rgb).toBeInstanceOf(Uint8Array);
     expect(decoded.rgb.length).toBe(w * h * 3);
@@ -384,6 +386,7 @@ describe('RawPipelineService — non-RAW browser-native decode (#784, #3039)', (
       height: H,
       nativeWidth: W,
       nativeHeight: H,
+      sourceOrientation: 1,
       rgb: rgb.buffer,
       asShotTemperature: 6500,
       asShotTint: 0,
@@ -394,6 +397,7 @@ describe('RawPipelineService — non-RAW browser-native decode (#784, #3039)', (
 
     const decoded = await promise;
     expect(decoded.width).toBe(W);
+    expect(decoded.sourceOrientation).toBe(1);
     expect(decoded.height).toBe(H);
     expect(decoded.rgb).toBeInstanceOf(Uint8Array);
     expect(decoded.rgb.length).toBe(W * H * 3);

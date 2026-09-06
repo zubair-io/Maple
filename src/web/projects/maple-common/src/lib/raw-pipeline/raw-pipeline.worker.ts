@@ -294,6 +294,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const lensCorrectionCaInert = result.lens_correction_ca_inert;
   const cameraSupport = cameraSupportFromJson(result.camera_support_json);
   const lensProfile = lensProfileFromJson(result.lens_profile_json);
+  const sourceOrientation = result.source_orientation;
   const rgb = result.take_rgb();
   result.free();
   const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
@@ -311,6 +312,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
     lensCorrectionCaInert,
     cameraSupport,
     lensProfile,
+    sourceOrientation,
   };
   (self as unknown as Worker).postMessage(response, [buffer]);
 }

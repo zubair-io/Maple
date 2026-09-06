@@ -98,7 +98,12 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   private ro?: ResizeObserver;
   private drag: DragState | null = null;
 
-  private readonly imgDims = focusedImageDims(this.library);
+  private readonly assetDims = focusedImageDims(this.library);
+  private readonly nativeFrame = computed(() => {
+    const native = this.canvasSvc.nativeDimensions();
+    return native?.assetId === this.library.focusedAssetId() ? native : null;
+  });
+  private readonly imgDims = computed(() => this.nativeFrame() ?? this.assetDims());
 
   private readonly crop = computed(() => {
     const a = this.library.focusedAsset();
@@ -121,7 +126,13 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
 
   protected readonly map = computed<MaskCanvasMap>(() => {
     const { w, h } = this.imgDims();
-    const map = makeMaskCanvasMap(this.footprint(), this.crop(), w, h);
+    const map = makeMaskCanvasMap(
+      this.footprint(),
+      this.crop(),
+      w,
+      h,
+      this.nativeFrame()?.sourceOrientation,
+    );
     const id = this.library.focusedAssetId();
     map.geometry = geometryCoordinates(id ? this.library.adjustmentFor(id)() : undefined, w, h);
     return map;

@@ -45,6 +45,8 @@ export interface OpenedLiveSession {
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
   lensProfile?: LensProfileResolution;
+  /** EXIF tag on the decoded RAW; non-RAW pixels are already display-oriented. */
+  sourceOrientation?: number;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).

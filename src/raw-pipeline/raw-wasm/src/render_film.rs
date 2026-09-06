@@ -80,6 +80,7 @@ pub fn render_bytes_with_film(
                 lens_correction_ca_inert,
                 camera_support,
                 crate::lens_profile::metadata(&raw_img, &model),
+                raw_img.orientation.to_u16(),
             ))
         }
         Some(cap) => {
@@ -106,6 +107,7 @@ pub fn render_bytes_with_film(
                 lens_correction_ca_inert,
                 camera_support,
                 crate::lens_profile::metadata(&raw_img, &model),
+                raw_img.orientation.to_u16(),
             ))
         }
     }
@@ -207,5 +209,6 @@ pub fn render_bytes_sized_with_film(
         lens_correction_ca_inert,
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
+        raw_img.orientation.to_u16(),
     ))
 }

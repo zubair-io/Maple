@@ -500,6 +500,7 @@ pub async fn render_bytes_gpu(
         lens_correction_ca_inert,
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
+        raw_img.orientation.to_u16(),
     ))
 }
 

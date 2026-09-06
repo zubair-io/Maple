@@ -441,6 +441,12 @@ impl WebLiveSession {
         self.lens_profile_json.clone()
     }
 
+    /// Actual EXIF transform from the retained RAW; read once on session open.
+    #[wasm_bindgen(getter, js_name = sourceOrientation)]
+    pub fn source_orientation(&self) -> u16 {
+        self.raw_img.orientation.to_u16()
+    }
+
     /// Whether the retained RAW carries a DNG `OpcodeList3` (#3182).
     /// This decode-time fact never changes across the session's re-develops.
     /// Disables the web Lens Corrections panel when `false`.

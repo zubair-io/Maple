@@ -17,6 +17,7 @@ const decoded: DecodedImage = {
   height: 4,
   nativeWidth: 4,
   nativeHeight: 4,
+  sourceOrientation: 6,
   rgb: new Uint8Array(4 * 4 * 3),
   asShotTemperature: 5500,
   asShotTint: 0,
@@ -128,6 +129,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
 
     // Cold open supplies sizing and preview quality, with no trailing film LUT.
     expect(decode.mock.calls[0]!.length).toBe(5);
+    expect(host.recordNativeDims).toHaveBeenCalledWith(4, 4, 6);
     expect(host.imageBitmap()).not.toBeNull();
     expect(decode.mock.calls[0]![2]).toBeUndefined();
     expect(decode.mock.calls[0]![4]).toBe(true); // qualityPreview, not filmLut

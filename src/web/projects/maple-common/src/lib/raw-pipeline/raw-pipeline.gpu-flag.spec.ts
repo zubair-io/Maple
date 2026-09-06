@@ -240,12 +240,14 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
       type: 'open-session-success',
       width: 4000,
       height: 3000,
+      sourceOrientation: 5,
       asShotTemperature: 5200,
       asShotTint: 0,
       colorSpace: 'display-p3',
     });
     const info = await promise;
     expect(info.width).toBe(4000);
+    expect(info.sourceOrientation).toBe(5);
     expect(info.colorSpace).toBe('display-p3');
   });
 
