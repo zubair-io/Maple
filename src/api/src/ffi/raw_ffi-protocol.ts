@@ -14,6 +14,21 @@
  */
 
 import type { HistogramBins } from '../thumbs/histogram.ts';
+import type { LensProfileInventory } from '../lens-profiles/types.ts';
+
+export interface RegisterLensProfileRequest {
+  type: 'registerLensProfile';
+  id: number;
+  profilePath: string;
+}
+
+export interface RegisterLensProfileResponse {
+  type: 'registerLensProfile';
+  id: number;
+  ok: boolean;
+  inventory?: LensProfileInventory;
+  error?: string;
+}
 
 /** Render a RAW's embedded preview to a JPEG file on disk (`_to_file` path). */
 export interface RenderThumbRequest {
@@ -88,6 +103,7 @@ export interface AsShotResponse {
 export type FfiRequest =
   | AsShotRequest
   | ExportRecipeRequest
+  | RegisterLensProfileRequest
   | RenderThumbRequest
   | HistogramRequest
   | RenderDevelopRequest
@@ -125,6 +141,7 @@ export interface RenderPreviewJpegResponse {
 export type FfiResponse =
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
   | AsShotResponse
+  | RegisterLensProfileResponse
   | RenderThumbResponse
   | HistogramResponse
   | RenderDevelopResponse
