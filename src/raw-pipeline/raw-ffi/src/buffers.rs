@@ -200,7 +200,7 @@ pub struct MapleSceneLinearBufferF32 {
     /// offset-stable ABI convention.
     pub lens_correction_distortion_inert: u32,
     /// UTF-8 JSON camera key and actual resolver outcome; owned by this buffer.
-    /// Null only for an empty buffer. Freed by maple_free_scene_linear_buffer_f32.
+    /// Null when empty or unassessed. Freed by maple_free_scene_linear_buffer_f32.
     pub camera_support_json: *mut std::ffi::c_char,
 }
 

@@ -89,7 +89,7 @@ pub(crate) fn emit_cs(registry: &SupportRegistry, evidence: &Evidence) -> String
         ));
     }
     out.push_str("            _ => throw new ArgumentOutOfRangeException(nameof(resolution)),\n        };\n\n");
-    out.push_str("        public static CameraTier TierFor(string key, ProfileResolution resolution)\n        {\n            var resolved = TierForResolution(resolution);\n            var measured = FixturedCameras.FirstOrDefault(body => body.Key == key);\n            return measured != null && (int)resolved >= (int)TierForResolution(measured.Resolution)\n                ? measured.Tier : resolved;\n        }\n\n");
+    out.push_str("        public static CameraTier TierFor(string key, ProfileResolution resolution)\n        {\n            var resolved = TierForResolution(resolution);\n            var measured = FixturedCameras.FirstOrDefault(body => body.Key == key);\n            return measured != null && (int)resolved >= (int)TierForResolution(measured.Resolution)\n                ? (CameraTier)Math.Max((int)measured.Tier, (int)resolved) : resolved;\n        }\n\n");
     out.push_str("        public static readonly IReadOnlyList<SupportedCamera> FixturedCameras = new SupportedCamera[]\n        {\n");
     for body in &registry.bodies {
         out.push_str(&format!(

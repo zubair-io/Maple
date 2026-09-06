@@ -112,7 +112,7 @@ namespace Maple.WinUI.Generated
             var resolved = TierForResolution(resolution);
             var measured = FixturedCameras.FirstOrDefault(body => body.Key == key);
             return measured != null && (int)resolved >= (int)TierForResolution(measured.Resolution)
-                ? measured.Tier : resolved;
+                ? (CameraTier)Math.Max((int)measured.Tier, (int)resolved) : resolved;
         }
 
         public static readonly IReadOnlyList<SupportedCamera> FixturedCameras = new SupportedCamera[]
