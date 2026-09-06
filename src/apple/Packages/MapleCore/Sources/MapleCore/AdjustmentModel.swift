@@ -1,25 +1,8 @@
-// AdjustmentModel.swift — Swift mirror of raw_core::xmp::AdjustmentModel.
-//
-// Fields, defaults, and ranges match spec § 01 and the Rust source in
-// src/raw-pipeline/raw-core/src/xmp.rs exactly.
-//
-// This file owns `AdjustmentModel` itself — the per-image develop knobs,
-// their defaults, and the memberwise `init`. That `init` is the one member
-// that cannot be lifted into an extension: the compiler re-synthesises a
-// colliding internal memberwise init as soon as the explicit one leaves the
-// struct body, so every split of this file moves other members instead.
-// (#2320 tried relying on that synthesised init instead, since inline
-// `= default` property values make it seem redundant — reverted on review:
-// Swift's synthesised memberwise init for a `public` struct is only ever
-// `internal`, so `Maple`, a separate module, could no longer construct
-// `AdjustmentModel` at all. The explicit `public init` is load-bearing.)
-//
-// Everything else has already been split out for the same budget reason:
-// the pipeline-shaping enums into `AdjustmentModel+Enums.swift` (#376);
-// culling + IPTC keywords into `CullingState.swift` (#1656);
-// `BlackWhiteMode` into `AdjustmentModel+BlackWhite.swift` (#276); the
-// nested value types `Crop` and `ToneCurve` into their own files (#366);
-// and the XMP read/write surface into `XMPSerialization.swift` (#632).
+// AdjustmentModel.swift — Swift mirror of raw-core's adjustment schema.
+// Stored fields and the explicit public memberwise initializer must stay
+// together: moving the initializer into an extension causes Swift to synthesize
+// a colliding internal initializer; relying on synthesis also breaks public API.
+// Supporting enums, value types, and XMP serialization live in sibling files.
 
 import Foundation
 
@@ -333,6 +316,12 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// omits the attribute on write.
     public var filmLook: String  // default ""
     public var lensProfile: String // versioned content-addressed LCP reference
+    // Identity defaults preserve shared XMP/FFI geometry without adding Apple UI.
+    public var geoPerspectiveH: Double = 0
+    public var geoPerspectiveV: Double = 0
+    public var geoRotation: Double = 0
+    public var geoAspect: Double = 1
+    public var geoScale: Double = 1
     /// Film-look blend strength, 0..100 — lerped against the pre-look value
     /// in display-linear space (mirrors every other blend-strength field in
     /// `MapleGpuLiveParams`). XMP key `papp:FilmStrength`; 100 (default,
