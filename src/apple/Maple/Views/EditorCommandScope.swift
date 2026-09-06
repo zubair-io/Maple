@@ -58,6 +58,11 @@ struct EditorCommandScope: ViewModifier {
   }
 
   private func handle(_ press: KeyPress) -> KeyPress.Result {
+    guard !EditorTextInput.hasFocus else {
+      router?.cancelCompare()
+      router?.finishNudge()
+      return .ignored
+    }
     let key = press.characters.lowercased()
     let compare = key == "b" || key == "\\"
     if compare && press.phase == .up { return perform(.compareRelease) }
@@ -66,8 +71,7 @@ struct EditorCommandScope: ViewModifier {
     if press.phase == .up && (press.key == .leftArrow || press.key == .rightArrow) {
       return perform(.nudgeRelease)
     }
-    guard !EditorTextInput.hasFocus,
-      press.modifiers.intersection([.command, .control]).isEmpty
+    guard press.modifiers.intersection([.command, .control]).isEmpty
     else { return .ignored }
     if compare && press.modifiers.intersection([.option]).isEmpty {
       return press.phase == .repeat ? .handled : perform(.comparePress)
