@@ -59,6 +59,22 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
     lib.primeBytes(ID, BYTES);
   });
 
+  it.each(['Auto', 'Neutral'] as const)(
+    'keeps the %s profile through Auto Tone and its single Undo entry',
+    async (profile) => {
+      lib.updateAdjustment(ID, { profile, exposure: -1 });
+      await svc.applyAuto(ID);
+      expect(lib.adjustmentFor(ID)().profile).toBe(profile);
+      expect(svc.undoHistory()).toHaveLength(1);
+      svc.undo();
+      expect(lib.adjustmentFor(ID)().profile).toBe(profile);
+      expect(lib.adjustmentFor(ID)().exposure).toBe(-1);
+      svc.redo();
+      expect(lib.adjustmentFor(ID)().profile).toBe(profile);
+      expect(lib.adjustmentFor(ID)().exposure).toBe(pipeline.patch.exposure);
+    },
+  );
+
   it('writes exposure + the five calibrated tone sliders + autoExposure=Off — leaves white balance untouched (#2255)', async () => {
     pipeline.patch = {
       exposure: 0.5,

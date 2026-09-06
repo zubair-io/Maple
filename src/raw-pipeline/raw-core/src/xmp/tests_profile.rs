@@ -8,14 +8,12 @@
 
 #![cfg(test)]
 
-use super::*;
-
 // Profile (Auto / Neutral). Auto Profile Phase 1 (#536): the new
 // `papp:Profile` attribute selects the view-transform branch.
 // Default is `Auto`; legacy `papp:Look` ("Default" / "Neutral") migrates
 // in via the parser when `papp:Profile` is absent. The serializer (a
-// minimal seed living in `crate::xmp::serialize`) only emits attributes
-// that differ from defaults.
+// minimal seed living in `crate::xmp::serialize`) always writes the profile
+// so the saved intent is explicit, including Auto (#2441).
 
 #[test]
 fn papp_profile_auto_parses_to_profile_auto() {
@@ -62,13 +60,13 @@ fn legacy_papp_look_neutral_migrates_to_profile_neutral() {
 }
 
 #[test]
-fn profile_auto_is_default_and_omitted_from_serialized_output() {
+fn profile_auto_is_default_and_explicit_in_serialized_output() {
     let mut model = crate::types::adjustment::AdjustmentModel::default();
     assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
     let xmp = crate::xmp::serialize(&model);
     assert!(
-        !xmp.contains("papp:Profile"),
-        "default Auto should not serialize"
+        xmp.contains(r#"papp:Profile="Auto""#),
+        "default Auto must serialize explicitly"
     );
     model.profile = crate::types::adjustment::Profile::Neutral;
     let xmp = crate::xmp::serialize(&model);
@@ -76,6 +74,24 @@ fn profile_auto_is_default_and_omitted_from_serialized_output() {
         xmp.contains(r#"papp:Profile="Neutral""#),
         "Neutral must serialize, got:\n{xmp}"
     );
+}
+
+#[test]
+fn legacy_profile_intent_is_explicit_and_stable_after_resaving() {
+    for (attrs, expected) in [
+        ("", "Auto"),
+        (r#"papp:Look="Default""#, "Auto"),
+        (r#"papp:Look="Neutral""#, "Neutral"),
+        (r#"papp:Profile="AcrMatch""#, "Auto"),
+    ] {
+        let document = |attrs: &str| format!("<rdf:Description {attrs}/>");
+        let model = crate::xmp::parse(&document(attrs)).expect("legacy sidecar");
+        let saved = crate::xmp::serialize(&model);
+        assert!(saved.contains(&format!("papp:Profile=\"{expected}\"")));
+        let reopened = crate::xmp::parse(&document(&saved)).expect("saved sidecar");
+        assert_eq!(model.profile, reopened.profile);
+        assert_eq!(saved, crate::xmp::serialize(&reopened));
+    }
 }
 
 /// Legacy `papp:Profile="AcrMatch"` (#1722, retired in #2312) migrates to

@@ -372,30 +372,6 @@ namespace Maple.WinUI.ViewModels
             });
         }
 
-        private void AfterModelReplaced(AdjustmentState before)
-        {
-            SyncSlidersFromModel();
-            Renderer.RequestRender(Adjustments.Clone());
-            ScheduleSidecarWrite();
-            RedecodeIfDecodeFieldsChanged(before);
-        }
-
-        /// <summary>AE / profile / lens fields participate in the decode, not
-        /// the per-tick chain — a change to them needs a fresh decode.</summary>
-        private void RedecodeIfDecodeFieldsChanged(AdjustmentState before)
-        {
-            var photo = SelectedPhoto;
-            if (photo == null)
-                return;
-            var changed = Adjustments.AutoExposure != before.AutoExposure
-                || Adjustments.LensProfileEnable != before.LensProfileEnable
-                || Math.Abs(Adjustments.LensCorrectionDistortion - before.LensCorrectionDistortion) > 1e-6
-                || Math.Abs(Adjustments.CaptureSharpeningAmount - before.CaptureSharpeningAmount) > 1e-6
-                || Math.Abs(Adjustments.DeepDenoise - before.DeepDenoise) > 1e-6;
-            if (changed)
-                DecodeCurrent(photo);
-        }
-
         private void SyncSlidersFromModel()
         {
             foreach (var slider in Sections.SelectMany(s => s.Sliders))
@@ -464,14 +440,17 @@ namespace Maple.WinUI.ViewModels
                 if (text == _lastSidecarWriteText)
                     return;  // our own debounced write echoing back
                 var doc = XmpParser.Parse(text);
+                if (doc == null) return;
                 OnUi(() =>
                 {
+                    if (!ReferenceEquals(photo, SelectedPhoto)) return;
+                    var before = Adjustments;
                     Adjustments = doc.Adjustments;
                     photo.Rating = doc.Rating ?? 0;
                     photo.FlagStatus = doc.Flag ?? "none";
                     photo.ColorLabel = doc.ColorLabel;
                     SyncSlidersFromModel();
-                    Renderer.RequestRender(Adjustments.Clone());
+                    RefreshRenderAfterModelChange(before);
                 });
             }
             catch (Exception ex)

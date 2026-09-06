@@ -148,6 +148,56 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     vi.restoreAllMocks();
   });
 
+  it('reestablishes Auto through full XMP after Neutral before resuming scalar renders', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
+      colorSpace: 'srgb',
+    });
+    const params = new Float32Array(19);
+    const auto = '<rdf:Description papp:Profile="Auto"/>';
+    const neutral = '<rdf:Description papp:Profile="Neutral"/>';
+
+    await present.render(auto, 1, params);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    await present.render(auto, 1, params);
+    expect(render).toHaveBeenLastCalledWith(auto, params);
+    await present.render(neutral, 1);
+    expect(render).toHaveBeenLastCalledWith(neutral, undefined);
+    await present.render(auto, 1, params);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    await present.render(auto, 1, params);
+    expect(render).toHaveBeenLastCalledWith(auto, params);
+    present.teardown();
+    await present.render(auto, 1, params);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+  });
+
+  it('uses full XMP when Auto is chosen while a Neutral render is pending', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
+      colorSpace: 'srgb',
+    });
+    const params = new Float32Array(19);
+    await present.render('Auto', 1, params);
+    let resolveNeutral!: (value: { colorSpace: string }) => void;
+    render.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveNeutral = resolve;
+        }),
+    );
+    const pendingNeutral = present.render('Neutral', 1);
+    Object.assign(host, { renderGeneration: 2 });
+    await present.render('Auto', 2, params);
+    expect(render).toHaveBeenLastCalledWith('Auto', undefined);
+    resolveNeutral({ colorSpace: 'srgb' });
+    expect(await pendingNeutral).toBe(false);
+    await present.render('Auto', 2, params);
+    expect(render).toHaveBeenLastCalledWith('Auto', params);
+  });
+
   it('(a) successful GPU present test -> open() returns true and active stays set', async () => {
     const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const gpuPresent = new ImageCanvasGpuPresent(host);

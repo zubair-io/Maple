@@ -115,6 +115,9 @@ export class ImageCanvasGpuPresent {
   /** True while a worker GPU session is presenting to the OffscreenCanvas. */
   readonly active = signal(false);
   private canvasEl: HTMLCanvasElement | null = null;
+  // A scalar request cannot replace frozen prefix fields such as Profile.
+  // Establish a compatible prefix through full XMP before using the fast path.
+  private scalarPrefixReady = false;
 
   /**
    * Set to `true` once a black-present is detected for this session (#1572). When
@@ -267,6 +270,7 @@ export class ImageCanvasGpuPresent {
    * behaves identically — only the render mechanism differs.
    */
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
+    this.scalarPrefixReady = false;
     // Skip the GPU probe entirely for the rest of this page session once a
     // black-present has been confirmed (#1572). No teardown needed — nothing opened.
     if (ImageCanvasGpuPresent.presentBroken) return false;
@@ -399,12 +403,17 @@ export class ImageCanvasGpuPresent {
    * the stale result" intent.
    */
   async render(xmp: string, generation: number, params?: Float32Array): Promise<boolean> {
+    const fastParams = this.scalarPrefixReady ? params : undefined;
+    // Clear before dispatch: a rapid Neutral -> Auto flip must send full XMP
+    // even while the Neutral request is still queued in the worker (#2441).
+    if (!fastParams) this.scalarPrefixReady = false;
     try {
-      const result = await this.host.pipeline.renderLiveSession(xmp, params);
+      const result = await this.host.pipeline.renderLiveSession(xmp, fastParams);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
+      this.scalarPrefixReady = params !== undefined;
       // Update the scopes from the GPU readback of the just-presented frame (#1045).
       // Only overwrite `currentPixels` when the worker returned a snapshot, so a
       // one-off readback miss leaves the previous (correct-enough) scope data in
@@ -435,6 +444,7 @@ export class ImageCanvasGpuPresent {
 
   /** Tear down the GPU live session + remove its canvas element. Idempotent. */
   teardown(): void {
+    this.scalarPrefixReady = false;
     if (this.active() || this.canvasEl) {
       this.host.pipeline.closeLiveSession();
     }

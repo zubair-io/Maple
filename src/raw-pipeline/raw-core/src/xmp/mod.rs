@@ -250,13 +250,12 @@ fn apply_attributes(
 /// `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
     let mut out = String::new();
-    if model.profile != Profile::default() {
-        let v = match model.profile {
-            Profile::Auto => "Auto",
-            Profile::Neutral => "Neutral",
-        };
-        out.push_str(&format!(r#" papp:Profile="{v}""#));
-    }
+    // Profile intent is explicit, including the unchanged Auto default (#2441).
+    let profile = match model.profile {
+        Profile::Auto => "Auto",
+        Profile::Neutral => "Neutral",
+    };
+    out.push_str(&format!(r#" papp:Profile="{profile}""#));
     // Brightness (#1102) — emitted only when non-default (0), matching the
     // Swift/TS writers' omit-on-default convention.
     if model.brightness != 0.0 {

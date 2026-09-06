@@ -58,15 +58,15 @@ namespace Maple.WinUI.Tests
         {
             // The omit-at-default rule (`docs/xmp-canonical-format.md` §
             // "Number fields and defaults") means a fresh, untouched
-            // adjustment state should produce only the three always-emitted
-            // process-version attributes plus the canonical envelope — no
-            // numeric field, no enum field, no culling attribute, no
-            // children.
+            // adjustment state produces the three process attributes and
+            // explicit Auto profile intent, with no optional numeric,
+            // enum, culling attribute or children.
             var doc = new XmpSidecarDocument();
 
             var xml = XmpWriter.Serialize(doc);
 
             Assert.Contains("crs:HasSettings=\"True\"", xml);
+            Assert.Contains("papp:Profile=\"Auto\"", xml);
             Assert.DoesNotContain("crs:Exposure2012", xml);
             Assert.DoesNotContain("crs:Temperature", xml);
             Assert.DoesNotContain("xmp:Rating", xml);
@@ -136,7 +136,8 @@ namespace Maple.WinUI.Tests
                 "      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"",
                 "      crs:HasSettings=\"True\"",
                 "      crs:ProcessVersion=\"11.0\"",
-                "      crs:Version=\"11.0\">",
+                "      crs:Version=\"11.0\"",
+                "      papp:Profile=\"Auto\">",
                 "      <crs:ToneCurvePV2012>",
                 "        <rdf:Seq>",
                 "          <rdf:li>0, 0</rdf:li>",
