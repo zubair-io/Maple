@@ -246,6 +246,7 @@ const SHELL: readonly ParityCapability[] = [
       actions: ['apply'],
     },
     participation: { undo: true, copyPaste: 'tone', history: true, preview: 'live', export: true },
+    exception: null,
     featuresRow: 'AUTO',
   },
   {
