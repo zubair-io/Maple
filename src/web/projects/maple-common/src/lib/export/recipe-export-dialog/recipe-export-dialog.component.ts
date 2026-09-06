@@ -88,7 +88,14 @@ export class RecipeExportDialogComponent {
     const progress = this.queue.progress();
     return progress?.total ? (progress.processed / progress.total) * 100 : null;
   });
-  readonly failures = computed(() => this.queue.summary()?.failed.slice(0, 5) ?? []);
+  readonly failures = computed(() =>
+    (this.queue.summary()?.failed.slice(0, 5) ?? []).map((failure) => ({
+      ...failure,
+      filename:
+        this.queue.record()?.targets.find((target) => target.id === failure.id)?.filename ??
+        failure.id,
+    })),
+  );
   readonly resultText = computed(() => {
     const record = this.queue.record();
     if (!record) return null;

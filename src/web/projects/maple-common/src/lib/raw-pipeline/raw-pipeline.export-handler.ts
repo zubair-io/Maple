@@ -6,6 +6,7 @@
 
 import { export_bytes, export_bytes_with_film } from './pkg/raw_wasm';
 import type { ExportError, ExportRequest, ExportSuccess } from './raw-pipeline.types';
+import { ensureReady } from './raw-pipeline.worker-handlers';
 
 /**
  * How much of the encoded file to copy out of the WASM heap at a time.
@@ -33,6 +34,8 @@ function longEdgeCap(maxSidePixels: number | undefined): number {
 export async function handleExport(req: ExportRequest): Promise<void> {
   const { options } = req;
   try {
+    // A batch can export without first opening a photo in the editor.
+    await ensureReady();
     // Film-look-aware export (epic #2683, Task 9): a loaded look's `.mlut`
     // bytes ride `req.filmLut`, so the deliverable file carries the SAME
     // look the canvas showed. Absent/empty routes through the plain
@@ -78,10 +81,15 @@ export async function handleExport(req: ExportRequest): Promise<void> {
       handle.free();
     }
   } catch (err) {
+    const fatal = err instanceof WebAssembly.RuntimeError;
+    const detail = err instanceof Error ? err.message : String(err);
     const response: ExportError = {
       id: req.id,
       type: 'export-error',
-      message: err instanceof Error ? err.message : String(err),
+      message: fatal
+        ? `The browser renderer stopped unexpectedly (${detail}). Large exports can exceed its 4 GiB memory limit. Choose a smaller size, or use Windows, the CLI, or a Self Hosted server directory.`
+        : detail,
+      fatal,
     };
     postMessage(response);
   }

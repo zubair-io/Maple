@@ -99,7 +99,12 @@ export class RawPipelineService implements OnDestroy {
       this.worker = new Worker(new URL('./raw-pipeline.worker', import.meta.url), {
         type: 'module',
       });
+      const worker = this.worker;
       this.worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
+        if (e.data.type === 'export-error' && e.data.fatal) {
+          this.retireWorker(worker, e.data.message);
+          return;
+        }
         // Routing lives in `raw-pipeline.worker-dispatch.ts` (#2314) — this
         // file kept every response kind's handling inline until it grew past
         // the file-size budget. Pure code move: no behaviour change.
@@ -112,18 +117,23 @@ export class RawPipelineService implements OnDestroy {
       });
       this.worker.addEventListener('error', (e) => {
         console.error('RawPipelineWorker error:', e.message);
-        this.deepDenoiseProgress.set(null);
-        this.detailClient.workerFailed();
-        // Reject all pending on worker crash.
-        this.pending.forEach(({ reject }) => reject(new Error(`Worker error: ${e.message}`)));
-        this.pending.clear();
-        this.worker = null;
+        this.retireWorker(worker, `Worker error: ${e.message}`);
       });
     } catch (err) {
       console.error('Failed to create RawPipelineWorker:', err);
       throw err;
     }
     return this.worker;
+  }
+
+  private retireWorker(worker: Worker, message: string): void {
+    worker.terminate();
+    if (this.worker !== worker) return;
+    this.deepDenoiseProgress.set(null);
+    this.detailClient.workerFailed();
+    this.pending.forEach(({ reject }) => reject(new Error(message)));
+    this.pending.clear();
+    this.worker = null;
   }
 
   // Serialization gate: the worker's `message` handler is async, so multiple
@@ -495,7 +505,12 @@ export class RawPipelineService implements OnDestroy {
     xmp?: string,
     filmLut?: ArrayBuffer,
   ): Promise<ExportedFile> {
-    const run = () => this.exportOnce(bytes, ext, options, xmp, filmLut);
+    const run = () => {
+      // Export decodes its own sensor data. Release the detail viewer's cached
+      // mosaic first so a large export does not retain two full RAW decodes.
+      this.closeNativeDetail();
+      return this.exportOnce(bytes, ext, options, xmp, filmLut);
+    };
     const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => undefined);
     return next;
