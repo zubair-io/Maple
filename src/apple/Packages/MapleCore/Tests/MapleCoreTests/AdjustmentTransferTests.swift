@@ -131,10 +131,10 @@ final class AdjustmentTransferTests: XCTestCase {
   }
 
   func testReviewIncludesOptionalValueDeletionAndIntroduction() throws {
-    let saved: [String: Any] = ["namedWhiteBalancePreset": "Daylight", "temperature": 5500]
+    let saved: [String: Any] = ["whiteBalancePreset": "Daylight", "temperature": 5500]
     let custom: [String: Any] = ["temperature": 5500]
     let cleared = try AdjustmentTransferDiff.differences(before: saved, after: custom)
-    XCTAssertEqual(cleared.map(\.id), ["namedWhiteBalancePreset"])
+    XCTAssertEqual(cleared.map(\.id), ["whiteBalancePreset"])
     XCTAssertEqual(cleared.first?.label, "White balance preset")
     XCTAssertEqual(cleared.first?.before, "Daylight")
     XCTAssertEqual(cleared.first?.after, "Custom")
