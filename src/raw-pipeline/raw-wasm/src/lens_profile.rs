@@ -29,9 +29,16 @@ pub fn register_lens_profile(xml: &str) -> Result<String, JsError> {
 }
 
 #[wasm_bindgen(js_name = selectedLensProfile)]
+/// Cache restoration needs no external bytes when every correction is disabled.
 pub fn selected_lens_profile(xmp: &str) -> Result<String, JsError> {
     raw_core::xmp::parse(xmp)
-        .map(|model| model.lens_profile)
+        .map(|model| {
+            if raw_core::lens_profile::corrections_enabled(&model) {
+                model.lens_profile
+            } else {
+                String::new()
+            }
+        })
         .map_err(|e| JsError::new(&e.to_string()))
 }
 
@@ -45,4 +52,24 @@ pub fn resolve_lens_profile(bytes: &[u8], ext: &str, reference: &str) -> Result<
         .map(|resolution| resolution.metadata().to_string())
         .unwrap_or_else(|| raw_core::lens_profile::embedded_metadata(&raw).to_string());
     Ok(metadata)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::selected_lens_profile;
+
+    #[test]
+    fn cache_selection_uses_core_enablement_and_later_attributes() {
+        let reference = format!("lcp1:{}", "a".repeat(64));
+        let attr = format!(r#"papp:LensProfile="{reference}""#);
+        let xml = |extra: &str| format!(r#"<rdf:Description {attr} {extra}/>"#);
+        assert_eq!(selected_lens_profile(&xml("")).unwrap(), reference);
+        assert_eq!(
+            selected_lens_profile(&xml(r#"crs:LensProfileEnable="0""#)).unwrap(),
+            ""
+        );
+        assert_eq!(selected_lens_profile(&xml(r#"crs:LensProfileDistortionScale="0" crs:LensProfileChromaticAberrationScale="0" crs:LensProfileVignettingScale="0""#)).unwrap(), "");
+        let commented = format!(r#"<!-- papp:LensProfile="ignored" -->{}"#, xml(""));
+        assert_eq!(selected_lens_profile(&commented).unwrap(), reference);
+    }
 }
