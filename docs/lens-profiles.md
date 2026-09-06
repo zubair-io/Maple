@@ -24,6 +24,14 @@ Batch sync preserves each target's own profile selection. A source capture's cal
 
 No third-party profile pack is redistributed. Import support does not establish a licensed distribution catalog or promote camera qualification tiers. Apple import UI, newer LCP model families, and native detail tiles for warped coordinates are outside this implementation's supported surface.
 
+## Manual geometry and qualification
+
+Web and Windows provide five independent manual controls: horizontal/vertical perspective, clockwise rotation, area-preserving aspect, and centered scale. The shared CPU and WGSL paths apply the transform after display rendering and before crop. Masks are evaluated in the original frame and move with the rendered image; Web mask handles use the matching forward/inverse transform. Identity geometry preserves the existing output. GPU sessions reuse their scratch textures as slider values change, and manual controls do not invalidate the decode cache.
+
+Native detail patches currently require identity manual geometry and no active imported correction. Transformed images retain the complete sized canvas. Apple control UI and its legacy CPU/GPU crop integration are not implemented here; shared schema and ABI mirrors only preserve interoperability.
+
+Synthetic tests exercise deterministic optical selection, XMP persistence, orientation, crop/mask coordinates, and CPU/WGSL geometry parity. They do not establish the issue's 95% camera/lens coverage or its reference-machine interaction budget. The physical RAW corpus and `test-fixtures/references/manifest.json` are still required before those qualification gates can pass. No camera or capability qualification is promoted by this change.
+
 ## References
 
 The [Adobe Lens Profile Creator guide](https://www.adobe.com/special/photoshop/camera_raw/lensprofile_creator/lensprofile_creator_userguide.pdf) describes the calibration workflow. Mathematical conventions were checked against the independent primary implementations in [RawTherapee](https://github.com/RawTherapee/RawTherapee/blob/dev/rtengine/lcp.cc), [AliceVision](https://github.com/alicevision/AliceVision/tree/develop/src/aliceVision/lensCorrectionProfile), and the [Lensfun LCP converter](https://github.com/lensfun/lensfun/blob/master/apps/lensfun-convert-lcp). Tests use authored synthetic calibration coefficients; installed third-party profiles are read-only validation inputs and are not committed.
