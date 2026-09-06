@@ -8,6 +8,7 @@ use crate::error::{Error, Result};
 use crate::types::local_adjustment::{
     BitmapRecipe, Mask, PartialAdjustments, Point2, RangeRefinement,
 };
+use crate::types::SKIN_TONE_RANGE;
 use crate::xmp::parse_xmp_bool;
 use quick_xml::events::BytesStart;
 
@@ -113,14 +114,24 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
 /// knob, not a positional geometry field where a wrong default silently
 /// mislocates the mask.
 fn parse_range_attrs(e: &BytesStart<'_>) -> Result<Option<RangeRefinement>> {
+    // Defaults come from the preset itself so the two cannot drift
+    // (#3281 review).
+    let RangeRefinement::Color {
+        hue_deg,
+        hue_half_width_deg,
+        chroma_min,
+        l_min,
+        l_max,
+        feather,
+    } = SKIN_TONE_RANGE;
     match attr_str(e, "papp:RangeKind")?.as_deref() {
         Some("Color") => Ok(Some(RangeRefinement::Color {
-            hue_deg: attr_f32(e, "papp:RangeHue")?.unwrap_or(55.0),
-            hue_half_width_deg: attr_f32(e, "papp:RangeHueWidth")?.unwrap_or(25.0),
-            chroma_min: attr_f32(e, "papp:RangeChromaMin")?.unwrap_or(0.02),
-            l_min: attr_f32(e, "papp:RangeLMin")?.unwrap_or(0.15),
-            l_max: attr_f32(e, "papp:RangeLMax")?.unwrap_or(0.95),
-            feather: attr_f32(e, "papp:RangeFeather")?.unwrap_or(0.3),
+            hue_deg: attr_f32(e, "papp:RangeHue")?.unwrap_or(hue_deg),
+            hue_half_width_deg: attr_f32(e, "papp:RangeHueWidth")?.unwrap_or(hue_half_width_deg),
+            chroma_min: attr_f32(e, "papp:RangeChromaMin")?.unwrap_or(chroma_min),
+            l_min: attr_f32(e, "papp:RangeLMin")?.unwrap_or(l_min),
+            l_max: attr_f32(e, "papp:RangeLMax")?.unwrap_or(l_max),
+            feather: attr_f32(e, "papp:RangeFeather")?.unwrap_or(feather),
         })),
         _ => Ok(None),
     }
