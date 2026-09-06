@@ -142,6 +142,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
     }
     let decodeBefore = await session.renderActor._testDecodeGeneration()
     let interval = Duration.nanoseconds(16_666_667)
+    var nextInput = ContinuousClock.now
     for index in 0..<count {
       let input = ContinuousClock.now
       inputs.append(input)
@@ -154,9 +155,13 @@ final class EditorWorkflowPerfTests: XCTestCase {
       // is not an ordering barrier and can silently attribute an older frame.
       let scheduled = try XCTUnwrap(session.latestRenderSchedule)
       admissions.append((scheduled, input))
-      // Pace from the actual input, never burst to catch up with old deadlines.
+      // Keep small timer oversleeps from accumulating into a lower input rate.
+      // Reset overdue schedules instead of replaying their missed inputs.
       // Like a real gesture, delivery never waits for render-actor admission.
-      try await ContinuousClock().sleep(until: input.advanced(by: interval))
+      let planned = nextInput.advanced(by: interval)
+      let now = ContinuousClock.now
+      nextInput = planned > now ? planned : now.advanced(by: interval)
+      try await ContinuousClock().sleep(until: nextInput)
     }
     var finalGeneration: UInt64?
     for (scheduled, input) in admissions {
