@@ -36,7 +36,13 @@ final class DeepLinkRouter {
   /// `.task` after `restoreLastSource()`).
   private(set) var pendingDestination: DeepLinkDestination?
 
-  init() {}
+  private init() {}
+
+  #if DEBUG
+    // App-hosted tests need independent queues, without exposing a production
+    // constructor or consuming the shared router's real incoming documents.
+    static func isolatedForTesting() -> DeepLinkRouter { DeepLinkRouter() }
+  #endif
 
   /// Parse `url` and stash a destination if it matches the
   /// `maple://image/{id}` or `maple://source/{id}` shape. Unknown
