@@ -136,6 +136,9 @@ public final class EditSession {
   /// (non-RAW, `RawlerFallback` bodies) — those keep legacy behaviour.
   public internal(set) var wbSliderFrame: WbSliderFrame?
 
+  /// Camera support metadata from this asset's current decode snapshot.
+  public internal(set) var cameraSupport: RawCameraSupport?
+
   /// Whether this asset's RAW carries lens-correction opcodes at all
   /// (#2231) — same decode-snapshot lifecycle as `wbSliderFrame`: `false`
   /// until a decode lands, or forever for non-RAW/preview-only assets.

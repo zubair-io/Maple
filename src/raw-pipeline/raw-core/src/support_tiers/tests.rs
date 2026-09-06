@@ -299,3 +299,13 @@ fn tier_for_never_over_claims_against_the_resolved_file() {
         CameraTier::MatrixOnly
     );
 }
+
+#[test]
+fn a_successful_file_is_not_demoted_by_a_failed_registry_fixture() {
+    let registry = SupportRegistry::compute(&evidence_satisfying(&[]));
+    for body in &registry.bodies {
+        assert!(
+            registry.tier_for(body.key, ProfileResolution::BundleConfident) >= CameraTier::Profiled
+        );
+    }
+}

@@ -40,6 +40,7 @@ struct CameraLocationGrid: View {
   /// Self-Hosted rich detail (City / Size), fetched once by `InfoPanelView`.
   /// `nil` for local / PhotoKit assets or before the fetch resolves.
   var enrichment: CloudEnrichmentSections?
+  var cameraSupport: RawCameraSupport?
 
   @Environment(\.revealFolderAction) private var revealFolder
   @Environment(\.dismiss) private var dismiss
@@ -67,6 +68,17 @@ struct CameraLocationGrid: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       sectionHeader("Camera & Location")
+      if let cameraSupport {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Camera support: \(cameraSupport.tier.label)")
+            .font(MapleTokens.Typography.body)
+          Text(cameraSupport.tier.explanation)
+            .font(MapleTokens.Typography.body)
+            .foregroundStyle(MapleTokens.textMuted)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("info-camera-support")
+      }
       MuiLabelValueGrid(
         rows: rows.map { row in
           MuiLabelValueRow(

@@ -75,6 +75,18 @@ struct LensCorrectionsSection: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
+      let support: LensSupport =
+        session.hasLensCorrections ? .embeddedCorrection : .noCorrectionData
+      Text(support.label).font(MapleTokens.Typography.body)
+      Text(support.explanation).font(MapleTokens.Typography.body)
+        .foregroundStyle(MapleTokens.textMuted)
+        .accessibilityIdentifier("editor-lens-support")
+      controls
+    }
+  }
+
+  private var controls: some View {
+    VStack(alignment: .leading, spacing: 10) {
       MuiToggle(
         checked: enabledBinding,
         label: "Lens Profile Corrections",

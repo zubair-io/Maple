@@ -97,6 +97,7 @@ extension EditSession {
     // #2231: same lifecycle as the WB frame above — the inspector
     // panel's visibility/CA-greying tracks whichever decode is
     // currently cached, not a per-tick recomputation.
+    cameraSupport = snapshot.cameraSupport
     hasLensCorrections = snapshot.hasLensCorrections
     lensCorrectionCaInert = snapshot.lensCorrectionCaInert
     lensCorrectionDistortionInert = snapshot.lensCorrectionDistortionInert
@@ -357,6 +358,7 @@ extension EditSession {
         let freshSnapshot = await renderActor.snapshot(forAsset: asset)
         adoptDecodedWbFrame(freshSnapshot.wbFrame)
         // #2231: same lifecycle as the WB frame above.
+        cameraSupport = freshSnapshot.cameraSupport
         hasLensCorrections = freshSnapshot.hasLensCorrections
         lensCorrectionCaInert = freshSnapshot.lensCorrectionCaInert
         lensCorrectionDistortionInert = freshSnapshot.lensCorrectionDistortionInert

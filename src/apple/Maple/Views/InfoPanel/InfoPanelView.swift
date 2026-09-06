@@ -101,7 +101,8 @@ struct InfoPanelView: View {
           RatingFlagsRow(session: session)
           HistogramBlock(session: session)
         }
-        CameraLocationGrid(asset: session?.asset, enrichment: enrichment)
+        CameraLocationGrid(
+          asset: session?.asset, enrichment: enrichment, cameraSupport: session?.cameraSupport)
         KeywordChipsRow(session: session)
         EnrichmentBlock(sections: enrichment)
       }
