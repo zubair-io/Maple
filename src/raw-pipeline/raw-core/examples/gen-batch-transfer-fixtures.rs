@@ -2,7 +2,11 @@
 //! Run with `cargo run -p raw-core --features test-support --example
 //! gen-batch-transfer-fixtures -- <repo>/test-fixtures/batch-transfer`.
 use raw_core::{
-    color::dcp::estimate_as_shot_cct_tint, decode::decode_bytes,
+    color::{
+        dcp::{estimate_as_shot_cct_tint, profile_for_with_source, ProfileSource},
+        matrices::M_XYZ_D65_TO_REC2020,
+    },
+    decode::decode_bytes,
     test_support::synth_dng::SyntheticGreyDng,
 };
 use std::{fs, path::PathBuf};
@@ -12,6 +16,10 @@ fn gradient_bytes(width: u32, height: u32, neutral: [f32; 3]) -> Vec<u8> {
         width,
         height,
         as_shot_neutral_override: Some(neutral),
+        // Declare a calibrated Rec.2020 sensor, as the synthetic chart does.
+        // Identity CM is deliberately rejected as placeholder calibration.
+        color_matrix_1_override: Some(M_XYZ_D65_TO_REC2020.0),
+        calibration_illuminant_1_override: Some(21),
         ..Default::default()
     }
     .write_to_bytes();
@@ -44,6 +52,10 @@ fn main() {
     ] {
         let bytes = gradient_bytes(width, height, neutral);
         let raw = decode_bytes(&bytes, "dng").unwrap();
+        assert!(matches!(
+            profile_for_with_source(&raw).unwrap().1,
+            ProfileSource::EmbeddedCmOnly { .. }
+        ));
         let (temperature, tint) = estimate_as_shot_cct_tint(&raw).unwrap();
         fs::write(destination.join(format!("{name}.dng")), bytes).unwrap();
         baselines.push(serde_json::json!({"name":name,"width":width,"height":height,"temperature":(temperature/50.).round()*50.,"tint":tint.round()}));

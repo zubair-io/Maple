@@ -38,6 +38,13 @@ final class AdjustmentTransferRenderTests: XCTestCase {
     let remote = AssetRef(
       displayName: "Target from connected library", hintExtension: "dng",
       explicitIsRaw: true, bytesProvider: { targetBytes })
+    // A real embedded calibration frame is required: a frameless synthetic
+    // RAW would compare CIRAWFilter's local fallback against an unseeded remote
+    // fallback, rather than testing the same camera-relative correction.
+    let decoded = try PipelineRenderer.renderSceneLinear(
+      rawBytes: targetBytes, hint: "dng", quality: .full, profileOverride: .neutral)
+    XCTAssertTrue(
+      decoded.wbFrame?.isPresent == true, "The fixture must export its calibration frame")
     let remoteBaseline = try await WhiteBalanceTransferBaseline.read(asset: remote)
     XCTAssertEqual(remoteBaseline, targetBaseline)
     XCTAssertFalse(
