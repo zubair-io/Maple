@@ -44,7 +44,13 @@ final class DocumentOpenRouter {
   /// with the sandbox off, where the read works without a claim anyway).
   @ObservationIgnored private var heldScope: URL?
 
-  init() {}
+  private init() {}
+
+  #if DEBUG
+    // App-hosted tests need independent queues, without exposing a production
+    // constructor or consuming the shared router's real incoming documents.
+    static func isolatedForTesting() -> DocumentOpenRouter { DocumentOpenRouter() }
+  #endif
 
   /// Claim the LaunchServices security scope for an opened file and stash it
   /// for the shell. Non-file URLs are ignored (those are `maple://` deep
