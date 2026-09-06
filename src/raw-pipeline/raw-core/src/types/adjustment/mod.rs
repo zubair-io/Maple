@@ -555,6 +555,11 @@ pub struct AdjustmentModel {
     pub defringe_green_amount: f32,  // 0..20, default 0
     pub defringe_green_hue_lo: f32,  // 0..100, default 40
     pub defringe_green_hue_hi: f32,  // 0..100, default 60
+    /// Versioned content-addressed LCP selection. Empty keeps embedded-only
+    /// correction. `lcp1-ack:` records explicit acceptance of approximations.
+    /// The referenced profile must be cached before rendering; missing data
+    /// is an error, never an unannounced change of optical correction.
+    pub lens_profile: String,
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this

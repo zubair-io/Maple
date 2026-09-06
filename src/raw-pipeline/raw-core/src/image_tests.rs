@@ -145,6 +145,7 @@ fn fake_raw_with_opcodes(
         opcode_list3,
         aperture: None,
         focal_length: None,
+        lens_metadata: Default::default(),
     }
 }
 

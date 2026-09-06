@@ -428,6 +428,10 @@ pub(super) fn set_field(
         "crs:DefringeGreenAmount" => m.defringe_green_amount = v()?,
         "crs:DefringeGreenHueLo" => m.defringe_green_hue_lo = v()?,
         "crs:DefringeGreenHueHi" => m.defringe_green_hue_hi = v()?,
+        "papp:LensProfile" => {
+            if !value.is_empty() { crate::lens_profile::profile_id(value).map_err(Error::Xmp)?; }
+            m.lens_profile = value.to_owned();
+        }
         "crs:HasCrop" => {}             // consumed in the pre-pass
         "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
         "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)

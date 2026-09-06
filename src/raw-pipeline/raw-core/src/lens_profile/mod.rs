@@ -4,7 +4,24 @@
 //! match. Keep every sample and model, including duplicate calibration keys.
 //! Pixel-domain conversion and catalog distribution are separate contracts.
 
+pub mod model;
+mod resolve;
 mod xml;
+pub use resolve::{LensQuery, Resolution, SampleWeight};
+mod apply;
+pub use apply::apply;
+mod registry;
+pub use registry::{apply_for_raw, profile_id, register, resolve_for_raw};
+
+/// Lens EXIF and calibration frame captured during the original RAW decode.
+#[derive(Clone, Debug, Default)]
+pub struct LensMetadata {
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens_model: Option<String>,
+    pub focus_m: Option<f64>,
+    pub active_area: Option<crate::pipeline::pano::opcodes::ActiveAreaRect>,
+}
 
 use std::collections::BTreeMap;
 
@@ -68,3 +85,7 @@ impl LensModel {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_registry;
+#[cfg(test)]
+mod tests_resolve;
