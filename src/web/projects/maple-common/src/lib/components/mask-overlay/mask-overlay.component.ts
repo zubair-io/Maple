@@ -101,7 +101,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   private readonly assetDims = focusedImageDims(this.library);
   private readonly nativeFrame = computed(() => {
     const native = this.canvasSvc.nativeDimensions();
-    return native?.assetId === this.library.focusedAssetId() ? native : null;
+    return native?.assetId === this.library.focusedAsset()?.id ? native : null;
   });
   private readonly imgDims = computed(() => this.nativeFrame() ?? this.assetDims());
 
