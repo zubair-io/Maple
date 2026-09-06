@@ -42,7 +42,9 @@ struct ColorAccessoryRow: View {
           .frame(maxWidth: 160)
       }
       Toggle(isOn: blackWhiteBinding) { Text("Black & White").font(.caption) }
-        .toggleStyle(.switch)
+        .toggleStyle(.button)
+        .frame(minHeight: 44)
+        .accessibilityValue(session.model.blackWhite == .on ? "On" : "Off")
         .accessibilityIdentifier("editor-bw-toggle")
         .accessibilityLabel("Convert to black and white")
       WhiteBalanceControls(state: state)

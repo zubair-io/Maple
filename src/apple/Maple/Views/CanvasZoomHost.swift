@@ -46,15 +46,11 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   var onWheelEditing: ((Int, Double) -> Void)? = nil
   /// True when the consumer has pixels to show — the leaf renders framed + gestured; otherwise the fallback shows.
   let canvasReady: Bool
-  /// Frame (host-local coordinate space) of a floating chrome panel
-  /// covering part of the canvas — e.g. `FlyoutSliderPanel`'s film
-  /// catalog list while Film is armed (#2683). `ScrollWheelCatcher` is a
-  /// plain `NSView` sized to the whole canvas and knows nothing about
-  /// SwiftUI's z-order, so without this it swallows scroll-wheel events
-  /// even under a panel drawn on top. `nil` when no panel covers the
-  /// canvas, or `EditorView` has scoped it off (`reportsWheelExclusion(
-  /// in:active:)`) for the currently-armed tool — every tool but Film
-  /// keeps the plain-wheel nudge on `onWheelEditing` above.
+  /// Frame (host-local coordinate space) of the shared adjustments panel
+  /// and dock. Their scroll views own wheel input above the canvas.
+  /// `ScrollWheelCatcher` spans the canvas and has no SwiftUI z-order;
+  /// excluding the reported control bounds lets those scroll views work.
+  /// `nil` when no control surface covers the canvas.
   var wheelExcludedFrame: CGRect? = nil
   /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
   @ViewBuilder let canvasLeaf: () -> CanvasLeaf

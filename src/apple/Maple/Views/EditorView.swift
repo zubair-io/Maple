@@ -69,7 +69,8 @@ struct EditorSurface: View {
       EditorCanvasView(
         state: state,
         filmstripSource: filmstripSource,
-        wheelExclusionFrame: wheelExclusionFrame
+        wheelExclusionFrame: wheelExclusionFrame,
+        hasFilmstrip: !filmstripAssets.isEmpty
       )
 
       // ── LAYER 1 : value HUD (center, fades in during scrub) ───────

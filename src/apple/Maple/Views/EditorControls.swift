@@ -40,6 +40,9 @@ struct EditorControls: View {
           maxWidth: .infinity, maxHeight: .infinity,
           alignment: isCompact ? .bottom : .trailing
         )
+        .onChange(of: layout) { _, _ in
+          scroll(proxy, to: state.armedTool.rawValue)
+        }
         .onChange(of: state.armedTool) { _, tool in
           collapsed.remove(tool.group)
           scroll(proxy, to: tool.rawValue)
