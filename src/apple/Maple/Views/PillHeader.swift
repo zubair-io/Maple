@@ -146,6 +146,7 @@ struct PillHeader: View {
         .allowsHitTesting(false)
         .accessibilityIdentifier("editor-pill-render-path")
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-pill-header")
   }
 }
