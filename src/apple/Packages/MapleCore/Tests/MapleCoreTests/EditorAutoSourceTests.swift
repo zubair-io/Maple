@@ -31,11 +31,14 @@ final class EditorAutoSourceTests: XCTestCase {
     let state = EditorState(session: session)
     XCTAssertNil(asset.primaryURL)
 
+    let expected = try await AutoAdjustments.compute(forRawAt: fixtureURL)
     await state.applyAuto()
 
     XCTAssertEqual(session.model.autoExposure, .off, "Native AUTO must actually apply its result")
-    XCTAssertEqual(session.model.temperature, model.temperature)
-    XCTAssertEqual(session.model.tint, model.tint)
+    XCTAssertEqual(session.model.temperature, expected.temperature)
+    XCTAssertEqual(session.model.tint, expected.tint)
+    XCTAssertEqual(session.model.wbSource, .auto)
+    XCTAssertEqual(session.model.wbAlgorithmVersion, autoWhiteBalanceAlgorithmVersion)
     XCTAssertEqual(session.undoHistory.count, 1)
     XCTAssertFalse(state.autoInProgress)
     let staged = try await session.renderActor.rawRenderSource.url(for: asset)

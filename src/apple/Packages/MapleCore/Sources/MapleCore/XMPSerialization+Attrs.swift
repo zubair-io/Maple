@@ -9,351 +9,350 @@
 import Foundation
 
 extension XMPSerializer {
-    /// Build the ordered adjustment + culling attribute list.
-    /// Values are already formatted for direct emission (numbers, rawValues,
-    /// "Red"/"Rejected" — all XML-safe without escaping).
-    /// Called from both `serialize(model:culling:)` and the metadata overload
-    /// so metadata attrs can be appended natively.
-    ///
-    /// `omitWhiteBalance` (#1883): skip `crs:Temperature` / `crs:Tint` /
-    /// `papp:WbScaleVersion` so raw-core parses the document with
-    /// `temperature_seen`/`tint_seen` FALSE — As-Shot semantics. Used ONLY
-    /// by `RawCoreBridge.withStrippedXMP`'s decode temp-XMP: since #1726's
-    /// camera-space WB, an EXPLICIT 6500/0 means "Custom WB dialed to D65"
-    /// (a camera-space retarget), while the Apple decode contract needs the
-    /// As-Shot no-op that the CPU reference gets from an absent model. Real
-    /// sidecar saves must never set this — authored WB always persists.
-    static func _buildAttrs(
-        model: AdjustmentModel,
-        culling: CullingState,
-        omitWhiteBalance: Bool = false
-    ) -> [(String, String)] {
-        let wbAttrs: [(String, String)] = omitWhiteBalance ? [] : [
-            // Preset name (#1577). Apple's model has no preset field — the
-            // parser resolves a named preset to a temperature/tint pair and
-            // keeps only the numbers — but this serializer always authors an
-            // explicit pair, which is exactly what ACR and the web writer
-            // label "Custom". Emitting it keeps the attribute set identical
-            // to the web writer's for an authored WB, and reads back as a
-            // no-op here (`wbPreset("Custom")` is nil, and the explicit
-            // Temperature/Tint below win regardless of attribute order).
-            ("crs:WhiteBalance",         "Custom"),
-            // Fractional-preserving (fmtNum): normalized WB pairs are
-            // non-integer post-#1893/#1894 (a V3-authored −144 loads as a
-            // fractional V5 pair), and the frame-hydrated as-shot
-            // temperature is fractional too — integer rounding here
-            // shifted the stored WB on every re-save, drifting the
-            // rendered look.
-            ("crs:Temperature",          fmtNum(model.temperature)),
-            ("crs:Tint",                 fmtNum(model.tint)),
-            // WB scale stamp (#1780/#1875/#1893/#1894): every sidecar save
-            // writes explicit Temperature/Tint, so the scale those numbers
-            // are expressed in is always stamped alongside them. V1
-            // re-emits as 1 (raw-core converts at develop, so stored V1
-            // values keep their meaning across saves); everything else
-            // emits 5 — the parse normalizes V2/V3/V4 models to V5
-            // (Robertson-native) at load, so a non-1 model always holds V5
-            // values. Clamped to {1, 5}: raw-core's parser hard-fails on an
-            // unknown stamp, so a corrupted model field must never reach
-            // the sidecar.
-            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 5)),
-        ]
-        var attrs: [(String, String)] = [
-            // Process-version signalling, always emitted (canonical format
-            // § "Always-emitted attributes"). The TS writer has emitted these
-            // since P6; #1577 brought Swift in line, which is also what tells
-            // Lightroom the sidecar carries develop settings at all.
-            ("crs:Version",              "11.0"),
-            ("crs:ProcessVersion",       "11.0"),
-            ("crs:HasSettings",          "True"),
-        ] + wbAttrs + [
-            // Every numeric attribute goes through `fmtNum`, the canonical
-            // wire codec — see `XMPSerialization+Helpers.swift`.
-            ("crs:Exposure2012",         fmtNum(model.exposure)),
-            ("crs:Contrast2012",         fmtNum(model.contrast)),
-            ("crs:Highlights2012",       fmtNum(model.highlights)),
-            ("crs:Shadows2012",          fmtNum(model.shadows)),
-            ("crs:Whites2012",           fmtNum(model.whites)),
-            ("crs:Blacks2012",           fmtNum(model.blacks)),
-            ("crs:Vibrance",             fmtNum(model.vibrance)),
-            ("crs:Saturation",           fmtNum(model.saturation)),
-            ("crs:Clarity2012",          fmtNum(model.clarity)),
-            ("crs:Texture",              fmtNum(model.texture)),
-            ("crs:Dehaze",               fmtNum(model.dehaze)),
-            ("crs:Sharpness",            fmtNum(model.sharpenAmount)),
-            ("crs:SharpenRadius",        fmtNum(model.sharpenRadius)),
-            ("crs:SharpenDetail",        fmtNum(model.sharpenDetail)),
-            ("crs:SharpenEdgeMasking",   fmtNum(model.sharpenMasking)),
-            ("papp:CaptureSharpeningAmount", fmtNum(model.captureSharpeningAmount)),
-            // Canonical capture-sharpening write key (#456). Legacy
-            // `papp:CaptureSharpeningRadius` is read-only — older sidecars
-            // still parse, but new sidecars emit Sigma exclusively.
-            ("papp:CaptureSharpeningSigma", fmtNum(model.captureSharpeningSigma)),
-            ("crs:LuminanceSmoothing",   fmtNum(model.nrLuminance)),
-            ("crs:ColorNoiseReduction",  fmtNum(model.nrColor)),
-        ]
-        // Star rating — Adobe's convention is that absence means unrated, so
-        // zero is omitted rather than written as `xmp:Rating="0"` (canonical
-        // format § "Culling fields"). Matches the TS writer.
-        if culling.stars > 0 {
-            attrs.append(("xmp:Rating", String(culling.stars)))
-        }
-        // Cull flag (#2221). Canonical key is `papp:Flag` with the bare
-        // lowercase `pick` / `reject` values — byte-identical to what the
-        // TS serializer (`xmp-serializer.service.ts`) and the API
-        // (`metadata-serializer.ts`) write, and exactly what both of their
-        // parsers gate on. Apple previously emitted `xmp:Label="Red"` /
-        // `"Rejected"`, which no other side reads as a flag at all (the web
-        // parser reads `xmp:Label` as an Adobe *colour* word, so a pick came
-        // back as a red colour label) and which Apple's own parser couldn't
-        // read back for reject. The legacy spellings stay readable — see the
-        // `xmp:Label` arm in `XMPSerialization.swift` — but are never written.
-        if culling.flag != .none {
-            attrs.append(("papp:Flag", culling.flag.rawValue))
-        }
-        // Color label (#1656) — emitted only when set, per spec § 01's
-        // culling table ("Only when set") and Adobe's absence-means-unset
-        // convention. The key is `papp:ColorLabel` with the lowercase
-        // vocabulary raw value, byte-identical to what the TS serializer
-        // writes and the API parser gates on, so a label authored here
-        // survives a round trip through Maple Hosted.
-        //
-        // Deliberately NOT also written to `xmp:Label`: this serializer
-        // already overloads that attribute for the pick/reject flag
-        // (`"Red"` / `"Rejected"`, just above), so a second writer would
-        // collide with it.
-        if let colorLabel = culling.colorLabel {
-            attrs.append(("papp:ColorLabel", colorLabel.rawValue))
-        }
-        if let hidden = culling.hidden {  // tri-state: only emit when explicitly touched, never a default
-            attrs.append(("papp:Hidden", hidden ? "true" : "false"))
-        }
-        // Brightness (#1102) — emit only when non-default (0) so sidecars
-        // produced before the slider existed remain byte-identical for
-        // users who never touch it. Key is `papp:Brightness`, NOT the ACR
-        // PV2010 `crs:Brightness` (different semantics — see the parser).
-        if model.brightness != 0 {
-            attrs.append(("papp:Brightness", fmtNum(model.brightness)))
-        }
-        // Parametric tone-curve region sliders (#365) — Lightroom-compatible
-        // PV2012 `crs:` keys, emit only when non-default (0) so sidecars
-        // written before the tone-curve widget existed stay byte-identical.
-        // fmtNum is the canonical-format numeric codec (integers bare,
-        // fractions 2dp-trimmed — mirrors the TS `numericSerializer`);
-        // widget drag values are not integer-quantized, so `%.0f` would
-        // shift the stored curve on every re-save. The omit gate shares
-        // fmtNum's 2-decimal rounding — gating on the raw Double would emit
-        // `="0"` for values like 0.004 (PR #2192 review); non-finite values
-        // are not representable in sidecars and are skipped.
-        let parametricAttrs = [
-            ("crs:ParametricHighlights", model.parametricHighlights),
-            ("crs:ParametricLights", model.parametricLights),
-            ("crs:ParametricDarks", model.parametricDarks),
-            ("crs:ParametricShadows", model.parametricShadows),
-        ]
-        for (key, value) in parametricAttrs {
-            let rounded = (value * 100).rounded() / 100
-            if rounded.isFinite && rounded != 0 {
-                attrs.append((key, fmtNum(value)))
-            }
-        }
-        // ACR's parametric split points (#2320) — same Lightroom-compatible
-        // `crs:` keys and omit-on-default convention as the region sliders
-        // above, but each has its own non-zero default (25/50/75), so the
-        // per-field default is compared rather than a shared `!= 0` gate.
-        let parametricSplitAttrs = [
-            ("crs:ParametricShadowSplit", model.parametricShadowSplit, 25.0),
-            ("crs:ParametricMidtoneSplit", model.parametricMidtoneSplit, 50.0),
-            ("crs:ParametricHighlightSplit", model.parametricHighlightSplit, 75.0),
-        ]
-        for (key, value, defaultValue) in parametricSplitAttrs {
-            let rounded = (value * 100).rounded() / 100
-            if rounded.isFinite && rounded != defaultValue {
-                attrs.append((key, fmtNum(value)))
-            }
-        }
-        // S5 effects fields (#643) — emit only when non-default so sidecars
-        // produced before this PR remain byte-identical for users who never
-        // touch the vignette / grain / split-tone tools. Defaults are:
-        // vignetteAmount=0, vignetteFeather=50, grainAmount=0, grainSize=25,
-        // grainRoughness=50, all split-tone scalars=0.
-        if model.vignetteAmount != 0 {
-            attrs.append(("crs:PostCropVignetteAmount", fmtNum(model.vignetteAmount)))
-        }
-        if model.vignetteFeather != 50 {
-            attrs.append(("crs:PostCropVignetteFeather", fmtNum(model.vignetteFeather)))
-        }
-        if model.grainAmount != 0 {
-            attrs.append(("crs:GrainAmount", fmtNum(model.grainAmount)))
-        }
-        if model.grainSize != 25 {
-            attrs.append(("crs:GrainSize", fmtNum(model.grainSize)))
-        }
-        if model.grainRoughness != 50 {
-            attrs.append(("crs:GrainFrequency", fmtNum(model.grainRoughness)))
-        }
-        if model.splitToneShadowHue != 0 {
-            attrs.append(("crs:SplitToningShadowHue", fmtNum(model.splitToneShadowHue)))
-        }
-        if model.splitToneShadowSaturation != 0 {
-            attrs.append(("crs:SplitToningShadowSaturation", fmtNum(model.splitToneShadowSaturation)))
-        }
-        if model.splitToneHighlightHue != 0 {
-            attrs.append(("crs:SplitToningHighlightHue", fmtNum(model.splitToneHighlightHue)))
-        }
-        if model.splitToneHighlightSaturation != 0 {
-            attrs.append(("crs:SplitToningHighlightSaturation", fmtNum(model.splitToneHighlightSaturation)))
-        }
-        if model.splitToneBalance != 0 {
-            attrs.append(("crs:SplitToningBalance", fmtNum(model.splitToneBalance)))
-        }
-        // Color Grading (#275) — the rest of the panel beyond the five
-        // `crs:SplitToning*` keys above. Same omit-on-default convention.
-        if model.colorGradeShadowLuminance != 0 {
-            attrs.append(("crs:ColorGradeShadowLum", fmtNum(model.colorGradeShadowLuminance)))
-        }
-        if model.colorGradeMidtoneHue != 0 {
-            attrs.append(("crs:ColorGradeMidtoneHue", fmtNum(model.colorGradeMidtoneHue)))
-        }
-        if model.colorGradeMidtoneSaturation != 0 {
-            attrs.append(("crs:ColorGradeMidtoneSat", fmtNum(model.colorGradeMidtoneSaturation)))
-        }
-        if model.colorGradeMidtoneLuminance != 0 {
-            attrs.append(("crs:ColorGradeMidtoneLum", fmtNum(model.colorGradeMidtoneLuminance)))
-        }
-        if model.colorGradeHighlightLuminance != 0 {
-            attrs.append(("crs:ColorGradeHighlightLum", fmtNum(model.colorGradeHighlightLuminance)))
-        }
-        if model.colorGradeGlobalHue != 0 {
-            attrs.append(("crs:ColorGradeGlobalHue", fmtNum(model.colorGradeGlobalHue)))
-        }
-        if model.colorGradeGlobalSaturation != 0 {
-            attrs.append(("crs:ColorGradeGlobalSat", fmtNum(model.colorGradeGlobalSaturation)))
-        }
-        if model.colorGradeGlobalLuminance != 0 {
-            attrs.append(("crs:ColorGradeGlobalLum", fmtNum(model.colorGradeGlobalLuminance)))
-        }
-        attrs += XMPSerializer.hslAttrs(model: model)
-        // Black & white mix (#276) — toggle + eight gray-mixer weights.
-        attrs += XMPSerializer.blackWhiteAttrs(model: model)
-        if model.highlightRecovery != .chromaticAdaptation {
-            attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
-        }
-        // Auto-exposure (#1387) — the default `.on` is omitted, so the
-        // attribute is written only for the non-default `.off`; same
-        // omit-on-default convention as every other papp: enum field.
-        // Sidecars predating this field have no `papp:AutoExposure` and
-        // parse to `.on`; only an explicit AUTO opt-out (`applyAuto` on
-        // `Profile.neutral`) or a hand-authored Off writes it.
-        if model.autoExposure != .on {
-            attrs.append(("papp:AutoExposure", model.autoExposure.rawValue))
-        }
-        // White-balance method (#431; wired into Swift by #2216) — the
-        // default `.cat16` is omitted; an explicit `.diagonalRec2020`
-        // (parity A/B, or a legacy pre-#431 sidecar re-saved as-is) is
-        // written. Same omit-on-default convention as every other papp:
-        // enum field.
-        if model.wbMethod != .cat16 {
-            attrs.append(("papp:WbMethod", model.wbMethod.rawValue))
-        }
-        // White-balance provenance (#2434): omit-on-default. A non-zero
-        // version IS the "this pair was derived" flag — a model carrying
-        // `.sampled` with no version has a source and no provenance (a
-        // pasted look copies `wbSource` but not the point or the version,
-        // both non-copyable), and writing `0,0` there would claim a sample
-        // that never happened. The version rides only with the two sources
-        // that can derive one (#3309).
-        let derivedWb = model.wbAlgorithmVersion != 0
-        if model.wbSource != .asShot {
-            attrs.append(("papp:WbSource", model.wbSource.rawValue))
-        }
-        if model.wbSource == .sampled && derivedWb {
-            attrs.append(("papp:WbSampleX", fmtNum(model.wbSampleX)))
-            attrs.append(("papp:WbSampleY", fmtNum(model.wbSampleY)))
-        }
-        if derivedWb && (model.wbSource == .auto || model.wbSource == .sampled) {
-            attrs.append(("papp:WbAlgorithmVersion", fmtNum(model.wbAlgorithmVersion)))
-        }
-        // Per-channel point tone-curve mode (#436; wired into Swift by
-        // #2216) — the default `.perChannel` is omitted.
-        if model.toneCurveMode != .perChannel {
-            attrs.append(("papp:ToneCurveMode", model.toneCurveMode.rawValue))
-        }
-        // DisplayLookCurve (#371; retired in #443) — the field is a no-op
-        // post-#443 but the attribute is still emitted on non-default
-        // values so it round-trips with pre-#443 sidecars. Default-valued
-        // models omit the attribute, so newly-saved sidecars carry no
-        // `papp:Look` at all.
-        if model.look != .default {
-            attrs.append(("papp:Look", model.look.rawValue))
-        }
-        // Auto Profile Phase 1 (#536) — canonical render-shaping profile.
-        // Mirrors the other writers: always preserve explicit intent (#2441).
-        // Newly-written sidecars carry `papp:Profile` only;
-        // older sidecars without it pick up `.auto` automatically, and
-        // legacy `papp:Look` migrates into Profile on read.
-        attrs.append(("papp:Profile", model.profile.rawValue))
-        // Film-look emulation (epic #2683) — the `.mlut` catalog id, emitted
-        // only when non-empty (the default "no look" state), same
-        // omit-on-default convention as every other papp: field. XML-escaped
-        // since it's a free-form string, not a closed rawValue enum.
-        if !model.filmLook.isEmpty {
-            attrs.append(("papp:FilmLook", escapeXMLAttr(model.filmLook)))
-        }
-        // Film-look blend strength — emit only when off full strength (100),
-        // and only alongside a look (an id-less strength is meaningless, but
-        // mirrors every other blend-strength field's omit-on-default rule
-        // rather than special-casing on `filmLook`).
-        if model.filmStrength != 100 {
-            attrs.append(("papp:FilmStrength", fmtNum(model.filmStrength)))
-        }
-        // Decode-time chroma pre-filter (#1104) — emit only when
-        // non-default (0) so sidecars produced before the field existed
-        // remain byte-identical for users who never touch it.
-        if model.chromaPrefilter != 0 {
-            attrs.append(("papp:ChromaPrefilter", fmtNum(model.chromaPrefilter)))
-        }
-        // Hot/dead-pixel suppression (#1106) — emit only when non-default
-        // (`.off`), same convention.
-        if model.hotPixelSuppression != .off {
-            attrs.append(("papp:HotPixelSuppression", model.hotPixelSuppression.rawValue))
-        }
-        // BM3D deep denoise (#1105) — emit only when non-default (0).
-        if model.deepDenoise != 0 {
-            attrs.append(("papp:DeepDenoise", fmtNum(model.deepDenoise)))
-        }
-        // DNG-embedded lens corrections (#376) — ACR-compatible `crs:`
-        // keys, emitted only when the user moved off full strength so an
-        // untouched lens panel leaves the sidecar byte-identical. The
-        // master switch uses ACR's "0" spelling so Lightroom reads it back.
-        if model.lensProfileEnable != .on {
-            attrs.append(("crs:LensProfileEnable", "0"))
-        }
-        for (key, value) in [
-            ("crs:LensProfileDistortionScale", model.lensCorrectionDistortion),
-            ("crs:LensProfileChromaticAberrationScale", model.lensCorrectionCa),
-            ("crs:LensProfileVignettingScale", model.lensCorrectionVignetting),
-        ] where value.rounded() != 100 {
-            attrs.append((key, String(format: "%.0f", value)))
-        }
-        // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
-        // non-identity. CropAngle is independent so a pure straighten emits
-        // only the angle without the HasCrop/rect group.
-        if !model.crop.isIdentity {
-            let c = model.crop
-            let rectIsIdentity = c.top == 0 && c.left == 0 && c.bottom == 1 && c.right == 1
-            if !rectIsIdentity {
-                attrs.append(("crs:HasCrop", "True"))
-                attrs.append(("crs:CropTop",    fmtCrop(c.top)))
-                attrs.append(("crs:CropLeft",   fmtCrop(c.left)))
-                attrs.append(("crs:CropBottom", fmtCrop(c.bottom)))
-                attrs.append(("crs:CropRight",  fmtCrop(c.right)))
-                attrs.append(("crs:CropConstrainToWarp", "0"))
-            }
-            if c.angle != 0 {
-                attrs.append(("crs:CropAngle", fmtCrop(c.angle)))
-            }
-        }
-        return attrs
+  /// Build the ordered adjustment + culling attribute list.
+  /// Values are already formatted for direct emission (numbers, rawValues,
+  /// "Red"/"Rejected" — all XML-safe without escaping).
+  /// Called from both `serialize(model:culling:)` and the metadata overload
+  /// so metadata attrs can be appended natively.
+  ///
+  /// `omitWhiteBalance` (#1883): skip `crs:Temperature` / `crs:Tint` /
+  /// `papp:WbScaleVersion` so raw-core parses the document with
+  /// `temperature_seen`/`tint_seen` FALSE — As-Shot semantics. Used ONLY
+  /// by `RawCoreBridge.withStrippedXMP`'s decode temp-XMP: since #1726's
+  /// camera-space WB, an EXPLICIT 6500/0 means "Custom WB dialed to D65"
+  /// (a camera-space retarget), while the Apple decode contract needs the
+  /// As-Shot no-op that the CPU reference gets from an absent model. Real
+  /// sidecar saves must never set this — authored WB always persists.
+  static func _buildAttrs(
+    model: AdjustmentModel,
+    culling: CullingState,
+    omitWhiteBalance: Bool = false
+  ) -> [(String, String)] {
+    let wbAttrs: [(String, String)] =
+      omitWhiteBalance
+      ? []
+      : [
+        // Preserve a chosen illuminant; legacy numerical-only models keep Custom.
+        ("crs:WhiteBalance", model.whiteBalancePreset.rawValue),
+        // Fractional-preserving (fmtNum): normalized WB pairs are
+        // non-integer post-#1893/#1894 (a V3-authored −144 loads as a
+        // fractional V5 pair), and the frame-hydrated as-shot
+        // temperature is fractional too — integer rounding here
+        // shifted the stored WB on every re-save, drifting the
+        // rendered look.
+        ("crs:Temperature", fmtNum(model.temperature)),
+        ("crs:Tint", fmtNum(model.tint)),
+        // WB scale stamp (#1780/#1875/#1893/#1894): every sidecar save
+        // writes explicit Temperature/Tint, so the scale those numbers
+        // are expressed in is always stamped alongside them. V1
+        // re-emits as 1 (raw-core converts at develop, so stored V1
+        // values keep their meaning across saves); everything else
+        // emits 5 — the parse normalizes V2/V3/V4 models to V5
+        // (Robertson-native) at load, so a non-1 model always holds V5
+        // values. Clamped to {1, 5}: raw-core's parser hard-fails on an
+        // unknown stamp, so a corrupted model field must never reach
+        // the sidecar.
+        ("papp:WbScaleVersion", String(model.wbScaleVersion == 1 ? 1 : 5)),
+      ]
+    var attrs: [(String, String)] =
+      [
+        // Process-version signalling, always emitted (canonical format
+        // § "Always-emitted attributes"). The TS writer has emitted these
+        // since P6; #1577 brought Swift in line, which is also what tells
+        // Lightroom the sidecar carries develop settings at all.
+        ("crs:Version", "11.0"),
+        ("crs:ProcessVersion", "11.0"),
+        ("crs:HasSettings", "True"),
+      ] + wbAttrs + [
+        // Every numeric attribute goes through `fmtNum`, the canonical
+        // wire codec — see `XMPSerialization+Helpers.swift`.
+        ("crs:Exposure2012", fmtNum(model.exposure)),
+        ("crs:Contrast2012", fmtNum(model.contrast)),
+        ("crs:Highlights2012", fmtNum(model.highlights)),
+        ("crs:Shadows2012", fmtNum(model.shadows)),
+        ("crs:Whites2012", fmtNum(model.whites)),
+        ("crs:Blacks2012", fmtNum(model.blacks)),
+        ("crs:Vibrance", fmtNum(model.vibrance)),
+        ("crs:Saturation", fmtNum(model.saturation)),
+        ("crs:Clarity2012", fmtNum(model.clarity)),
+        ("crs:Texture", fmtNum(model.texture)),
+        ("crs:Dehaze", fmtNum(model.dehaze)),
+        ("crs:Sharpness", fmtNum(model.sharpenAmount)),
+        ("crs:SharpenRadius", fmtNum(model.sharpenRadius)),
+        ("crs:SharpenDetail", fmtNum(model.sharpenDetail)),
+        ("crs:SharpenEdgeMasking", fmtNum(model.sharpenMasking)),
+        ("papp:CaptureSharpeningAmount", fmtNum(model.captureSharpeningAmount)),
+        // Canonical capture-sharpening write key (#456). Legacy
+        // `papp:CaptureSharpeningRadius` is read-only — older sidecars
+        // still parse, but new sidecars emit Sigma exclusively.
+        ("papp:CaptureSharpeningSigma", fmtNum(model.captureSharpeningSigma)),
+        ("crs:LuminanceSmoothing", fmtNum(model.nrLuminance)),
+        ("crs:ColorNoiseReduction", fmtNum(model.nrColor)),
+      ]
+    // Star rating — Adobe's convention is that absence means unrated, so
+    // zero is omitted rather than written as `xmp:Rating="0"` (canonical
+    // format § "Culling fields"). Matches the TS writer.
+    if culling.stars > 0 {
+      attrs.append(("xmp:Rating", String(culling.stars)))
     }
+    // Cull flag (#2221). Canonical key is `papp:Flag` with the bare
+    // lowercase `pick` / `reject` values — byte-identical to what the
+    // TS serializer (`xmp-serializer.service.ts`) and the API
+    // (`metadata-serializer.ts`) write, and exactly what both of their
+    // parsers gate on. Apple previously emitted `xmp:Label="Red"` /
+    // `"Rejected"`, which no other side reads as a flag at all (the web
+    // parser reads `xmp:Label` as an Adobe *colour* word, so a pick came
+    // back as a red colour label) and which Apple's own parser couldn't
+    // read back for reject. The legacy spellings stay readable — see the
+    // `xmp:Label` arm in `XMPSerialization.swift` — but are never written.
+    if culling.flag != .none {
+      attrs.append(("papp:Flag", culling.flag.rawValue))
+    }
+    // Color label (#1656) — emitted only when set, per spec § 01's
+    // culling table ("Only when set") and Adobe's absence-means-unset
+    // convention. The key is `papp:ColorLabel` with the lowercase
+    // vocabulary raw value, byte-identical to what the TS serializer
+    // writes and the API parser gates on, so a label authored here
+    // survives a round trip through Maple Hosted.
+    //
+    // Deliberately NOT also written to `xmp:Label`: this serializer
+    // already overloads that attribute for the pick/reject flag
+    // (`"Red"` / `"Rejected"`, just above), so a second writer would
+    // collide with it.
+    if let colorLabel = culling.colorLabel {
+      attrs.append(("papp:ColorLabel", colorLabel.rawValue))
+    }
+    // Tri-state: only emit when explicitly touched, never a default.
+    if let hidden = culling.hidden {
+      attrs.append(("papp:Hidden", hidden ? "true" : "false"))
+    }
+    // Brightness (#1102) — emit only when non-default (0) so sidecars
+    // produced before the slider existed remain byte-identical for
+    // users who never touch it. Key is `papp:Brightness`, NOT the ACR
+    // PV2010 `crs:Brightness` (different semantics — see the parser).
+    if model.brightness != 0 {
+      attrs.append(("papp:Brightness", fmtNum(model.brightness)))
+    }
+    // Parametric tone-curve region sliders (#365) — Lightroom-compatible
+    // PV2012 `crs:` keys, emit only when non-default (0) so sidecars
+    // written before the tone-curve widget existed stay byte-identical.
+    // fmtNum is the canonical-format numeric codec (integers bare,
+    // fractions 2dp-trimmed — mirrors the TS `numericSerializer`);
+    // widget drag values are not integer-quantized, so `%.0f` would
+    // shift the stored curve on every re-save. The omit gate shares
+    // fmtNum's 2-decimal rounding — gating on the raw Double would emit
+    // `="0"` for values like 0.004 (PR #2192 review); non-finite values
+    // are not representable in sidecars and are skipped.
+    let parametricAttrs = [
+      ("crs:ParametricHighlights", model.parametricHighlights),
+      ("crs:ParametricLights", model.parametricLights),
+      ("crs:ParametricDarks", model.parametricDarks),
+      ("crs:ParametricShadows", model.parametricShadows),
+    ]
+    for (key, value) in parametricAttrs {
+      let rounded = (value * 100).rounded() / 100
+      if rounded.isFinite && rounded != 0 {
+        attrs.append((key, fmtNum(value)))
+      }
+    }
+    // ACR's parametric split points (#2320) — same Lightroom-compatible
+    // `crs:` keys and omit-on-default convention as the region sliders
+    // above, but each has its own non-zero default (25/50/75), so the
+    // per-field default is compared rather than a shared `!= 0` gate.
+    let parametricSplitAttrs = [
+      ("crs:ParametricShadowSplit", model.parametricShadowSplit, 25.0),
+      ("crs:ParametricMidtoneSplit", model.parametricMidtoneSplit, 50.0),
+      ("crs:ParametricHighlightSplit", model.parametricHighlightSplit, 75.0),
+    ]
+    for (key, value, defaultValue) in parametricSplitAttrs {
+      let rounded = (value * 100).rounded() / 100
+      if rounded.isFinite && rounded != defaultValue {
+        attrs.append((key, fmtNum(value)))
+      }
+    }
+    // S5 effects fields (#643) — emit only when non-default so sidecars
+    // produced before this PR remain byte-identical for users who never
+    // touch the vignette / grain / split-tone tools. Defaults are:
+    // vignetteAmount=0, vignetteFeather=50, grainAmount=0, grainSize=25,
+    // grainRoughness=50, all split-tone scalars=0.
+    if model.vignetteAmount != 0 {
+      attrs.append(("crs:PostCropVignetteAmount", fmtNum(model.vignetteAmount)))
+    }
+    if model.vignetteFeather != 50 {
+      attrs.append(("crs:PostCropVignetteFeather", fmtNum(model.vignetteFeather)))
+    }
+    if model.grainAmount != 0 {
+      attrs.append(("crs:GrainAmount", fmtNum(model.grainAmount)))
+    }
+    if model.grainSize != 25 {
+      attrs.append(("crs:GrainSize", fmtNum(model.grainSize)))
+    }
+    if model.grainRoughness != 50 {
+      attrs.append(("crs:GrainFrequency", fmtNum(model.grainRoughness)))
+    }
+    if model.splitToneShadowHue != 0 {
+      attrs.append(("crs:SplitToningShadowHue", fmtNum(model.splitToneShadowHue)))
+    }
+    if model.splitToneShadowSaturation != 0 {
+      attrs.append(("crs:SplitToningShadowSaturation", fmtNum(model.splitToneShadowSaturation)))
+    }
+    if model.splitToneHighlightHue != 0 {
+      attrs.append(("crs:SplitToningHighlightHue", fmtNum(model.splitToneHighlightHue)))
+    }
+    if model.splitToneHighlightSaturation != 0 {
+      attrs.append(
+        ("crs:SplitToningHighlightSaturation", fmtNum(model.splitToneHighlightSaturation)))
+    }
+    if model.splitToneBalance != 0 {
+      attrs.append(("crs:SplitToningBalance", fmtNum(model.splitToneBalance)))
+    }
+    // Color Grading (#275) — the rest of the panel beyond the five
+    // `crs:SplitToning*` keys above. Same omit-on-default convention.
+    if model.colorGradeShadowLuminance != 0 {
+      attrs.append(("crs:ColorGradeShadowLum", fmtNum(model.colorGradeShadowLuminance)))
+    }
+    if model.colorGradeMidtoneHue != 0 {
+      attrs.append(("crs:ColorGradeMidtoneHue", fmtNum(model.colorGradeMidtoneHue)))
+    }
+    if model.colorGradeMidtoneSaturation != 0 {
+      attrs.append(("crs:ColorGradeMidtoneSat", fmtNum(model.colorGradeMidtoneSaturation)))
+    }
+    if model.colorGradeMidtoneLuminance != 0 {
+      attrs.append(("crs:ColorGradeMidtoneLum", fmtNum(model.colorGradeMidtoneLuminance)))
+    }
+    if model.colorGradeHighlightLuminance != 0 {
+      attrs.append(("crs:ColorGradeHighlightLum", fmtNum(model.colorGradeHighlightLuminance)))
+    }
+    if model.colorGradeGlobalHue != 0 {
+      attrs.append(("crs:ColorGradeGlobalHue", fmtNum(model.colorGradeGlobalHue)))
+    }
+    if model.colorGradeGlobalSaturation != 0 {
+      attrs.append(("crs:ColorGradeGlobalSat", fmtNum(model.colorGradeGlobalSaturation)))
+    }
+    if model.colorGradeGlobalLuminance != 0 {
+      attrs.append(("crs:ColorGradeGlobalLum", fmtNum(model.colorGradeGlobalLuminance)))
+    }
+    attrs += XMPSerializer.hslAttrs(model: model)
+    // Black & white mix (#276) — toggle + eight gray-mixer weights.
+    attrs += XMPSerializer.blackWhiteAttrs(model: model)
+    if model.highlightRecovery != .chromaticAdaptation {
+      attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
+    }
+    // Auto-exposure (#1387) — the default `.on` is omitted, so the
+    // attribute is written only for the non-default `.off`; same
+    // omit-on-default convention as every other papp: enum field.
+    // Sidecars predating this field have no `papp:AutoExposure` and
+    // parse to `.on`; only an explicit AUTO opt-out (`applyAuto` on
+    // `Profile.neutral`) or a hand-authored Off writes it.
+    if model.autoExposure != .on {
+      attrs.append(("papp:AutoExposure", model.autoExposure.rawValue))
+    }
+    // White-balance method (#431; wired into Swift by #2216) — the
+    // default `.cat16` is omitted; an explicit `.diagonalRec2020`
+    // (parity A/B, or a legacy pre-#431 sidecar re-saved as-is) is
+    // written. Same omit-on-default convention as every other papp:
+    // enum field.
+    if model.wbMethod != .cat16 {
+      attrs.append(("papp:WbMethod", model.wbMethod.rawValue))
+    }
+    // White-balance provenance (#2434): omit-on-default. A non-zero
+    // version IS the "this pair was derived" flag — a model carrying
+    // `.sampled` with no version has a source and no provenance (a
+    // pasted look copies `wbSource` but not the point or the version,
+    // both non-copyable), and writing `0,0` there would claim a sample
+    // that never happened. The version rides only with the two sources
+    // that can derive one (#3309).
+    let derivedWb = model.wbAlgorithmVersion != 0
+    if model.wbSource != .asShot {
+      attrs.append(("papp:WbSource", model.wbSource.rawValue))
+    }
+    if model.wbSource == .sampled && derivedWb {
+      attrs.append(("papp:WbSampleX", fmtNum(model.wbSampleX)))
+      attrs.append(("papp:WbSampleY", fmtNum(model.wbSampleY)))
+    }
+    if derivedWb && (model.wbSource == .auto || model.wbSource == .sampled) {
+      attrs.append(("papp:WbAlgorithmVersion", fmtNum(model.wbAlgorithmVersion)))
+    }
+    // Per-channel point tone-curve mode (#436; wired into Swift by
+    // #2216) — the default `.perChannel` is omitted.
+    if model.toneCurveMode != .perChannel {
+      attrs.append(("papp:ToneCurveMode", model.toneCurveMode.rawValue))
+    }
+    // DisplayLookCurve (#371; retired in #443) — the field is a no-op
+    // post-#443 but the attribute is still emitted on non-default
+    // values so it round-trips with pre-#443 sidecars. Default-valued
+    // models omit the attribute, so newly-saved sidecars carry no
+    // `papp:Look` at all.
+    if model.look != .default {
+      attrs.append(("papp:Look", model.look.rawValue))
+    }
+    // Auto Profile Phase 1 (#536) — canonical render-shaping profile.
+    // Mirrors the other writers: always preserve explicit intent (#2441).
+    // Newly-written sidecars carry `papp:Profile` only;
+    // older sidecars without it pick up `.auto` automatically, and
+    // legacy `papp:Look` migrates into Profile on read.
+    attrs.append(("papp:Profile", model.profile.rawValue))
+    // Film-look emulation (epic #2683) — the `.mlut` catalog id, emitted
+    // only when non-empty (the default "no look" state), same
+    // omit-on-default convention as every other papp: field. XML-escaped
+    // since it's a free-form string, not a closed rawValue enum.
+    if !model.filmLook.isEmpty {
+      attrs.append(("papp:FilmLook", escapeXMLAttr(model.filmLook)))
+    }
+    // Film-look blend strength — emit only when off full strength (100),
+    // and only alongside a look (an id-less strength is meaningless, but
+    // mirrors every other blend-strength field's omit-on-default rule
+    // rather than special-casing on `filmLook`).
+    if model.filmStrength != 100 {
+      attrs.append(("papp:FilmStrength", fmtNum(model.filmStrength)))
+    }
+    // Decode-time chroma pre-filter (#1104) — emit only when
+    // non-default (0) so sidecars produced before the field existed
+    // remain byte-identical for users who never touch it.
+    if model.chromaPrefilter != 0 {
+      attrs.append(("papp:ChromaPrefilter", fmtNum(model.chromaPrefilter)))
+    }
+    // Hot/dead-pixel suppression (#1106) — emit only when non-default
+    // (`.off`), same convention.
+    if model.hotPixelSuppression != .off {
+      attrs.append(("papp:HotPixelSuppression", model.hotPixelSuppression.rawValue))
+    }
+    // BM3D deep denoise (#1105) — emit only when non-default (0).
+    if model.deepDenoise != 0 {
+      attrs.append(("papp:DeepDenoise", fmtNum(model.deepDenoise)))
+    }
+    // DNG-embedded lens corrections (#376) — ACR-compatible `crs:`
+    // keys, emitted only when the user moved off full strength so an
+    // untouched lens panel leaves the sidecar byte-identical. The
+    // master switch uses ACR's "0" spelling so Lightroom reads it back.
+    if model.lensProfileEnable != .on {
+      attrs.append(("crs:LensProfileEnable", "0"))
+    }
+    for (key, value) in [
+      ("crs:LensProfileDistortionScale", model.lensCorrectionDistortion),
+      ("crs:LensProfileChromaticAberrationScale", model.lensCorrectionCa),
+      ("crs:LensProfileVignettingScale", model.lensCorrectionVignetting),
+    ] where value.rounded() != 100 {
+      attrs.append((key, String(format: "%.0f", value)))
+    }
+    // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
+    // non-identity. CropAngle is independent so a pure straighten emits
+    // only the angle without the HasCrop/rect group.
+    if !model.crop.isIdentity {
+      let c = model.crop
+      let rectIsIdentity = c.top == 0 && c.left == 0 && c.bottom == 1 && c.right == 1
+      if !rectIsIdentity {
+        attrs.append(("crs:HasCrop", "True"))
+        attrs.append(("crs:CropTop", fmtCrop(c.top)))
+        attrs.append(("crs:CropLeft", fmtCrop(c.left)))
+        attrs.append(("crs:CropBottom", fmtCrop(c.bottom)))
+        attrs.append(("crs:CropRight", fmtCrop(c.right)))
+        attrs.append(("crs:CropConstrainToWarp", "0"))
+      }
+      if c.angle != 0 {
+        attrs.append(("crs:CropAngle", fmtCrop(c.angle)))
+      }
+    }
+    return attrs
+  }
 }

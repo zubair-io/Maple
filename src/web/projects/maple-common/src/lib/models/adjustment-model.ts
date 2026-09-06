@@ -29,21 +29,8 @@ export type { LocalAdjustment, LocalMask, MaskPoint, PartialAdjustments } from '
 export { isEmptyPartialAdjustments } from './local-adjustment';
 import type { LocalAdjustment } from './local-adjustment';
 
-/**
- * White balance preset name as recorded in `crs:WhiteBalance` in the XMP
- * sidecar. Stays TS-only until #119 promotes the Rust `WhiteBalancePreset`
- * enum into the canonical schema.
- */
-export type WhiteBalancePreset =
-  | 'As Shot'
-  | 'Auto'
-  | 'Daylight'
-  | 'Cloudy'
-  | 'Shade'
-  | 'Tungsten'
-  | 'Fluorescent'
-  | 'Flash'
-  | 'Custom';
+import type { WhiteBalancePreset } from '../generated/white-balance-presets.generated';
+export type { WhiteBalancePreset } from '../generated/white-balance-presets.generated';
 
 /**
  * A single control point on a {@link ToneCurve}: `[x, y]` in the curve

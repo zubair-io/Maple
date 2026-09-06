@@ -40,7 +40,7 @@ impl Default for Profile {
 /// sidecar. `AsShot`, `Auto`, and `Custom` carry no preset (temp,tint) pair —
 /// the values stored on `AdjustmentModel` are authoritative when one of those
 /// is selected. The named daylight presets map to fixed (temperature, tint)
-/// per the reference renderer; see `crate::xmp::wb_preset` for the mapping table.
+/// per the reference renderer; see `WhiteBalancePreset::pair` for the mapping table.
 ///
 /// TypeScript already has a hand-rolled `WhiteBalancePreset` union; lifting
 /// the enum into raw-core gives the codegen a single canonical declaration

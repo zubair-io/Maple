@@ -17,296 +17,309 @@
 import Foundation
 
 extension _XMPParserDelegate {
-    func applyAttribute(key: String, value: String, hasCrop: Bool = false) {
-        // Strip namespace prefix for matching
-        switch key {
-        case "crs:Temperature":         model.temperature = d(value) ?? model.temperature
-        case "crs:Tint":                model.tint        = d(value) ?? model.tint
-        case "crs:Exposure2012":        model.exposure    = d(value) ?? model.exposure
-        // Brightness (#1102) — Maple-proprietary midtone-band gain. Lives
-        // under `papp:` because the ACR `crs:Brightness` key is PV2010 with
-        // different semantics (default +50, removed in PV2012); that legacy
-        // key is deliberately NOT parsed.
-        case "papp:Brightness":         model.brightness  = d(value) ?? model.brightness
-        case "crs:Contrast2012":        model.contrast    = d(value) ?? model.contrast
-        case "crs:Highlights2012":      model.highlights  = d(value) ?? model.highlights
-        case "crs:Shadows2012":         model.shadows     = d(value) ?? model.shadows
-        case "crs:Whites2012":          model.whites      = d(value) ?? model.whites
-        case "crs:Blacks2012":          model.blacks      = d(value) ?? model.blacks
-        // Parametric tone-curve region sliders (#365) — PV2012 keys,
-        // Lightroom-compatible; authored by the tone-curve widget.
-        case "crs:ParametricHighlights": model.parametricHighlights = d(value) ?? model.parametricHighlights
-        case "crs:ParametricLights":    model.parametricLights = d(value) ?? model.parametricLights
-        case "crs:ParametricDarks":     model.parametricDarks  = d(value) ?? model.parametricDarks
-        case "crs:ParametricShadows":   model.parametricShadows = d(value) ?? model.parametricShadows
-        // ACR's parametric split-point keys (defaults 25/50/75, #2320). The
-        // curve builder does not yet consume these fields (#3152) — they
-        // are round-tripped here so a Lightroom/ACR sidecar with moved
-        // split points no longer silently loses them on save.
-        case "crs:ParametricShadowSplit":   model.parametricShadowSplit   = d(value) ?? model.parametricShadowSplit
-        case "crs:ParametricMidtoneSplit":  model.parametricMidtoneSplit  = d(value) ?? model.parametricMidtoneSplit
-        case "crs:ParametricHighlightSplit": model.parametricHighlightSplit = d(value) ?? model.parametricHighlightSplit
-        case "crs:Vibrance":            model.vibrance    = d(value) ?? model.vibrance
-        case "crs:Saturation":          model.saturation  = d(value) ?? model.saturation
-        case "crs:Clarity2012":         model.clarity     = d(value) ?? model.clarity
-        case "crs:Texture":             model.texture     = d(value) ?? model.texture
-        case "crs:Dehaze":              model.dehaze      = d(value) ?? model.dehaze
-        case "crs:Sharpness":           model.sharpenAmount  = d(value) ?? model.sharpenAmount
-        case "crs:SharpenRadius":       model.sharpenRadius  = d(value) ?? model.sharpenRadius
-        case "crs:SharpenDetail":       model.sharpenDetail  = d(value) ?? model.sharpenDetail
-        case "crs:SharpenEdgeMasking":  model.sharpenMasking = d(value) ?? model.sharpenMasking
-        case "papp:CaptureSharpeningAmount": model.captureSharpeningAmount = d(value) ?? model.captureSharpeningAmount
-        case "papp:CaptureSharpeningSigma":
-            if let v = d(value) {
-                model.captureSharpeningSigma = v
-                captureSharpeningSigmaSeen = true
-            }
-        case "papp:CaptureSharpeningRadius":
-            // Legacy alias kept on the read path only (#456). Routed into
-            // `captureSharpeningSigma` unchanged — no rescale, since no
-            // shipping sidecar carries a non-zero amount and a rescale
-            // would be a guess. Sigma wins when both keys are present.
-            if !captureSharpeningSigmaSeen, let v = d(value) {
-                model.captureSharpeningSigma = v
-            }
-        case "crs:LuminanceSmoothing":  model.nrLuminance    = d(value) ?? model.nrLuminance
-        case "crs:ColorNoiseReduction": model.nrColor        = d(value) ?? model.nrColor
-        // Decode-time chroma pre-filter (#1104) — Maple-proprietary; baked
-        // into the Rust decode product, not re-applied by the Apple chain.
-        case "papp:ChromaPrefilter":    model.chromaPrefilter = d(value) ?? model.chromaPrefilter
-        // BM3D deep denoise (#1105) — Maple-proprietary; baked into the
-        // Rust decode product, not re-applied by the Apple chain.
-        case "papp:DeepDenoise":        model.deepDenoise = d(value) ?? model.deepDenoise
-        // Hot/dead-pixel suppression (#1106) — Maple-proprietary enum,
-        // baked into the Rust decode product. Case-insensitive like the
-        // other papp: enum parsers; unknown values keep the default.
-        case "papp:HotPixelSuppression":
-            switch value.lowercased() {
-            case "on":  model.hotPixelSuppression = .on
-            case "off": model.hotPixelSuppression = .off
-            default: break
-            }
-        // S5 effects (#643) — Lightroom-compatible `crs:` keys.
-        case "crs:PostCropVignetteAmount":   model.vignetteAmount  = d(value) ?? model.vignetteAmount
-        case "crs:PostCropVignetteFeather":  model.vignetteFeather = d(value) ?? model.vignetteFeather
-        case "crs:GrainAmount":              model.grainAmount     = d(value) ?? model.grainAmount
-        case "crs:GrainSize":                model.grainSize       = d(value) ?? model.grainSize
-        // Lightroom: "GrainFrequency"; Maple: `grainRoughness` (S5 § 3.13).
-        case "crs:GrainFrequency":           model.grainRoughness  = d(value) ?? model.grainRoughness
-        case "crs:SplitToningShadowHue":         model.splitToneShadowHue          = d(value) ?? model.splitToneShadowHue
-        case "crs:SplitToningShadowSaturation":  model.splitToneShadowSaturation   = d(value) ?? model.splitToneShadowSaturation
-        case "crs:SplitToningHighlightHue":      model.splitToneHighlightHue       = d(value) ?? model.splitToneHighlightHue
-        case "crs:SplitToningHighlightSaturation": model.splitToneHighlightSaturation = d(value) ?? model.splitToneHighlightSaturation
-        case "crs:SplitToningBalance":           model.splitToneBalance            = d(value) ?? model.splitToneBalance
-        // Color Grading (#275) — the rest of the panel beyond the five
-        // `crs:SplitToning*` keys above (see `AdjustmentModel`'s doc).
-        case "crs:ColorGradeShadowLum":     model.colorGradeShadowLuminance    = d(value) ?? model.colorGradeShadowLuminance
-        case "crs:ColorGradeMidtoneHue":    model.colorGradeMidtoneHue         = d(value) ?? model.colorGradeMidtoneHue
-        case "crs:ColorGradeMidtoneSat":    model.colorGradeMidtoneSaturation  = d(value) ?? model.colorGradeMidtoneSaturation
-        case "crs:ColorGradeMidtoneLum":    model.colorGradeMidtoneLuminance   = d(value) ?? model.colorGradeMidtoneLuminance
-        case "crs:ColorGradeHighlightLum":  model.colorGradeHighlightLuminance = d(value) ?? model.colorGradeHighlightLuminance
-        case "crs:ColorGradeGlobalHue":     model.colorGradeGlobalHue          = d(value) ?? model.colorGradeGlobalHue
-        case "crs:ColorGradeGlobalSat":     model.colorGradeGlobalSaturation   = d(value) ?? model.colorGradeGlobalSaturation
-        case "crs:ColorGradeGlobalLum":     model.colorGradeGlobalLuminance    = d(value) ?? model.colorGradeGlobalLuminance
-        case "crs:WhiteBalance":
-            if let (t, ti) = wbPreset(value) {
-                model.temperature = t
-                model.tint = ti
-            }
-        case "papp:HighlightRecoveryMode":
-            // Case-insensitive match against the four canonical PascalCase
-            // rawValues. Rust's parser accepts both lowercase and PascalCase
-            // forms (and #335's review flagged a parity gap where lowercase
-            // `chromaticadaptation` parsed on Rust/Web but silently fell
-            // through to the default on Apple). Unknown values keep the
-            // current value (default) rather than silently flipping
-            // reconstruction off.
-            let lowered = value.lowercased()
-            let parsed: HighlightRecoveryMode?
-            switch lowered {
-            case "off":                  parsed = .off
-            case "blend":                parsed = .blend
-            case "luminance":            parsed = .luminance
-            case "chromaticadaptation":  parsed = .chromaticAdaptation
-            case "oklabchromareduction": parsed = .oklabChromaReduction
-            default:                     parsed = nil
-            }
-            if let parsed { model.highlightRecovery = parsed }
-        // Auto-exposure (#1387) — Maple-proprietary enum, baked into the
-        // Rust decode product. Case-insensitive like the other papp: enum
-        // parsers (mirrors raw-core's `"on" | "On"` / `"off" | "Off"`
-        // match); an unrecognized value keeps the current model value
-        // (default `.on`) rather than throwing, matching every other
-        // papp: enum parse in this file.
-        case "papp:AutoExposure":
-            switch value.lowercased() {
-            case "on":  model.autoExposure = .on
-            case "off": model.autoExposure = .off
-            default: break
-            }
-        // White-balance method (#431; wired into Swift by #2216) —
-        // Maple-proprietary enum. Case-insensitive like the other papp:
-        // enum parsers; raw-core additionally accepts an all-caps
-        // "CAT16" spelling for the CAT16 variant (`xmp/fields.rs`), folded
-        // in here by the same lowercase match. Unknown values keep the
-        // current model value (default `.cat16`).
-        // White-balance provenance (#2434). Case-insensitive like the other
-        // papp: enums; unknown values keep the default (`.asShot`).
-        case "papp:WbSource":
-            if let source = WbSource.allCases.first(where: { $0.rawValue.lowercased() == value.lowercased() }) {
-                model.wbSource = source
-            }
-        case "papp:WbSampleX":          model.wbSampleX = d(value) ?? model.wbSampleX
-        case "papp:WbSampleY":          model.wbSampleY = d(value) ?? model.wbSampleY
-        case "papp:WbAlgorithmVersion": model.wbAlgorithmVersion = d(value) ?? model.wbAlgorithmVersion
-        case "papp:WbMethod":
-            switch value.lowercased() {
-            case "cat16":           model.wbMethod = .cat16
-            case "diagonalrec2020": model.wbMethod = .diagonalRec2020
-            default: break
-            }
-        // Per-channel point tone-curve mode (#436; wired into Swift by
-        // #2216) — Maple-proprietary enum. Case-insensitive like the other
-        // papp: enum parsers. Unknown values keep the current model value
-        // (default `.perChannel`).
-        case "papp:ToneCurveMode":
-            switch value.lowercased() {
-            case "perchannel":     model.toneCurveMode = .perChannel
-            case "ratiopreserving": model.toneCurveMode = .ratioPreserving
-            default: break
-            }
-        case "papp:Look":
-            // DisplayLookCurve (#371). Case-insensitive parse mirrors
-            // `papp:HighlightRecoveryMode`. Unknown values keep the current
-            // value (default = `.default`) — absence of the attribute means
-            // existing sidecars pick up the empirical Look automatically.
-            let lowered = value.lowercased()
-            switch lowered {
-            case "neutral": model.look = .neutral
-            case "default": model.look = .default
-            default:        break
-            }
-            // Auto Profile (#536) legacy migration. When `papp:Profile` is
-            // absent on the same element, `papp:Look` also seeds the new
-            // Profile field — Default/Auto → .auto, Neutral → .neutral.
-            // Gated on `!profileSeen` so an explicit `papp:Profile`
-            // attribute always wins, regardless of document order.
-            if !profileSeen {
-                switch lowered {
-                case "neutral":         model.profile = .neutral
-                case "default", "auto": model.profile = .auto
-                default:                break
-                }
-            }
-        case "papp:Profile":
-            // Auto Profile Phase 1 (#536) — canonical render-shaping
-            // profile attribute. Case-insensitive parse. Unknown values
-            // keep the current value (default = `.auto`). Setting
-            // `profileSeen` blocks the `papp:Look` legacy migration above
-            // from clobbering this explicit choice.
-            profileSeen = true
-            switch value.lowercased() {
-            case "auto":     model.profile = .auto
-            case "neutral":  model.profile = .neutral
-            // Legacy `AcrMatch` (#1722, retired in #2312) migrates to
-            // `.auto` — the profile that superseded it. Mirrors raw-core's
-            // arm in `xmp/fields.rs` so a sidecar written by the CLI (or by
-            // hand) reads the same on every platform.
-            case "acrmatch": model.profile = .auto
-            default:         break
-            }
-        // Film-look emulation (epic #2683). The raw id string round-trips
-        // verbatim — no validation against `FilmCatalog` here. An id with
-        // no matching `.mlut` (a look retired from the catalog, or a
-        // hand-edited sidecar) still parses to the model unchanged;
-        // `FilmLutStore` resolves it to `nil` at render time and the
-        // pipeline falls back to identity (log + no error), so an unknown
-        // id round-trips through the sidecar rather than being silently
-        // dropped.
-        case "papp:FilmLook":     model.filmLook = value
-        case "papp:FilmStrength": model.filmStrength = d(value) ?? model.filmStrength
-        // Crop / straighten (#277, spec § 3.12). Rect fields gated by
-        // `hasCrop` (above). `crs:CropAngle` is always parsed — it can
-        // appear without a rect for a pure straighten.
-        case "crs:CropTop":    if hasCrop, let n = d(value) { model.crop.top    = n }
-        case "crs:CropLeft":   if hasCrop, let n = d(value) { model.crop.left   = n }
-        case "crs:CropBottom": if hasCrop, let n = d(value) { model.crop.bottom = n }
-        case "crs:CropRight":  if hasCrop, let n = d(value) { model.crop.right  = n }
-        case "crs:CropAngle":  if let n = d(value) { model.crop.angle = n }
-        // DNG-embedded lens corrections (#376). ACR/Lightroom-compatible
-        // `crs:` keys. The 1/0 form is what ACR writes; the true/false and
-        // on/off spellings other XMP writers use are accepted too. An
-        // unknown value keeps the default (`.on`).
-        case "crs:LensProfileEnable":
-            switch value.lowercased() {
-            case "1", "true", "on":   model.lensProfileEnable = .on
-            case "0", "false", "off": model.lensProfileEnable = .off
-            default: break
-            }
-        case "crs:LensProfileDistortionScale":
-            model.lensCorrectionDistortion = d(value) ?? model.lensCorrectionDistortion
-        case "crs:LensProfileChromaticAberrationScale":
-            model.lensCorrectionCa = d(value) ?? model.lensCorrectionCa
-        case "crs:LensProfileVignettingScale":
-            model.lensCorrectionVignetting = d(value) ?? model.lensCorrectionVignetting
-        // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
-        case "crs:HasCrop", "crs:CropConstrainToWarp": break
-        // Consumed at document level in `didStartElement` (#1780).
-        case "papp:WbScaleVersion": break
-        // Lightroom culling
-        case "xmp:Rating":
-            if let n = Int(value) { culling.stars = max(0, min(5, n)) }
-        // Canonical cull flag (#2221). Matched case-sensitively against the
-        // bare lowercase vocabulary, exactly like `metadata-parser.ts` and
-        // `xmp-culling.ts` — a laxer match here would let a sidecar resolve
-        // to a flag on Apple and to unflagged on the other two.
-        case "papp:Flag":
-            switch value {
-            case "pick":   culling.flag = .pick;   cullFlagSeen = true
-            case "reject": culling.flag = .reject; cullFlagSeen = true
-            default:       break
-            }
-        // Legacy Apple cull-flag alias — read-only (#2221). Sidecars written
-        // before the canonical key carry `xmp:Label="Red"` for a pick and
-        // `xmp:Label="Rejected"` for a reject; `"Rejected"` matched nothing
-        // here, so every reject on disk silently decayed to `.none` on
-        // reload. Both spellings of each are accepted so no existing sidecar
-        // is stranded. Deliberately NOT a colour-label mapping (#1656): this
-        // attribute is overloaded in Apple-authored files, so reading Adobe
-        // colour words out of it would turn every legacy pick into red.
-        case "xmp:Label":
-            guard !cullFlagSeen else { break }
-            switch value.lowercased() {
-            case "red", "pick":        culling.flag = .pick
-            case "reject", "rejected": culling.flag = .reject
-            default:                   break
-            }
-        // Colour label (#1656/#1657). Unknown values leave the label unset
-        // rather than storing an out-of-vocabulary string, mirroring the
-        // API parser's `VALID_COLOR_LABELS` membership gate. The match is
-        // case-sensitive on purpose: the wire vocabulary is lowercase on
-        // all three platforms, and case-folding here would accept a value
-        // the API would then reject.
-        case "papp:ColorLabel":
-            if let label = ColorLabel(rawValue: value) { culling.colorLabel = label }
-        case "papp:Hidden": culling.hidden = XMPParser.parseHiddenAttribute(value)
-        default:
-            _xmpApplyHSLAttribute(key: key, value: value, model: &model)
-            _xmpApplyBlackWhiteAttribute(key: key, value: value, model: &model)
+  func applyAttribute(key: String, value: String, hasCrop: Bool = false) {
+    // Strip namespace prefix for matching
+    switch key {
+    case "crs:Temperature": model.temperature = d(value) ?? model.temperature
+    case "crs:Tint": model.tint = d(value) ?? model.tint
+    case "crs:Exposure2012": model.exposure = d(value) ?? model.exposure
+    // Brightness (#1102) — Maple-proprietary midtone-band gain. Lives
+    // under `papp:` because the ACR `crs:Brightness` key is PV2010 with
+    // different semantics (default +50, removed in PV2012); that legacy
+    // key is deliberately NOT parsed.
+    case "papp:Brightness": model.brightness = d(value) ?? model.brightness
+    case "crs:Contrast2012": model.contrast = d(value) ?? model.contrast
+    case "crs:Highlights2012": model.highlights = d(value) ?? model.highlights
+    case "crs:Shadows2012": model.shadows = d(value) ?? model.shadows
+    case "crs:Whites2012": model.whites = d(value) ?? model.whites
+    case "crs:Blacks2012": model.blacks = d(value) ?? model.blacks
+    // Parametric tone-curve region sliders (#365) — PV2012 keys,
+    // Lightroom-compatible; authored by the tone-curve widget.
+    case "crs:ParametricHighlights":
+      model.parametricHighlights = d(value) ?? model.parametricHighlights
+    case "crs:ParametricLights": model.parametricLights = d(value) ?? model.parametricLights
+    case "crs:ParametricDarks": model.parametricDarks = d(value) ?? model.parametricDarks
+    case "crs:ParametricShadows": model.parametricShadows = d(value) ?? model.parametricShadows
+    // ACR's parametric split-point keys (defaults 25/50/75, #2320). The
+    // curve builder does not yet consume these fields (#3152) — they
+    // are round-tripped here so a Lightroom/ACR sidecar with moved
+    // split points no longer silently loses them on save.
+    case "crs:ParametricShadowSplit":
+      model.parametricShadowSplit = d(value) ?? model.parametricShadowSplit
+    case "crs:ParametricMidtoneSplit":
+      model.parametricMidtoneSplit = d(value) ?? model.parametricMidtoneSplit
+    case "crs:ParametricHighlightSplit":
+      model.parametricHighlightSplit = d(value) ?? model.parametricHighlightSplit
+    case "crs:Vibrance": model.vibrance = d(value) ?? model.vibrance
+    case "crs:Saturation": model.saturation = d(value) ?? model.saturation
+    case "crs:Clarity2012": model.clarity = d(value) ?? model.clarity
+    case "crs:Texture": model.texture = d(value) ?? model.texture
+    case "crs:Dehaze": model.dehaze = d(value) ?? model.dehaze
+    case "crs:Sharpness": model.sharpenAmount = d(value) ?? model.sharpenAmount
+    case "crs:SharpenRadius": model.sharpenRadius = d(value) ?? model.sharpenRadius
+    case "crs:SharpenDetail": model.sharpenDetail = d(value) ?? model.sharpenDetail
+    case "crs:SharpenEdgeMasking": model.sharpenMasking = d(value) ?? model.sharpenMasking
+    case "papp:CaptureSharpeningAmount":
+      model.captureSharpeningAmount = d(value) ?? model.captureSharpeningAmount
+    case "papp:CaptureSharpeningSigma":
+      if let v = d(value) {
+        model.captureSharpeningSigma = v
+        captureSharpeningSigmaSeen = true
+      }
+    case "papp:CaptureSharpeningRadius":
+      // Legacy alias kept on the read path only (#456). Routed into
+      // `captureSharpeningSigma` unchanged — no rescale, since no
+      // shipping sidecar carries a non-zero amount and a rescale
+      // would be a guess. Sigma wins when both keys are present.
+      if !captureSharpeningSigmaSeen, let v = d(value) {
+        model.captureSharpeningSigma = v
+      }
+    case "crs:LuminanceSmoothing": model.nrLuminance = d(value) ?? model.nrLuminance
+    case "crs:ColorNoiseReduction": model.nrColor = d(value) ?? model.nrColor
+    // Decode-time chroma pre-filter (#1104) — Maple-proprietary; baked
+    // into the Rust decode product, not re-applied by the Apple chain.
+    case "papp:ChromaPrefilter": model.chromaPrefilter = d(value) ?? model.chromaPrefilter
+    // BM3D deep denoise (#1105) — Maple-proprietary; baked into the
+    // Rust decode product, not re-applied by the Apple chain.
+    case "papp:DeepDenoise": model.deepDenoise = d(value) ?? model.deepDenoise
+    // Hot/dead-pixel suppression (#1106) — Maple-proprietary enum,
+    // baked into the Rust decode product. Case-insensitive like the
+    // other papp: enum parsers; unknown values keep the default.
+    case "papp:HotPixelSuppression":
+      switch value.lowercased() {
+      case "on": model.hotPixelSuppression = .on
+      case "off": model.hotPixelSuppression = .off
+      default: break
+      }
+    // S5 effects (#643) — Lightroom-compatible `crs:` keys.
+    case "crs:PostCropVignetteAmount": model.vignetteAmount = d(value) ?? model.vignetteAmount
+    case "crs:PostCropVignetteFeather": model.vignetteFeather = d(value) ?? model.vignetteFeather
+    case "crs:GrainAmount": model.grainAmount = d(value) ?? model.grainAmount
+    case "crs:GrainSize": model.grainSize = d(value) ?? model.grainSize
+    // Lightroom: "GrainFrequency"; Maple: `grainRoughness` (S5 § 3.13).
+    case "crs:GrainFrequency": model.grainRoughness = d(value) ?? model.grainRoughness
+    case "crs:SplitToningShadowHue": model.splitToneShadowHue = d(value) ?? model.splitToneShadowHue
+    case "crs:SplitToningShadowSaturation":
+      model.splitToneShadowSaturation = d(value) ?? model.splitToneShadowSaturation
+    case "crs:SplitToningHighlightHue":
+      model.splitToneHighlightHue = d(value) ?? model.splitToneHighlightHue
+    case "crs:SplitToningHighlightSaturation":
+      model.splitToneHighlightSaturation = d(value) ?? model.splitToneHighlightSaturation
+    case "crs:SplitToningBalance": model.splitToneBalance = d(value) ?? model.splitToneBalance
+    // Color Grading (#275) — the rest of the panel beyond the five
+    // `crs:SplitToning*` keys above (see `AdjustmentModel`'s doc).
+    case "crs:ColorGradeShadowLum":
+      model.colorGradeShadowLuminance = d(value) ?? model.colorGradeShadowLuminance
+    case "crs:ColorGradeMidtoneHue":
+      model.colorGradeMidtoneHue = d(value) ?? model.colorGradeMidtoneHue
+    case "crs:ColorGradeMidtoneSat":
+      model.colorGradeMidtoneSaturation = d(value) ?? model.colorGradeMidtoneSaturation
+    case "crs:ColorGradeMidtoneLum":
+      model.colorGradeMidtoneLuminance = d(value) ?? model.colorGradeMidtoneLuminance
+    case "crs:ColorGradeHighlightLum":
+      model.colorGradeHighlightLuminance = d(value) ?? model.colorGradeHighlightLuminance
+    case "crs:ColorGradeGlobalHue":
+      model.colorGradeGlobalHue = d(value) ?? model.colorGradeGlobalHue
+    case "crs:ColorGradeGlobalSat":
+      model.colorGradeGlobalSaturation = d(value) ?? model.colorGradeGlobalSaturation
+    case "crs:ColorGradeGlobalLum":
+      model.colorGradeGlobalLuminance = d(value) ?? model.colorGradeGlobalLuminance
+    case "crs:WhiteBalance":
+      model.whiteBalancePreset = WhiteBalancePreset(rawValue: value) ?? .custom
+      if let (t, ti) = model.whiteBalancePreset.pair {
+        model.temperature = t
+        model.tint = ti
+        model.wbSource = .preset
+      }
+    case "papp:HighlightRecoveryMode":
+      // Case-insensitive match against the four canonical PascalCase
+      // rawValues. Rust's parser accepts both lowercase and PascalCase
+      // forms (and #335's review flagged a parity gap where lowercase
+      // `chromaticadaptation` parsed on Rust/Web but silently fell
+      // through to the default on Apple). Unknown values keep the
+      // current value (default) rather than silently flipping
+      // reconstruction off.
+      let lowered = value.lowercased()
+      let parsed: HighlightRecoveryMode?
+      switch lowered {
+      case "off": parsed = .off
+      case "blend": parsed = .blend
+      case "luminance": parsed = .luminance
+      case "chromaticadaptation": parsed = .chromaticAdaptation
+      case "oklabchromareduction": parsed = .oklabChromaReduction
+      default: parsed = nil
+      }
+      if let parsed { model.highlightRecovery = parsed }
+    // Auto-exposure (#1387) — Maple-proprietary enum, baked into the
+    // Rust decode product. Case-insensitive like the other papp: enum
+    // parsers (mirrors raw-core's `"on" | "On"` / `"off" | "Off"`
+    // match); an unrecognized value keeps the current model value
+    // (default `.on`) rather than throwing, matching every other
+    // papp: enum parse in this file.
+    case "papp:AutoExposure":
+      switch value.lowercased() {
+      case "on": model.autoExposure = .on
+      case "off": model.autoExposure = .off
+      default: break
+      }
+    // White-balance method (#431; wired into Swift by #2216) —
+    // Maple-proprietary enum. Case-insensitive like the other papp:
+    // enum parsers; raw-core additionally accepts an all-caps
+    // "CAT16" spelling for the CAT16 variant (`xmp/fields.rs`), folded
+    // in here by the same lowercase match. Unknown values keep the
+    // current model value (default `.cat16`).
+    // White-balance provenance (#2434). Case-insensitive like the other
+    // papp: enums; unknown values keep the default (`.asShot`).
+    case "papp:WbSource":
+      if let source = WbSource.allCases.first(where: {
+        $0.rawValue.lowercased() == value.lowercased()
+      }) {
+        model.wbSource = source
+      }
+    case "papp:WbSampleX": model.wbSampleX = d(value) ?? model.wbSampleX
+    case "papp:WbSampleY": model.wbSampleY = d(value) ?? model.wbSampleY
+    case "papp:WbAlgorithmVersion": model.wbAlgorithmVersion = d(value) ?? model.wbAlgorithmVersion
+    case "papp:WbMethod":
+      switch value.lowercased() {
+      case "cat16": model.wbMethod = .cat16
+      case "diagonalrec2020": model.wbMethod = .diagonalRec2020
+      default: break
+      }
+    // Per-channel point tone-curve mode (#436; wired into Swift by
+    // #2216) — Maple-proprietary enum. Case-insensitive like the other
+    // papp: enum parsers. Unknown values keep the current model value
+    // (default `.perChannel`).
+    case "papp:ToneCurveMode":
+      switch value.lowercased() {
+      case "perchannel": model.toneCurveMode = .perChannel
+      case "ratiopreserving": model.toneCurveMode = .ratioPreserving
+      default: break
+      }
+    case "papp:Look":
+      // DisplayLookCurve (#371). Case-insensitive parse mirrors
+      // `papp:HighlightRecoveryMode`. Unknown values keep the current
+      // value (default = `.default`) — absence of the attribute means
+      // existing sidecars pick up the empirical Look automatically.
+      let lowered = value.lowercased()
+      switch lowered {
+      case "neutral": model.look = .neutral
+      case "default": model.look = .default
+      default: break
+      }
+      // Auto Profile (#536) legacy migration. When `papp:Profile` is
+      // absent on the same element, `papp:Look` also seeds the new
+      // Profile field — Default/Auto → .auto, Neutral → .neutral.
+      // Gated on `!profileSeen` so an explicit `papp:Profile`
+      // attribute always wins, regardless of document order.
+      if !profileSeen {
+        switch lowered {
+        case "neutral": model.profile = .neutral
+        case "default", "auto": model.profile = .auto
+        default: break
         }
+      }
+    case "papp:Profile":
+      // Auto Profile Phase 1 (#536) — canonical render-shaping
+      // profile attribute. Case-insensitive parse. Unknown values
+      // keep the current value (default = `.auto`). Setting
+      // `profileSeen` blocks the `papp:Look` legacy migration above
+      // from clobbering this explicit choice.
+      profileSeen = true
+      switch value.lowercased() {
+      case "auto": model.profile = .auto
+      case "neutral": model.profile = .neutral
+      // Legacy `AcrMatch` (#1722, retired in #2312) migrates to
+      // `.auto` — the profile that superseded it. Mirrors raw-core's
+      // arm in `xmp/fields.rs` so a sidecar written by the CLI (or by
+      // hand) reads the same on every platform.
+      case "acrmatch": model.profile = .auto
+      default: break
+      }
+    // Film-look emulation (epic #2683). The raw id string round-trips
+    // verbatim — no validation against `FilmCatalog` here. An id with
+    // no matching `.mlut` (a look retired from the catalog, or a
+    // hand-edited sidecar) still parses to the model unchanged;
+    // `FilmLutStore` resolves it to `nil` at render time and the
+    // pipeline falls back to identity (log + no error), so an unknown
+    // id round-trips through the sidecar rather than being silently
+    // dropped.
+    case "papp:FilmLook": model.filmLook = value
+    case "papp:FilmStrength": model.filmStrength = d(value) ?? model.filmStrength
+    // Crop / straighten (#277, spec § 3.12). Rect fields gated by
+    // `hasCrop` (above). `crs:CropAngle` is always parsed — it can
+    // appear without a rect for a pure straighten.
+    case "crs:CropTop": if hasCrop, let n = d(value) { model.crop.top = n }
+    case "crs:CropLeft": if hasCrop, let n = d(value) { model.crop.left = n }
+    case "crs:CropBottom": if hasCrop, let n = d(value) { model.crop.bottom = n }
+    case "crs:CropRight": if hasCrop, let n = d(value) { model.crop.right = n }
+    case "crs:CropAngle": if let n = d(value) { model.crop.angle = n }
+    // DNG-embedded lens corrections (#376). ACR/Lightroom-compatible
+    // `crs:` keys. The 1/0 form is what ACR writes; the true/false and
+    // on/off spellings other XMP writers use are accepted too. An
+    // unknown value keeps the default (`.on`).
+    case "crs:LensProfileEnable":
+      switch value.lowercased() {
+      case "1", "true", "on": model.lensProfileEnable = .on
+      case "0", "false", "off": model.lensProfileEnable = .off
+      default: break
+      }
+    case "crs:LensProfileDistortionScale":
+      model.lensCorrectionDistortion = d(value) ?? model.lensCorrectionDistortion
+    case "crs:LensProfileChromaticAberrationScale":
+      model.lensCorrectionCa = d(value) ?? model.lensCorrectionCa
+    case "crs:LensProfileVignettingScale":
+      model.lensCorrectionVignetting = d(value) ?? model.lensCorrectionVignetting
+    // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
+    case "crs:HasCrop", "crs:CropConstrainToWarp": break
+    // Consumed at document level in `didStartElement` (#1780).
+    case "papp:WbScaleVersion": break
+    // Lightroom culling
+    case "xmp:Rating":
+      if let n = Int(value) { culling.stars = max(0, min(5, n)) }
+    // Canonical cull flag (#2221). Matched case-sensitively against the
+    // bare lowercase vocabulary, exactly like `metadata-parser.ts` and
+    // `xmp-culling.ts` — a laxer match here would let a sidecar resolve
+    // to a flag on Apple and to unflagged on the other two.
+    case "papp:Flag":
+      switch value {
+      case "pick":
+        culling.flag = .pick
+        cullFlagSeen = true
+      case "reject":
+        culling.flag = .reject
+        cullFlagSeen = true
+      default: break
+      }
+    // Legacy Apple cull-flag alias — read-only (#2221). Sidecars written
+    // before the canonical key carry `xmp:Label="Red"` for a pick and
+    // `xmp:Label="Rejected"` for a reject; `"Rejected"` matched nothing
+    // here, so every reject on disk silently decayed to `.none` on
+    // reload. Both spellings of each are accepted so no existing sidecar
+    // is stranded. Deliberately NOT a colour-label mapping (#1656): this
+    // attribute is overloaded in Apple-authored files, so reading Adobe
+    // colour words out of it would turn every legacy pick into red.
+    case "xmp:Label":
+      guard !cullFlagSeen else { break }
+      switch value.lowercased() {
+      case "red", "pick": culling.flag = .pick
+      case "reject", "rejected": culling.flag = .reject
+      default: break
+      }
+    // Colour label (#1656/#1657). Unknown values leave the label unset
+    // rather than storing an out-of-vocabulary string, mirroring the
+    // API parser's `VALID_COLOR_LABELS` membership gate. The match is
+    // case-sensitive on purpose: the wire vocabulary is lowercase on
+    // all three platforms, and case-folding here would accept a value
+    // the API would then reject.
+    case "papp:ColorLabel":
+      if let label = ColorLabel(rawValue: value) { culling.colorLabel = label }
+    case "papp:Hidden": culling.hidden = XMPParser.parseHiddenAttribute(value)
+    default:
+      _xmpApplyHSLAttribute(key: key, value: value, model: &model)
+      _xmpApplyBlackWhiteAttribute(key: key, value: value, model: &model)
     }
+  }
 
-    func d(_ s: String) -> Double? { Double(s) }
+  func d(_ s: String) -> Double? { Double(s) }
 
-    func wbPreset(_ name: String) -> (Double, Double)? {
-        switch name {
-        case "Daylight":    return (5500, 10)
-        case "Cloudy":      return (6500, 10)
-        case "Shade":       return (7500, 10)
-        case "Tungsten":    return (2850, 0)
-        case "Fluorescent": return (3800, 21)
-        case "Flash":       return (5500, 0)
-        default:            return nil
-        }
-    }
 }
