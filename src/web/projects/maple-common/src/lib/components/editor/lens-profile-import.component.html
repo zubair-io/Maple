@@ -1,0 +1,66 @@
+<section aria-label="Lens profile" class="lens-import">
+  <input #picker type="file" accept=".lcp" hidden (change)="choose($event)" />
+  <div class="actions">
+    <mui-button size="sm" variant="secondary" [disabled]="busy()" (click)="picker.click()">
+      {{ busy() ? 'Reading profile…' : 'Import lens profile…' }}
+    </mui-button>
+    @if (selected()) {
+      <mui-button size="sm" variant="ghost" (click)="clear()">Use embedded only</mui-button>
+    }
+  </div>
+  @if (selected()) {
+    <p>
+      {{
+        resolved()
+          ? 'Imported lens profile selected.'
+          : 'Waiting for the selected profile to be assessed by the renderer.'
+      }}
+    </p>
+  }
+  @if (error()) {
+    <p role="alert">{{ error() }}</p>
+  }
+  @if (visibleCandidate(); as profile) {
+    <p class="profile-name">{{ profile.name || profile.lens || 'Imported lens profile' }}</p>
+  }
+  @if (details(); as resolution) {
+    @if (resolution.source === 'embedded') {
+      <p>This image already contains embedded lens corrections. Maple gives those priority.</p>
+    } @else {
+      <p>
+        {{
+          resolution.confidence === 'in-range'
+            ? 'Camera and lens match; settings are within the calibrated range.'
+            : 'Camera and lens match; some settings require an approximation.'
+        }}
+      </p>
+      @for (reason of resolution.approximations; track reason) {
+        <p>{{ reason }}</p>
+      }
+      @for (reason of resolution.unsupported; track reason) {
+        <p>{{ reason }}</p>
+      }
+      <details>
+        <summary>Calibration samples</summary>
+        @for (sample of resolution.distortion || []; track sample.index) {
+          <p>Distortion: {{ sample.focalMm }} mm · weight {{ sample.weight }}</p>
+        }
+        @for (sample of resolution.ca || []; track sample.index) {
+          <p>Chromatic aberration: {{ sample.focalMm }} mm · weight {{ sample.weight }}</p>
+        }
+        @for (sample of resolution.vignetting || []; track sample.index) {
+          <p>Vignetting: {{ sample.focalMm }} mm · weight {{ sample.weight }}</p>
+        }
+      </details>
+      @if (visibleCandidate()) {
+        <mui-button size="sm" [disabled]="!canApply()" (click)="apply()">
+          {{
+            resolution.approximations.length
+              ? 'Accept approximation and use profile'
+              : 'Use profile'
+          }}
+        </mui-button>
+      }
+    }
+  }
+</section>

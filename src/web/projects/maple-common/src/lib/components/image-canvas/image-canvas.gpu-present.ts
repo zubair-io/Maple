@@ -365,6 +365,7 @@ export class ImageCanvasGpuPresent {
         lensCorrections.hasLensCorrections,
         lensCorrections.lensCorrectionCaInert,
         info.cameraSupport,
+        info.lensProfile,
       );
       this.host.markColdOpenDone();
       const liveXmp = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());

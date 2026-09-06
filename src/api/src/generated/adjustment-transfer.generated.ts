@@ -112,6 +112,7 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   film_look: 'Absolute',
   film_strength: 'Absolute',
   crop: 'AssetRelative',
+  lens_profile: 'Unsupported',
   local_adjustments: 'Unsupported',
   inpaint_removals: 'Unsupported',
   mask_rasters: 'Unsupported',

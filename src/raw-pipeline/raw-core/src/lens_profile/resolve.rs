@@ -234,13 +234,11 @@ fn interpolate<'a>(
         .max_by(f64::total_cmp)
         .unwrap();
     let desired = target[axis].unwrap_or_else(|| {
-        if min != max {
-            approximations.push(format!(
-                "{}: missing {} metadata",
-                family_name(family),
-                axis_name(axis)
-            ));
-        }
+        approximations.push(format!(
+            "{}: missing {} metadata",
+            family_name(family),
+            axis_name(axis)
+        ));
         // Longest focus distance is smallest reciprocal distance. This choice
         // is exposed as an approximation and never silently auto-applied.
         min

@@ -111,7 +111,7 @@ pub(super) fn calibration(sample: &LensSample) -> Result<Calibration, String> {
         .iter()
         .find(|m| m.kind == "PerspectiveModel")
         .ok_or_else(|| "Only legacy PerspectiveModel calibration is supported".to_owned())?;
-    if sample.models.iter().any(|m| m.kind != "PerspectiveModel") {
+    if sample.models.len() != 1 || sample.models.iter().any(|m| m.kind != "PerspectiveModel") {
         return Err("Mixed or newer optical models are not supported".into());
     }
     let (props, children) = contents(model)?;
@@ -119,7 +119,9 @@ pub(super) fn calibration(sample: &LensSample) -> Result<Calibration, String> {
     let focal_mm = number(&sample.properties, "FocalLength", None)?;
     let sensor_factor = number(&sample.properties, "SensorFormatFactor", None)?;
     let fallback = focal_mm * sensor_factor / 35.0;
-    let has_distortion = props.contains_key("RadialDistortParam1");
+    let has_distortion = props
+        .keys()
+        .any(|key| PERSPECTIVE_FIELDS.contains(&key.as_str()));
     let distortion = has_distortion
         .then(|| perspective(&props, fallback))
         .transpose()?;
@@ -127,7 +129,11 @@ pub(super) fn calibration(sample: &LensSample) -> Result<Calibration, String> {
     let mut green = None;
     let mut blue = None;
     let mut vignette = None;
+    let mut seen = std::collections::BTreeSet::new();
     for child in children {
+        if !seen.insert(&child.kind) {
+            return Err(format!("Duplicate optical model {}", child.kind));
+        }
         let (values, nested) = contents(child)?;
         if !nested.is_empty() {
             return Err(format!("Nested {} encoding is not supported", child.kind));
@@ -159,11 +165,15 @@ pub(super) fn calibration(sample: &LensSample) -> Result<Calibration, String> {
     if distortion.is_none() && ca.is_none() && vignette.is_none() {
         return Err("No supported optical coefficients".into());
     }
+    let mean_error = number(&props, "ResidualMeanError", Some(f64::MAX))?;
+    if mean_error < 0.0 {
+        return Err("ResidualMeanError cannot be negative".into());
+    }
     Ok(Calibration {
         distortion,
         ca,
         vignette,
-        mean_error: number(&props, "ResidualMeanError", Some(f64::MAX))?,
+        mean_error,
     })
 }
 

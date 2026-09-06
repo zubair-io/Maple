@@ -13,7 +13,7 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import { isDefaultAdjustment, type AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
@@ -95,7 +95,9 @@ export async function coldOpen2d(
   try {
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
-    const decoded = await host.pipeline.decode(bytes, ext, undefined, sizing.maxLongEdge, true);
+    const openModel = host.state.adjustmentFor(assetId)();
+    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
+    const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
     // Update dimensions on the asset — the NATIVE dims (the sized reply carries
@@ -119,9 +121,10 @@ export async function coldOpen2d(
       lensCorrections.hasLensCorrections,
       lensCorrections.lensCorrectionCaInert,
       decoded.cameraSupport,
+      decoded.lensProfile,
     );
 
-    // Open the gate + record what this no-XMP render reflects (the seed's effect
+    // Open the gate + record what this initial render reflects (the seed's effect
     // re-fire dedups against it). Guard on still-current asset.
     if (assetId === host.currentAssetId) {
       host.markColdOpenDone();
@@ -143,6 +146,7 @@ export async function coldOpen2d(
     host.nativeDetail?.recordBase({
       assetId,
       generation,
+      renderXmp: openXmp,
       displayXmp: host.lastRenderedXmp!,
       sizing,
     });
@@ -199,6 +203,15 @@ export async function runRender2d(
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration) return;
 
+    const assetId = host.currentAssetId;
+    if (assetId)
+      host.state.seedLensCorrections(
+        assetId,
+        decoded.hasLensCorrections ?? false,
+        decoded.lensCorrectionCaInert ?? true,
+        decoded.cameraSupport,
+        decoded.lensProfile,
+      );
     host.canvasSvc.currentPixels.set(decoded);
     const bitmap = await imageDataToBitmap(decoded);
     if (generation !== host.renderGeneration) {

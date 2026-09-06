@@ -277,6 +277,7 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
       'lens_correction_ca',
       'lens_correction_vignetting',
       'capture_sharpening_radius',
+      'lens_profile',
     ],
     integration: ['sidecar_contract_apple', 'sidecar_contract_api', 'gpu_chain_parity_lavapipe'],
     qualification: [

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     image::{CfaPattern, ColorSpace, ExifOrientation},
-    pipeline::pano::opcodes::{ActiveAreaRect, OpcodeList3},
+    pipeline::pano::opcodes::{ActiveAreaRect, FixVignetteRadialOpcode, OpcodeList3, PanoOpcode},
     AdjustmentModel, RawImage,
 };
 
@@ -126,7 +126,11 @@ fn embedded_and_master_off_take_priority_even_if_external_cache_is_missing() {
     };
     raw.opcode_list3 = Some((
         OpcodeList3 {
-            opcodes: vec![],
+            opcodes: vec![PanoOpcode::FixVignetteRadial(FixVignetteRadialOpcode {
+                k: [0.1, 0.0, 0.0, 0.0, 0.0],
+                center_x: 0.5,
+                center_y: 0.5,
+            })],
             skipped_unknown: 0,
         },
         ActiveAreaRect::full(8, 8),
@@ -134,7 +138,13 @@ fn embedded_and_master_off_take_priority_even_if_external_cache_is_missing() {
     assert!(resolve_for_raw(&raw, &model.lens_profile)
         .unwrap()
         .is_none());
+    let metadata = embedded_metadata(&raw);
+    assert_eq!(metadata["source"], "embedded");
+    assert_eq!(metadata["hasDistortion"], false);
+    assert_eq!(metadata["hasCa"], false);
+    assert_eq!(metadata["hasVignetting"], true);
     raw.opcode_list3 = None;
+    assert_eq!(embedded_metadata(&raw)["source"], "none");
     model.lens_profile_enable = crate::types::adjustment::LensProfileEnable::Off;
     apply_for_raw(
         &raw,

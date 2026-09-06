@@ -27,6 +27,7 @@ namespace Maple.WinUI.Services
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
+        public LensProfileFacts? LensProfileFacts { get; init; }
 
         // --- Auto Profile tail (#550/#924): fitted per image from the embedded
         //     JPEG. Without it a Profile::Auto decode renders 2-3x darker and
@@ -125,7 +126,10 @@ namespace Maple.WinUI.Services
             before.Profile != after.Profile
             || before.AutoExposure != after.AutoExposure
             || before.LensProfileEnable != after.LensProfileEnable
+            || before.LensProfile != after.LensProfile
             || Math.Abs(before.LensCorrectionDistortion - after.LensCorrectionDistortion) > 1e-6
+            || Math.Abs(before.LensCorrectionCa - after.LensCorrectionCa) > 1e-6
+            || Math.Abs(before.LensCorrectionVignetting - after.LensCorrectionVignetting) > 1e-6
             || Math.Abs(before.CaptureSharpeningAmount - after.CaptureSharpeningAmount) > 1e-6
             || Math.Abs(before.DeepDenoise - after.DeepDenoise) > 1e-6;
 
@@ -138,6 +142,7 @@ namespace Maple.WinUI.Services
             string rawPath, AdjustmentState model, int maxLongEdge, IntPtr cancelFlag)
         {
             var stripped = StripChainStages(model);
+            LensProfileStore.RestoreForFile(rawPath, stripped);
             var strippedXmp = Xmp.XmpWriter.Serialize(
                 new Xmp.XmpSidecarDocument { Adjustments = stripped });
             var tempXmpPath = Path.Combine(
@@ -173,6 +178,7 @@ namespace Maple.WinUI.Services
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
                         CameraSupport = CameraSupportMetadata.ReadFileBestEffort(rawPath),
+                        LensProfileFacts = LensProfileStore.AssessForFile(rawPath, stripped.LensProfile),
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                         FitAutoProfile(decoded, rawPath, tempXmpPath);

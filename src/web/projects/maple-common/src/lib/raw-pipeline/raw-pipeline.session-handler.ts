@@ -1,3 +1,4 @@
+import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 import { cameraSupportFromJson } from '../state/camera-support';
 /// <reference lib="webworker" />
 // raw-pipeline.session-handler.ts
@@ -111,6 +112,7 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     hasLensCorrections: session.hasLensCorrections,
     lensCorrectionCaInert: session.lensCorrectionCaInert,
     cameraSupport: cameraSupportFromJson(session.cameraSupportJson),
+    lensProfile: lensProfileFromJson(session.lensProfileJson),
     // The TRUTH the browser configured after the one-time display-p3 retag
     // `open` did (read back via `getConfiguration()`), never an assumption.
     colorSpace: session.colorSpace,

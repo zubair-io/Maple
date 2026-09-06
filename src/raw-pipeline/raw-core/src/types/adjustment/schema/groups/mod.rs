@@ -263,7 +263,6 @@ const DETAIL_FIELDS: &[&str] = &[
     // `hot_pixel_suppression` above (see the struct doc comment on
     // `lens_profile_enable`), so they travel with the same group.
     "lens_profile_enable",
-    "lens_profile",
     "lens_correction_distortion",
     "lens_correction_ca",
     "lens_correction_vignetting",
@@ -299,6 +298,9 @@ const GEOMETRY_FIELDS: &[&str] = &[
 /// never moved by paste / sync. Every entry needs a reason; the coverage test
 /// requires each struct field to be either grouped above or listed here.
 pub const NON_COPYABLE_FIELDS: &[&str] = &[
+    // Camera/lens calibration and approximation acknowledgement belong to the
+    // source capture; a target must resolve and accept its own profile.
+    "lens_profile",
     // Local-adjustment layers (#280). Copy-safe by construction (normalized
     // parametric masks) but absent from BOTH front-end `AdjustmentModel`
     // mirrors, so a "Masks" group would be a dead checkbox. See the module

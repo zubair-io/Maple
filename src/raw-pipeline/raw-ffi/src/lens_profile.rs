@@ -119,10 +119,9 @@ pub unsafe extern "C" fn maple_lens_profile_resolve_file(
                 raw_core::decode_cache::decode_bytes_cached(&key, &bytes, ext)
                     .map_err(|e| e.to_string())?
             };
-            Ok(raw_core::lens_profile::resolve_for_raw(&raw,&reference)?
+            Ok(raw_core::lens_profile::resolve_for_raw(&raw, &reference)?
                 .map(|resolution| resolution.metadata().to_string())
-                .unwrap_or_else(|| format!(r#"{{"source":"{}","confidence":"embedded","approximations":[],"unsupported":[],"hasDistortion":{},"hasCa":{},"hasVignetting":{}}}"#,
-                    if raw.has_lens_corrections() {"embedded"} else {"none"}, raw.has_lens_corrections(), !raw.lens_correction_ca_inert(), raw.has_lens_corrections())))
+                .unwrap_or_else(|| raw_core::lens_profile::embedded_metadata(&raw).to_string()))
         };
         output_json(output as *mut *mut c_char, resolve())
     })

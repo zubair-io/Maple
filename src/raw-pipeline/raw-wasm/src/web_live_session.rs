@@ -115,6 +115,7 @@ pub struct WebLiveSession {
     as_shot_tint: f32,
     /// UI-only metadata cached once; failure leaves the rendered session usable.
     camera_support_json: Option<String>,
+    lens_profile_json: Option<String>,
     /// The session-resident baked film-look grid (epic #2683, Task 9), decoded
     /// via [`raw_core::film::decode_mlut`] and folded into every tick's
     /// [`raw_gpu::FullChainInputs`] by [`WebLiveSession::present_for_model`].
@@ -235,6 +236,7 @@ impl WebLiveSession {
             WebPresentSurface::create(&ctx, &canvas, width, height, requested_color_space)
                 .map_err(|e| JsError::new(&e))?;
 
+        let lens_profile_json = crate::lens_profile::metadata(&raw_img, &model);
         let handle = WebLiveSession {
             ctx,
             raw_img,
@@ -251,6 +253,7 @@ impl WebLiveSession {
             as_shot_temperature,
             as_shot_tint,
             camera_support_json: camera_support.map(|support| support.to_json()),
+            lens_profile_json,
             // No look loaded on open — the editor uploads one on selection via
             // `set_film_lut` (Task 9). Matches the render entries' `film_lut:
             // None` no-op contract.
@@ -300,6 +303,7 @@ impl WebLiveSession {
             }
             self.session.update_image(&self.ctx, &rgba);
             self.prefix_model = prefix_model;
+            self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, &model);
         }
 
         self.present_for_model(&model)
@@ -429,6 +433,12 @@ impl WebLiveSession {
     #[wasm_bindgen(getter, js_name = cameraSupportJson)]
     pub fn camera_support_json(&self) -> Option<String> {
         self.camera_support_json.clone()
+    }
+
+    /// Imported optical calibration selected for this session.
+    #[wasm_bindgen(getter, js_name = lensProfileJson)]
+    pub fn lens_profile_json(&self) -> Option<String> {
+        self.lens_profile_json.clone()
     }
 
     /// Whether the retained RAW carries a DNG `OpcodeList3` (#3182).

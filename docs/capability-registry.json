@@ -352,7 +352,8 @@
         "lens_correction_distortion",
         "lens_correction_ca",
         "lens_correction_vignetting",
-        "capture_sharpening_radius"
+        "capture_sharpening_radius",
+        "lens_profile"
       ],
       "integration": [
         {

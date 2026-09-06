@@ -499,6 +499,7 @@ pub async fn render_bytes_gpu(
         has_lens_corrections,
         lens_correction_ca_inert,
         camera_support,
+        crate::lens_profile::metadata(&raw_img, &model),
     ))
 }
 

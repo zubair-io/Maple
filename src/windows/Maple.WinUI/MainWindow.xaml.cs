@@ -100,6 +100,8 @@ namespace Maple.WinUI
             {
                 if (e.PropertyName == nameof(ViewModel.SelectedPhoto))
                     OnSelectedPhotoChanged();
+                else if (e.PropertyName == nameof(ViewModel.LensProfileFacts))
+                    SyncLensProfilePanel();
                 else if (e.PropertyName == nameof(ViewModel.SelectionSummary))
                     UpdateLibraryCountText();
             };
@@ -150,12 +152,14 @@ namespace Maple.WinUI
             BuildEditRail();
             BuildGradePanel();
             BuildProfilePanel();
+            BuildLensProfilePanel();
             BuildCropPanel();
             MaybeStartQualifyRun();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
             {
                 SyncProfilePanel();
+                SyncLensProfilePanel();
                 SyncGradeWheels();
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();
