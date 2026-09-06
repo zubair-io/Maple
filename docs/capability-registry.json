@@ -80,8 +80,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -179,8 +179,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -305,8 +305,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -399,8 +399,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -461,8 +461,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -860,13 +860,13 @@
         "backend": "metal",
         "pipeline_version": 2,
         "schema_version": 5,
-        "corpus_hash": "blake3:bd8594aa4cfd8c8102c304f26f30e96cfbc36b2f2b10cf2b35a28f2e41f20263",
+        "corpus_hash": "blake3:a97f2969d9ff089f6d1ca2bf5d8abda1c62a3d9c3875d6a7d502564299ba9b04",
         "expected_cases": 16,
         "executed_cases": 16,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "53f249ce936e9a5f292d40bbd52c32ff50714028",
-        "recorded_at": "2026-09-06T06:59:08Z",
+        "git_sha": "5f20e890d7aa0439d68fe8e6db666f986ab14898",
+        "recorded_at": "2026-09-06T19:00:13Z",
         "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render"
       }
     },
