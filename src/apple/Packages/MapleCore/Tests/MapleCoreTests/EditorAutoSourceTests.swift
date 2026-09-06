@@ -27,6 +27,7 @@ final class EditorAutoSourceTests: XCTestCase {
     model.temperature = 5100
     model.tint = 7
     let session = EditSession(asset: asset, model: model)
+    registerSessionTeardown(session)
     let state = EditorState(session: session)
     XCTAssertNil(asset.primaryURL)
 
@@ -53,11 +54,12 @@ final class EditorAutoSourceTests: XCTestCase {
     let started = expectation(description: "Original download started")
     let gate = AutoSourceGate()
     let asset = AssetRef(displayName: "Cloud RAW", hintExtension: "dng") {
-      started.fulfill()
+      if await gate.takeFirstRequest() { started.fulfill() }
       await gate.wait()
       return bytes
     }
     let session = EditSession(asset: asset)
+    registerSessionTeardown(session)
     let state = EditorState(session: session)
     state.autoProvider = { _ in
       XCTFail("Cancelled source download must not start analysis")
@@ -77,6 +79,7 @@ final class EditorAutoSourceTests: XCTestCase {
   func testNonRawAssetNeverStartsAnalysis() async {
     let asset = AssetRef(url: URL(fileURLWithPath: "/tmp/maple-auto-nonraw.jpg"))
     let session = EditSession(asset: asset)
+    registerSessionTeardown(session)
     let state = EditorState(session: session)
     state.autoProvider = { _ in
       XCTFail("Non-RAW asset must not reach native analysis")
@@ -95,11 +98,12 @@ final class EditorAutoSourceTests: XCTestCase {
     let started = expectation(description: "Original download started")
     let gate = AutoSourceGate()
     let asset = AssetRef(displayName: "Cloud RAW", hintExtension: "dng") {
-      started.fulfill()
+      if await gate.takeFirstRequest() { started.fulfill() }
       await gate.wait()
       return bytes
     }
     let session = EditSession(asset: asset)
+    registerSessionTeardown(session)
     let state = EditorState(session: session)
     state.autoProvider = { _ in
       XCTFail("An intervening edit must invalidate AUTO before analysis")
@@ -120,20 +124,37 @@ final class EditorAutoSourceTests: XCTestCase {
     XCTAssertTrue(state.canRedo, "Discarding AUTO must preserve redo")
     XCTAssertFalse(state.autoInProgress)
   }
+
+  private func registerSessionTeardown(_ session: EditSession) {
+    addTeardownBlock {
+      // Model application/undo also schedules real rendering. Settle the
+      // current pass and cancel its pending refine before the next test.
+      await session.renderActor.awaitCurrentRenderIfInFlight()
+      await session.renderActor.cancelAll()
+      await session.releaseTransientMemory()
+    }
+  }
 }
 
 private actor AutoSourceGate {
+  private var requested = false
   private var isOpen = false
-  private var continuation: CheckedContinuation<Void, Never>?
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+
+  func takeFirstRequest() -> Bool {
+    guard !requested else { return false }
+    requested = true
+    return true
+  }
 
   func wait() async {
     guard !isOpen else { return }
-    await withCheckedContinuation { continuation = $0 }
+    await withCheckedContinuation { continuations.append($0) }
   }
 
   func open() {
     isOpen = true
-    continuation?.resume()
-    continuation = nil
+    for continuation in continuations { continuation.resume() }
+    continuations.removeAll()
   }
 }
