@@ -220,28 +220,7 @@ namespace Maple.WinUI.ViewModels
                     if (generation != _decodeGeneration)
                         return;
                     Renderer.SetImage(decoded);
-                    OnUi(() =>
-                    {
-                        if (decoded.DecodedTemperature > 0)
-                        {
-                            _asShotTemperature = decoded.DecodedTemperature;
-                            _asShotTint = decoded.DecodedTint;
-                        }
-                        // The WB sliders' identity is the decode-exported as-shot
-                        // frame; an untouched model must sit AT that identity or
-                        // the delta-WB chain applies an unintended shift.
-                        var untouchedWb = Math.Abs(Adjustments.Temperature - 6500.0) < 1e-6
-                            && Math.Abs(Adjustments.Tint) < 1e-6;
-                        if (untouchedWb && decoded.DecodedTemperature > 0)
-                        {
-                            Adjustments.Temperature = decoded.DecodedTemperature;
-                            Adjustments.Tint = decoded.DecodedTint;
-                            SyncSlidersFromModel();
-                        }
-                        IsDecoding = false;
-                        DecodeStatus = string.Empty;
-                        Renderer.RequestRender(Adjustments.Clone());
-                    });
+                    OnUi(() => ApplyDecodedState(generation, photo, decoded));
                 }
                 catch (Exception ex)
                 {

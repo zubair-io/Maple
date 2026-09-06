@@ -37,6 +37,10 @@ pub fn render_bytes_with_film(
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
+    let camera_support = Some(
+        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
+            .map_err(|e| JsError::new(&e.to_string()))?,
+    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -77,6 +81,7 @@ pub fn render_bytes_with_film(
                 as_shot_tint,
                 has_lens_corrections,
                 lens_correction_ca_inert,
+                camera_support,
             ))
         }
         Some(cap) => {
@@ -101,6 +106,7 @@ pub fn render_bytes_with_film(
                 as_shot_tint,
                 has_lens_corrections,
                 lens_correction_ca_inert,
+                camera_support,
             ))
         }
     }
@@ -148,6 +154,10 @@ pub fn render_bytes_sized_with_film(
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
+    let camera_support = Some(
+        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
+            .map_err(|e| JsError::new(&e.to_string()))?,
+    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -199,5 +209,6 @@ pub fn render_bytes_sized_with_film(
         as_shot_tint,
         has_lens_corrections,
         lens_correction_ca_inert,
+        camera_support,
     ))
 }

@@ -31,7 +31,7 @@
 #   - support-tiers (raw_core::support_tiers, judged against the same
 #                                            evidence records plus the
 #                                            bundled profile index) → Swift +
-#                                            TS + markdown + JSON camera /
+#                                            TS + C# + markdown + JSON camera /
 #                                            lens support summaries (#2440)
 #
 # Outputs:
@@ -68,6 +68,7 @@
 #   - docs/capability-registry.json
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CameraSupport+Generated.swift
 #   - src/web/projects/maple-common/src/lib/generated/camera-support.generated.ts
+#   - src/windows/Maple.WinUI/Generated/CameraSupportRegistry.g.cs
 #   - docs/camera-support.md
 #   - docs/camera-support.json
 #
@@ -191,10 +192,11 @@ done
 
 TIER_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CameraSupport+Generated.swift"
 TIER_TS_OUT="src/web/projects/maple-common/src/lib/generated/camera-support.generated.ts"
+TIER_CS_OUT="src/windows/Maple.WinUI/Generated/CameraSupportRegistry.g.cs"
 TIER_MD_OUT="docs/camera-support.md"
 TIER_JSON_OUT="docs/camera-support.json"
 
-for target_out in "swift:$TIER_SWIFT_OUT" "ts:$TIER_TS_OUT" "md:$TIER_MD_OUT" "json:$TIER_JSON_OUT"; do
+for target_out in "swift:$TIER_SWIFT_OUT" "ts:$TIER_TS_OUT" "cs:$TIER_CS_OUT" "md:$TIER_MD_OUT" "json:$TIER_JSON_OUT"; do
   "$BIN" --schema support-tiers --target "${target_out%%:*}" \
     --evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
 done
@@ -220,5 +222,6 @@ echo "  - $CAP_MD_OUT"
 echo "  - $CAP_JSON_OUT"
 echo "  - $TIER_SWIFT_OUT"
 echo "  - $TIER_TS_OUT"
+echo "  - $TIER_CS_OUT"
 echo "  - $TIER_MD_OUT"
 echo "  - $TIER_JSON_OUT"
