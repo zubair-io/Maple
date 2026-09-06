@@ -232,14 +232,18 @@ for (const viewport of VIEWPORTS) {
     }, testInfo) => {
       await openEditor(page);
       // One edit first: Undo is correctly disabled with an empty history, and
-      // a disabled control takes no focus — so the top bar only reads in full
-      // once there is something to undo.
+      // a disabled control takes no focus. AUTO also stays disabled for this
+      // PNG fixture because its analysis requires a RAW photo.
       await page.getByRole('slider', { name: 'Exposure' }).focus();
       await page.keyboard.press('ArrowRight');
       await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Auto adjust', exact: true })).toBeDisabled();
       const order = await tabOrder(page, 60);
       // The top bar reads left → right.
-      const topBar = TOP_BAR.map((name) => indexOf(order, name));
+      const topBar = TOP_BAR.filter((name) => name !== 'Auto adjust').map((name) =>
+        indexOf(order, name),
+      );
+      expect(indexOf(order, 'Auto adjust'), JSON.stringify(order)).toBe(-1);
       expect(topBar, JSON.stringify(order)).toEqual([...topBar].sort((a, b) => a - b));
       expect(
         topBar.every((i) => i >= 0),
