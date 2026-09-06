@@ -58,9 +58,10 @@ export function exportFailure(error: unknown): string {
 async function authorize(path: string): Promise<string> {
   const allowed = await resolveAndAuthorizePath(path);
   if (!allowed.ok) throw new Error(allowed.error);
-  const writable = await safeWriteAllowed(allowed.data);
+  const canonical = await realpath(allowed.data);
+  const writable = await safeWriteAllowed(canonical);
   if (!writable.ok) throw new Error(writable.error ?? 'Path is outside a writable library');
-  return realpath(allowed.data);
+  return canonical;
 }
 
 interface ExportPaths {

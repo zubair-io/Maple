@@ -77,6 +77,15 @@ try {
   console.log(
     'PASS: real browser recipe round-trip, committed queue reload, immutable edits, uncertain download recovery and deletion',
   );
+  await page.evaluate(() => (globalThis as any).recipeStorage.directoryCrash());
+  await page.reload();
+  await page.evaluate(() => (globalThis as any).recipeStorage.directoryReload());
+  await page.evaluate(() => (globalThis as any).recipeStorage.directoryPolicies());
+  await page.evaluate(() => (globalThis as any).recipeStorage.directoryCheckpointFailure());
+  await page.evaluate(() => (globalThis as any).recipeStorage.directoryCancelAndConflict());
+  console.log(
+    'PASS: real browser file handles, hash recovery across reload, error/skip/replace, original guards, durable ordering, cancel/resume and external-change conflict',
+  );
   await context.close();
 } finally {
   await browser.close();
