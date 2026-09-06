@@ -108,6 +108,12 @@ public final class WhiteBalancePicker {
     session.endEdit()
   }
 
+  public var selectedPreset: WhiteBalancePreset {
+    let model = session.model
+    return model.whiteBalancePreset == .custom && model.wbSource == .asShot
+      ? .asShot : model.whiteBalancePreset
+  }
+
   public var provenance: String {
     let model = session.model
     switch model.wbSource {

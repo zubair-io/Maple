@@ -30,12 +30,8 @@ import Foundation
 /// on-wire; we widen to Double here for Swift arithmetic convenience and
 /// narrow before the FFI call path).
 public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
-  /// Absent storage means Custom, preserving old JSON decoding and numerical-only model equality.
-  private var namedWhiteBalancePreset: WhiteBalancePreset? = nil
-  public var whiteBalancePreset: WhiteBalancePreset {
-    get { namedWhiteBalancePreset ?? .custom }
-    set { namedWhiteBalancePreset = newValue == .custom ? nil : newValue }
-  }
+  /// The canonical JSON key matches Web; older models without it decode as Custom.
+  @WhiteBalancePresetValue public var whiteBalancePreset: WhiteBalancePreset = .custom
   public var temperature: Double  // 2000..12000, default 6500
   public var tint: Double  // -150..150 (ACR's crs:Tint span, #1870), default 0
   /// WB slider-scale version of this model's temperature/tint

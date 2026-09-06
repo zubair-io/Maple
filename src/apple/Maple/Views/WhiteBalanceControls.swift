@@ -9,11 +9,7 @@ struct WhiteBalanceControls: View {
 
   private var presetSelection: Binding<WhiteBalancePreset> {
     Binding(
-      get: {
-        let model = state.session.model
-        return model.whiteBalancePreset == .custom && model.wbSource == .asShot
-          ? .asShot : model.whiteBalancePreset
-      },
+      get: { picker.selectedPreset },
       set: { preset in
         presetTask?.cancel()
         let editor = state
