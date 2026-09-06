@@ -222,6 +222,11 @@ qualify real-camera color or an embedded-JPEG Auto fit. Background native
 refinement remains seconds long on this machine; these measurements do not
 establish the 16 ms slider target or real-camera reference-scene performance.
 
+The separate 2048×1366 production UI check measured 1.30 ms from the captured
+browser wheel event to the base canvas draw, followed by native refinement at
+3.56 s. This excludes automation-driver overhead; it does not measure the
+display compositor's presentation time or a slider render.
+
 Render one tile to a viewable PNG, without any UI, to sanity-check the tile math:
 
 ```bash
