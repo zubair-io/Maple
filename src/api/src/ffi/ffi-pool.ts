@@ -39,6 +39,7 @@
 
 import { nativeLibAvailable } from './raw_ffi.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
+import type { LensProfileInventory } from '../lens-profiles/types.ts';
 import type { FfiResponse } from './raw_ffi-protocol.ts';
 import { defaultChildWorkerFactory } from './ffi-child-worker.ts';
 import { DEFAULT_FFI_WORKERS, MAX_FFI_WORKERS, MIN_FFI_WORKERS } from './ffi-pool-config.repo.ts';
@@ -103,6 +104,28 @@ class FfiWorkerPool {
     return nativeLibAvailable();
   }
 
+  async registerLensProfile(profilePath: string): Promise<LensProfileInventory> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue({
+        id,
+        post: (worker) => worker.postMessage({ type: 'registerLensProfile', id, profilePath }),
+        onResponse: (message) => {
+          if (message.type !== 'registerLensProfile') return false;
+          if (message.ok && message.inventory) resolve(message.inventory);
+          else reject(new Error(message.error ?? 'LCP import failed'));
+          return true;
+        },
+        onError: reject,
+      });
+    });
+  }
+
+  private requestId(): number {
+    if (!this.available()) throw new Error('ffi-pool: raw-ffi dylib not available');
+    return this.nextId++;
+  }
+
   /** Effective pool size (lazy spawn ceiling). */
   poolSize(): number {
     return this.targetSize;
@@ -161,12 +184,7 @@ class FfiWorkerPool {
     type: 'renderThumb' | 'renderPreviewJpeg' | 'renderDevelop' | 'exportRecipe',
     payload: Record<string, unknown>,
   ): Promise<boolean> {
-    // Existing histogram/render dispatch shares transport setup with different response types.
-    // fallow-ignore-next-line code-duplication
-    if (!this.available()) {
-      throw new Error('ffi-pool: raw-ffi dylib not available');
-    }
-    const id = this.nextId++;
+    const id = this.requestId();
     return new Promise<boolean>((resolve, reject) => {
       this.enqueue({
         id,
@@ -261,10 +279,7 @@ class FfiWorkerPool {
    * Rejects on dylib-missing or any render failure.
    */
   async computeHistogram(rawPath: string, xmpPath: string | null): Promise<HistogramBins> {
-    if (!this.available()) {
-      throw new Error('ffi-pool: raw-ffi dylib not available');
-    }
-    const id = this.nextId++;
+    const id = this.requestId();
     return new Promise<HistogramBins>((resolve, reject) => {
       this.enqueue({
         id,
