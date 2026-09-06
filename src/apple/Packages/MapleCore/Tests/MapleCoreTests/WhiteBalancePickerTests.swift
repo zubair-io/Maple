@@ -86,6 +86,19 @@ final class WhiteBalancePickerTests: XCTestCase {
     }
   }
 
+  func testUnchangedAsShotDoesNotEraseRedo() {
+    let session = EditSession.preview()
+    session.asShotCCT = session.model.temperature
+    session.asShotTint = session.model.tint
+    session.beginEdit(description: "Exposure")
+    session.model.exposure = 1
+    session.endEdit()
+    session.undo()
+    let picker = WhiteBalancePicker(session: session)
+    picker.resetToAsShot()
+    XCTAssertTrue(session.canRedo)
+  }
+
   func testOutsideCanvasDoesNotInvokeTheSampler() async {
     let picker = WhiteBalancePicker(session: .preview())
     picker.provider = { _, _, _ in
