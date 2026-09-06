@@ -13,6 +13,32 @@ import Foundation
 // keeps the invariant visible at the declaration (#3291 review).
 @MainActor
 extension EditSession {
+    /// Whether the mask overlay should be painted right now (#3364).
+    ///
+    /// The red tint answers "what is selected", which is what you want
+    /// while picking a mask — and exactly what you do NOT want while
+    /// dragging its sliders, because a red wash over the subject hides the
+    /// adjustment you are making. So it shows on selection and gets out of
+    /// the way for the duration of the drag.
+    public var showsMaskOverlay: Bool {
+        selectedMaskId != nil && !isAdjustingMask
+    }
+
+    /// Index of the selected mask layer within `model.localAdjustments`, or
+    /// `-1` for "weigh the whole frame" — the contract raw-ffi's
+    /// `scope_layer` uses (`scene_linear_chain_fused.rs`).
+    ///
+    /// Both scope producers hardcoded `-1` until #3355, so the HUD labelled
+    /// itself "Scope: Skin" while plotting every pixel in the frame — the
+    /// selection changed the caption and nothing else. The whole point of
+    /// the skin-tone workflow is reading the SELECTED region's chroma.
+    var scopeLayerIndex: Int32 {
+        guard let id = selectedMaskId,
+            let index = model.localAdjustments.firstIndex(where: { $0.id == id })
+        else { return -1 }
+        return Int32(index)
+    }
+
     /// Detect people in a fresh, uncropped reduced-resolution develop of the
     /// current asset. The people picker calls this once when it opens.
     public func detectMaskPersons() async throws -> [PersonCandidate] {
@@ -38,6 +64,49 @@ extension EditSession {
             mask: .bitmap(recipe: recipe, rasterId: rasterId), range: .skinTone, adjustments: PartialAdjustments())
         model.localAdjustments.append(layer)
         selectedMaskId = layer.id
+    }
+
+    /// Re-register every bitmap mask a loaded sidecar carries (#3366).
+    ///
+    /// The raster registry is per-PROCESS and `rasterId` is deliberately
+    /// never persisted (it is a cache handle, not content), so a sidecar
+    /// parses every `.bitmap` layer back with `rasterId: 0`. Nothing then
+    /// registered the raster again: the per-tick wire carries only the id,
+    /// raw-ffi resolves an unknown id to weight 0 — never a silent global
+    /// correction — and so a mask the user SAVED did nothing on reopen:
+    /// sliders inert, scope empty, while the overlay (which reads the PNG by
+    /// digest) still drew the selection and made it look like a pipeline
+    /// bug. The create path (`createPersonSkinMask`) was the only place a
+    /// raster ever got registered.
+    ///
+    /// Bytes come from `maskRasterStore` — the cached PNG by digest, or a
+    /// fresh Vision pass rebuilt from the recipe on a cache miss. A layer
+    /// whose raster cannot be produced keeps `rasterId: 0` (still weight 0,
+    /// logged) rather than failing the whole hydration.
+    func rehydratedMaskRasters(in source: AdjustmentModel) async -> AdjustmentModel {
+        var out = source
+        for index in out.localAdjustments.indices {
+            guard case .bitmap(let recipe, let rasterId) = out.localAdjustments[index].mask, rasterId == 0
+            else { continue }
+            do {
+                let request = SkinRasterRequest(
+                    person: recipe.person, facialSkin: recipe.facialSkin, bodySkin: recipe.bodySkin)
+                let (w, h, bytes) = try await maskRasterStore.raster(for: recipe.digest, model: recipe.model) {
+                    let image = try await self.renderForSegmentation()
+                    return try await self.personSkinMaskService.makeRaster(image: image, request: request)
+                }
+                guard let id = MaskRasterRegistry.register(digest: recipe.digest, width: w, height: h, bytes: bytes)
+                else {
+                    editSessionLogger.error("mask raster \(recipe.digest, privacy: .public): registration rejected")
+                    continue
+                }
+                out.localAdjustments[index].mask = .bitmap(recipe: recipe, rasterId: id)
+            } catch {
+                editSessionLogger.error(
+                    "mask raster \(recipe.digest, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
+        return out
     }
 
     /// "Skin range only (whole image)" — the no-person fallback (spec §3.2).

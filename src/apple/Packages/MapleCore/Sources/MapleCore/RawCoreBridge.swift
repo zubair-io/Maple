@@ -249,6 +249,17 @@ public enum RawCoreBridge {
         m.nrColor = 0
         // Sharpen (the chain handles it — see the nrColor note above).
         m.sharpenAmount = 0
+        // Local adjustments (#3369) — the chain owns the mask stack on both
+        // paths (GPU `LocalAdjustmentsPass`, CPU `apply_scene_linear_chain_f32`
+        // via `local_adjustments_ptr`). Left in the temp XMP, raw-core's own
+        // develop applies every layer INSIDE the decode as well — and raw-ffi
+        // resolves a bitmap layer's raster by digest, so the moment a raster
+        // is registered in-process (#3366) the decode-side pass stops being a
+        // weight-0 no-op and the layer lands twice. Same double-apply hazard
+        // as nrColor/sharpen above, just invisible until a raster resolved.
+        // Stripping it also keeps a mask slider drag from churning the
+        // decoded-image cache (keyed on this stripped model) every tick.
+        m.localAdjustments = []
         return m
     }
 

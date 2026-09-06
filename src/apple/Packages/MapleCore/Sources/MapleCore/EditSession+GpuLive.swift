@@ -283,7 +283,7 @@ extension EditSession {
       asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
       wbFrame: liveWbFrame,
       scopeEnabled: scopeEnabled,
-      scopeLayer: -1
+      scopeLayer: scopeLayerIndex
     ) { [weak self] error in
       presentErr = error
       self?.renderError = error
@@ -294,8 +294,75 @@ extension EditSession {
     // HUD off stops the needless re-publish of a now-stale sample every
     // tick (the driver's own `lastScopeSample` isn't cleared on
     // disable, it just stops updating).
-    if scopeEnabled, let scope = driver.lastScopeSample {
+    // A distinct model gets its own priming budget (#3387); without
+    // this a readback that once stalled would leave every later edit
+    // one behind for the rest of the session.
+    if scopeTick.primedForModel != m {
+      scopeTick.primedForModel = m
+      scopeTick.primingTicks = 0
+    }
+    // The sample a present hands back describes the PREVIOUS present's
+    // model (one-tick-late readback). Track which model the sample the
+    // HUD currently shows was taken at; a present that delivers nothing
+    // new leaves that attribution where it was — it does NOT become
+    // current just because the same model was presented again.
+    let deliveredDescribes = scopeTick.lastPresentedModel ?? m
+    let decision = Self.scopeTickDecision(
+      enabled: scopeEnabled,
+      sample: driver.lastScopeSample,
+      publishedFrame: scopeTick.publishedFrame,
+      deliveredSampleIsCurrent: deliveredDescribes == m,
+      heldSampleIsCurrent: scopeTick.shownSampleModel == m,
+      ticks: scopeTick.primingTicks,
+      maxTicks: ScopeTickState.maxPrimingTicks)
+    scopeTick.lastPresentedModel = m
+    if let sample = driver.lastScopeSample {
+      let centroidText = sample.centroidAngleDeg.map { String(format: "%.1f", $0) } ?? "nil"
+      let publishedText = scopeTick.publishedFrame.map(String.init) ?? "none"
+      let hueText =
+        m.localAdjustments.first.flatMap(\.adjustments.hue).map { String(format: "%.0f", $0) }
+        ?? "nil"
+      editSessionLogger.notice(
+        "GPU-TRACE scope gen=\(gen ?? 0) hue=\(hueText, privacy: .public) frame=\(sample.frame) published=\(publishedText, privacy: .public) total=\(sample.total) centroid=\(centroidText, privacy: .public) deliveredCurrent=\(deliveredDescribes == m) heldCurrent=\(self.scopeTick.shownSampleModel == m) publish=\(decision.publish) prime=\(decision.prime) ticks=\(self.scopeTick.primingTicks)"
+      )
+    } else {
+      editSessionLogger.notice("GPU-TRACE scope gen=\(gen ?? 0) no sample yet")
+    }
+    if decision.publish, let scope = driver.lastScopeSample {
       scopeSample = scope
+      scopeTick.publishedFrame = scope.frame
+      scopeTick.shownSampleModel = deliveredDescribes
+      if deliveredDescribes == m { scopeTick.primingTicks = 0 }
+    }
+    if decision.prime {
+      // #3387 — the readback is one tick late, so a DISCRETE edit (one
+      // present) can only ever show the previous edit's scope: the
+      // sample this present delivered describes the model presented
+      // BEFORE it, and the sample for the current model is read by
+      // the next present, which an idle canvas never issues. Same
+      // shape as the #3344 first-sample priming below, generalised.
+      scopeTick.primingTicks += 1
+      _scheduleRender(phase: .fast)
+    } else if scopeEnabled, scopeSample == nil,
+      scopeTick.primingTicks < ScopeTickState.maxPrimingTicks
+    {
+      // #3344 — the GPU scope readback is one tick late BY DESIGN:
+      // `take_scope_stats` reads the slot the PREVIOUS present wrote
+      // (see `raw-gpu/src/live_session/scope.rs`), so the first
+      // present after the HUD arms `scopeEnabled` can never carry a
+      // sample. On a canvas the user is actively editing that costs
+      // nothing — the next slider tick presents again and the sample
+      // lands. On an IDLE canvas there is no next tick: opening an
+      // image with the HUD already on presented exactly once and the
+      // scope sat empty until the user happened to touch a slider.
+      //
+      // Prime it with one more render so the second tick happens on
+      // its own. Bounded, and only while no sample has ever arrived,
+      // so a readback that genuinely never produces one (mapping
+      // error, scope pass disabled downstream) settles after a few
+      // ticks instead of spinning renders forever.
+      scopeTick.primingTicks += 1
+      _scheduleRender(phase: .fast)
     }
     if let presentErr {
       // NO silent failure (#1769): a thrown present means nothing (or a
@@ -385,4 +452,60 @@ extension EditSession {
     guard w > 0, h > 0 else { return nil }
     return (w, h)
   }
+}
+
+extension EditSession {
+  /// What to do with the driver's scope sample after a present (#3387).
+  ///
+  /// `publish` — the driver holds a sample whose `frame` differs from the
+  /// last one published, i.e. this present actually delivered new stats.
+  /// `prime` — the scope is on and the sample the HUD will show after this
+  /// present (the delivered one if fresh, else the one already shown)
+  /// describes an OLDER model than the one just presented — the readback
+  /// is one tick late, so a present's sample belongs to the present before
+  /// it — and the per-model budget allows one more tick. Pure so the rule
+  /// is unit-tested without a GPU.
+  nonisolated static func scopeTickDecision(
+    enabled: Bool,
+    sample: ScopeSample?,
+    publishedFrame: UInt64?,
+    deliveredSampleIsCurrent: Bool,
+    heldSampleIsCurrent: Bool,
+    ticks: Int,
+    maxTicks: Int
+  ) -> (publish: Bool, prime: Bool) {
+    guard enabled, let sample else { return (false, false) }
+    let fresh = sample.frame != publishedFrame
+    // After this present the HUD shows either the delivered sample (if
+    // fresh) or whatever it already showed. Prime whenever THAT still
+    // describes an older model than the one just presented.
+    let shownIsCurrent = fresh ? deliveredSampleIsCurrent : heldSampleIsCurrent
+    return (fresh, !shownIsCurrent && ticks < maxTicks)
+  }
+}
+
+/// GPU scope readback bookkeeping on `EditSession` (#3344, #3387).
+struct ScopeTickState {
+  /// How many extra render ticks the GPU path may schedule to coax a
+  /// sample out of its one-tick-late readback. Small on purpose: two
+  /// ticks is all a healthy readback needs, the third is slack for a
+  /// present cancelled by a real edit.
+  static let maxPrimingTicks = 3
+  /// Extra ticks spent so far for the current budget.
+  var primingTicks = 0
+  /// Frame number of the last sample actually published to the HUD, so a
+  /// present that hands back the same frame is recognised as a one-tick-
+  /// late miss rather than re-published as if fresh.
+  var publishedFrame: UInt64?
+  /// The model handed to the previous present — what the sample the NEXT
+  /// present delivers actually describes (one-tick-late readback).
+  var lastPresentedModel: AdjustmentModel?
+  /// The model the sample currently on the HUD was taken at. Stays put
+  /// when a present delivers nothing new, which is exactly the case that
+  /// must keep priming.
+  var shownSampleModel: AdjustmentModel?
+  /// The model the current priming budget belongs to — each distinct
+  /// model gets its own, so a stalled readback cannot leave every later
+  /// edit one behind for the rest of the session.
+  var primedForModel: AdjustmentModel?
 }

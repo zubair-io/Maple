@@ -14,7 +14,11 @@ import MapleUI
 
 struct VectorscopeHud: View {
     @Bindable var state: EditorState
-    @AppStorage("editor.showSkinToneLine") private var showSkinToneLine = false
+    // ON by default (#3350): this HUD exists for the skin-tone workflow —
+    // the whole point is to drag Hue until the chroma cloud sits in the
+    // skin band, and the band was invisible until the user found the
+    // context menu. The toggle stays for anyone who wants a bare scope.
+    @AppStorage("editor.showSkinToneLine") private var showSkinToneLine = true
     @AppStorage("editor.redAt3OClock") private var redAt3OClock = false
 
     private var selectedMaskName: String? {

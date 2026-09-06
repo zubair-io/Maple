@@ -28,7 +28,7 @@ export interface MuiVectorscopeSample {
 export const VECTORSCOPE_TARGETS = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'] as const;
 export type VectorscopeTarget = (typeof VECTORSCOPE_TARGETS)[number];
 
-const TARGET_RGB: Record<VectorscopeTarget, readonly [number, number, number]> = {
+export const TARGET_RGB: Record<VectorscopeTarget, readonly [number, number, number]> = {
   red: [1, 0, 0],
   yellow: [1, 1, 0],
   green: [0, 1, 0],
@@ -82,6 +82,38 @@ export function rotated(cb: number, cr: number, degrees: number): { cb: number; 
     cb: cb * Math.cos(rad) - cr * Math.sin(rad),
     cr: cb * Math.sin(rad) + cr * Math.cos(rad),
   };
+}
+
+/** `angle` folded into `0..<360`. */
+export function normalizedDeg(angle: number): number {
+  const m = angle % 360;
+  return m < 0 ? m + 360 : m;
+}
+
+/** The hue-ring colour at a graticule angle, interpolated between the two
+ * bracketing broadcast targets in their TRUE (non-uniform) angular
+ * positions — so the ring's colours line up with the six target dots
+ * exactly rather than drifting against them. Interpolating on a uniform 60°
+ * hexagon instead would put, say, pure yellow several degrees off its own
+ * marker; the targets alternate ~54°/72° gaps and the ring has to follow
+ * that. Mirrors Apple's `MuiVectorscopeMath.ringRGB`. */
+export function ringRGB(angleDeg: number): [number, number, number] {
+  const stops = VECTORSCOPE_TARGETS.map((t) => ({
+    angle: normalizedDeg(targetAngleDeg(t)),
+    rgb: TARGET_RGB[t],
+  })).sort((a, b) => a.angle - b.angle);
+  const a = normalizedDeg(angleDeg);
+  const upperIndex = stops.findIndex((s) => s.angle >= a);
+  const upper = stops[upperIndex === -1 ? 0 : upperIndex];
+  const lower = stops[((upperIndex === -1 ? 0 : upperIndex) + stops.length - 1) % stops.length];
+  const span = normalizedDeg(upper.angle - lower.angle);
+  if (span <= 0) return [lower.rgb[0], lower.rgb[1], lower.rgb[2]];
+  const t = normalizedDeg(a - lower.angle) / span;
+  return [
+    lower.rgb[0] + (upper.rgb[0] - lower.rgb[0]) * t,
+    lower.rgb[1] + (upper.rgb[1] - lower.rgb[1]) * t,
+    lower.rgb[2] + (upper.rgb[2] - lower.rgb[2]) * t,
+  ];
 }
 
 /** Broadcast-convention skin-tone line angle (spec §11 — a graticule
@@ -139,29 +171,34 @@ export class MuiVectorscopeComponent {
     const radius = size / 2 - 4;
     const rotationDeg = this.rotationDeg();
 
-    const chromeColor = resolveColor(canvasEl, 'var(--color-border)');
-    ctx.strokeStyle = chromeColor;
+    this.drawHueRing(ctx, cx, cy, radius, rotationDeg);
+
+    // Spokes are dashed so they read as a measurement graticule rather than
+    // as plotted data — at HUD size a solid spoke and a thin chroma trace
+    // are the same handful of pixels.
+    ctx.strokeStyle = resolveColor(canvasEl, 'var(--color-border)');
     ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
-      ctx.stroke();
-    }
-
-    const targetColor = resolveColor(canvasEl, 'var(--color-text-muted)');
-    ctx.fillStyle = targetColor;
+    ctx.setLineDash([2, 3]);
     for (const target of VECTORSCOPE_TARGETS) {
       const angle = ((targetAngleDeg(target) + rotationDeg) * Math.PI) / 180;
-      const px = cx + Math.cos(angle) * radius * 0.82;
-      const py = cy - Math.sin(angle) * radius * 0.82;
       ctx.beginPath();
-      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(angle) * radius, cy - Math.sin(angle) * radius);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Target dots sit ON the hue ring, each in its own colour — the ring
+    // says "this direction is this hue" and the dot says "this exact angle
+    // is the broadcast target for it".
+    for (const target of VECTORSCOPE_TARGETS) {
+      const angle = ((targetAngleDeg(target) + rotationDeg) * Math.PI) / 180;
+      const px = cx + Math.cos(angle) * radius;
+      const py = cy - Math.sin(angle) * radius;
+      const [r, g, b] = TARGET_RGB[target];
+      ctx.fillStyle = `rgb(${r * 255}, ${g * 255}, ${b * 255})`;
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -194,23 +231,81 @@ export class MuiVectorscopeComponent {
   ): void {
     const centreAngle = SKIN_TONE_LINE_ANGLE_DEG + rotationDeg;
     const wedge = SKIN_TONE_LINE_WEDGE_DEG;
+    const lo = ((centreAngle - wedge) * Math.PI) / 180;
+    const hi = ((centreAngle + wedge) * Math.PI) / 180;
 
-    ctx.strokeStyle = 'rgba(234, 179, 8, 0.25)'; // yellow, 25% — matches Apple's .yellow.opacity(0.25)
+    // Filled cone rather than two bare edge lines: the band is the thing
+    // being read — the user drags Hue until the chroma cloud sits inside
+    // it, and a filled region shows in/out at a glance where two hairlines
+    // did not. Mirrors Apple's `drawSkinToneLine`.
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(lo) * radius, cy - Math.sin(lo) * radius);
+    ctx.lineTo(cx + Math.cos(hi) * radius, cy - Math.sin(hi) * radius);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.30)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.lineWidth = 1;
-    for (const a of [centreAngle - wedge, centreAngle + wedge]) {
-      const rad = (a * Math.PI) / 180;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(rad) * radius, cy - Math.sin(rad) * radius);
-      ctx.stroke();
-    }
-
-    ctx.strokeStyle = 'rgba(234, 179, 8, 0.7)'; // yellow, 70% — matches Apple's .yellow.opacity(0.7)
     const rad = (centreAngle * Math.PI) / 180;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(cx + Math.cos(rad) * radius, cy - Math.sin(rad) * radius);
     ctx.stroke();
+
+    // Person marker at the skin-tone angle — the legend for the cone, so
+    // the band needs no separate caption. Drawn as a head + shoulders arc
+    // rather than an icon font: the canvas has no SF Symbols, and a glyph
+    // dependency for one 10px mark is not worth it.
+    const box = Math.max(9, radius * 0.2);
+    const inset = radius - box * 0.75;
+    const mx = cx + Math.cos(rad) * inset;
+    const my = cy - Math.sin(rad) * inset;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = Math.max(1, box * 0.11);
+    ctx.beginPath();
+    ctx.arc(mx, my - box * 0.18, box * 0.18, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(mx, my + box * 0.34, box * 0.32, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  /** The continuous hue ring around the rim. Drawn as short arc segments
+   * rather than a CSS conic gradient so the colour at every angle comes
+   * from the SAME Rec.709 target math the dots and the plotted chroma use —
+   * a gradient would interpolate over a uniform hexagon and drift against
+   * the real, non-uniformly spaced targets. Mirrors Apple's `drawHueRing`. */
+  private drawHueRing(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    radius: number,
+    rotationDeg: number,
+  ): void {
+    const step = 2;
+    ctx.lineWidth = Math.max(2, radius * 0.06);
+    ctx.setLineDash([]);
+    for (let a = 0; a < 360; a += step) {
+      const [r, g, b] = ringRGB(a);
+      ctx.strokeStyle = `rgb(${r * 255}, ${g * 255}, ${b * 255})`;
+      ctx.beginPath();
+      // Canvas y grows down while graticule angles grow counter-clockwise,
+      // so the sweep is negated to match the dots.
+      ctx.arc(
+        cx,
+        cy,
+        radius,
+        (-(a + rotationDeg) * Math.PI) / 180,
+        (-(a + step + rotationDeg) * Math.PI) / 180,
+        true,
+      );
+      ctx.stroke();
+    }
   }
 
   /** Density cells are drawn in log-scaled opacity (`log(1+count) /

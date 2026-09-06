@@ -99,9 +99,9 @@ impl LiveSession {
             &self.dither_out,
             dims,
         );
-        let out = self.submit_and_read_surface(ctx, enc2).await?;
+        let (out, submission) = self.submit_and_read_surface(ctx, enc2).await?;
         if inputs.scope.enabled {
-            self.scope_after_submit();
+            self.scope_after_submit(submission);
         }
         Ok(Some(out))
     }
@@ -172,9 +172,9 @@ impl LiveSession {
                 inputs.scope.layer >= 0,
             );
         }
-        ctx.queue.submit(Some(enc2.finish()));
+        let submission = ctx.queue.submit(Some(enc2.finish()));
         if inputs.scope.enabled {
-            self.scope_after_submit();
+            self.scope_after_submit(submission);
         }
         Ok(Some(suffix_final))
     }

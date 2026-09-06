@@ -1,8 +1,9 @@
 // MuiVectorscope.swift — Maple UI Molecules-L1 (unified-component-catalog.md
 // §2.6; a plot primitive). A chroma scatter plot on a circular graticule:
 // each RGB sample converts to BT.601 Cb/Cr and plots as a dot (see
-// `MuiVectorscopeMath`). Chrome (circle, spokes) uses the border token;
-// dots use the accent token.
+// `MuiVectorscopeMath`). The rim carries a hue ring so a direction on the
+// plot reads as a colour without counting spokes; spokes use the border
+// token, target dots their own hue, and plotted chroma the accent token.
 
 import SwiftUI
 
@@ -54,19 +55,31 @@ public struct MuiVectorscope: View {
             let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
             let radius = Swift.min(canvasSize.width, canvasSize.height) / 2 - 4
 
-            var chrome = Path()
-            chrome.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
-            for i in 0..<6 {
-                let angle = (Double(i) / 6) * Double.pi * 2
-                chrome.move(to: center)
-                chrome.addLine(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
-            }
-            context.stroke(chrome, with: .color(MuiTokens.border), lineWidth: 0.5)
+            drawHueRing(context: &context, center: center, radius: radius)
 
+            // Spokes are dashed so they read as a measurement graticule
+            // rather than as plotted data — at HUD size a solid spoke and a
+            // thin chroma trace are the same handful of pixels.
+            var spokes = Path()
             for target in VectorscopeTarget.allCases {
                 let angle = (MuiVectorscopeMath.targetAngleDeg(target) + rotationDeg) * .pi / 180
-                let p = CGPoint(x: center.x + cos(angle) * radius * 0.82, y: center.y - sin(angle) * radius * 0.82)
-                context.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)), with: .color(MuiTokens.textMuted))
+                spokes.move(to: center)
+                spokes.addLine(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y - sin(angle) * radius))
+            }
+            context.stroke(
+                spokes, with: .color(MuiTokens.border.opacity(0.55)),
+                style: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+
+            // Target dots sit ON the hue ring, each in its own colour — the
+            // ring says "this direction is this hue" and the dot says
+            // "this exact angle is the broadcast target for it".
+            for target in VectorscopeTarget.allCases {
+                let angle = (MuiVectorscopeMath.targetAngleDeg(target) + rotationDeg) * .pi / 180
+                let p = CGPoint(x: center.x + cos(angle) * radius, y: center.y - sin(angle) * radius)
+                let rgb = MuiVectorscopeMath.targetRGB(target)
+                context.fill(
+                    Path(ellipseIn: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)),
+                    with: .color(Color(red: rgb.r, green: rgb.g, blue: rgb.b)))
             }
 
             if showSkinToneLine {
@@ -89,21 +102,72 @@ public struct MuiVectorscope: View {
         .accessibilityLabel("Vectorscope")
     }
 
+    /// The skin-tone range: a filled cone over the +/-10 degree tolerance
+    /// band, its centre line, and a person glyph on the ring marking which
+    /// direction "skin" is. Filled rather than two bare edge lines (the
+    /// pre-#3350 draw) because the band is the thing being read — the user
+    /// drags Hue until the chroma cloud sits inside this cone, and a filled
+    /// region shows in/out at a glance where two hairlines did not.
     private func drawSkinToneLine(context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
         let centreAngle = MuiVectorscopeMath.skinToneLineAngleDeg + rotationDeg
         let wedge = MuiVectorscopeMath.skinToneLineWedgeDeg
-        var wedgePath = Path()
-        for a in [centreAngle - wedge, centreAngle + wedge] {
-            let rad = a * .pi / 180
-            wedgePath.move(to: center)
-            wedgePath.addLine(to: CGPoint(x: center.x + cos(rad) * radius, y: center.y - sin(rad) * radius))
-        }
-        context.stroke(wedgePath, with: .color(.yellow.opacity(0.25)), lineWidth: 1)
+        let lo = (centreAngle - wedge) * .pi / 180
+        let hi = (centreAngle + wedge) * .pi / 180
+
+        var cone = Path()
+        cone.move(to: center)
+        cone.addLine(to: CGPoint(x: center.x + cos(lo) * radius, y: center.y - sin(lo) * radius))
+        cone.addLine(to: CGPoint(x: center.x + cos(hi) * radius, y: center.y - sin(hi) * radius))
+        cone.closeSubpath()
+        context.fill(cone, with: .color(.white.opacity(0.16)))
+        context.stroke(cone, with: .color(.white.opacity(0.30)), lineWidth: 0.5)
+
         var line = Path()
         let rad = centreAngle * .pi / 180
         line.move(to: center)
         line.addLine(to: CGPoint(x: center.x + cos(rad) * radius, y: center.y - sin(rad) * radius))
-        context.stroke(line, with: .color(.yellow.opacity(0.7)), lineWidth: 1)
+        context.stroke(line, with: .color(.white.opacity(0.75)), lineWidth: 1)
+
+        // Person glyph at the skin-tone angle — the legend for the cone, so
+        // the band needs no separate caption. Placed just INSIDE the rim:
+        // the Canvas frame is only `radius + 4`, so drawing it outside the
+        // ring (where a full-size scope would put it) clips it away.
+        // `.resizable()` (not `.font`, which yields a View the context
+        // cannot resolve) so the glyph scales with the HUD's size.
+        var glyph = context.resolve(
+            Image(systemName: "person").resizable().symbolRenderingMode(.monochrome))
+        glyph.shading = .color(.white.opacity(0.85))
+        let box = Swift.max(9, radius * 0.20)
+        let inset = radius - box * 0.75
+        let at = CGPoint(x: center.x + cos(rad) * inset, y: center.y - sin(rad) * inset)
+        context.draw(
+            glyph, in: CGRect(x: at.x - box / 2, y: at.y - box / 2, width: box, height: box))
+    }
+
+    /// The continuous hue ring around the rim. Drawn as short arc segments
+    /// rather than a SwiftUI `AngularGradient` so the colour at every angle
+    /// comes from the SAME Rec.709 target math the dots and the plotted
+    /// chroma use — a gradient would interpolate over a uniform hexagon and
+    /// drift against the real, non-uniformly spaced targets.
+    private func drawHueRing(context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
+        let step = 2.0
+        let width = Swift.max(2.0, radius * 0.06)
+        var a = 0.0
+        while a < 360 {
+            let rgb = MuiVectorscopeMath.ringRGB(atAngleDeg: a)
+            var arc = Path()
+            // Canvas y grows down while graticule angles grow counter-
+            // clockwise, so the sweep is negated to match the dots.
+            arc.addArc(
+                center: center, radius: radius,
+                startAngle: .degrees(-(a + rotationDeg)),
+                endAngle: .degrees(-(a + step + rotationDeg)),
+                clockwise: true)
+            context.stroke(
+                arc, with: .color(Color(red: rgb.r, green: rgb.g, blue: rgb.b)),
+                lineWidth: width)
+            a += step
+        }
     }
 
     /// Density cells are drawn in log-scaled opacity (`log(1+count) /

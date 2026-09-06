@@ -102,3 +102,48 @@ final class MuiVectorscopeMathTests: XCTestCase {
         XCTAssertEqual(bottomRight.cb + 0.125, 0.5, accuracy: 1e-12)
     }
 }
+
+extension MuiVectorscopeMathTests {
+    /// The hue ring must agree with the target dots: at each of the six
+    /// broadcast target angles the ring's colour is that target's own pure
+    /// RGB. This is the assertion that stops the ring drifting against the
+    /// markers — the failure mode a uniform-hexagon gradient would have,
+    /// since the real targets alternate ~54/72 degree gaps.
+    func testRingColourMatchesEachTargetAtItsOwnAngle() {
+        for target in VectorscopeTarget.allCases {
+            let angle = MuiVectorscopeMath.targetAngleDeg(target)
+            let ring = MuiVectorscopeMath.ringRGB(atAngleDeg: angle)
+            let want = MuiVectorscopeMath.targetRGB(target)
+            XCTAssertEqual(ring.r, want.r, accuracy: 0.001, "\(target) red")
+            XCTAssertEqual(ring.g, want.g, accuracy: 0.001, "\(target) green")
+            XCTAssertEqual(ring.b, want.b, accuracy: 0.001, "\(target) blue")
+        }
+    }
+
+    /// Halfway between two adjacent targets the ring is a genuine blend of
+    /// both — not snapped to either end.
+    func testRingColourBlendsBetweenAdjacentTargets() {
+        let red = MuiVectorscopeMath.targetAngleDeg(.red)
+        let yellow = MuiVectorscopeMath.targetAngleDeg(.yellow)
+        // Counter-clockwise from red (~103 degrees) to yellow (~175), so
+        // the midpoint walks forward from RED, not from yellow.
+        let mid = MuiVectorscopeMath.normalizedDeg(
+            red + MuiVectorscopeMath.normalizedDeg(yellow - red) / 2)
+        let ring = MuiVectorscopeMath.ringRGB(atAngleDeg: mid)
+        // Red->yellow differ only in green, so the blend is a partial green.
+        XCTAssertEqual(ring.r, 1.0, accuracy: 0.001)
+        XCTAssertGreaterThan(ring.g, 0.2)
+        XCTAssertLessThan(ring.g, 0.8)
+    }
+
+    /// Angles outside 0..<360 fold in rather than falling off the ring.
+    func testRingColourWrapsAroundFullTurns() {
+        let base = MuiVectorscopeMath.ringRGB(atAngleDeg: 40)
+        for equivalent in [400.0, -320.0, 760.0] {
+            let wrapped = MuiVectorscopeMath.ringRGB(atAngleDeg: equivalent)
+            XCTAssertEqual(wrapped.r, base.r, accuracy: 0.001, "\(equivalent)")
+            XCTAssertEqual(wrapped.g, base.g, accuracy: 0.001, "\(equivalent)")
+            XCTAssertEqual(wrapped.b, base.b, accuracy: 0.001, "\(equivalent)")
+        }
+    }
+}

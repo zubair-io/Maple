@@ -71,6 +71,20 @@ final class XMPLocalAdjustmentsTests: XCTestCase {
         XCTAssertEqual(recipeBack.digest, "8f3a1c9e0b2d4f67")
     }
 
+    func testAFractionalHueSurvivesTheAdobeScaleRoundTrip() throws {
+        // −42.5 on the ±100 slider is −0.425 on Adobe's ±1 wire scale; the
+        // canonical 2-decimal precision would persist "-0.43" and read back
+        // −43 (#3280 review).
+        var model = AdjustmentModel()
+        model.localAdjustments = [
+            LocalAdjustment(mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments(hue: -42.5))
+        ]
+        let xml = XMPSerializer.serialize(model: model, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:LocalHue="-0.425""#), xml)
+        let (parsed, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsed.localAdjustments[0].adjustments.hue, -42.5)
+    }
+
     func testAnEverywhereSkinRangeLayerRoundTrips() throws {
         var model = AdjustmentModel()
         model.localAdjustments = [

@@ -96,6 +96,17 @@ enum LocalAdjustmentXMP {
         ("crs:LocalHue", { $0.hue.map { $0 / 100 } }, { $0.hue = $1 * 100 }),
     ]
 
+    /// Four-decimal variant of `fmtNum`, trailing zeros trimmed — only for
+    /// `crs:LocalHue` (see the emitter). `-0.425` stays `-0.425`; `-0.2`
+    /// stays `-0.2`.
+    static func fmtNum4(_ v: Double) -> String {
+        let rounded = (v * 10_000).rounded() / 10_000
+        if rounded == rounded.rounded() { return String(format: "%.0f", rounded) }
+        var text = String(format: "%.4f", rounded)
+        while text.hasSuffix("0") { text.removeLast() }
+        return text
+    }
+
     /// The colour-range refinement's `papp:Range*` attributes (#3270), which
     /// sit on the correction's own `rdf:Description` alongside the sliders.
     /// Maple-private by design — Adobe has no range-mask schema to borrow —
@@ -343,7 +354,11 @@ extension XMPSerializer {
                 // Only fields actually set are written; a non-finite value is
                 // not representable in XMP and is skipped like every slider.
                 guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
-                return "\(i4)\(slider.key)=\"\(fmtNum(value))\""
+                // LocalHue rides Adobe's ±1 scale: the canonical 2-decimal
+                // precision would quantise Maple's ±100 slider to whole units,
+                // so it gets four (#3280 review) — mirrors raw-core's `fmt4`.
+                let text = slider.key == "crs:LocalHue" ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
+                return "\(i4)\(slider.key)=\"\(text)\""
             } + _localAdjustmentRangeLines(layer.range, indent: i4)
             return [
                 "\(i2)<rdf:li>",

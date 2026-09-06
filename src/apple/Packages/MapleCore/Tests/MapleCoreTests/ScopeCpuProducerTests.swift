@@ -45,7 +45,7 @@ final class ScopeCpuProducerTests: XCTestCase {
         // directly rather than waiting out the 350 ms debounce.
         session.scopeEnabled = true
         let sample = try await EditSession.renderScopeSample(
-            asset: session.asset, model: session.model)
+            asset: session.asset, model: session.model, layerIndex: session.scopeLayerIndex)
 
         // A real photograph must land actual weight in the histogram.
         XCTAssertGreaterThan(sample.total, 0, "a real image should produce non-zero scope weight")
@@ -71,5 +71,78 @@ final class ScopeCpuProducerTests: XCTestCase {
         // And a skin-bearing portrait should have a meaningful centroid.
         let centroid = try XCTUnwrap(sample.centroidAngleDeg)
         XCTAssertTrue(centroid.isFinite)
+    }
+
+    /// Scoping to a layer must actually change the histogram (#3355).
+    ///
+    /// This is the assertion whose absence let the scope ship reading the
+    /// whole frame forever: `scope_layer` worked in raw-ffi, the parameter
+    /// was threaded all the way down, and Swift passed `-1` at every call
+    /// site. Every test still passed, because none of them ever asked for a
+    /// layer. Renders the SAME pixels twice — once whole-frame, once scoped
+    /// to a half-frame mask — and compares the bins.
+    func testScopingToALayerChangesTheHistogram() async throws {
+        let url = try stagedPortrait()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let session = await EditSession(asset: AssetRef(url: url))
+        // A linear gradient across the frame: a mask that covers part of the
+        // image, so the pixels it weighs are a real subset.
+        let half = LocalAdjustment(
+            mask: .linear(
+                start: MaskPoint(x: 0, y: 0), end: MaskPoint(x: 1, y: 0), feather: 0.0),
+            adjustments: PartialAdjustments(exposure: 0))
+        session.model.localAdjustments = [half]
+
+        let whole = try await EditSession.renderScopeSample(
+            asset: session.asset, model: session.model, layerIndex: -1)
+        let scoped = try await EditSession.renderScopeSample(
+            asset: session.asset, model: session.model, layerIndex: 0)
+
+        XCTAssertGreaterThan(whole.total, 0, "whole-frame scope must have weight")
+        XCTAssertGreaterThan(scoped.total, 0, "layer-scoped scope must have weight")
+        XCTAssertNotEqual(
+            whole.bins, scoped.bins,
+            "scoping to a layer must change the histogram — identical bins mean the "
+                + "layer index never reached raw-ffi (#3355)")
+        XCTAssertLessThan(
+            scoped.total, whole.total,
+            "a mask covering part of the frame must weigh less than the whole frame")
+    }
+
+    /// The PRODUCER must pass the selection through — not just raw-ffi
+    /// honour it (#3355).
+    ///
+    /// `testScopingToALayerChangesTheHistogram` above calls
+    /// `renderScopeSample` with an explicit index, so it proves raw-ffi's
+    /// weighting works while saying nothing about the wiring in between —
+    /// and the wiring is exactly what was broken: both producers hardcoded
+    /// `-1`. This drives the real debounced path with a layer SELECTED and
+    /// checks the published sample is the scoped one.
+    func testProducerPublishesTheSelectedLayersScope() async throws {
+        let url = try stagedPortrait()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let session = await EditSession(asset: AssetRef(url: url))
+        let half = LocalAdjustment(
+            mask: .linear(
+                start: MaskPoint(x: 0, y: 0), end: MaskPoint(x: 1, y: 0), feather: 0.0),
+            adjustments: PartialAdjustments(exposure: 0))
+        session.model.localAdjustments = [half]
+        session.selectedMaskId = half.id
+        session.scopeEnabled = true
+
+        session.scheduleScopeCpuUpdate()
+        // Debounce plus the compute itself.
+        try await Task.sleep(for: .milliseconds(2500))
+
+        let published = try XCTUnwrap(session.scopeSample, "producer published no sample")
+        let wholeFrame = try await EditSession.renderScopeSample(
+            asset: session.asset, model: session.model, layerIndex: -1)
+
+        XCTAssertNotEqual(
+            published.bins, wholeFrame.bins,
+            "the published sample matches the WHOLE FRAME — the producer ignored the "
+                + "selection and passed -1 (#3355)")
     }
 }
