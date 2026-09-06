@@ -470,10 +470,10 @@ extension EditSession {
       }
       renderedPreview = displayImage
       lastPublishedRenderGeneration = gen
-      histogramState.framePresented()
       previewIsFullRender = true
       previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
       renderError = nil
+      histogramState.framePresented()
       editSessionLogger.debug(
         "decodeAndRender published preview gen=\(gen ?? 0) extent=\(displayImage.extent.width)x\(displayImage.extent.height)"
       )
