@@ -14,6 +14,12 @@ import { type WithId } from 'mongodb';
 import { jobsCollection } from '../db/client.ts';
 import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 
+export class JobRequestConflictError extends Error {
+  constructor() {
+    super('The request id already belongs to a different job');
+  }
+}
+
 export interface CreateJobInput {
   kind: JobKind;
   payload: Record<string, unknown>;
@@ -73,7 +79,7 @@ export async function createJob(
       existing.kind !== input.kind ||
       !isDeepStrictEqual(existing.payload, input.payload)
     ) {
-      throw new Error('The request id already belongs to a different job');
+      throw new JobRequestConflictError();
     }
     return existing as JobWithId;
   }
@@ -90,13 +96,8 @@ export async function getJob(id: ObjectId): Promise<JobWithId | null> {
 /** List jobs filtered by status and/or kind, newest first. Hard-capped at 200. */
 export async function listJobs(filter: ListJobsFilter): Promise<JobWithId[]> {
   const c = await jobsCollection();
-  const q: Record<string, unknown> = {};
-  if (filter.statuses && filter.statuses.length > 0) {
-    q.status = { $in: filter.statuses };
-  } else if (filter.status) {
-    q.status = filter.status;
-  }
-  if (filter.kind) q.kind = filter.kind;
+  const status = filter.statuses?.length ? { $in: filter.statuses } : filter.status;
+  const q = { ...(status ? { status } : {}), ...(filter.kind ? { kind: filter.kind } : {}) };
   const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
   const docs = (await c
     .find(q)
@@ -186,21 +187,7 @@ export async function completeJob(
   now: () => Date = () => new Date(),
   workerId?: string,
 ): Promise<void> {
-  const c = await jobsCollection();
-  const nowIso = now().toISOString();
-  await c.updateOne(
-    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
-    {
-      $set: {
-        status: 'done' as JobStatus,
-        result,
-        error: null,
-        locked_by: null,
-        lease_expires_at: null,
-        updated_at: nowIso,
-      },
-    },
-  );
+  await setTerminalState(id, { status: 'done', result, error: null }, now(), workerId);
 }
 
 /** Mark a job failed with an error message. Releases the lock. */
@@ -210,20 +197,7 @@ export async function failJob(
   now: () => Date = () => new Date(),
   workerId?: string,
 ): Promise<void> {
-  const c = await jobsCollection();
-  const nowIso = now().toISOString();
-  await c.updateOne(
-    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
-    {
-      $set: {
-        status: 'failed' as JobStatus,
-        error,
-        locked_by: null,
-        lease_expires_at: null,
-        updated_at: nowIso,
-      },
-    },
-  );
+  await setTerminalState(id, { status: 'failed', error }, now(), workerId);
 }
 
 /**
@@ -237,17 +211,26 @@ export async function markCancelled(
   now: () => Date = () => new Date(),
   workerId?: string,
 ): Promise<void> {
-  const c = await jobsCollection();
-  const nowIso = now().toISOString();
-  await c.updateOne(
-    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
+  await setTerminalState(id, { status: 'cancelled', result }, now(), workerId);
+}
+
+/** Keep lease fencing identical for every terminal transition. */
+async function setTerminalState(
+  id: ObjectId,
+  fields: Partial<JobDoc>,
+  at: Date,
+  workerId?: string,
+): Promise<void> {
+  const jobs = await jobsCollection();
+  const owner = workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {};
+  await jobs.updateOne(
+    { _id: id, ...owner },
     {
       $set: {
-        status: 'cancelled' as JobStatus,
-        result,
+        ...fields,
         locked_by: null,
         lease_expires_at: null,
-        updated_at: nowIso,
+        updated_at: at.toISOString(),
       },
     },
   );

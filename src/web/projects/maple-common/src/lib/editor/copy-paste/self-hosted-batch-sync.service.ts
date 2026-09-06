@@ -61,6 +61,8 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     if (this.jobId) void this.reconnect();
   }
 
+  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
+  // fallow-ignore-next-line unused-class-member
   async apply(
     ids: readonly string[],
     patch: Partial<AdjustmentModel>,
@@ -90,9 +92,13 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }, ids.length);
   }
 
+  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
+  // fallow-ignore-next-line unused-class-member
   retryFailed(): Promise<BatchSummary<string> | null> {
     return this.remaining().length ? Promise.resolve(null) : this.action('retry-failed');
   }
+  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
+  // fallow-ignore-next-line unused-class-member
   resume(): Promise<BatchSummary<string> | null> {
     return this.action('resume');
   }
@@ -114,6 +120,8 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }, 0);
   }
 
+  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
+  // fallow-ignore-next-line unused-class-member
   cancel(): void {
     this.cancelRequested = true;
     if (this.jobId && this.inFlight) void this.requestCancel();
@@ -127,6 +135,8 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }
   }
 
+  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
+  // fallow-ignore-next-line unused-class-member
   dismissSummary(): void {
     if (this.inFlight || this.needsReconnect()) return;
     this.lastSummary.set(null);
@@ -174,55 +184,66 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
         /* The server ledger still survives. */
       }
       if (this.cancelRequested) await this.requestCancel();
-      while (!this.destroyed) {
-        const job = await firstValueFrom(
-          this.http.get<SyncJob>(`${this.base}/jobs/${created.id}?summary=1`),
-        );
-        const summary = job.result ?? job.checkpoint ?? { applied: [], failed: [], remaining: [] };
-        this.remaining.set(summary.remaining);
-        this.progress.set({
-          total: job.progress.total || total,
-          processed: job.progress.current,
-          applied: summary.applied.length,
-          failed: summary.failed.length,
-          current: '',
-          outcome: 'applied',
-        });
-        if (job.status !== 'queued' && job.status !== 'running') {
-          await this.refreshApplied(summary.applied);
-          const completed = {
-            applied: summary.applied,
-            failed: summary.failed,
-            cancelled: job.status === 'cancelled',
-          };
-          this.lastSummary.set(completed);
-          this.error.set(job.error);
-          return completed;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      return null;
+      return await this.poll(created.id, total);
     } catch (error) {
-      this.error.set(this.message(error));
-      const rejected =
-        error instanceof HttpErrorResponse && error.status >= 400 && error.status < 500;
-      const uncertain = (accepted || this.jobId !== null) && !rejected;
-      if (!accepted && !uncertain) {
-        this.jobId = previousId;
-        this.lastSummary.set(previousSummary);
-        try {
-          if (previousId) localStorage.setItem(this.storageKey, previousId);
-          else localStorage.removeItem(this.storageKey);
-        } catch {
-          /* Storage can be disabled. */
-        }
-      }
-      this.needsReconnect.set(uncertain);
+      this.handleFailure(error, accepted, previousId, previousSummary);
       return null;
     } finally {
       this.progress.set(null);
       this.inFlight = false;
     }
+  }
+
+  private handleFailure(
+    error: unknown,
+    accepted: boolean,
+    previousId: string | null,
+    previousSummary: BatchSummary<string> | null,
+  ): void {
+    this.error.set(this.message(error));
+    const rejected =
+      error instanceof HttpErrorResponse && error.status >= 400 && error.status < 500;
+    const uncertain = (accepted || this.jobId !== null) && !rejected;
+    if (!accepted && !uncertain) {
+      this.jobId = previousId;
+      this.lastSummary.set(previousSummary);
+      try {
+        if (previousId) localStorage.setItem(this.storageKey, previousId);
+        else localStorage.removeItem(this.storageKey);
+      } catch {
+        /* Storage can be disabled. */
+      }
+    }
+    this.needsReconnect.set(uncertain);
+  }
+
+  private async poll(id: string, total: number): Promise<BatchSummary<string> | null> {
+    while (!this.destroyed) {
+      const job = await firstValueFrom(this.http.get<SyncJob>(`${this.base}/jobs/${id}?summary=1`));
+      const summary = job.result ?? job.checkpoint ?? { applied: [], failed: [], remaining: [] };
+      this.remaining.set(summary.remaining);
+      this.progress.set({
+        total: job.progress.total || total,
+        processed: job.progress.current,
+        applied: summary.applied.length,
+        failed: summary.failed.length,
+        current: '',
+        outcome: 'applied',
+      });
+      if (job.status !== 'queued' && job.status !== 'running') {
+        await this.refreshApplied(summary.applied);
+        const completed = {
+          applied: summary.applied,
+          failed: summary.failed,
+          cancelled: job.status === 'cancelled',
+        };
+        this.lastSummary.set(completed);
+        this.error.set(job.error);
+        return completed;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return null;
   }
 
   private async refreshApplied(ids: readonly string[]): Promise<void> {
@@ -246,6 +267,8 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
   }
 
   private message(error: unknown): string {
+    if (error instanceof HttpErrorResponse && typeof error.error?.error === 'string')
+      return error.error.error;
     return error instanceof Error ? error.message : String(error);
   }
 

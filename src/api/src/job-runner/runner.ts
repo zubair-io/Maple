@@ -24,7 +24,6 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { ObjectId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import {
   claimJob,
@@ -78,6 +77,9 @@ export class JobRunner {
     this.leaseMs = config.leaseMs ?? LEASE_MS_DEFAULT;
     this.handlers = config.handlers ?? HANDLERS;
     this.now = config.now ?? (() => new Date());
+    // Existing lifecycle symmetry with imports/worker.ts is intentional; their
+    // differently typed claims and recovery rules do not share a runner.
+    // fallow-ignore-next-line code-duplication
     this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
@@ -142,6 +144,8 @@ export class JobRunner {
     }
   }
 
+  // Existing polling lifecycle mirrors imports/worker.ts; handlers and leases differ.
+  // fallow-ignore-next-line code-duplication
   private async runLoop(): Promise<void> {
     while (!this.shuttingDown) {
       let result: RunnerTickResult;
@@ -184,16 +188,3 @@ export async function stopJobRunner(): Promise<void> {
   _singleton = null;
   log.info('stopped');
 }
-
-/** Test/diagnostic helper. */
-export function getJobRunner(): JobRunner | null {
-  return _singleton;
-}
-
-/** Test reset. */
-export function _resetJobRunnerForTests(): void {
-  _singleton = null;
-}
-
-// ObjectId import retained for explicit re-export to ease wiring elsewhere.
-export { ObjectId };
