@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "entry": ["scripts/serve-production-e2e.ts"],
+  "entry": ["scripts/serve-production-e2e.ts", "scripts/export-recipe-storage.entry.ts"],
   // Generated mirrors (tools/codegen.sh, #2683) are drift-gated against
   // their Rust source by the codegen-drift CI job, not usage-gated — a
   // generated file with no web consumer yet (e.g. a catalog whose picker

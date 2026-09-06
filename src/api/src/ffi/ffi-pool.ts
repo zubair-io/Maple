@@ -158,9 +158,11 @@ class FfiWorkerPool {
    * (child crash, dylib missing). The `resolve(false)` below is an
    * unreachable defensive fallback for a malformed ok=false/no-error reply. */
   private renderToFile(
-    type: 'renderThumb' | 'renderPreviewJpeg' | 'renderDevelop',
+    type: 'renderThumb' | 'renderPreviewJpeg' | 'renderDevelop' | 'exportRecipe',
     payload: Record<string, unknown>,
   ): Promise<boolean> {
+    // Existing histogram/render dispatch shares transport setup with different response types.
+    // fallow-ignore-next-line code-duplication
     if (!this.available()) {
       throw new Error('ffi-pool: raw-ffi dylib not available');
     }
@@ -190,7 +192,12 @@ class FfiWorkerPool {
     maxPx: number,
     quality = 55,
   ): Promise<boolean> {
-    return this.renderToFile('renderThumb', { rawPath, outPath, maxPx, quality });
+    return this.renderToFile('renderThumb', {
+      rawPath,
+      outPath,
+      maxPx,
+      quality,
+    });
   }
 
   /** Render a RAW's embedded preview to JPEG on disk — the 1280px VLM
@@ -204,13 +211,34 @@ class FfiWorkerPool {
     maxPx: number,
     quality = 85,
   ): Promise<boolean> {
-    return this.renderToFile('renderPreviewJpeg', { rawPath, outPath, maxPx, quality });
+    return this.renderToFile('renderPreviewJpeg', {
+      rawPath,
+      outPath,
+      maxPx,
+      quality,
+    });
   }
 
   /** Develop a RAW with `xmpPath` applied (null = neutral) and write the JPEG
    * to `outPath`. The developed counterpart to `renderThumbnailAvifToFile`
    * (#1950). Resolves `true` on success; REJECTS on a render failure or infra
    * error (child crash, dylib missing). */
+  async exportRecipeToFile(
+    rawPath: string,
+    xmp: string,
+    recipeJson: string,
+    filmPath: string | null,
+    outPath: string,
+  ): Promise<boolean> {
+    return this.renderToFile('exportRecipe', {
+      rawPath,
+      xmp,
+      recipeJson,
+      filmPath,
+      outPath,
+    });
+  }
+
   async renderDevelopJpegToFile(
     rawPath: string,
     xmpPath: string | null,
@@ -218,7 +246,13 @@ class FfiWorkerPool {
     maxPx: number,
     quality = 82,
   ): Promise<boolean> {
-    return this.renderToFile('renderDevelop', { rawPath, xmpPath, outPath, maxPx, quality });
+    return this.renderToFile('renderDevelop', {
+      rawPath,
+      xmpPath,
+      outPath,
+      maxPx,
+      quality,
+    });
   }
 
   /**

@@ -1,0 +1,146 @@
+<mui-overlay-shell
+  [open]="visible()"
+  size="md"
+  ariaLabel="Export recipes and queue"
+  (dismissed)="dismiss.emit()"
+>
+  <div slot="header" class="flex items-center justify-between border-b border-border px-6 py-4">
+    <mui-text variant="sheet-title">Export recipes</mui-text>
+    <mui-button variant="ghost" ariaLabel="Close export recipes" (pressed)="dismiss.emit()"
+      >Close</mui-button
+    >
+  </div>
+  <div class="flex flex-col gap-4 p-6">
+    @if (resultText(); as text) {
+      <mui-text [block]="true">{{ text }}</mui-text>
+      @if (queue.running()) {
+        <mui-progress shape="bar" [value]="percent()" label="Exporting photos" />
+        <mui-button variant="ghost" (pressed)="queue.cancel()"
+          >Cancel after current photo</mui-button
+        >
+      } @else {
+        @if (queue.remaining()) {
+          <mui-button (pressed)="queue.resume()">Resume remaining</mui-button>
+        }
+        @if (queue.summary()?.failed?.length && !queue.remaining()) {
+          <mui-button (pressed)="queue.retryFailed()">Retry failed</mui-button>
+        }
+      }
+      @for (failure of failures(); track failure.id) {
+        <mui-text color="error" [lineClamp]="2">{{ failure.id }}: {{ failure.reason }}</mui-text>
+      }
+      @if ((queue.summary()?.failed?.length ?? 0) > 5) {
+        <mui-text color="muted"
+          >And {{ (queue.summary()?.failed?.length ?? 0) - 5 }} more failures</mui-text
+        >
+      }
+    }
+    @if (queue.error(); as error) {
+      <mui-text color="error">{{ error }}</mui-text>
+    }
+    @if (storageError(); as error) {
+      <mui-text color="error">{{ error }}</mui-text>
+    }
+    <mui-text color="muted">Saved recipes</mui-text>
+    @for (saved of recipes(); track saved.name) {
+      <div class="flex items-center gap-2">
+        <mui-button variant="ghost" [disabled]="queue.running()" (pressed)="recipe.set(saved)">{{
+          saved.name
+        }}</mui-button>
+        <mui-button variant="ghost" ariaLabel="Delete saved recipe" (pressed)="remove(saved.name)"
+          >Delete</mui-button
+        >
+      </div>
+    }
+    <mui-form-field
+      label="Recipe name"
+      [value]="recipe().name"
+      (valueChange)="patch({ name: $event })"
+      [disabled]="queue.running()"
+    />
+    <mui-export-options-fields
+      [formatOptions]="formats"
+      [colorSpaceOptions]="profiles"
+      [format]="recipe().format"
+      (formatChange)="setFormat($event)"
+      [quality]="recipe().quality ?? 100"
+      (qualityChange)="patch({ quality: $event })"
+      [qualityVisible]="recipe().format === 'jpeg'"
+      [colorSpace]="recipe().outputProfile"
+      (colorSpaceChange)="patch({ outputProfile: $event })"
+      [sizeOptions]="sizes"
+      [maxSidePixels]="recipe().maxLongEdge ?? 0"
+      (maxSidePixelsChange)="patch({ maxLongEdge: $event || null })"
+      sizeHint="Maximum long edge; never upscales."
+      [disabled]="queue.running()"
+    />
+    <mui-form-field
+      label="Naming template"
+      [value]="recipe().namingTemplate"
+      (valueChange)="patch({ namingTemplate: $event })"
+      help="Use {original}, {ext}, {n}, or {date:%Y%m%d}. The sequence keeps its number on retry."
+      [disabled]="queue.running()"
+    />
+    <mui-segmented-toggle
+      [options]="destinations"
+      [value]="recipe().destination"
+      (valueChange)="setDestination($event)"
+      ariaLabel="Export destination"
+      [disabled]="queue.running()"
+    />
+    @if (recipe().destination === 'directory') {
+      <mui-form-field
+        label="Existing server directory"
+        [value]="recipe().directory ?? ''"
+        (valueChange)="patch({ directory: $event })"
+        [disabled]="queue.running()"
+        help="Absolute path inside an authorized library root."
+      />
+      <mui-segmented-toggle
+        [options]="overwriteOptions"
+        [value]="recipe().overwritePolicy"
+        (valueChange)="patch({ overwritePolicy: $event })"
+        ariaLabel="Existing output policy"
+        [disabled]="queue.running()"
+      />
+      @if (!queue.serverAvailable) {
+        <mui-text color="warning"
+          >Directory recipes require Self Hosted or the CLI. Choose Browser downloads
+          here.</mui-text
+        >
+      }
+    } @else {
+      <mui-text color="muted"
+        >Your browser controls download naming and collisions. Maple reports handoff, and cannot
+        verify that the browser saved the file. Allow multiple downloads for a batch.</mui-text
+      >
+    }
+    <mui-text color="muted"
+      >Maple display rendering · embedded output ICC profile · camera, GPS and authored metadata
+      stripped · no watermark</mui-text
+    >
+    @if (problem(); as problem) {
+      <mui-text color="error">{{ problem }}</mui-text>
+    }
+    <div class="flex flex-wrap gap-2">
+      <mui-button variant="ghost" (pressed)="persist()">Save recipe</mui-button>
+      <mui-button variant="ghost" (pressed)="download()">Download recipe</mui-button>
+      <mui-button variant="ghost" (pressed)="importer.click()">Import recipe</mui-button>
+      <input
+        #importer
+        type="file"
+        accept="application/json,.json"
+        hidden
+        (change)="importFile($event)"
+      />
+    </div>
+  </div>
+  <div slot="footer" class="flex justify-end gap-2 border-t border-border px-6 py-4">
+    <mui-button
+      variant="primary"
+      [disabled]="queue.running() || queue.remaining() > 0 || !!problem() || !assets().length"
+      (pressed)="queue.start(assets(), recipe())"
+      >Export {{ assets().length }} photos</mui-button
+    >
+  </div>
+</mui-overlay-shell>

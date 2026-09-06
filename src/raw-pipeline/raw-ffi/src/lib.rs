@@ -101,6 +101,7 @@ mod scene_linear_chain_curves;
 // Multi-format developed export (#2584): the C-ABI shim over
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;
+mod export_recipe;
 mod scene_linear_f32;
 mod thumbnail;
 // The flat `wb_frame_*` FFI-tail ↔ `SliderFrameExport` bridge (#1781/#1967),

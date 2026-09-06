@@ -9,7 +9,7 @@
  *       const claim = await claimJob(...);
  *       if (!claim) { sleep(POLL_MS); continue; }
  *       try {
- *         const out = await handler.run(claim.payload, ctx);
+ *         const out = await this.runHandler(claim, handler);
  *         if (out.kind === "cancelled") await markCancelled(claim._id);
  *         else                          await completeJob(claim._id, out.result);
  *       } catch (err) {
@@ -114,19 +114,8 @@ export class JobRunner {
       return { kind: 'failed', jobId: claim._id.toHexString(), error: msg };
     }
 
-    const ctx: JobHandlerContext = {
-      jobId: claim._id,
-      checkpoint: claim.checkpoint,
-      saveCheckpoint: (checkpoint) =>
-        saveJobCheckpoint(claim._id, this.workerId, checkpoint, this.leaseMs, this.now),
-      reportProgress: async (current, total) => {
-        await updateProgress(claim._id, { current, total }, this.leaseMs, this.now, this.workerId);
-      },
-      shouldCancel: async () => isCancelRequested(claim._id),
-    };
-
     try {
-      const out = await handler.run(claim.payload, ctx);
+      const out = await this.runHandler(claim, handler);
       if (out.kind === 'cancelled') {
         await markCancelled(claim._id, out.result ?? null, this.now, this.workerId);
         return { kind: 'cancelled', jobId: claim._id.toHexString() };
@@ -141,6 +130,59 @@ export class JobRunner {
         jobId: claim._id.toHexString(),
         error: message,
       };
+    }
+  }
+
+  /** Native renders can outlive one lease. Renew without waiting for per-photo progress. */
+  private async runHandler(
+    claim: NonNullable<Awaited<ReturnType<typeof claimJob>>>,
+    handler: JobHandler,
+  ) {
+    let progress = claim.progress ?? { current: 0, total: 0 };
+    let leaseError: unknown;
+    let renewal: Promise<void> | null = null;
+    const check = () => {
+      if (leaseError) throw leaseError;
+    };
+    const renew = () => updateProgress(claim._id, progress, this.leaseMs, this.now, this.workerId);
+    const timer = setInterval(
+      () => {
+        if (renewal || leaseError) return;
+        renewal = renew()
+          .catch((error: unknown) => {
+            leaseError = error;
+          })
+          .finally(() => {
+            renewal = null;
+          });
+      },
+      Math.max(1, Math.floor(this.leaseMs / 3)),
+    );
+    const ctx: JobHandlerContext = {
+      jobId: claim._id,
+      checkpoint: claim.checkpoint,
+      saveCheckpoint: async (checkpoint) => {
+        check();
+        await saveJobCheckpoint(claim._id, this.workerId, checkpoint, this.leaseMs, this.now);
+      },
+      reportProgress: async (current, total) => {
+        check();
+        progress = { current, total };
+        await renew();
+      },
+      shouldCancel: async () => {
+        check();
+        return isCancelRequested(claim._id);
+      },
+    };
+    try {
+      const result = await handler.run(claim.payload, ctx);
+      check();
+      return result;
+    } finally {
+      clearInterval(timer);
+      await renewal;
+      check();
     }
   }
 

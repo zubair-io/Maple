@@ -25,6 +25,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Render using a saved versioned recipe, with collision-safe file delivery.
+    ExportRecipe {
+        raw: PathBuf,
+        #[arg(long)]
+        recipe: PathBuf,
+        #[arg(long)]
+        params: Option<PathBuf>,
+        #[arg(long)]
+        film_lut_dir: Option<PathBuf>,
+        /// Stable zero-based position used by the {n} filename token.
+        #[arg(long, default_value_t = 0)]
+        index: u64,
+    },
     /// Render a RAW + XMP to an image file.
     Render {
         /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, ORF, RW2,
@@ -340,6 +353,19 @@ enum Cmd {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.cmd {
+        Cmd::ExportRecipe {
+            raw,
+            recipe,
+            params,
+            film_lut_dir,
+            index,
+        } => run_or_exit(commands::export_recipe::run(
+            &raw,
+            &recipe,
+            params.as_deref(),
+            film_lut_dir.as_deref(),
+            index,
+        )),
         Cmd::Render {
             raw,
             params,

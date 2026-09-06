@@ -62,6 +62,9 @@
       (toggleSelectMode)="state.toggleSelectMode()"
     >
       <ng-content select="[browse-server-actions]" />
+      <mui-button variant="ghost" (pressed)="exportRecipesVisible.set(true)"
+        >Export recipes</mui-button
+      >
     </app-toolbar-actions>
   </div>
 
@@ -154,4 +157,12 @@
 
 @if (dragMove.resultSummary(); as summary) {
   <app-drag-move-summary-banner [summary]="summary" (dismiss)="onDismissDragMoveSummary()" />
+}
+
+@defer (when exportRecipesVisible()) {
+  <app-recipe-export-dialog
+    [visible]="exportRecipesVisible()"
+    [assets]="exportAssets()"
+    (dismiss)="exportRecipesVisible.set(false)"
+  />
 }
