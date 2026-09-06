@@ -200,6 +200,20 @@ Search has two layers, and the second is optional.
 
 Semantic search rides on Meilisearch's managed embedder. `enrichment/meilisearch-embedder-template.ts` is the single source of truth for both the document template Meilisearch renders and the fingerprint that decides whether a re-embed is needed. `ASSET_DOC_SHAPE_VERSION` is folded into that fingerprint _and_ is the `meili` stage's `targetVersion` — a document-shape change is exactly the condition under which every asset must be re-upserted, so the two can never disagree. Template field order is load-bearing: the rendered text is truncated before embedding, so the highest-value fields (filename, media type, people, place) come first. `enrichment/meilisearch-backfill.ts` provides a leased, resumable bulk re-upsert for the existing library.
 
+### Local embedding connectivity
+
+Meilisearch 1.50 blocks internal destination addresses by default. A healthy Ollama endpoint can therefore work from Maple or `curl` while Meilisearch reports `bad uri: Rejected URI`. Its [resolved-address policy check](https://github.com/meilisearch/meilisearch/blob/v1.50.0/crates/http-client/src/ureq/resolver.rs) produces that error before sending the embedding request (#3315).
+
+For a native development pair on the same machine, start the pinned Meilisearch binary with a loopback exception and configure the embedder as `http://127.0.0.1:11434`:
+
+```sh
+meilisearch --http-addr 127.0.0.1:7700 --experimental-allowed-ip-networks 127.0.0.1/32
+```
+
+The equivalent variable is `MEILI_EXPERIMENTAL_ALLOWED_IP_NETWORKS`, set on **Meilisearch's process**, not Maple's. For containers or another host, allow the actual Ollama address/network as resolved inside Meilisearch; container loopback refers to that container. Keep unrelated internal networks blocked. Restart Meilisearch with the corrected policy, retry the failed indexing work, and run `src/scripts/test_search_relevance.sh` with the real Ollama model before recording ranking evidence. Changing `/api/embed` to another path does not fix an address-policy rejection and unnecessarily changes Maple's embedding fingerprint.
+
+A controlled v1.50.0 Windows reproduction used fresh databases and a local Ollama-shaped HTTP fixture: default policy failed three documents after 224.55 seconds with the exact error, while a `127.0.0.1/32` exception indexed all three embeddings in 0.53 seconds. Those synthetic vectors validate transport and retry behavior only; they provide no evidence about model quality or relevance. Maple preserves the upstream error and adds this policy guidance to task, semantic-health, and search failures.
+
 ## People and face clustering
 
 `face-detect` and `face-embed` produce the raw material; `src/api/src/people/` turns it into people.

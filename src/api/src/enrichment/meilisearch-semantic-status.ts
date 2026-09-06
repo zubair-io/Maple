@@ -3,6 +3,7 @@ import {
   meilisearchHttp,
   type MeilisearchTransportConfig,
 } from './meilisearch-transport.ts';
+import { explainEmbeddingPolicyError } from './meilisearch-embedding-policy.ts';
 
 export interface SemanticStatusConfig extends MeilisearchTransportConfig {
   semantic: boolean;
@@ -52,7 +53,9 @@ function resultError(result: {
   status: number;
   errorText: string | null;
 }): string | null {
-  return result.ok ? null : (result.errorText ?? `status_${result.status}`);
+  return result.ok
+    ? null
+    : explainEmbeddingPolicyError(result.errorText ?? `status_${result.status}`);
 }
 
 export async function readMeilisearchSemanticStatus(
