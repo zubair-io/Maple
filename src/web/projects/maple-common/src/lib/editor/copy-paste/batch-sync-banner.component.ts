@@ -25,6 +25,13 @@ export class BatchSyncBannerComponent {
   /** The user asked to re-run the failures; the shell owns the patch. */
   readonly retryFailed = output<void>();
 
+  protected readonly visibleFailures = computed(() =>
+    (this.batch.lastSummary()?.failed ?? []).slice(0, 5),
+  );
+  protected readonly hiddenFailureCount = computed(
+    () => (this.batch.lastSummary()?.failed.length ?? 0) - this.visibleFailures().length,
+  );
+
   protected readonly progressText = computed<string | null>(() => {
     const p = this.batch.progress();
     if (!p) return null;
