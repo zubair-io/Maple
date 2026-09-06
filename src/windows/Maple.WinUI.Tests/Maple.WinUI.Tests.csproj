@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\ExportFilmResources.props" />
   <!--
     Test project for the Windows shell's pure XMP sidecar logic (#2635).
 

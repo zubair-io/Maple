@@ -1,0 +1,10 @@
+<Project>
+  <!-- Shared by the app and native export regression tests: ship the actual core LUTs. -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\..\resources\film-luts\*.mlut"
+             Link="film-luts\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

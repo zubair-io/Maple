@@ -10,7 +10,8 @@ namespace Maple.WinUI.Services.Export;
 public sealed class NativeExportRecipeExecutor : IExportRecipeExecutor
 {
     private readonly string? _filmDirectory;
-    public NativeExportRecipeExecutor(string? filmDirectory = null) => _filmDirectory = filmDirectory;
+    public NativeExportRecipeExecutor(string? filmDirectory = null) =>
+        _filmDirectory = filmDirectory ?? Path.Combine(AppContext.BaseDirectory, "film-luts");
 
     public void Validate(ExportRecipe recipe)
     {
