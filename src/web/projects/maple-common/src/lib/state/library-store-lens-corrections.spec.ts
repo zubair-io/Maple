@@ -7,12 +7,29 @@ import {
   DEFAULT_LENS_CORRECTION_CAPABILITY,
   LensCorrectionCapabilities,
 } from './library-store-lens-corrections';
+import { cameraSupportFromJson } from './camera-support';
 import type { AssetId } from '../models/asset';
 
 const ASSET_A = 'asset-a' as AssetId;
 const ASSET_B = 'asset-b' as AssetId;
 
 describe('LensCorrectionCapabilities', () => {
+  it('retains worker-assessed support and clears it when the next decode has none', () => {
+    const caps = new LensCorrectionCapabilities();
+    const support = cameraSupportFromJson(
+      JSON.stringify({
+        cameraKey: 'unknown-camera',
+        resolution: 'rawler_fallback',
+        lens: 'no_correction_data',
+      }),
+    );
+    expect(support).toBeDefined();
+    caps.seed(ASSET_A, false, true, support);
+    expect(caps.for(ASSET_A).cameraSupport).toEqual(support);
+    caps.seed(ASSET_A, false, true);
+    expect(caps.for(ASSET_A).cameraSupport).toBeUndefined();
+  });
+
   it('reports the fail-closed default (panel disabled, CA inert) for an unseeded asset', () => {
     const caps = new LensCorrectionCapabilities();
     expect(caps.for(ASSET_A)).toEqual(DEFAULT_LENS_CORRECTION_CAPABILITY);
