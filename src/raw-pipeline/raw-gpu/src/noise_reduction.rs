@@ -1,62 +1,20 @@
-//! Noise-reduction stage — the P3 wave-1 SPATIAL WGSL port (epic #925 / #991).
+//! GPU non-local-means denoising in Oklab space (#991, #1714, #3363).
 //!
-//! Fast non-local-means denoising in Oklab space. The first P3 spatial filter:
-//! like clarity/dehaze it reads pixel NEIGHBOURHOODS, so it stays ONE chain
-//! [`Pass`] and orchestrates its own sub-passes over scratch planes. NLM's outer
-//! loop is over SHIFTS (offsets in a search window), each contributing a
-//! patch-similarity-weighted sample to a running accumulator — so the orchestration
-//! is a per-shift dispatch loop, distinct from clarity's box-blur DAG and dehaze's
-//! linear chain.
+//! The luma and color passes mirror raw-core's noise-reduction stages. Their
+//! plane and full-stage CPU oracle gates cover flat and DNG-profile-modulated
+//! noise, border handling, strength, and the Oklab round-trip (max error 1e-4).
 //!
-//! Two stages, mirroring `raw_core::stages::noise_reduction`:
-//! 1. [`NlmLumaPass`] / [`NlmColorPass`] — the GPU-resident stages. Each carries
-//!    only its slider amount; drives the shift loop inside `encode`.
-//! 2. The headless parity tests (`noise_reduction/tests.rs`) — gated DIRECTLY vs
-//!    the real `raw_core::stages::noise_reduction::{apply_luminance,apply_color}`
-//!    `< 1e-4`, PLUS a plane-level gate vs `raw_core::stages::nlm::denoise_plane`
-//!    (which isolates the NLM math from the Oklab round-trip).
-//!
-//! Unlike clarity (which ships a small local CPU oracle), NLM has NO non-test CPU
-//! oracle: porting `denoise_plane` + the full Oklab round-trip into this crate
-//! would duplicate hundreds of lines for no runtime caller. The parity gate runs
-//! GPU-vs-the-real-raw-core directly via the test-only `raw-core` dev-dep.
-//!
-//! ## NLM = non-local means (Buades/Coll/Morel 2005; Darbon 2008 fast variant)
-//!
-//! `out(p) = (1/Z) · Σ_{q ∈ search}  w(p,q) · I(q)`, where
-//! `w(p,q) = exp(-‖patch(p) - patch(q)‖² / (h²·patch_area))` and the centre pixel
-//! `q = p` is added at the end with weight = running max weight (self-similarity
-//! correction). raw-core computes the patch-SSD with a per-shift separable
-//! sliding box-sum (#1195; it previously used a per-shift integral image);
-//! either way the patch SSD is a sum of `(I(q) - I(q+d))²` over the (2P+1)²
-//! patch. We recompute that sum DIRECTLY in registers (see
-//! `noise_reduction.wgsl`) — a materialised-intermediate accumulate would need
-//! a 5th storage buffer, over the `downlevel_defaults()` 4-storage cap. The
-//! direct register sum matches raw-core's local box-sum to the f32 floor
-//! (plane-parity max abs diff ~5e-8). Correctness-only; perf is P4.
-//!
-//! ## Per-pixel noise-profile modulation (#1714)
-//!
-//! When the DNG carries a NoiseProfile, raw-core filters each pixel with its OWN
-//! `h` and search radius, derived from that pixel's Oklab L (shot noise grows
-//! with signal). The GPU used to push one `inv_norm` scalar per dispatch, so the
-//! two paths denoised differently on any frame that isn't uniformly bright. The
-//! per-pixel `scale` rides in the SECOND LANE of the `max_w` accumulator (widened
-//! to `vec2<f32>`), which keeps the accumulate kernel at four storage bindings —
-//! see `noise_reduction.wgsl`'s header for the full argument. [`NoiseModulation`]
-//! carries the two profile coefficients from the host to the prepare kernel.
-//!
-//! ## Buffer budget (every kernel ≤ 4 storage)
-//!
-//! - extract: RGBA-src + plane-out (2).
-//! - prepare: L-plane + (max_w, scale) packed plane (2).
-//! - accumulate (per shift): plane + acc + wsum + (max_w, scale) (4).
-//! - finalize: plane + acc(rw, becomes the denoised plane) + wsum + (max_w, scale) (4).
-//! - writeback luma: src + denoised-L + dst (3); color: src + a + b + dst (4).
+//! One workgroup loads an 8×8 source tile plus the patch/search halo once.
+//! Each pixel evaluates shifts in the CPU's order with register accumulators,
+//! preserving patch validity, profile modulation and max-weight center correction.
+//! The plane filter uses four storage bindings (source, L guide, output, exp LUT) and
+//! eliminates per-shift dispatch barriers and full-plane accumulator traffic.
+//! Completion timing includes GPU execution and readback in noise_reduction/bench.rs.
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use crate::spatial::{alloc_plane, alloc_plane_vec2, encode_simple};
+use crate::spatial::prepare_simple_dispatch;
+use crate::spatial::{alloc_plane, encode_simple, pool_data_storage};
 
 // ── Parameters at amount = 100, mirroring raw_core::stages::noise_reduction ────
 //
@@ -90,6 +48,14 @@ fn luma_params(amount: f32) -> NlmParams {
         search_radius: LUMA_SEARCH_RADIUS,
         h: t * LUMA_H_MAX,
     }
+}
+
+/// Same 513 grid endpoints as raw-core's `fast_exp_table`. The immutable 2KB
+/// table is generated once per process, then retained by the GPU content cache;
+/// each weight needs two lookup reads instead of two GPU exponentials.
+fn fast_exp_table() -> &'static [f32; 513] {
+    static TABLE: std::sync::OnceLock<[f32; 513]> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| std::array::from_fn(|i| (-(i as f32 * 8.0 / 512.0)).exp()))
 }
 
 /// Chroma NLM params for a slider `amount` — line-faithful to
@@ -197,39 +163,22 @@ struct ExtractParams {
     _pad1: u32,
 }
 
-/// `prepare_scale` uniform: pixel count, the modulation flag, and the two
-/// noise-profile coefficients. 16 bytes.
+/// Fused plane-filter uniform. Radius ceilings are checked before dispatch so
+/// the shader's fixed workgroup halo always contains both patches. 32 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct PrepareParams {
-    count: u32,
+struct PlaneParams {
+    width: u32,
+    height: u32,
+    p: i32,
+    s: i32,
+    h: f32,
     dynamic: u32,
     s_coeff: f32,
     o_coeff: f32,
 }
 
-/// `accumulate_shift` uniform: dims, patch radius, the UNMODULATED strength `h`
-/// (the kernel scales it per pixel), the shift, the CPU-computed valid pixel
-/// range, and the search radius the per-pixel `local_s` clamps to. 48 bytes
-/// (multiple of 16).
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct AccumParams {
-    width: u32,
-    height: u32,
-    p: i32,
-    h: f32,
-    dx: i32,
-    dy: i32,
-    x_lo: i32,
-    x_hi: i32,
-    y_lo: i32,
-    y_hi: i32,
-    s: i32,
-    _pad0: u32,
-}
-
-/// `finalize` / `writeback_*` uniform: just the pixel count.
+/// `writeback_*` uniform: just the pixel count.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CountParams {
@@ -239,9 +188,9 @@ struct CountParams {
     _pad2: u32,
 }
 
-// ── The shared shift-loop encoder (denoise ONE plane on the GPU) ───────────────
+// ── Tiled plane filter and Oklab adapter ──────────────────────────────────────
 
-/// Channel selector for [`encode_denoise_plane`] — which Oklab channel the
+/// Channel selector for extraction — which Oklab channel the
 /// extract kernel pulls and the writeback kernel later restores.
 #[derive(Clone, Copy)]
 enum Channel {
@@ -282,19 +231,10 @@ fn encode_extract_channel(
     plane
 }
 
-/// The NLM core on an ALREADY-EXTRACTED scalar plane (mirrors
-/// `raw_core::stages::nlm::denoise_plane`): build the per-pixel modulation plane,
-/// zero the accumulators, run the shift loop, finalize. Returns the buffer
-/// holding the denoised plane (the `acc` plane, written in place by `finalize`).
-/// `pub(crate)` so the parity test can gate this in ISOLATION against
-/// `denoise_plane` — no Oklab round-trip — which separates the two independent
-/// error sources (NLM math vs the color transform).
-///
-/// `l_plane` is the Oklab L plane the modulation reads (raw-core's `l_plane`
-/// argument): the plane ITSELF for luma NR, the separately-extracted L for the
-/// chroma planes. A flat modulation (`dynamic == false`) never reads it, so a
-/// caller with no profile may bind any same-sized plane rather than extract one
-/// — the binding still has to exist, since the kernel takes one path, not two.
+/// Denoise an extracted scalar plane in one tiled GPU dispatch. `l_plane` is
+/// raw-core's Oklab L modulation guide (the source itself for luma). Flat noise
+/// never samples the guide, but a valid binding is still required. Exposed to
+/// the independent CPU oracle tests to separate NLM math from Oklab conversion.
 pub(crate) fn encode_nlm_on_plane(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
@@ -305,102 +245,36 @@ pub(crate) fn encode_nlm_on_plane(
     params: NlmParams,
     modulation: NoiseModulation,
 ) -> crate::spatial::Plane {
-    let count = width * height;
-
-    // Accumulators, zeroed (raw-core's `vec![0.0; n]`). `max_w` is the `.x` lane
-    // of the packed (max_w, scale) plane, which `prepare_scale` writes in full —
-    // so it needs no clear of its own.
-    let acc = alloc_plane(ctx, width, height, "nr-acc");
-    let wsum = alloc_plane(ctx, width, height, "nr-wsum");
-    let max_w_scale = alloc_plane_vec2(ctx, width, height, "nr-max-w-scale");
-    encoder.clear_buffer(&acc, 0, None);
-    encoder.clear_buffer(&wsum, 0, None);
-
-    // Per-pixel modulation plane: `scale` from the L plane (or ≡ 1 when flat).
-    let pr_params = PrepareParams {
-        count,
+    assert!(params.patch_radius == 2 && params.search_radius <= 3);
+    let output = alloc_plane(ctx, width, height, "nr-denoised");
+    let uniform = PlaneParams {
+        width,
+        height,
+        p: params.patch_radius as i32,
+        s: params.search_radius as i32,
+        h: params.h,
         dynamic: u32::from(modulation.dynamic),
         s_coeff: modulation.s_coeff,
         o_coeff: modulation.o_coeff,
     };
-    encode_simple(
+    let exp_lut = pool_data_storage(ctx, bytemuck::cast_slice(fast_exp_table()), "nr-exp-lut");
+    let pipeline = ctx.nr_denoise_pipeline();
+    let resources = prepare_simple_dispatch(
         ctx,
-        encoder,
-        ctx.nr_prepare_pipeline(),
-        bytemuck::bytes_of(&pr_params),
-        &[l_plane, &max_w_scale],
-        count,
-        "nr-prepare-scale",
+        pipeline,
+        bytemuck::bytes_of(&uniform),
+        &[plane, l_plane, &output, &exp_lut],
+        "nr-denoise-plane",
     );
-
-    // Shift loop. dx, dy ∈ [-s, s]², skipping (0, 0) and any shift whose valid
-    // pixel range is empty — both mirror raw-core's `process_shift` (the centre
-    // is added in `finalize`, empty ranges early-return there). The per-pixel
-    // `local_s` gate lives in the kernel: a shift outside a pixel's own radius is
-    // still dispatched, that pixel just returns early (raw-core's `continue`).
-    let p = params.patch_radius as i32;
-    let s = params.search_radius as i32;
-    let wi = width as i32;
-    let hi = height as i32;
-
-    for dy in -s..=s {
-        for dx in -s..=s {
-            if dx == 0 && dy == 0 {
-                continue;
-            }
-            // Valid range: patch at p AND patch at p+d must fit (raw-core's isize
-            // max/min). Empty range → skip the dispatch (raw-core early-returns).
-            let x_lo = p.max(p - dx);
-            let x_hi = (wi - 1 - p).min(wi - 1 - dx - p);
-            let y_lo = p.max(p - dy);
-            let y_hi = (hi - 1 - p).min(hi - 1 - dy - p);
-            if x_lo > x_hi || y_lo > y_hi {
-                continue;
-            }
-            let ac_params = AccumParams {
-                width,
-                height,
-                p,
-                h: params.h,
-                dx,
-                dy,
-                x_lo,
-                x_hi,
-                y_lo,
-                y_hi,
-                s,
-                _pad0: 0,
-            };
-            encode_simple(
-                ctx,
-                encoder,
-                ctx.nr_accumulate_pipeline(),
-                bytemuck::bytes_of(&ac_params),
-                &[plane, &acc, &wsum, &max_w_scale],
-                count,
-                "nr-accumulate-shift",
-            );
-        }
-    }
-
-    // Finalize: out = (acc + mw·plane) / (wsum + mw), written in place to acc.
-    let fin_params = CountParams {
-        count,
-        _pad0: 0,
-        _pad1: 0,
-        _pad2: 0,
-    };
-    encode_simple(
-        ctx,
-        encoder,
-        ctx.nr_finalize_pipeline(),
-        bytemuck::bytes_of(&fin_params),
-        &[plane, &acc, &wsum, &max_w_scale],
-        count,
-        "nr-finalize",
-    );
-
-    acc
+    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("nr-denoise-plane"),
+        timestamp_writes: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
+    pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    drop(pass);
+    output
 }
 
 /// A GPU-resident luminance-NR stage. Carries its `nr_luminance` slider value
@@ -501,7 +375,7 @@ impl Pass for NlmColorPass {
         // read the SAME L plane as their modulation guide — chroma noise is
         // modelled off luminance, exactly as raw-core hands `&l_plane` to both
         // chroma calls — so L is extracted ONCE, and only when a profile is
-        // present: without one the prepare kernel writes `scale ≡ 1` without
+        // present: without one the fused plane kernel uses `scale ≡ 1` without
         // reading the guide, so extracting L would be a wasted full-plane
         // dispatch on every profile-less render. The a plane stands in as the
         // (unread) binding there. A frame's profile is fixed for the session, so
@@ -572,6 +446,10 @@ fn copy_through(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "noise_reduction/tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "noise_reduction/bench.rs"]
+mod bench;
 
 // The PER-PIXEL noise-profile modulation gates (#1714) split further into their
 // own sibling — same 600-LOC budget reason, and they are the gate the flat

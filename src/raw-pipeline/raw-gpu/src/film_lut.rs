@@ -219,16 +219,16 @@ struct Params {
 /// count, and the strength slider (0..100 nominal). Uploads the grid to
 /// storage binding 3 and `count` / `size` / the clamped `t` to uniform
 /// binding 0 inside `encode`.
-pub struct FilmLutPass {
+pub struct FilmLutPass<'a> {
     /// Node count per axis (`N`); the grid is `N`³ RGB.
     pub size: u32,
     /// Blend strength, 0..100 nominal (clamped internally).
     pub strength: f32,
     /// Flat film-print grid (`size`³ × 3 floats, layout `((b*N+g)*N+r)*3+c`).
-    pub data: Vec<f32>,
+    pub data: std::borrow::Cow<'a, [f32]>,
 }
 
-impl Pass for FilmLutPass {
+impl Pass for FilmLutPass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,
@@ -237,7 +237,11 @@ impl Pass for FilmLutPass {
         dst: &wgpu::Buffer,
         dims: (u32, u32),
     ) {
-        assert!(self.size >= 2, "film LUT size must be >= 2, got {}", self.size);
+        assert!(
+            self.size >= 2,
+            "film LUT size must be >= 2, got {}",
+            self.size
+        );
         assert_eq!(
             self.data.len(),
             film_lut_flat_len(self.size as usize),

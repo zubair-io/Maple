@@ -142,14 +142,14 @@ struct Params {
 /// grid + its node count `size` (`data.len()` must be `size`³ × 3). Uploads the
 /// grid to storage binding 3 and the `count` / `size` to uniform binding 0 inside
 /// `encode`.
-pub struct ResidualLutPass {
+pub struct ResidualLutPass<'a> {
     /// Node count per axis (`N`); the grid is `N`³ RGB.
     pub size: usize,
     /// Flat residual grid (`size`³ × 3 floats, layout `((b*N+g)*N+r)*3+c`).
-    pub data: Vec<f32>,
+    pub data: std::borrow::Cow<'a, [f32]>,
 }
 
-impl Pass for ResidualLutPass {
+impl Pass for ResidualLutPass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,

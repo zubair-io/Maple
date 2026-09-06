@@ -353,8 +353,8 @@ fn nlm_core_matches_modulated_denoise_plane_chroma() {
 // ── Stage-level parity, WITH the profile ──────────────────────────────────────
 
 /// `NlmLumaPass` carrying a profile matches `apply_luminance` carrying the same
-/// profile, across slider values — the whole stage (extract → prepare → shift
-/// loop → finalize → writeback) under modulation.
+/// profile, across slider values — the whole stage (extract → tiled plane
+/// filter → writeback) under modulation.
 #[test]
 fn nlm_luma_pass_matches_modulated_raw_core() {
     let ctx = GpuContext::new_blocking().expect("gpu context");

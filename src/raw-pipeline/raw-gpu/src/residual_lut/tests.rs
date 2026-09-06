@@ -118,7 +118,7 @@ fn wgsl_residual_lut_matches_raw_core_apply_within_1e_4() {
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&ResidualLutPass {
             size,
-            data: lut.data.clone(),
+            data: lut.data.clone().into(),
         }]);
 
         let max_diff = max_abs_diff(&reference, &gpu);
@@ -168,7 +168,7 @@ fn wgsl_residual_lut_matches_cpu_oracle_within_1e_4() {
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&ResidualLutPass {
             size,
-            data: lut.data.clone(),
+            data: lut.data.clone().into(),
         }]);
 
         let max_diff = max_abs_diff(&cpu, &gpu);
@@ -219,7 +219,7 @@ fn wgsl_residual_lut_matches_cpu_oracle_above_dispatch_cap() {
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&ResidualLutPass {
         size: lut.size,
-        data: lut.data.clone(),
+        data: lut.data.clone().into(),
     }]);
 
     // Track the worst diff AND its location so a regression that only misses
@@ -266,7 +266,7 @@ fn identity_lut_is_near_passthrough_on_gpu() {
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&ResidualLutPass {
         size,
-        data: id.data.clone(),
+        data: id.data.clone().into(),
     }]);
 
     // Compare only the in-range RGB lanes against the clamped input (an identity
@@ -295,7 +295,7 @@ fn gpu_alpha_passthrough() {
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&ResidualLutPass {
         size: lut.size,
-        data: lut.data.clone(),
+        data: lut.data.clone().into(),
     }]);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         assert_eq!(

@@ -35,7 +35,7 @@ pub(crate) fn compile_with_matrices(
 /// Compile one of `noise_reduction.wgsl`'s entry points (epic #925 P3 / #991).
 /// The module rounds pixels through Oklab, so it concats the generated color
 /// matrices (like `compile_with_matrices`); `entry` selects which `@compute` fn
-/// the pipeline targets, since all five NLM kernels share one source file.
+/// the pipeline targets, since all four NLM kernels share one source file.
 pub(crate) fn compile_nr(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputePipeline {
     let source = format!(
         "{}\n{}",
@@ -69,7 +69,7 @@ pub(crate) fn compile_source(
 }
 
 /// As [`compile_source`], but selects a named `@compute` entry point — for WGSL
-/// modules that pack several kernels (the NLM stage's five entry points).
+/// modules that pack several kernels (the NLM stage's four entry points).
 pub(crate) fn compile_source_entry(
     device: &wgpu::Device,
     label: &str,

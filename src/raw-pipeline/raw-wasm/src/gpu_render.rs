@@ -372,7 +372,7 @@ pub(crate) fn chain_inputs_for_model(
     model: &AdjustmentModel,
     film_lut: Option<&raw_core::film::FilmLut>,
     film_lut_key: u32,
-) -> FullChainInputs {
+) -> FullChainInputs<'static> {
     let (profile_curve_flat, residual_lut_size, residual_lut_data) =
         fit_profile_artifacts(raw_img, raw, ext, model);
     build_full_chain_inputs(

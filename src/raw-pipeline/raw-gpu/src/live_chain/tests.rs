@@ -559,3 +559,6 @@ fn chain_signature_differs_by_session_id_alone() {
         "the same session id must produce a stable signature across calls"
     );
 }
+
+#[path = "tests_allocation.rs"]
+mod allocations;

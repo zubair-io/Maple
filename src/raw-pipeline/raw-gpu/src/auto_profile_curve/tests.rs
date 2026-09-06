@@ -137,7 +137,9 @@ fn wgsl_auto_profile_curve_matches_raw_core_within_1e_4() {
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&AutoProfileCurvePass { flat_curve: flat }]);
+        let gpu = runner.run_blocking(&[&AutoProfileCurvePass {
+            flat_curve: flat.into(),
+        }]);
 
         let max_diff = reference
             .iter()
@@ -198,7 +200,7 @@ fn wgsl_auto_profile_curve_matches_cpu_oracle_within_1e_4() {
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&AutoProfileCurvePass {
-            flat_curve: flat.clone(),
+            flat_curve: flat.clone().into(),
         }]);
 
         let max_diff = cpu
@@ -260,7 +262,9 @@ fn identity_profile_curve_is_near_passthrough_on_gpu() {
     let flat = ProfileCurve::identity().to_flat();
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&AutoProfileCurvePass { flat_curve: flat }]);
+    let gpu = runner.run_blocking(&[&AutoProfileCurvePass {
+        flat_curve: flat.into(),
+    }]);
     let max_diff = input
         .iter()
         .zip(&gpu)

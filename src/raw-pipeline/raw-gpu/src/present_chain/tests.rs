@@ -56,7 +56,7 @@ fn noop_model() -> AdjustmentModel {
     }
 }
 
-fn neutral_case() -> Case {
+pub(super) fn neutral_case() -> Case {
     Case {
         model: noop_model(),
         capture: None,

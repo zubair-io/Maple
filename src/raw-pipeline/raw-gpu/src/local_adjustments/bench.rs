@@ -31,7 +31,7 @@ use std::time::Instant;
 
 /// A neutral-ish chain carrying only the stage under test, so the marginal
 /// number is not buried under clarity or NLM.
-fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
+fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
     use raw_core::view::auto_profile;
     FullChainInputs {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
@@ -84,11 +84,14 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
         nr_color: 0.0,
         contrast: 0.0,
         capture_sharpening: None,
-        profile_curve_flat: auto_profile::curve::ProfileCurve::identity().to_flat(),
+        profile_curve_flat: auto_profile::curve::ProfileCurve::identity()
+            .to_flat()
+            .into(),
         residual_lut_size: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE)
             .size,
         residual_lut_data: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE)
-            .data,
+            .data
+            .into(),
         target_primaries: 0,
         input_shape: InputShape::PostDcpRec2020Fp16,
         // #1714's per-pixel NR modulation inputs. Empty + ISO 0 is the flat
@@ -101,7 +104,7 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
         film_strength: 0.0,
         film_lut_size: 0,
         film_lut_key: 0,
-        film_lut_data: Vec::new(),
+        film_lut_data: Vec::new().into(),
         display_tone_curves: crate::display_tone_curve::DisplayToneCurveInputs::default(),
     }
 }

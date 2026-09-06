@@ -99,7 +99,7 @@ fn wgsl_film_lut_matches_raw_core_stage_within_1e_4() {
         let gpu = runner.run_blocking(&[&FilmLutPass {
             size: lut.size as u32,
             strength,
-            data: lut.data.clone(),
+            data: lut.data.clone().into(),
         }]);
 
         let max_diff = max_abs_diff(&reference, &gpu);
@@ -152,7 +152,7 @@ fn wgsl_film_lut_matches_cpu_oracle_within_1e_4() {
         let gpu = runner.run_blocking(&[&FilmLutPass {
             size: lut.size as u32,
             strength,
-            data: lut.data.clone(),
+            data: lut.data.clone().into(),
         }]);
 
         let max_diff = max_abs_diff(&cpu, &gpu);
@@ -178,7 +178,7 @@ fn strength_zero_is_bit_exact_noop_on_gpu() {
     let gpu = runner.run_blocking(&[&FilmLutPass {
         size: lut.size as u32,
         strength: 0.0,
-        data: lut.data.clone(),
+        data: lut.data.clone().into(),
     }]);
 
     assert_eq!(
@@ -200,7 +200,7 @@ fn gpu_alpha_passthrough() {
     let gpu = runner.run_blocking(&[&FilmLutPass {
         size: lut.size as u32,
         strength: 80.0,
-        data: lut.data.clone(),
+        data: lut.data.clone().into(),
     }]);
 
     for (i, chunk) in input.chunks_exact(4).enumerate() {

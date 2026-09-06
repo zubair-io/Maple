@@ -92,11 +92,14 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         nr_color: 0.0,
         contrast: 0.0,
         capture_sharpening: None,
-        profile_curve_flat: auto_profile::curve::ProfileCurve::identity().to_flat(),
+        profile_curve_flat: auto_profile::curve::ProfileCurve::identity()
+            .to_flat()
+            .into(),
         residual_lut_size: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE)
             .size,
         residual_lut_data: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE)
-            .data,
+            .data
+            .into(),
         // sRGB primaries — the default (#1337).
         target_primaries: 0,
         // Web test always uses the RAW / full chain.
@@ -109,7 +112,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         film_strength: 0.0,
         film_lut_size: 0,
         film_lut_key: 0,
-        film_lut_data: Vec::new(),
+        film_lut_data: Vec::new().into(),
         display_tone_curves: raw_gpu::DisplayToneCurveInputs::default(),
     };
     let cancel = CancelToken::new();

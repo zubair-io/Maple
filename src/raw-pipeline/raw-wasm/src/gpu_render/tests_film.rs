@@ -69,8 +69,7 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     assert_eq!(loaded.film_lut_size, 2, "loaded look ⇒ the grid's own size");
     assert_eq!(loaded.film_lut_key, 4242, "loaded look ⇒ the caller's key");
     assert_eq!(
-        loaded.film_lut_data,
-        lut.data,
+        loaded.film_lut_data, lut.data,
         "loaded look ⇒ the grid's own flat data, verbatim"
     );
     assert_eq!(loaded.film_strength, 72.0);
@@ -126,8 +125,7 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
         .expect("baseline render");
 
     let lut = solid_red_lut();
-    let loaded_inputs =
-        super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, Some(&lut), 7);
+    let loaded_inputs = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, Some(&lut), 7);
     let with_look = pollster::block_on(session.render_async(&ctx, &loaded_inputs, None))
         .expect("with-look render ok")
         .expect("with-look render");
