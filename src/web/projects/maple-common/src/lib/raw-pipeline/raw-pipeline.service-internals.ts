@@ -1,3 +1,4 @@
+import type { CameraSupport } from '../state/camera-support';
 // raw-pipeline.service-internals.ts
 // Extracted from raw-pipeline.service.ts (pure code move — no behaviour change).
 // Contains: public session result types (OpenedLiveSession, RenderedLiveSession)
@@ -41,7 +42,7 @@ export interface OpenedLiveSession {
    */
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
-  cameraSupportJson?: string | null;
+  cameraSupport?: CameraSupport;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).

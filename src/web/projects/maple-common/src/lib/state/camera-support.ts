@@ -54,16 +54,13 @@ function isSupportWire(value: unknown): value is {
   resolution: ProfileResolution;
   lens: LensSupport;
 } {
+  if (typeof value !== 'object' || value === null) return false;
+  const wire = value as Record<string, unknown>;
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    'cameraKey' in value &&
-    typeof value.cameraKey === 'string' &&
-    'resolution' in value &&
-    typeof value.resolution === 'string' &&
-    Object.hasOwn(TIER_FOR_RESOLUTION, value.resolution) &&
-    'lens' in value &&
-    typeof value.lens === 'string' &&
-    Object.hasOwn(LENS_SUPPORT_LABEL, value.lens)
+    typeof wire['cameraKey'] === 'string' &&
+    typeof wire['resolution'] === 'string' &&
+    Object.hasOwn(TIER_FOR_RESOLUTION, wire['resolution']) &&
+    typeof wire['lens'] === 'string' &&
+    Object.hasOwn(LENS_SUPPORT_LABEL, wire['lens'])
   );
 }

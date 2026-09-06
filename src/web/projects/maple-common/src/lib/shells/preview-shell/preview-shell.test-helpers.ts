@@ -61,6 +61,10 @@ export function setupFixture(
     focusNext: vi.fn(),
     focusPrev: vi.fn(),
     apiIdFor: vi.fn().mockReturnValue(undefined),
+    lensCorrectionsFor: vi.fn().mockReturnValue({
+      hasLensCorrections: false,
+      lensCorrectionCaInert: true,
+    }),
   };
   const route = {
     url: of([]),

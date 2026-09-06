@@ -18,7 +18,7 @@
 
 import { signal, WritableSignal } from '@angular/core';
 import { AssetId } from '../models/asset';
-import { cameraSupportFromJson, type CameraSupport } from './camera-support';
+import type { CameraSupport } from './camera-support';
 
 export interface LensCorrectionCapability {
   hasLensCorrections: boolean;
@@ -50,15 +50,14 @@ export class LensCorrectionCapabilities {
     id: AssetId,
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
-    cameraSupportJson?: string | null,
+    cameraSupport?: CameraSupport,
   ): void {
     this.byAsset.update((map) => {
       const next = new Map(map);
-      const support = cameraSupportFromJson(cameraSupportJson);
       next.set(id, {
         hasLensCorrections,
         lensCorrectionCaInert,
-        ...(support ? { cameraSupport: support } : {}),
+        ...(cameraSupport ? { cameraSupport } : {}),
       });
       return next;
     });

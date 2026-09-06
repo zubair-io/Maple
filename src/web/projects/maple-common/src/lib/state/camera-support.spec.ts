@@ -45,8 +45,13 @@ describe('decode-derived camera support', () => {
 
   it('keeps per-asset support independent and clears a previous assessment on a new metadata-free decode', () => {
     const store = new LensCorrectionCapabilities();
-    store.seed('a', true, false, wire('embedded_full', 'a', 'embedded_correction'));
-    store.seed('b', false, true, wire('rawler_fallback', 'b'));
+    store.seed(
+      'a',
+      true,
+      false,
+      cameraSupportFromJson(wire('embedded_full', 'a', 'embedded_correction')),
+    );
+    store.seed('b', false, true, cameraSupportFromJson(wire('rawler_fallback', 'b')));
     expect(store.for('a').cameraSupport?.tier).toBe('profiled');
     expect(store.for('b').cameraSupport?.tier).toBe('decode_only');
     store.seed('a', false, true);

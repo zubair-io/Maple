@@ -1,3 +1,4 @@
+import type { CameraSupport } from '../state/camera-support';
 // Shared types for raw-pipeline worker communication.
 
 export interface DecodeRequest {
@@ -100,7 +101,7 @@ export interface DecodeSuccess {
    * whenever `hasLensCorrections` is `false`.
    */
   lensCorrectionCaInert: boolean;
-  cameraSupportJson?: string | null;
+  cameraSupport?: CameraSupport;
 }
 
 export interface DecodeError {
@@ -257,7 +258,7 @@ export interface OpenSessionSuccess {
   hasLensCorrections: boolean;
   /** See `DecodeSuccess.lensCorrectionCaInert` (#3182). */
   lensCorrectionCaInert: boolean;
-  cameraSupportJson?: string | null;
+  cameraSupport?: CameraSupport;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
   /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
@@ -503,7 +504,7 @@ export interface DecodedImage {
    */
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
-  cameraSupportJson?: string | null;
+  cameraSupport?: CameraSupport;
 }
 
 export interface DecodeSceneLinearRequest {
