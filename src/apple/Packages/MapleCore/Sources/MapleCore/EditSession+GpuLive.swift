@@ -175,23 +175,29 @@ extension EditSession {
     )
     MemoryProbe.sample("gpu-enter dims=\(dims.width)x\(dims.height) sensor=\(Int(sensorLongEdge))")
 
+    // Drop obsolete work before readback, not just before presentation (#3360).
+    if let gen {
+      guard gen == (await renderActor.currentGeneration()), !Task.isCancelled else { return true }
+    }
+    guard !Task.isCancelled else { return true }
     let uploadIdentity = GpuUploadIdentity(decodeGeneration: decodeGeneration, crop: appliedCrop)
     if !driver.isOpen(coveringWidth: dims.width, height: dims.height, identity: uploadIdentity) {
-      editSessionLogger.notice("GPU-TRACE open begin gen=\(gen ?? 0)")
-      guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
-        editSessionLogger.notice("GPU-TRACE reject readback-fail gen=\(gen ?? 0)")
-        return false
-      }
-      editSessionLogger.notice(
-        "GPU-TRACE readback ok pixels=\(buf.pixels.count) dims=\(buf.width)x\(buf.height) firstPx=[\(buf.pixels[0]), \(buf.pixels[1]), \(buf.pixels[2]), \(buf.pixels[3])]"
-      )
       do {
         try await driver.open(
-          pixels: buf.pixels, width: buf.width, height: buf.height,
+          width: dims.width, height: dims.height,
           inputShape: inputShape, identity: uploadIdentity,
-          noiseProfile: noiseProfile, iso: iso)
-        editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0) inputShape=\(inputShape)")
-        MemoryProbe.sample("gpu-open dims=\(buf.width)x\(buf.height)")
+          noiseProfile: noiseProfile, iso: iso
+        ) {
+          try Task.checkCancellation()
+          guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
+            throw GpuLiveError(message: "GPU pixel readback failed")
+          }
+          try Task.checkCancellation()
+          return buf.pixels
+        }
+        MemoryProbe.sample("gpu-open dims=\(dims.width)x\(dims.height)")
+      } catch is CancellationError {
+        return true  // Superseded work must not allocate a CPU fallback either.
       } catch {
         editSessionLogger.error(
           "GPU live open failed: \(error.localizedDescription, privacy: .public) — CPU fallback")

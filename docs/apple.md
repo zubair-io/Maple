@@ -94,6 +94,8 @@ Every committed editor action is one `EditTransaction` (`Editor/EditTransaction.
 
 ### GPU live vs CPU refine
 
+GPU session replacement is bounded: waiting requests share the previous session's teardown, and only the newest uncancelled request materializes pixels after that teardown finishes. A superseded open is treated as a dropped frame, so it cannot start a CPU fallback. Memory-pressure eviction invalidates pending opens as well as clearing the current upload. `GpuSessionReplacementTests` covers queued replacements, cancellation, eviction, reuse, and recovery after a failed readback (#3360).
+
 The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it off only when the process is launched with `MAPLE_GPU_LIVE=0`. It is a _parallel presentation path_, not a rewrite: `GpuLiveDriver` opens a `GpuLiveSession` actor (one render in flight), uploads the decoded buffer once per dimension change, and presents straight from an f32 storage buffer into the canvas `CAMetalLayer` with no CPU readback. When it handles a frame it returns `true` and the caller skips the CoreImage publish entirely. It declines — falling back to CPU + CoreImage byte-for-byte — when the flag is off, no layer is registered yet, the session open or readback fails, or the sensor is too large: `gpuLiveMaxSensorLongEdge` is 13000 px, which covers the ~100 MP class (DJI/Hasselblad ≈12288, GFX ≈11648) while keeping bigger sensors on the memory-safe CPU path. A sensor size of zero (not yet seeded, as for PhotoKit assets whose size resolves asynchronously) also declines, because taking the GPU path on an unknown-size RAW is what previously OOM-killed a 100 MP library photo.
 
 ### Resolution ceilings
