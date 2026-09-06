@@ -13,7 +13,7 @@ Every document in this directory describes the code as it is in the tree today. 
 | [capability-registry.md](capability-registry.md) | **Generated** — every editor capability's `core` / `integrated` / `released` state, computed from the qualification evidence on disk.                       |
 | [camera-support.md](camera-support.md)           | **Generated** — every camera body's `qualified` / `profiled` / `matrix-only` / `decode-only` / `unsupported` tier and its lens axis, computed the same way. |
 
-[Export recipes and batch delivery](export-recipes.md) documents saved recipes, supported encoders, Web/CLI/API consumers, and recovery.
+[Export recipes and batch delivery](export-recipes.md) documents saved recipes, supported encoders, Web/Windows/CLI/API consumers, and recovery.
 
 ## Core and pipeline
 

@@ -30,6 +30,12 @@ Open **Export recipes** from Browse, or **Saved recipes and export queue** from 
 
 Directory recipes use explicit **error**, **skip**, or **replace** collision policies. Originals are never replaced. Cancellation stops between photos; **Resume remaining** retains completed work, and **Retry failed** creates a run containing only failed photos with their original edits and indices. Summaries retain every failure but display at most five details at once.
 
+## Windows
+
+**Photo → Export** (Ctrl+E) opens the recipe editor, including named save/import/export, a destination picker and the collision policy. **Add to queue** captures the selected photos' complete XMP and original sequence numbers in `%LOCALAPPDATA%/Maple/exports`. Local and cloud selections resolve original bytes and sidecars before enqueue; a missing input aborts preparation with the photo's name.
+
+**Queue…** remains available without a selection. It exposes saved runs, resume, retry failed photos and cancellation before publication. Closing a running queue requests cancellation and waits for the current synchronous native render. A process lock serializes queue execution; durable prepared hashes reconcile publication after restart. Final and staging paths are checked against every selected original. Windows uses the same core recipe validation, filename engine and full developed-image export ABI.
+
 ## Durable publication
 
 The API extends the existing JobRunner, including lease renewal during long native renders and ownership-fenced checkpoints. The ledger records the unique staging path before native encoding starts, then the prepared output's SHA-256 before publication. Native publication uses an exclusive hard link for error/skip policies or an atomic rename for explicit replacement. Mirror-aware filesystem operations replicate the committed output.
@@ -37,6 +43,12 @@ The API extends the existing JobRunner, including lease renewal during long nati
 Browser folder delivery journals the destination's before/after hashes before opening a writable stream. The browser commits that stream on close. On recovery, a matching after-hash acknowledges an already-published output; unchanged before-bytes may be rendered again, while a conflicting file is reported for review. A crash during initial file creation can leave an empty destination that requires review/removal before an error-policy retry. Browser Downloads uses the separate uncertain-handoff rule above.
 
 Checks detect intervening output changes before publication. The filesystem APIs do not provide a compare-and-swap operation against arbitrary external applications; users should not concurrently edit a destination being replaced.
+
+## Browser memory ceiling
+
+Browser export preserves requested dimensions. It uses the existing CPU renderer budget: full resolution through 32 million sensor pixels; larger sensors require an explicit maximum long edge no greater than `min(sensor long edge / 2, 4096)`. The guard reads actual decoded sensor dimensions and rejects before RGB demosaic/stage allocations. It never silently lowers the requested size. Sized export already downsamples early in the canonical develop path. Native Windows, API and CLI exports do not have this wasm32 limit.
+
+The worker awaits initialization even when a batch is started without opening the editor. Export releases the native-detail viewer's retained sensor mosaic first. An unexpected WASM trap terminates the poisoned worker before the next photo and reports recovery options.
 
 Legacy `batch_jpeg_export` jobs use this same developed-image pipeline. The adapter captures real sidecar XMP once into the durable ledger, including across cancellation/restart; it no longer routes export through a thumbnail renderer.
 
@@ -56,8 +68,10 @@ The C ABI exposes `maple_validate_export_recipe`, `maple_export_recipe_filename_
 
 ## Verification
 
-Core tests render synthetic DNG data through all three encoders and both profiles, inspect dimensions/bit depth/ICC/source-metadata removal, and compare decoded PNG pixels with the full display pipeline. CLI tests invoke the real binary. API integration tests use temporary original files, a private MongoDB database and the actual native child; they cover failure continuation, immutable legacy snapshots, retry identity, collision handling, original protection and crash recovery. JobRunner tests cover lease renewal and ownership loss.
+Core tests render synthetic DNG data through all three encoders and both profiles, inspect dimensions/bit depth/ICC/source-metadata removal, and compare decoded PNG pixels with the full display pipeline. CLI tests invoke the real binary. API integration tests use temporary original files, a private MongoDB database and the actual native child; they cover failure continuation, immutable legacy snapshots, retry identity, collision handling, original protection and crash recovery. JobRunner tests cover lease renewal and ownership loss. Windows filesystem/snapshot tests exercise queue recovery, source protection and immutable cloud selection; the actual C ABI test exports a 2.8 MP synthetic DNG with ICC while preserving the original SHA-256. A Release WinUI build validates the UI integration; native window interaction was not automated.
 
 `bun run check:export-recipe-storage` runs Chromium with an isolated profile and real IndexedDB/FileSystemHandles (OPFS). It verifies recipe/handle persistence across reload, hash recovery, collision policies, original protection, checkpoint failure, cancellation and external-change conflicts. The delivery harness intentionally isolates delivery from encoding; it does not claim to qualify image quality or the native folder picker UI. Web contract/component tests and both production builds validate the consuming UI. A separate isolated Chrome run opened a synthetic 64×48 DNG through the built Hosted app and exported it from the recipe dialog; Pillow confirmed a 64×48 JPEG with the embedded 6,684-byte ICC profile.
 
-Synthetic tests do not establish physical-camera RAW color quality, paired ACR parity, or a 100 MP browser memory budget. Those remain fixture-dependent acceptance gates under #2438; the existing 32-bit WASM full-export memory limit has not been removed by recipe orchestration.
+`bun run check:export-recipe-memory /path/to/100mp.dng [dist/browser] [cap]` requires an explicit large synthetic fixture and never skip-passes. Against the production GPU/parallel WASM build, a 12288×8192 DNG was rejected at full resolution in 0.9–1.9 seconds. The same cold worker then encoded JPEG at 2048×1365 (89,594 bytes, 11.3 seconds total) and, in a separate run, 4096×2731 (323,667 bytes, 20.2 seconds total). Chrome decoded both outputs, their ICC markers were present, and the original SHA-256 was unchanged. This qualifies capped export of this synthetic source, not full-resolution 100 MP browser export.
+
+Synthetic tests do not establish physical-camera RAW color quality, paired ACR parity, or a native full-resolution 100 MP performance budget. Those remain fixture-dependent acceptance gates under #2438.

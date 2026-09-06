@@ -27,7 +27,7 @@
         }
       }
       @for (failure of failures(); track failure.id) {
-        <mui-text color="error" [lineClamp]="2">{{ failure.id }}: {{ failure.reason }}</mui-text>
+        <mui-text color="error">{{ failure.filename }}: {{ failure.reason }}</mui-text>
       }
       @if ((queue.summary()?.failed?.length ?? 0) > 5) {
         <mui-text color="muted"
