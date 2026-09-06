@@ -18,6 +18,7 @@ struct EditorControls: View {
   var body: some View {
     GeometryReader { geometry in
       let shortCrop = isCompact && geometry.size.height < 500 && state.armedTool == .crop
+      let compactPanelHeight = shortCrop ? 96 : min(360, geometry.size.height * 0.40)
       ScrollViewReader { proxy in
         arrangement {
           StackedAdjustmentsPanel(
@@ -28,7 +29,7 @@ struct EditorControls: View {
           // crop toolbar includes its own Reset and Done actions.
           .frame(
             height: isCompact
-              ? (shortCrop ? 96 : min(360, geometry.size.height * 0.40)) : nil
+              ? compactPanelHeight : nil
           )
           .frame(maxHeight: isCompact ? nil : .infinity)
 
@@ -39,6 +40,9 @@ struct EditorControls: View {
               scroll(proxy, to: "group-\(group.rawValue)")
             })
         }
+        // Report only the fixed controls footprint. The following outer
+        // alignment frame fills the editor and must never exclude its canvas.
+        .frame(width: isCompact ? nil : 396, height: isCompact ? compactPanelHeight + 80 : nil)
         // The inspector is scrollable for every tool; the dock scrolls too.
         // Wheel events over either must reach that surface, never the canvas.
         .reportsWheelExclusion(in: "editorCanvas", active: true)
