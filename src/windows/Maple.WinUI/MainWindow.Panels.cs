@@ -415,9 +415,25 @@ namespace Maple.WinUI
             }
         }
 
-        // --- Info flyout (Preview pill) ---
+        // --- Docked Preview inspector ---
 
-        private void OnInfoFlyoutOpening(object? sender, object e)
+        private bool _infoPaneOpen = true;
+
+        private void OnToggleInfoPane(object sender, RoutedEventArgs e)
+        {
+            _infoPaneOpen = !_infoPaneOpen;
+            UpdateInfoPane();
+        }
+
+        private void UpdateInfoPane()
+        {
+            var visible = _mode == ShellMode.Preview && _infoPaneOpen;
+            InfoPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            InfoColDef.Width = new GridLength(visible ? 320 : 0);
+            if (visible) RefreshPhotoInfo();
+        }
+
+        private void RefreshPhotoInfo()
         {
             var photo = ViewModel.SelectedPhoto;
             ExifRows.Children.Clear();
@@ -427,19 +443,23 @@ namespace Maple.WinUI
 
             void AddRow(StackPanel host, string label, string value)
             {
-                var grid = new Grid();
+                var grid = new Grid { ColumnSpacing = 12 };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 grid.Children.Add(new MuiText
                 {
                     Text = label,
                     Variant = MuiTextVariant.Body,
                     ColorRole = MuiTextColorRole.Muted,
                 });
-                grid.Children.Add(new MuiText
+                var text = new MuiText
                 {
                     Text = value,
                     Variant = MuiTextVariant.Filename,          // mono, per the value column's Consolas
                     HorizontalAlignment = HorizontalAlignment.Right,
-                });
+                };
+                Grid.SetColumn(text, 1);
+                grid.Children.Add(text);
                 host.Children.Add(grid);
             }
 

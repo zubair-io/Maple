@@ -55,6 +55,7 @@ namespace Maple.WinUI
         private void OnSelectedPhotoChanged()
         {
             var photo = ViewModel.SelectedPhoto;
+            RefreshPhotoInfo();
             if (photo == null)
                 return;
             if (PhotoGrid.SelectedItem != photo)
@@ -87,6 +88,7 @@ namespace Maple.WinUI
 
         private void OnCurrentPhotoPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            if (ReferenceEquals(sender, ViewModel.SelectedPhoto)) RefreshPhotoInfo();
             if (e.PropertyName is not (nameof(PhotoItem.PreviewPath) or nameof(PhotoItem.ThumbnailPath)))
                 return;
             var photo = ViewModel.SelectedPhoto;
@@ -109,7 +111,6 @@ namespace Maple.WinUI
         {
             if (args.InvokedItem is FolderNode { IsPlaceholder: false, IsUnavailable: false } node)
             {
-                ViewModel.SetDateFilter(null, null);
                 ViewModel.LoadDirectory(node.Path);
                 SetMode(ShellMode.Browse);
             }
@@ -136,17 +137,14 @@ namespace Maple.WinUI
             ViewModel.RemoveLibraryFolder(node.Path);
         }
 
-        private void OnTimelineNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+        private async void OnTimelineInvoked(object sender, RoutedEventArgs e)
         {
-            if (args.InvokedItem is TimelineNode node)
-            {
-                ViewModel.SetDateFilter(node.PeriodStart, node.PeriodEndExclusive);
-                SetMode(ShellMode.Browse);
-            }
+            SetMode(ShellMode.Browse);
+            await ViewModel.LoadCloudTimelineAsync();
         }
 
-        private void OnClearTimelineFilter(object sender, RoutedEventArgs e) =>
-            ViewModel.SetDateFilter(null, null);
+        private async void OnLoadMoreTimeline(object sender, RoutedEventArgs e) =>
+            await ViewModel.LoadMoreTimelineAsync();
 
         private void OnFormatFilterChanged(object sender, SelectionChangedEventArgs e)
         {

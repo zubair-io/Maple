@@ -11,8 +11,12 @@ namespace Maple.WinUI.ViewModels
     /// consumer of a FolderNode — drag-drop mounting, New Folder, Rename,
     /// Move to Trash — is a local-disk operation that has no meaning here.
     /// </summary>
-    public sealed class CloudFolderNode
+    public sealed class CloudFolderNode : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
     {
+        private bool _isExpanded;
+        private bool _isSelected;
+        public bool IsExpanded { get => _isExpanded; set => SetProperty(ref _isExpanded, value); }
+        public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
         public string Name { get; init; } = string.Empty;
         /// <summary>Absolute, symlink-resolved path on the server.</summary>
         public string Path { get; init; } = string.Empty;

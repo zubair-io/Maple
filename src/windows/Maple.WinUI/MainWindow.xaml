@@ -191,37 +191,7 @@
                     BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,1,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14" Padding="10,12">
-                        <StackPanel Spacing="2">
-                            <Grid Margin="8,0,4,6">
-                                <mui:MuiText Text="TIMELINE" Variant="Eyebrow" VerticalAlignment="Center" />
-                                <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm"
-                                        IconColor="{StaticResource MapleTextMuted}"
-                                        HorizontalAlignment="Right" Click="OnClearTimelineFilter"
-                                        ToolTipService.ToolTip="Show all dates"
-                                        AutomationProperties.Name="Clear timeline filter" />
-                            </Grid>
-                            <TreeView ItemsSource="{Binding Timeline.Nodes}" SelectionMode="None"
-                                      ItemInvoked="OnTimelineNodeInvoked"
-                                      MaxHeight="360"
-                                      AutomationProperties.Name="Timeline">
-                                <TreeView.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:TimelineNode">
-                                        <TreeViewItem ItemsSource="{Binding Children}" IsExpanded="True"
-                                                      AutomationProperties.Name="{Binding Label}">
-                                            <Grid>
-                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <mui:MuiIcon IconName="calendar" Size="Xs14" IconColor="{StaticResource MapleTextMuted}" />
-                                                    <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center" />
-                                                </StackPanel>
-                                                <TextBlock Text="{Binding PhotoCount}" FontSize="11" Margin="12,0,0,0"
-                                                           Foreground="{StaticResource MapleTextMuted}"
-                                                           HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                            </Grid>
-                                        </TreeViewItem>
-                                    </DataTemplate>
-                                </TreeView.ItemTemplate>
-                            </TreeView>
-                        </StackPanel>
+                        <mui:MuiButton Label="Timeline" IconName="calendar" Variant="Ghost" HorizontalAlignment="Stretch" Click="OnTimelineInvoked" AutomationProperties.Name="Timeline" />
 
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
@@ -240,20 +210,15 @@
                                     Click="OnConnectCloud"
                                     Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
                                     AutomationProperties.Name="Connect to Maple Cloud server" />
-                            <!-- A file browser over the server, same shape as
-                                 FOLDERS above and the same /api/fs/dir walk the
-                                 Apple and web clients do (#3082). Own capped
-                                 scroll area for the same reason FOLDERS has
-                                 one: a deep server archive must not swallow
-                                 the sidebar. -->
-                            <TreeView ItemsSource="{Binding CloudTree}" SelectionMode="None"
+                            <!-- Server folders share the sidebar scroll viewport. -->
+                            <TreeView ItemsSource="{Binding CloudTree}" SelectionMode="Single"
                                       ItemInvoked="OnCloudNodeInvoked"
                                       Expanding="OnCloudFolderExpanding"
-                                      MaxHeight="360"
+                                      ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                       AutomationProperties.Name="Maple Cloud folders">
                                 <TreeView.ItemTemplate>
                                     <DataTemplate x:DataType="vm:CloudFolderNode">
-                                        <TreeViewItem ItemsSource="{Binding Children}"
+                                        <TreeViewItem ItemsSource="{Binding Children}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}" IsSelected="{Binding IsSelected, Mode=TwoWay}"
                                                       ToolTipService.ToolTip="{Binding ToolTipText}"
                                                       AutomationProperties.Name="{Binding Name}">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -276,13 +241,11 @@
                                         HorizontalAlignment="Right" Click="OnOpenDirectory"
                                         AutomationProperties.Name="Add folder" />
                             </Grid>
-                            <!-- Own capped scroll area: a deep archive must not
-                                 swallow the whole sidebar and push the other
-                                 sections out of reach. -->
-                            <TreeView ItemsSource="{Binding FolderTree}" SelectionMode="None"
+                            <!-- Local folders share the sidebar scroll viewport. -->
+                            <TreeView ItemsSource="{Binding FolderTree}" SelectionMode="Single"
                                       ItemInvoked="OnFolderNodeInvoked"
                                       Expanding="OnFolderExpanding"
-                                      MaxHeight="440"
+                                      ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                       AutomationProperties.Name="Folders">
                                 <TreeView.ItemTemplate>
                                     <DataTemplate x:DataType="vm:FolderNode">
@@ -290,7 +253,7 @@
                                              this specific TreeViewItem, not the TreeView as a
                                              whole, so OnFolderDrop always knows exactly which
                                              folder was targeted via DataContext. -->
-                                        <TreeViewItem ItemsSource="{Binding Children}"
+                                        <TreeViewItem ItemsSource="{Binding Children}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}" IsSelected="{Binding IsSelected, Mode=TwoWay}"
                                                       ToolTipService.ToolTip="{Binding ToolTipText}"
                                                       AutomationProperties.Name="{Binding DisplayName}"
                                                       AllowDrop="True"
@@ -376,7 +339,16 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12" Margin="12,6">
+                        <mui:MuiSpinner IsSpinning="{Binding IsLibraryLoading}" SpinnerSize="Sm" DelayMs="0"
+                                        Visibility="{Binding IsLibraryLoading, Converter={StaticResource BoolVisible}}" />
+                        <TextBlock Text="{Binding LibraryLoadStatus}" Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
+                        <mui:MuiButton Label="Load more" Variant="Secondary" ButtonSize="Sm" Click="OnLoadMoreTimeline"
+                                       Visibility="{Binding HasMoreTimeline, Converter={StaticResource BoolVisible}}"
+                                       AutomationProperties.Name="Load more timeline photos" />
+                    </StackPanel>
                     <Border Grid.Row="0" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1"
                             Padding="12,8">
                         <Grid>
@@ -575,10 +547,26 @@
 
                 <!-- PREVIEW + EDIT share the canvas -->
                 <Grid x:Name="ViewerContainer" Visibility="Collapsed" Background="{StaticResource MapleImageCanvas}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition x:Name="InfoColDef" Width="0" />
+                    </Grid.ColumnDefinitions>
+
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
+                    <Border x:Name="InfoPane" Grid.Column="1" Grid.RowSpan="2" Visibility="Collapsed"
+                            Background="{StaticResource MapleSidebar}" BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                            <StackPanel Spacing="10">
+                                <mui:MuiText Text="CAMERA" Variant="Eyebrow" />
+                                <StackPanel x:Name="ExifRows" Spacing="6" />
+                                <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
+                                <StackPanel x:Name="FileRows" Spacing="6" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
 
                     <Grid Grid.Row="0" x:Name="CanvasHost" SizeChanged="OnCanvasHostSizeChanged">
                         <!-- Zoom/pan viewer (#2572): ScrollViewer zoom over both
@@ -651,19 +639,7 @@
                                 <mui:MuiButton x:Name="RejectBtn" IconName="x" Variant="Ghost" ButtonSize="Sm"
                                         IconColor="{StaticResource MapleErrorText}" Click="OnFlagReject"
                                         ToolTipService.ToolTip="Reject (X)" AutomationProperties.Name="Flag as reject" />
-                                <mui:MuiButton IconName="info" Variant="Ghost" ButtonSize="Sm"
-                                        ToolTipService.ToolTip="Info &amp; EXIF" AutomationProperties.Name="Photo info">
-                                    <mui:MuiButton.Flyout>
-                                        <Flyout Opening="OnInfoFlyoutOpening">
-                                            <StackPanel Width="260" Spacing="10">
-                                                <mui:MuiText Text="CAMERA" Variant="Eyebrow" />
-                                                <StackPanel x:Name="ExifRows" Spacing="6" />
-                                                <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
-                                                <StackPanel x:Name="FileRows" Spacing="6" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </mui:MuiButton.Flyout>
-                                </mui:MuiButton>
+                                <mui:MuiButton IconName="info" Variant="Ghost" ButtonSize="Sm" Click="OnToggleInfoPane" ToolTipService.ToolTip="Show or hide photo info" AutomationProperties.Name="Photo info" />
                                 <Button Style="{StaticResource AccentButtonStyle}" Padding="14,5" Click="OnEnterEdit"
                                         AutomationProperties.Name="Edit photo">
                                     <TextBlock Text="Edit" FontSize="12" FontWeight="SemiBold" />

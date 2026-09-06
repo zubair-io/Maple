@@ -41,7 +41,11 @@ namespace Maple.WinUI.ViewModels
                         return;
                     }
                     var node = BuildFolderNode(root);
-                    App.MainDispatcherQueue?.TryEnqueue(() => FolderTree.Add(node));
+                    App.MainDispatcherQueue?.TryEnqueue(() =>
+                    {
+                        FolderTree.Add(node);
+                        SynchronizeFolderSelection();
+                    });
                 });
             }
         }
@@ -127,6 +131,7 @@ namespace Maple.WinUI.ViewModels
                     node.Children.Clear();
                     foreach (var child in children)
                         node.Children.Add(child);
+                    SynchronizeFolderSelection();
                 });
             });
         }
