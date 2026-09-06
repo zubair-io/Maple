@@ -372,9 +372,20 @@ public final class BrowseViewModel {
     /// `canRequest` is true only while authorization is `.notDetermined`; it
     /// decides whether the panel offers Connect or sends the user to Settings
     /// (#2454).
+    ///
+    /// Wipes the prior source's grid state wholesale — `subfolders` and the
+    /// merged timeline included, not just `assets`. `BrowseGrid` only mounts
+    /// the empty-state overlay when BOTH `assets` and `subfolders` are empty,
+    /// so leaving the previous cloud/local folder's sub-folder cells behind
+    /// kept the permission panel off screen after a click on a Photos filter
+    /// (#3386): the user saw the old folder tiles and never got the Connect
+    /// button, the only in-app route to requesting access.
     public func setPhotosAuthNeeded(canRequest: Bool) {
         loadGeneration &+= 1
         assets = []
+        subfolders = []
+        mergedCells = []
+        isMerged = false
         selectedID = nil
         currentSource = nil
         loadError = nil

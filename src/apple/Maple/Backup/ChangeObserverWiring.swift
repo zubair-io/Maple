@@ -131,8 +131,12 @@ enum ChangeObserverWiring {
                                        libraryId: String, serverBaseURL: URL,
                                        retryFailed: Bool) async {
         log.info("walk begin libraryId=\(libraryId, privacy: .public) retryFailed=\(retryFailed)")
+        // Phase is published to the status panel (#3386) so the minutes-long
+        // scan on a large library reads as progress, not a wedged engine.
+        EngineHost.shared.progress.setWalkPhase(.enumerating)
         guard let state = EngineHost.shared.state else {
             log.error("walk bail: EngineHost.shared.state is nil — backup engine never finished starting")
+            EngineHost.shared.progress.setWalkPhase(.failed("the backup engine never finished starting"))
             return
         }
         let queue = EngineHost.shared.queue
@@ -171,6 +175,7 @@ enum ChangeObserverWiring {
                 uniquingKeysWith: { _, latest in latest })
         } catch {
             log.error("walk bail: allTasks() failed: \(String(describing: error), privacy: .public)")
+            EngineHost.shared.progress.setWalkPhase(.failed("couldn't read the local backup state (\(error.localizedDescription))"))
             return
         }
 
@@ -288,7 +293,11 @@ enum ChangeObserverWiring {
         for phid in phidsToEnqueue {
             let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
             do {
-                let task = BackupTask(id: taskId, state: .pending, priority: .background)
+                // Capture date rides on the task so the queue drains
+                // newest-first and the order survives a relaunch (#3388).
+                let task = BackupTask(
+                    id: taskId, state: .pending, priority: .background,
+                    capturedAt: PhotoKitCatalog.shared.asset(localId: phid)?.creationDate)
                 try await state.upsert(task)
                 await queue.enqueue(task, priority: .background)
                 enqueuedCount += 1
@@ -344,6 +353,8 @@ enum ChangeObserverWiring {
 
         let batchSize = BatchExistsClient.maxBatchSize
         var index = 0
+        EngineHost.shared.progress.setWalkPhase(
+            .reconciling(checked: 0, total: candidatePhids.count))
         while index < candidatePhids.count {
             if Task.isCancelled {
                 // Cancelled mid-walk — enqueue whatever's left rather than
@@ -354,6 +365,10 @@ enum ChangeObserverWiring {
             let end = min(index + batchSize, candidatePhids.count)
             let batch = Array(candidatePhids[index..<end])
             index = end
+            defer {
+                EngineHost.shared.progress.setWalkPhase(
+                    .reconciling(checked: end, total: candidatePhids.count))
+            }
 
             // Derive maple_ids off the main thread. Build a phid → maple_id map;
             // phids whose hash we can't derive go straight to enqueue. The
