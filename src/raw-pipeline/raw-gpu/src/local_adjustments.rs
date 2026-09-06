@@ -61,6 +61,10 @@ const KIND_SLOT: usize = 6;
 /// pinned against `raw_core`'s constant.
 pub const KIND_BITMAP: f32 = 2.0;
 
+/// Largest mask-plane length whose every offset is still an exact `f32`
+/// (`2^24`; the flat record carries the plane offset as a float).
+pub const MAX_PLANE_TEXELS: usize = 1 << 24;
+
 /// One registered bitmap-mask raster, in the shape [`LocalAdjustmentsPass`]
 /// needs to build its mask-plane buffer.
 ///
@@ -181,21 +185,40 @@ impl LocalAdjustmentsPass {
         let whole = layers_flat.len() - layers_flat.len() % LAYER_FLAT_LEN;
         let mut layers_flat = layers_flat[..whole].to_vec();
         let mut plane: Vec<f32> = Vec::new();
+        // `raster_id -> plane offset` for rasters already appended: two
+        // layers sharing one raster (the epic's own "same person, two
+        // ranges" case) must not upload its pixels twice (#3282 review).
+        let mut placed: Vec<(u32, usize)> = Vec::new();
         for slot in layers_flat.chunks_exact_mut(LAYER_FLAT_LEN) {
             if slot[KIND_SLOT] != KIND_BITMAP {
                 continue;
             }
             let raster_id = slot[2] as u32;
-            match rasters.iter().find(|r| r.id == raster_id) {
-                Some(raster) => {
-                    let offset = plane.len() as f32;
+            let Some(raster) = rasters.iter().find(|r| r.id == raster_id) else {
+                slot[2] = -1.0;
+                continue;
+            };
+            let offset = match placed.iter().find(|(id, _)| *id == raster_id) {
+                Some((_, offset)) => *offset,
+                None => {
+                    let offset = plane.len();
+                    // Offsets travel as f32 (slot 2 of the 32-float record):
+                    // a plane that would push this raster's offset past
+                    // 2^24 texels is no longer exactly addressable, so the
+                    // layer is left unresolved (weight 0) rather than
+                    // sampling from a rounded offset.
+                    if offset + raster.data.len() > MAX_PLANE_TEXELS {
+                        slot[2] = -1.0;
+                        continue;
+                    }
                     plane.extend_from_slice(&raster.data);
-                    slot[0] = raster.width as f32;
-                    slot[1] = raster.height as f32;
-                    slot[2] = offset;
+                    placed.push((raster_id, offset));
+                    offset
                 }
-                None => slot[2] = -1.0,
-            }
+            };
+            slot[0] = raster.width as f32;
+            slot[1] = raster.height as f32;
+            slot[2] = offset as f32;
         }
         if plane.is_empty() {
             plane.push(0.0);
