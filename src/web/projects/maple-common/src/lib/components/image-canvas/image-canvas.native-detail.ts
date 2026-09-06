@@ -83,7 +83,7 @@ export class ImageCanvasNativeDetail {
     );
   }
 
-  async render(xmp: string, generation: number): Promise<boolean> {
+  private requestContext(xmp: string, generation: number) {
     const base = this.base;
     const input = this.host.currentInput();
     const view = this.host.detailView();
@@ -95,16 +95,50 @@ export class ImageCanvasNativeDetail {
       xmp !== base.displayXmp ||
       generation !== base.generation
     )
-      return false;
+      return null;
+    return { base, input, view };
+  }
+
+  private requestRect(view: DetailView): DetailRect | 'covered' | null {
     const visible = visibleDetailRect(view);
-    if (!visible) return false;
+    if (!visible) return null;
     const existing = this.overlay();
-    if (existing && containsDetailRect(existing.rect, visible)) return true;
+    if (existing && containsDetailRect(existing.rect, visible)) return 'covered';
     const rect = expandDetailRect(visible, view.nativeW, view.nativeH);
-    const rectKey = JSON.stringify(rect);
-    if (this.failedRect === rectKey) return false;
+    if (this.failedRect === JSON.stringify(rect)) return null;
     // A cheap preflight; WASM also counts the real padded develop allocation.
-    if (rect.width * rect.height > 8 * 1024 * 1024) return false;
+    return rect.width * rect.height > 8 * 1024 * 1024 ? null : rect;
+  }
+
+  private isCurrent(base: DetailBase, revision: number): boolean {
+    return revision === this.revision && this.matches(base);
+  }
+
+  private publish(base: DetailBase, revision: number, overlay: DetailOverlay): void {
+    const view = this.host.detailView();
+    const visible = view && visibleDetailRect(view);
+    if (!this.isCurrent(base, revision) || !visible || !containsDetailRect(overlay.rect, visible)) {
+      overlay.bitmap.close();
+      return;
+    }
+    this.overlay()?.bitmap.close();
+    this.overlay.set(overlay);
+  }
+
+  private failed(error: unknown, revision: number, rect: DetailRect): boolean {
+    // Unsupported CFA/stage or allocation budget keeps the sized fallback.
+    if (error instanceof NativeDetailSupersededError) return true;
+    if (revision === this.revision) this.failedRect = JSON.stringify(rect);
+    return false;
+  }
+
+  async render(xmp: string, generation: number): Promise<boolean> {
+    const context = this.requestContext(xmp, generation);
+    if (!context) return false;
+    const { base, input, view } = context;
+    const rect = this.requestRect(view);
+    if (!rect) return false;
+    if (rect === 'covered') return true;
     const revision = this.revision;
     try {
       const pixels = await this.host.pipeline.renderNativeDetail({
@@ -117,29 +151,14 @@ export class ImageCanvasNativeDetail {
         qualityPreview: base.sizing.qualityPreview,
         filmLut: base.filmLut,
       });
-      if (revision !== this.revision || !this.matches(base)) return true;
+      if (!this.isCurrent(base, revision)) return true;
       if (pixels.width !== rect.width || pixels.height !== rect.height)
         throw new Error('Invalid native-detail dimensions');
       const bitmap = await this.toBitmap(pixels);
-      const currentView = this.host.detailView();
-      const currentVisible = currentView && visibleDetailRect(currentView);
-      if (
-        revision !== this.revision ||
-        !this.matches(base) ||
-        !currentVisible ||
-        !containsDetailRect(rect, currentVisible)
-      ) {
-        bitmap.close();
-        return true;
-      }
-      this.overlay()?.bitmap.close();
-      this.overlay.set({ bitmap, rect, nativeW: view.nativeW, nativeH: view.nativeH });
+      this.publish(base, revision, { bitmap, rect, nativeW: view.nativeW, nativeH: view.nativeH });
       return true;
     } catch (error) {
-      // Unsupported CFA/stage or allocation budget keeps the sized fallback.
-      if (error instanceof NativeDetailSupersededError) return true;
-      if (revision === this.revision) this.failedRect = rectKey;
-      return false;
+      return this.failed(error, revision, rect);
     }
   }
 }
