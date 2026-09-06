@@ -399,6 +399,17 @@ public final class GpuLiveDriver {
     }
   }
 
+  /// Reject a readback if a crop/resize replaced its session while awaiting it.
+  public func histogramForCurrentFrame() async throws -> CloudHistogram? {
+    try Task.checkCancellation()
+    guard let session else { return nil }
+    let revision = sessionRevision
+    let result = try await session.displayedHistogram()
+    try Task.checkCancellation()
+    guard revision == sessionRevision else { throw CancellationError() }
+    return result
+  }
+
   /// Whether a session is open (so the EditSession knows the GPU path is live).
   public var hasSession: Bool { session != nil }
 

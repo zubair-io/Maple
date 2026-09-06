@@ -33,8 +33,8 @@
 // full-refine decode logic in `EditSession+Render`).
 
 import Foundation
-import RawPipeline
 import QuartzCore
+import RawPipeline
 import os
 
 private let gpuLiveLog = Logger(subsystem: "app.justmaple.aperture", category: "gpu-live")
@@ -43,7 +43,7 @@ private let gpuLiveLog = Logger(subsystem: "app.justmaple.aperture", category: "
 /// message or the return code so callers / the in-app HUD can show it — device
 /// logs aren't capturable).
 public struct GpuLiveError: Error, Sendable {
-    public let message: String
+  public let message: String
 }
 
 /// The fitted Auto Profile artifacts for one image (the A2 un-composed
@@ -51,449 +51,475 @@ public struct GpuLiveError: Error, Sendable {
 /// reapply them every tick without re-fitting. `nil` curve ⇒ identity (the
 /// residual alone); `nil` residual ⇒ no LUT pass.
 private struct AutoProfileArtifacts {
-    /// `PROFILE_CURVE_FLAT_LEN` floats, or `nil` if the fit produced no curve.
-    let curveFlat: [Float]?
-    /// The residual LUT edge + `size³·3` flat grid, or `nil` if no residual.
-    let lutSize: Int
-    let lutData: [Float]?
+  /// `PROFILE_CURVE_FLAT_LEN` floats, or `nil` if the fit produced no curve.
+  let curveFlat: [Float]?
+  /// The residual LUT edge + `size³·3` flat grid, or `nil` if no residual.
+  let lutSize: Int
+  let lutData: [Float]?
 }
 
 /// A serialized wgpu live-render session bound to one uploaded image at one set of
 /// dims. An `actor` so every FFI call (which touches the `!Send`/`!Sync` Rust
 /// context) is serialized onto one executor — the single-render-in-flight invariant.
 public actor GpuLiveSession {
-    /// The opaque Rust handle (`maple_gpu_live_open` → `…_close`). `nil` once closed
-    /// or if the open failed.
-    private var handle: MapleGpuLiveSession?
-    public let width: Int
-    public let height: Int
+  /// The opaque Rust handle (`maple_gpu_live_open` → `…_close`). `nil` once closed
+  /// or if the open failed.
+  private var handle: MapleGpuLiveSession?
+  public let width: Int
+  public let height: Int
 
-    /// Flat `(slope, offset)` pairs from the DNG NoiseProfile tag (#2342,
-    /// finishes #1714 on Apple) — the same value `RenderActor+DecodedCache`
-    /// carries as `sizedResult.noiseProfile` and `ImageEditPipeline` forwards
-    /// to the CPU chain. Session-scoped (not per-tick, unlike the live
-    /// `AdjustmentModel` fields): it describes the uploaded PIXELS, so it is
-    /// supplied once at `init` alongside them and re-bound on every
-    /// `present`/`renderToBuffer` tick from this stored copy. Empty means "no
-    /// profile" (non-RAW assets, or a RAW whose DNG carries no NoiseProfile
-    /// tag) — the WGSL NLM kernel falls back to the flat, non-modulated
-    /// filter, bit-identical to before this ticket.
-    private let noiseProfile: [Float]
-    /// `RawImage::iso` for the uploaded pixels (#2342). `0` is raw-core's
-    /// "unknown ISO" sentinel — the WGSL kernel's per-pixel modulation reads
-    /// this alongside `noiseProfile` to compute the local sigma; both are
-    /// meaningless without the other, so they travel together.
-    private let iso: UInt32
+  /// Flat `(slope, offset)` pairs from the DNG NoiseProfile tag (#2342,
+  /// finishes #1714 on Apple) — the same value `RenderActor+DecodedCache`
+  /// carries as `sizedResult.noiseProfile` and `ImageEditPipeline` forwards
+  /// to the CPU chain. Session-scoped (not per-tick, unlike the live
+  /// `AdjustmentModel` fields): it describes the uploaded PIXELS, so it is
+  /// supplied once at `init` alongside them and re-bound on every
+  /// `present`/`renderToBuffer` tick from this stored copy. Empty means "no
+  /// profile" (non-RAW assets, or a RAW whose DNG carries no NoiseProfile
+  /// tag) — the WGSL NLM kernel falls back to the flat, non-modulated
+  /// filter, bit-identical to before this ticket.
+  private let noiseProfile: [Float]
+  /// `RawImage::iso` for the uploaded pixels (#2342). `0` is raw-core's
+  /// "unknown ISO" sentinel — the WGSL kernel's per-pixel modulation reads
+  /// this alongside `noiseProfile` to compute the local sigma; both are
+  /// meaningless without the other, so they travel together.
+  private let iso: UInt32
 
-    /// The per-image Auto Profile artifacts (fit once via `fitAutoProfile`); `nil`
-    /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
-    private var autoProfile: AutoProfileArtifacts?
+  /// The per-image Auto Profile artifacts (fit once via `fitAutoProfile`); `nil`
+  /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
+  private var autoProfile: AutoProfileArtifacts?
 
-    /// The currently-loaded film-look lattice (epic #2683, Task 10) — set by
-    /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
-    /// `model.filmLook` resolves (or fails to resolve) through
-    /// `FilmLutStore`. `nil` means "no look" — every `present`/
-    /// `renderToBuffer` tick binds NULL/zero `film_lut_*` fields, matching
-    /// pre-#2683 output bit-for-bit. Unlike `autoProfile` this is NOT fit
-    /// per-image: `FilmLutStore` caches the decoded bytes itself, so this is
-    /// just a cheap array-copy cache the session holds so every tick doesn't
-    /// have to thread the lattice through the caller's `present` signature.
-    private var filmLut: (data: [Float], size: Int, key: UInt32)?
+  /// The currently-loaded film-look lattice (epic #2683, Task 10) — set by
+  /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
+  /// `model.filmLook` resolves (or fails to resolve) through
+  /// `FilmLutStore`. `nil` means "no look" — every `present`/
+  /// `renderToBuffer` tick binds NULL/zero `film_lut_*` fields, matching
+  /// pre-#2683 output bit-for-bit. Unlike `autoProfile` this is NOT fit
+  /// per-image: `FilmLutStore` caches the decoded bytes itself, so this is
+  /// just a cheap array-copy cache the session holds so every tick doesn't
+  /// have to thread the lattice through the caller's `present` signature.
+  private var filmLut: (data: [Float], size: Int, key: UInt32)?
 
-    /// Cache (or clear, via `data: nil`) the film-look lattice this session
-    /// binds on every subsequent `present`/`renderToBuffer` tick. Cheap — an
-    /// array reference copy, no FFI call — so it's safe to call on every
-    /// `model.filmLook`/session-open transition, not just once per image.
-    public func setFilmLut(data: [Float], size: Int, key: UInt32) {
-        filmLut = (data, size, key)
+  /// Cache (or clear, via `data: nil`) the film-look lattice this session
+  /// binds on every subsequent `present`/`renderToBuffer` tick. Cheap — an
+  /// array reference copy, no FFI call — so it's safe to call on every
+  /// `model.filmLook`/session-open transition, not just once per image.
+  public func setFilmLut(data: [Float], size: Int, key: UInt32) {
+    filmLut = (data, size, key)
+  }
+
+  /// Clear the film-look lattice — the next tick binds NULL/zero
+  /// `film_lut_*` (identity, matching pre-#2683 output).
+  public func clearFilmLut() {
+    filmLut = nil
+  }
+
+  /// Open a session over `pixels` (interleaved RGBA f32, `width·height·4` lanes —
+  /// the decoded scene-linear Rec.2020 buffer). Uploads the image ONCE. Throws on
+  /// a bad size or an FFI open failure.
+  ///
+  /// `noiseProfile`/`iso` (#2342) describe THESE pixels — the same decode
+  /// result `pixels` came from — so they are captured here rather than
+  /// per-tick: a re-open (dims change, baked-field re-decode, crop change)
+  /// naturally gets a fresh pair alongside the fresh pixels.
+  public init(
+    pixels: [Float], width: Int, height: Int, noiseProfile: [Float]? = nil, iso: UInt32 = 0
+  ) throws {
+    self.width = width
+    self.height = height
+    self.noiseProfile = noiseProfile ?? []
+    self.iso = iso
+    let expected = width * height * 4
+    guard pixels.count == expected, width > 0, height > 0 else {
+      throw GpuLiveError(
+        message: "GpuLiveSession: pixel count \(pixels.count) != \(expected) for \(width)x\(height)"
+      )
+    }
+    var h = MapleGpuLiveSession()
+    let rc = pixels.withUnsafeBufferPointer { buf in
+      maple_gpu_live_open(buf.baseAddress, UInt32(width), UInt32(height), &h)
+    }
+    guard rc == 0 else {
+      throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_live_open rc=\(rc)")
+    }
+    self.handle = h
+  }
+
+  deinit {
+    if var h = handle {
+      maple_gpu_live_close(&h)
+    }
+  }
+
+  /// Close the FFI handle NOW, on the actor (serialized behind any in-flight
+  /// present). `GpuLiveDriver.open` awaits this on the OLD session before
+  /// opening its replacement, making teardown deterministic (#1769) — the
+  /// pre-#1769 shape relied on `deinit`, which ran whenever ARC got around to
+  /// it, sometimes after the new session had already presented. Idempotent;
+  /// `deinit` remains the last-resort close for a session that was never
+  /// explicitly closed.
+  public func close() {
+    if var h = handle {
+      maple_gpu_live_close(&h)
+      handle = nil
+    }
+  }
+
+  /// Fit (and cache on this session) the Auto Profile curve + residual LUT for
+  /// `rawPath` under `Profile::Auto` — the A2 artifacts the chain's curve/LUT
+  /// passes reapply every tick. A no-op (clears to `nil` → plain AgX) when the
+  /// model is not Auto or the RAW has no usable embedded JPEG. Cold per image
+  /// (JPEG extract + develop); call once per asset open, never per tick.
+  ///
+  /// `quality` MUST match the decode quality (the editor decodes at `.preview`),
+  /// or the fitted curve won't match the displayed pixels.
+  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) {
+    let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
+    var curve = [Float](repeating: 0, count: curveLen)
+    var present: Int32 = 0
+    // Residual fits at edge 49 today → 49³·3 floats; allocate generously and
+    // let the FFI report the actual edge (re-call on -2 with the reported size).
+    var lutCapacity = 49 * 49 * 49 * 3
+    var lut = [Float](repeating: 0, count: lutCapacity)
+    var lutSize: UInt32 = 0
+
+    var rc = rawPath.withCString { cpath in
+      curve.withUnsafeMutableBufferPointer { cbuf in
+        lut.withUnsafeMutableBufferPointer { lbuf in
+          maple_gpu_fit_auto_profile(
+            cpath, nil, quality.rawValue,
+            cbuf.baseAddress, &present,
+            lbuf.baseAddress, UInt(lutCapacity), &lutSize
+          )
+        }
+      }
+    }
+    // -2: our buffer was too small — `lutSize` holds the needed edge; grow + retry
+    // (the fit is cached, so the second call is cheap).
+    if rc == -2, lutSize > 0 {
+      let n = Int(lutSize)
+      lutCapacity = n * n * n * 3
+      lut = [Float](repeating: 0, count: lutCapacity)
+      rc = rawPath.withCString { cpath in
+        curve.withUnsafeMutableBufferPointer { cbuf in
+          lut.withUnsafeMutableBufferPointer { lbuf in
+            maple_gpu_fit_auto_profile(
+              cpath, nil, quality.rawValue,
+              cbuf.baseAddress, &present,
+              lbuf.baseAddress, UInt(lutCapacity), &lutSize
+            )
+          }
+        }
+      }
     }
 
-    /// Clear the film-look lattice — the next tick binds NULL/zero
-    /// `film_lut_*` (identity, matching pre-#2683 output).
-    public func clearFilmLut() {
-        filmLut = nil
+    guard rc == 0 else {
+      if rc == 1 {
+        gpuLiveLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) — plain AgX")
+      } else {
+        gpuLiveLog.error(
+          "maple_gpu_fit_auto_profile rc=\(rc): \(Self.lastError() ?? "?", privacy: .public)")
+      }
+      autoProfile = nil
+      return
     }
 
-    /// Open a session over `pixels` (interleaved RGBA f32, `width·height·4` lanes —
-    /// the decoded scene-linear Rec.2020 buffer). Uploads the image ONCE. Throws on
-    /// a bad size or an FFI open failure.
-    ///
-    /// `noiseProfile`/`iso` (#2342) describe THESE pixels — the same decode
-    /// result `pixels` came from — so they are captured here rather than
-    /// per-tick: a re-open (dims change, baked-field re-decode, crop change)
-    /// naturally gets a fresh pair alongside the fresh pixels.
-    public init(pixels: [Float], width: Int, height: Int, noiseProfile: [Float]? = nil, iso: UInt32 = 0) throws {
-        self.width = width
-        self.height = height
-        self.noiseProfile = noiseProfile ?? []
-        self.iso = iso
-        let expected = width * height * 4
-        guard pixels.count == expected, width > 0, height > 0 else {
-            throw GpuLiveError(
-                message: "GpuLiveSession: pixel count \(pixels.count) != \(expected) for \(width)x\(height)")
-        }
-        var h = MapleGpuLiveSession()
-        let rc = pixels.withUnsafeBufferPointer { buf in
-            maple_gpu_live_open(buf.baseAddress, UInt32(width), UInt32(height), &h)
-        }
-        guard rc == 0 else {
-            throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_live_open rc=\(rc)")
-        }
-        self.handle = h
+    let n = Int(lutSize)
+    autoProfile = AutoProfileArtifacts(
+      curveFlat: present == 1 ? curve : nil,
+      lutSize: n,
+      lutData: n > 0 ? Array(lut.prefix(n * n * n * 3)) : nil
+    )
+    gpuLiveLog.notice(
+      "Auto Profile: fitted curve(present=\(present == 1)) + residual(edge=\(n)) for \(rawPath, privacy: .public)"
+    )
+  }
+
+  /// Render the gated chain for `model` (decode-boundary contract via
+  /// `makeGpuLiveParams`) and PRESENT it to `layer` (a `CAMetalLayer`). The
+  /// Auto Profile curve/LUT artifacts (if fit) ride the chain's curve/LUT passes.
+  ///
+  /// `cancel` is an optional `CancelFlag` the caller flips when a newer edit
+  /// supersedes this present; the FFI drops a superseded present before touching
+  /// the GPU. Returns normally on success or a silent drop (cancelled); throws on
+  /// a real GPU/present failure so the caller can surface it.
+  ///
+  /// Returns the GPU render+present latency in MILLISECONDS for a real present
+  /// (`rc == 0`), or `nil` when the present was cancelled (`rc == 4`, a newer
+  /// edit superseded it). The latency is a `CACurrentMediaTime()` delta around
+  /// the `maple_gpu_present_chain` FFI — the encode+submit+present span that
+  /// maps to the 16ms slider-tick budget — with NO added GPU sync/readback (that
+  /// would distort the very number we measure). The HUD's recorder drops the
+  /// `nil` (cancelled) frames so they don't flatter the rolling average; see
+  /// `GpuFrameTimeStats`.
+  ///
+  /// The actor serializes this — one render in flight (the `!Send` Rust context).
+  @discardableResult
+  public func present(
+    model: AdjustmentModel,
+    layer: CAMetalLayer,
+    cancel: CancelFlag?,
+    asShotCCT: Double? = nil,
+    asShotTint: Double? = nil,
+    inputShape: UInt32 = 0,
+    surfaceGeneration: UInt64 = 0,
+    wbFrame: WbSliderFrame? = nil,
+    targetColorSpace: CanvasColorSpace = .current
+  ) throws -> Double? {
+    guard var h = handle else {
+      throw GpuLiveError(message: "present: session is closed")
     }
+    let params = PipelineRenderer.makeGpuLiveParams(
+      from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
+      inputShape: inputShape, wbFrame: wbFrame, targetColorSpace: targetColorSpace
+    )
+    let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
+    let cancelPtr = cancel?.pointer
 
-    deinit {
-        if var h = handle {
-            maple_gpu_live_close(&h)
-        }
+    // Wire the Auto Profile arrays inside a live scope so the pointers are valid
+    // for the whole FFI call (storing them on `params` outside would dangle).
+    // The helper yields a pointer to the (array-wired) params so the FFI call
+    // doesn't re-borrow `params` (Swift exclusivity).
+    //
+    // Stamp the wall clock immediately around the FFI: this span is the GPU
+    // encode+submit+present — the meaningful edit→on-screen latency. The two
+    // `CACurrentMediaTime()` reads are sub-microsecond, so the measurement
+    // does not perturb the number (and is unconditional — the HUD flag gates
+    // RECORDING, not the cheap timestamp).
+    let t0 = CACurrentMediaTime()
+    let rc = withGpuLiveParams(params, curves: model) { pp in
+      maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr, surfaceGeneration)
     }
+    let elapsedMs = (CACurrentMediaTime() - t0) * 1000.0
 
-    /// Close the FFI handle NOW, on the actor (serialized behind any in-flight
-    /// present). `GpuLiveDriver.open` awaits this on the OLD session before
-    /// opening its replacement, making teardown deterministic (#1769) — the
-    /// pre-#1769 shape relied on `deinit`, which ran whenever ARC got around to
-    /// it, sometimes after the new session had already presented. Idempotent;
-    /// `deinit` remains the last-resort close for a session that was never
-    /// explicitly closed.
-    public func close() {
-        if var h = handle {
-            maple_gpu_live_close(&h)
-            handle = nil
-        }
+    switch rc {
+    case 0:
+      return elapsedMs  // presented — real edit→on-screen frame
+    case 4:
+      // RC_PRESENT_CANCELLED — a newer edit superseded this present; drop
+      // quietly AND report `nil` so the cancelled (near-zero) frame never
+      // enters the HUD's rolling stats.
+      return nil
+    default:
+      throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_present_chain rc=\(rc)")
     }
+  }
 
-    /// Fit (and cache on this session) the Auto Profile curve + residual LUT for
-    /// `rawPath` under `Profile::Auto` — the A2 artifacts the chain's curve/LUT
-    /// passes reapply every tick. A no-op (clears to `nil` → plain AgX) when the
-    /// model is not Auto or the RAW has no usable embedded JPEG. Cold per image
-    /// (JPEG extract + develop); call once per asset open, never per tick.
-    ///
-    /// `quality` MUST match the decode quality (the editor decodes at `.preview`),
-    /// or the fitted curve won't match the displayed pixels.
-    public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) {
-        let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
-        var curve = [Float](repeating: 0, count: curveLen)
-        var present: Int32 = 0
-        // Residual fits at edge 49 today → 49³·3 floats; allocate generously and
-        // let the FFI report the actual edge (re-call on -2 with the reported size).
-        var lutCapacity = 49 * 49 * 49 * 3
-        var lut = [Float](repeating: 0, count: lutCapacity)
-        var lutSize: UInt32 = 0
+  /// Render the gated chain for `model` and READ BACK the `width·height·3` u8
+  /// RGB surface (the canonical `dither_and_quantize` layout) — the headless
+  /// sibling of `present` (no `CAMetalLayer`). This is the host-test / fallback
+  /// path: it exercises the SAME chain + dither the present runs, so a Swift
+  /// caller can assert the plumbing links + the output is a real (non-flat) image
+  /// without a drawable. Returns `nil` if the render was cancelled.
+  ///
+  /// Auto Profile artifacts ride the chain's passes (as in `present`). Serialized
+  /// by the actor.
+  public func renderToBuffer(
+    model: AdjustmentModel,
+    asShotCCT: Double? = nil,
+    asShotTint: Double? = nil,
+    inputShape: UInt32 = 0,
+    wbFrame: WbSliderFrame? = nil
+  ) throws -> [UInt8]? {
+    guard let h = handle else {
+      throw GpuLiveError(message: "renderToBuffer: session is closed")
+    }
+    let params = PipelineRenderer.makeGpuLiveParams(
+      from: model,
+      asShotCCT: asShotCCT,
+      asShotTint: asShotTint,
+      inputShape: inputShape,
+      wbFrame: wbFrame
+    )
+    var out = [UInt8](repeating: 0, count: width * height * 3)
+    let rc = withGpuLiveParams(params, curves: model) { pp in
+      withUnsafePointer(to: h) { hp in
+        out.withUnsafeMutableBufferPointer { obuf in
+          maple_gpu_live_render(hp, pp, obuf.baseAddress)
+        }
+      }
+    }
+    switch rc {
+    case 0:
+      return out
+    case -3:
+      return nil  // render returned None (e.g. cancelled internally)
+    default:
+      throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_live_render rc=\(rc)")
+    }
+  }
 
-        var rc = rawPath.withCString { cpath in
-            curve.withUnsafeMutableBufferPointer { cbuf in
-                lut.withUnsafeMutableBufferPointer { lbuf in
-                    maple_gpu_fit_auto_profile(
-                        cpath, nil, quality.rawValue,
-                        cbuf.baseAddress, &present,
-                        lbuf.baseAddress, UInt(lutCapacity), &lutSize
-                    )
-                }
+  /// Only the 3 KB statistics of the last displayed frame cross the FFI.
+  /// The present pass already computed them; no render or RAW decode here.
+  public func displayedHistogram() throws -> CloudHistogram? {
+    try Task.checkCancellation()
+    guard let handle else { return nil }
+    var bins = [UInt32](repeating: 0, count: 768)
+    let rc = withUnsafePointer(to: handle) { pointer in
+      bins.withUnsafeMutableBufferPointer {
+        maple_gpu_live_histogram(pointer, $0.baseAddress)
+      }
+    }
+    try Task.checkCancellation()
+    if rc == 1 { return nil }
+    guard rc == 0 else {
+      throw GpuLiveError(message: Self.lastError() ?? "histogram readback rc=\(rc)")
+    }
+    return CloudHistogram(
+      r: bins[0..<256].map(Int.init),
+      g: bins[256..<512].map(Int.init), b: bins[512..<768].map(Int.init))
+  }
+
+  /// Bind the fitted Auto Profile curve + residual LUT (if any) and the four
+  /// user-authored point tone curves into a copy of `params`, then yield a
+  /// POINTER to that array-wired copy for the duration of `body` (the FFI
+  /// reads the arrays only during the call; the `[Float]` buffers stay alive
+  /// in scope, so no dangling pointer). Yielding a pointer — rather than
+  /// mutating the caller's `params` in place — keeps the FFI call from
+  /// re-borrowing `params` (Swift exclusive-access). When no artifacts are fit
+  /// and every curve is identity the params keep their NULL pointers
+  /// (identity curve + no residual = plain AgX).
+  ///
+  /// Point curves (#367) are wired HERE rather than in `makeGpuLiveParams`
+  /// for the same reason the Auto Profile arrays are: they are
+  /// variable-length, and a pointer stored on a struct that outlives this
+  /// scope would dangle. `read_points` on the FFI side reads the flat
+  /// `[x0, y0, x1, y1, …]` layout `flattened(_:)` produces, and treats a
+  /// null pointer or zero length as the identity curve — so an unedited
+  /// model still takes the stage's short-circuit.
+  private func withGpuLiveParams<R>(
+    _ params: MapleGpuLiveParams,
+    curves model: AdjustmentModel,
+    _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
+  ) -> R {
+    let luma = Self.flattened(model.toneCurveLuma)
+    let red = Self.flattened(model.toneCurveRed)
+    let green = Self.flattened(model.toneCurveGreen)
+    let blue = Self.flattened(model.toneCurveBlue)
+    return luma.withUnsafeBufferPointer { lu in
+      red.withUnsafeBufferPointer { r in
+        green.withUnsafeBufferPointer { g in
+          blue.withUnsafeBufferPointer { b in
+            noiseProfile.withUnsafeBufferPointer { np in
+              var p = params
+              Self.bind(lu, to: &p.tone_curve_luma_ptr, len: &p.tone_curve_luma_len)
+              Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
+              Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
+              Self.bind(b, to: &p.tone_curve_blue_ptr, len: &p.tone_curve_blue_len)
+              // DNG NoiseProfile + ISO (#2342) — session-scoped
+              // (see the `noiseProfile`/`iso` stored-property
+              // docs), so bound from `self` rather than a
+              // per-call argument like the point curves above.
+              // Empty leaves the FFI's NULL/0 default, which
+              // the WGSL NLM kernel reads as "no profile" (the
+              // flat, non-modulated filter).
+              if !np.isEmpty, let base = np.baseAddress {
+                p.noise_profile_ptr = base
+                p.noise_profile_len = UInt32(np.count)
+              }
+              p.iso = iso
+              return withFilmLutBound(p) { pp in withAutoProfileBound(pp, body) }
             }
+          }
         }
-        // -2: our buffer was too small — `lutSize` holds the needed edge; grow + retry
-        // (the fit is cached, so the second call is cheap).
-        if rc == -2, lutSize > 0 {
-            let n = Int(lutSize)
-            lutCapacity = n * n * n * 3
-            lut = [Float](repeating: 0, count: lutCapacity)
-            rc = rawPath.withCString { cpath in
-                curve.withUnsafeMutableBufferPointer { cbuf in
-                    lut.withUnsafeMutableBufferPointer { lbuf in
-                        maple_gpu_fit_auto_profile(
-                            cpath, nil, quality.rawValue,
-                            cbuf.baseAddress, &present,
-                            lbuf.baseAddress, UInt(lutCapacity), &lutSize
-                        )
-                    }
-                }
-            }
-        }
-
-        guard rc == 0 else {
-            if rc == 1 {
-                gpuLiveLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) — plain AgX")
-            } else {
-                gpuLiveLog.error("maple_gpu_fit_auto_profile rc=\(rc): \(Self.lastError() ?? "?", privacy: .public)")
-            }
-            autoProfile = nil
-            return
-        }
-
-        let n = Int(lutSize)
-        autoProfile = AutoProfileArtifacts(
-            curveFlat: present == 1 ? curve : nil,
-            lutSize: n,
-            lutData: n > 0 ? Array(lut.prefix(n * n * n * 3)) : nil
-        )
-        gpuLiveLog.notice(
-            "Auto Profile: fitted curve(present=\(present == 1)) + residual(edge=\(n)) for \(rawPath, privacy: .public)")
+      }
     }
+  }
 
-    /// Render the gated chain for `model` (decode-boundary contract via
-    /// `makeGpuLiveParams`) and PRESENT it to `layer` (a `CAMetalLayer`). The
-    /// Auto Profile curve/LUT artifacts (if fit) ride the chain's curve/LUT passes.
-    ///
-    /// `cancel` is an optional `CancelFlag` the caller flips when a newer edit
-    /// supersedes this present; the FFI drops a superseded present before touching
-    /// the GPU. Returns normally on success or a silent drop (cancelled); throws on
-    /// a real GPU/present failure so the caller can surface it.
-    ///
-    /// Returns the GPU render+present latency in MILLISECONDS for a real present
-    /// (`rc == 0`), or `nil` when the present was cancelled (`rc == 4`, a newer
-    /// edit superseded it). The latency is a `CACurrentMediaTime()` delta around
-    /// the `maple_gpu_present_chain` FFI — the encode+submit+present span that
-    /// maps to the 16ms slider-tick budget — with NO added GPU sync/readback (that
-    /// would distort the very number we measure). The HUD's recorder drops the
-    /// `nil` (cancelled) frames so they don't flatter the rolling average; see
-    /// `GpuFrameTimeStats`.
-    ///
-    /// The actor serializes this — one render in flight (the `!Send` Rust context).
-    @discardableResult
-    public func present(
-        model: AdjustmentModel,
-        layer: CAMetalLayer,
-        cancel: CancelFlag?,
-        asShotCCT: Double? = nil,
-        asShotTint: Double? = nil,
-        inputShape: UInt32 = 0,
-        surfaceGeneration: UInt64 = 0,
-        wbFrame: WbSliderFrame? = nil,
-        targetColorSpace: CanvasColorSpace = .current
-    ) throws -> Double? {
-        guard var h = handle else {
-            throw GpuLiveError(message: "present: session is closed")
-        }
-        let params = PipelineRenderer.makeGpuLiveParams(
-            from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
-            inputShape: inputShape, wbFrame: wbFrame, targetColorSpace: targetColorSpace
-        )
-        let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
-        let cancelPtr = cancel?.pointer
-
-        // Wire the Auto Profile arrays inside a live scope so the pointers are valid
-        // for the whole FFI call (storing them on `params` outside would dangle).
-        // The helper yields a pointer to the (array-wired) params so the FFI call
-        // doesn't re-borrow `params` (Swift exclusivity).
-        //
-        // Stamp the wall clock immediately around the FFI: this span is the GPU
-        // encode+submit+present — the meaningful edit→on-screen latency. The two
-        // `CACurrentMediaTime()` reads are sub-microsecond, so the measurement
-        // does not perturb the number (and is unconditional — the HUD flag gates
-        // RECORDING, not the cheap timestamp).
-        let t0 = CACurrentMediaTime()
-        let rc = withGpuLiveParams(params, curves: model) { pp in
-            maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr, surfaceGeneration)
-        }
-        let elapsedMs = (CACurrentMediaTime() - t0) * 1000.0
-
-        switch rc {
-        case 0:
-            return elapsedMs // presented — real edit→on-screen frame
-        case 4:
-            // RC_PRESENT_CANCELLED — a newer edit superseded this present; drop
-            // quietly AND report `nil` so the cancelled (near-zero) frame never
-            // enters the HUD's rolling stats.
-            return nil
-        default:
-            throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_present_chain rc=\(rc)")
-        }
+  /// Flatten a `ToneCurve` into the FFI's `[x0, y0, x1, y1, …]` f32 layout.
+  /// The identity (empty) curve flattens to an empty array, which the FFI
+  /// reads as "no curve".
+  ///
+  /// Built into ONE exactly-sized array rather than via
+  /// `flatMap { [Float($0.x), Float($0.y)] }`: the closure form allocates a
+  /// throwaway two-element array per control point and then grows the result
+  /// as it appends, and this runs four times (luma + R/G/B) on every
+  /// `withGpuLiveParams` — i.e. on every live render tick of a curve drag.
+  /// CLAUDE.md § Performance invariants does not allow new allocation inside
+  /// the render loop. `unsafeUninitializedCapacity` gives one allocation of
+  /// the final size and no reallocation.
+  ///
+  /// Internal rather than `private` so `ToneCurveFlattenTests` can pin the
+  /// emitted layout directly — this is the exact interleaving `read_points`
+  /// expects on the FFI side, and it is worth a test of its own.
+  static func flattened(_ curve: ToneCurve) -> [Float] {
+    let points = curve.points
+    guard !points.isEmpty else { return [] }
+    return [Float](unsafeUninitializedCapacity: points.count * 2) { buffer, initialized in
+      for (index, point) in points.enumerated() {
+        buffer[index * 2] = Float(point.x)
+        buffer[index * 2 + 1] = Float(point.y)
+      }
+      initialized = points.count * 2
     }
+  }
 
-    /// Render the gated chain for `model` and READ BACK the `width·height·3` u8
-    /// RGB surface (the canonical `dither_and_quantize` layout) — the headless
-    /// sibling of `present` (no `CAMetalLayer`). This is the host-test / fallback
-    /// path: it exercises the SAME chain + dither the present runs, so a Swift
-    /// caller can assert the plumbing links + the output is a real (non-flat) image
-    /// without a drawable. Returns `nil` if the render was cancelled.
-    ///
-    /// Auto Profile artifacts ride the chain's passes (as in `present`). Serialized
-    /// by the actor.
-    public func renderToBuffer(
-        model: AdjustmentModel,
-        asShotCCT: Double? = nil,
-        asShotTint: Double? = nil,
-        inputShape: UInt32 = 0,
-        wbFrame: WbSliderFrame? = nil
-    ) throws -> [UInt8]? {
-        guard let h = handle else {
-            throw GpuLiveError(message: "renderToBuffer: session is closed")
-        }
-        let params = PipelineRenderer.makeGpuLiveParams(
-            from: model,
-            asShotCCT: asShotCCT,
-            asShotTint: asShotTint,
-            inputShape: inputShape,
-            wbFrame: wbFrame
-        )
-        var out = [UInt8](repeating: 0, count: width * height * 3)
-        let rc = withGpuLiveParams(params, curves: model) { pp in
-            withUnsafePointer(to: h) { hp in
-                out.withUnsafeMutableBufferPointer { obuf in
-                    maple_gpu_live_render(hp, pp, obuf.baseAddress)
-                }
-            }
-        }
-        switch rc {
-        case 0:
-            return out
-        case -3:
-            return nil // render returned None (e.g. cancelled internally)
-        default:
-            throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_live_render rc=\(rc)")
-        }
-    }
+  /// Point a `(ptr, len)` pair at `buffer`, leaving it NULL/0 when empty.
+  private static func bind(
+    _ buffer: UnsafeBufferPointer<Float>,
+    to ptr: inout UnsafePointer<Float>?,
+    len: inout UInt
+  ) {
+    guard !buffer.isEmpty, let base = buffer.baseAddress else { return }
+    ptr = base
+    len = UInt(buffer.count)
+  }
 
-    /// Bind the fitted Auto Profile curve + residual LUT (if any) and the four
-    /// user-authored point tone curves into a copy of `params`, then yield a
-    /// POINTER to that array-wired copy for the duration of `body` (the FFI
-    /// reads the arrays only during the call; the `[Float]` buffers stay alive
-    /// in scope, so no dangling pointer). Yielding a pointer — rather than
-    /// mutating the caller's `params` in place — keeps the FFI call from
-    /// re-borrowing `params` (Swift exclusive-access). When no artifacts are fit
-    /// and every curve is identity the params keep their NULL pointers
-    /// (identity curve + no residual = plain AgX).
-    ///
-    /// Point curves (#367) are wired HERE rather than in `makeGpuLiveParams`
-    /// for the same reason the Auto Profile arrays are: they are
-    /// variable-length, and a pointer stored on a struct that outlives this
-    /// scope would dangle. `read_points` on the FFI side reads the flat
-    /// `[x0, y0, x1, y1, …]` layout `flattened(_:)` produces, and treats a
-    /// null pointer or zero length as the identity curve — so an unedited
-    /// model still takes the stage's short-circuit.
-    private func withGpuLiveParams<R>(
-        _ params: MapleGpuLiveParams,
-        curves model: AdjustmentModel,
-        _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
-    ) -> R {
-        let luma = Self.flattened(model.toneCurveLuma)
-        let red = Self.flattened(model.toneCurveRed)
-        let green = Self.flattened(model.toneCurveGreen)
-        let blue = Self.flattened(model.toneCurveBlue)
-        return luma.withUnsafeBufferPointer { lu in
-            red.withUnsafeBufferPointer { r in
-                green.withUnsafeBufferPointer { g in
-                    blue.withUnsafeBufferPointer { b in
-                        noiseProfile.withUnsafeBufferPointer { np in
-                            var p = params
-                            Self.bind(lu, to: &p.tone_curve_luma_ptr, len: &p.tone_curve_luma_len)
-                            Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
-                            Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
-                            Self.bind(b, to: &p.tone_curve_blue_ptr, len: &p.tone_curve_blue_len)
-                            // DNG NoiseProfile + ISO (#2342) — session-scoped
-                            // (see the `noiseProfile`/`iso` stored-property
-                            // docs), so bound from `self` rather than a
-                            // per-call argument like the point curves above.
-                            // Empty leaves the FFI's NULL/0 default, which
-                            // the WGSL NLM kernel reads as "no profile" (the
-                            // flat, non-modulated filter).
-                            if !np.isEmpty, let base = np.baseAddress {
-                                p.noise_profile_ptr = base
-                                p.noise_profile_len = UInt32(np.count)
-                            }
-                            p.iso = iso
-                            return withFilmLutBound(p) { pp in withAutoProfileBound(pp, body) }
-                        }
-                    }
-                }
-            }
-        }
+  /// Bind the session's cached film-look lattice (if any, epic #2683,
+  /// Task 10) into a copy of `params` and yield the VALUE (not a pointer —
+  /// `withAutoProfileBound` is the one that takes the address, once every
+  /// tail array across both stages is wired) for the duration of the
+  /// lattice buffer's lifetime. `nil` `filmLut` leaves `film_lut_*`
+  /// NULL/zero (identity — no look), matching `makeGpuLiveParams`'s
+  /// default.
+  private func withFilmLutBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ body: (MapleGpuLiveParams) -> R
+  ) -> R {
+    var p = params
+    guard let film = filmLut else { return body(p) }
+    return film.data.withUnsafeBufferPointer { fbuf in
+      p.film_lut_size = UInt32(film.size)
+      p.film_lut_key = film.key
+      p.film_lut_ptr = fbuf.baseAddress
+      p.film_lut_len = UInt(fbuf.count)
+      return body(p)
     }
+  }
 
-    /// Flatten a `ToneCurve` into the FFI's `[x0, y0, x1, y1, …]` f32 layout.
-    /// The identity (empty) curve flattens to an empty array, which the FFI
-    /// reads as "no curve".
-    ///
-    /// Built into ONE exactly-sized array rather than via
-    /// `flatMap { [Float($0.x), Float($0.y)] }`: the closure form allocates a
-    /// throwaway two-element array per control point and then grows the result
-    /// as it appends, and this runs four times (luma + R/G/B) on every
-    /// `withGpuLiveParams` — i.e. on every live render tick of a curve drag.
-    /// CLAUDE.md § Performance invariants does not allow new allocation inside
-    /// the render loop. `unsafeUninitializedCapacity` gives one allocation of
-    /// the final size and no reallocation.
-    ///
-    /// Internal rather than `private` so `ToneCurveFlattenTests` can pin the
-    /// emitted layout directly — this is the exact interleaving `read_points`
-    /// expects on the FFI side, and it is worth a test of its own.
-    static func flattened(_ curve: ToneCurve) -> [Float] {
-        let points = curve.points
-        guard !points.isEmpty else { return [] }
-        return [Float](unsafeUninitializedCapacity: points.count * 2) { buffer, initialized in
-            for (index, point) in points.enumerated() {
-                buffer[index * 2] = Float(point.x)
-                buffer[index * 2 + 1] = Float(point.y)
-            }
-            initialized = points.count * 2
+  /// Bind the fitted Auto Profile curve + residual LUT (if any) and yield the
+  /// pointer. Split out of `withGpuLiveParams` so the point-curve scopes and
+  /// the Auto Profile scopes nest without one closure per array.
+  private func withAutoProfileBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
+  ) -> R {
+    var p = params
+    guard let ap = autoProfile else {
+      return withUnsafePointer(to: &p, body)
+    }
+    // Nested withUnsafe… to keep BOTH buffers alive across the call; `?? []`
+    // gives a stable (empty) buffer when an artifact is absent.
+    let curve = ap.curveFlat ?? []
+    let lut = ap.lutData ?? []
+    return curve.withUnsafeBufferPointer { cbuf in
+      lut.withUnsafeBufferPointer { lbuf in
+        if ap.curveFlat != nil {
+          p.profile_curve_ptr = cbuf.baseAddress
+          p.profile_curve_len = UInt(curve.count)
         }
-    }
-
-    /// Point a `(ptr, len)` pair at `buffer`, leaving it NULL/0 when empty.
-    private static func bind(
-        _ buffer: UnsafeBufferPointer<Float>,
-        to ptr: inout UnsafePointer<Float>?,
-        len: inout UInt
-    ) {
-        guard !buffer.isEmpty, let base = buffer.baseAddress else { return }
-        ptr = base
-        len = UInt(buffer.count)
-    }
-
-    /// Bind the session's cached film-look lattice (if any, epic #2683,
-    /// Task 10) into a copy of `params` and yield the VALUE (not a pointer —
-    /// `withAutoProfileBound` is the one that takes the address, once every
-    /// tail array across both stages is wired) for the duration of the
-    /// lattice buffer's lifetime. `nil` `filmLut` leaves `film_lut_*`
-    /// NULL/zero (identity — no look), matching `makeGpuLiveParams`'s
-    /// default.
-    private func withFilmLutBound<R>(
-        _ params: MapleGpuLiveParams,
-        _ body: (MapleGpuLiveParams) -> R
-    ) -> R {
-        var p = params
-        guard let film = filmLut else { return body(p) }
-        return film.data.withUnsafeBufferPointer { fbuf in
-            p.film_lut_size = UInt32(film.size)
-            p.film_lut_key = film.key
-            p.film_lut_ptr = fbuf.baseAddress
-            p.film_lut_len = UInt(fbuf.count)
-            return body(p)
+        if ap.lutData != nil {
+          p.residual_lut_size = UInt32(ap.lutSize)
+          p.residual_lut_ptr = lbuf.baseAddress
+          p.residual_lut_len = UInt(lut.count)
         }
+        return withUnsafePointer(to: &p, body)
+      }
     }
+  }
 
-    /// Bind the fitted Auto Profile curve + residual LUT (if any) and yield the
-    /// pointer. Split out of `withGpuLiveParams` so the point-curve scopes and
-    /// the Auto Profile scopes nest without one closure per array.
-    private func withAutoProfileBound<R>(
-        _ params: MapleGpuLiveParams,
-        _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
-    ) -> R {
-        var p = params
-        guard let ap = autoProfile else {
-            return withUnsafePointer(to: &p, body)
-        }
-        // Nested withUnsafe… to keep BOTH buffers alive across the call; `?? []`
-        // gives a stable (empty) buffer when an artifact is absent.
-        let curve = ap.curveFlat ?? []
-        let lut = ap.lutData ?? []
-        return curve.withUnsafeBufferPointer { cbuf in
-            lut.withUnsafeBufferPointer { lbuf in
-                if ap.curveFlat != nil {
-                    p.profile_curve_ptr = cbuf.baseAddress
-                    p.profile_curve_len = UInt(curve.count)
-                }
-                if ap.lutData != nil {
-                    p.residual_lut_size = UInt32(ap.lutSize)
-                    p.residual_lut_ptr = lbuf.baseAddress
-                    p.residual_lut_len = UInt(lut.count)
-                }
-                return withUnsafePointer(to: &p, body)
-            }
-        }
-    }
-
-    private static func lastError() -> String? {
-        guard let c = maple_last_error() else { return nil }
-        return String(cString: c)
-    }
+  private static func lastError() -> String? {
+    guard let c = maple_last_error() else { return nil }
+    return String(cString: c)
+  }
 }
