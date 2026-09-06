@@ -25,6 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
@@ -299,5 +300,11 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiPairingPageReducer.cs" LinkBase="MapleUI\Pages" />
     <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiTvTimelinePageReducer.cs" LinkBase="MapleUI\Pages" />
     <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiTvMapPageReducer.cs" LinkBase="MapleUI\Pages" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Maple.WinUI\ViewModels\PhotoItem.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\ViewModels\CloudFolderNode.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\ViewModels\FolderNavigation.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\Services\Cloud\CloudTimelineModels.cs" LinkBase="Services\Cloud" />
   </ItemGroup>
 </Project>

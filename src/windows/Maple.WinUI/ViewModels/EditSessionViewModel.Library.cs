@@ -114,6 +114,7 @@ namespace Maple.WinUI.ViewModels
             var cts = new CancellationTokenSource();
             _libraryCts = cts;
 
+            BeginBrowse(local: folderPath);
             CurrentFolderPath = folderPath;
             ActiveSectionName = Path.GetFileName(folderPath) is { Length: > 0 } name ? name : folderPath;
             BrowseFolders.Clear();  // repopulated with this folder's children below
@@ -129,6 +130,7 @@ namespace Maple.WinUI.ViewModels
                     if (!Directory.Exists(folderPath))
                     {
                         DiagLog.Write($"[library] folder unavailable: {folderPath}");
+                        App.MainDispatcherQueue?.TryEnqueue(() => FinishBrowse(cts, "Folder is not available."));
                         onReady?.Invoke();
                         return;
                     }
@@ -211,6 +213,7 @@ namespace Maple.WinUI.ViewModels
                             foreach (var sub in subfolderNodes)
                                 BrowseFolders.Add(sub);
                             ApplyFilters();
+                            FinishBrowse(cts, string.Empty);
                             Timeline.GroupPhotosByDate(AllPhotos);
                             onReady?.Invoke();
                             _ = Task.Run(() => HydrateLibraryAsync(items, folderPath, cts.Token), cts.Token);
@@ -218,6 +221,7 @@ namespace Maple.WinUI.ViewModels
                         catch (Exception ex)
                         {
                             DiagLog.Write($"[library] applying scanned folder failed: {folderPath}: {ex.Message}");
+                            FinishBrowse(cts, "Could not load this folder. Select it to retry.");
                             onReady?.Invoke();
                         }
                     }) ?? false;
@@ -241,6 +245,7 @@ namespace Maple.WinUI.ViewModels
                 catch (Exception ex)
                 {
                     DiagLog.Write($"[library] folder scan failed: {folderPath}: {ex.Message}");
+                    App.MainDispatcherQueue?.TryEnqueue(() => FinishBrowse(cts, "Could not load this folder. Select it to retry."));
                     onReady?.Invoke();
                 }
             }, cts.Token);
@@ -322,7 +327,7 @@ namespace Maple.WinUI.ViewModels
             // Photos (the flat list) is always the grid's traversal order, so
             // the filmstrip and arrow keys agree with what's on screen in
             // both presentations.
-            IsDateGrouped = DateFilterStart != null;
+            IsDateGrouped = _isCloudTimeline || DateFilterStart != null;
             var groups = IsDateGrouped
                 ? query
                     .GroupBy(TimelineViewModel.CaptureDay)
@@ -334,8 +339,10 @@ namespace Maple.WinUI.ViewModels
                             Label = g.Key.ToString("dddd, MMMM d, yyyy"),
                             Day = g.Key,
                         };
-                        foreach (var item in g.OrderBy(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime())
-                                              .ThenBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
+                        var ordered = _isCloudTimeline
+                            ? g.OrderByDescending(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime())
+                            : g.OrderBy(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime());
+                        foreach (var item in ordered.ThenBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
                             dayGroup.Add(item);
                         return dayGroup;
                     })
