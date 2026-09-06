@@ -65,6 +65,7 @@ pub mod export;
 /// `raw-ffi` so a template renders byte-identically on every surface.
 pub mod filename;
 pub mod id;
+pub mod native_detail;
 mod open_metadata;
 pub mod preview;
 /// Legacy 8-bit sRGB render surface — `MapleRender`, `render_bytes`,

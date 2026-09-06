@@ -324,6 +324,7 @@ import type {
 } from './raw-pipeline.sample-wb.types';
 
 export type WorkerResponse =
+  | import('./raw-pipeline.native-detail.types').NativeDetailResponse
   | DecodeSuccess
   | DecodeError
   | DecodeSceneLinearSuccess
@@ -474,6 +475,8 @@ export interface ExportedFile {
 
 /** All request messages the raw-pipeline worker accepts. */
 export type WorkerRequest =
+  | import('./raw-pipeline.native-detail.types').NativeDetailRequest
+  | import('./raw-pipeline.native-detail.types').CloseNativeDetailRequest
   | DecodeRequest
   | DevelopNonRawRequest
   | DecodeSceneLinearRequest

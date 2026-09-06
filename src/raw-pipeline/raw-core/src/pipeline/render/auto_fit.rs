@@ -456,12 +456,12 @@ pub(super) fn run_auto_profile_stage(
     cache_key: Option<&CacheKey>,
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
-) {
+) -> (Option<ProfileCurve>, Option<ColorLut>) {
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     let (w, h) = (scene.width as usize, scene.height as usize);
     if *active_model == fit_develop_model(model) {
         let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        auto_profile::apply_auto_profile(
+        let artifacts = auto_profile::apply_pipeline::fit_auto_profile_artifacts(
             pixels,
             w,
             h,
@@ -471,7 +471,10 @@ pub(super) fn run_auto_profile_stage(
             cached_curve,
             cached_lut,
         );
-        return;
+        if let Some(lut) = &artifacts.1 {
+            lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
+        }
+        return artifacts;
     }
     let (curve, residual) = fit_artifacts_from_pinned_develop(
         raw,
@@ -490,6 +493,7 @@ pub(super) fn run_auto_profile_stage(
     if let Some(l) = &residual {
         l.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
     }
+    (curve, residual)
 }
 
 /// Obtain the Auto Profile artifacts for an EDITED caller model: reuse the

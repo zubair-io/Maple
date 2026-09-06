@@ -45,6 +45,7 @@ export interface TwoPhaseRenderHost {
   refineTargetPx(): number | null;
   /** True while the GPU session presents — the refine pass is skipped. */
   gpuActive(): boolean;
+  tryNativeDetail?(xmp: string, generation: number): Promise<boolean>;
   /** Execute one render at the given sizing (the component's `runRender`). */
   runRender(xmp: string, generation: number, sizing: RenderSizing): Promise<void>;
 }
@@ -57,6 +58,10 @@ export class TwoPhaseRenderScheduler {
   // and whether a fast render is currently in flight draining it.
   private pendingFast: { xmp: string; generation: number } | null = null;
   private fastInFlight = false;
+  private fastWork: Promise<void> = Promise.resolve();
+  private refineInFlight = false;
+  private pendingRefine: { xmp: string; generation: number; revision: number } | null = null;
+  private refineRevision = 0;
 
   constructor(private readonly host: TwoPhaseRenderHost) {}
 
@@ -77,7 +82,7 @@ export class TwoPhaseRenderScheduler {
    */
   private enqueueFast(xmp: string, generation: number): void {
     this.pendingFast = { xmp, generation };
-    if (!this.fastInFlight) void this.drainFast();
+    if (!this.fastInFlight) this.fastWork = this.drainFast();
   }
 
   private async drainFast(): Promise<void> {
@@ -105,6 +110,7 @@ export class TwoPhaseRenderScheduler {
    * zoomed view sharpens without an edit.
    */
   scheduleRefine(xmp: string, generation: number): void {
+    const revision = ++this.refineRevision;
     if (this.refineTimer) clearTimeout(this.refineTimer);
     if (this.host.gpuActive()) {
       this.refineTimer = null;
@@ -112,14 +118,39 @@ export class TwoPhaseRenderScheduler {
     }
     this.refineTimer = setTimeout(() => {
       this.refineTimer = null;
-      if (generation !== this.host.currentGeneration()) return;
-      const target = this.host.refineTargetPx();
-      if (target === null) return;
-      void this.host.runRender(xmp, generation, {
-        maxLongEdge: target,
-        qualityPreview: false,
-      });
+      this.pendingRefine = { xmp, generation, revision };
+      if (!this.refineInFlight) void this.drainRefine();
     }, TwoPhaseRenderScheduler.REFINE_DEBOUNCE_MS);
+  }
+
+  private async drainRefine(): Promise<void> {
+    this.refineInFlight = true;
+    try {
+      while (this.pendingRefine) {
+        const { xmp, generation, revision } = this.pendingRefine;
+        this.pendingRefine = null;
+        const stale = () =>
+          generation !== this.host.currentGeneration() ||
+          revision !== this.refineRevision ||
+          this.host.gpuActive();
+        // The patch needs the exact completed base anchors. A slow fast pass
+        // must not turn the 150 ms timer into an unnecessary full-image refine.
+        if (this.fastInFlight) await this.fastWork;
+        if (stale()) continue;
+        // Pan can need a new patch even when the full-image target cannot grow.
+        if (this.host.tryNativeDetail && (await this.host.tryNativeDetail(xmp, generation)))
+          continue;
+        if (stale()) continue;
+        const target = this.host.refineTargetPx();
+        if (target !== null)
+          await this.host.runRender(xmp, generation, {
+            maxLongEdge: target,
+            qualityPreview: false,
+          });
+      }
+    } finally {
+      this.refineInFlight = false;
+    }
   }
 
   /** Cancel the pending refine timer and any waiting fast tick. */
@@ -129,5 +160,7 @@ export class TwoPhaseRenderScheduler {
       this.refineTimer = null;
     }
     this.pendingFast = null;
+    this.pendingRefine = null;
+    this.refineRevision++;
   }
 }
