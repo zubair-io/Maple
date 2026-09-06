@@ -61,6 +61,21 @@ struct FlyoutSliderPanel: View {
                 // primary field, so this is its whole control surface,
                 // same swap as Tone Curve / Film.
                 LensCorrectionsSection(state: state)
+            } else if state.armedTool == .mask {
+                // Layer list + per-mask sliders replace the sliders while
+                // Mask is armed (#3275) — a mask writes
+                // `model.localAdjustments` rather than a scalar field, so it
+                // has no primary value and this is its whole control
+                // surface, same swap as Tone Curve / Film / Lens.
+                //
+                // This is the surface macOS and iPad actually mount
+                // (`EditorView`'s `.flyout` branch). #3275 added the case to
+                // `MobileControlBar` and `StackedAdjustmentsPanel` but not
+                // here, so arming Mask on the desktop left the previous
+                // group's sliders on screen and the panel nowhere — the same
+                // gap `IPhoneLegacyControlBar` had. Every surface that can
+                // arm a tool needs that tool's case (#3343).
+                MaskPanel(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams

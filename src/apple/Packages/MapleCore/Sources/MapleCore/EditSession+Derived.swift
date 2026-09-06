@@ -44,4 +44,26 @@ extension EditSession {
     return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
   }
 
+  // Forwarders onto `deepZoomState` — see that property's doc in
+  // `EditSession.swift` for why these stay public.
+  public internal(set) var viewportSourceRect: CGRect {
+    get { deepZoomState.viewportSourceRect }
+    set { deepZoomState.viewportSourceRect = newValue }
+  }
+
+  public var previewSize: CGSize {
+    get { deepZoomState.previewSize }
+    set {
+      let oldValue = deepZoomState.previewSize
+      guard newValue != oldValue else { return }
+      deepZoomState.previewSize = newValue
+      clearNativeDetailPreview()
+      if oldValue == .zero {
+        _scheduleRender(phase: .fast)
+      } else {
+        _scheduleRefine()
+      }
+      retryCachedPreviewSeedIfPending()
+    }
+  }
 }

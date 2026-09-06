@@ -508,3 +508,23 @@ fn an_everywhere_style_range_only_correction_still_needs_a_recognized_mask() {
     let parsed = parse(&sidecar(&children)).expect("parse");
     assert!(parsed.local_adjustments.is_empty());
 }
+
+#[test]
+fn a_fractional_local_hue_survives_the_adobe_scale_round_trip() {
+    // ±100 → ±1 loses two decimal places at the 2-decimal wire precision;
+    // LocalHue is written with four so −42.5 comes back as −42.5, not −43
+    // (#3280 review).
+    let mut model = AdjustmentModel::default();
+    model.local_adjustments = vec![LocalAdjustment::linear(
+        Point2::new(0.1, 0.1),
+        Point2::new(0.9, 0.9),
+        PartialAdjustments {
+            hue: Some(-42.5),
+            ..Default::default()
+        },
+    )];
+    let children = serialize_local_adjustments(&model, INDENT);
+    assert!(children.contains(r#"crs:LocalHue="-0.425""#), "{children}");
+    let parsed = parse(&sidecar(&children)).expect("parse");
+    assert_eq!(parsed.local_adjustments[0].adjustments.hue, Some(-42.5));
+}
