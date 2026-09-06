@@ -3,6 +3,9 @@ use crate::{decode::decode_bytes, image::CfaPattern, test_support::synth_perf::S
 use image::ImageDecoder;
 use std::io::Cursor;
 
+#[path = "metadata_fixture.rs"]
+mod metadata_fixture;
+
 fn fixture() -> Vec<u8> {
     SyntheticPerfDng {
         width: 64,
@@ -14,7 +17,8 @@ fn fixture() -> Vec<u8> {
 
 #[test]
 fn recipes_render_real_raw_pixels_with_exact_profile_and_without_source_metadata() {
-    let bytes = fixture();
+    let bytes = metadata_fixture::with_source_metadata(fixture());
+    metadata_fixture::assert_source_metadata(&bytes);
     let original = bytes.clone();
     let raw = decode_bytes(&bytes, "dng").unwrap();
     let model = AdjustmentModel {
@@ -55,14 +59,24 @@ fn recipes_render_real_raw_pixels_with_exact_profile_and_without_source_metadata
             } else {
                 decoder.icc_profile().unwrap().unwrap()
             };
-            assert_eq!(
-                icc,
-                crate::icc::profile_for(recipe.options().unwrap().target)
-            );
+            // Fixed, reviewed ICC bytes: an accidental change to profile_for
+            // must not update both sides of this export assertion together.
+            let golden: &[u8] = match *profile {
+                "srgb" => {
+                    include_bytes!("../../../../../test-fixtures/export-recipes/maple-srgb-v2.icc")
+                }
+                "display-p3" => include_bytes!(
+                    "../../../../../test-fixtures/export-recipes/maple-display-p3-v2.icc"
+                ),
+                _ => panic!("missing ICC golden for {profile}"),
+            };
+            assert_eq!(icc, golden, "{format}/{profile} ICC golden");
             assert!(
                 decoder.exif_metadata().unwrap().is_none(),
                 "source EXIF must be stripped"
             );
+            assert!(decoder.xmp_metadata().unwrap().is_none());
+            metadata_fixture::assert_stripped(&output.bytes, format);
             assert_eq!(decoder.color_type().bits_per_pixel(), (*depth * 3) as u16);
         }
     }
@@ -93,7 +107,7 @@ fn tiff_icc(bytes: &[u8]) -> Vec<u8> {
         .collect();
     for entry in &entries {
         assert!(
-            ![34665, 34853, 700].contains(&u16_at(*entry)),
+            ![270, 315, 700, 33723, 34665, 34853].contains(&u16_at(*entry)),
             "source metadata in export"
         );
     }
