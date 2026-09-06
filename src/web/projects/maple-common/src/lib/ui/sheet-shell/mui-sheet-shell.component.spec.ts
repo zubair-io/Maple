@@ -90,14 +90,14 @@ describe('MuiSheetShellComponent', () => {
     const dragArea = fixture.nativeElement.querySelector('.drag-area') as HTMLElement;
     dragArea.setPointerCapture = () => {};
 
-    dragArea.dispatchEvent(pointerEvent('pointerdown', 100));
-    dragArea.dispatchEvent(pointerEvent('pointermove', 170)); // +70px < 25% of 400
-    dragArea.dispatchEvent(pointerEvent('pointerup', 170));
+    dragArea.dispatchEvent(timedPointerEvent('pointerdown', 100, 0));
+    dragArea.dispatchEvent(timedPointerEvent('pointermove', 170, 300)); // +70px < 25% of 400
+    dragArea.dispatchEvent(timedPointerEvent('pointerup', 170, 400));
     expect(host.dismissedCount).toBe(0);
 
-    dragArea.dispatchEvent(pointerEvent('pointerdown', 100));
-    dragArea.dispatchEvent(pointerEvent('pointermove', 250)); // +150px >= 25% of 400
-    dragArea.dispatchEvent(pointerEvent('pointerup', 250));
+    dragArea.dispatchEvent(timedPointerEvent('pointerdown', 100, 600));
+    dragArea.dispatchEvent(timedPointerEvent('pointermove', 250, 900)); // +150px >= 25% of 400
+    dragArea.dispatchEvent(timedPointerEvent('pointerup', 250, 1000));
     expect(host.dismissedCount).toBe(1);
   });
 
@@ -109,9 +109,9 @@ describe('MuiSheetShellComponent', () => {
     const dragArea = fixture.nativeElement.querySelector('.drag-area') as HTMLElement;
     dragArea.setPointerCapture = () => {};
 
-    dragArea.dispatchEvent(pointerEvent('pointerdown', 100));
-    dragArea.dispatchEvent(pointerEvent('pointermove', 120));
-    dragArea.dispatchEvent(pointerEvent('pointerup', 120));
+    dragArea.dispatchEvent(timedPointerEvent('pointerdown', 100, 0));
+    dragArea.dispatchEvent(timedPointerEvent('pointermove', 120, 300));
+    dragArea.dispatchEvent(timedPointerEvent('pointerup', 120, 400));
     fixture.detectChanges();
     expect(host.dismissedCount).toBe(0);
     expect(
