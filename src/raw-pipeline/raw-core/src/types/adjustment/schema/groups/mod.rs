@@ -263,6 +263,7 @@ const DETAIL_FIELDS: &[&str] = &[
     // `hot_pixel_suppression` above (see the struct doc comment on
     // `lens_profile_enable`), so they travel with the same group.
     "lens_profile_enable",
+    "lens_profile",
     "lens_correction_distortion",
     "lens_correction_ca",
     "lens_correction_vignetting",

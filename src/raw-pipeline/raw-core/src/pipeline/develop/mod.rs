@@ -225,6 +225,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             );
         });
         dump_after("00a_opcode_list3", &camera_rgb);
+    } else if !model.lens_profile.is_empty() {
+        let scale = 1.0 / effective_quality_divisor(quality, raw.cfa) as f32;
+        stage("lcp_correction", || crate::lens_profile::apply_for_raw(raw,model,&mut camera_rgb,scale))?;
     }
 
     // DNG § 6.3 DefaultCrop — restrict the buffer to the camera-recommended

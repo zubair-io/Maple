@@ -47,6 +47,12 @@ enum Cmd {
         /// If omitted, renders with AdjustmentModel::default().
         #[arg(long)]
         params: Option<PathBuf>,
+        /// Import this user-owned LCP and select its exact content for this render.
+        #[arg(long)]
+        lens_profile: Option<PathBuf>,
+        /// Explicitly accept the LCP resolver's reported out-of-range conditions.
+        #[arg(long, requires = "lens_profile")]
+        acknowledge_lens_approximation: bool,
         /// Output image path.
         #[arg(long)]
         out: PathBuf,
@@ -369,6 +375,8 @@ fn main() -> ExitCode {
         Cmd::Render {
             raw,
             params,
+            lens_profile,
+            acknowledge_lens_approximation,
             out,
             format,
             quality,
@@ -386,6 +394,7 @@ fn main() -> ExitCode {
             profile,
             film_lut_dir.as_deref(),
             target_primaries,
+            lens_profile.as_deref().map(|path| (path,acknowledge_lens_approximation)),
         )),
         Cmd::Batch {
             manifest,

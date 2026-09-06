@@ -535,6 +535,11 @@ pub struct AdjustmentModel {
     /// `FixVignetteRadial` and `GainMap` gain opcodes. XMP key
     /// `crs:LensProfileVignettingScale`.
     pub lens_correction_vignetting: f32, // 0..100, default 100
+    /// Versioned content-addressed LCP selection. Empty keeps embedded-only
+    /// correction. `lcp1-ack:` records explicit acceptance of approximations.
+    /// The referenced profile must be cached before rendering; missing data
+    /// is an error, never an unannounced change of optical correction.
+    pub lens_profile: String,
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this

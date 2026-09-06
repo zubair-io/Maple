@@ -132,6 +132,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         lens_correction_distortion: _,
         lens_correction_ca: _,
         lens_correction_vignetting: _,
+        lens_profile: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -250,6 +251,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "lens_correction_distortion",
         "lens_correction_ca",
         "lens_correction_vignetting",
+        "lens_profile",
     ]
 }
 

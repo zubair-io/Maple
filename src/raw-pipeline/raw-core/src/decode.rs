@@ -660,6 +660,17 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         opcode_list3,
         aperture,
         focal_length,
+        lens_metadata: crate::lens_profile::LensMetadata {
+            camera_make: Some(raw.make.clone()),
+            camera_model: Some(raw.model.clone()),
+            lens_model: md.as_ref().and_then(|m| m.exif.lens_model.clone()),
+            focus_m: md.as_ref().and_then(|m| m.exif.subject_distance)
+                .filter(|r| r.d != 0 && r.n != 0 && r.n != u32::MAX)
+                .map(|r| r.n as f64 / r.d as f64),
+            active_area: raw.active_area.map(|r| crate::pipeline::pano::opcodes::ActiveAreaRect {
+                left: r.p.x as u32, top: r.p.y as u32, width: r.d.w as u32, height: r.d.h as u32,
+            }),
+        },
     };
     let be_from_bundle = if be_override.is_none() {
         crate::color::profile_loader::lookup_profile(&image)

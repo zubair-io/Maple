@@ -64,6 +64,7 @@ pub fn run(
             profile,
             film_lut_dir,
             target_primaries,
+            None,
         ) {
             Ok(_) => {
                 eprintln!("ok  {}", case.name);

@@ -384,6 +384,10 @@ pub(super) fn set_field(
         "crs:LensProfileDistortionScale" => m.lens_correction_distortion = v()?,
         "crs:LensProfileChromaticAberrationScale" => m.lens_correction_ca = v()?,
         "crs:LensProfileVignettingScale" => m.lens_correction_vignetting = v()?,
+        "papp:LensProfile" => {
+            if !value.is_empty() { crate::lens_profile::profile_id(value).map_err(Error::Xmp)?; }
+            m.lens_profile = value.to_owned();
+        }
         "crs:HasCrop" => {}             // consumed in the pre-pass
         "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
         "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)
