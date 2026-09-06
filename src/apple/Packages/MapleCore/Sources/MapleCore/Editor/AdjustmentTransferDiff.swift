@@ -48,7 +48,7 @@ public enum AdjustmentTransferDiff {
   }
 
   private static func display(_ value: NSObject?, key: String) throws -> String {
-    guard let value else { return key == "namedWhiteBalancePreset" ? "Custom" : "None" }
+    guard let value else { return key == "whiteBalancePreset" ? "Custom" : "None" }
     if let text = value as? String { return text.isEmpty ? "None" : text }
     if let number = value as? NSNumber { return number.stringValue }
     let data = try JSONSerialization.data(
@@ -58,7 +58,7 @@ public enum AdjustmentTransferDiff {
 
   private static func label(_ key: String) -> String {
     switch key {
-    case "namedWhiteBalancePreset": return "White balance preset"
+    case "whiteBalancePreset": return "White balance preset"
     case "wbSource": return "White balance source"
     case "wbScaleVersion": return "White balance scale"
     case "wbSampleX", "wbSampleY": return "Sample location"
