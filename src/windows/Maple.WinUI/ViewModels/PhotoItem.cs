@@ -100,8 +100,12 @@ namespace Maple.WinUI.ViewModels
     /// <summary>One node of the sidebar folder tree: a library root or one of
     /// its subfolders. Invoking a node loads that folder's own photos; children
     /// materialize lazily on expand so a huge tree is never walked eagerly.</summary>
-    public sealed class FolderNode
+    public sealed class FolderNode : ObservableObject
     {
+        private bool _isExpanded;
+        private bool _isSelected;
+        public bool IsExpanded { get => _isExpanded; set => SetProperty(ref _isExpanded, value); }
+        public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
         public string Name { get; init; } = string.Empty;
         public string Path { get; init; } = string.Empty;
         public ObservableCollection<FolderNode> Children { get; } = new();

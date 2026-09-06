@@ -34,7 +34,9 @@ It depends on `raw-core`, `raw-ffi` and `raw-gpu`, so building it proves those c
 
 ### Shell
 
-`MainWindow` follows a three-stage flow declared by `ShellMode` in `MainWindow.xaml.cs`: **Browse** (grid) → **Preview** (full image, filmstrip, culling) → **Edit** (full-bleed canvas, tool rail, group panels). Sliders exist only in Edit. `MainWindow.xaml` (~900 lines) holds the layout: a custom menu strip that doubles as the title bar, a sidebar with three trees (Timeline, Maple Cloud, Folders), the photo `GridView`, and the viewer with both an `Image` and a `SwapChainPanel` stacked so the CPU and GPU paths can swap. `Maple.UI.MuiWindowChrome.Extend` claims the caption strip and pins the caption-button colors to the Maple tokens.
+`MainWindow` follows a three-stage flow declared by `ShellMode` in `MainWindow.xaml.cs`: **Browse** (grid) → **Preview** (full image, filmstrip, culling) → **Edit** (full-bleed canvas, tool rail, group panels). Sliders exist only in Edit. `MainWindow.xaml` (~900 lines) holds the layout: a custom menu strip that doubles as the title bar, a sidebar with a Timeline entry and two folder trees (Maple Cloud, Folders), the photo `GridView`, and the viewer with both an `Image` and a `SwapChainPanel` stacked so the CPU and GPU paths can swap. `Maple.UI.MuiWindowChrome.Extend` claims the caption strip and pins the caption-button colors to the Maple tokens.
+
+Timeline queries the cloud search API in capture-date order and follows its continuation cursor through Load more. Dates appear as grid headers. Folder navigation clears stale grid contents while loading, expands the active path, and selects its sidebar row; both folder trees share one sidebar scrollbar. Preview opens with its info inspector docked on the right, with an info button to toggle it.
 
 Keyboard handling lives in one `switch` in `MainWindow.xaml.cs`: `E`/`Escape` move between modes, `F2` renames, `Delete` trashes, `Ctrl+0/1/+/-` drive zoom (a `ScrollViewer` zoom factor — there is no tile pyramid on Windows), `Ctrl+Z`/`Ctrl+Shift+Z` undo/redo, and `Ctrl+Shift+G` opens the Maple.UI gallery.
 
@@ -52,7 +54,7 @@ Feature work is split across `MainWindow.*.cs` partials, each paired with a WinU
 | `MainWindow.Trash.cs`, `MainWindow.TrashRestore.cs` | Delete → Trash, and the in-app restore list for Maple's own trash.                         |
 | `MainWindow.Reveal.cs`                              | "Show in Explorer" (`explorer.exe /select,"<path>"`).                                      |
 | `MainWindow.Crop.cs`                                | Crop tool: live rotate preview, client-side display crop, sidecar `crs:Crop*` for develop. |
-| `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, EXIF flyout, histogram.                   |
+| `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, docked Preview inspector, histogram.                   |
 | `MainWindow.Pano.cs`                                | Panorama stitching over a grid multi-selection.                                            |
 | `MainWindow.Dialogs.cs`                             | Folder picker, export dialogs, Settings window.                                            |
 | `MainWindow.Qualify.cs`                             | Headless qualification mode (see "Qualification harness").                                 |
