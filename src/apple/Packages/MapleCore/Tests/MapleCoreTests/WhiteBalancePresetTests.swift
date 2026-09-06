@@ -4,6 +4,23 @@ import XCTest
 
 @MainActor
 final class WhiteBalancePresetTests: XCTestCase {
+  func testLiveWhiteBalanceModesShareTheSameDecodedImageCacheKey() {
+    let decoded = RawCoreBridge.stripAppleGPUStages(.default)
+    for preset in WhiteBalancePreset.allCases {
+      var live = AdjustmentModel.default
+      live.whiteBalancePreset = preset
+      live.temperature = 5100
+      live.tint = -8
+      live.wbSource = preset == .auto ? .auto : .preset
+      live.wbScaleVersion = 1
+      live.wbSampleX = 0.3
+      live.wbSampleY = 0.8
+      live.wbAlgorithmVersion = 3
+      XCTAssertEqual(RawCoreBridge.stripAppleGPUStages(live), decoded)
+      XCTAssertEqual(live.whiteBalancePreset, preset, "Stripping must not alter the live model")
+    }
+  }
+
   func testEveryNamedPresetIsOneUndoableEditAndSurvivesRealSidecar() async throws {
     for preset in WhiteBalancePreset.allCases where preset.pair != nil {
       let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
