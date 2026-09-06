@@ -193,6 +193,7 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             has_lens_corrections,
             lens_correction_ca_inert,
             lens_correction_distortion_inert,
+            camera_support_json,
         })),
         "MapleAutoAdjustments" => Some(layout!(crate::auto_adjustments::MapleAutoAdjustments {
             exposure,
