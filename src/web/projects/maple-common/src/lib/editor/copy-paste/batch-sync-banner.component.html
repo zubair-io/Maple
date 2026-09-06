@@ -57,8 +57,13 @@
           >Resume {{ batch.remaining().length }} remaining</mui-button
         >
       }
-      @for (failure of batch.lastSummary()?.failed ?? []; track failure.id) {
-        <span class="text-xs">{{ failure.id }}: {{ failure.reason }}</span>
+      @for (failure of visibleFailures(); track failure.id) {
+        <span class="line-clamp-2 break-all text-xs" data-testid="batch-sync-failure">
+          {{ failure.id }}: {{ failure.reason }}
+        </span>
+      }
+      @if (hiddenFailureCount() > 0) {
+        <span class="text-xs">And {{ hiddenFailureCount() }} more failures</span>
       }
       @if (batch.failedIds().length > 0 && batch.remaining().length === 0) {
         <mui-button
