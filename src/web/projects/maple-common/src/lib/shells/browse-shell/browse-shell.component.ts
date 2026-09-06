@@ -6,6 +6,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
+  Injector,
   computed,
   effect,
   inject,
@@ -36,11 +37,7 @@ import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-sett
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { BatchSyncService } from '../../editor/copy-paste/batch-sync.service';
 import { BatchSyncBannerComponent } from '../../editor/copy-paste/batch-sync-banner.component';
-import {
-  ALL_ADJUSTMENT_GROUP_IDS,
-  buildGroupPatch,
-  type AdjustmentGroupId,
-} from '../../editor/copy-paste/adjustment-groups';
+import type { AdjustmentGroupId } from '../../editor/copy-paste/adjustment-groups';
 import { selectSidebarEntry } from './source-selection';
 import type { AssetId } from '../../models/asset';
 import type { AdjustmentModel } from '../../models/adjustment-model';
@@ -89,6 +86,7 @@ export class BrowseShellComponent {
   private route = inject(ActivatedRoute);
   private readonly clipboard = inject(AdjustmentClipboardService);
   protected readonly batch = inject(BatchSyncService);
+  private readonly injector = inject(Injector);
   private readonly layoutService = inject(LayoutService);
   private readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
@@ -136,7 +134,12 @@ export class BrowseShellComponent {
   );
 
   /** Clipboard source's filename, for the selective-paste dialog header. */
-  readonly clipboardSourceLabel = computed(() => this.clipboard.entry()?.sourceLabel ?? '');
+  readonly clipboardSourceLabel = signal('');
+  readonly clipboardModel = signal<AdjustmentModel | null>(null);
+  readonly pasteTargetIds = signal<readonly AssetId[]>([]);
+  readonly pastePreviewTargets = signal<readonly AdjustmentModel[] | null>(null);
+  readonly pastePreviewError = signal<string | null>(null);
+  private pastePreviewGeneration = 0;
 
   constructor() {
     // ── URL (slug:relPath) → selection ─────────────────────────────────────
@@ -198,21 +201,44 @@ export class BrowseShellComponent {
 
   /** Paste every clipboard group onto every selected asset. */
   onPasteSettings(): void {
-    this._pasteToSelection(ALL_ADJUSTMENT_GROUP_IDS);
+    void this._pasteToSelection();
   }
 
-  onOpenPasteDialog(): void {
+  async onOpenPasteDialog(): Promise<void> {
     if (!this.clipboard.hasContents()) return;
+    const generation = ++this.pastePreviewGeneration;
+    this.clipboardModel.set(structuredClone(this.clipboard.entry()!.model));
+    this.clipboardSourceLabel.set(this.clipboard.entry()!.sourceLabel);
+    this.pasteTargetIds.set([...this.state.selectedAssetIds()]);
+    this.pastePreviewTargets.set(null);
+    this.pastePreviewError.set(null);
     this.pasteDialogVisible.set(true);
+    try {
+      const { BatchPreviewService } = await import('../../editor/copy-paste/batch-preview.service');
+      const targets = await this.injector
+        .get(BatchPreviewService)
+        .readTargets(this.pasteTargetIds());
+      if (generation === this.pastePreviewGeneration) this.pastePreviewTargets.set(targets);
+    } catch (error) {
+      if (generation === this.pastePreviewGeneration)
+        this.pastePreviewError.set(
+          `Could not read settings: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
   }
 
   onPasteDialogDismiss(): void {
+    this.pastePreviewGeneration++;
     this.pasteDialogVisible.set(false);
   }
 
-  onPasteDialogConfirm(groups: readonly AdjustmentGroupId[]): void {
-    this._pasteToSelection(groups);
-    this.pasteDialogVisible.set(false);
+  async onPasteDialogConfirm(groups: readonly AdjustmentGroupId[]): Promise<void> {
+    const source = this.clipboardModel();
+    if (!source || !this.pastePreviewTargets() || this.pastePreviewError()) return;
+    const ids = this.pasteTargetIds();
+    this.onPasteDialogDismiss();
+    const { buildGroupPatch } = await import('../../editor/copy-paste/adjustment-groups');
+    void this._runBatch(ids, buildGroupPatch(source, groups));
   }
 
   /**
@@ -220,23 +246,27 @@ export class BrowseShellComponent {
    * multi-selection — no prior copy step. Writes to `selection minus
    * focused` only; the source asset is never re-written.
    */
-  onSyncSettings(): void {
+  async onSyncSettings(): Promise<void> {
     const focusedId = this.state.focusedAssetId();
     if (focusedId == null) return;
     const model = this.state.adjustmentFor(focusedId)();
-    const patch = buildGroupPatch(model, ALL_ADJUSTMENT_GROUP_IDS);
     // The source asset is never re-written — sync pushes the focused image's
     // settings onto the REST of the selection.
     const targets = [...this.state.selectedAssetIds()].filter((id) => id !== focusedId);
-    void this._runBatch(targets, patch);
+    const { buildGroupPatch, ALL_ADJUSTMENT_GROUP_IDS } =
+      await import('../../editor/copy-paste/adjustment-groups');
+    void this._runBatch(targets, buildGroupPatch(model, ALL_ADJUSTMENT_GROUP_IDS));
   }
 
   /** Build the clipboard's group patch and write it onto every currently
    * selected asset — the shared tail of "paste all" and selective paste. */
-  private _pasteToSelection(groups: readonly AdjustmentGroupId[]): void {
+  private async _pasteToSelection(groups?: readonly AdjustmentGroupId[]): Promise<void> {
     const entry = this.clipboard.entry();
     if (!entry) return;
-    void this._runBatch([...this.state.selectedAssetIds()], buildGroupPatch(entry.model, groups));
+    const ids = [...this.state.selectedAssetIds()];
+    const { buildGroupPatch, ALL_ADJUSTMENT_GROUP_IDS } =
+      await import('../../editor/copy-paste/adjustment-groups');
+    void this._runBatch(ids, buildGroupPatch(entry.model, groups ?? ALL_ADJUSTMENT_GROUP_IDS));
   }
 
   /**
@@ -260,7 +290,7 @@ export class BrowseShellComponent {
   /** Re-run just the assets the last batch could not write. */
   onRetryFailedBatch(): void {
     const patch = this._lastBatchPatch;
-    if (patch) void this.batch.retryFailed(patch);
+    void this.batch.retryFailed(patch ?? undefined);
   }
 
   // ── Page unload — flush pending XMP writes ───────────────────────────────

@@ -39,7 +39,8 @@ mod white_balance;
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
 // same 600-LOC budget reason as `types`.
 mod groups;
-pub use groups::{AdjustmentGroup, NON_COPYABLE_FIELDS};
+pub use groups::{transfer_mode, AdjustmentGroup, TransferMode, NON_COPYABLE_FIELDS};
+pub use groups::{TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS};
 
 /// Canonical, ordered description of every codegen-eligible field on
 /// [`AdjustmentModel`].

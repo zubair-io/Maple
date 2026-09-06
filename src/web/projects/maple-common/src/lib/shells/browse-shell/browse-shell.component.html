@@ -121,13 +121,18 @@
 }
 
 <!-- Selective paste dialog (#944) -->
-<app-paste-settings-dialog
-  [visible]="pasteDialogVisible()"
-  [targetCount]="state.selectedCount()"
-  [sourceLabel]="clipboardSourceLabel()"
-  (paste)="onPasteDialogConfirm($event)"
-  (dismiss)="onPasteDialogDismiss()"
-/>
+@defer (when pasteDialogVisible()) {
+  <app-paste-settings-dialog
+    [visible]="pasteDialogVisible()"
+    [targetCount]="pasteTargetIds().length"
+    [sourceLabel]="clipboardSourceLabel()"
+    [sourceModel]="clipboardModel()"
+    [targetModels]="pastePreviewTargets()"
+    [previewError]="pastePreviewError()"
+    (paste)="onPasteDialogConfirm($event)"
+    (dismiss)="onPasteDialogDismiss()"
+  />
+}
 
 <!-- Drag-move/copy collision prompt + completion summary (#2644). Both
      signals default to null on the NOOP capability (Hosted), so mounting

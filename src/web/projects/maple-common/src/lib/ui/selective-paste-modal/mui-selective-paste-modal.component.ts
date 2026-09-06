@@ -14,6 +14,12 @@ export interface MuiSelectivePasteGroup {
   readonly label: string;
   readonly description?: string;
   readonly enabled: boolean;
+  readonly changes?: readonly {
+    field: string;
+    before: string;
+    after: string;
+    changedCount: number;
+  }[];
 }
 
 @Component({
@@ -32,6 +38,7 @@ export class MuiSelectivePasteModalComponent {
   readonly summary = input<string | null>(null);
   /** Select-all/none bulk row above the group list. */
   readonly allowBulkSelect = input<boolean>(true);
+  readonly confirmDisabled = input(false);
 
   /** Fires with the ids of the groups left enabled when Paste is pressed. */
   readonly pasteConfirmed = output<readonly string[]>();
@@ -58,6 +65,7 @@ export class MuiSelectivePasteModalComponent {
   }
 
   confirmPaste(): void {
+    if (this.confirmDisabled() || this.noneSelected()) return;
     this.pasteConfirmed.emit(
       this.groups()
         .filter((group) => group.enabled)

@@ -8,7 +8,8 @@
  * operations and can't drift on field names.
  */
 
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
+import { isDeepStrictEqual } from 'node:util';
 import { type WithId } from 'mongodb';
 import { jobsCollection } from '../db/client.ts';
 import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
@@ -16,6 +17,8 @@ import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 export interface CreateJobInput {
   kind: JobKind;
   payload: Record<string, unknown>;
+  /** Optional caller-generated identity makes a lost creation response recoverable. */
+  requestId?: string;
 }
 
 /** Snapshot returned by `claim()` — enough for the runner to hand to a
@@ -24,6 +27,7 @@ export interface ClaimedJob {
   _id: ObjectId;
   kind: JobKind;
   payload: Record<string, unknown>;
+  checkpoint?: Record<string, unknown>;
 }
 
 export interface ListJobsFilter {
@@ -57,6 +61,22 @@ export async function createJob(
     created_at: nowIso,
     updated_at: nowIso,
   };
+  if (input.requestId) {
+    const id = new ObjectId(input.requestId);
+    const existing = await c.findOneAndUpdate(
+      { _id: id },
+      { $setOnInsert: doc },
+      { upsert: true, returnDocument: 'after' },
+    );
+    if (
+      !existing ||
+      existing.kind !== input.kind ||
+      !isDeepStrictEqual(existing.payload, input.payload)
+    ) {
+      throw new Error('The request id already belongs to a different job');
+    }
+    return existing as JobWithId;
+  }
   const result = await c.insertOne(doc as JobDoc);
   return { _id: result.insertedId, ...doc } as JobWithId;
 }
@@ -131,6 +151,7 @@ export async function claimJob(
     _id: result._id,
     kind: result.kind,
     payload: result.payload,
+    checkpoint: result.checkpoint,
   };
 }
 
@@ -141,12 +162,13 @@ export async function updateProgress(
   progress: { current: number; total: number },
   leaseMs: number,
   now: () => Date = () => new Date(),
+  workerId?: string,
 ): Promise<void> {
   const c = await jobsCollection();
   const nowDate = now();
   const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
   await c.updateOne(
-    { _id: id },
+    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
     {
       $set: {
         progress,
@@ -162,11 +184,12 @@ export async function completeJob(
   id: ObjectId,
   result: Record<string, unknown>,
   now: () => Date = () => new Date(),
+  workerId?: string,
 ): Promise<void> {
   const c = await jobsCollection();
   const nowIso = now().toISOString();
   await c.updateOne(
-    { _id: id },
+    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
     {
       $set: {
         status: 'done' as JobStatus,
@@ -185,11 +208,12 @@ export async function failJob(
   id: ObjectId,
   error: string,
   now: () => Date = () => new Date(),
+  workerId?: string,
 ): Promise<void> {
   const c = await jobsCollection();
   const nowIso = now().toISOString();
   await c.updateOne(
-    { _id: id },
+    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
     {
       $set: {
         status: 'failed' as JobStatus,
@@ -211,11 +235,12 @@ export async function markCancelled(
   id: ObjectId,
   result: Record<string, unknown> | null = null,
   now: () => Date = () => new Date(),
+  workerId?: string,
 ): Promise<void> {
   const c = await jobsCollection();
   const nowIso = now().toISOString();
   await c.updateOne(
-    { _id: id },
+    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
     {
       $set: {
         status: 'cancelled' as JobStatus,
@@ -252,4 +277,48 @@ export async function isCancelRequested(id: ObjectId): Promise<boolean> {
   const c = await jobsCollection();
   const doc = await c.findOne({ _id: id }, { projection: { cancel_requested: 1 } });
   return doc?.cancel_requested === true;
+}
+
+/** Fence checkpoint writes to the lease owner so a reclaimed job cannot be
+ * overwritten by the former worker. Renew before each sidecar commit. */
+export async function saveJobCheckpoint(
+  id: ObjectId,
+  workerId: string,
+  checkpoint: Record<string, unknown>,
+  leaseMs: number,
+  now: () => Date = () => new Date(),
+): Promise<void> {
+  const c = await jobsCollection();
+  const at = now();
+  const result = await c.updateOne(
+    { _id: id, locked_by: workerId, status: 'running' },
+    {
+      $set: {
+        checkpoint,
+        updated_at: at.toISOString(),
+        lease_expires_at: new Date(at.getTime() + leaseMs).toISOString(),
+      },
+    },
+  );
+  if (result.matchedCount !== 1) throw new Error('The job lease was claimed by another worker');
+}
+
+/** Resume only unfinished entries of an interrupted batch; the saved ledger is retained. */
+export async function resumeBatchJob(id: ObjectId): Promise<boolean> {
+  const c = await jobsCollection();
+  const result = await c.updateOne(
+    { _id: id, kind: 'batch_adjustment_sync', status: { $in: ['failed', 'cancelled'] } },
+    {
+      $set: {
+        status: 'queued',
+        locked_by: null,
+        lease_expires_at: null,
+        cancel_requested: false,
+        error: null,
+        result: null,
+        updated_at: new Date().toISOString(),
+      },
+    },
+  );
+  return result.matchedCount === 1;
 }

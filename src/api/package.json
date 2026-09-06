@@ -37,6 +37,7 @@
     "mongodb": "^6.10.0",
     "onnxruntime-node": "^1.26.0",
     "pino": "^10.3.1",
+    "saxes": "6.0.0",
     "sharp": "^0.34.5",
     "ulid": "3.0.2"
   },

@@ -32,6 +32,16 @@
             {{ group.description }}
           </mui-text>
         }
+        @if (group.changes?.length) {
+          <dl class="ml-7 flex flex-col gap-1 text-xs" [attr.aria-label]="group.label + ' changes'">
+            @for (change of group.changes; track change.field) {
+              <div>
+                <dt class="font-medium">{{ change.field }} · {{ change.changedCount }} changed</dt>
+                <dd class="m-0 text-text-muted">{{ change.before }} → {{ change.after }}</dd>
+              </div>
+            }
+          </dl>
+        }
       </div>
     }
   </div>
@@ -41,7 +51,11 @@
     class="mui-selective-paste-modal-footer flex justify-end gap-1 border-t border-border px-6 py-4"
   >
     <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
-    <mui-button variant="primary" [disabled]="enabledCount() === 0" (pressed)="confirmPaste()">
+    <mui-button
+      variant="primary"
+      [disabled]="enabledCount() === 0 || confirmDisabled()"
+      (pressed)="confirmPaste()"
+    >
       Paste
     </mui-button>
   </div>

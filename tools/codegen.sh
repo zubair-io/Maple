@@ -98,6 +98,11 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment --target ts        --out "$TS_OUT"
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 
+# Field transfer decisions (#3311), split to preserve generated-file headroom.
+"$BIN" --schema adjustment-transfer --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentTransfer+Generated.swift"
+"$BIN" --schema adjustment-transfer --target ts --out "src/web/projects/maple-common/src/lib/generated/adjustment-transfer.generated.ts"
+"$BIN" --schema adjustment-transfer --target ts --out "src/api/src/generated/adjustment-transfer.generated.ts"
+
 # --- UI tokens (#606) -----------------------------------------------------
 
 UI_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift"

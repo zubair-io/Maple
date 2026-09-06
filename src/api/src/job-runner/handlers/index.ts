@@ -15,12 +15,16 @@ import type { ObjectId } from 'mongodb';
 import type { JobKind } from '../../db/schema.ts';
 import { batchJpegExportHandler } from './batch-jpeg-export.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
+import { batchAdjustmentSyncHandler } from './batch-adjustment-sync.ts';
 
 /** Per-step context passed to handlers by the runner. */
 export interface JobHandlerContext {
   /** Persistent job id; used by handlers if they need to write progress
    * via the repo directly (most go through `reportProgress`). */
   jobId: ObjectId;
+  /** Durable per-target ledger supplied when a job is reclaimed after restart. */
+  checkpoint?: Record<string, unknown>;
+  saveCheckpoint?: (checkpoint: Record<string, unknown>) => Promise<void>;
   /** Notify the runner of progress. Total may be set on the first call
    * and held constant thereafter. */
   reportProgress: (current: number, total: number) => Promise<void>;
@@ -45,4 +49,5 @@ export type JobHandlerResult =
 export const HANDLERS: Record<JobKind, JobHandler> = {
   batch_jpeg_export: batchJpegExportHandler,
   pano_stitch: panoStitchHandler,
+  batch_adjustment_sync: batchAdjustmentSyncHandler,
 };

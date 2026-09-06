@@ -48,6 +48,7 @@ import {
   type AdjustmentGroupSpec,
 } from '../../generated/adjustment-tables.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { ADJUSTMENT_TRANSFER_MODES } from '../../generated/adjustment-transfer.generated';
 import { buildApplyPatch, camelToSnakeField, type PresetFields } from '../presets/preset-model';
 
 export type {
@@ -71,13 +72,8 @@ const GENERATED_KEYS = Object.keys(
  * mirror (`temperature_seen`, `tint_seen`, …) are skipped silently, exactly
  * like `buildApplyPatch` skips unknown preset keys.
  *
- * Structured fields are skipped too: the four `tone_curve_*` point curves
- * (#366) are `ToneCurve` objects, and `PresetFields` — the map
- * `buildApplyPatch` clamps and validates — is a flat scalar map on both the
- * client and the API validator. Same guard, same reason, as
- * `capturePresetFields`. Point-curve copy waits on the curve editor (#367);
- * `crop`, the other structured field, is carried explicitly below because
- * `geometry` is a real group today.
+ * Point curves are cloned independently of the scalar preset validator. Crop
+ * copies normalized coordinates (AssetRelative); no asset-local provenance is copied.
  */
 export function buildGroupPatch(
   source: AdjustmentModel,
@@ -95,20 +91,34 @@ export function buildGroupPatch(
   for (const camelKey of GENERATED_KEYS) {
     const snakeKey = camelToSnakeField(camelKey);
     if (!selectedFieldNames.has(snakeKey)) continue;
+    const mode = ADJUSTMENT_TRANSFER_MODES[snakeKey];
+    if (mode === 'Unsupported') continue;
+    if (mode !== 'Absolute') throw new Error(`No scalar transfer implementation for ${snakeKey}`);
     const value = source[camelKey];
-    if (typeof value === 'object') continue; // ToneCurve — see doc above.
+    if (typeof value === 'object') continue; // Copied structurally below.
     denseFields[snakeKey] = value;
   }
 
   const patch: Partial<AdjustmentModel> = buildApplyPatch(denseFields);
+  for (const key of GENERATED_KEYS) {
+    const field = camelToSnakeField(key);
+    if (!selectedFieldNames.has(field) || ADJUSTMENT_TRANSFER_MODES[field] !== 'Absolute') continue;
+    const value = source[key];
+    if (typeof value === 'object' && value !== null) {
+      Object.assign(patch, { [key]: structuredClone(value) });
+    }
+  }
 
   // Web-only extensions carried alongside a schema-generated group but not
   // part of `GeneratedAdjustmentModel` itself — see module doc.
   if (selected.has('white_balance')) {
     patch.whiteBalancePreset = source.whiteBalancePreset;
     patch.wbScaleVersion = source.wbScaleVersion;
+    patch.wbSampleX = 0;
+    patch.wbSampleY = 0;
+    patch.wbAlgorithmVersion = 0;
   }
-  if (selected.has('geometry')) {
+  if (selected.has('geometry') && ADJUSTMENT_TRANSFER_MODES['crop'] === 'AssetRelative') {
     patch.crop = { ...source.crop };
   }
 

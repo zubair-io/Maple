@@ -31,6 +31,7 @@
 mod adjustment;
 mod adjustment_groups;
 mod adjustment_tables;
+mod adjustment_transfer;
 mod capability_registry;
 mod capability_summary;
 mod color_matrices;
@@ -90,6 +91,8 @@ enum Schema {
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
+    /// Per-field batch transfer decisions (#3311).
+    AdjustmentTransfer,
     /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS,
     /// SPACING_TOKENS}` — design-system color hex strings, motion
     /// duration/easing pairs, radius, and spacing. Ticket #606.
@@ -154,6 +157,12 @@ fn load_evidence(cli: &Cli) -> Evidence {
 fn main() {
     let cli = Cli::parse();
     let out = match (cli.schema, cli.target) {
+        (Schema::AdjustmentTransfer, Target::Ts) => adjustment_transfer::emit_ts(),
+        (Schema::AdjustmentTransfer, Target::Swift) => adjustment_transfer::emit_swift(),
+        (Schema::AdjustmentTransfer, _) => {
+            eprintln!("codegen: --schema adjustment-transfer supports only swift / ts targets");
+            std::process::exit(2);
+        }
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::TsTables) => emit_ts_tables(ADJUSTMENT_SCHEMA),
