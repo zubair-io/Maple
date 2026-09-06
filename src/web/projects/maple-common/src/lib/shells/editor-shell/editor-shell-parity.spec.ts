@@ -199,6 +199,25 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       expect(undoButton().disabled).toBe(true);
     });
 
+    it('a keyboard or assistive-tech click undoes without pointer events', () => {
+      const editorState = TestBed.inject(EditorStateService);
+      const initialModel = editorState.currentAdjustment();
+      editorState.commit();
+      editorState.setArmedInternalValue(20);
+      fixture.detectChanges();
+
+      const undoSpy = vi.spyOn(editorState, 'undo');
+      const redoSpy = vi.spyOn(editorState, 'redo');
+
+      // Native Enter/Space activation and an AT press synthesize detail: 0.
+      undoButton().dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+      vi.advanceTimersByTime(500);
+
+      expect(undoSpy).toHaveBeenCalledTimes(1);
+      expect(redoSpy).not.toHaveBeenCalled();
+      expect(editorState.currentAdjustment()).toEqual(initialModel);
+    });
+
     it('a tap (pointerdown + quick pointerup) calls EditorStateService.undo()', () => {
       const editorState = TestBed.inject(EditorStateService);
       // Seed one undo-able edit.
@@ -215,6 +234,7 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       // Released well before the 500ms long-press threshold.
       vi.advanceTimersByTime(100);
       btn.dispatchEvent(pointerEvent('pointerup'));
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
 
       expect(undoSpy).toHaveBeenCalledTimes(1);
       expect(redoSpy).not.toHaveBeenCalled();
@@ -237,8 +257,14 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       // `longPressed` guard).
       btn.dispatchEvent(pointerEvent('pointerup'));
 
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
       expect(redoSpy).toHaveBeenCalledTimes(1);
       expect(undoSpy).not.toHaveBeenCalled();
+
+      // A subsequent keyboard activation must not inherit the long-press state.
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+      expect(undoSpy).toHaveBeenCalledTimes(1);
+      expect(redoSpy).toHaveBeenCalledTimes(1);
     });
 
     it('pointercancel aborts the long-press timer without calling undo or redo', () => {

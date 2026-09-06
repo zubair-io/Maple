@@ -55,6 +55,12 @@ export function onUndoPointerCancel(undo: UndoLongPressState): void {
   clearUndoTimer(undo);
 }
 
+/** Enter, Space and assistive technology activate a button without pointer
+ *  events. Pointer clicks already ran undo/redo through the press handlers. */
+export function onUndoClick(shell: EditorShellComponent, event: MouseEvent): void {
+  if (event.detail === 0) shell.editorState.undo();
+}
+
 function clearUndoTimer(undo: UndoLongPressState): void {
   if (undo.timer) {
     clearTimeout(undo.timer);
