@@ -35,6 +35,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
+import { MuiTextComponent } from '../../ui/text/mui-text.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
 
@@ -45,7 +46,7 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 @Component({
   selector: 'lens-corrections-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent],
+  imports: [MuiLivingSliderComponent, MuiTextComponent],
   templateUrl: './lens-corrections-panel.component.html',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -75,6 +76,7 @@ export class LensCorrectionsPanelComponent {
     return id ? this.library.lensCorrectionsFor(id) : DEFAULT_LENS_CORRECTION_CAPABILITY;
   });
   /** Whole panel: toggle + all three sliders. */
+  readonly lensSupport = computed(() => this.capabilities().cameraSupport);
   readonly panelDisabled = computed<boolean>(() => !this.capabilities().hasLensCorrections);
   /** True only when the panel IS active but the CA scale is a structural
    *  no-op — the narrower case the dim class gates on (see file banner). */

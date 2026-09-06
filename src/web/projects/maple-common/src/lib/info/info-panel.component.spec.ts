@@ -20,6 +20,7 @@ import { LibraryStateService } from '../state/library-state.service';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { ServerLibraryIo, ApiHistogram } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
+import { LensCorrectionCapabilities } from '../state/library-store-lens-corrections';
 
 const STUB_ASSET: Asset = {
   id: 'asset-1',
@@ -43,6 +44,8 @@ const STUB_ASSET: Asset = {
 };
 
 class FakeLibraryStateService {
+  readonly capabilities = new LensCorrectionCapabilities();
+  lensCorrectionsFor = (id: string) => this.capabilities.for(id);
   setFlag = vi.fn();
   setRating = vi.fn();
   setKeywords = vi.fn();
@@ -95,6 +98,31 @@ describe('InfoPanelComponent', () => {
     expect(el.querySelector('mui-rating-flags')).not.toBeNull();
     expect(el.querySelector('mui-label-value-grid')).not.toBeNull();
     expect(el.querySelector('mui-keyword-row')).not.toBeNull();
+  });
+
+  it('shows resolver-derived support reactively and removes it when switching to an unassessed asset', () => {
+    const fixture = makeFixture();
+    const el = fixture.nativeElement as HTMLElement;
+    const svc = TestBed.inject(LibraryStateService) as unknown as FakeLibraryStateService;
+    expect(el.querySelector('[data-testid="camera-support"]')).toBeNull();
+    svc.capabilities.seed(
+      STUB_ASSET.id,
+      false,
+      true,
+      JSON.stringify({
+        cameraKey: STUB_ASSET.camera,
+        resolution: 'rawler_fallback',
+        lens: 'no_correction_data',
+      }),
+    );
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="camera-support"]')?.textContent).toContain(
+      'Decode only',
+    );
+    expect(el.textContent).toContain('colours are approximate');
+    fixture.componentRef.setInput('asset', { ...STUB_ASSET, id: 'other-asset' });
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="camera-support"]')).toBeNull();
   });
 
   it('omits mui-histogram when neither live canvas pixels nor a server histogram are available', () => {

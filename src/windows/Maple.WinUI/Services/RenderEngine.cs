@@ -26,6 +26,7 @@ namespace Maple.WinUI.Services
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
+        public CameraSupportMetadata? CameraSupport { get; init; }
 
         // --- Auto Profile tail (#550/#924): fitted per image from the embedded
         //     JPEG. Without it a Profile::Auto decode renders 2-3x darker and
@@ -169,6 +170,7 @@ namespace Maple.WinUI.Services
                         DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
+                        CameraSupport = CameraSupportMetadata.ReadFile(rawPath),
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                         FitAutoProfile(decoded, rawPath, tempXmpPath);

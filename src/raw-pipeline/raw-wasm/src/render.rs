@@ -33,6 +33,7 @@ pub struct MapleRender {
     as_shot_tint: f32,
     has_lens_corrections: bool,
     lens_correction_ca_inert: bool,
+    camera_support: Option<raw_core::support_tiers::RenderSupport>,
 }
 
 impl MapleRender {
@@ -58,6 +59,7 @@ impl MapleRender {
         as_shot_tint: f32,
         has_lens_corrections: bool,
         lens_correction_ca_inert: bool,
+        camera_support: Option<raw_core::support_tiers::RenderSupport>,
     ) -> Self {
         Self {
             width,
@@ -69,6 +71,7 @@ impl MapleRender {
             as_shot_tint,
             has_lens_corrections,
             lens_correction_ca_inert,
+            camera_support,
         }
     }
 }
@@ -126,6 +129,15 @@ impl MapleRender {
     pub fn as_shot_tint(&self) -> f32 {
         self.as_shot_tint
     }
+    /// Actual camera-profile resolution for this decoded file (#3313).
+    /// Absent for already-developed non-RAW inputs. Read once on open.
+    #[wasm_bindgen(getter)]
+    pub fn camera_support_json(&self) -> Option<String> {
+        self.camera_support
+            .as_ref()
+            .map(|support| support.to_json())
+    }
+
     /// Whether this RAW carries a DNG `OpcodeList3` (`RawImage::has_lens_corrections`,
     /// #3182 — mirrors Apple's `EditSession.hasLensCorrections`). `false` for
     /// every non-DNG RAW and for `develop_non_raw`'s already-decoded input.
@@ -208,6 +220,10 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     // share the same pair.
     let has_lens_corrections = raw_img.has_lens_corrections();
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
+    let camera_support = Some(
+        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
+            .map_err(|e| JsError::new(&e.to_string()))?,
+    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -235,6 +251,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 as_shot_tint,
                 has_lens_corrections,
                 lens_correction_ca_inert,
+                camera_support,
             })
         }
         Some(cap) => {
@@ -253,6 +270,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 as_shot_tint,
                 has_lens_corrections,
                 lens_correction_ca_inert,
+                camera_support,
             })
         }
     }
@@ -297,6 +315,10 @@ pub fn render_bytes_sized(
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
+    let camera_support = Some(
+        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
+            .map_err(|e| JsError::new(&e.to_string()))?,
+    );
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -338,6 +360,7 @@ pub fn render_bytes_sized(
         as_shot_tint,
         has_lens_corrections,
         lens_correction_ca_inert,
+        camera_support,
     })
 }
 
@@ -395,14 +418,9 @@ pub fn develop_non_raw(
         skip_agx: true,
         ..Default::default()
     };
-    let chained = raw_core::pipeline::apply_scene_linear_chain_f32(
-        in_f32_rgba,
-        width,
-        height,
-        &model,
-        &opts,
-    )
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    let chained =
+        raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
+            .map_err(|e| JsError::new(&e.to_string()))?;
     let encoded = raw_core::pipeline::encode_display_srgb_f32(&chained, width, height)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -427,6 +445,7 @@ pub fn develop_non_raw(
         // as Apple's `EditSession` default.
         has_lens_corrections: false,
         lens_correction_ca_inert: true,
+        camera_support: None,
     })
 }
 

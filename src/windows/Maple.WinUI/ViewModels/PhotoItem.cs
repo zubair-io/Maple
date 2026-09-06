@@ -72,6 +72,7 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private string? _colorLabel;
 
         // EXIF (populated asynchronously; empty until read)
+        [ObservableProperty] private Services.CameraSupportMetadata? _cameraSupport;
         [ObservableProperty] private string _cameraModel = "—";
         [ObservableProperty] private string _lensInfo = "—";
         [ObservableProperty] private string _isoDisplay = "—";
