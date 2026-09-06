@@ -39,6 +39,13 @@ pub fn transfer_mode(field: &str) -> Option<TransferMode> {
 // Explicit rather than `all group fields`: a new field must make a reviewed
 // transfer decision, even when the decision is to retain today's absolute copy.
 const ABSOLUTE_FIELDS: &[&str] = &[
+    // Authored manual controls retain their values; the core resolves each
+    // target's display aspect/orientation when constructing its homography.
+    "geo_perspective_h",
+    "geo_perspective_v",
+    "geo_rotation",
+    "geo_aspect",
+    "geo_scale",
     "temperature",
     "tint",
     "wb_method",

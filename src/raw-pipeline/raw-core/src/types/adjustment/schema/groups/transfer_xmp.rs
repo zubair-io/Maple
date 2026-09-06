@@ -2,6 +2,11 @@
 //! Emitted to both runtimes, so a server patch cannot drift from the Web allowlist.
 
 pub const TRANSFER_XMP_ATTRIBUTES: &[(&str, &[&str])] = &[
+    ("geo_perspective_h", &["papp:GeoPerspectiveH"]),
+    ("geo_perspective_v", &["papp:GeoPerspectiveV"]),
+    ("geo_rotation", &["papp:GeoRotation"]),
+    ("geo_aspect", &["papp:GeoAspect"]),
+    ("geo_scale", &["papp:GeoScale"]),
     ("temperature", &["crs:Temperature"]),
     ("tint", &["crs:Tint"]),
     ("exposure", &["crs:Exposure2012"]),
