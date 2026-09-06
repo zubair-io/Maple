@@ -63,6 +63,7 @@ describe('manualWbPatch (#2434, #3309)', () => {
     expect(manualWbPatch(5200, 8)).toEqual({
       temperature: 5200,
       tint: 8,
+      whiteBalancePreset: 'Custom',
       wbSource: 'Manual',
       wbSampleX: 0,
       wbSampleY: 0,
