@@ -100,19 +100,34 @@ fn retained_base_preserves_existing_render_bytes() {
             exposure: 0.35,
             ..Default::default()
         };
-        let (w, h, rgb, _) = base(&raw, &bytes, &model);
-        let normal = crate::pipeline::render_sized_from_raw_with_quality_and_source(
-            &raw,
-            &model,
-            RenderQuality::Amaze,
-            Some(RawInput::Bytes {
-                bytes: &bytes,
-                ext: "dng",
-            }),
-            1024,
-        )
-        .unwrap();
-        assert_eq!((w, h, rgb), normal);
+        for quality in [RenderQuality::Preview, RenderQuality::Amaze] {
+            let (w, h, rgb, _) = render_detail_base(
+                &raw,
+                &model,
+                RawInput::Bytes {
+                    bytes: &bytes,
+                    ext: "dng",
+                },
+                DetailRenderOptions {
+                    quality,
+                    max_long_edge: 1024,
+                    film_lut: None,
+                },
+            )
+            .unwrap();
+            let normal = crate::pipeline::render_sized_from_raw_with_quality_and_source(
+                &raw,
+                &model,
+                quality,
+                Some(RawInput::Bytes {
+                    bytes: &bytes,
+                    ext: "dng",
+                }),
+                1024,
+            )
+            .unwrap();
+            assert_eq!((w, h, rgb), normal, "{profile:?} {quality:?}");
+        }
     }
 }
 
