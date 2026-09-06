@@ -11,6 +11,7 @@ mod xml;
 pub use resolve::{LensQuery, Resolution, SampleWeight};
 mod apply;
 pub use apply::apply;
+pub(crate) mod metadata;
 mod registry;
 pub use registry::{
     apply_for_raw, clear_cache, embedded_metadata, profile_id, register, resolve_for_raw,
