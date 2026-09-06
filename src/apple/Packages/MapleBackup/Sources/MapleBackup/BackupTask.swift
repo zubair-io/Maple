@@ -63,19 +63,29 @@ public struct BackupTask: Sendable, Hashable, Codable {
     public var retryCount: Int
     public var lastError: String?
     public var enqueuedAt: Date
+    /// The asset's capture date (`PHAsset.creationDate`). The queue drains
+    /// newer captures first within a priority, and because the value is
+    /// persisted with the task that order survives a relaunch — the
+    /// rehydrated backlog and any capture that lands mid-backlog both slot
+    /// in by this date, not by when they happened to be enqueued (#3388).
+    /// `nil` (rows written before the column existed, assets with no date)
+    /// sorts after every dated task.
+    public var capturedAt: Date?
 
     public init(id: BackupTaskID,
                 state: BackupState,
                 priority: BackupPriority,
                 retryCount: Int = 0,
                 lastError: String? = nil,
-                enqueuedAt: Date = Date()) {
+                enqueuedAt: Date = Date(),
+                capturedAt: Date? = nil) {
         self.id = id
         self.state = state
         self.priority = priority
         self.retryCount = retryCount
         self.lastError = lastError
         self.enqueuedAt = enqueuedAt
+        self.capturedAt = capturedAt
     }
 }
 

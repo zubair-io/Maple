@@ -1,5 +1,6 @@
 // Tests/MapleBackupTests/BackupStateTests.swift
 import XCTest
+import GRDB
 @testable import MapleBackup
 
 final class BackupStateTests: XCTestCase {
@@ -153,5 +154,72 @@ final class BackupStateTests: XCTestCase {
         let store2 = try BackupStateStore(databaseURL: url)
         let row = try await store2.find(id)
         XCTAssertEqual(row?.state, .uploaded)
+    }
+}
+
+// MARK: - captured_at persistence + migration (#3388)
+
+final class BackupStateCapturedAtTests: XCTestCase {
+    private func freshURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-state-\(UUID().uuidString).sqlite")
+    }
+
+    func testCapturedAtRoundTripsThroughUpsertAndTransition() async throws {
+        let store = try BackupStateStore(databaseURL: freshURL())
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let shot = Date(timeIntervalSince1970: 1_700_000_000)
+        try await store.upsert(BackupTask(id: id, state: .pending, priority: .background, capturedAt: shot))
+        // A state transition must not lose the date — the retry path
+        // re-reads the row and re-enqueues what it finds.
+        try await store.transition(id, to: .failedRetry, error: "boom", retryCount: 2)
+        let found = try await store.find(id)
+        XCTAssertEqual(found?.capturedAt, shot)
+        XCTAssertEqual(found?.state, .failedRetry)
+    }
+
+    func testRowsWithoutCaptureDateDecodeAsNil() async throws {
+        let store = try BackupStateStore(databaseURL: freshURL())
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        try await store.upsert(BackupTask(id: id, state: .pending, priority: .background))
+        let found = try await store.find(id)
+        XCTAssertNotNil(found)
+        XCTAssertNil(found?.capturedAt)
+    }
+
+    func testOpeningAPreCapturedAtStoreAddsTheColumnAndKeepsRows() async throws {
+        // Build a store with the pre-#3388 schema by hand, then open it
+        // through BackupStateStore and confirm the migration ran.
+        let url = freshURL()
+        let legacy = try DatabaseQueue(path: url.path)
+        try await legacy.write { db in
+            try db.execute(sql: """
+                CREATE TABLE tasks (
+                  device_id TEXT NOT NULL,
+                  phasset_local_id TEXT NOT NULL,
+                  state TEXT NOT NULL,
+                  priority INTEGER NOT NULL,
+                  retry_count INTEGER NOT NULL DEFAULT 0,
+                  last_error TEXT,
+                  enqueued_at DOUBLE NOT NULL,
+                  PRIMARY KEY (device_id, phasset_local_id))
+                """)
+            try db.execute(sql: """
+                INSERT INTO tasks (device_id, phasset_local_id, state, priority, retry_count, enqueued_at)
+                VALUES ('d', 'legacy', 'pending', 0, 0, 1.0)
+                """)
+        }
+        try legacy.close()
+
+        let store = try BackupStateStore(databaseURL: url)
+        let legacyRow = try await store.find(BackupTaskID(deviceId: "d", phassetLocalId: "legacy"))
+        XCTAssertEqual(legacyRow?.state, .pending)
+        XCTAssertNil(legacyRow?.capturedAt)
+
+        let shot = Date(timeIntervalSince1970: 42)
+        try await store.upsert(BackupTask(id: BackupTaskID(deviceId: "d", phassetLocalId: "fresh"),
+                                          state: .pending, priority: .background, capturedAt: shot))
+        let fresh = try await store.find(BackupTaskID(deviceId: "d", phassetLocalId: "fresh"))
+        XCTAssertEqual(fresh?.capturedAt, shot)
     }
 }
