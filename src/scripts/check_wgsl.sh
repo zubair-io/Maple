@@ -27,6 +27,7 @@
 #       (a) standalone
 #       (b) color_matrices + kernel
 #       (c) color_matrices + agx_coeffs + kernel
+#       (d) present_chain + kernel (display histogram shares the display quantizer)
 #   A kernel PASSES if it validates under ANY rung (unused header helpers are
 #   legal WGSL), and FAILS only if a genuine syntax/type error makes every rung
 #   fail. The generated headers are themselves validated standalone (rung a).
@@ -96,6 +97,13 @@ while IFS= read -r kernel; do
   cat "$COLOR_MATRICES" "$AGX_COEFFS" "$kernel" > "$assembled"
   if validate "$assembled"; then
     echo "PASS  $base  (+color_matrices+agx_coeffs)"
+    continue
+  fi
+
+  # Rung (d): display histogram shares the present shader's quantization.
+  cat "$WGSL_DIR/present_chain.wgsl" "$kernel" > "$assembled"
+  if validate "$assembled"; then
+    echo "PASS  $base  (+present_chain)"
     continue
   fi
 
