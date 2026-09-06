@@ -65,8 +65,8 @@ describe('authorable WB modes (#3307)', () => {
     expect(TestBed.inject(XmpParserService).parseAdjustmentModel(xml).model).toMatchObject({
       whiteBalancePreset: 'Custom',
       wbSource: 'Manual',
-      wbAlgorithmVersion: 0,
     });
+    expect(xml).not.toContain('papp:WbAlgorithmVersion');
     editor.undo();
     expect(library.adjustmentFor(ID)()).toEqual(auto);
   });

@@ -118,16 +118,7 @@ export function walkAdjustmentAttributes(
     applyMiscAdjustmentAttribute(model, name, attr.value, miscCtx);
   }
 
-  // Explicit numerical fields win in any attribute order. A name-only foreign
-  // sidecar uses the same table as raw-core and the picker.
-  const pair = model.whiteBalancePreset
-    ? WHITE_BALANCE_PRESET_VALUES[model.whiteBalancePreset]
-    : undefined;
-  if (pair) {
-    model.wbSource ??= 'Preset';
-    if (!canonicallyApplied.has('temperature')) model.temperature = pair.temperature;
-    if (!canonicallyApplied.has('tint')) model.tint = pair.tint;
-  }
+  applyNamedWhiteBalance(model, canonicallyApplied);
   return { model, canonicallyApplied, legacyDeferred, cropAcc: miscCtx.cropAcc };
 }
 
@@ -149,5 +140,21 @@ export function applyLegacyAliases(
     if (!Number.isNaN(parsed)) {
       model[alias.modelKey] = parsed;
     }
+  }
+}
+
+function applyNamedWhiteBalance(
+  model: Partial<AdjustmentModel>,
+  canonicallyApplied: Set<keyof AdjustmentModel>,
+): void {
+  // Explicit numerical fields win in any attribute order. A name-only foreign
+  // sidecar uses the same table as raw-core and the picker.
+  const pair = model.whiteBalancePreset
+    ? WHITE_BALANCE_PRESET_VALUES[model.whiteBalancePreset]
+    : undefined;
+  if (pair) {
+    model.wbSource ??= 'Preset';
+    if (!canonicallyApplied.has('temperature')) model.temperature = pair.temperature;
+    if (!canonicallyApplied.has('tint')) model.tint = pair.tint;
   }
 }
