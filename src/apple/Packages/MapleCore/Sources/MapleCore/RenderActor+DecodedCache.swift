@@ -90,7 +90,7 @@ extension RenderActor {
       // or flip a cancel flag here — same-asset slider ticks during a cold
       // open share this one decode and its flag; nobody cancels until a
       // genuinely different decode supersedes it (the replace path below).
-      guard let (decoded, _, _, _, _, _, _, _) = await existing.value else { return nil }
+      guard let (decoded, _, _, _, _, _, _, _, _) = await existing.value else { return nil }
       return await normalize(decoded, asset)
     }
     // #951: a DIFFERENT-identity decode is superseding the in-flight one
