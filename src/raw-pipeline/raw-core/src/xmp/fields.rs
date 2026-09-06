@@ -8,8 +8,7 @@
 
 use super::{
     AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode,
-    LensProfileEnable, Look,
-    Profile, ToneCurveMode, WbMethod, WbSource,
+    LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbSource,
 };
 use crate::error::{Error, Result};
 
@@ -188,7 +187,10 @@ pub(super) fn set_field(
         "crs:LuminanceAdjustmentPurple" => m.luminance_adjustment_purple = v()?,
         "crs:LuminanceAdjustmentMagenta" => m.luminance_adjustment_magenta = v()?,
         "crs:WhiteBalance" => {
-            if let Some((temp, tint)) = wb_preset(value) {
+            if let Some((temp, tint)) =
+                crate::types::adjustment::WhiteBalancePreset::from_name(value)
+                    .and_then(|preset| preset.pair())
+            {
                 m.temperature = temp;
                 m.tint = tint;
             }
@@ -397,19 +399,4 @@ pub(super) fn set_field(
         }
     }
     Ok(())
-}
-
-/// Map a `crs:WhiteBalance` preset name to (temperature, tint).
-/// Returns None for "As Shot", "Auto", "Custom", or unrecognized values —
-/// the caller should leave AdjustmentModel defaults in those cases.
-fn wb_preset(name: &str) -> Option<(f32, f32)> {
-    match name {
-        "Daylight" => Some((5500.0, 10.0)),
-        "Cloudy" => Some((6500.0, 10.0)),
-        "Shade" => Some((7500.0, 10.0)),
-        "Tungsten" => Some((2850.0, 0.0)),
-        "Fluorescent" => Some((3800.0, 21.0)),
-        "Flash" => Some((5500.0, 0.0)),
-        _ => None,
-    }
 }

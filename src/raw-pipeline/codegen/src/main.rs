@@ -42,6 +42,7 @@ mod support_tiers_cs;
 mod support_tiers_summary;
 mod ui_tokens;
 mod ui_tokens_xaml;
+mod white_balance_presets;
 
 use std::fs;
 use std::path::PathBuf;
@@ -115,6 +116,8 @@ enum Schema {
     /// from the same evidence records plus the bundled profile index
     /// (#2440).
     SupportTiers,
+    /// Named XMP illuminants and white-balance derivation version (#3307).
+    WhiteBalancePresets,
 }
 
 #[derive(Parser, Debug)]
@@ -170,6 +173,12 @@ fn main() {
         (Schema::AdjustmentTransfer, Target::Swift) => adjustment_transfer::emit_swift(),
         (Schema::AdjustmentTransfer, _) => {
             eprintln!("codegen: --schema adjustment-transfer supports only swift / ts targets");
+            std::process::exit(2);
+        }
+        (Schema::WhiteBalancePresets, Target::Swift) => white_balance_presets::emit_swift(),
+        (Schema::WhiteBalancePresets, Target::Ts) => white_balance_presets::emit_ts(),
+        (Schema::WhiteBalancePresets, _) => {
+            eprintln!("codegen: --schema white-balance-presets supports only swift / ts targets");
             std::process::exit(2);
         }
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),

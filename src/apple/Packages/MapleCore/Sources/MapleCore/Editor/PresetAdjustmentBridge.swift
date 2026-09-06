@@ -422,6 +422,7 @@ public enum PresetAdjustments {
       return WbSource(rawValue: value)
     }()
     if authoredPair || authoredSource != nil {
+      merged.whiteBalancePreset = .custom
       merged.wbSource = authoredSource ?? .preset
       merged.wbSampleX = 0
       merged.wbSampleY = 0

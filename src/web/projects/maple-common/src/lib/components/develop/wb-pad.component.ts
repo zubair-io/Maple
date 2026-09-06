@@ -17,7 +17,7 @@
 // (single centre pixel, no clip guard) is gone; the pad's own drag/keyboard
 // paths are unchanged.
 
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MuiPad2dComponent } from '../../ui/pad-2d/mui-pad-2d.component';
 import type { MuiPad2dValue } from '../../ui/pad-2d/mui-pad-2d.component';
@@ -27,6 +27,9 @@ import { WbPickService } from '../image-canvas/wb-pick.service';
 import { manualWbPatch } from '../../editor/editor-state.wb-sample';
 import { EditorStateService } from '../../editor/editor-state.service';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { MuiSelectComponent } from '../../ui/select/mui-select.component';
+import { WHITE_BALANCE_PRESETS } from '../../generated/white-balance-presets.generated';
+import { isSupportedRaw } from '../../state/raw-extensions';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
@@ -40,13 +43,14 @@ function clamp(value: number, min: number, max: number): number {
 @Component({
   selector: 'pro-wb-pad',
   standalone: true,
-  imports: [MuiPad2dComponent, MapleIconComponent],
+  imports: [MuiPad2dComponent, MapleIconComponent, MuiSelectComponent],
   templateUrl: './wb-pad.component.html',
   styleUrl: './wb-pad.component.scss',
   host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WbPadComponent {
+  readonly showPad = input(true);
   private library = inject(LibraryStateService);
   private pick = inject(WbPickService);
   private editor = inject(EditorStateService);
@@ -70,6 +74,31 @@ export class WbPadComponent {
     return id ? this.library.adjustmentFor(id)() : null;
   });
 
+  readonly selectedPreset = computed(() => this.adj()?.whiteBalancePreset ?? 'As Shot');
+  readonly presetDisabled = computed(
+    () => this.editor.autoInFlight() || this.editor.wbSampleInFlight(),
+  );
+  readonly presetOptions = computed(() => {
+    const id = this.library.focusedAssetId();
+    const asset = this.library.assets().find((item) => item.id === id);
+    const asShot = id ? this.library.asShotWbFor(id) : null;
+    return WHITE_BALANCE_PRESETS.map((value) => ({
+      value,
+      label: value,
+      disabled:
+        (value === 'Auto' && (!asset || !isSupportedRaw(asset.filename))) ||
+        (value === 'As Shot' && !asShot),
+    }));
+  });
+
+  async selectPreset(value: string): Promise<void> {
+    const id = this.library.focusedAssetId();
+    const preset = WHITE_BALANCE_PRESETS.find((item) => item === value);
+    if (!id || !preset || this.presetDisabled()) return;
+    this.pick.cancel();
+    await this.editor.applyWhiteBalancePreset(id, preset);
+  }
+
   /** Puck position in `mui-pad-2d`'s normalized `[-1, 1]` domain, converted
    *  from the `[0, 1]` fraction `tempToX`/`tintToY` return (`frac*2 - 1`). */
   readonly padValue = computed<MuiPad2dValue>(() => {
@@ -88,13 +117,14 @@ export class WbPadComponent {
   readonly tempLabel = computed<string>(() => {
     const adj = this.adj();
     const temp = clamp(adj?.temperature ?? 6500, TEMP_MIN, TEMP_MAX);
-    return `${temp} K`;
+    return `${Math.round(temp)} K`;
   });
 
   readonly tintLabel = computed<string>(() => {
     const adj = this.adj();
     const t = clamp(adj?.tint ?? 0, TINT_MIN, TINT_MAX);
-    return t >= 0 ? `+${t}` : `${t}`;
+    const displayed = Math.round(t * 10) / 10;
+    return displayed >= 0 ? `+${displayed}` : `${displayed}`;
   });
 
   /**
@@ -106,6 +136,10 @@ export class WbPadComponent {
   readonly provenanceLabel = computed<string>(() => {
     const adj = this.adj();
     if (!adj || adj.wbSource === 'AsShot') return 'As Shot';
+    if (adj.wbSource === 'Preset')
+      return adj.whiteBalancePreset === 'Custom' ? 'Preset' : adj.whiteBalancePreset;
+    if (adj.wbSource === 'Auto')
+      return adj.wbAlgorithmVersion ? `Auto · v${adj.wbAlgorithmVersion}` : 'Auto';
     if (adj.wbSource !== 'Sampled') return adj.wbSource;
     // A pasted look can carry the source without the point — the point and
     // the version are non-copyable. Version 0 means "nothing derived this",
@@ -149,7 +183,7 @@ export class WbPadComponent {
       }
       return;
     }
-    if (this.editor.wbSampleInFlight()) return;
+    if (this.presetDisabled()) return;
     const id = this.library.focusedAssetId();
     if (!id) return;
     this.eyedropperActive.set(true);

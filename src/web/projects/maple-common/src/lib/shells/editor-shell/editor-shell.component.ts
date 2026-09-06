@@ -1,3 +1,4 @@
+import { isSupportedRaw } from '../../state/raw-extensions';
 // EditorShell — canvas-first layered editor (#1535, Pro Editor M1).
 //
 // Full-bleed <image-canvas> at the back; all chrome floats above.
@@ -501,13 +502,14 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** True once an asset is loaded — both controls need one to act on. */
   readonly hasFocusedAsset = computed<boolean>(() => this.state.focusedAssetId() != null);
 
-  /** AUTO is unavailable without an asset and while an analysis is running. */
   readonly autoDisabled = computed<boolean>(
-    () => !this.hasFocusedAsset() || this.editorState.autoInFlight(),
+    () =>
+      !isSupportedRaw(this.state.focusedAsset()?.filename ?? '') ||
+      this.editorState.autoInFlight() ||
+      this.editorState.wbSampleInFlight(),
   );
 
-  /** Analyse the RAW and apply AUTO's exposure (+ `autoExposure: 'Off'`, the
-   *  epic's load-bearing AE contract) as one undo entry. */
+  /** Apply the RAW tone and white-balance recommendation as one undo entry. */
   onAuto(): void {
     const id = this.state.focusedAssetId();
     if (id == null) return;
@@ -531,8 +533,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     const a = this.state.focusedAsset();
     return a ? basenameOf(a.filename) : '';
   });
-
-  // ── Navigation helpers (preserved) ────────────────────────────────────
 
   /** Back returns to Preview for the current asset (Preview → Edit → Back
    *  lands back where the user came from), matching the retired S5 editor's

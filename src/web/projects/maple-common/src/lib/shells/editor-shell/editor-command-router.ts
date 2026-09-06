@@ -64,6 +64,7 @@ export function focusContextOf(target: EventTarget | null, menuOpen: boolean): F
   if (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
     target.isContentEditable
   ) {
     return menuOpen && target.closest('mui-command-menu') ? 'menu' : 'text';

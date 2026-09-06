@@ -1,0 +1,11 @@
+<select
+  class="min-h-11 w-full rounded-lg border border-border bg-input-bg px-4 py-2 font-sans text-[13px] text-text-main outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-45"
+  [attr.aria-label]="ariaLabel()"
+  [value]="value()"
+  [disabled]="disabled()"
+  (change)="onNativeChange($any($event.target))"
+>
+  @for (option of options(); track option.value) {
+    <option [value]="option.value" [disabled]="option.disabled ?? false">{{ option.label }}</option>
+  }
+</select>
