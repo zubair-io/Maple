@@ -63,6 +63,14 @@ type FilenameTemplateResult =
 const RENDER_OUT_CAP = 1024;
 
 interface RawFfi {
+  /** Null means success; errors carry the native encoder's actionable message. */
+  exportRecipeToFile?(
+    rawPath: string,
+    xmp: string,
+    recipeJson: string,
+    filmPath: string | null,
+    outPath: string,
+  ): string | null;
   /**
    * Render a RAW+XMP and return a 3×256 RGB histogram (R/G/B channel counts),
    * computed in Rust. The rendered pixel buffer never crosses the FFI boundary
@@ -178,7 +186,12 @@ function nativeLibPath(): string {
     '..', // api/
     'native',
   );
-  const libName = process.platform === 'darwin' ? 'libraw_ffi.dylib' : 'libraw_ffi.so';
+  const libName =
+    process.platform === 'win32'
+      ? 'raw_ffi.dll'
+      : process.platform === 'darwin'
+        ? 'libraw_ffi.dylib'
+        : 'libraw_ffi.so';
   return path.join(dir, libName);
 }
 
@@ -231,6 +244,10 @@ function loadFfi(): RawFfi | null {
           FFIType.u8, // quality
           FFIType.cstring, // out_path
         ],
+        returns: FFIType.i32,
+      },
+      maple_export_recipe_to_file: {
+        args: [FFIType.cstring, FFIType.cstring, FFIType.cstring, FFIType.cstring, FFIType.cstring],
         returns: FFIType.i32,
       },
       maple_last_error: {
@@ -319,6 +336,20 @@ function loadFfi(): RawFfi | null {
         return histogramBinsFromBuffer(outBuf);
       },
 
+      exportRecipeToFile(rawPath, xmp, recipeJson, filmPath, outPath) {
+        const buffers = [rawPath, xmp, recipeJson, filmPath, outPath].map((value) =>
+          value === null ? null : Buffer.from(value + '\0'),
+        );
+        const code = lib.symbols.maple_export_recipe_to_file(
+          ptr(buffers[0]!),
+          ptr(buffers[1]!),
+          ptr(buffers[2]!),
+          buffers[3] ? ptr(buffers[3]) : null,
+          ptr(buffers[4]!),
+        );
+        return code === 0 ? null : String(lib.symbols.maple_last_error() || 'Native export failed');
+      },
+
       renderThumbnailAvifToFile(
         rawAbsPath: string,
         outAbsPath: string,
@@ -401,7 +432,11 @@ function loadFfi(): RawFfi | null {
 
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          return { ok: false, code: rc, error: errStr ?? `render failed with code ${rc}` };
+          return {
+            ok: false,
+            code: rc,
+            error: errStr ?? `render failed with code ${rc}`,
+          };
         }
         const outLen = Number(outLenBuf.readBigUInt64LE(0));
         return { ok: true, name: outBuf.subarray(0, outLen).toString('utf-8') };
@@ -412,7 +447,11 @@ function loadFfi(): RawFfi | null {
         const rc = lib.symbols.maple_validate_filename(ptr(nameBuf)) as number;
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          return { ok: false as const, code: rc, error: errStr ?? `invalid filename (code ${rc})` };
+          return {
+            ok: false as const,
+            code: rc,
+            error: errStr ?? `invalid filename (code ${rc})`,
+          };
         }
         return { ok: true as const };
       },

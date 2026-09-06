@@ -29,9 +29,9 @@ half = { workspace = true }
 # canonical `crs:GradientBasedCorrections` nested-RDF in a follow-up, this
 # dep can move back to `[dev-dependencies]` or drop entirely.
 serde_json.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
-serde.workspace = true
 tempfile = "3"
 clap = { workspace = true }
 

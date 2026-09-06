@@ -1,3 +1,5 @@
+import { EXPORT_RECIPE_SERVER } from '../export/export-recipe-server';
+import { SelfHostedExportRecipeService } from '../export/self-hosted-export-recipe.service';
 import { EnvironmentProviders, inject, makeEnvironmentProviders } from '@angular/core';
 import { map } from 'rxjs';
 import { HttpLibrarySource } from '../addressing/http-library-source';
@@ -54,5 +56,6 @@ export function provideSelfHostedWorkspace(): EnvironmentProviders {
     // through it).
     { provide: TRASH_CAPABILITY, useExisting: TrashService },
     { provide: PERSISTED_BATCH_SYNC, useExisting: SelfHostedBatchSyncService },
+    { provide: EXPORT_RECIPE_SERVER, useExisting: SelfHostedExportRecipeService },
   ]);
 }

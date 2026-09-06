@@ -185,6 +185,7 @@ RUN bun install --production --frozen-lockfile
 
 COPY src/api/src/ src/
 COPY src/api/tsconfig.json ./
+COPY resources/film-luts/ film-luts/
 
 # Angular bundle from stage 1.
 COPY --from=ui-builder /build/dist/maple/browser/ /app/ui/

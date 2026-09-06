@@ -1,3 +1,4 @@
+import { RecipeExportDialogComponent } from './recipe-export-dialog/recipe-export-dialog.component';
 // ExportDialogComponent — export options for the focused image (#943).
 //
 // State machine: options → exporting → done | error.
@@ -55,7 +56,12 @@ import type { MuiSegmentedToggleOption } from '../ui/segmented-toggle/mui-segmen
 @Component({
   selector: 'app-export-dialog',
   standalone: true,
-  imports: [MuiExportModalComponent, MuiOverlayShellComponent, MuiButtonComponent],
+  imports: [
+    MuiExportModalComponent,
+    MuiOverlayShellComponent,
+    MuiButtonComponent,
+    RecipeExportDialogComponent,
+  ],
   templateUrl: './export-dialog.component.html',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,6 +93,11 @@ export class ExportDialogComponent {
   ];
 
   // ── state ─────────────────────────────────────────────────────────────────
+  readonly recipesVisible = signal(false);
+  readonly recipeAssets = computed(() => {
+    const asset = this.asset();
+    return asset ? [asset] : [];
+  });
   readonly phase = signal<MuiExportModalPhase>('options');
   readonly errorMessage = signal<string>('');
   readonly outcome = signal<ExportOutcome | null>(null);

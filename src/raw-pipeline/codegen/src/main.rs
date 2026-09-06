@@ -35,6 +35,7 @@ mod adjustment_transfer;
 mod capability_registry;
 mod capability_summary;
 mod color_matrices;
+mod export_recipe;
 mod film_catalog;
 mod support_tiers;
 mod support_tiers_cs;
@@ -88,6 +89,7 @@ enum Target {
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum Schema {
+    ExportRecipe,
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
@@ -157,6 +159,13 @@ fn load_evidence(cli: &Cli) -> Evidence {
 fn main() {
     let cli = Cli::parse();
     let out = match (cli.schema, cli.target) {
+        (Schema::ExportRecipe, Target::Ts) => export_recipe::emit_ts(),
+        (Schema::ExportRecipe, Target::Swift) => export_recipe::emit_swift(),
+        (Schema::ExportRecipe, Target::Cs) => export_recipe::emit_cs(),
+        (Schema::ExportRecipe, _) => {
+            eprintln!("export-recipe supports ts / swift / cs");
+            std::process::exit(2);
+        }
         (Schema::AdjustmentTransfer, Target::Ts) => adjustment_transfer::emit_ts(),
         (Schema::AdjustmentTransfer, Target::Swift) => adjustment_transfer::emit_swift(),
         (Schema::AdjustmentTransfer, _) => {

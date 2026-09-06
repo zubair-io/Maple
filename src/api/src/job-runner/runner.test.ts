@@ -170,6 +170,56 @@ describe('JobRunner', () => {
     expect(after!.locked_by).toBeNull();
   });
 
+  it('renews the lease while a handler waits without reporting photo progress', async () => {
+    if (!mongoReachable) return;
+    const { JobRunner } = await import('./runner.ts');
+    const repo = await import('./jobs.repo.ts');
+    const job = await repo.createJob({ kind: 'batch_recipe_export', payload: {} });
+    const runner = new JobRunner({
+      workerId: 'long-render',
+      leaseMs: 300,
+      handlers: {
+        batch_recipe_export: {
+          async run() {
+            await new Promise((resolve) => setTimeout(resolve, 850));
+            expect(await repo.claimJob('competitor', 300)).toBeNull();
+            expect((await repo.getJob(job._id))?.locked_by).toBe('long-render');
+            return { kind: 'done', result: {} };
+          },
+        },
+      },
+    });
+    expect((await runner.tick()).kind).toBe('completed');
+  });
+
+  it('fences publication after a long handler loses its lease', async () => {
+    if (!mongoReachable) return;
+    const { JobRunner } = await import('./runner.ts');
+    const repo = await import('./jobs.repo.ts');
+    const job = await repo.createJob({ kind: 'batch_recipe_export', payload: {} });
+    const runner = new JobRunner({
+      workerId: 'old-render',
+      leaseMs: 150,
+      handlers: {
+        batch_recipe_export: {
+          async run(_payload, ctx) {
+            await db!
+              .collection('jobs')
+              .updateOne({ _id: job._id }, { $set: { locked_by: 'new-render' } });
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await ctx.saveCheckpoint!({ wouldPublish: true });
+            throw new Error('Publication guard was bypassed');
+          },
+        },
+      },
+    });
+    const tick = await runner.tick();
+    expect(tick.kind).toBe('failed');
+    expect(tick.kind === 'failed' && tick.error).toContain('lease was claimed');
+    expect((await repo.getJob(job._id))?.checkpoint).toBeUndefined();
+    expect((await repo.getJob(job._id))?.locked_by).toBe('new-render');
+  });
+
   it('returns no-claim when there is nothing queued', async () => {
     if (!mongoReachable) return;
     const { JobRunner } = await import('./runner.ts');

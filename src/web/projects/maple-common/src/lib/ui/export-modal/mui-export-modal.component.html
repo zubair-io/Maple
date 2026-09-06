@@ -89,6 +89,8 @@
           [sizeHint]="sizeHint()"
         />
 
+        <ng-content />
+
         @if (exporting()) {
           <mui-progress shape="bar" [value]="progress()" label="Exporting…" />
         }

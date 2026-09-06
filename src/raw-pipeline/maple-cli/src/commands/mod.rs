@@ -12,6 +12,7 @@ pub mod auto_tail_ramp;
 pub mod auto_tone;
 pub mod batch;
 pub mod diff;
+pub mod export_recipe;
 pub mod extract_preview;
 pub mod film_pack;
 pub mod fit_acr;

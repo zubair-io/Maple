@@ -50,6 +50,7 @@ pub mod icc;
 
 /// Edited-image export — render + encode to a deliverable file (#943).
 pub mod export;
+pub mod export_recipe;
 
 /// Embedded-preview extraction shared by raw-ffi (native, file-based) and
 /// raw-wasm (browser, bytes-based) — see the module doc for why this lives

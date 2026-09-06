@@ -34,6 +34,7 @@ export interface ClaimedJob {
   kind: JobKind;
   payload: Record<string, unknown>;
   checkpoint?: Record<string, unknown>;
+  progress: { current: number; total: number };
 }
 
 export interface ListJobsFilter {
@@ -96,8 +97,13 @@ export async function getJob(id: ObjectId): Promise<JobWithId | null> {
 /** List jobs filtered by status and/or kind, newest first. Hard-capped at 200. */
 export async function listJobs(filter: ListJobsFilter): Promise<JobWithId[]> {
   const c = await jobsCollection();
+  // Existing import/job list query symmetry uses distinct typed repositories.
+  // fallow-ignore-next-line code-duplication
   const status = filter.statuses?.length ? { $in: filter.statuses } : filter.status;
-  const q = { ...(status ? { status } : {}), ...(filter.kind ? { kind: filter.kind } : {}) };
+  const q = {
+    ...(status ? { status } : {}),
+    ...(filter.kind ? { kind: filter.kind } : {}),
+  };
   const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
   const docs = (await c
     .find(q)
@@ -153,6 +159,7 @@ export async function claimJob(
     kind: result.kind,
     payload: result.payload,
     checkpoint: result.checkpoint,
+    progress: result.progress,
   };
 }
 
@@ -168,8 +175,11 @@ export async function updateProgress(
   const c = await jobsCollection();
   const nowDate = now();
   const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
-  await c.updateOne(
-    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
+  const result = await c.updateOne(
+    {
+      _id: id,
+      ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}),
+    },
     {
       $set: {
         progress,
@@ -178,6 +188,8 @@ export async function updateProgress(
       },
     },
   );
+  if (workerId && result.matchedCount !== 1)
+    throw new Error('The job lease was claimed by another worker');
 }
 
 /** Mark a job done with its result payload. Releases the lock. */
@@ -290,7 +302,11 @@ export async function saveJobCheckpoint(
 export async function resumeBatchJob(id: ObjectId): Promise<boolean> {
   const c = await jobsCollection();
   const result = await c.updateOne(
-    { _id: id, kind: 'batch_adjustment_sync', status: { $in: ['failed', 'cancelled'] } },
+    {
+      _id: id,
+      kind: { $in: ['batch_adjustment_sync', 'batch_recipe_export', 'batch_jpeg_export'] },
+      status: { $in: ['failed', 'cancelled'] },
+    },
     {
       $set: {
         status: 'queued',

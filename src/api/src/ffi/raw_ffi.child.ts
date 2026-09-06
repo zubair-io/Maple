@@ -46,7 +46,24 @@ function send(msg: FfiResponse): void {
 // fallow-ignore-next-line complexity
 function handle(req: FfiRequest): FfiResponse {
   if (!ffi) {
-    return { type: req.type, id: req.id, ok: false, error: 'raw-ffi dylib not loaded in child' };
+    return {
+      type: req.type,
+      id: req.id,
+      ok: false,
+      error: 'raw-ffi dylib not loaded in child',
+    };
+  }
+
+  if (req.type === 'exportRecipe') {
+    const error =
+      ffi.exportRecipeToFile?.(req.rawPath, req.xmp, req.recipeJson, req.filmPath, req.outPath) ??
+      (ffi.exportRecipeToFile ? null : 'Rebuild raw-ffi: recipe encoder unavailable');
+    return {
+      type: req.type,
+      id: req.id,
+      ok: !error,
+      error: error ?? undefined,
+    };
   }
 
   if (req.type === 'renderThumb') {
@@ -98,7 +115,12 @@ function handle(req: FfiRequest): FfiResponse {
   // buffer ever crosses), then across IPC. See `maple_histogram_file`.
   const bins = ffi.computeHistogramBins(req.rawPath, req.xmpPath ?? null);
   if (!bins) {
-    return { type: 'histogram', id: req.id, ok: false, error: 'render-failed (see child stderr)' };
+    return {
+      type: 'histogram',
+      id: req.id,
+      ok: false,
+      error: 'render-failed (see child stderr)',
+    };
   }
   return { type: 'histogram', id: req.id, ok: true, bins };
 }

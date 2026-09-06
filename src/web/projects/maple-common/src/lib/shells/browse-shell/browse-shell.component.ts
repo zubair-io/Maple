@@ -1,3 +1,4 @@
+import { RecipeExportDialogComponent } from '../../export/recipe-export-dialog/recipe-export-dialog.component';
 // BrowseShell — 3-column layout + window chrome + keyboard handling.
 // Ported from _design-reference/app.jsx (WindowChrome + App layout).
 // P7: window.location.href navigation replaced by Router.
@@ -68,6 +69,7 @@ import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summar
     PasteSettingsDialogComponent,
     SourcePickerDrawerComponent,
     ToolbarActionsComponent,
+    RecipeExportDialogComponent,
     DragMoveCollisionDialogComponent,
     DragMoveSummaryBannerComponent,
     BatchSyncBannerComponent,
@@ -78,6 +80,10 @@ import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summar
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrowseShellComponent {
+  readonly exportRecipesVisible = signal(false);
+  readonly exportAssets = computed(() =>
+    this.state.assets().filter((asset) => this.state.selectedAssetIds().has(asset.id)),
+  );
   readonly showServerSearch = input(false);
   readonly serverSearchRequested = output<void>();
 
