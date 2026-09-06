@@ -11,6 +11,7 @@
     "maple-ui:check": "node scripts/sync-maple-ui-docs.mjs --check",
     "check:hosted-capabilities": "node scripts/check-hosted-capability-boundary.mjs",
     "check:native-detail-browser": "node scripts/check-native-detail-browser.mjs",
+    "check:cold-export-lens": "bun scripts/check-cold-export-lens.ts",
     "maple-ui:adoption-check": "node scripts/check-maple-ui-adoption.mjs",
     "raw-wasm": "npm run build-raw-wasm && npm run sync-raw-wasm",
     "prestart": "npm run raw-wasm",
