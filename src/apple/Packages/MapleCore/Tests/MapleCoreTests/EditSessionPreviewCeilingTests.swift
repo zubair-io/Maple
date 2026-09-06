@@ -53,6 +53,28 @@ final class EditSessionPreviewCeilingTests: XCTestCase {
     XCTAssertEqual(try cpuExtent(session), CGSize(width: 16, height: 16))
   }
 
+  func testPreviewSeedsClearPreviousRawCameraSupport() async throws {
+    let session = try makeRawSession()
+    try await warmCache(session)
+    let decoded = await session.renderActor.snapshot(forAsset: session.asset)
+    XCTAssertNotNil(decoded.cameraSupport)
+    let image = try XCTUnwrap(decoded.image)
+    await session.renderActor.seed(
+      asset: session.asset, decoded: image, rawResolution: decoded.rawResolution)
+    let seeded = await session.renderActor.snapshot(forAsset: session.asset)
+    XCTAssertNil(seeded.cameraSupport)
+
+    try await warmCache(session)
+    let raw = await session.renderActor.snapshot(forAsset: session.asset)
+    XCTAssertNotNil(raw.cameraSupport)
+    let other = AssetRef(displayName: "preview.jpg", hintExtension: "jpg") { Data() }
+    let inserted = await session.renderActor.seedIfUnpopulated(
+      asset: other, decoded: image, rawResolution: decoded.rawResolution)
+    XCTAssertTrue(inserted)
+    let otherSeed = await session.renderActor.snapshot(forAsset: other)
+    XCTAssertNil(otherSeed.cameraSupport)
+  }
+
   private func checkRawRender(cached: Bool, gpu: Bool) async throws {
     let session = try makeRawSession()
     // Warm through sharedDecode itself: this records the real profile/AE keys
@@ -69,6 +91,11 @@ final class EditSessionPreviewCeilingTests: XCTestCase {
     XCTAssertEqual(after.image?.extent.size, CGSize(width: 64, height: 64))
     XCTAssertEqual(after.decodeGeneration, before.decodeGeneration + (cached ? 0 : 1))
     XCTAssertTrue(after.isFresh)
+    XCTAssertNotNil(after.cameraSupport)
+    XCTAssertEqual(session.cameraSupport, after.cameraSupport)
+    let other = AssetRef(displayName: "another.dng", hintExtension: "dng") { Data() }
+    let otherSnapshot = await session.renderActor.snapshot(forAsset: other)
+    XCTAssertNil(otherSnapshot.cameraSupport, "Never show a previous asset’s support")
     let output = try await outputExtent(session, gpu: gpu)
     XCTAssertEqual(output, CGSize(width: 32, height: 32))
     await session.gpuLiveDriver?.closeSession()

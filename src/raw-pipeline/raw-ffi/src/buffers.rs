@@ -199,6 +199,9 @@ pub struct MapleSceneLinearBufferF32 {
     /// (distortion does nothing). Appended at the struct tail per the
     /// offset-stable ABI convention.
     pub lens_correction_distortion_inert: u32,
+    /// UTF-8 JSON camera key and actual resolver outcome; owned by this buffer.
+    /// Null only for an empty buffer. Freed by maple_free_scene_linear_buffer_f32.
+    pub camera_support_json: *mut std::ffi::c_char,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -233,6 +236,7 @@ impl MapleSceneLinearBufferF32 {
             has_lens_corrections: 0,
             lens_correction_ca_inert: 1,
             lens_correction_distortion_inert: 1,
+            camera_support_json: std::ptr::null_mut(),
         }
     }
 }
@@ -256,6 +260,9 @@ pub unsafe extern "C" fn maple_free_scene_linear_buffer_f32(
         let slice =
             std::slice::from_raw_parts_mut(b.noise_profile_data, b.noise_profile_len as usize);
         drop(Box::from_raw(slice as *mut [f32]));
+    }
+    if !b.camera_support_json.is_null() {
+        drop(std::ffi::CString::from_raw(b.camera_support_json));
     }
     *b = MapleSceneLinearBufferF32::empty();
 }
