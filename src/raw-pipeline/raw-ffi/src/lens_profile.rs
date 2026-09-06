@@ -31,7 +31,15 @@ pub unsafe extern "C" fn maple_lens_profile_selected(
     let result = std::str::from_utf8(std::slice::from_raw_parts(xml, length))
         .map_err(|error| error.to_string())
         .and_then(|xml| raw_core::xmp::parse(xml).map_err(|error| error.to_string()))
-        .map(|model| format!(r#"{{"reference":"{}"}}"#, model.lens_profile));
+        .map(|model| {
+            let enabled =
+                raw_core::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(&model)
+                    != raw_core::pipeline::pano::opcode_apply::LensCorrectionScales::NONE;
+            format!(
+                r#"{{"reference":"{}","enabled":{}}}"#,
+                model.lens_profile, enabled
+            )
+        });
     output_json(out_json, result)
 }
 
@@ -144,7 +152,7 @@ mod tests {
             );
             assert_eq!(
                 CStr::from_ptr(out).to_str().unwrap(),
-                format!(r#"{{"reference":"{}"}}"#, reference)
+                format!(r#"{{"reference":"{}","enabled":true}}"#, reference)
             );
             maple_free_lens_profile_json(out);
             let invalid = br#"<rdf:Description papp:LensProfile="other:bad"/>"#;
