@@ -6,8 +6,12 @@ import type {
   LensProfileSuccess,
 } from '../lens/lens-profile.types';
 import { ensureReady } from './raw-pipeline.worker-handlers';
+import { LensProfileRestorer } from '../lens/lens-profile-restorer';
 
-const loaded = new Set<string>();
+const restorer = new LensProfileRestorer(async (xmp) => {
+  await ensureReady();
+  return selectedLensProfile(xmp);
+}, restoreCachedProfile);
 const waiting = new Map<number, () => void>();
 let nextFetch = 1;
 export function lensProfileRestored(id: number): void {
@@ -21,32 +25,11 @@ function requestRestore(reference: string): Promise<void> {
     postMessage({ id, type: 'lens-profile-fetch', reference });
   });
 }
-let previousAttribute: string | null = null;
-let previousReference = '';
-
-/** Empty selection performs no IDB I/O; repeated ticks only read the cache. */
-export async function restoreLensProfile(xmp: string | null): Promise<void> {
-  if (!xmp) return;
-  const attribute = /(?:^|\s)papp:LensProfile\s*=\s*(["'])(.*?)\1/s.exec(xmp)?.[2] ?? '';
-  if (!attribute) return;
-  await ensureReady();
-  if (previousAttribute !== attribute) {
-    previousReference = selectedLensProfile(xmp);
-    previousAttribute = attribute;
-  }
-  const reference = previousReference;
-  if (!reference) return;
-  const digest = lensProfileDigest(reference);
-  if (loaded.has(digest)) return;
-  try {
-    await restoreCachedProfile(reference, digest);
-  } catch {
-    // Storage denial or corrupt cached bytes cannot block an embedded or
-    // disabled correction. Core still fails explicitly if this LCP is required.
-  }
+export function restoreLensProfile(xmp: string | null): Promise<void> {
+  return restorer.restore(xmp);
 }
 
-async function restoreCachedProfile(reference: string, digest: string): Promise<void> {
+async function restoreCachedProfile(reference: string, digest: string): Promise<boolean> {
   let xml = await cachedLensProfile(reference);
   if (!xml) {
     await requestRestore(reference);
@@ -54,11 +37,11 @@ async function restoreCachedProfile(reference: string, digest: string): Promise<
   }
   // Let the renderer decide: embedded corrections take priority, and a master-
   // disabled selection needs no external bytes. Otherwise core reports missing.
-  if (!xml) return;
+  if (!xml) return false;
   const registered: { reference: string } = JSON.parse(registerLensProfile(xml));
   if (lensProfileDigest(registered.reference) !== digest)
     throw new Error('The cached lens profile does not match this edit. Import the original LCP.');
-  loaded.add(digest);
+  return true;
 }
 
 export async function importLensProfile(req: LensProfileRequest): Promise<void> {
@@ -72,7 +55,7 @@ export async function importLensProfile(req: LensProfileRequest): Promise<void> 
   // Persist before reporting success: committing an edit whose only profile
   // copy lives in this worker would strand it after the browser is closed.
   await cacheLensProfile(registration.reference, req.xml);
-  loaded.add(lensProfileDigest(registration.reference));
+  restorer.registered(registration.reference);
   const reply: LensProfileSuccess = {
     id: req.id,
     type: 'lens-profile-success',
