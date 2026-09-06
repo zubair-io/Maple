@@ -146,6 +146,7 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
                 asShotTint: 0,
               }),
             ),
+            closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
           },
         },

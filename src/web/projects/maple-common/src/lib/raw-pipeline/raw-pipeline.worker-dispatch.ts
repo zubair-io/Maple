@@ -184,19 +184,27 @@ const settleExport: Settler<'export'> = (msg, handler) => {
   return false;
 };
 
+const settleNativeDetail = (
+  msg: WorkerResponse,
+  handler: Extract<PendingHandler, { kind: 'native-detail' }>,
+): boolean => {
+  if (msg.type === 'native-detail-success') {
+    handler.resolve({ width: msg.width, height: msg.height, rgb: new Uint8Array(msg.rgb) });
+    return true;
+  }
+  if (msg.type === 'native-detail-error') {
+    handler.reject(msg.superseded ? new NativeDetailSupersededError() : new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 /** Pick the settler for `handler.kind` and report whether it recognised `msg`. */
-function settleByKind(msg: WorkerResponse, handler: PendingHandler): boolean {
+function settleByKind(
+  msg: WorkerResponse,
+  handler: Exclude<PendingHandler, { kind: 'native-detail' }>,
+): boolean {
   switch (handler.kind) {
-    case 'native-detail':
-      if (msg.type === 'native-detail-success') {
-        handler.resolve({ width: msg.width, height: msg.height, rgb: new Uint8Array(msg.rgb) });
-        return true;
-      }
-      if (msg.type === 'native-detail-error') {
-        handler.reject(msg.superseded ? new NativeDetailSupersededError() : new Error(msg.message));
-        return true;
-      }
-      return false;
     case 'legacy':
       return settleLegacy(msg, handler);
     case 'scene-linear':
@@ -218,7 +226,11 @@ function settleByKind(msg: WorkerResponse, handler: PendingHandler): boolean {
 
 /** Hand `msg` to the settler for `handler.kind`, rejecting if it goes unrecognised. */
 function settle(msg: WorkerResponse, handler: PendingHandler): void {
-  if (settleByKind(msg, handler)) return;
+  const recognized =
+    handler.kind === 'native-detail'
+      ? settleNativeDetail(msg, handler)
+      : settleByKind(msg, handler);
+  if (recognized) return;
   // Mismatched response type and handler kind — should never happen because ids
   // are unique and the worker only emits success/error matching the request
   // type. Reject defensively to avoid hangs.

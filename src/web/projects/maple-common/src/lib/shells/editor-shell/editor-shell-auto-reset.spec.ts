@@ -160,6 +160,7 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
             // it to drive the determinate BM3D indicator. The stub has to carry
             // it or the component throws on construction — this spec and that
             // change landed against a main that did not yet contain the other.
+            closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
           },
         },
