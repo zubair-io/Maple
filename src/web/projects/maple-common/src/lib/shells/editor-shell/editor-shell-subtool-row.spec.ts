@@ -106,6 +106,7 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
       assetsInSelectedFolder: () => [focused()!].filter(Boolean),
       isSelecting: () => false,
       adjustmentFor: (id: AssetId) => modelFor(id),
+      asShotWbFor: () => null,
       updateAdjustment: (id: AssetId, patch: Partial<AdjustmentModel>) => {
         modelFor(id).update((m) => ({ ...m, ...patch }));
       },
