@@ -92,7 +92,9 @@ fn pipeline_mismatch_at_same_cursor_rebuilds_not_reuses() {
     // Frame 1 — pipeline A at cursor 0: a miss (uniform + bind group = 2 allocs).
     ctx.frame_pool.borrow_mut().begin_frame(sig);
     let base = ctx.frame_pool.borrow().alloc_count();
-    let _ = pool_dispatch(&ctx, &pa, |d| dispatch_res(d, &pa, &storage));
+    let _ = pool_dispatch(&ctx, &pa, &[0; 16], &[&storage], |d| {
+        dispatch_res(d, &pa, &storage)
+    });
     ctx.frame_pool.borrow_mut().end_frame();
     let first = ctx.frame_pool.borrow().alloc_count() - base;
     assert_eq!(first, 2, "first dispatch builds a uniform + a bind group");
@@ -102,7 +104,9 @@ fn pipeline_mismatch_at_same_cursor_rebuilds_not_reuses() {
     // wgpu validation error (the #1667 freeze). The guard must rebuild (2 allocs).
     ctx.frame_pool.borrow_mut().begin_frame(sig);
     let pre_mismatch = ctx.frame_pool.borrow().alloc_count();
-    let _ = pool_dispatch(&ctx, &pb, |d| dispatch_res(d, &pb, &storage));
+    let _ = pool_dispatch(&ctx, &pb, &[0; 16], &[&storage], |d| {
+        dispatch_res(d, &pb, &storage)
+    });
     ctx.frame_pool.borrow_mut().end_frame();
     let mismatch = ctx.frame_pool.borrow().alloc_count() - pre_mismatch;
     assert_eq!(
@@ -115,11 +119,162 @@ fn pipeline_mismatch_at_same_cursor_rebuilds_not_reuses() {
     // the cursor-0 entry, so this is a zero-alloc hit (caching still works).
     ctx.frame_pool.borrow_mut().begin_frame(sig);
     let pre_hit = ctx.frame_pool.borrow().alloc_count();
-    let _ = pool_dispatch(&ctx, &pb, |d| dispatch_res(d, &pb, &storage));
+    let _ = pool_dispatch(&ctx, &pb, &[0; 16], &[&storage], |d| {
+        dispatch_res(d, &pb, &storage)
+    });
     ctx.frame_pool.borrow_mut().end_frame();
     let hit = ctx.frame_pool.borrow().alloc_count() - pre_hit;
     assert_eq!(
         hit, 0,
         "the same pipeline at the same cursor must be a zero-alloc cache hit"
     );
+}
+
+#[test]
+fn unchanged_uniforms_skip_uploads_and_changed_values_reach_the_gpu() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let pipeline = trivial_pipeline(&ctx.device, "uniform-cache");
+    let output = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("uniform-cache-output"),
+        size: 16,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let values = [1.0f32, 1.0, 1.0, -2.0, -2.0, 3.0, 3.0];
+    for (index, value) in values.into_iter().enumerate() {
+        ctx.frame_pool.borrow_mut().begin_frame(99);
+        let params = [value, 0.0, 0.0, 0.0];
+        let resources = pool_dispatch(
+            &ctx,
+            &pipeline,
+            bytemuck::bytes_of(&params),
+            &[&output],
+            |device| dispatch_res(device, &pipeline, &output),
+        );
+        let mut encoder = ctx.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        ctx.queue.submit(Some(encoder.finish()));
+        let pixels =
+            pollster::block_on(crate::chain::read_buffer_async(&ctx, &output, 16)).unwrap();
+        assert_eq!(pixels[0], value);
+        let pool = ctx.frame_pool.borrow();
+        assert_eq!(
+            pool.alloc_count(),
+            2,
+            "stable dispatch must reuse resources"
+        );
+        assert_eq!(
+            pool.uniform_upload_count.get(),
+            [1, 1, 1, 2, 2, 3, 3][index]
+        );
+        drop(pool);
+        ctx.frame_pool.borrow_mut().end_frame();
+    }
+}
+
+#[test]
+fn two_recent_signatures_reuse_resources_and_eviction_rebinds_correct_output() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let pipeline = trivial_pipeline(&ctx.device, "bounded-signatures");
+    let outputs = [0, 1, 2].map(|_| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("signature-output"),
+            size: 16,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    });
+    let run = |sig: u64| {
+        let output = &outputs[sig as usize - 1];
+        let params = [sig as f32, 0.0, 0.0, 0.0];
+        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        let resources = pool_dispatch(
+            &ctx,
+            &pipeline,
+            bytemuck::bytes_of(&params),
+            &[output],
+            |device| dispatch_res(device, &pipeline, output),
+        );
+        let mut encoder = ctx.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        ctx.queue.submit(Some(encoder.finish()));
+        let pixels = pollster::block_on(crate::chain::read_buffer_async(&ctx, output, 16)).unwrap();
+        assert_eq!(
+            pixels[0], sig as f32,
+            "eviction must not reuse another image's bindings"
+        );
+        ctx.frame_pool.borrow_mut().end_frame();
+        assert!(ctx.frame_pool.borrow().buckets.len() <= 2);
+    };
+    for tick in 0..40 {
+        run(1 + tick % 2);
+    }
+    assert_eq!(
+        ctx.frame_pool.borrow().alloc_count(),
+        4,
+        "A/B crossing stays warm"
+    );
+    run(3);
+    assert!(!ctx.frame_pool.borrow().buckets.contains_key(&1));
+    assert!(ctx.frame_pool.borrow().buckets.contains_key(&2));
+    run(1);
+    assert_eq!(
+        ctx.frame_pool.borrow().alloc_count(),
+        8,
+        "evicted entries rebuild once"
+    );
+    assert!(!ctx.frame_pool.borrow().buckets.contains_key(&2));
+}
+
+#[test]
+fn replaced_storage_at_same_cursor_rebinds_without_stale_output() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let pipeline = trivial_pipeline(&ctx.device, "replaced-storage");
+    let outputs = [16, 32].map(|size| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("resized-storage"),
+            size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    });
+    // Same signature, cursor, pipeline and uniform; only the actual buffer
+    // changes. A resized lattice has this shape even without stage changes.
+    for index in [0, 1, 1] {
+        let output = &outputs[index];
+        ctx.frame_pool.borrow_mut().begin_frame(3363);
+        let params = [7.0f32, 0.0, 0.0, 0.0];
+        let resources = pool_dispatch(
+            &ctx,
+            &pipeline,
+            bytemuck::bytes_of(&params),
+            &[output],
+            |device| dispatch_res(device, &pipeline, output),
+        );
+        let mut encoder = ctx.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        ctx.queue.submit(Some(encoder.finish()));
+        let pixels = pollster::block_on(crate::chain::read_buffer_async(&ctx, output, 16)).unwrap();
+        assert_eq!(
+            pixels[0], 7.0,
+            "replacement must receive the dispatched output"
+        );
+        ctx.frame_pool.borrow_mut().end_frame();
+        assert_eq!(ctx.frame_pool.borrow().alloc_count(), 2 + 2 * index as u64);
+    }
 }

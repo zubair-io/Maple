@@ -91,12 +91,12 @@ pub(crate) fn hsl_pass_for(inputs: &FullChainInputs) -> HslPass {
         bw_active: inputs.bw_active,
     }
 }
+use crate::color_grade::{ColorGradePass, ColorGradeSliders};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
-use crate::color_grade::{ColorGradePass, ColorGradeSliders};
 use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::{ToneCurveInputs, ToneCurvesPass};
@@ -107,7 +107,7 @@ use crate::white_balance::WhiteBalancePass;
 /// An ordered, owned list of chain stages. Boxed because the stages are
 /// heterogeneous [`Pass`] impls; owned (not `&dyn`) so the builder can hand back
 /// a self-contained Vec the caller borrows into `&dyn Pass` at run time.
-pub type BoxedPasses = Vec<Box<dyn Pass>>;
+pub type BoxedPasses<'a> = Vec<Box<dyn Pass + 'a>>;
 
 /// The slider + per-image inputs that drive the full chain. One value per GPU
 /// stage, sourced from the same place the CPU oracle reads — so the GPU Vec and
@@ -120,7 +120,7 @@ pub type BoxedPasses = Vec<Box<dyn Pass>>;
 /// pipeline derives them before uploading. Dehaze's airlight is the lone
 /// exception — it is position-dependent (see the module docs) and supplied
 /// separately to [`build_full_chain_passes`].
-pub struct FullChainInputs {
+pub struct FullChainInputs<'a> {
     /// Pre-derived linear-Rec.2020 white-balance matrix (raw-core's
     /// `wb_cat16_matrix` or a diagonal from `wb_gains`).
     pub wb_matrix: [[f32; 3]; 3],
@@ -210,11 +210,11 @@ pub struct FullChainInputs {
     pub capture_sharpening: Option<CaptureSharpeningParams>,
     /// Flat Auto Profile curve (`ProfileCurve::to_flat()`,
     /// [`crate::PROFILE_CURVE_FLAT_LEN`] floats).
-    pub profile_curve_flat: Vec<f32>,
+    pub profile_curve_flat: std::borrow::Cow<'a, [f32]>,
     /// Auto Profile residual LUT node count per axis.
     pub residual_lut_size: usize,
     /// Auto Profile residual LUT flat grid (`size³ × 3` floats).
-    pub residual_lut_data: Vec<f32>,
+    pub residual_lut_data: std::borrow::Cow<'a, [f32]>,
     /// Target display primaries for the `display_encode` view-tail stage
     /// (ticket #1337): `0` = sRGB (default, legacy-compatible), `1` = Display P3.
     ///
@@ -257,7 +257,7 @@ pub struct FullChainInputs {
     pub film_lut_key: u32,
     /// Flat film-look grid (`film_lut_size`³ × 3 floats, layout
     /// `((b*N+g)*N+r)*3+c`). Empty = off (paired with `film_lut_size == 0`).
-    pub film_lut_data: Vec<f32>,
+    pub film_lut_data: std::borrow::Cow<'a, [f32]>,
     /// Display-referred point-curve inputs (#2232, `crs:ToneCurvePV2012*`).
     /// Runs post-AgX, before `color_grade` — a DIFFERENT quantity from
     /// `tone_curves` above (which runs pre-AgX in scene-linear light).
@@ -330,7 +330,10 @@ pub fn color_grade_sliders(inputs: &FullChainInputs) -> ColorGradeSliders {
 }
 
 /// Passing `airlight` builds the `DehazePass` at the head of the suffix.
-pub fn build_full_chain_passes(inputs: &FullChainInputs, airlight: [f32; 3]) -> BoxedPasses {
+pub fn build_full_chain_passes<'a>(
+    inputs: &'a FullChainInputs<'_>,
+    airlight: [f32; 3],
+) -> BoxedPasses<'a> {
     let (prefix, suffix) = build_split(inputs, airlight);
     let mut all = prefix;
     all.extend(suffix);
@@ -347,7 +350,10 @@ pub fn build_full_chain_passes(inputs: &FullChainInputs, airlight: [f32; 3]) -> 
 // capture_sharpening pass is conditionally pushed, and the stage-per-line shape
 // keeps the develop-order assembly legible (one push = one stage, in order).
 #[allow(clippy::vec_init_then_push)]
-pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses, BoxedPasses) {
+pub fn build_split<'a>(
+    inputs: &'a FullChainInputs<'_>,
+    airlight: [f32; 3],
+) -> (BoxedPasses<'a>, BoxedPasses<'a>) {
     // --- Prefix: capture_sharpening (FIRST, matching develop's 04b placement,
     //     pre-WB/pre-auto-exposure) through texture. Everything dehaze's
     //     airlight must be measured downstream of. ---
@@ -456,7 +462,7 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
         suffix.push(Box::new(FilmLutPass {
             size: inputs.film_lut_size,
             strength: inputs.film_strength,
-            data: inputs.film_lut_data.clone(),
+            data: inputs.film_lut_data.as_ref().into(),
         }));
     }
     // Film grain (#1110) — display-linear, post-AgX, before the target
@@ -478,11 +484,11 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     // apply_curve → ColorLut::apply).
     suffix.push(Box::new(SrgbGammaPass));
     suffix.push(Box::new(AutoProfileCurvePass {
-        flat_curve: inputs.profile_curve_flat.clone(),
+        flat_curve: inputs.profile_curve_flat.as_ref().into(),
     }));
     suffix.push(Box::new(ResidualLutPass {
         size: inputs.residual_lut_size,
-        data: inputs.residual_lut_data.clone(),
+        data: inputs.residual_lut_data.as_ref().into(),
     }));
 
     (prefix, suffix)

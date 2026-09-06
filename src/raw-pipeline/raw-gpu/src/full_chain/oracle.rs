@@ -130,7 +130,7 @@ pub struct Case {
 impl Case {
     /// Assemble the GPU-side [`FullChainInputs`] from this case's model + per-
     /// image data — the GPU stage params come straight from the CPU model.
-    pub fn gpu_inputs(&self) -> FullChainInputs {
+    pub fn gpu_inputs(&self) -> FullChainInputs<'static> {
         FullChainInputs {
             wb_matrix: wb_matrix(self.model.temperature, self.model.tint, self.wb_method),
             wb_temperature: self.model.temperature,
@@ -237,9 +237,9 @@ impl Case {
             nr_color: self.model.nr_color,
             contrast: self.model.contrast,
             capture_sharpening: self.capture,
-            profile_curve_flat: self.curve.to_flat(),
+            profile_curve_flat: self.curve.to_flat().into(),
             residual_lut_size: self.lut.size,
-            residual_lut_data: self.lut.data.clone(),
+            residual_lut_data: self.lut.data.clone().into(),
             // sRGB primaries — oracle always uses the default (#1337).
             target_primaries: 0,
             // All oracle cases are RAW — the full chain.
@@ -266,7 +266,8 @@ impl Case {
                 .film_lut
                 .as_ref()
                 .map(|l| l.data.clone())
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .into(),
             display_tone_curves: DisplayToneCurveInputs {
                 master: self.model.display_tone_curve_luma.points.clone(),
                 red: self.model.display_tone_curve_red.points.clone(),

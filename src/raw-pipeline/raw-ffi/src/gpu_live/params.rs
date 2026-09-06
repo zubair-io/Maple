@@ -6,6 +6,7 @@
 
 use super::MapleGpuLiveParams;
 use raw_gpu::{FullChainInputs, InputShape};
+use std::borrow::Cow;
 
 /// Read a flat `(ptr, len)` f32 array into an owned `Vec` of `(x, y)` point pairs
 /// (the [`raw_gpu::ToneCurveInputs`] point shape). A null pointer or zero len ⇒
@@ -54,13 +55,14 @@ fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f
 
 /// Build the `raw_gpu::FullChainInputs` the live chain consumes from the C params,
 /// deriving the WB matrix from temp/tint the same way the CPU chain does. The
-/// curve/LUT/tone-curve arrays are copied out of the caller's buffers here, so the
-/// returned `FullChainInputs` owns its data and the caller's pointers need not
-/// outlive the render.
+/// large immutable profile/film arrays are borrowed for the synchronous render;
+/// short editable point-curve arrays are owned. The host keeps all pointers live
+/// until the FFI call returns; GPU uploads copy into independently owned buffers.
 ///
 /// # Safety
-/// `p` and every non-null `(ptr, len)` it carries must be valid for the read.
-pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs {
+/// `p` and every non-null `(ptr, len)` it carries must remain valid and immutable
+/// for the returned inputs' lifetime (bounded by the synchronous FFI call).
+pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs<'_> {
     use raw_gpu::{CurveMode, ToneCurveInputs};
 
     let wb_method = match p.wb_method {
@@ -203,8 +205,8 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
 
     // Film look (epic #2683, Task 8) — computed once, ahead of the struct
     // literal, so a mismatched host buffer is validated/logged exactly once.
-    let (film_lut_size, film_lut_data) =
-        film_lut_or_off(p.film_lut_size, p.film_lut_ptr, p.film_lut_len);
+    let (film_lut_size, film_lut_data) = film_lut_or_off(p);
+    let (residual_lut_size, residual_lut_data) = residual_or_identity(p);
 
     FullChainInputs {
         wb_matrix,
@@ -329,13 +331,9 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         // pointers are NULL → empty here, which would panic the passes. Default to
         // the IDENTITY curve + an identity 2³ LUT: both are exact no-ops, so the
         // tail collapses to plain AgX — the canonical `Profile::Neutral` render.
-        profile_curve_flat: curve_flat_or_identity(p.profile_curve_ptr, p.profile_curve_len),
-        residual_lut_size: residual_size_or_identity(p.residual_lut_size as usize),
-        residual_lut_data: residual_data_or_identity(
-            p.residual_lut_ptr,
-            p.residual_lut_len,
-            p.residual_lut_size as usize,
-        ),
+        profile_curve_flat: curve_flat_or_identity(p),
+        residual_lut_size,
+        residual_lut_data,
         // Marshal the target_primaries tag (#1337). Unknown values default to
         // 0 = sRGB (the legacy-compatible default), matching the WGSL branch.
         target_primaries: p.target_primaries,
@@ -385,78 +383,58 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
 ///
 /// # Safety
 /// `ptr` valid for `len` f32 reads, or null.
-unsafe fn film_lut_or_off(size: u32, ptr: *const f32, len: usize) -> (u32, Vec<f32>) {
-    if ptr.is_null() || size == 0 {
-        return (0, Vec::new());
-    }
-    if size < 2 {
-        #[cfg(debug_assertions)]
-        eprintln!("film_lut_or_off: grid size {size} < 2 (degenerate) — treating as off");
-        return (0, Vec::new());
-    }
-    let s = size as usize;
-    let expected = s
-        .checked_mul(s)
-        .and_then(|s2| s2.checked_mul(s))
-        .and_then(|s3| s3.checked_mul(3));
-    if expected != Some(len) {
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "film_lut_or_off: len {len} != size³·3 for size {size} (expected {expected:?}) \
-             — treating as off"
-        );
-        return (0, Vec::new());
-    }
-    (size, read_floats(ptr, len))
-}
-
-/// The host-supplied flat Auto Profile curve, or the IDENTITY curve's flat
-/// serialization when absent (NULL / wrong length). The view tail's
-/// `AutoProfileCurvePass` requires a `PROFILE_CURVE_FLAT_LEN` curve; an identity
-/// curve makes it a no-op (= plain AgX). Validating the length here also guards
-/// against a truncated host buffer reaching the pass's assert.
-///
-/// # Safety
-/// `ptr` valid for `len` f32 reads, or null.
-unsafe fn curve_flat_or_identity(ptr: *const f32, len: usize) -> Vec<f32> {
-    use raw_core::view::auto_profile::{ProfileCurve, PROFILE_CURVE_FLAT_LEN};
-    let supplied = read_floats(ptr, len);
-    if supplied.len() == PROFILE_CURVE_FLAT_LEN {
-        supplied
-    } else {
-        ProfileCurve::identity().to_flat()
-    }
-}
-
-/// The residual LUT edge to use: the host's when `>= 2`, else 2 (the identity
-/// fallback's edge). `ResidualLutPass` asserts `size >= 2`.
-fn residual_size_or_identity(size: usize) -> usize {
-    if size >= 2 {
-        size
-    } else {
-        2
-    }
-}
-
-/// The host-supplied residual LUT grid, or an identity `2³` grid when absent
-/// (NULL / `size < 2` / wrong length). Paired with [`residual_size_or_identity`]
-/// so the size + data always agree (the pass asserts `data.len() == size³·3`).
-///
-/// # Safety
-/// `ptr` valid for `len` f32 reads, or null.
-unsafe fn residual_data_or_identity(ptr: *const f32, len: usize, size: usize) -> Vec<f32> {
-    use raw_core::view::auto_profile::lut::ColorLut;
+unsafe fn film_lut_or_off(p: &MapleGpuLiveParams) -> (u32, Cow<'_, [f32]>) {
+    let size = p.film_lut_size as usize;
     let expected = size
-        .saturating_mul(size)
-        .saturating_mul(size)
-        .saturating_mul(3);
-    if size >= 2 {
-        let supplied = read_floats(ptr, len);
-        if supplied.len() == expected {
-            return supplied;
-        }
+        .checked_mul(size)
+        .and_then(|v| v.checked_mul(size))
+        .and_then(|v| v.checked_mul(3));
+    if p.film_lut_ptr.is_null() || size < 2 || expected != Some(p.film_lut_len) {
+        return (0, Cow::Borrowed(&[]));
     }
-    ColorLut::identity(2).data
+    (
+        p.film_lut_size,
+        Cow::Borrowed(std::slice::from_raw_parts(p.film_lut_ptr, p.film_lut_len)),
+    )
+}
+
+/// The host's immutable Auto curve, or a process-lifetime identity curve.
+/// The latter also avoids allocating a default curve on every Neutral frame.
+unsafe fn curve_flat_or_identity(p: &MapleGpuLiveParams) -> Cow<'_, [f32]> {
+    use raw_core::view::auto_profile::{ProfileCurve, PROFILE_CURVE_FLAT_LEN};
+    if !p.profile_curve_ptr.is_null() && p.profile_curve_len == PROFILE_CURVE_FLAT_LEN {
+        return Cow::Borrowed(std::slice::from_raw_parts(
+            p.profile_curve_ptr,
+            p.profile_curve_len,
+        ));
+    }
+    static IDENTITY: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+    Cow::Borrowed(IDENTITY.get_or_init(|| ProfileCurve::identity().to_flat()))
+}
+
+/// Validate edge and length together; invalid data must use the matching 2³
+/// identity edge as well as its data, never a 49³ edge with a 2³ allocation.
+unsafe fn residual_or_identity(p: &MapleGpuLiveParams) -> (usize, Cow<'_, [f32]>) {
+    use raw_core::view::auto_profile::lut::ColorLut;
+    let size = p.residual_lut_size as usize;
+    let expected = size
+        .checked_mul(size)
+        .and_then(|v| v.checked_mul(size))
+        .and_then(|v| v.checked_mul(3));
+    if !p.residual_lut_ptr.is_null() && size >= 2 && expected == Some(p.residual_lut_len) {
+        return (
+            size,
+            Cow::Borrowed(std::slice::from_raw_parts(
+                p.residual_lut_ptr,
+                p.residual_lut_len,
+            )),
+        );
+    }
+    static IDENTITY: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+    (
+        2,
+        Cow::Borrowed(IDENTITY.get_or_init(|| ColorLut::identity(2).data)),
+    )
 }
 
 #[cfg(test)]
@@ -503,3 +481,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "params_borrow_tests.rs"]
+mod borrow_tests;
