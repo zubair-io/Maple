@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Maple.WinUI.Generated;
 using Maple.WinUI.Native;
+using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.Services.Export;
 
@@ -34,6 +35,11 @@ public sealed class NativeExportRecipeExecutor : IExportRecipeExecutor
 
     public void Render(ExportRecipe recipe, ExportQueueItem item)
     {
+        // Resume/retry uses the queued optical intent, including its exact LCP
+        // digest. The live editor and source sidecar may have changed since enqueue.
+        var document = XmpParser.Parse(item.Input.Xmp)
+            ?? throw new InvalidDataException("Queued export has invalid XMP.");
+        LensProfileStore.RestoreForFile(item.Input.SourcePath, document.Adjustments);
         if (RawFfi.maple_export_recipe_to_file(item.Input.SourcePath, item.Input.Xmp,
             JsonSerializer.Serialize(recipe), _filmDirectory, item.TempPath) != 0)
             throw new IOException(RawFfi.LastError() ?? "The image encoder failed.");
