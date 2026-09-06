@@ -57,9 +57,7 @@ struct EditorCanvasView: View {
         }
       }
       .padding(state.armedTool == .crop ? Self.cropViewportMargin : 0)
-      // Before/after "BEFORE" badge — surfaced while the session is
-      // showing the original (the canvas itself falls back to the
-      // placeholder).
+      // The comparison leaf and badge share the same latched/held state.
       if state.session.showingOriginal {
         VStack {
           Spacer()
