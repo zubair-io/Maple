@@ -394,7 +394,9 @@ fn main() -> ExitCode {
             profile,
             film_lut_dir.as_deref(),
             target_primaries,
-            lens_profile.as_deref().map(|path| (path,acknowledge_lens_approximation)),
+            lens_profile
+                .as_deref()
+                .map(|path| (path, acknowledge_lens_approximation)),
         )),
         Cmd::Batch {
             manifest,

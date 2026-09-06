@@ -39,6 +39,7 @@ import { MuiTextComponent } from '../../ui/text/mui-text.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
 import { GeometryPanelComponent } from './geometry-panel.component';
+import { LensProfileImportComponent } from './lens-profile-import.component';
 
 const DISTORTION_RANGE = ADJUSTMENT_RANGES.lensCorrectionDistortion;
 const CA_RANGE = ADJUSTMENT_RANGES.lensCorrectionCa;
@@ -47,7 +48,7 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 @Component({
   selector: 'lens-corrections-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent, MuiTextComponent, GeometryPanelComponent],
+  imports: [MuiLivingSliderComponent, MuiTextComponent, GeometryPanelComponent, LensProfileImportComponent],
   templateUrl: './lens-corrections-panel.component.html',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -78,13 +79,26 @@ export class LensCorrectionsPanelComponent {
   });
   /** Whole panel: toggle + all three sliders. */
   readonly lensSupport = computed(() => this.capabilities().cameraSupport);
-  readonly panelDisabled = computed<boolean>(() => !this.capabilities().hasLensCorrections);
-  /** True only when the panel IS active but the CA scale is a structural
-   *  no-op — the narrower case the dim class gates on (see file banner). */
-  readonly caInertOnly = computed<boolean>(
-    () => this.capabilities().hasLensCorrections && this.capabilities().lensCorrectionCaInert,
+  readonly imported = computed(() => {
+    const profile = this.capabilities().lensProfile;
+    return profile?.reference === this.adj()?.lensProfile ? profile : undefined;
+  });
+  readonly panelDisabled = computed(
+    () => !this.capabilities().hasLensCorrections && !this.imported(),
   );
-  readonly caDisabled = computed<boolean>(() => this.panelDisabled() || this.caInertOnly());
+  readonly distortionDisabled = computed(
+    () => this.panelDisabled() || (!!this.imported() && !this.imported()?.distortion?.length),
+  );
+  readonly vignettingDisabled = computed(
+    () => this.panelDisabled() || (!!this.imported() && !this.imported()?.vignetting?.length),
+  );
+  readonly caInertOnly = computed(() => {
+    const imported = this.imported();
+    return imported
+      ? !imported.ca?.length
+      : this.capabilities().hasLensCorrections && this.capabilities().lensCorrectionCaInert;
+  });
+  readonly caDisabled = computed(() => this.panelDisabled() || this.caInertOnly());
 
   // In-progress drag values — `null` when no gesture is live, in which
   // case the slider tracks the committed model value. See the file banner

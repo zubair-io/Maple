@@ -237,6 +237,7 @@
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\LensProfileStore.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />

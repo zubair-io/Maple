@@ -384,7 +384,9 @@ pub(super) fn set_field(
         "crs:LensProfileChromaticAberrationScale" => m.lens_correction_ca = v()?,
         "crs:LensProfileVignettingScale" => m.lens_correction_vignetting = v()?,
         "papp:LensProfile" => {
-            if !value.is_empty() { crate::lens_profile::profile_id(value).map_err(Error::Xmp)?; }
+            if !value.is_empty() {
+                crate::lens_profile::profile_id(value).map_err(Error::Xmp)?;
+            }
             m.lens_profile = value.to_owned();
         }
         "papp:GeoPerspectiveH" => m.geo_perspective_h = v()?,

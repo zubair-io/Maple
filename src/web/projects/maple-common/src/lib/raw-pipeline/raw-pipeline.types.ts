@@ -1,3 +1,5 @@
+import type { LensProfileFetch, LensProfileRestored } from '../lens/lens-profile.types';
+import type { LensProfileResolution } from '../lens/lens-profile.types';
 import type { CameraSupport } from '../state/camera-support';
 // Shared types for raw-pipeline worker communication.
 
@@ -82,6 +84,7 @@ export interface DecodeSuccess {
    */
   lensCorrectionCaInert: boolean;
   cameraSupport?: CameraSupport;
+  lensProfile?: LensProfileResolution;
 }
 
 export interface DecodeError {
@@ -239,6 +242,7 @@ export interface OpenSessionSuccess {
   /** See `DecodeSuccess.lensCorrectionCaInert` (#3182). */
   lensCorrectionCaInert: boolean;
   cameraSupport?: CameraSupport;
+  lensProfile?: LensProfileResolution;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
   /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
@@ -303,8 +307,17 @@ import type {
   SampleWbError,
 } from './raw-pipeline.sample-wb.types';
 
+import type {
+  LensProfileRequest,
+  LensProfileSuccess,
+  LensProfileError,
+} from '../lens/lens-profile.types';
+
 export type WorkerResponse =
   | import('./raw-pipeline.native-detail.types').NativeDetailResponse
+  | LensProfileFetch
+  | LensProfileSuccess
+  | LensProfileError
   | DecodeSuccess
   | DecodeError
   | DecodeSceneLinearSuccess
@@ -459,6 +472,8 @@ export interface ExportedFile {
 export type WorkerRequest =
   | import('./raw-pipeline.native-detail.types').NativeDetailRequest
   | import('./raw-pipeline.native-detail.types').CloseNativeDetailRequest
+  | LensProfileRestored
+  | LensProfileRequest
   | DecodeRequest
   | DevelopNonRawRequest
   | DecodeSceneLinearRequest
@@ -490,6 +505,7 @@ export interface DecodedImage {
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
+  lensProfile?: LensProfileResolution;
 }
 
 export interface DecodeSceneLinearRequest {

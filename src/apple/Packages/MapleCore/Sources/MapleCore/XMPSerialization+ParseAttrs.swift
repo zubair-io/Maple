@@ -224,6 +224,7 @@ extension _XMPParserDelegate {
         // id round-trips through the sidecar rather than being silently
         // dropped.
         case "papp:FilmLook":     model.filmLook = value
+        case "papp:LensProfile":  model.lensProfile = value
         case "papp:FilmStrength": model.filmStrength = d(value) ?? model.filmStrength
         // Crop / straighten (#277, spec § 3.12). Rect fields gated by
         // `hasCrop` (above). `crs:CropAngle` is always parsed — it can

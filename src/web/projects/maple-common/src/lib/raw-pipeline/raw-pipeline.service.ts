@@ -1,3 +1,4 @@
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
@@ -11,7 +12,7 @@
 // and raw-pipeline.types.ts, outside this ticket's scope) — flagged as a
 // follow-up rather than folded in here.
 
-import { Injectable, OnDestroy, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, Injector, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import type {
   AutoAdjustPatch,
@@ -67,6 +68,8 @@ export class RawPipelineService implements OnDestroy {
   // next image open with no reload.
   private readonly colorSpacePref = inject(CanvasColorSpacePref);
 
+  private readonly injector = inject(Injector);
+  private readonly backend = inject(LIBRARY_BACKEND);
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
@@ -100,9 +103,22 @@ export class RawPipelineService implements OnDestroy {
         type: 'module',
       });
       const worker = this.worker;
-      this.worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
+      worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
         if (e.data.type === 'export-error' && e.data.fatal) {
           this.retireWorker(worker, e.data.message);
+          return;
+        }
+        if (e.data.type === 'lens-profile-fetch') {
+          const request = e.data;
+          const restore =
+            this.backend === 'self-hosted'
+              ? import('../lens/lens-profile-server-bridge').then((bridge) =>
+                  bridge.restoreServerLensProfile(this.injector, request.reference),
+                )
+              : Promise.resolve();
+          void restore
+            .catch(() => undefined)
+            .finally(() => worker.postMessage({ id: request.id, type: 'lens-profile-restored' }));
           return;
         }
         // Routing lives in `raw-pipeline.worker-dispatch.ts` (#2314) — this
@@ -381,6 +397,20 @@ export class RawPipelineService implements OnDestroy {
     return new Promise<void>((resolve, reject) => {
       this.pending.set(id, { kind: 'set-film-lut', resolve, reject });
       worker.postMessage(request, [bytes]);
+    });
+  }
+
+  importLensProfile(
+    xml: string,
+    bytes: Uint8Array,
+    ext: string,
+  ): Promise<import('../lens/lens-profile.types').ImportedLensProfile> {
+    const worker = this.ensureWorker();
+    const id = this.nextId++;
+    const copy = new Uint8Array(bytes).buffer;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { kind: 'lens-profile', resolve, reject });
+      worker.postMessage({ id, type: 'import-lens-profile', xml, bytes: copy, ext }, [copy]);
     });
   }
 

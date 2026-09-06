@@ -163,6 +163,7 @@ namespace Maple.WinUI.Models
         public double GeoRotation;
         public double GeoAspect = 1.0;
         public double GeoScale = 1.0;
+        public string LensProfile = "";
 
         public AdjustmentState Clone()
         {

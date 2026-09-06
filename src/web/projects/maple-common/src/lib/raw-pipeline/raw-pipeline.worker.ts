@@ -1,3 +1,4 @@
+import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 import { cameraSupportFromJson } from '../state/camera-support';
 /// <reference lib="webworker" />
 
@@ -73,6 +74,12 @@ import {
 // import cycle back through this file (file-size budget, #2683).
 void ensureReady();
 
+import {
+  importLensProfile,
+  restoreLensProfile,
+  lensProfileRestored,
+} from './raw-pipeline.lens-profile';
+
 // This dispatch switch's cyclomatic complexity scales with the number of
 // request kinds the worker handles — it was already at 9 branches on
 // `main` before #3039 added the 10th (`develop-non-raw`, a single case
@@ -82,6 +89,24 @@ void ensureReady();
 // fallow-ignore-next-line complexity
 addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
+  if (req.type === 'lens-profile-restored') {
+    lensProfileRestored(req.id);
+    return;
+  }
+  try {
+    if (req.type === 'import-lens-profile') {
+      await importLensProfile(req);
+      return;
+    }
+    if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);
+  } catch (error) {
+    postMessage({
+      id: req.id,
+      type: 'lens-profile-error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   switch (req.type) {
     case 'native-detail':
       await handleNativeDetail(req);
@@ -268,6 +293,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const hasLensCorrections = result.has_lens_corrections; // #3182
   const lensCorrectionCaInert = result.lens_correction_ca_inert;
   const cameraSupport = cameraSupportFromJson(result.camera_support_json);
+  const lensProfile = lensProfileFromJson(result.lens_profile_json);
   const rgb = result.take_rgb();
   result.free();
   const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
@@ -284,6 +310,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
     hasLensCorrections,
     lensCorrectionCaInert,
     cameraSupport,
+    lensProfile,
   };
   (self as unknown as Worker).postMessage(response, [buffer]);
 }

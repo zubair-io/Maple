@@ -227,7 +227,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         dump_after("00a_opcode_list3", &camera_rgb);
     } else if !model.lens_profile.is_empty() {
         let scale = 1.0 / effective_quality_divisor(quality, raw.cfa) as f32;
-        stage("lcp_correction", || crate::lens_profile::apply_for_raw(raw,model,&mut camera_rgb,scale))?;
+        stage("lcp_correction", || {
+            crate::lens_profile::apply_for_raw(raw, model, &mut camera_rgb, scale)
+        })?;
     }
 
     // DNG § 6.3 DefaultCrop — restrict the buffer to the camera-recommended
@@ -407,7 +409,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // dispatch — the MAPLE_PROFILE log plus whichever host sink is
     // registered (the editor's determinate indicator, #1153).
     stage("deep_denoise", || {
-        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::active_progress())
+        bm3d::apply_cancellable(
+            &mut scene,
+            model.deep_denoise,
+            cancel,
+            bm3d::active_progress(),
+        )
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -483,9 +490,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     dump_after("09_saturation", &scene);
     // HSL 8-band (#1112, tone/zoom design § 10.4) — scene-linear Oklab,
     // after saturation, before clarity. Identity short-circuit on all-default.
-    stage("hsl", || {
-        hsl::apply_model(&mut scene, model)
-    });
+    stage("hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
     dump_after("10_clarity", &scene);

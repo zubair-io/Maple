@@ -1,3 +1,4 @@
+import type { LensProfileResolution } from '../lens/lens-profile.types';
 import type { CameraSupport } from './camera-support';
 // LibraryStateService — thin facade over the four split modules.
 //
@@ -265,8 +266,15 @@ export class LibraryStateService {
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport,
+    lensProfile?: LensProfileResolution,
   ): void {
-    this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert, cameraSupport);
+    this.store.lensCorrections.seed(
+      id,
+      hasLensCorrections,
+      lensCorrectionCaInert,
+      cameraSupport,
+      lensProfile,
+    );
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default

@@ -74,6 +74,9 @@ describe('edit transaction', () => {
     expect(classifyInvalidation(base, cropOnly)).toBe('crop');
     expect(classifyInvalidation(base, { ...base, saturation: 30 })).toBe('develop');
     expect(classifyInvalidation(base, { ...base, deepDenoise: 40 })).toBe('decode');
+    expect(classifyInvalidation(base, { ...base, lensProfile: `lcp1:${'a'.repeat(64)}` })).toBe(
+      'decode',
+    );
     expect(classifyInvalidation(base, { ...cropOnly, exposure: 1 })).toBe('develop');
     expect(classifyInvalidation(base, base)).toBe('none');
     expect(tx(base, cropOnly, 'crop')?.invalidation).toBe('crop');

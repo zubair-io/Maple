@@ -208,3 +208,73 @@ fn vignette_is_reciprocal_illumination_and_rejects_nonpositive_lobes() {
     model.radial[0] = -1.0;
     assert_eq!(model.gain(100.0, 100.0, [100.0, 50.0]), None);
 }
+
+#[test]
+fn one_calibration_does_not_make_unknown_capture_distance_confident() {
+    let mut q = query();
+    q.focus_m = None;
+    assert!(profile()
+        .resolve(&q)
+        .unwrap()
+        .approximations
+        .iter()
+        .any(|reason| reason.contains("missing")));
+}
+
+#[test]
+fn duplicated_models_and_negative_fit_error_fail_explicitly() {
+    let mut p = profile();
+    for sample in &mut p.samples {
+        sample.models.push(sample.models[0].clone());
+    }
+    assert!(p.resolve(&query()).is_err());
+    p = profile();
+    for sample in &mut p.samples {
+        sample.models[0]
+            .properties
+            .insert("ResidualMeanError".into(), "-1".into());
+    }
+    assert!(p.resolve(&query()).is_err());
+}
+
+#[test]
+fn tangential_only_calibration_is_not_silently_ignored() {
+    let mut p = profile();
+    for sample in &mut p.samples {
+        sample.models[0].properties.remove("RadialDistortParam1");
+        sample.models[0]
+            .properties
+            .insert("TangentialDistortParam1".into(), "0.1".into());
+    }
+    assert_eq!(
+        p.resolve(&query())
+            .unwrap()
+            .calibration
+            .distortion
+            .unwrap()
+            .tangential,
+        [0.1, 0.0]
+    );
+}
+
+#[test]
+fn chromatic_mapping_uses_green_frame_then_relative_channel_frame() {
+    let green = Frame {
+        focal: [1.0, 1.0],
+        center: [0.5, 0.5],
+    };
+    let relative = |scale| Perspective {
+        frame: green,
+        radial: [0.0; 3],
+        tangential: [0.0; 2],
+        scale,
+    };
+    let ca = model::Chromatic {
+        reference: green,
+        relative: [relative(1.02), relative(0.98)],
+    };
+    let point = [75.0, 40.0];
+    assert_eq!(ca.map(100.0, 80.0, point, 1), point);
+    assert_eq!(ca.map(100.0, 80.0, point, 0), [75.5, 40.0]);
+    assert_eq!(ca.map(100.0, 80.0, point, 2), [74.5, 40.0]);
+}

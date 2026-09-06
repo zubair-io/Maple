@@ -66,6 +66,7 @@ pub mod export;
 pub mod filename;
 pub mod id;
 pub mod native_detail;
+pub mod lens_profile;
 mod open_metadata;
 pub mod preview;
 /// Legacy 8-bit sRGB render surface — `MapleRender`, `render_bytes`,

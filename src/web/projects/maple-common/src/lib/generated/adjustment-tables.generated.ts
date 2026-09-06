@@ -291,6 +291,7 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
  * rationale (notably the mask decision).
  */
 export const ADJUSTMENT_NON_COPYABLE_FIELDS: readonly string[] = [
+  'lens_profile',
   'local_adjustments',
   'inpaint_removals',
   'mask_rasters',

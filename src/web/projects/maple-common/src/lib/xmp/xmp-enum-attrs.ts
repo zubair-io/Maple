@@ -51,6 +51,9 @@ const ENUM_ATTRIBUTE_PARSERS: Record<string, EnumAttributeParser> = {
   // still round-trips instead of being dropped to the '' default. An empty
   // attribute is treated the same as absent.
   'papp:FilmLook': (v) => (v.length > 0 ? { filmLook: v } : undefined),
+  // Preserve future reference versions; the core reports unsupported versions
+  // at render time instead of silently changing the selected correction.
+  'papp:LensProfile': (v) => (v.length > 0 ? { lensProfile: v } : undefined),
 
   // Hot/dead-pixel suppression (#1106). Case-insensitive parse, mirroring
   // the Rust (`xmp/mod.rs`) and Swift parsers; unknown values are dropped so

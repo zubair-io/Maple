@@ -332,6 +332,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// error — see `FilmLutStore`). XMP key `papp:FilmLook`; empty (default)
     /// omits the attribute on write.
     public var filmLook: String  // default ""
+    public var lensProfile: String // versioned content-addressed LCP reference
     /// Film-look blend strength, 0..100 — lerped against the pre-look value
     /// in display-linear space (mirrors every other blend-strength field in
     /// `MapleGpuLiveParams`). XMP key `papp:FilmStrength`; 100 (default,
@@ -449,6 +450,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         lensCorrectionCa: Double = 100,
         lensCorrectionVignetting: Double = 100,
         filmLook: String = "",
+        lensProfile: String = "",
         filmStrength: Double = 100
     ) {
         self.temperature = temperature
@@ -560,6 +562,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.lensCorrectionCa = lensCorrectionCa
         self.lensCorrectionVignetting = lensCorrectionVignetting
         self.filmLook = filmLook
+        self.lensProfile = lensProfile
         self.filmStrength = filmStrength
     }
 

@@ -131,6 +131,7 @@ extension AdjustmentModel {
         case geoRotation = "geo_rotation"
         case geoAspect = "geo_aspect"
         case geoScale = "geo_scale"
+        case lensProfile = "lens_profile"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -508,6 +509,7 @@ extension AdjustmentGroup {
 /// sync. See `raw_core::types::adjustment::schema::groups` for the
 /// per-field rationale (notably the mask decision).
 public let adjustmentNonCopyableFields: [String] = [
+    "lens_profile",
     "local_adjustments",
     "inpaint_removals",
     "mask_rasters",

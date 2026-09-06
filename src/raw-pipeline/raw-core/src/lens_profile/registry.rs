@@ -72,6 +72,27 @@ pub fn register(xml: &str) -> Result<serde_json::Value, String> {
     )
 }
 
+/// Facts for embedded-source controls, including families absent from the list.
+pub fn embedded_metadata(raw: &RawImage) -> serde_json::Value {
+    use crate::pipeline::pano::opcodes::PanoOpcode;
+    let vignetting = raw.opcode_list3.as_ref().is_some_and(|(list, _)| {
+        list.opcodes.iter().any(|op| {
+            matches!(
+                op,
+                PanoOpcode::GainMap(_) | PanoOpcode::FixVignetteRadial(_)
+            )
+        })
+    });
+    let source = if raw.has_lens_corrections() {
+        "embedded"
+    } else {
+        "none"
+    };
+    serde_json::json!({"source":source,"confidence":source,"approximations":[],"unsupported":[],
+        "hasDistortion":!raw.lens_correction_distortion_inert(),
+        "hasCa":!raw.lens_correction_ca_inert(),"hasVignetting":vignetting})
+}
+
 pub fn resolve_for_raw(raw: &RawImage, reference: &str) -> Result<Option<Resolution>, String> {
     // Authored embedded corrections win even when the sidecar also names an
     // imported profile. They must never be compounded with an external warp.

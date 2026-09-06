@@ -11,6 +11,8 @@ namespace Maple.WinUI.ViewModels
         {
             if (generation != _decodeGeneration || !ReferenceEquals(SelectedPhoto, photo)) return;
             photo.CameraSupport = decoded.CameraSupport;
+            LensProfileFacts = decoded.LensProfileFacts;
+            LensProfileInfo = decoded.LensProfileFacts?.Description ?? "Lens correction data could not be assessed.";
             if (decoded.DecodedTemperature > 0)
             {
                 _asShotTemperature = decoded.DecodedTemperature;

@@ -1,0 +1,26 @@
+:host {
+  display: block;
+}
+.lens-import {
+  padding: 10px;
+  color: var(--pro-text);
+  font-size: 12px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.profile-name {
+  font-weight: 600;
+}
+details {
+  margin: 8px 0;
+}
+summary {
+  cursor: pointer;
+}

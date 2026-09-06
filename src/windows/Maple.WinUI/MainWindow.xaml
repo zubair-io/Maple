@@ -782,6 +782,7 @@
                                             </Grid>
                                         </StackPanel>
                                         <StackPanel x:Name="PanelProfileHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />
+                                        <StackPanel x:Name="PanelLensProfileHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />
                                         <ItemsControl x:Name="PanelSliders"
                                                       ItemTemplate="{StaticResource SliderRowTemplate}" />
                                         <StackPanel x:Name="PanelBwHeader" Visibility="Collapsed" Margin="0,0,0,6">

@@ -302,6 +302,7 @@ public enum CapabilityRegistry {
                 "lens_correction_ca",
                 "lens_correction_vignetting",
                 "capture_sharpening_radius",
+                "lens_profile",
             ],
             integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
             qualification: [

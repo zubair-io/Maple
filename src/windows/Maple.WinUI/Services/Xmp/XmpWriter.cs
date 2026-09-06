@@ -88,6 +88,8 @@ namespace Maple.WinUI.Services.Xmp
             }
             // Persist the selected intent even when it is the default (#2441).
             parts.Add($"papp:Profile=\"{state.Profile}\"");
+            if (!string.IsNullOrEmpty(state.LensProfile))
+                parts.Add($"papp:LensProfile=\"{XmpSchema.EscapeAttr(state.LensProfile)}\"");
             if (state.HotPixelSuppression != ToggleMode.Off)
             {
                 parts.Add("papp:HotPixelSuppression=\"On\"");

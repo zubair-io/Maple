@@ -117,6 +117,7 @@ public let adjustmentTransferModes: [String: AdjustmentTransferMode] = [
     "film_look": .absolute,
     "film_strength": .absolute,
     "crop": .assetRelative,
+    "lens_profile": .unsupported,
     "local_adjustments": .unsupported,
     "inpaint_removals": .unsupported,
     "mask_rasters": .unsupported,

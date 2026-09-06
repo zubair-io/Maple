@@ -70,20 +70,21 @@ class FakeLibraryStateService {
   );
 }
 
-function makeFixture() {
+async function makeFixture() {
   const library = new FakeLibraryStateService();
   TestBed.configureTestingModule({
     imports: [LensCorrectionsPanelComponent],
     providers: [{ provide: LibraryStateService, useValue: library }],
   });
+  await TestBed.compileComponents();
   const fixture = TestBed.createComponent(LensCorrectionsPanelComponent);
   fixture.detectChanges();
   return { fixture, library, component: fixture.componentInstance };
 }
 
-describe('LensCorrectionsPanelComponent', () => {
-  it('explains missing lens correction independently of the camera calibration', () => {
-    const { fixture, library } = makeFixture();
+describe('LensCorrectionsPanelComponent', async () => {
+  it('explains missing lens correction independently of the camera calibration', async () => {
+    const { fixture, library } = await makeFixture();
     library.seedLensCorrections(
       ASSET_ID,
       false,
@@ -106,13 +107,13 @@ describe('LensCorrectionsPanelComponent', () => {
     expect(controls.classList.contains('opacity-[0.45]')).toBe(true);
     expect(controls.contains(support)).toBe(false);
   });
-  it('reflects lensProfileEnable ("On" default) via `enabled`', () => {
-    const { component } = makeFixture();
+  it('reflects lensProfileEnable ("On" default) via `enabled`', async () => {
+    const { component } = await makeFixture();
     expect(component.enabled()).toBe(true);
   });
 
-  it('toggling writes the opposite lensProfileEnable value', () => {
-    const { component, library } = makeFixture();
+  it('toggling writes the opposite lensProfileEnable value', async () => {
+    const { component, library } = await makeFixture();
     component.toggleEnabled();
     expect(library.updateAdjustment).toHaveBeenCalledWith(ASSET_ID, { lensProfileEnable: 'Off' });
     component.toggleEnabled();
@@ -121,22 +122,22 @@ describe('LensCorrectionsPanelComponent', () => {
     });
   });
 
-  it('sliders default to 100 (the canonical model default) when idle', () => {
-    const { component } = makeFixture();
+  it('sliders default to 100 (the canonical model default) when idle', async () => {
+    const { component } = await makeFixture();
     expect(component.distortion()).toBe(100);
     expect(component.ca()).toBe(100);
     expect(component.vignetting()).toBe(100);
   });
 
-  it('a live drag tracks the LOCAL value without writing the model', () => {
-    const { component, library } = makeFixture();
+  it('a live drag tracks the LOCAL value without writing the model', async () => {
+    const { component, library } = await makeFixture();
     component.onDistortionChange(42);
     expect(component.distortion()).toBe(42);
     expect(library.updateAdjustment).not.toHaveBeenCalled();
   });
 
-  it('dragEnd commits the parked value exactly once, then reverts to model-tracking', () => {
-    const { component, library } = makeFixture();
+  it('dragEnd commits the parked value exactly once, then reverts to model-tracking', async () => {
+    const { component, library } = await makeFixture();
     component.onDistortionChange(42);
     component.onDistortionDragEnd();
     expect(library.updateAdjustment).toHaveBeenCalledTimes(1);
@@ -151,8 +152,8 @@ describe('LensCorrectionsPanelComponent', () => {
     expect(library.updateAdjustment).toHaveBeenCalledTimes(1);
   });
 
-  it('the three sliders write distinct fields independently', () => {
-    const { component, library } = makeFixture();
+  it('the three sliders write distinct fields independently', async () => {
+    const { component, library } = await makeFixture();
     component.onCaChange(10);
     component.onCaDragEnd();
     component.onVignettingChange(20);
@@ -164,8 +165,8 @@ describe('LensCorrectionsPanelComponent', () => {
     expect(component.distortion()).toBe(100); // untouched
   });
 
-  it('reset writes the canonical default (100) immediately, no drag needed', () => {
-    const { component, library } = makeFixture();
+  it('reset writes the canonical default (100) immediately, no drag needed', async () => {
+    const { component, library } = await makeFixture();
     component.onCaReset();
     expect(library.updateAdjustment).toHaveBeenCalledWith(ASSET_ID, { lensCorrectionCa: 100 });
   });
@@ -175,9 +176,9 @@ describe('LensCorrectionsPanelComponent', () => {
 // disables when the RAW has no OpcodeList3 at all; the CA slider ALSO
 // disables on its own, independent of the whole-panel gate, when the RAW
 // has corrections but its WarpRectilinear opcode has no per-plane CA data.
-describe('LensCorrectionsPanelComponent — lens-correction capability gate (#3182)', () => {
-  it('disables the whole panel (toggle + all three sliders) when the RAW has no OpcodeList3', () => {
-    const { fixture, component, library } = makeFixture();
+describe('LensCorrectionsPanelComponent — lens-correction capability gate (#3182)', async () => {
+  it('disables the whole panel (toggle + all three sliders) when the RAW has no OpcodeList3', async () => {
+    const { fixture, component, library } = await makeFixture();
     library.seedLensCorrections(ASSET_ID, false, true);
     fixture.detectChanges();
 
@@ -193,15 +194,15 @@ describe('LensCorrectionsPanelComponent — lens-correction capability gate (#31
     );
   });
 
-  it('toggleEnabled is a no-op while the panel is disabled', () => {
-    const { component, library } = makeFixture();
+  it('toggleEnabled is a no-op while the panel is disabled', async () => {
+    const { component, library } = await makeFixture();
     library.seedLensCorrections(ASSET_ID, false, true);
     component.toggleEnabled();
     expect(library.updateAdjustment).not.toHaveBeenCalled();
   });
 
-  it('greys ONLY the CA slider when corrections exist but the CA scale is inert', () => {
-    const { fixture, component, library } = makeFixture();
+  it('greys ONLY the CA slider when corrections exist but the CA scale is inert', async () => {
+    const { fixture, component, library } = await makeFixture();
     library.seedLensCorrections(ASSET_ID, true, true);
     fixture.detectChanges();
 
@@ -218,8 +219,8 @@ describe('LensCorrectionsPanelComponent — lens-correction capability gate (#31
     );
   });
 
-  it('leaves everything interactive when corrections exist and CA is live', () => {
-    const { fixture, component, library } = makeFixture();
+  it('leaves everything interactive when corrections exist and CA is live', async () => {
+    const { fixture, component, library } = await makeFixture();
     library.seedLensCorrections(ASSET_ID, true, false);
     fixture.detectChanges();
 
@@ -234,12 +235,12 @@ describe('LensCorrectionsPanelComponent — lens-correction capability gate (#31
     );
   });
 
-  it('does not double-dim the CA slider when the whole panel is already disabled', () => {
+  it('does not double-dim the CA slider when the whole panel is already disabled', async () => {
     // hasLensCorrections: false already implies lensCorrectionCaInert: true
     // (see raw-core's own contract) — the CA wrap must NOT ALSO apply its
     // own opacity class in that case, since the panel-level opacity already
     // covers it (multiplying two 0.45 opacities would over-dim).
-    const { fixture, library } = makeFixture();
+    const { fixture, library } = await makeFixture();
     library.seedLensCorrections(ASSET_ID, false, true);
     fixture.detectChanges();
 

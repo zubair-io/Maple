@@ -18,6 +18,7 @@ pub mod film_pack;
 pub mod fit_acr;
 pub mod fit_auto2;
 pub mod inspect;
+mod lens_profile;
 pub mod render;
 pub mod synthetic;
 pub mod tile;

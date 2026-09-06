@@ -263,6 +263,8 @@ export interface GeneratedAdjustmentModel {
   geoAspect: number;
   /** Centered uniform image scale. XMP key `papp:GeoScale`. Range: [0.25, 4.0]. */
   geoScale: number;
+  /** Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key. */
+  lensProfile: string;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -381,6 +383,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     geoRotation: 0.0,
     geoAspect: 1.0,
     geoScale: 1.0,
+    lensProfile: '',
   };
 }
 

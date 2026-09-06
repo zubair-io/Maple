@@ -1,8 +1,9 @@
-//! Read-only LCP inspection (#2435 / #2230).
+//! Imported LCP parsing, deterministic matching, and optical correction (#2435).
 //!
 //! A profile is calibration input, not permission to apply an approximate
 //! match. Keep every sample and model, including duplicate calibration keys.
-//! Pixel-domain conversion and catalog distribution are separate contracts.
+//! Only verified legacy model forms enter the decode stage. Distribution of
+//! third-party calibration packs remains separate from user-owned imports.
 
 pub mod model;
 mod resolve;
@@ -11,7 +12,9 @@ pub use resolve::{LensQuery, Resolution, SampleWeight};
 mod apply;
 pub use apply::apply;
 mod registry;
-pub use registry::{apply_for_raw, clear_cache, profile_id, register, resolve_for_raw};
+pub use registry::{
+    apply_for_raw, clear_cache, embedded_metadata, profile_id, register, resolve_for_raw,
+};
 
 pub fn corrections_enabled(model: &crate::AdjustmentModel) -> bool {
     use crate::pipeline::pano::opcode_apply::LensCorrectionScales;

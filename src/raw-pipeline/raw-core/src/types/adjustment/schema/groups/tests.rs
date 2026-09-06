@@ -364,4 +364,5 @@ fn mask_and_inpaint_fields_are_excluded() {
     assert!(NON_COPYABLE_FIELDS.contains(&"local_adjustments"));
     assert!(NON_COPYABLE_FIELDS.contains(&"mask_rasters"));
     assert!(NON_COPYABLE_FIELDS.contains(&"inpaint_removals"));
+    assert!(NON_COPYABLE_FIELDS.contains(&"lens_profile"));
 }
