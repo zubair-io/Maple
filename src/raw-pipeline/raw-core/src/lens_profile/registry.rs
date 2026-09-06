@@ -19,6 +19,16 @@ fn cache() -> &'static RwLock<BTreeMap<String, (usize, Arc<LensProfile>)>> {
     CACHE.get_or_init(|| RwLock::new(BTreeMap::new()))
 }
 
+/// Isolated native workers call this between jobs, before registering the next
+/// sidecar's profile. A resolution already in progress retains its own Arc.
+pub fn clear_cache() -> Result<(), String> {
+    cache()
+        .write()
+        .map_err(|_| "LCP cache lock failed")?
+        .clear();
+    Ok(())
+}
+
 /// `lcp1` pins both the exact document bytes and Maple's interpretation
 /// version. `-ack` is a sidecar record of explicit approximation acceptance.
 pub fn profile_id(reference: &str) -> Result<(&str, bool), String> {
@@ -47,7 +57,9 @@ pub fn register(xml: &str) -> Result<serde_json::Value, String> {
     let mut registry = cache().write().map_err(|_| "LCP cache lock failed")?;
     if !registry.contains_key(&id) {
         if registry.values().map(|(bytes, _)| bytes).sum::<usize>() + xml.len() > MAX_CACHE_BYTES {
-            return Err("LCP session cache is full; reopen the image session".into());
+            return Err(
+                "LCP process cache is full; reload the app or restart the rendering worker".into(),
+            );
         }
         registry.insert(id.clone(), (xml.len(), Arc::clone(&profile)));
     }

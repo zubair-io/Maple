@@ -2,6 +2,39 @@
 use crate::error::{set_last_error, with_large_stack};
 use std::ffi::{c_char, CStr, CString};
 
+/// Release imported profiles between jobs in an isolated native worker.
+#[no_mangle]
+pub extern "C" fn maple_lens_profile_clear_cache() -> i32 {
+    match raw_core::lens_profile::clear_cache() {
+        Ok(()) => 0,
+        Err(error) => {
+            set_last_error(error);
+            8
+        }
+    }
+}
+
+/// Read the selected reference through the same parser as rendering.
+#[no_mangle]
+pub unsafe extern "C" fn maple_lens_profile_selected(
+    xml: *const u8,
+    length: usize,
+    out_json: *mut *mut c_char,
+) -> i32 {
+    if out_json.is_null() {
+        return 1;
+    }
+    *out_json = std::ptr::null_mut();
+    if xml.is_null() || length > 32 * 1024 * 1024 {
+        return 1;
+    }
+    let result = std::str::from_utf8(std::slice::from_raw_parts(xml, length))
+        .map_err(|error| error.to_string())
+        .and_then(|xml| raw_core::xmp::parse(xml).map_err(|error| error.to_string()))
+        .map(|model| format!(r#"{{"reference":"{}"}}"#, model.lens_profile));
+    output_json(out_json, result)
+}
+
 unsafe fn output_json(out: *mut *mut c_char, result: Result<String, String>) -> i32 {
     match result {
         Ok(value) => {
@@ -98,6 +131,30 @@ pub unsafe extern "C" fn maple_free_lens_profile_json(json: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_reference_uses_render_parser_and_owns_its_result() {
+        let reference = format!("lcp1:{}", "a".repeat(64));
+        let xmp = format!(r#"<rdf:Description papp:LensProfile="{}"/>"#, reference);
+        let mut out = std::ptr::null_mut();
+        unsafe {
+            assert_eq!(
+                maple_lens_profile_selected(xmp.as_ptr(), xmp.len(), &mut out),
+                0
+            );
+            assert_eq!(
+                CStr::from_ptr(out).to_str().unwrap(),
+                format!(r#"{{"reference":"{}"}}"#, reference)
+            );
+            maple_free_lens_profile_json(out);
+            let invalid = br#"<rdf:Description papp:LensProfile="other:bad"/>"#;
+            assert_ne!(
+                maple_lens_profile_selected(invalid.as_ptr(), invalid.len(), &mut out),
+                0
+            );
+            assert!(out.is_null());
+        }
+    }
     #[test]
     fn error_paths_clear_output_and_null_free_is_safe() {
         unsafe {
