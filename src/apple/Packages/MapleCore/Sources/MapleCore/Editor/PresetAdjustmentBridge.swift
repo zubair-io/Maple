@@ -146,6 +146,10 @@ extension AdjustmentModel.FieldName {
     case .filmStrength: return \.filmStrength
     // Deprecated alias — no Swift property (see AdjustmentModel docs).
     case .captureSharpeningRadius: return nil
+    // #2435: retain these shared fields in sidecars, but do not offer them
+    // through Apple presets before that host's geometry/profile workflow lands.
+    case .lensProfile, .geoPerspectiveH, .geoPerspectiveV, .geoRotation, .geoAspect, .geoScale:
+      return nil
     // Enum-valued fields have no *numeric* key path. `.highlightRecovery`
     // / `.autoExposure` / `.look` / `.profile` / `.hotPixelSuppression` /
     // `.blackWhite` / `.lensProfileEnable` are captured and applied as a
