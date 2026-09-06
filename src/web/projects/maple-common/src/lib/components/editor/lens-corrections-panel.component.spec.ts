@@ -8,17 +8,28 @@
 // — on `dragEnd` — with the final value (the decode-product commit-on-
 // release contract, #376 / spec § 3.1-3.2).
 
-import { TestBed } from '@angular/core/testing';
+import { DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi } from 'vitest';
-import { signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 
 import { LensCorrectionsPanelComponent } from './lens-corrections-panel.component';
+import { LensProfileImportComponent } from './lens-profile-import.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { LensCorrectionCapability } from '../../state/library-store-lens-corrections';
 import { cameraSupportFromJson } from '../../state/camera-support';
 
 const ASSET_ID = 'local-asset-1';
+
+// Import behavior has its own integration tests. These slider tests use an
+// isolated child and explicitly settle its defer block before each assertion;
+// no worker or deferred import may outlive this fixture's test environment.
+@Component({
+  selector: 'lens-profile-import',
+  standalone: true,
+  template: '<span data-testid="lens-profile-import-stub"></span>',
+})
+class LensProfileImportStubComponent {}
 
 class FakeLibraryStateService {
   focusedAssetId = signal<string | undefined>(ASSET_ID);
@@ -74,15 +85,26 @@ async function makeFixture() {
   const library = new FakeLibraryStateService();
   TestBed.configureTestingModule({
     imports: [LensCorrectionsPanelComponent],
+    deferBlockBehavior: DeferBlockBehavior.Manual,
     providers: [{ provide: LibraryStateService, useValue: library }],
+  });
+  TestBed.overrideComponent(LensCorrectionsPanelComponent, {
+    remove: { imports: [LensProfileImportComponent] },
+    add: { imports: [LensProfileImportStubComponent] },
   });
   await TestBed.compileComponents();
   const fixture = TestBed.createComponent(LensCorrectionsPanelComponent);
   fixture.detectChanges();
+  const blocks = await fixture.getDeferBlocks();
+  await blocks[0].render(DeferBlockState.Complete);
+  await fixture.whenStable();
+  expect(
+    fixture.nativeElement.querySelector('[data-testid="lens-profile-import-stub"]'),
+  ).not.toBeNull();
   return { fixture, library, component: fixture.componentInstance };
 }
 
-describe('LensCorrectionsPanelComponent', async () => {
+describe('LensCorrectionsPanelComponent', () => {
   it('explains missing lens correction independently of the camera calibration', async () => {
     const { fixture, library } = await makeFixture();
     library.seedLensCorrections(
@@ -176,7 +198,7 @@ describe('LensCorrectionsPanelComponent', async () => {
 // disables when the RAW has no OpcodeList3 at all; the CA slider ALSO
 // disables on its own, independent of the whole-panel gate, when the RAW
 // has corrections but its WarpRectilinear opcode has no per-plane CA data.
-describe('LensCorrectionsPanelComponent — lens-correction capability gate (#3182)', async () => {
+describe('LensCorrectionsPanelComponent — lens-correction capability gate (#3182)', () => {
   it('disables the whole panel (toggle + all three sliders) when the RAW has no OpcodeList3', async () => {
     const { fixture, component, library } = await makeFixture();
     library.seedLensCorrections(ASSET_ID, false, true);
