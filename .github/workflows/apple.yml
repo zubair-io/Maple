@@ -117,7 +117,6 @@ jobs:
         working-directory: src/apple/Packages/MapleCore
         run: swift build
 
-
   swift-regressions:
     name: swift-regressions (MapleCore execution gate)
     runs-on: macos-latest
