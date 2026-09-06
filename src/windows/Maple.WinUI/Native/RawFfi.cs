@@ -9,7 +9,7 @@ namespace Maple.WinUI.Native
     /// All entries are cdecl; i32 returns use 0 = success with the message
     /// available from maple_last_error() on the SAME thread as the failing call.
     /// </summary>
-    public static unsafe class RawFfi
+    public static unsafe partial class RawFfi
     {
         private const string Dll = "raw_ffi.dll";
 
