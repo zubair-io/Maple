@@ -15,7 +15,15 @@ page.on('pageerror', (error) => errors.push(error.message));
 await page.addInitScript(() => {
   delete Object.getPrototypeOf(navigator).gpu;
   delete navigator.gpu;
-  window.detailAudit = { requests: [], responses: [], draws: [], closed: 0 };
+  window.detailAudit = { requests: [], responses: [], draws: [], panEvents: [], closed: 0 };
+  document.addEventListener(
+    'wheel',
+    (event) => {
+      if (event.target.closest('editor-image-canvas') && !event.ctrlKey && !event.metaKey)
+        window.detailAudit.panEvents.push(performance.now());
+    },
+    { capture: true },
+  );
   const NativeWorker = Worker;
   window.Worker = class extends NativeWorker {
     constructor(...args) {
@@ -97,12 +105,13 @@ try {
   );
   assert.equal(first.bytes, true);
 
-  const panStart = await now();
   await page.mouse.move(720, 500);
   await page.mouse.wheel(450, 0);
   const pan = await nextRequest(1);
   await waitPatch(pan.id);
   const panned = await audit();
+  const panStart = panned.panEvents.at(-1);
+  assert.ok(Number.isFinite(panStart), 'time the actual browser input, excluding driver overhead');
   assert.equal(pan.bytes, false, 'pan must reuse the retained RAW');
   assert.notDeepEqual(pan.rect, first.rect);
   const basePaint = panned.draws.find((d) => d.at > panStart && d.w === 1440);
