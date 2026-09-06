@@ -43,6 +43,8 @@ import {
   supportsQuality,
 } from './export-dialog.vm';
 import { MuiExportModalComponent } from '../ui/export-modal/mui-export-modal.component';
+import { MuiOverlayShellComponent } from '../ui/overlay-shell/mui-overlay-shell.component';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import type {
   MuiExportModalPhase,
   MuiExportSettings,
@@ -53,7 +55,7 @@ import type { MuiSegmentedToggleOption } from '../ui/segmented-toggle/mui-segmen
 @Component({
   selector: 'app-export-dialog',
   standalone: true,
-  imports: [MuiExportModalComponent],
+  imports: [MuiExportModalComponent, MuiOverlayShellComponent, MuiButtonComponent],
   templateUrl: './export-dialog.component.html',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -1,26 +1,49 @@
-<mui-export-modal
-  [open]="visible()"
-  [formatOptions]="formatOptions"
-  [colorSpaceOptions]="colorSpaceOptions"
-  [format]="format()"
-  (formatChange)="onFormatChange($event)"
-  [quality]="quality()"
-  (qualityChange)="onQualityChange($event)"
-  [colorSpace]="colorSpace()"
-  (colorSpaceChange)="onColorSpaceChange($event)"
-  [phase]="phase()"
-  [formatDetail]="formatDetail()"
-  [colorSpaceDetail]="colorSpaceDetail()"
-  [qualityVisible]="qualityVisible()"
-  [sizeOptions]="sizeOptions"
-  [maxSidePixels]="maxSidePixels()"
-  (maxSidePixelsChange)="onMaxSidePixelsChange($event)"
-  [sizeHint]="sizeHint()"
-  [exportDisabled]="asset() === null"
-  [doneMessage]="doneMessage()"
-  [doneDetail]="outcomeSize()"
-  [errorDetail]="errorMessage()"
-  (exportRequested)="onExportRequested($event)"
-  (dismissed)="onDismissed()"
-  (retryRequested)="onRetry()"
-/>
+<!-- Export chrome is only needed after Export; idle prefetch avoids a cold click on most sessions. -->
+@defer (when visible(); prefetch on idle) {
+  <mui-export-modal
+    [open]="visible()"
+    [formatOptions]="formatOptions"
+    [colorSpaceOptions]="colorSpaceOptions"
+    [format]="format()"
+    (formatChange)="onFormatChange($event)"
+    [quality]="quality()"
+    (qualityChange)="onQualityChange($event)"
+    [colorSpace]="colorSpace()"
+    (colorSpaceChange)="onColorSpaceChange($event)"
+    [phase]="phase()"
+    [formatDetail]="formatDetail()"
+    [colorSpaceDetail]="colorSpaceDetail()"
+    [qualityVisible]="qualityVisible()"
+    [sizeOptions]="sizeOptions"
+    [maxSidePixels]="maxSidePixels()"
+    (maxSidePixelsChange)="onMaxSidePixelsChange($event)"
+    [sizeHint]="sizeHint()"
+    [exportDisabled]="asset() === null"
+    [doneMessage]="doneMessage()"
+    [doneDetail]="outcomeSize()"
+    [errorDetail]="errorMessage()"
+    (exportRequested)="onExportRequested($event)"
+    (dismissed)="onDismissed()"
+    (retryRequested)="onRetry()"
+  />
+} @loading (after 100ms) {
+  <mui-overlay-shell
+    [open]="visible()"
+    size="sm"
+    ariaLabel="Export image"
+    (dismissed)="onDismissed()"
+  >
+    <p role="status" class="mb-4">Loading export options…</p>
+    <mui-button (pressed)="onDismissed()">Cancel</mui-button>
+  </mui-overlay-shell>
+} @error {
+  <mui-overlay-shell
+    [open]="visible()"
+    size="sm"
+    ariaLabel="Export image"
+    (dismissed)="onDismissed()"
+  >
+    <p role="alert" class="mb-4">Could not load export options. Reload Maple to try again.</p>
+    <mui-button (pressed)="onDismissed()">Close</mui-button>
+  </mui-overlay-shell>
+}
