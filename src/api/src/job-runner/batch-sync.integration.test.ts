@@ -258,7 +258,9 @@ describe('persisted batch adjustment sync', () => {
       .updateOne({ _id: job._id }, { $set: { lease_expires_at: '2000-01-01T00:00:00.000Z' } });
     expect((await jobs.claimJob('worker-b', 60000))?._id).toEqual(job._id);
     await expect(jobs.saveJobCheckpoint(job._id, 'worker-a', {}, 60000)).rejects.toThrow('lease');
-    await jobs.updateProgress(job._id, { current: 99, total: 99 }, 60000, undefined, 'worker-a');
+    await expect(
+      jobs.updateProgress(job._id, { current: 99, total: 99 }, 60000, undefined, 'worker-a'),
+    ).rejects.toThrow('lease');
     await jobs.completeJob(job._id, {}, undefined, 'worker-a');
     await jobs.failJob(job._id, 'stale failure', undefined, 'worker-a');
     expect((await jobs.getJob(job._id))?.status).toBe('running');

@@ -1,8 +1,8 @@
 /** Read all declared fields without silently losing unknown or unsupported choices. */
-export function parseExportRecipe(value: unknown): ExportRecipe {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
+export function parseExportRecipe(input: unknown): ExportRecipe {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new Error('Recipe must be an object');
-  const record = value as Record<string, unknown>;
+  const record = input as Record<string, unknown>;
   const fields = Object.entries(EXPORT_RECIPE_FIELDS);
   if (Object.keys(record).length !== fields.length)
     throw new Error('Recipe has missing or unknown fields');

@@ -180,9 +180,9 @@ Zoom on Apple is a tiled deep-zoom path (`MapleCore/DeepZoomState.swift`, `Cache
 - **Size**: full resolution, or a long-edge cap of 4096 / 2560 / 2048 / 1024. Export never upscales.
 - **Quality**: JPEG only, default 92.
 
-Web (`lib/export/export-dialog.component.ts`) and Windows (`MainWindow.Dialogs.cs`) present exactly this dialog. Apple has its own encoder (`MapleCore/MapleExporter.swift`) offering JPEG sRGB, JPEG P3, **HEIC P3**, TIFF 16-bit, and PNG with a quality slider — but no size control, even though the option exists in its `ExportOptions` struct.
+Web presents these options in `lib/export/export-dialog.component.ts`. Windows uses the saved recipe editor in `MainWindow.ExportRecipes.cs` and `Views/ExportRecipeEditor.cs`. Apple has its own encoder (`MapleCore/MapleExporter.swift`) offering JPEG sRGB, JPEG P3, **HEIC P3**, TIFF 16-bit, and PNG with a quality slider — but no size control, even though the option exists in its `ExportOptions` struct.
 
-Web adds saved versioned recipes and a durable batch queue from Browse or the focused image’s Export dialog. Browser workspaces deliver to Downloads or a chosen writable folder; Self Hosted submits a persisted native export job to a server directory. Both preserve captured edits and support cancel, resume and retry-failed. See [export recipes](export-recipes.md) for capabilities, collision policies and recovery semantics.
+Web adds saved versioned recipes and a durable batch queue from Browse or the focused image’s Export dialog. Browser workspaces deliver to Downloads or a chosen writable folder; Self Hosted submits a persisted native export job to a server directory. Windows provides named recipes and a persistent queue from Photo → Export. These queues preserve captured edits and support cancel, resume and retry-failed. See [export recipes](export-recipes.md) for capabilities, collision policies and recovery semantics.
 
 ---
 
