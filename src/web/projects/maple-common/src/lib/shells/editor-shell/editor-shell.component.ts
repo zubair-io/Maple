@@ -107,6 +107,7 @@ import {
 import {
   type UndoLongPressState,
   newUndoLongPressState,
+  onUndoClick as undoOnClick,
   onUndoPointerDown as undoOnPointerDown,
   onUndoPointerUp as undoOnPointerUp,
   onUndoPointerCancel as undoOnPointerCancel,
@@ -473,9 +474,10 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   // ── Undo / redo (top bar) ──────────────────────────────────────────────
-  // Long-press → redo, tap → undo; gesture body in `editor-shell-undo.ts`
-  // (file-size budget), same shape as the scrub and chrome extractions.
+  // Long-press → redo, tap → undo; gesture body in `editor-shell-undo.ts`.
   private readonly _undo: UndoLongPressState = newUndoLongPressState();
+
+  onUndoClick = (event: MouseEvent) => undoOnClick(this, event);
 
   onUndoPointerDown(e: PointerEvent): void {
     undoOnPointerDown(this, this._undo, e);
