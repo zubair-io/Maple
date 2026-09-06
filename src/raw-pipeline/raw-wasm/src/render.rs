@@ -35,6 +35,7 @@ pub struct MapleRender {
     lens_correction_ca_inert: bool,
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
     lens_profile_json: Option<String>,
+    source_orientation: u16,
 }
 
 impl MapleRender {
@@ -62,6 +63,7 @@ impl MapleRender {
         lens_correction_ca_inert: bool,
         camera_support: Option<raw_core::support_tiers::RenderSupport>,
         lens_profile_json: Option<String>,
+        source_orientation: u16,
     ) -> Self {
         Self {
             width,
@@ -75,12 +77,20 @@ impl MapleRender {
             lens_correction_ca_inert,
             camera_support,
             lens_profile_json,
+            source_orientation,
         }
     }
 }
 
 #[wasm_bindgen]
 impl MapleRender {
+    /// Orientation applied after sensor-framed masks. Browser-decoded RGB
+    /// inputs report Normal because their pixels were already oriented.
+    #[wasm_bindgen(getter)]
+    pub fn source_orientation(&self) -> u16 {
+        self.source_orientation
+    }
+
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
@@ -259,6 +269,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 lens_correction_ca_inert,
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+                source_orientation: raw_img.orientation.to_u16(),
             })
         }
         Some(cap) => {
@@ -279,6 +290,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 lens_correction_ca_inert,
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+                source_orientation: raw_img.orientation.to_u16(),
             })
         }
     }
@@ -367,6 +379,7 @@ pub fn render_bytes_sized(
         lens_correction_ca_inert,
         camera_support,
         lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+        source_orientation: raw_img.orientation.to_u16(),
     })
 }
 
@@ -470,6 +483,7 @@ pub fn develop_non_raw(
         lens_correction_ca_inert: true,
         camera_support: None,
         lens_profile_json: None,
+        source_orientation: 1,
     })
 }
 

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { signal } from '@angular/core';
 
 import { MaskSessionService } from './mask-session.service';
+import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
@@ -63,6 +64,18 @@ describe('MaskSessionService (#1541)', () => {
     // radii.y is pre-corrected by the image aspect (w/h = 1.5) so the
     // default reads as a circle on screen.
     expect(mask.kind === 'radial' && mask.radii.y / mask.radii.x).toBeCloseTo(1.5, 12);
+  });
+
+  it('creates a sensor-space circle for a rotated RAW and ignores another asset metadata', () => {
+    const canvas = TestBed.inject(ImageCanvasService);
+    canvas.nativeDimensions.set({ w: 4000, h: 6000, sourceOrientation: 6, assetId: 'asset-1' });
+    session.addRadial();
+    const rotated = session.selected()!.mask;
+    expect(rotated.kind === 'radial' && rotated.radii.y / rotated.radii.x).toBeCloseTo(1.5, 12);
+    canvas.nativeDimensions.set({ w: 8000, h: 1000, sourceOrientation: 8, assetId: 'other' });
+    session.addRadial();
+    const next = session.selected()!.mask;
+    expect(next.kind === 'radial' && next.radii.y / next.radii.x).toBeCloseTo(1.5, 12);
   });
 
   it('remove moves selection to the nearest survivor', () => {

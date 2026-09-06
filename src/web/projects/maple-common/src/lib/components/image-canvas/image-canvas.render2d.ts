@@ -51,7 +51,7 @@ export interface Render2dHost {
   /** Record that final decoded pixels replaced the provisional camera preview. */
   clearProvisionalPreview(assetId: AssetId): void;
   /** Record the decode's native (full-res, oriented) dims for refine/zoom math. */
-  recordNativeDims(w: number, h: number): void;
+  recordNativeDims(w: number, h: number, sourceOrientation?: number): void;
   /** Record the painted bitmap's dims (long edge + aspect) for the refine guard
    *  and the fit/draw geometry. */
   recordPaintedDims(w: number, h: number): void;
@@ -82,7 +82,7 @@ function recordColdOpenMetadata(host: Render2dHost, assetId: AssetId, decoded: D
   const nativeH = decoded.nativeHeight ?? decoded.height;
   host.state.updateAssetDimensions(assetId, nativeW, nativeH);
   if (assetId === host.currentAssetId) {
-    host.recordNativeDims(nativeW, nativeH);
+    host.recordNativeDims(nativeW, nativeH, decoded.sourceOrientation);
   }
 
   // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with

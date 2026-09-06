@@ -41,6 +41,8 @@ export interface DecodeSuccess {
   lensCorrectionCaInert: boolean;
   cameraSupport?: CameraSupport;
   lensProfile?: LensProfileResolution;
+  /** EXIF tag on the decoded RAW; non-RAW pixels are already display-oriented. */
+  sourceOrientation?: number;
 }
 
 export interface DecodeError {
@@ -199,6 +201,8 @@ export interface OpenSessionSuccess {
   lensCorrectionCaInert: boolean;
   cameraSupport?: CameraSupport;
   lensProfile?: LensProfileResolution;
+  /** EXIF tag on the decoded RAW; non-RAW pixels are already display-oriented. */
+  sourceOrientation?: number;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
   /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
@@ -462,6 +466,8 @@ export interface DecodedImage {
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
   lensProfile?: LensProfileResolution;
+  /** EXIF tag on the decoded RAW; non-RAW pixels are already display-oriented. */
+  sourceOrientation?: number;
 }
 
 export interface DecodeSceneLinearRequest {

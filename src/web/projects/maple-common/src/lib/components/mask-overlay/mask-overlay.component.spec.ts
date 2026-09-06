@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { signal } from '@angular/core';
 
 import { MaskOverlayComponent } from './mask-overlay.component';
+import { maskToScreen, type MaskCanvasMap } from './mask-geometry';
 import { MaskSessionService } from './mask-session.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -64,7 +65,10 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
       providers: [
         { provide: LibraryStateService, useValue: lib },
         { provide: RawPipelineService, useValue: {} },
-        { provide: ImageCanvasService, useValue: { zoomToFit: vi.fn() } },
+        {
+          provide: ImageCanvasService,
+          useValue: { zoomToFit: vi.fn(), nativeDimensions: signal(null) },
+        },
       ],
     });
     editor = TestBed.inject(EditorStateService);
@@ -75,6 +79,30 @@ describe('MaskOverlayComponent tint gate (#1541)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     (globalThis as unknown as Globals).ResizeObserver = originalResizeObserver;
+  });
+
+  it('uses the current renderer orientation and rejects metadata for the previous asset', () => {
+    const canvas = TestBed.inject(ImageCanvasService);
+    const fixture = TestBed.createComponent(MaskOverlayComponent);
+    const state = fixture.componentInstance as unknown as {
+      map: () => MaskCanvasMap;
+      wrapW: ReturnType<typeof signal<number>>;
+      wrapH: ReturnType<typeof signal<number>>;
+    };
+    state.wrapW.set(600);
+    state.wrapH.set(400);
+    canvas.nativeDimensions.set({ w: 4000, h: 6000, sourceOrientation: 6, assetId: 'asset-1' });
+    let map = state.map();
+    expect(map.footprint.width / map.footprint.height).toBeCloseTo(2 / 3);
+    let screen = maskToScreen(map, { x: 0.2, y: 0.3 });
+    expect((screen.x - map.footprint.left) / map.footprint.width).toBeCloseTo(0.7);
+    expect((screen.y - map.footprint.top) / map.footprint.height).toBeCloseTo(0.2);
+    canvas.nativeDimensions.set({ w: 4000, h: 6000, sourceOrientation: 6, assetId: 'previous' });
+    map = state.map();
+    screen = maskToScreen(map, { x: 0.2, y: 0.3 });
+    expect(map.footprint.width / map.footprint.height).toBeCloseTo(1.5);
+    expect((screen.x - map.footprint.left) / map.footprint.width).toBeCloseTo(0.2);
+    expect((screen.y - map.footprint.top) / map.footprint.height).toBeCloseTo(0.3);
   });
 
   it('rasterises nothing while the tool is disarmed, and repaints on re-arm', () => {

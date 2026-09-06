@@ -20,8 +20,14 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
+import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import type { LocalAdjustment, LocalMask, PartialAdjustments } from '../../models/local-adjustment';
-import { defaultLinearMask, defaultRadialMask, withMaskFeather } from './mask-geometry';
+import {
+  defaultLinearMask,
+  defaultRadialMask,
+  sensorImageAspect,
+  withMaskFeather,
+} from './mask-geometry';
 
 /** Structural equality for one layer — the model is plain data. */
 const isSameLayer = (a: LocalAdjustment, b: LocalAdjustment): boolean =>
@@ -31,6 +37,7 @@ const isSameLayer = (a: LocalAdjustment, b: LocalAdjustment): boolean =>
 export class MaskSessionService {
   private readonly editor = inject(EditorStateService);
   private readonly library = inject(LibraryStateService);
+  private readonly canvas = inject(ImageCanvasService);
 
   /** True while the Mask tool is armed — drives the overlay + panel. */
   readonly active = computed(() => this.editor.armedTool() === 'mask');
@@ -87,6 +94,12 @@ export class MaskSessionService {
 
   addRadial(): number {
     const a = this.library.focusedAsset();
+    const native = this.canvas.nativeDimensions();
+    if (native && native.assetId === a?.id) {
+      return this.add(
+        defaultRadialMask(sensorImageAspect(native.w, native.h, native.sourceOrientation)),
+      );
+    }
     const aspect = a?.width && a?.height ? a.width / a.height : 1;
     return this.add(defaultRadialMask(aspect));
   }

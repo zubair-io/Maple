@@ -405,6 +405,20 @@ pub enum ExifOrientation {
 }
 
 impl ExifOrientation {
+    /// EXIF/TIFF wire value; enum discriminants are intentionally not the tags.
+    pub fn to_u16(self) -> u16 {
+        match self {
+            Self::Normal => 1,
+            Self::HorizontalFlip => 2,
+            Self::Rotate180 => 3,
+            Self::VerticalFlip => 4,
+            Self::Transpose => 5,
+            Self::Rotate90 => 6,
+            Self::Transverse => 7,
+            Self::Rotate270 => 8,
+        }
+    }
+
     pub fn from_u16(v: u16) -> Self {
         match v {
             2 => Self::HorizontalFlip,

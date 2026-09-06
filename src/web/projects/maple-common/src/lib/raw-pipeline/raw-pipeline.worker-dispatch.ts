@@ -61,6 +61,7 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
       lensProfile: msg.lensProfile,
+      sourceOrientation: msg.sourceOrientation,
     });
     return true;
   }
@@ -104,6 +105,7 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
       lensProfile: msg.lensProfile,
+      sourceOrientation: msg.sourceOrientation,
       colorSpace: msg.colorSpace,
       scopePixels: scopeToDecoded(msg.scope),
     });

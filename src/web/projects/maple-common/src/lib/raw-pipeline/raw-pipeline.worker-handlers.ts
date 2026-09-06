@@ -99,6 +99,7 @@ export interface WebLiveSessionInstance {
   readonly lensCorrectionCaInert: boolean;
   readonly cameraSupportJson: string | undefined;
   readonly lensProfileJson: string | undefined;
+  readonly sourceOrientation: number;
   readonly colorSpace: string;
   free(): void;
 }

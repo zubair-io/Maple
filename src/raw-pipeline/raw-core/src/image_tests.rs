@@ -1,5 +1,14 @@
 use super::*;
 
+#[test]
+fn exif_wire_tags_round_trip_without_using_enum_discriminants() {
+    for tag in 1..=8 {
+        assert_eq!(ExifOrientation::from_u16(tag).to_u16(), tag);
+    }
+    assert_eq!(ExifOrientation::from_u16(0).to_u16(), 1);
+    assert_eq!(ExifOrientation::from_u16(9).to_u16(), 1);
+}
+
 /// 2×3 RGB fixture: each pixel's R channel encodes a unique tag letter
 /// (ASCII); G = 0, B = 0. After orientation, we can read out the tag
 /// sequence to verify the pixel mapping. The image looks like:
