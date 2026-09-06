@@ -55,6 +55,7 @@ mod white_balance_sample;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
 // indicator is fed by the stage's own per-row ticks, so raw-core's progress
 // sink gets a C callback registration here.
+mod as_shot_white_balance;
 mod deep_denoise_progress;
 mod error;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over

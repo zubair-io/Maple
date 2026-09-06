@@ -245,7 +245,7 @@ jobs:
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
     # accidental watch-mode hang burning the full job budget.
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -291,6 +291,22 @@ jobs:
       - name: Run web unit tests (ng test Maple-common)
         working-directory: src/web
         run: bun x ng test Maple-common
+
+      - name: Install Chromium for durable batch transfer tests
+        working-directory: src/web
+        run: bun x playwright install --with-deps chromium
+
+      - name: Test batch transfer recovery and real Hosted UI
+        working-directory: src/web
+        run: bun run e2e:batch-transfer
+
+      - name: Upload batch transfer browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-transfer-browser-results
+          path: src/web/test-results/
+          if-no-files-found: ignore
 
   # Browser-WebGPU smoke (#2315). raw-pipeline.yml's `raw-gpu` job proves
   # raw-core↔WGSL agreement on lavapipe (SPIR-V); it says nothing about a

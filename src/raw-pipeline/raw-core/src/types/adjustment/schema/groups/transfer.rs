@@ -1,6 +1,6 @@
 //! Transfer semantics for every field, independently pinned against group coverage (#3311).
-//! Relative white balance remains unassigned until #2434 supplies its camera-baseline
-//! contract. Absolute WB preserves the authored scale and As Shot sentinel together.
+//! White balance additionally supports an explicit correction relative to each camera
+//! As Shot baseline. Absolute remains the default and preserves authored scale.
 
 use super::NON_COPYABLE_FIELDS;
 
@@ -25,6 +25,9 @@ impl TransferMode {
 
 /// No fallback for unknown fields: adding a group field requires a transfer decision.
 pub fn transfer_mode(field: &str) -> Option<TransferMode> {
+    if matches!(field, "temperature" | "tint") {
+        return Some(TransferMode::Relative);
+    }
     if field == "crop" {
         return Some(TransferMode::AssetRelative);
     }
@@ -39,8 +42,6 @@ pub fn transfer_mode(field: &str) -> Option<TransferMode> {
 // Explicit rather than `all group fields`: a new field must make a reviewed
 // transfer decision, even when the decision is to retain today's absolute copy.
 const ABSOLUTE_FIELDS: &[&str] = &[
-    "temperature",
-    "tint",
     "wb_method",
     "wb_scale_version",
     "wb_source",
@@ -169,6 +170,8 @@ mod tests {
             ABSOLUTE_FIELDS.iter().collect::<HashSet<_>>().len(),
             ABSOLUTE_FIELDS.len()
         );
+        assert_eq!(transfer_mode("temperature"), Some(TransferMode::Relative));
+        assert_eq!(transfer_mode("tint"), Some(TransferMode::Relative));
         assert_eq!(transfer_mode("crop"), Some(TransferMode::AssetRelative));
         assert_eq!(transfer_mode("unknown_future_field"), None);
         assert_eq!(

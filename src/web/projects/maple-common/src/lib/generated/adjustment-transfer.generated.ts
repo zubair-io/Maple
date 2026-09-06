@@ -2,10 +2,10 @@
 
 export type AdjustmentTransferMode = 'Absolute' | 'Relative' | 'AssetRelative' | 'Unsupported';
 
-/** Relative WB is not assigned until #2434 supplies its baseline contract. */
+/** Relative fields also support an explicit camera As Shot correction. */
 export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransferMode>> = {
-  temperature: 'Absolute',
-  tint: 'Absolute',
+  temperature: 'Relative',
+  tint: 'Relative',
   temperature_seen: 'Unsupported',
   tint_seen: 'Unsupported',
   wb_method: 'Absolute',
@@ -119,6 +119,13 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   wb_sample_x: 'Unsupported',
   wb_sample_y: 'Unsupported',
   wb_algorithm_version: 'Unsupported',
+};
+
+export const CURRENT_WHITE_BALANCE_SCALE_VERSION = 5;
+
+export const RELATIVE_TRANSFER_RANGES: Readonly<Record<string, readonly [number, number]>> = {
+  temperature: [2000, 12000],
+  tint: [-150, 150],
 };
 
 export const TRANSFER_XMP_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {

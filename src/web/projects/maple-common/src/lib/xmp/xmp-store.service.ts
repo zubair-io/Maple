@@ -11,7 +11,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import type { XmpCulling, PassthroughBucket } from './xmp.types';
+import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AssetId } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { FolderAccessService } from '../folder-access/folder-access.service';
@@ -45,6 +45,11 @@ export class XmpStoreService {
 
   /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
+  private readonly _metadata = new Map<AssetId, XmpMetadata>();
+
+  rememberMetadata(assetId: AssetId, metadata: XmpMetadata): void {
+    this._metadata.set(assetId, metadata);
+  }
 
   // ── Passthrough cache ───────────────────────────────────────────────────────
 
@@ -67,7 +72,10 @@ export class XmpStoreService {
     assetIds: Iterable<AssetId>,
     replacements: ReadonlyMap<AssetId, PassthroughBucket>,
   ): void {
-    for (const assetId of assetIds) this._passthroughs.delete(assetId);
+    for (const assetId of assetIds) {
+      this._passthroughs.delete(assetId);
+      this._metadata.delete(assetId);
+    }
     for (const [assetId, passthrough] of replacements) {
       this._passthroughs.set(assetId, passthrough);
     }
@@ -123,6 +131,29 @@ export class XmpStoreService {
       culling,
       revision,
     });
+  }
+
+  /** Settle this asset's real atomic write before a batch records success. */
+  async flushAsset(id: AssetId): Promise<void> {
+    const pending = this._pendingWrites.get(id);
+    if (pending) {
+      clearTimeout(pending.timeout);
+      this._pendingWrites.delete(id);
+      return this._startWrite(
+        id,
+        pending.folder,
+        pending.rawFilename,
+        pending.model,
+        pending.culling,
+        pending.revision,
+        this._passthroughs.get(id),
+      );
+    }
+    const inFlight = this._inFlightWrites.get(id);
+    if (inFlight) return inFlight;
+    throw new Error(
+      'No writable sidecar was queued for this photo. Reopen its folder with write access.',
+    );
   }
 
   // ── Flush all (beforeunload) ────────────────────────────────────────────────
@@ -193,7 +224,7 @@ export class XmpStoreService {
     passthrough?: PassthroughBucket,
   ): Promise<void> {
     this.saveState.saving(assetId, revision);
-    const xml = this.serializer.serialize(model, passthrough, culling);
+    const xml = this.serializer.serialize(model, passthrough, culling, this._metadata.get(assetId));
     const bytes = new TextEncoder().encode(xml);
     const sidecarName = this._sidecarFilename(rawFilename);
     try {
