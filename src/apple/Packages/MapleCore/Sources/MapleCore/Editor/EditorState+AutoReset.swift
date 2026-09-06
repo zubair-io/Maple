@@ -59,6 +59,8 @@ extension EditorState {
     guard let url = session.asset.primaryURL else { return }  // RAW path only
     autoGeneration &+= 1
     let gen = autoGeneration
+    let originalModel = session.model
+    let editID = session.transactions.nextID
     autoInProgress = true
     defer { if gen == autoGeneration { autoInProgress = false } }
 
@@ -71,13 +73,15 @@ extension EditorState {
     // The chrome task is cancelled when its editor disappears. A native
     // analysis can finish after cancellation; it must not commit to the
     // session (or its sidecar) after the user has left the image.
-    guard !Task.isCancelled, gen == autoGeneration, session.asset.primaryURL == url else { return }
+    // The model catches in-progress slider writes; the transaction ID also
+    // catches edit → undo while analysis runs, when the model matches again.
+    guard !Task.isCancelled, gen == autoGeneration, session.asset.primaryURL == url,
+      session.model == originalModel, session.transactions.nextID == editID
+    else { return }
 
     func clamp(_ v: Double, _ r: ClosedRange<Double>) -> Double {
       min(max(v, r.lowerBound), r.upperBound)
     }
-    commit(kind: .auto, description: "Auto adjustments")
-    defer { session.endEdit() }
     var m = session.model
     // AUTO applies EXPOSURE + the five calibrated tone sliders (#2255).
     // White balance is intentionally NOT touched: single-image gray-world
@@ -94,6 +98,10 @@ extension EditorState {
     // a `Profile.neutral` decode keeps auto_exposure On
     // and AE-lift stacks with AUTO's lift, blowing out highlights.
     m.autoExposure = .off
+    // Beginning even an unchanged transaction would clear the redo stack.
+    guard m != session.model else { return }
+    commit(kind: .auto, description: "Auto adjustments")
+    defer { session.endEdit() }
     session.model = m
   }
 }
