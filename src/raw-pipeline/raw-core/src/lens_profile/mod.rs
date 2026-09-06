@@ -11,7 +11,7 @@ pub use resolve::{LensQuery, Resolution, SampleWeight};
 mod apply;
 pub use apply::apply;
 mod registry;
-pub use registry::{apply_for_raw, profile_id, register, resolve_for_raw};
+pub use registry::{apply_for_raw, clear_cache, profile_id, register, resolve_for_raw};
 
 /// Lens EXIF and calibration frame captured during the original RAW decode.
 #[derive(Clone, Debug, Default)]
