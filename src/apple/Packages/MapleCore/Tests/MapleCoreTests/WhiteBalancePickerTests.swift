@@ -47,6 +47,30 @@ final class WhiteBalancePickerTests: XCTestCase {
     XCTAssertEqual(session.model, sampled)
   }
 
+  func testNewSampleAndAsShotReplaceLegacyScaleAndUndoRestoresIt() async {
+    var legacy = AdjustmentModel.default
+    legacy.wbScaleVersion = 1
+    legacy.temperature = 4200
+    legacy.tint = 5
+    let session = EditSession.preview(model: legacy)
+    let picker = WhiteBalancePicker(session: session)
+    let result = result
+    picker.provider = { _, _, _ in result }
+    picker.arm()
+    await picker.pick(at: point)
+    XCTAssertEqual(session.model.wbScaleVersion, AdjustmentModel.default.wbScaleVersion)
+    XCTAssertEqual(session.model.temperature, result.temperature)
+    session.undo()
+    XCTAssertEqual(session.model, legacy)
+    session.asShotCCT = 5100
+    session.asShotTint = 4
+    picker.resetToAsShot()
+    XCTAssertEqual(session.model.wbScaleVersion, AdjustmentModel.default.wbScaleVersion)
+    XCTAssertEqual(session.model.temperature, 5100)
+    session.undo()
+    XCTAssertEqual(session.model, legacy)
+  }
+
   func testRejectionsKeepPickerArmedWithoutEditsAndExplainNextPick() async {
     for code: Int32 in [11, 12, 13, 14] {
       let session = EditSession.preview()
