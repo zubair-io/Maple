@@ -10,6 +10,16 @@ use std::{
     path::Path,
 };
 
+unsafe fn text(ptr: *const c_char) -> Result<String, String> {
+    if ptr.is_null() {
+        return Err("missing export argument".into());
+    }
+    CStr::from_ptr(ptr)
+        .to_str()
+        .map(str::to_owned)
+        .map_err(|e| e.to_string())
+}
+
 /// Render a source under immutable XMP and a validated recipe to an exclusively
 /// created staging file. The caller owns cleanup and final publication.
 /// # Safety
@@ -22,15 +32,6 @@ pub unsafe extern "C" fn maple_export_recipe_to_file(
     film_path: *const c_char,
     out_path: *const c_char,
 ) -> i32 {
-    unsafe fn text(ptr: *const c_char) -> Result<String, String> {
-        if ptr.is_null() {
-            return Err("missing export argument".into());
-        }
-        CStr::from_ptr(ptr)
-            .to_str()
-            .map(str::to_owned)
-            .map_err(|e| e.to_string())
-    }
     let inputs = (|| -> Result<_, String> {
         Ok((
             text(raw_path)?,
@@ -114,4 +115,123 @@ pub unsafe extern "C" fn maple_export_recipe_to_file(
             }
         }
     })
+}
+
+/// Validate every required recipe field and supported execution capability without decoding.
+/// Returns 0 on success, 1 on failure with same-thread `maple_last_error`.
+/// # Safety
+/// `recipe_json` must point to a NUL-terminated UTF-8 string, or be null (rejected).
+#[no_mangle]
+pub unsafe extern "C" fn maple_validate_export_recipe(recipe_json: *const c_char) -> i32 {
+    let result = text(recipe_json)
+        .and_then(|json| ExportRecipe::parse(&json))
+        .and_then(|recipe| recipe.validate());
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            set_last_error(error);
+            1
+        }
+    }
+}
+
+/// Render the validated recipe's output name using the shared format extension and sequence.
+/// Output is UTF-8, not NUL terminated. Returns 0 on success, 1 with last-error on failure.
+/// # Safety
+/// String pointers must be valid NUL-terminated UTF-8. `captured_at` may be null.
+/// `out_buf` must address `out_cap` writable bytes and `out_len` a writable usize.
+#[no_mangle]
+pub unsafe extern "C" fn maple_export_recipe_filename_buf(
+    recipe_json: *const c_char,
+    original_stem: *const c_char,
+    captured_at: *const c_char,
+    sequence_index: u64,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    if out_len.is_null() || out_buf.is_null() {
+        set_last_error("missing filename output buffer".into());
+        return 1;
+    }
+    *out_len = 0;
+    let result = (|| -> Result<(), String> {
+        let recipe = ExportRecipe::parse(&text(recipe_json)?)?;
+        recipe.validate()?;
+        let stem = text(original_stem)?;
+        let date = if captured_at.is_null() {
+            None
+        } else {
+            Some(text(captured_at)?)
+        };
+        let name = recipe.filename(&stem, date.as_deref(), sequence_index)?;
+        if name.len() > out_cap {
+            return Err("filename output buffer is too small".into());
+        }
+        std::ptr::copy_nonoverlapping(name.as_ptr(), out_buf, name.len());
+        *out_len = name.len();
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            set_last_error(error);
+            1
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+    #[test]
+    fn preflight_rejects_unsupported_choices_and_nulls_without_rendering() {
+        let json = CString::new(serde_json::to_string(&ExportRecipe::default()).unwrap()).unwrap();
+        unsafe {
+            assert_eq!(maple_validate_export_recipe(json.as_ptr()), 0);
+            assert_eq!(maple_validate_export_recipe(std::ptr::null()), 1);
+        }
+        let unsupported = CString::new(json.to_str().unwrap().replace("jpeg", "heic")).unwrap();
+        unsafe {
+            assert_eq!(maple_validate_export_recipe(unsupported.as_ptr()), 1);
+        }
+    }
+    #[test]
+    fn filename_buffer_uses_recipe_extension_and_stable_index_without_truncation() {
+        let mut recipe = ExportRecipe::default();
+        recipe.naming_template = "{original}_{n}.{ext}".into();
+        let json = CString::new(serde_json::to_string(&recipe).unwrap()).unwrap();
+        let stem = CString::new("sample").unwrap();
+        let mut bytes = [0u8; 64];
+        let mut len = 999;
+        unsafe {
+            assert_eq!(
+                maple_export_recipe_filename_buf(
+                    json.as_ptr(),
+                    stem.as_ptr(),
+                    std::ptr::null(),
+                    7,
+                    bytes.as_mut_ptr(),
+                    bytes.len(),
+                    &mut len
+                ),
+                0
+            );
+            assert_eq!(&bytes[..len], b"sample_8.jpg");
+            assert_eq!(
+                maple_export_recipe_filename_buf(
+                    json.as_ptr(),
+                    stem.as_ptr(),
+                    std::ptr::null(),
+                    7,
+                    bytes.as_mut_ptr(),
+                    3,
+                    &mut len
+                ),
+                1
+            );
+            assert_eq!(len, 0);
+        }
+    }
 }

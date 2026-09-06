@@ -90,3 +90,4 @@ required-features = ["pano"]
 # RAW with no embedded JPEG preview (exercises the rc=8 fall-through).
 raw-core = { path = "../raw-core", features = ["test-support"] }
 tempfile = "3"
+serde_json = "1"
