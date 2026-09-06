@@ -2,7 +2,8 @@
 //
 // Remote analog of XMPSidecarStore. Mirrors the same surface
 // (load/update/flush + 750ms debounce) but routes through
-// GET/PUT /api/assets/:id/xmp instead of the local filesystem.
+// GET/POST /api/xmp?path=… for folder refs, or GET/PUT
+// /api/assets/:id/xmp for catalog refs, instead of the local filesystem.
 
 import Foundation
 
@@ -39,7 +40,7 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
 
   public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
     if let cached { return cached }
-    let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/xmp"))
+    let req = URLRequest(url: sidecarURL)
     let (data, resp) = try await httpClient.data(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
       return nil
@@ -90,6 +91,18 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
 
   // MARK: - Private
 
+  // Folder browsing identifies assets as fs:<absolute path>, not Mongo IDs.
+  // Use the path endpoint so existing edits also work before indexing (#3357).
+  private var sidecarURL: URL {
+    guard assetID.hasPrefix("fs:") else {
+      return server.appending(path: "/api/assets/\(assetID)/xmp")
+    }
+    var components = URLComponents(
+      url: server.appending(path: "/api/xmp"), resolvingAgainstBaseURL: false)!
+    components.queryItems = [URLQueryItem(name: "path", value: String(assetID.dropFirst(3)))]
+    return components.url!
+  }
+
   private func writePending() async {
     guard let model = pendingModel, let culling = pendingCulling else { return }
     pendingModel = nil
@@ -97,8 +110,8 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     do {
       let xml = XMPSerializer.serialize(
         model: model, culling: culling, passthrough: cachedPassthrough)
-      var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/xmp"))
-      req.httpMethod = "PUT"
+      var req = URLRequest(url: sidecarURL)
+      req.httpMethod = assetID.hasPrefix("fs:") ? "POST" : "PUT"
       req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
       req.httpBody = Data(xml.utf8)
       let (data, resp) = try await httpClient.data(for: req)
@@ -113,9 +126,10 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
   private static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let body = String(data: data, encoding: .utf8) ?? ""
-      throw NSError(domain: "CloudSidecarStore",
-                    code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
-                    userInfo: [NSLocalizedDescriptionKey: body])
+      throw NSError(
+        domain: "CloudSidecarStore",
+        code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
+        userInfo: [NSLocalizedDescriptionKey: body])
     }
   }
 }
