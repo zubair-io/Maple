@@ -48,7 +48,12 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 @Component({
   selector: 'lens-corrections-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent, MuiTextComponent, GeometryPanelComponent, LensProfileImportComponent],
+  imports: [
+    MuiLivingSliderComponent,
+    MuiTextComponent,
+    GeometryPanelComponent,
+    LensProfileImportComponent,
+  ],
   templateUrl: './lens-corrections-panel.component.html',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
