@@ -21,7 +21,11 @@ final class RenderSchedulingBackpressureTests: XCTestCase {
     let latest = await renderer.scheduleRender(phase: .fast) { _ in }
     await renderer.scheduleRefine(expectedGeneration: latest) { _ in await starts.record(2) }
     await renderer.scheduleRefine(expectedGeneration: old) { _ in await starts.record(1) }
-    try await Task.sleep(for: .milliseconds(250))
+    // The debounce starts when its task is admitted, which may be delayed on
+    // a busy runner. Join the actual tail instead of racing a wall-clock sleep.
+    let currentRefine = await renderer.refineTask
+    let tail = try XCTUnwrap(currentRefine)
+    await tail.value
     let values = await starts.values
     XCTAssertEqual(values, [2], "An obsolete tail must not cancel the current generation's refine")
   }
