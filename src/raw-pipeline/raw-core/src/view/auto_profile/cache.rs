@@ -7,12 +7,11 @@
 //! (CLAUDE.md § Performance invariants). This cache lets second-and-after
 //! ticks on the same RAW reuse the previously fitted curve.
 //!
-//! Key shapes (see [`CacheKey`]); both carry `(quality, origin, fit_model_version)` on top of
-//! the raw identity:
-//! - [`CacheKey::Path`] — `(canonical path, mtime)` for
+//! Key shapes (see [`CacheKey`]):
+//! - [`CacheKey::Path`] — `(canonical path, mtime, quality, origin, fit_model_version)` for
 //!   native callers. Mtime catches "user re-edited and re-exported the RAW out from
 //!   under us"; the path discriminates between fixtures.
-//! - [`CacheKey::Bytes`] — a hash where the hash is a 64-bit
+//! - [`CacheKey::Bytes`] — `(hash, quality, origin, fit_model_version)`, where the hash is a 64-bit
 //!   blake3 digest of the first 64 KB + last 64 KB + total length of the
 //!   bytes. Full blake3 of a 50 MB RAW alone is ~50 ms (would defeat the
 //!   cache); prefix+suffix+length is collision-free across distinct RAW
@@ -24,8 +23,8 @@
 //! `auto_exposure: Off` pinned and the caller's `profile` carried (see
 //! `pipeline::render::auto_fit::fit_develop_model`), never the caller's live
 //! edit model. The fitted curve/LUT are therefore a pure function of the RAW
-//! at a given develop quality, so `(raw identity, quality)` needs no
-//! adjustment digest or generation counter: slider ticks cannot change what
+//! at a given develop quality, origin, and fit-model version, so the key needs
+//! no adjustment digest or generation counter: slider ticks cannot change what
 //! a fit would produce, and a warm entry is always exactly what a cold fit
 //! would re-compute.
 //!
@@ -40,8 +39,8 @@
 //! silently served its artifacts to the other. Develop SIZE stays out of the
 //! key — pre-existing contract: the standalone fit entries derive their
 //! proxy size deterministically from the RAW
-//! (`auto_fit::auto_fit_max_long_edge`), so per `(raw, quality)` there is
-//! one canonical standalone fit.
+//! (`auto_fit::auto_fit_max_long_edge`), so per `(raw, quality, fit_model_version)`
+//! there is one canonical fit with [`FitOrigin::Standalone`].
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
