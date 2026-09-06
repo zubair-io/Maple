@@ -140,6 +140,10 @@ Every photo origin implements the `ImageSource` protocol (`Sources/ImageSource.s
 - `SMBSidecarStore` / `CloudSidecarStore` — the same surface over SMB and over the API.
 - `PhotoKitSidecarStore` — same 750 ms debounce, but persists into MapleBackup's `AppSupportSidecarStore` keyed by PHAsset local id, because a Photos asset has no stable on-disk path to put a `.xmp` next to. This is also the store `BackupEngine` reads when deciding whether a real local edit exists to upload as a companion.
 
+Cloud folder refs (`fs:<absolute path>`) use `GET`/`POST /api/xmp?path=…`; catalog refs retain `GET`/`PUT /api/assets/:id/xmp`. A failed sidecar read records `sidecarError` and leaves the existing edit model intact instead of replacing it with defaults (#3357).
+
+Normal export snapshots the live model before its full-quality decode, resolves the Auto Profile cube at that decode quality, and applies the saved crop and straighten angle before encoding. The crop applies even while the crop tool is open. The full RAW film render already crops in Rust and must not be cropped again. CPU and GPU Auto Profile fitting share a session-owned staged RAW file for byte-backed sources, so Cloud receives the same camera-preview fit as a local file (#3357).
+
 Serialization lives in the `XMPSerialization+*.swift` family, with `XMPPassthrough` preserving unknown XML byte-for-byte. The schema and canonical byte form are in [xmp-canonical-format](xmp-canonical-format.md).
 
 ## File Provider and Quick Look

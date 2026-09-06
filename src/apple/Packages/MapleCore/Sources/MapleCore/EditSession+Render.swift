@@ -31,488 +31,507 @@
 //     invariants). A continuous slider drag cancels the refine on every
 //     tick; only the tail of the drag survives.
 
-import Foundation
 import CoreImage
+import Foundation
 
 @MainActor
 extension EditSession {
-    // MARK: - Unified decode + render
+  // MARK: - Unified decode + render
 
-    /// Auto Profile (#812) — resolve (and cache) the per-image display-space
-    /// CIColorCube for a CPU-path render. In `decodeAndRender`, call only from
-    /// the CPU-fallback branches (after `presentViaGpuLive` has declined the
-    /// frame): the fit is a cold JPEG-extract + develop the first time per
-    /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
-    /// when the GPU live present handles the frame it does its own fit —
-    /// computing this before attempting the present burns that cost on a
-    /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
-    /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
-    /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
-    /// path develops at `.preview` (RenderActor's sharedDecode +
-    /// decodeSceneLinear* default to `.preview`), so the curve is fit at
-    /// `.preview` to match the displayed buffer (#844).
-    private func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async -> CIFilter? {
-        guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
-        return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
+  /// Auto Profile (#812) — resolve (and cache) the per-image display-space
+  /// CIColorCube for a CPU-path render. In `decodeAndRender`, call only from
+  /// the CPU-fallback branches (after `presentViaGpuLive` has declined the
+  /// frame): the fit is a cold JPEG-extract + develop the first time per
+  /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
+  /// when the GPU live present handles the frame it does its own fit —
+  /// computing this before attempting the present burns that cost on a
+  /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
+  /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
+  /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
+  /// path develops at `.preview` (RenderActor's sharedDecode +
+  /// decodeSceneLinear* default to `.preview`), so the curve is fit at
+  /// `.preview` to match the displayed buffer (#844).
+  private func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
+    -> CIFilter?
+  {
+    guard asset.isRaw, m.profile == .auto else { return nil }
+    guard let url = try? await renderActor.rawRenderSource.url(for: asset) else { return nil }
+    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+    let accessing = scope.startAccessingSecurityScopedResource()
+    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
+  }
+
+  func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
+    // Videos are selectable for metadata editing (#1638) but have no still
+    // frame to develop. No-op the render rather than feeding container bytes
+    // to a decoder — `AssetRef.isRaw` is already false for video (so libraw
+    // is never reached), but the non-RAW path would still hand the .mov to
+    // CGImageSource. This is the single body all render phases (fast/refine/
+    // renderFull) funnel through, so guarding here covers every entry point.
+    //
+    // Stub images (eip/braw/afphoto/ai) and audio (mp3/wav/m4a/aac, #1835)
+    // get the same treatment: metadata-only, no pixels to develop, no
+    // decode attempt of any kind.
+    if self.asset.isVideo || self.asset.isStub || self.asset.isAudio {
+      isRendering = false
+      return
     }
+    isRendering = true
+    renderPhase = phase
+    // #1153: BM3D is the one develop stage that runs for seconds, and it
+    // reports real per-reference-row progress. Publish it for the
+    // determinate editor indicator only while it is actually engaged —
+    // `deepDenoise == 0` short-circuits the stage, so there would be
+    // nothing to show.
+    let deepDenoiseEngaged = model.deepDenoise > 0
+    if deepDenoiseEngaged { deepDenoiseProgress.start() }
+    defer { if deepDenoiseEngaged { deepDenoiseProgress.stop() } }
+    let asset = self.asset
+    // #1781: adopt the decode-exported WB slider frame BEFORE capturing
+    // the model + anchor (this snapshot is also the freshness read).
+    let snapshot = await renderActor.snapshot(forAsset: asset)
+    adoptDecodedWbFrame(snapshot.wbFrame)
+    // #2231: same lifecycle as the WB frame above — the inspector
+    // panel's visibility/CA-greying tracks whichever decode is
+    // currently cached, not a per-tick recomputation.
+    hasLensCorrections = snapshot.hasLensCorrections
+    lensCorrectionCaInert = snapshot.lensCorrectionCaInert
+    lensCorrectionDistortionInert = snapshot.lensCorrectionDistortionInert
+    let m = model
+    let pipeline = self.pipeline
+    // Crop + straighten (#638). Applied as a CoreImage geometry op on the
+    // FINAL developed CIImage — the crop is not in the Rust core on Apple,
+    // so it rides here on the published preview. The crop applies only
+    // when the tool is NOT armed (`!cropEditingActive`): while armed the
+    // overlay sits over the full frame and the render shows the uncropped
+    // image. `effectiveCrop` already folds in that armed/disarmed gate.
+    let crop = effectiveCrop
+    let applyCrop = CropImageStage.shouldApply(crop)
+    // #2117: the oriented native full-frame size is the resolution-
+    // independent reference `CropImageStage.apply` rounds the crop rect
+    // against — so the fast (viewport-res) and refine (~2×) phases cut the
+    // IDENTICAL normalized region and the cropped image doesn't shift when
+    // the sharp refine render replaces the blurry fast one. Same reference
+    // the canvas leaf frame uses (`effectiveImageSize` → `croppedSize`).
+    let cropNativeSize = nativeImageSize
+    // #2049: the crop actually folded into the presented pixels — part of
+    // the GPU-live upload identity alongside the decode generation (see
+    // `presentViaGpuLive`). A crop CHANGE alters `CropImageStage.apply`'s
+    // output at possibly-unchanged dims, so identity must fold it in
+    // rather than relying on dims alone.
+    let appliedCrop = applyCrop ? crop : Crop.identity
+    // #1617: the GPU live present crops the decoded scene-linear buffer
+    // itself (a geometry op before the f32 readback), so it opens the
+    // session at the CROPPED dims and needs the un-upscaled canvas target —
+    // the cropped buffer already IS the kept region. Capture it before the
+    // CPU-path upscale shadows `targetSize` just below. (#2143's
+    // delivered-extent caps are applied per-branch below, once the decode
+    // extent is actually known — see `ImageEditPipeline.cappedToDelivered`
+    // for why the ceiling can't be predicted up front.)
+    let gpuTargetSize = targetSize
+    // When a crop is applied the chain still develops the FULL frame and
+    // `CropImageStage` trims afterward. The incoming `targetSize` is sized
+    // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
+    // so prescaling the full frame to it would render the kept region too
+    // soft. Scale the full-frame process target up by the inverse crop
+    // fraction so the kept region lands at (about) the requested resolution.
+    // Capped so a tiny crop on a 100 MP frame can't request an absurd
+    // full-frame target (the source's own resolution is the real ceiling
+    // — `prescaleForDisplay` never upscales past it anyway).
+    let targetSize: CGSize? = {
+      guard applyCrop, let t = targetSize else { return targetSize }
+      let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
+      let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
+      let scaleW = CGFloat(min(1.0 / fracW, 8.0))
+      let scaleH = CGFloat(min(1.0 / fracH, 8.0))
+      return CGSize(width: t.width * scaleW, height: t.height * scaleH)
+    }()
+    let cached = snapshot.image
+    // Fast phase accepts any fresh cache (a downsampled decode is fine
+    // for the viewport). Refine defers to `refineCacheSufficient` (#2039):
+    // either a genuine full-resolution decode, or a sized cache whose
+    // extent already covers this request — a covering cache holds every
+    // pixel the request needs, so reusing it can never publish below the
+    // requested quality (the #785 invariant, preserved via coverage
+    // rather than exact fullness). `targetSize` here is the crop-
+    // adjusted local computed just above.
+    let cacheSufficient =
+      (phase == .fast)
+      || RenderActor.refineCacheSufficient(
+        isFull: snapshot.isFull, rawResolution: snapshot.rawResolution, targetSize: targetSize
+      )
+    // #871: the decode buffer is profile-dependent for RAW (Auto =
+    // auto_exposure Off; Neutral = On). A cache developed for a
+    // different profile is a MISS — reusing it would put the Auto
+    // curve over an AE-On buffer (the blowout) or render Neutral on an
+    // AE-Off buffer. Non-RAW buffers carry `profile == nil` and are
+    // profile-agnostic, so they stay fresh. A `nil` profile on a RAW
+    // cache (a seeded preview / embedded JPEG) also forces a re-decode
+    // so the first real render develops at the correct AE.
+    let profileMatches = !asset.isRaw || (snapshot.profile == m.profile)
+    // #1387: `auto_exposure` is a decode-baked field with the same
+    // staleness story as `profile` (#871) — `applyAuto` can flip it on
+    // the live model without waiting for the debounced sidecar write,
+    // so a mismatch here must be treated as a miss too, exactly like
+    // `profileMatches` above.
+    let autoExposureMatches = !asset.isRaw || (snapshot.autoExposure == m.autoExposure)
+    let cacheFresh =
+      (cached != nil) && snapshot.isFresh && cacheSufficient
+      && profileMatches && autoExposureMatches
+    let cachedDecodedAtModel = snapshot.decodedAtModel
+    let cachedNoiseProfile = snapshot.noiseProfile
+    let cachedISO = snapshot.iso
+    let cachedWbFrame = snapshot.wbFrame
+    // #1781/#1976: frame as-shot anchor when a frame is present (wbDeltaAnchor).
+    let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
+    // Resolved on MainActor, once, shared by both branches below — see
+    // `FilmLookCube.apply`'s doc comment for why this closes #2713 for
+    // the CPU fallback chain. `filmLutStore`'s cache is a plain,
+    // unsynchronized class, so this call (like its other callers) must
+    // stay on MainActor rather than racing from either branch's
+    // detached render task.
+    let filmLattice = filmLutStore.lattice(for: m.filmLook)
+    // Auto Profile (#812) fetch is NOT resolved here. It used to be fetched
+    // unconditionally at this point, but that runs a cold per-image FFI fit
+    // (seconds + a multi-GB develop transient on a 100MP RAW) even when the
+    // wgpu live present below handles the frame and does its own fit — the
+    // result was computed and then thrown away on the (default) GPU path.
+    // `autoProfileLUTForCPURender` is called instead, once per branch,
+    // immediately before the `processSceneLinear` call it feeds, only after
+    // `presentViaGpuLive` has declined the frame.
+    editSessionLogger.debug(
+      "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil)"
+    )
+    let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
+    let phaseSignpostID = editSessionSignposter.makeSignpostID()
+    let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
+    defer { editSessionSignposter.endInterval(phaseName, phaseState) }
 
-    func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
-        // Videos are selectable for metadata editing (#1638) but have no still
-        // frame to develop. No-op the render rather than feeding container bytes
-        // to a decoder — `AssetRef.isRaw` is already false for video (so libraw
-        // is never reached), but the non-RAW path would still hand the .mov to
-        // CGImageSource. This is the single body all render phases (fast/refine/
-        // renderFull) funnel through, so guarding here covers every entry point.
+    let filterStageName: StaticString =
+      (phase == .fast)
+      ? "filter chain (.fast)"
+      : "filter chain (.refine)"
+
+    do {
+      let image: CIImage
+      let isRaw = asset.isRaw
+      let assetID = asset.id
+      if let cached, cacheFresh {
+        // wgpu live present (epic #925, P4b-apple) — runtime-gated parallel
+        // path. When it handles the frame (present → CAMetalLayer) we
+        // skip the CPU `processSceneLinear` + `renderedPreview` publish.
+        // Returns false (CPU fallback) when off / no layer / non-RAW /
+        // readback fails. See EditSession+GpuLive.swift.
         //
-        // Stub images (eip/braw/afphoto/ai) and audio (mp3/wav/m4a/aac, #1835)
-        // get the same treatment: metadata-only, no pixels to develop, no
-        // decode attempt of any kind.
-        if self.asset.isVideo || self.asset.isStub || self.asset.isAudio {
-            isRendering = false
-            return
+        // #1617: crop the decoded scene-linear buffer before the GPU
+        // readback so the live session opens at the cropped dims and
+        // presents the kept region — the GPU path no longer forces the
+        // CPU path for cropped frames (#638 lifted). `gpuTargetSize` is
+        // the un-upscaled canvas target (the cropped buffer is already
+        // the kept region). The CPU fallback below still develops the
+        // full frame and trims via `CropImageStage.apply` when the
+        // present is declined (flag off / no layer / readback fail).
+        // #2143: bound both presentation targets at the DELIVERED
+        // extent of the cached decode (`snapshot.rawResolution` — the
+        // `decoded.extent.size` before canvas scaling, already
+        // display-oriented since the sized FFI applies EXIF rotation
+        // before returning). Presenting or
+        // prescaling above what the decode actually returned only
+        // resamples upscaled data into a bigger buffer; see
+        // `ImageEditPipeline.cappedToDelivered` for the full story
+        // (and why a predicted `native/2` ceiling would be wrong for
+        // X-Trans / LinearRgb).
+        let delivered = snapshot.rawResolution
+        let gpuTarget = gpuTargetSize.map {
+          ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
         }
-        isRendering = true
-        renderPhase = phase
-        // #1153: BM3D is the one develop stage that runs for seconds, and it
-        // reports real per-reference-row progress. Publish it for the
-        // determinate editor indicator only while it is actually engaged —
-        // `deepDenoise == 0` short-circuits the stage, so there would be
-        // nothing to show.
-        let deepDenoiseEngaged = model.deepDenoise > 0
-        if deepDenoiseEngaged { deepDenoiseProgress.start() }
-        defer { if deepDenoiseEngaged { deepDenoiseProgress.stop() } }
-        let asset = self.asset
-        // #1781: adopt the decode-exported WB slider frame BEFORE capturing
-        // the model + anchor (this snapshot is also the freshness read).
-        let snapshot = await renderActor.snapshot(forAsset: asset)
-        adoptDecodedWbFrame(snapshot.wbFrame)
-        // #2231: same lifecycle as the WB frame above — the inspector
-        // panel's visibility/CA-greying tracks whichever decode is
-        // currently cached, not a per-tick recomputation.
-        hasLensCorrections = snapshot.hasLensCorrections
-        lensCorrectionCaInert = snapshot.lensCorrectionCaInert
-        lensCorrectionDistortionInert = snapshot.lensCorrectionDistortionInert
-        let m = model
-        let pipeline = self.pipeline
-        // Crop + straighten (#638). Applied as a CoreImage geometry op on the
-        // FINAL developed CIImage — the crop is not in the Rust core on Apple,
-        // so it rides here on the published preview. The crop applies only
-        // when the tool is NOT armed (`!cropEditingActive`): while armed the
-        // overlay sits over the full frame and the render shows the uncropped
-        // image. `effectiveCrop` already folds in that armed/disarmed gate.
-        let crop = effectiveCrop
-        let applyCrop = CropImageStage.shouldApply(crop)
-        // #2117: the oriented native full-frame size is the resolution-
-        // independent reference `CropImageStage.apply` rounds the crop rect
-        // against — so the fast (viewport-res) and refine (~2×) phases cut the
-        // IDENTICAL normalized region and the cropped image doesn't shift when
-        // the sharp refine render replaces the blurry fast one. Same reference
-        // the canvas leaf frame uses (`effectiveImageSize` → `croppedSize`).
-        let cropNativeSize = nativeImageSize
-        // #2049: the crop actually folded into the presented pixels — part of
-        // the GPU-live upload identity alongside the decode generation (see
-        // `presentViaGpuLive`). A crop CHANGE alters `CropImageStage.apply`'s
-        // output at possibly-unchanged dims, so identity must fold it in
-        // rather than relying on dims alone.
-        let appliedCrop = applyCrop ? crop : Crop.identity
-        // #1617: the GPU live present crops the decoded scene-linear buffer
-        // itself (a geometry op before the f32 readback), so it opens the
-        // session at the CROPPED dims and needs the un-upscaled canvas target —
-        // the cropped buffer already IS the kept region. Capture it before the
-        // CPU-path upscale shadows `targetSize` just below. (#2143's
-        // delivered-extent caps are applied per-branch below, once the decode
-        // extent is actually known — see `ImageEditPipeline.cappedToDelivered`
-        // for why the ceiling can't be predicted up front.)
-        let gpuTargetSize = targetSize
-        // When a crop is applied the chain still develops the FULL frame and
-        // `CropImageStage` trims afterward. The incoming `targetSize` is sized
-        // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
-        // so prescaling the full frame to it would render the kept region too
-        // soft. Scale the full-frame process target up by the inverse crop
-        // fraction so the kept region lands at (about) the requested resolution.
-        // Capped so a tiny crop on a 100 MP frame can't request an absurd
-        // full-frame target (the source's own resolution is the real ceiling
-        // — `prescaleForDisplay` never upscales past it anyway).
-        let targetSize: CGSize? = {
-            guard applyCrop, let t = targetSize else { return targetSize }
-            let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
-            let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
-            let scaleW = CGFloat(min(1.0 / fracW, 8.0))
-            let scaleH = CGFloat(min(1.0 / fracH, 8.0))
-            return CGSize(width: t.width * scaleW, height: t.height * scaleH)
-        }()
-        let cached = snapshot.image
-        // Fast phase accepts any fresh cache (a downsampled decode is fine
-        // for the viewport). Refine defers to `refineCacheSufficient` (#2039):
-        // either a genuine full-resolution decode, or a sized cache whose
-        // extent already covers this request — a covering cache holds every
-        // pixel the request needs, so reusing it can never publish below the
-        // requested quality (the #785 invariant, preserved via coverage
-        // rather than exact fullness). `targetSize` here is the crop-
-        // adjusted local computed just above.
-        let cacheSufficient = (phase == .fast) || RenderActor.refineCacheSufficient(
-            isFull: snapshot.isFull, rawResolution: snapshot.rawResolution, targetSize: targetSize
-        )
-        // #871: the decode buffer is profile-dependent for RAW (Auto =
-        // auto_exposure Off; Neutral = On). A cache developed for a
-        // different profile is a MISS — reusing it would put the Auto
-        // curve over an AE-On buffer (the blowout) or render Neutral on an
-        // AE-Off buffer. Non-RAW buffers carry `profile == nil` and are
-        // profile-agnostic, so they stay fresh. A `nil` profile on a RAW
-        // cache (a seeded preview / embedded JPEG) also forces a re-decode
-        // so the first real render develops at the correct AE.
-        let profileMatches = !asset.isRaw || (snapshot.profile == m.profile)
-        // #1387: `auto_exposure` is a decode-baked field with the same
-        // staleness story as `profile` (#871) — `applyAuto` can flip it on
-        // the live model without waiting for the debounced sidecar write,
-        // so a mismatch here must be treated as a miss too, exactly like
-        // `profileMatches` above.
-        let autoExposureMatches = !asset.isRaw || (snapshot.autoExposure == m.autoExposure)
-        let cacheFresh = (cached != nil) && snapshot.isFresh && cacheSufficient
-            && profileMatches && autoExposureMatches
-        let cachedDecodedAtModel = snapshot.decodedAtModel
-        let cachedNoiseProfile = snapshot.noiseProfile
-        let cachedISO = snapshot.iso
-        let cachedWbFrame = snapshot.wbFrame
-        // #1781/#1976: frame as-shot anchor when a frame is present (wbDeltaAnchor).
-        let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
-        // Resolved on MainActor, once, shared by both branches below — see
-        // `FilmLookCube.apply`'s doc comment for why this closes #2713 for
-        // the CPU fallback chain. `filmLutStore`'s cache is a plain,
-        // unsynchronized class, so this call (like its other callers) must
-        // stay on MainActor rather than racing from either branch's
-        // detached render task.
-        let filmLattice = filmLutStore.lattice(for: m.filmLook)
-        // Auto Profile (#812) fetch is NOT resolved here. It used to be fetched
-        // unconditionally at this point, but that runs a cold per-image FFI fit
-        // (seconds + a multi-GB develop transient on a 100MP RAW) even when the
-        // wgpu live present below handles the frame and does its own fit — the
-        // result was computed and then thrown away on the (default) GPU path.
-        // `autoProfileLUTForCPURender` is called instead, once per branch,
-        // immediately before the `processSceneLinear` call it feeds, only after
-        // `presentViaGpuLive` has declined the frame.
-        editSessionLogger.debug(
-            "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil)"
-        )
-        let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
-        let phaseSignpostID = editSessionSignposter.makeSignpostID()
-        let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
-        defer { editSessionSignposter.endInterval(phaseName, phaseState) }
-
-        let filterStageName: StaticString = (phase == .fast)
-            ? "filter chain (.fast)"
-            : "filter chain (.refine)"
-
-        do {
-            let image: CIImage
-            let isRaw = asset.isRaw
-            let assetID = asset.id
-            if let cached, cacheFresh {
-                // wgpu live present (epic #925, P4b-apple) — runtime-gated parallel
-                // path. When it handles the frame (present → CAMetalLayer) we
-                // skip the CPU `processSceneLinear` + `renderedPreview` publish.
-                // Returns false (CPU fallback) when off / no layer / non-RAW /
-                // readback fails. See EditSession+GpuLive.swift.
-                //
-                // #1617: crop the decoded scene-linear buffer before the GPU
-                // readback so the live session opens at the cropped dims and
-                // presents the kept region — the GPU path no longer forces the
-                // CPU path for cropped frames (#638 lifted). `gpuTargetSize` is
-                // the un-upscaled canvas target (the cropped buffer is already
-                // the kept region). The CPU fallback below still develops the
-                // full frame and trims via `CropImageStage.apply` when the
-                // present is declined (flag off / no layer / readback fail).
-                // #2143: bound both presentation targets at the DELIVERED
-                // extent of the cached decode (`snapshot.rawResolution` — the
-                // `decoded.extent.size` before canvas scaling, already
-                // display-oriented since the sized FFI applies EXIF rotation
-                // before returning). Presenting or
-                // prescaling above what the decode actually returned only
-                // resamples upscaled data into a bigger buffer; see
-                // `ImageEditPipeline.cappedToDelivered` for the full story
-                // (and why a predicted `native/2` ceiling would be wrong for
-                // X-Trans / LinearRgb).
-                let delivered = snapshot.rawResolution
-                let gpuTarget = gpuTargetSize.map {
-                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
-                }
-                let processTarget = targetSize.map {
-                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
-                }
-                let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
-                if await presentViaGpuLive(
-                    decoded: gpuCached, targetSize: gpuTarget, gen: gen,
-                    decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
-                    noiseProfile: cachedNoiseProfile, iso: cachedISO
-                ) {
-                    isRendering = false
-                    return
-                }
-                // GPU present declined the frame — fetch (and cache) the CPU-path
-                // Auto Profile LUT now, immediately before the fallback filter
-                // chain that actually uses it.
-                //
-                // #2713 / epic #2683: this CPU fallback chain
-                // (`processSceneLinear`/`processSceneLinearNonRaw`, via
-                // `maple_apply_scene_linear_chain_f32`) still has no
-                // `model.filmLook` field in that FFI struct — but its output
-                // is display-encoded sRGB, the same domain a `.mlut` lattice
-                // is baked in, so `FilmLookCube.apply` below composites the
-                // look as a `CIColorCubeWithColorSpace` on top of the CIImage
-                // result instead of inside the FFI chain. That closes the gap
-                // for THIS (interactive canvas) path — `EditSession+
-                // FilmExport.swift`'s non-RAW export path is untouched, still
-                // tracked under #2713.
-                let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-                MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
-                // The fit is a multi-second suspension on a cold image, and the
-                // detached render below doesn't inherit cancellation — bail here
-                // so a slider tick that cancelled mid-fit can't spawn a stale
-                // full filter chain.
-                guard !Task.isCancelled else {
-                    isRendering = false
-                    return
-                }
-                // #3190 review follow-up: `FilmLookCube` is baked/fit in
-                // sRGB, same as the Auto Profile cube — pin the encode to
-                // sRGB whenever film is active so it isn't fed P3-gamma
-                // bytes it would misinterpret as sRGB-gamma.
-                let filmActive = filmLattice != nil && m.filmStrength > 0
-                image = await Task.detached(priority: .userInitiated) {
-                    let processed = mapleStage(filterStageName) { () -> CIImage in
-                        if !isRaw {
-                            return pipeline.processSceneLinearNonRaw(
-                                decoded: cached, model: m, targetSize: processTarget,
-                                assetID: assetID,
-                                targetPrimariesOverride: filmActive ? .srgb : nil
-                            )
-                        }
-                        return pipeline.processSceneLinear(
-                            decoded: cached, model: m, targetSize: processTarget,
-                            asShot: asShot, decodedAtModel: cachedDecodedAtModel,
-                            profileLUT: profileLUT,
-                            assetID: assetID,
-                            noiseProfile: cachedNoiseProfile,
-                            iso: cachedISO,
-                            wbFrame: cachedWbFrame,
-                            targetPrimariesOverride: filmActive ? .srgb : nil
-                        )
-                    }
-                    return FilmLookCube.apply(to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
-                }.value
-            } else {
-                // Both phases decode to their bounded display target so the
-                // full-res bitmap is never allocated (#785 fast phase, #1637
-                // refine). Refine used to decode full-resolution even when the
-                // scheduler handed it a capped `refinedTargetSize`, so a 100 MP
-                // RAW allocated the full-sensor demosaic + a full-res GPU
-                // texture and jetsam-killed iOS. A nil/degenerate target
-                // (including `renderFull()`'s) caps to the fallback long edge
-                // rather than fall through to full-res — no interactive path
-                // ever allocates a full-sensor decode; genuine full-res lives
-                // solely on `renderActor.renderForExport` (#2058).
-                let decodeTarget = ImageEditPipeline.decodeTarget(phase: phase, targetSize: targetSize)
-                // #2143: refine escalates past `.preview` when its target needs more detail than
-                // half-res delivers; fast stays `.preview` (#785). Rationale: `refineDecodeQuality`.
-                let decodeQuality: PipelineRenderer.Quality = phase == .refine
-                    ? ImageEditPipeline.refineDecodeQuality(
-                        nativeLongEdge: max(nativeImageSize.width, nativeImageSize.height),
-                        targetLongEdge: max(decodeTarget?.width ?? 0, decodeTarget?.height ?? 0))
-                    : .preview
-                let decoded = await renderActor.sharedDecode(
-                    asset: asset,
-                    target: decodeTarget,
-                    profile: m.profile,
-                    autoExposure: m.autoExposure,
-                    quality: decodeQuality,
-                    normalize: { [weak self] image, asset in
-                        guard let self else { return image }
-                        return await MainActor.run {
-                            self.decodedForNativeCanvas(image, asset: asset)
-                        }
-                    }
-                )
-                guard !Task.isCancelled else {
-                    isRendering = false
-                    return
-                }
-                guard let decoded else {
-                    throw RenderError.pipelineFailed
-                }
-                // #1781: adopt the fresh decode's slider-frame export BEFORE
-                // the GPU present (it reads the session's frame + model).
-                let freshSnapshot = await renderActor.snapshot(forAsset: asset)
-                adoptDecodedWbFrame(freshSnapshot.wbFrame)
-                // #2231: same lifecycle as the WB frame above.
-                hasLensCorrections = freshSnapshot.hasLensCorrections
-                lensCorrectionCaInert = freshSnapshot.lensCorrectionCaInert
-                lensCorrectionDistortionInert = freshSnapshot.lensCorrectionDistortionInert
-                // #2143: same delivered-extent caps as the cached branch,
-                // from THIS decode's recorded extent
-                // (`freshSnapshot.rawResolution` — pre-canvas-scaling,
-                // display-oriented dims,
-                // recorded by `sharedDecode`'s cache write; when an existing
-                // covering cache was kept instead, it reflects that covering
-                // buffer, which is the one actually flowing downstream).
-                let delivered = freshSnapshot.rawResolution
-                let gpuTarget = gpuTargetSize.map {
-                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
-                }
-                let processTarget = targetSize.map {
-                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
-                }
-                // wgpu live present on the fresh decode (epic #925, P4b-apple) —
-                // same runtime-gated parallel path as the cached branch above.
-                // #1617: crop the decoded buffer before the GPU readback (as the
-                // cached branch) so cropped frames present on the GPU too.
-                let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded, nativeSize: cropNativeSize) : decoded
-                // Read early (before the GPU present attempt below, #2342) —
-                // both branches need the pair, and `presentViaGpuLive`
-                // forwards it to `driver.open` on an actual (re-)open.
-                let freshNoiseProfile = freshSnapshot.noiseProfile
-                let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
-                if await presentViaGpuLive(
-                    decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
-                    decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
-                    noiseProfile: freshNoiseProfile, iso: freshISO
-                ) {
-                    isRendering = false
-                    return
-                }
-                let freshDecodedAtModel = freshSnapshot.decodedAtModel
-                let freshAsShot = wbDeltaAnchor
-                // GPU present declined the frame — fetch (and cache) the CPU-path
-                // Auto Profile LUT now, immediately before the fallback filter
-                // chain that actually uses it.
-                //
-                // #2713 / epic #2683: see the cached branch above — the film
-                // look is composited as a `CIColorCubeWithColorSpace` on the
-                // FFI chain's display-encoded output rather than inside the
-                // FFI struct itself, closing the gap for this (interactive
-                // canvas) path.
-                let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-                MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
-                // Same bail as the cached branch: the fit suspension may have
-                // outlived this generation, and the detached render below
-                // doesn't inherit cancellation.
-                guard !Task.isCancelled else {
-                    isRendering = false
-                    return
-                }
-                // #3190 review follow-up: same sRGB pin as the cached branch
-                // above — `FilmLookCube` assumes sRGB-encoded input.
-                let filmActive = filmLattice != nil && m.filmStrength > 0
-                let processed = await Task.detached(priority: .userInitiated) {
-                    let developed = mapleStage(filterStageName) { () -> CIImage in
-                        if !isRaw {
-                            return pipeline.processSceneLinearNonRaw(
-                                decoded: decoded, model: m, targetSize: processTarget,
-                                assetID: assetID,
-                                targetPrimariesOverride: filmActive ? .srgb : nil
-                            )
-                        }
-                        return pipeline.processSceneLinear(
-                            decoded: decoded, model: m, targetSize: processTarget,
-                            asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
-                            profileLUT: profileLUT,
-                            assetID: assetID,
-                            noiseProfile: freshNoiseProfile,
-                            iso: freshISO,
-                            wbFrame: freshWbFrame,
-                            targetPrimariesOverride: filmActive ? .srgb : nil
-                        )
-                    }
-                    return FilmLookCube.apply(to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
-                }.value
-                image = processed
-            }
-
-            // Crop + straighten (#638) — final geometry op on the developed
-            // display-domain image. `image` is the full-frame developed
-            // CIImage; `CropImageStage.apply` rotates about center by the
-            // straighten angle and cuts the axis-aligned crop rect,
-            // re-origining the result to (0,0) so framing/zoom anchors the
-            // cropped buffer like every other publish. No-op when `applyCrop`
-            // is false (identity crop or crop tool armed).
-            let displayImage = applyCrop ? CropImageStage.apply(crop, to: image, nativeSize: cropNativeSize) : image
-
-            guard !Task.isCancelled else {
-                editSessionLogger.debug("decodeAndRender gen=\(gen ?? 0) cancelled, dropping result")
-                isRendering = false
-                return
-            }
-            if let gen {
-                let live = await renderActor.currentGeneration()
-                if gen != live {
-                    editSessionLogger.debug("decodeAndRender gen=\(gen) stale (current=\(live)), dropping result")
-                    isRendering = false
-                    return
-                }
-            }
-            renderedPreview = displayImage
-            lastPublishedRenderGeneration = gen
-            previewIsFullRender = true
-            previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
-            renderError = nil
-            editSessionLogger.debug(
-                "decodeAndRender published preview gen=\(gen ?? 0) extent=\(displayImage.extent.width)x\(displayImage.extent.height)"
-            )
-            // First full-quality frame on screen — the cold-open's fast render
-            // lands here. Drop the loading indicator, but only once the
-            // background decode has finished (`!isFullQualityDecoding`): the
-            // embedded-preview renders that publish WHILE the decode is still in
-            // flight must not clear it early, or the indicator would vanish the
-            // moment the ~50 ms preview paints. (Terminal failures clear it in
-            // the `catch` below so a dead decode can't leave it stuck.) #1201
-            if isResolvingFirstFrame && !isFullQualityDecoding {
-                isResolvingFirstFrame = false
-                editSessionLogger.notice(
-                    "loading indicator HIDDEN — first full-quality frame published (gen=\(gen ?? 0))"
-                )
-            }
-
-            // `!isFullQualityDecoding` mirrors the persist gate (#1881): a
-            // refine that ran off the seeded decode would push camera-JPEG-
-            // derived pixels to the thumbnail; the decode's completion re-kicks
-            // a render, so the thumbnail still refreshes from real pixels.
-            if phase == .refine, !isFullQualityDecoding {
-                // Use the cropped `displayImage` so the browse thumbnail +
-                // rendered-preview cache reflect what the user sees (#638).
-                let thumbSource = displayImage
-                if let url = asset.primaryURL {
-                    Task.detached(priority: .utility) {
-                        await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
-                    }
-                    persistCurrentPreviewToCache()
-                }
-                // Display preview (#2009): idle/exit persist, local or cloud.
-                scheduleDisplayPreviewPersist(thumbSource)
-            }
-        } catch {
-            if let gen {
-                let live = await renderActor.currentGeneration()
-                if gen != live {
-                    isRendering = false
-                    return
-                }
-            }
-            editSessionLogger.error(
-                "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
-            )
-            renderError = error
-            // Terminal failure once the decode is done (e.g. an unreadable file):
-            // no full-quality frame is coming, so settle the cold-open indicator
-            // here too — otherwise `isResolvingFirstFrame` (cleared only on a
-            // successful publish) would spin forever. Transient bails above
-            // (gen-mismatch / re-decode) intentionally leave it set so the
-            // indicator stays up while the open is still resolving. #1201
-            if isResolvingFirstFrame && !isFullQualityDecoding {
-                isResolvingFirstFrame = false
-                editSessionLogger.notice(
-                    "loading indicator HIDDEN — decode failed, no full-quality frame coming (gen=\(gen ?? 0))"
-                )
-            }
+        let processTarget = targetSize.map {
+          ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
         }
+        let gpuCached =
+          applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
+        if await presentViaGpuLive(
+          decoded: gpuCached, targetSize: gpuTarget, gen: gen,
+          decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
+          noiseProfile: cachedNoiseProfile, iso: cachedISO
+        ) {
+          isRendering = false
+          return
+        }
+        // GPU present declined the frame — fetch (and cache) the CPU-path
+        // Auto Profile LUT now, immediately before the fallback filter
+        // chain that actually uses it.
+        //
+        // #2713 / epic #2683: this CPU fallback chain
+        // (`processSceneLinear`/`processSceneLinearNonRaw`, via
+        // `maple_apply_scene_linear_chain_f32`) still has no
+        // `model.filmLook` field in that FFI struct — but its output
+        // is display-encoded sRGB, the same domain a `.mlut` lattice
+        // is baked in, so `FilmLookCube.apply` below composites the
+        // look as a `CIColorCubeWithColorSpace` on top of the CIImage
+        // result instead of inside the FFI chain. That closes the gap
+        // for THIS (interactive canvas) path — `EditSession+
+        // FilmExport.swift`'s non-RAW export path is untouched, still
+        // tracked under #2713.
+        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+        MemoryProbe.sample(
+          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+        // The fit is a multi-second suspension on a cold image, and the
+        // detached render below doesn't inherit cancellation — bail here
+        // so a slider tick that cancelled mid-fit can't spawn a stale
+        // full filter chain.
+        guard !Task.isCancelled else {
+          isRendering = false
+          return
+        }
+        // #3190 review follow-up: `FilmLookCube` is baked/fit in
+        // sRGB, same as the Auto Profile cube — pin the encode to
+        // sRGB whenever film is active so it isn't fed P3-gamma
+        // bytes it would misinterpret as sRGB-gamma.
+        let filmActive = filmLattice != nil && m.filmStrength > 0
+        image = await Task.detached(priority: .userInitiated) {
+          let processed = mapleStage(filterStageName) { () -> CIImage in
+            if !isRaw {
+              return pipeline.processSceneLinearNonRaw(
+                decoded: cached, model: m, targetSize: processTarget,
+                assetID: assetID,
+                targetPrimariesOverride: filmActive ? .srgb : nil
+              )
+            }
+            return pipeline.processSceneLinear(
+              decoded: cached, model: m, targetSize: processTarget,
+              asShot: asShot, decodedAtModel: cachedDecodedAtModel,
+              profileLUT: profileLUT,
+              assetID: assetID,
+              noiseProfile: cachedNoiseProfile,
+              iso: cachedISO,
+              wbFrame: cachedWbFrame,
+              targetPrimariesOverride: filmActive ? .srgb : nil
+            )
+          }
+          return FilmLookCube.apply(
+            to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
+        }.value
+      } else {
+        // Both phases decode to their bounded display target so the
+        // full-res bitmap is never allocated (#785 fast phase, #1637
+        // refine). Refine used to decode full-resolution even when the
+        // scheduler handed it a capped `refinedTargetSize`, so a 100 MP
+        // RAW allocated the full-sensor demosaic + a full-res GPU
+        // texture and jetsam-killed iOS. A nil/degenerate target
+        // (including `renderFull()`'s) caps to the fallback long edge
+        // rather than fall through to full-res — no interactive path
+        // ever allocates a full-sensor decode; genuine full-res lives
+        // solely on `renderActor.renderForExport` (#2058).
+        let decodeTarget = ImageEditPipeline.decodeTarget(phase: phase, targetSize: targetSize)
+        // #2143: refine escalates past `.preview` when its target needs more detail than
+        // half-res delivers; fast stays `.preview` (#785). Rationale: `refineDecodeQuality`.
+        let decodeQuality: PipelineRenderer.Quality =
+          phase == .refine
+          ? ImageEditPipeline.refineDecodeQuality(
+            nativeLongEdge: max(nativeImageSize.width, nativeImageSize.height),
+            targetLongEdge: max(decodeTarget?.width ?? 0, decodeTarget?.height ?? 0))
+          : .preview
+        let decoded = await renderActor.sharedDecode(
+          asset: asset,
+          target: decodeTarget,
+          profile: m.profile,
+          autoExposure: m.autoExposure,
+          quality: decodeQuality,
+          normalize: { [weak self] image, asset in
+            guard let self else { return image }
+            return await MainActor.run {
+              self.decodedForNativeCanvas(image, asset: asset)
+            }
+          }
+        )
+        guard !Task.isCancelled else {
+          isRendering = false
+          return
+        }
+        guard let decoded else {
+          throw RenderError.pipelineFailed
+        }
+        // #1781: adopt the fresh decode's slider-frame export BEFORE
+        // the GPU present (it reads the session's frame + model).
+        let freshSnapshot = await renderActor.snapshot(forAsset: asset)
+        adoptDecodedWbFrame(freshSnapshot.wbFrame)
+        // #2231: same lifecycle as the WB frame above.
+        hasLensCorrections = freshSnapshot.hasLensCorrections
+        lensCorrectionCaInert = freshSnapshot.lensCorrectionCaInert
+        lensCorrectionDistortionInert = freshSnapshot.lensCorrectionDistortionInert
+        // #2143: same delivered-extent caps as the cached branch,
+        // from THIS decode's recorded extent
+        // (`freshSnapshot.rawResolution` — pre-canvas-scaling,
+        // display-oriented dims,
+        // recorded by `sharedDecode`'s cache write; when an existing
+        // covering cache was kept instead, it reflects that covering
+        // buffer, which is the one actually flowing downstream).
+        let delivered = freshSnapshot.rawResolution
+        let gpuTarget = gpuTargetSize.map {
+          ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
+        }
+        let processTarget = targetSize.map {
+          ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
+        }
+        // wgpu live present on the fresh decode (epic #925, P4b-apple) —
+        // same runtime-gated parallel path as the cached branch above.
+        // #1617: crop the decoded buffer before the GPU readback (as the
+        // cached branch) so cropped frames present on the GPU too.
+        let gpuDecoded =
+          applyCrop ? CropImageStage.apply(crop, to: decoded, nativeSize: cropNativeSize) : decoded
+        // Read early (before the GPU present attempt below, #2342) —
+        // both branches need the pair, and `presentViaGpuLive`
+        // forwards it to `driver.open` on an actual (re-)open.
+        let freshNoiseProfile = freshSnapshot.noiseProfile
+        let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
+        if await presentViaGpuLive(
+          decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
+          decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
+          noiseProfile: freshNoiseProfile, iso: freshISO
+        ) {
+          isRendering = false
+          return
+        }
+        let freshDecodedAtModel = freshSnapshot.decodedAtModel
+        let freshAsShot = wbDeltaAnchor
+        // GPU present declined the frame — fetch (and cache) the CPU-path
+        // Auto Profile LUT now, immediately before the fallback filter
+        // chain that actually uses it.
+        //
+        // #2713 / epic #2683: see the cached branch above — the film
+        // look is composited as a `CIColorCubeWithColorSpace` on the
+        // FFI chain's display-encoded output rather than inside the
+        // FFI struct itself, closing the gap for this (interactive
+        // canvas) path.
+        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+        MemoryProbe.sample(
+          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+        // Same bail as the cached branch: the fit suspension may have
+        // outlived this generation, and the detached render below
+        // doesn't inherit cancellation.
+        guard !Task.isCancelled else {
+          isRendering = false
+          return
+        }
+        // #3190 review follow-up: same sRGB pin as the cached branch
+        // above — `FilmLookCube` assumes sRGB-encoded input.
+        let filmActive = filmLattice != nil && m.filmStrength > 0
+        let processed = await Task.detached(priority: .userInitiated) {
+          let developed = mapleStage(filterStageName) { () -> CIImage in
+            if !isRaw {
+              return pipeline.processSceneLinearNonRaw(
+                decoded: decoded, model: m, targetSize: processTarget,
+                assetID: assetID,
+                targetPrimariesOverride: filmActive ? .srgb : nil
+              )
+            }
+            return pipeline.processSceneLinear(
+              decoded: decoded, model: m, targetSize: processTarget,
+              asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
+              profileLUT: profileLUT,
+              assetID: assetID,
+              noiseProfile: freshNoiseProfile,
+              iso: freshISO,
+              wbFrame: freshWbFrame,
+              targetPrimariesOverride: filmActive ? .srgb : nil
+            )
+          }
+          return FilmLookCube.apply(
+            to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
+        }.value
+        image = processed
+      }
+
+      // Crop + straighten (#638) — final geometry op on the developed
+      // display-domain image. `image` is the full-frame developed
+      // CIImage; `CropImageStage.apply` rotates about center by the
+      // straighten angle and cuts the axis-aligned crop rect,
+      // re-origining the result to (0,0) so framing/zoom anchors the
+      // cropped buffer like every other publish. No-op when `applyCrop`
+      // is false (identity crop or crop tool armed).
+      let displayImage =
+        applyCrop ? CropImageStage.apply(crop, to: image, nativeSize: cropNativeSize) : image
+
+      guard !Task.isCancelled else {
+        editSessionLogger.debug("decodeAndRender gen=\(gen ?? 0) cancelled, dropping result")
         isRendering = false
+        return
+      }
+      if let gen {
+        let live = await renderActor.currentGeneration()
+        if gen != live {
+          editSessionLogger.debug(
+            "decodeAndRender gen=\(gen) stale (current=\(live)), dropping result")
+          isRendering = false
+          return
+        }
+      }
+      renderedPreview = displayImage
+      lastPublishedRenderGeneration = gen
+      previewIsFullRender = true
+      previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
+      renderError = nil
+      editSessionLogger.debug(
+        "decodeAndRender published preview gen=\(gen ?? 0) extent=\(displayImage.extent.width)x\(displayImage.extent.height)"
+      )
+      // First full-quality frame on screen — the cold-open's fast render
+      // lands here. Drop the loading indicator, but only once the
+      // background decode has finished (`!isFullQualityDecoding`): the
+      // embedded-preview renders that publish WHILE the decode is still in
+      // flight must not clear it early, or the indicator would vanish the
+      // moment the ~50 ms preview paints. (Terminal failures clear it in
+      // the `catch` below so a dead decode can't leave it stuck.) #1201
+      if isResolvingFirstFrame && !isFullQualityDecoding {
+        isResolvingFirstFrame = false
+        editSessionLogger.notice(
+          "loading indicator HIDDEN — first full-quality frame published (gen=\(gen ?? 0))"
+        )
+      }
+
+      // `!isFullQualityDecoding` mirrors the persist gate (#1881): a
+      // refine that ran off the seeded decode would push camera-JPEG-
+      // derived pixels to the thumbnail; the decode's completion re-kicks
+      // a render, so the thumbnail still refreshes from real pixels.
+      if phase == .refine, !isFullQualityDecoding {
+        // Use the cropped `displayImage` so the browse thumbnail +
+        // rendered-preview cache reflect what the user sees (#638).
+        let thumbSource = displayImage
+        if let url = asset.primaryURL {
+          Task.detached(priority: .utility) {
+            await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
+          }
+          persistCurrentPreviewToCache()
+        }
+        // Display preview (#2009): idle/exit persist, local or cloud.
+        scheduleDisplayPreviewPersist(thumbSource)
+      }
+    } catch {
+      if let gen {
+        let live = await renderActor.currentGeneration()
+        if gen != live {
+          isRendering = false
+          return
+        }
+      }
+      editSessionLogger.error(
+        "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
+      )
+      renderError = error
+      // Terminal failure once the decode is done (e.g. an unreadable file):
+      // no full-quality frame is coming, so settle the cold-open indicator
+      // here too — otherwise `isResolvingFirstFrame` (cleared only on a
+      // successful publish) would spin forever. Transient bails above
+      // (gen-mismatch / re-decode) intentionally leave it set so the
+      // indicator stays up while the open is still resolving. #1201
+      if isResolvingFirstFrame && !isFullQualityDecoding {
+        isResolvingFirstFrame = false
+        editSessionLogger.notice(
+          "loading indicator HIDDEN — decode failed, no full-quality frame coming (gen=\(gen ?? 0))"
+        )
+      }
     }
+    isRendering = false
+  }
 }
