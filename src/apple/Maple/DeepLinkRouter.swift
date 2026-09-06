@@ -28,34 +28,37 @@ import Observation
 @MainActor
 @Observable
 final class DeepLinkRouter {
-    static let shared = DeepLinkRouter()
+  static let shared = DeepLinkRouter()
 
-    /// The destination most recently parsed from an incoming URL. Set by
-    /// `handle(_:)`, cleared by `consume()`. Observable so the shell can
-    /// react to warm-launch deliveries (cold start uses `consume()` from
-    /// `.task` after `restoreLastSource()`).
-    private(set) var pendingDestination: DeepLinkDestination?
+  /// The destination most recently parsed from an incoming URL. Set by
+  /// `handle(_:)`, cleared by `consume()`. Observable so the shell can
+  /// react to warm-launch deliveries (cold start uses `consume()` from
+  /// `.task` after `restoreLastSource()`).
+  private(set) var pendingDestination: DeepLinkDestination?
 
-    private init() {}
+  init() {}
 
-    /// Parse `url` and stash a destination if it matches the
-    /// `maple://image/{id}` or `maple://source/{id}` shape. Unknown
-    /// schemes / hosts / missing ids are silent no-ops — bad input
-    /// never crashes, and the previously pending destination (if any)
-    /// is preserved so we don't lose a delivery to a malformed link.
-    func handle(_ url: URL) {
-        if let destination = DeepLinkParser.parse(url) {
-            pendingDestination = destination
-        }
+  /// Parse `url` and stash a destination if it matches the
+  /// `maple://image/{id}` or `maple://source/{id}` shape. Unknown
+  /// schemes / hosts / missing ids are silent no-ops — bad input
+  /// never crashes, and the previously pending destination (if any)
+  /// is preserved so we don't lose a delivery to a malformed link.
+  func handle(_ url: URL) {
+    if let destination = DeepLinkParser.parse(url) {
+      pendingDestination = destination
     }
+  }
 
-    /// Atomically read + clear the pending destination. Returns `nil`
-    /// when there's nothing queued. Idempotent — call sites use this
-    /// as "did I get a deep link?" without coordinating with the URL
-    /// delivery path.
-    func consume() -> DeepLinkDestination? {
-        let dest = pendingDestination
-        pendingDestination = nil
-        return dest
-    }
+  /// Atomically read + clear the pending destination. Returns `nil`
+  /// when there's nothing queued. Idempotent — call sites use this
+  /// as "did I get a deep link?" without coordinating with the URL
+  /// delivery path.
+  func consume(afterSourceRestore isReady: Bool) -> DeepLinkDestination? {
+    // Warm-delivery observation also runs during cold-start awaits. A
+    // premature consume loses the URL when restoration replaces the grid.
+    guard isReady else { return nil }
+    let dest = pendingDestination
+    pendingDestination = nil
+    return dest
+  }
 }
