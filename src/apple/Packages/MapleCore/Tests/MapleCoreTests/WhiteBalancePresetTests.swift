@@ -155,14 +155,32 @@ final class WhiteBalancePresetTests: XCTestCase {
   }
 
   func testOldJSONAndEveryPresetJSONRoundTrip() throws {
-    let old = try JSONEncoder().encode(AdjustmentModel.default)
-    XCTAssertFalse(String(decoding: old, as: UTF8.self).contains("namedWhiteBalancePreset"))
+    var legacy = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(AdjustmentModel.default))
+        as? [String: Any])
+    legacy.removeValue(forKey: "whiteBalancePreset")
+    let old = try JSONSerialization.data(withJSONObject: legacy)
     XCTAssertEqual(try JSONDecoder().decode(AdjustmentModel.self, from: old), .default)
     for preset in WhiteBalancePreset.allCases {
       var model = AdjustmentModel.default
       model.whiteBalancePreset = preset
       let data = try JSONEncoder().encode(model)
+      let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+      XCTAssertEqual(fields["whiteBalancePreset"] as? String, preset.rawValue)
+      XCTAssertNil(fields["namedWhiteBalancePreset"])
       XCTAssertEqual(try JSONDecoder().decode(AdjustmentModel.self, from: data), model)
+    }
+  }
+
+  func testPickerSelectionResolvesLegacyAsShotAndAuthoredChoices() {
+    let session = EditSession.preview()
+    let picker = WhiteBalancePicker(session: session)
+    XCTAssertEqual(picker.selectedPreset, .asShot)
+    session.model.wbSource = .manual
+    XCTAssertEqual(picker.selectedPreset, .custom)
+    for preset in WhiteBalancePreset.allCases {
+      session.model.whiteBalancePreset = preset
+      XCTAssertEqual(picker.selectedPreset, preset)
     }
   }
 }
