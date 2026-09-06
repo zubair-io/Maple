@@ -13,7 +13,7 @@ struct EditorAutoButton: View {
       variant: .ghost,
       size: .sm,
       isLoading: requested || state.autoInProgress,
-      disabled: !state.session.asset.isRaw || state.session.asset.primaryURL == nil
+      disabled: !state.session.asset.isRaw
     ) {
       requested = true
     }
