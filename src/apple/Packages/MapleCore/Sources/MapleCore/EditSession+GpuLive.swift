@@ -303,6 +303,7 @@ extension EditSession {
     }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
+    histogramState.framePresented()
     if !gpuFramePresented { gpuFramePresented = true }
     // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns
     // early on a successful GPU present and never reaches its `renderedPreview`

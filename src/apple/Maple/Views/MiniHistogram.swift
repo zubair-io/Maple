@@ -13,16 +13,9 @@
 // room for decorative bands plus a label, the 30pt chip stays empty rather than
 // drawing curve-shaped art that would read as real data at that size.
 //
-// Data is sourced in priority order:
-//
-//   1. Self-Hosted — when a `\.cloudHistogramClient` is injected AND the bound
-//      `AssetRef.stableID` is non-nil, fetch `GET /api/assets/:id/histogram`
-//      (the server computes + caches it, so we don't download the full RAW).
-//   2. Filesystem / PhotoKit — a local asset computes on device via
-//      `LocalHistogram` (the Rust core), debounced so a slider drag settles
-//      before a decode. This is what makes the histogram work on Mac / iPad /
-//      iPhone without a server.
-//   3. Otherwise (no source) — the caller's placeholder.
+// The current canvas preview supplies the live histogram, shared between both
+// views by EditSession. A server histogram is only an initial fallback before
+// the first canvas frame. Editor updates never decode the RAW again.
 //
 // The compute is deliberately off the render path: it is keyed on the settled
 // edit and debounced 350ms, so a slider drag re-keys (and cancels) rather than
@@ -102,7 +95,8 @@ struct MiniHistogram<Placeholder: View>: View {
         stableID: asset?.stableID,
         clientHost: client?.server.absoluteString,
         model: session?.model,
-        culling: session?.culling
+        culling: session?.culling,
+        renderRevision: session?.histogramState.revision ?? 0
       )
     ) {
       await refresh()
@@ -152,21 +146,8 @@ struct MiniHistogram<Placeholder: View>: View {
 
   // MARK: - Fetch / compute
 
-  /// Drive the histogram for the current (asset, edit, client) tuple. Called by
-  /// `.task(id:)`, which cancels the inflight Task and re-runs whenever the
-  /// tuple changes — so an asset swap or a settled edit supersedes the prior
-  /// computation. The generation counter is defense-in-depth against
-  /// out-of-order completions.
-  ///
-  /// Source priority:
-  ///   1. **Self-Hosted** — a `CloudHistogramClient` is injected AND the asset
-  ///      carries a server `stableID`: fetch `GET /api/assets/:id/histogram`.
-  ///      The server computes + caches it, so we avoid downloading the full RAW
-  ///      just to bin it locally.
-  ///   2. **Filesystem / PhotoKit** — a local asset (URL or bytes provider):
-  ///      compute on device via `LocalHistogram` after a short debounce, so a
-  ///      slider drag settles before we pay a decode.
-  ///   3. Otherwise — no source — the caller's placeholder.
+  /// Debounce outside the canvas render path. Presented-frame revision also
+  /// rekeys this task after initial decode, refine, and crop-tool transitions.
   @MainActor
   private func refresh() async {
     loadGeneration &+= 1
@@ -185,69 +166,37 @@ struct MiniHistogram<Placeholder: View>: View {
       return
     }
 
-    // 1. Self-Hosted server path.
-    if let client, let assetID = asset.stableID {
-      do {
-        let result = try await client.histogram(assetID: assetID)
-        guard gen == loadGeneration else { return }
+    do {
+      try await Task.sleep(for: .milliseconds(350))
+      let result = try await session.histogramForCurrentPreview()
+      try Task.checkCancellation()
+      guard gen == loadGeneration else { return }
+      if let result {
         histogram = result
         loadFailed = false
         shownAssetID = asset.id
-      } catch {
+      } else if session.histogramState.revision == 0, let client, let assetID = asset.stableID {
+        let initial = try await client.histogram(assetID: assetID)
+        try Task.checkCancellation()
         guard gen == loadGeneration else { return }
-        if histogram == nil { loadFailed = true }
+        histogram = initial
+        loadFailed = false
+        shownAssetID = asset.id
       }
-      return
-    }
-
-    // 2. Local on-device path (filesystem / PhotoKit). A RAW develops via the
-    //    Rust FFI; a non-RAW asset (stitched panorama PNG, JPEG, HEIF) develops
-    //    via the CoreImage non-RAW pipeline and bins the displayed pixels. Both
-    //    are render-path-independent (they run their OWN develop rather than
-    //    reading the live preview, so they survive the wgpu GPU live path, which
-    //    emits no CIImage). Only a truly sourceless asset hits the placeholder.
-    guard asset.primaryURL != nil || asset.bytesProvider != nil else {
-      if histogram == nil { loadFailed = true }
-      return
-    }
-    // Debounce: a slider drag re-keys `.task` on every tick, cancelling this
-    // sleep, so the decode only fires ~after the edit settles.
-    try? await Task.sleep(for: .milliseconds(350))
-    if Task.isCancelled || gen != loadGeneration { return }
-
-    // Snapshot on MainActor, then compute off it. Cancellation does not
-    // preempt a synchronous native develop: LocalHistogram holds one shared
-    // slot until that work actually finishes and drops cancelled waiters
-    // before they load bytes (#3360).
-    let model = session.model
-    let culling = session.culling
-    do {
-      // RAW develops via the Rust FFI; non-RAW (panorama PNG, JPEG, HEIF)
-      // develops via the CoreImage non-RAW pipeline and bins the displayed
-      // pixels. `culling` crop applies only to the RAW develop today.
-      let result =
-        asset.isRaw
-        ? try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
-        : try await LocalHistogram.computeNonRaw(asset: asset, model: model)
-      guard gen == loadGeneration, !Task.isCancelled else { return }
-      histogram = result
-      loadFailed = false
-      shownAssetID = asset.id
     } catch is CancellationError {
       return
     } catch {
       guard gen == loadGeneration else { return }
       if histogram == nil { loadFailed = true }
       miniHistogramLog.error(
-        "local histogram compute failed (isRaw=\(asset.isRaw, privacy: .public), hasURL=\(asset.primaryURL != nil, privacy: .public), hasProvider=\(asset.bytesProvider != nil, privacy: .public)): \(String(describing: error), privacy: .public)"
-      )
+        "preview histogram failed: \(String(describing: error), privacy: .public)")
     }
   }
 
   /// Hashable composite key for `.task(id:)`. SwiftUI re-runs the task when
   /// this changes, giving per-(asset, edit, client) cancellation for free.
-  /// Includes the model + culling so a settled edit recomputes the local
-  /// histogram (and revalidates the Self-Hosted ETag). Plain memberwise init —
+  /// Includes the presented-frame revision for decode/refine/crop transitions
+  /// and the model/culling to cancel a superseded view request. Plain memberwise init —
   /// the values are extracted in `body` (MainActor), where reading the
   /// `EditSession` is legal.
   private struct TaskKey: Hashable {
@@ -256,6 +205,7 @@ struct MiniHistogram<Placeholder: View>: View {
     let clientHost: String?
     let model: AdjustmentModel?
     let culling: CullingState?
+    let renderRevision: UInt64
   }
 }
 

@@ -113,3 +113,87 @@ pub unsafe extern "C" fn maple_gpu_live_close(handle: *mut MapleGpuLiveSession) 
         });
     }
 }
+
+/// Read the latest presented frame's 3x256 histogram, without rendering again.
+/// Returns 0 on success, 1 before the first present, -1 for invalid arguments,
+/// -4 for readback failure, or 99 for a contained panic.
+///
+/// # Safety
+/// `handle` is a live session and `out_bins` holds 768 aligned writable u32s.
+#[cfg(target_vendor = "apple")]
+#[no_mangle]
+pub unsafe extern "C" fn maple_gpu_live_histogram(
+    handle: *const MapleGpuLiveSession,
+    out_bins: *mut u32,
+) -> i32 {
+    if handle.is_null() || out_bins.is_null() || (out_bins as usize) % 4 != 0 {
+        return -1;
+    }
+    let inner = (*handle).inner as *const LiveHandleInner;
+    if inner.is_null() {
+        return -1;
+    }
+    catch_panic_rc("gpu_live_histogram", || {
+        let shared = lock_shared();
+        let Some(state) = shared.as_ref() else {
+            return -4;
+        };
+        match (*inner).session.displayed_histogram(&state.ctx) {
+            Ok(Some(bins)) => {
+                std::slice::from_raw_parts_mut(out_bins, 768).copy_from_slice(&bins);
+                0
+            }
+            Ok(None) => 1,
+            Err(error) => {
+                set_last_error(error);
+                -4
+            }
+        }
+    })
+}
+
+#[cfg(all(test, target_vendor = "apple"))]
+mod histogram_tests {
+    use super::*;
+
+    #[test]
+    fn histogram_rejects_invalid_outputs_and_waits_for_a_present() {
+        let mut bins = [99u32; 768];
+        assert_eq!(
+            unsafe { maple_gpu_live_histogram(std::ptr::null(), bins.as_mut_ptr()) },
+            -1
+        );
+        let pixels = vec![0.18f32; 16 * 16 * 4];
+        let mut handle = MapleGpuLiveSession {
+            inner: std::ptr::null_mut(),
+        };
+        assert_eq!(
+            unsafe { maple_gpu_live_open(pixels.as_ptr(), 16, 16, &mut handle) },
+            0
+        );
+        assert_eq!(
+            unsafe { maple_gpu_live_histogram(&handle, std::ptr::null_mut()) },
+            -1
+        );
+        let mut unaligned = [0u8; 768 * 4 + 4];
+        let base = unaligned.as_mut_ptr() as usize;
+        let offset = if base % 4 == 0 { 1 } else { 0 };
+        assert_eq!(
+            unsafe { maple_gpu_live_histogram(&handle, unaligned.as_mut_ptr().add(offset).cast()) },
+            -1
+        );
+        assert_eq!(
+            unsafe { maple_gpu_live_histogram(&handle, bins.as_mut_ptr()) },
+            1
+        );
+        assert_eq!(bins, [99; 768]);
+        unsafe {
+            maple_gpu_live_close(&mut handle);
+        }
+        assert_eq!(
+            unsafe { maple_gpu_live_histogram(&handle, bins.as_mut_ptr()) },
+            -1
+        );
+        assert_eq!(bins, [99; 768]);
+    }
+}

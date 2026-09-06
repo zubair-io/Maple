@@ -1,18 +1,9 @@
 // LocalHistogram.swift — on-device RGB histogram for local & PhotoKit assets.
 //
-// The S6 Info panel's HistogramBlock shows live RGB curves. For Self-Hosted
-// assets it fetches `GET /api/assets/:id/histogram` (CloudHistogramClient);
-// for filesystem and PhotoKit assets — which have no server-minted asset id —
-// this computes the SAME 3×256 histogram on device via the Rust core, so the
-// histogram works on every platform (Mac / iPad / iPhone) regardless of where
-// the asset lives.
-//
-// The histogram reflects the live in-memory edit: the current `AdjustmentModel`
-// + `CullingState` are serialised to an XMP document and handed to the bytes
-// FFI (`maple_histogram_bytes`), which develops the RAW under those adjustments
-// and bins the result. Preview quality keeps the on-edit-settle recompute light
-// (a histogram is a statistical reduction — the half-res demosaic is visually
-// identical to full quality and ~4× cheaper).
+// Standalone full-asset histogram helpers. These APIs retain the bounded
+// decode/develop path for callers that have no displayed image. Editor views
+// instead use EditSession.histogramForCurrentPreview: GPU-presented counts or
+// LocalHistogram.displayedImage for the CPU canvas, with no new RAW decode.
 
 import CoreImage
 import Foundation

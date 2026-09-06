@@ -221,9 +221,12 @@ impl PersistentPresentSurface {
         // (#1930) — a same-identity re-present (the steady state while
         // dragging one slider) is zero-alloc; only an identity change (a
         // pass-count parity flip, or a re-open's fresh buffers) rebuilds.
-        let (_uniform, bind_group) =
-            self.present_cache
-                .get_or_build(ctx, &self.bind_group_layout, chain_buf, (self.width, self.height));
+        let (_uniform, bind_group) = self.present_cache.get_or_build(
+            ctx,
+            &self.bind_group_layout,
+            chain_buf,
+            (self.width, self.height),
+        );
         let frame = self
             .surface
             .get_current_texture()
@@ -236,6 +239,7 @@ impl PersistentPresentSurface {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("present-chain-encoder"),
             });
+        session.histogram.encode(ctx, &mut encoder, final_idx);
         encode_present_pass(&mut encoder, &self.pipeline, &bind_group, &view);
         ctx.queue.submit(Some(encoder.finish()));
         frame.present();
@@ -413,6 +417,8 @@ pub fn present_chain_to_offscreen(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("present-chain-offscreen-encoder"),
         });
+    #[cfg(target_vendor = "apple")]
+    session.histogram.encode(ctx, &mut encoder, final_idx);
     encode_present_pass(&mut encoder, &pipeline, &dispatch.bind_group, &view);
 
     // Copy the rendered texture to a padded readback buffer (wgpu requires the
