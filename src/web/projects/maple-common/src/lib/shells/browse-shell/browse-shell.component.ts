@@ -38,6 +38,10 @@ import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-sett
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { BatchSyncService } from '../../editor/copy-paste/batch-sync.service';
 import { BatchSyncBannerComponent } from '../../editor/copy-paste/batch-sync-banner.component';
+import type {
+  AdjustmentTransferRequest,
+  WhiteBalanceBaseline,
+} from '../../editor/copy-paste/adjustment-transfer';
 import type { AdjustmentGroupId } from '../../editor/copy-paste/adjustment-groups';
 import { selectSidebarEntry } from './source-selection';
 import type { AssetId } from '../../models/asset';
@@ -146,6 +150,12 @@ export class BrowseShellComponent {
   readonly pastePreviewTargets = signal<readonly AdjustmentModel[] | null>(null);
   readonly pastePreviewError = signal<string | null>(null);
   private pastePreviewGeneration = 0;
+  private pasteSourceId: AssetId | null = null;
+  readonly readPasteSourceBaseline = async (): Promise<WhiteBalanceBaseline> => {
+    if (!this.pasteSourceId) throw new Error('Copy the source photo again.');
+    const { BatchPreviewService } = await import('../../editor/copy-paste/batch-preview.service');
+    return this.injector.get(BatchPreviewService).baseline(this.pasteSourceId);
+  };
 
   constructor() {
     // ── URL (slug:relPath) → selection ─────────────────────────────────────
@@ -197,12 +207,19 @@ export class BrowseShellComponent {
   // ── Copy / paste / sync develop settings (#944) ───────────────────────────
 
   /** Copy the focused asset's full develop settings into the app clipboard. */
-  onCopySettings(): void {
+  async onCopySettings(): Promise<void> {
+    this.pastePreviewError.set(null);
     const id = this.state.focusedAssetId();
     if (id == null) return;
     const label = this.state.focusedAsset()?.filename ?? id;
-    const model = this.state.adjustmentFor(id)();
-    this.clipboard.copyFrom(id, label, model);
+    try {
+      const { BatchPreviewService } = await import('../../editor/copy-paste/batch-preview.service');
+      const [model] = await this.injector.get(BatchPreviewService).readTargets([id]);
+      this.clipboard.copyFrom(id, label, model);
+    } catch (error) {
+      this.pastePreviewError.set(error instanceof Error ? error.message : String(error));
+      this.clipboard.clear();
+    }
   }
 
   /** Paste every clipboard group onto every selected asset. */
@@ -213,6 +230,7 @@ export class BrowseShellComponent {
   async onOpenPasteDialog(): Promise<void> {
     if (!this.clipboard.hasContents()) return;
     const generation = ++this.pastePreviewGeneration;
+    this.pasteSourceId = this.clipboard.entry()!.sourceAssetId;
     this.clipboardModel.set(structuredClone(this.clipboard.entry()!.model));
     this.clipboardSourceLabel.set(this.clipboard.entry()!.sourceLabel);
     this.pasteTargetIds.set([...this.state.selectedAssetIds()]);
@@ -236,15 +254,24 @@ export class BrowseShellComponent {
   onPasteDialogDismiss(): void {
     this.pastePreviewGeneration++;
     this.pasteDialogVisible.set(false);
+    this.pastePreviewError.set(null);
   }
 
-  async onPasteDialogConfirm(groups: readonly AdjustmentGroupId[]): Promise<void> {
+  async onPasteDialogConfirm(choice: {
+    groups: readonly AdjustmentGroupId[];
+    relativeWhiteBalance: boolean;
+    sourceBaseline?: WhiteBalanceBaseline;
+  }): Promise<void> {
     const source = this.clipboardModel();
     if (!source || !this.pastePreviewTargets() || this.pastePreviewError()) return;
     const ids = this.pasteTargetIds();
     this.onPasteDialogDismiss();
     const { buildGroupPatch } = await import('../../editor/copy-paste/adjustment-groups');
-    void this._runBatch(ids, buildGroupPatch(source, groups));
+    void this._runBatch(ids, buildGroupPatch(source, choice.groups), {
+      sourceAssetId: this.pasteSourceId ?? undefined,
+      source,
+      ...choice,
+    });
   }
 
   /**
@@ -255,13 +282,25 @@ export class BrowseShellComponent {
   async onSyncSettings(): Promise<void> {
     const focusedId = this.state.focusedAssetId();
     if (focusedId == null) return;
-    const model = this.state.adjustmentFor(focusedId)();
-    // The source asset is never re-written — sync pushes the focused image's
-    // settings onto the REST of the selection.
-    const targets = [...this.state.selectedAssetIds()].filter((id) => id !== focusedId);
-    const { buildGroupPatch, ALL_ADJUSTMENT_GROUP_IDS } =
-      await import('../../editor/copy-paste/adjustment-groups');
-    void this._runBatch(targets, buildGroupPatch(model, ALL_ADJUSTMENT_GROUP_IDS));
+    const { BatchPreviewService } = await import('../../editor/copy-paste/batch-preview.service');
+    const preview = this.injector.get(BatchPreviewService);
+    const generation = ++this.pastePreviewGeneration;
+    this.pasteSourceId = focusedId;
+    this.clipboardSourceLabel.set(this.state.focusedAsset()?.filename ?? focusedId);
+    this.pasteTargetIds.set([...this.state.selectedAssetIds()].filter((id) => id !== focusedId));
+    this.pastePreviewTargets.set(null);
+    this.pastePreviewError.set(null);
+    this.pasteDialogVisible.set(true);
+    try {
+      const [source] = await preview.readTargets([focusedId]);
+      const targets = await preview.readTargets(this.pasteTargetIds());
+      if (generation !== this.pastePreviewGeneration) return;
+      this.clipboardModel.set(source);
+      this.pastePreviewTargets.set(targets);
+    } catch (error) {
+      if (generation === this.pastePreviewGeneration)
+        this.pastePreviewError.set(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** Build the clipboard's group patch and write it onto every currently
@@ -283,9 +322,13 @@ export class BrowseShellComponent {
    */
   private _lastBatchPatch: Partial<AdjustmentModel> | null = null;
 
-  private async _runBatch(ids: readonly AssetId[], patch: Partial<AdjustmentModel>): Promise<void> {
+  private async _runBatch(
+    ids: readonly AssetId[],
+    patch: Partial<AdjustmentModel>,
+    transfer?: AdjustmentTransferRequest,
+  ): Promise<void> {
     if (Object.keys(patch).length === 0 || ids.length === 0) return;
-    const summary = await this.batch.apply(ids, patch);
+    const summary = await this.batch.apply(ids, patch, transfer);
     // Only a run that actually happened owns the retry patch. A refused
     // request (one already in flight) returns null, and overwriting here
     // would point "Retry failed" at a patch the reported run never used

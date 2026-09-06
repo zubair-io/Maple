@@ -1,5 +1,6 @@
 import { InjectionToken, type Signal } from '@angular/core';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import type { AdjustmentTransferRequest } from './adjustment-transfer';
 import type { BatchProgress, BatchSummary } from './batch-sync';
 
 /** Optional Self Hosted runner; the shared editor never imports its HTTP implementation. */
@@ -12,6 +13,7 @@ export interface PersistedBatchSync {
   apply(
     ids: readonly string[],
     patch: Partial<AdjustmentModel>,
+    transfer?: AdjustmentTransferRequest,
   ): Promise<BatchSummary<string> | null>;
   retryFailed(): Promise<BatchSummary<string> | null>;
   resume(): Promise<BatchSummary<string> | null>;
