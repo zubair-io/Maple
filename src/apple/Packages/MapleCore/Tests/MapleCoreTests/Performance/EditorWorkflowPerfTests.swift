@@ -124,6 +124,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
     let observations = Publications()
     var inputTimes: [UInt64: ContinuousClock.Instant] = [:]
     var inputs: [ContinuousClock.Instant] = []
+    var admissions: [(Task<UInt64, Never>, ContinuousClock.Instant)] = []
     let monitor = Task { @MainActor in
       var last = session.lastPublishedRenderGeneration
       while !Task.isCancelled {
@@ -141,7 +142,6 @@ final class EditorWorkflowPerfTests: XCTestCase {
     }
     let decodeBefore = await session.renderActor._testDecodeGeneration()
     let interval = Duration.nanoseconds(16_666_667)
-    var finalGeneration: UInt64?
     for index in 0..<count {
       let input = ContinuousClock.now
       inputs.append(input)
@@ -153,15 +153,22 @@ final class EditorWorkflowPerfTests: XCTestCase {
       // returned generation belongs to this input; Task.yield/currentGeneration
       // is not an ordering barrier and can silently attribute an older frame.
       let scheduled = try XCTUnwrap(session.latestRenderSchedule)
+      admissions.append((scheduled, input))
+      // Pace from the actual input, never burst to catch up with old deadlines.
+      // Like a real gesture, delivery never waits for render-actor admission.
+      try await ContinuousClock().sleep(until: input.advanced(by: interval))
+    }
+    var finalGeneration: UInt64?
+    for (scheduled, input) in admissions {
       let gen = await scheduled.value
       XCTAssertNil(inputTimes[gen], "A generation cannot represent two timed inputs")
       inputTimes[gen] = input
-      finalGeneration = gen
-      // Pace from the actual input, never burst to catch up with old deadlines.
-      // Report delivered cadence so admission/input lag cannot hide in a label.
-      try await ContinuousClock().sleep(until: input.advanced(by: interval))
+      finalGeneration = max(finalGeneration ?? gen, gen)
     }
     let final = try XCTUnwrap(finalGeneration)
+    let admitted = await session.renderActor.currentGeneration()
+    XCTAssertEqual(
+      final, admitted, "All measured scheduling tasks must be admitted before the tail")
     try await waitUntil(timeout: .seconds(10)) {
       session.lastPublishedRenderGeneration == final
     }
