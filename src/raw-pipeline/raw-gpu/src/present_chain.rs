@@ -107,6 +107,7 @@ pub struct PersistentPresentSurface {
     /// `reconfigure` (a format/layout change would otherwise leave a
     /// bind-group cached against the OLD layout).
     present_cache: PresentDispatchCache,
+    last_session: std::cell::Cell<u64>,
 }
 
 #[cfg(target_vendor = "apple")]
@@ -171,6 +172,7 @@ impl PersistentPresentSurface {
             layer: layer as usize,
             generation,
             present_cache: PresentDispatchCache::new(),
+            last_session: std::cell::Cell::new(0),
         })
     }
 
@@ -210,27 +212,28 @@ impl PersistentPresentSurface {
 
     /// Draw the session's final f32 chain buffer into the surface's current
     /// drawable and present it. No configure — pure per-frame draw work.
-    fn draw_and_present(
+    fn present_reserved_frame(
         &self,
         ctx: &GpuContext,
         session: &LiveSession,
         final_idx: usize,
-    ) -> Result<(), String> {
+        frame: wgpu::SurfaceTexture,
+    ) {
+        // A closed session's resource wrapper may eventually reuse an address.
+        // Monotonic session identity invalidates both retained directions first.
+        if self.last_session.replace(session.identity()) != session.identity() {
+            self.present_cache.invalidate();
+        }
         let chain_buf = session.ping_pong_buffer(final_idx);
         // Get-or-build the present dispatch for THIS chain buffer identity
-        // (#1930) — a same-identity re-present (the steady state while
-        // dragging one slider) is zero-alloc; only an identity change (a
-        // pass-count parity flip, or a re-open's fresh buffers) rebuilds.
+        // Both persistent ping-pong directions stay cached, so crossing a
+        // slider's no-op threshold does not rebuild the present dispatch.
         let (_uniform, bind_group) = self.present_cache.get_or_build(
             ctx,
             &self.bind_group_layout,
             chain_buf,
             (self.width, self.height),
         );
-        let frame = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| format!("get_current_texture failed: {e}"))?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -243,14 +246,12 @@ impl PersistentPresentSurface {
         encode_present_pass(&mut encoder, &self.pipeline, &bind_group, &view);
         ctx.queue.submit(Some(encoder.finish()));
         frame.present();
-        Ok(())
     }
 }
 
-/// Present the live chain's final f32 buffer (left resident by
-/// [`LiveSession::render_chain_to_f32`] at ping-pong index `final_idx`) into
-/// `layer` (a `CAMetalLayer*`) — the dithered/quantized 8-bit display surface,
-/// with NO CPU readback.
+/// Reserve a drawable, render the live chain, then present its final f32 buffer
+/// into `layer` without CPU readback. Reservation comes BEFORE GPU submission:
+/// cancelled requests blocked on the compositor cannot queue obsolete chains.
 ///
 /// `cache` is the caller-owned [`PersistentPresentSurface`] slot. Since #1769 it
 /// is PROCESS-WIDE (raw-ffi's `GPU_SHARED`), not per-FFI-handle: the fast→refine
@@ -285,13 +286,17 @@ impl PersistentPresentSurface {
 pub unsafe fn present_chain_to_surface(
     ctx: &GpuContext,
     session: &LiveSession,
-    final_idx: usize,
+    inputs: &crate::FullChainInputs<'_>,
     layer: *mut c_void,
     cache: &mut Option<PersistentPresentSurface>,
     generation: u64,
-) -> Result<(), String> {
+    cancel: &crate::CancelToken,
+) -> Result<bool, String> {
     if layer.is_null() {
         return Err("present_chain: layer pointer is null".to_string());
+    }
+    if cancel.is_cancelled() {
+        return Ok(false);
     }
     let (width, height) = session.dims();
     if width == 0 || height == 0 {
@@ -339,28 +344,49 @@ pub unsafe fn present_chain_to_surface(
     };
 
     let surface = cache.as_ref().expect("populated above");
-    if let Err(e) = surface.draw_and_present(ctx, session, final_idx) {
-        // A failed present (e.g. `get_current_texture` erroring because the
-        // swapchain was lost/outdated from a display change) leaves the cached
-        // surface in a broken state. Drop it so the NEXT call's
-        // `needs_fresh_surface` check is forced true and a fresh surface gets
-        // created from scratch, instead of permanently failing on every
-        // subsequent present against a surface that can never recover.
-        *cache = None;
-        return Err(e);
-    }
-    if just_configured {
-        // First frame after (re)configure can land on a drawable Core Animation
-        // hasn't fully handed off yet (the #1742 seam). A second present against
-        // the now-settled swapchain guarantees the caller-visible frame is whole.
-        let surface = cache.as_ref().expect("populated above");
-        if let Err(e) = surface.draw_and_present(ctx, session, final_idx) {
-            // Same cache-poisoning guard as the first present above.
-            *cache = None;
-            return Err(e);
+    let acquire = || {
+        surface
+            .surface
+            .get_current_texture()
+            .map_err(|error| format!("get_current_texture failed: {error}"))
+    };
+    let result = with_reserved_frame(cancel, acquire, |frame| {
+        let Some(final_idx) = session.render_chain_to_f32(ctx, inputs, cancel)? else {
+            return Ok(false);
+        };
+        // Compute has submitted. Finish presentation of the reserved drawable
+        // even if cancellation raced submission; no abandoned GPU-only backlog.
+        surface.present_reserved_frame(ctx, session, final_idx, frame);
+        if just_configured {
+            // Finish the established double-present settle after configure.
+            // This is the same rendered buffer, never a second compute chain.
+            let frame = acquire()?;
+            surface.present_reserved_frame(ctx, session, final_idx, frame);
         }
+        Ok(!cancel.is_cancelled())
+    });
+    if result.is_err() {
+        *cache = None;
     }
-    Ok(())
+    result
+}
+
+/// Keep the cancellation boundary around a potentially blocking reservation.
+/// The render closure cannot encode or submit until a current drawable exists.
+#[cfg(target_vendor = "apple")]
+fn with_reserved_frame<Frame>(
+    cancel: &crate::CancelToken,
+    acquire: impl FnOnce() -> Result<Frame, String>,
+    render: impl FnOnce(Frame) -> Result<bool, String>,
+) -> Result<bool, String> {
+    if cancel.is_cancelled() {
+        return Ok(false);
+    }
+    let frame = acquire()?;
+    if cancel.is_cancelled() {
+        return Ok(false);
+    }
+    render(frame)
 }
 
 /// Host-only sibling of [`present_chain_to_surface`]: run the SAME present pass
@@ -501,3 +527,7 @@ async fn map_u8_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Result<Ve
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "present_chain/tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_vendor = "apple"))]
+#[path = "present_chain/reservation_tests.rs"]
+mod reservation_tests;

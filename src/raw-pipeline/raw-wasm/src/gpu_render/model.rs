@@ -162,7 +162,7 @@ pub(super) fn build_full_chain_inputs(
     noise: NoiseProfileInputs,
     film_lut: Option<&raw_core::film::FilmLut>,
     film_lut_key: u32,
-) -> FullChainInputs {
+) -> FullChainInputs<'static> {
     use raw_core::types::WbMethod;
 
     let wb_matrix = match model.wb_method {
@@ -289,9 +289,9 @@ pub(super) fn build_full_chain_inputs(
         // canonical 04b position there) → omit on the GPU chain to avoid a
         // double-apply, mirroring the Apple decode-boundary contract.
         capture_sharpening: None,
-        profile_curve_flat,
+        profile_curve_flat: profile_curve_flat.into(),
         residual_lut_size,
-        residual_lut_data,
+        residual_lut_data: residual_lut_data.into(),
         // Web does not yet surface a P3-canvas path (canvas is tagged
         // display-P3 but the live render target is managed by the browser).
         // Legacy sRGB encode (0) is bit-identical to pre-#1337 behavior.
@@ -310,7 +310,7 @@ pub(super) fn build_full_chain_inputs(
         film_strength: model.film_strength,
         film_lut_size: film_lut.map(|l| l.size as u32).unwrap_or(0),
         film_lut_key: if film_lut.is_some() { film_lut_key } else { 0 },
-        film_lut_data: film_lut.map(|l| l.data.clone()).unwrap_or_default(),
+        film_lut_data: film_lut.map(|l| l.data.clone()).unwrap_or_default().into(),
         // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
         // same flat-point shape as `tone_curves` above.
         display_tone_curves: raw_gpu::DisplayToneCurveInputs {

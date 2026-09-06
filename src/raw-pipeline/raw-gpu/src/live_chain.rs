@@ -58,6 +58,7 @@ use crate::agx::AgxPass;
 use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
+use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::display_tone_curve::{display_tone_curve_is_identity, DisplayToneCurvePass};
@@ -71,7 +72,6 @@ use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
-use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::ToneCurvesPass;
@@ -108,7 +108,10 @@ use noop::*;
 /// computed on-device with NO GPU→CPU readback, so the dehaze-active chain runs in
 /// ONE submit. The headless gate passes [`AirlightSource::Cpu`] of the pre-dehaze
 /// buffer (the byte-exact-vs-raw-core reference path).
-pub fn build_live_chain(inputs: &FullChainInputs, airlight: AirlightSource) -> BoxedPasses {
+pub fn build_live_chain<'a>(
+    inputs: &'a FullChainInputs<'_>,
+    airlight: AirlightSource,
+) -> BoxedPasses<'a> {
     let (prefix, suffix) = build_live_split(inputs, airlight);
     let mut all = prefix;
     all.extend(suffix);
@@ -137,10 +140,10 @@ pub fn build_live_chain(inputs: &FullChainInputs, airlight: AirlightSource) -> B
 /// chain runs in one submit. With [`AirlightSource::Cpu`] the caller supplies A
 /// (the readback fallback / the headless reference path).
 #[allow(clippy::vec_init_then_push)]
-pub fn build_live_split(
-    inputs: &FullChainInputs,
+pub fn build_live_split<'a>(
+    inputs: &'a FullChainInputs<'_>,
     airlight: AirlightSource,
-) -> (BoxedPasses, BoxedPasses) {
+) -> (BoxedPasses<'a>, BoxedPasses<'a>) {
     // --- Prefix: capture_sharpening (FIRST, develop's 04b placement) through
     //     texture. Each pass is included only when its stage is NOT a no-op,
     //     replicating develop's per-stage `if` guards / the `apply` short-circuit.
@@ -312,7 +315,7 @@ pub fn build_live_split(
         suffix.push(Box::new(FilmLutPass {
             size: inputs.film_lut_size,
             strength: inputs.film_strength,
-            data: inputs.film_lut_data.clone(),
+            data: inputs.film_lut_data.as_ref().into(),
         }));
     }
     // Film grain (#1110) — display-linear, post-AgX; GATED unlike the rest
@@ -342,11 +345,11 @@ pub fn build_live_split(
     // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
     if is_raw_shape {
         suffix.push(Box::new(AutoProfileCurvePass {
-            flat_curve: inputs.profile_curve_flat.clone(),
+            flat_curve: inputs.profile_curve_flat.as_ref().into(),
         }));
         suffix.push(Box::new(ResidualLutPass {
             size: inputs.residual_lut_size,
-            data: inputs.residual_lut_data.clone(),
+            data: inputs.residual_lut_data.as_ref().into(),
         }));
     }
 

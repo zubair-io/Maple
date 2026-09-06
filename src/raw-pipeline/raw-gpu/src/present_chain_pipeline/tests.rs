@@ -63,14 +63,9 @@ fn second_present_same_buffer_identity_allocates_nothing() {
     );
 }
 
-/// A present against a DIFFERENT `chain_buf` identity (a pass-count parity flip,
-/// or — after a session re-open — a brand new session's freshly-allocated
-/// buffers) is a bounded MISS that rebuilds, never a silent stale reuse. And a
-/// return to a previously-seen identity, once evicted, is ALSO a fresh miss
-/// (this is a single-slot cache, not an unbounded per-identity map) — proving
-/// the cache never binds a group to the WRONG buffer, only ever the CURRENT one.
+/// Two ping-pong identities stay hot when the active pass count alternates.
 #[test]
-fn different_buffer_identity_forces_a_rebuild_not_a_stale_reuse() {
+fn alternating_ping_pong_buffers_reuse_distinct_dispatches_without_allocating() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (_pipeline, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
     let cache = PresentDispatchCache::new();
@@ -96,26 +91,21 @@ fn different_buffer_identity_forces_a_rebuild_not_a_stale_reuse() {
         "buffer A's and buffer B's bind groups must be DISTINCT objects"
     );
 
-    // Back to A: the cache now holds B's entry, so this is ALSO a rebuild (not a
-    // stale hit against the now-evicted A entry).
-    let pre_a2 = cache.alloc_count();
-    let (_, bg_a2) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
-    let a2 = cache.alloc_count() - pre_a2;
-    assert_eq!(
-        a2, 2,
-        "returning to buffer A after B evicted it must rebuild, not reuse a stale entry"
-    );
-    assert!(
-        !Arc::ptr_eq(&bg_a1, &bg_a2),
-        "the rebuilt A dispatch must be a FRESH bind group, not A's original (evicted) one"
-    );
+    let pre = cache.alloc_count();
+    for _ in 0..40 {
+        let (_, bg_a2) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
+        let (_, bg_b2) = cache.get_or_build(&ctx, &bgl, &buf_b, (8, 8));
+        assert!(Arc::ptr_eq(&bg_a1, &bg_a2));
+        assert!(Arc::ptr_eq(&bg_b1, &bg_b2));
+    }
+    assert_eq!(cache.alloc_count(), pre);
 
-    // And immediately re-presenting A again (now the freshly-cached entry) is a
-    // zero-alloc hit, exactly like the steady-state case.
-    let pre_a3 = cache.alloc_count();
-    let _ = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
-    let a3 = cache.alloc_count() - pre_a3;
-    assert_eq!(a3, 0, "re-presenting the just-cached buffer must be zero-alloc");
+    // A replacement session cannot grow the fixed two-resource cache.
+    let buf_c = make_chain_buf(&ctx, "chain-c");
+    let _ = cache.get_or_build(&ctx, &bgl, &buf_c, (8, 8));
+    assert_eq!(cache.entries.borrow().iter().flatten().count(), 2);
+    let (_, bg_a3) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
+    assert!(!Arc::ptr_eq(&bg_a1, &bg_a3));
 }
 
 /// `invalidate()` (called on a surface reconfigure — a format / bind-group-
@@ -143,4 +133,20 @@ fn invalidate_forces_a_rebuild_on_the_same_identity() {
         after_invalidate, 2,
         "a present after invalidate() must rebuild even at the same buffer identity"
     );
+}
+
+#[test]
+fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (_, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
+    let (_, other_bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
+    let cache = PresentDispatchCache::new();
+    let chain_buf = make_chain_buf(&ctx, "chain");
+    let (_, original) = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
+    let (_, scaled) = cache.get_or_build_scaled(&ctx, &bgl, &chain_buf, (8, 8), (4, 4));
+    assert!(!Arc::ptr_eq(&original, &scaled));
+    let (_, resized) = cache.get_or_build(&ctx, &bgl, &chain_buf, (4, 4));
+    assert!(!Arc::ptr_eq(&original, &resized));
+    let (_, different_layout) = cache.get_or_build(&ctx, &other_bgl, &chain_buf, (4, 4));
+    assert!(!Arc::ptr_eq(&resized, &different_layout));
 }

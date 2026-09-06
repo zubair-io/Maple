@@ -54,6 +54,12 @@ impl CancelToken {
         Self::default()
     }
 
+    /// Share a host-owned atomic with the encode loop without polling or a
+    /// forwarding task. The Arc keeps the signal alive through the last pass.
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self { flag }
+    }
+
     /// Request cancellation. Idempotent.
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::SeqCst);

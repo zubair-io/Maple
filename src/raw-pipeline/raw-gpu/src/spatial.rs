@@ -29,14 +29,14 @@
 //!   over a luma plane, producing the `mean_a` / `mean_b` reconstruction
 //!   coefficients clarity and texture share (only the radius differs).
 //!
-//! Each sub-step is its OWN `begin_compute_pass` dispatch: storage writes are
-//! visible to the next dispatch via wgpu's implicit inter-pass barrier (batching
-//! the sub-steps into one compute pass would race). Scratch buffers created here
+//! wgpu tracks storage hazards at each dispatch, including dispatches batched
+//! within one compute pass. Standalone stages use their own pass; NLM uses one
+//! tiled dispatch per plane. Scratch buffers created here
 //! stay alive through submission via the command encoder's references — same
 //! lifetime contract as a per-pass uniform.
 
 use crate::context::GpuContext;
-use crate::frame_pool::{pool_dispatch, pool_scratch, DispatchResources};
+use crate::frame_pool::{pool_data, pool_scratch};
 use std::sync::Arc;
 
 /// A pooled GPU scratch buffer handle. `Arc<wgpu::Buffer>` so the live-render pool
@@ -78,39 +78,19 @@ pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Pl
     })
 }
 
-/// Pooled READ-ONLY STORAGE buffer for a per-image / per-edit data array (the
-/// Auto Profile curve / residual-LUT grid / AgX LUT / prepared tone curves). The
-/// buffer OBJECT is pooled — created once per chain shape, reused every tick (a
-/// same-signature re-render does NOT reallocate it) — but `contents` are written
-/// EVERY call via `queue.write_buffer` (a copy, not an allocation), so the data
-/// is always fresh. `STORAGE | COPY_SRC | COPY_DST`; the kernel binds it
-/// read-only. Returns an [`Plane`] (`Arc<Buffer>`); pass `data.as_ref()` to
-/// [`encode_simple`].
-///
-/// PARITY-CRITICAL: the contents MUST be rewritten unconditionally, mirroring the
-/// uniform-on-hit path in [`encode_simple`]. The chain signature keys the pool on
-/// the active-stage SET, not data VALUES — so a tone-curve edit (a moved curve
-/// point / parametric slider) keeps the same signature and hits the cached
-/// buffer; without the unconditional write it would bind STALE curve data and the
-/// live preview would freeze on a tone-curve edit. The AgX LUT / residual grid /
-/// fitted curve are session-constant so the write is a redundant-but-harmless
-/// copy for them; tone-curves genuinely needs it.
+/// Pooled read-only storage for fitted lattices and prepared tone curves.
+/// Comparing the retained bytes avoids Metal staging allocations for unchanged
+/// data; changed curves still upload before dispatch. The snapshot is created
+/// only on a cache miss, and never uses pointer identity as content identity.
 pub fn pool_data_storage(ctx: &GpuContext, contents: &[u8], label: &str) -> Plane {
-    let byte_len = contents.len() as u64;
-    let owned_label = label.to_string();
-    // Pool the (uninitialised) buffer OBJECT — created only on a miss.
-    let buf = pool_scratch(ctx, byte_len, move |device| {
+    pool_data(ctx, contents, |device| {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&owned_label),
-            size: byte_len,
+            label: Some(label),
+            size: contents.len() as u64,
             usage: SCRATCH_USAGE,
             mapped_at_creation: false,
         })
-    });
-    // Write the CURRENT contents every call (hit OR miss) — a copy, not an alloc,
-    // so the zero-alloc invariant holds while the data stays fresh.
-    ctx.queue.write_buffer(&buf, 0, contents);
-    buf
+    })
 }
 
 /// Pooled scratch storage buffer for an RGBA f32 image (`width × height × 4` f32).
@@ -140,88 +120,9 @@ struct BoxBlurParams {
     axis: u32,
 }
 
-/// Record one compute dispatch: a `params` uniform from `params_bytes` + an
-/// auto-derived bind group binding `[params, buffers...]` at successive bindings
-/// (params = 0, then `buffers[k]` = `k + 1`), dispatching `count.div_ceil(64)`
-/// workgroups of the cached `pipeline`.
-///
-/// The workhorse behind EVERY GPU dispatch (P4b-core C3 unification): the spatial
-/// sub-passes AND, now, every per-pixel `Pass` route through here, so the live
-/// pool ([`crate::frame_pool`]) has ONE allocation boundary to cache + count. On
-/// the first render of a chain shape the uniform + bind group are created; on a
-/// same-signature re-render the cached pair is reused and `params_bytes` is
-/// rewritten into the SAME uniform via `queue.write_buffer` (cheap — NOT a
-/// counted allocation), so a slider drag stays zero-alloc. The storage `buffers`
-/// (src/dst ping-pong, pooled scratch, pooled per-image data) keep stable
-/// identity per signature — they're owned by the session / the pool — so the
-/// cached bind group's internal references never dangle.
-///
-/// `label` names the resources / compute pass for capture traces.
-pub fn encode_simple(
-    ctx: &GpuContext,
-    encoder: &mut wgpu::CommandEncoder,
-    pipeline: &wgpu::ComputePipeline,
-    params_bytes: &[u8],
-    buffers: &[&wgpu::Buffer],
-    count: u32,
-    label: &str,
-) {
-    let params_len = params_bytes.len() as u64;
-    let layout = pipeline.get_bind_group_layout(0);
-
-    // Get-or-create the pooled uniform + bind group. `make` runs ONLY on a cache
-    // miss (so a hit allocates nothing); it builds the uniform + the bind group
-    // referencing it + the passed storage buffers.
-    let pooled = pool_dispatch(ctx, pipeline, |device| {
-        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: params_len,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let mut entries = Vec::with_capacity(buffers.len() + 1);
-        entries.push(wgpu::BindGroupEntry {
-            binding: 0,
-            resource: uniform.as_entire_binding(),
-        });
-        for (k, buf) in buffers.iter().enumerate() {
-            entries.push(wgpu::BindGroupEntry {
-                binding: (k + 1) as u32,
-                resource: buf.as_entire_binding(),
-            });
-        }
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(label),
-            layout: &layout,
-            entries: &entries,
-        });
-        DispatchResources {
-            bind_group,
-            uniform,
-            // The storage buffers are kept alive by the session (ping-pong) and
-            // the pool (scratch / data) — not by the dispatch entry — so `data`
-            // is empty (no double-ownership). See `frame_pool` docs.
-            data: Vec::new(),
-        }
-    });
-
-    // Write the CURRENT params into the (possibly reused) uniform every call —
-    // param values change per tick, the buffer object does not.
-    ctx.queue.write_buffer(&pooled.uniform, 0, params_bytes);
-
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-        label: Some(label),
-        timestamp_writes: None,
-    });
-    pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, pooled.bind_group.as_ref(), &[]);
-    let groups = count.div_ceil(64);
-    let gx = groups.min(65535);
-    // Guard the empty dispatch: count==0 -> gx==0, and div_ceil(0) panics.
-    // (0,0,1) is a safe no-op (the original 1-D (0,1,1) was likewise). #1623
-    let gy = if gx == 0 { 0 } else { groups.div_ceil(gx) };
-    pass.dispatch_workgroups(gx, gy, 1);
-}
+mod dispatch;
+pub use dispatch::encode_simple;
+pub(crate) use dispatch::prepare_simple_dispatch;
 
 /// THE separable box-blur primitive (epic #925 P2 wave 3b / #990).
 ///

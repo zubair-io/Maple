@@ -206,14 +206,9 @@ impl GpuContext {
 
     // ── Noise-reduction (NLM) pipelines (epic #925 P3 wave 1 / #991) ──────────
     //
-    // All five entry points live in ONE WGSL module (`noise_reduction.wgsl`) —
-    // the extract / writeback kernels round pixels through Oklab, so the module
-    // concats the generated color matrices (like `vibrance_pipeline`). Each
-    // accessor compiles that shared source selecting its OWN `@compute` entry
-    // point (naga supports multiple entry points per module; `layout: None`
-    // derives the per-entry bind-group layout). The kernel proper recomputes the
-    // patch-SSD directly (no integral image) so the accumulate kernel fits the
-    // 4-storage cap — see `noise_reduction.wgsl`.
+    // The shared module concatenates the generated color matrices for Oklab.
+    // Each entry point derives its own layout; all stay within four storage
+    // buffers. The fused tiled filter keeps all shift accumulators in registers.
 
     /// `extract_channel`: RGBA → one Oklab channel (L/a/b) scalar plane.
     pub fn nr_extract_pipeline(&self) -> &wgpu::ComputePipeline {
@@ -221,24 +216,10 @@ impl GpuContext {
             .get_or_init(|| compile_nr(&self.device, "nr-extract", "extract_channel"))
     }
 
-    /// `prepare_scale`: the per-pixel noise-profile modulation plane (#1714).
-    /// 2 storage: the Oklab L plane + the packed (max_w, scale) plane.
-    pub fn nr_prepare_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.nr_prepare_pipeline
-            .get_or_init(|| compile_nr(&self.device, "nr-prepare-scale", "prepare_scale"))
-    }
-
-    /// `accumulate_shift`: the per-shift NLM core (direct patch-SSD → weight →
-    /// acc/wsum/max_w). 4 storage: plane + acc + wsum + (max_w, scale).
-    pub fn nr_accumulate_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.nr_accumulate_pipeline
-            .get_or_init(|| compile_nr(&self.device, "nr-accumulate", "accumulate_shift"))
-    }
-
-    /// `finalize`: `(acc + mw·plane) / (wsum + mw)`, written in place to acc.
-    pub fn nr_finalize_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.nr_finalize_pipeline
-            .get_or_init(|| compile_nr(&self.device, "nr-finalize", "finalize"))
+    /// `denoise_plane`: fused tiled NLM (source + L guide + output + exp LUT).
+    pub fn nr_denoise_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_denoise_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-denoise-plane", "denoise_plane"))
     }
 
     /// `writeback_luma`: RGBA-src + denoised L → RGBA-dst (a/b recomputed).

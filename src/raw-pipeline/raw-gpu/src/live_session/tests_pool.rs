@@ -314,4 +314,3 @@ fn interleaved_sessions_do_not_share_pool_buckets() {
          in chain_signature, #1929)"
     );
 }
-

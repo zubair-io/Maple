@@ -203,6 +203,12 @@ impl LiveSession {
         })
     }
 
+    /// A monotonic identity that cannot alias a retired upload's buffers.
+    #[cfg(target_vendor = "apple")]
+    pub(crate) fn identity(&self) -> u64 {
+        self.session_id
+    }
+
     /// The session's image dimensions.
     pub fn dims(&self) -> (u32, u32) {
         self.image.dims()
@@ -245,7 +251,7 @@ impl LiveSession {
     pub fn render_to_buffer(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: &CancelToken,
     ) -> Result<Option<Vec<u8>>, String> {
         pollster::block_on(self.render_async(ctx, inputs, Some(cancel)))
@@ -262,7 +268,7 @@ impl LiveSession {
     pub async fn render_async(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
@@ -291,7 +297,7 @@ impl LiveSession {
     async fn render_single(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
@@ -329,7 +335,7 @@ impl LiveSession {
     async fn render_dehaze_split(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
@@ -403,16 +409,17 @@ impl LiveSession {
     /// AIRLIGHT (C5a): identical to [`Self::render_to_buffer`] — when dehaze is
     /// engaged the chain runs as a prefix→mid-chain-readback→suffix split (A is
     /// measured from the post-prefix buffer); otherwise it is one submit. The
-    /// chain submit(s) complete before this returns, so the named buffer is ready
-    /// for the present pass's separate submit.
+    /// chain command buffers are submitted before this returns; queue ordering
+    /// makes the named buffer available to the present pass's separate submit.
+    /// This does not wait for GPU completion or display scanout.
     ///
     /// Opens/closes the SAME signature-keyed pool window as [`Self::render_async`],
-    /// so a same-signature re-render here is zero-alloc too.
+    /// so a warm same-signature re-render reuses its pooled GPU resources.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn render_chain_to_f32(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: &CancelToken,
     ) -> Result<Option<usize>, String> {
         pollster::block_on(self.render_chain_to_f32_async(ctx, inputs, Some(cancel)))
@@ -426,7 +433,7 @@ impl LiveSession {
     pub async fn render_chain_to_f32_async(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<Option<usize>, String> {
         let dims = self.image.dims();
@@ -453,7 +460,7 @@ impl LiveSession {
     fn encode_chain_f32_single(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Option<usize> {
         let f32_byte_len = self.image.byte_len();
@@ -480,7 +487,7 @@ impl LiveSession {
     async fn encode_chain_f32_dehaze_split(
         &self,
         ctx: &GpuContext,
-        inputs: &FullChainInputs,
+        inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<Option<usize>, String> {
         let dims = self.image.dims();

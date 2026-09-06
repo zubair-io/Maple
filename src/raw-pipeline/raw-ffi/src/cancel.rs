@@ -34,11 +34,12 @@
 //!      keeps the owning object alive across the call to guarantee this).
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// The real cancellation state behind the opaque pointer. Not exposed in the
 /// C ABI — only reachable through [`MapleCancelFlag::inner`].
 struct Inner {
-    flag: AtomicBool,
+    flag: Arc<AtomicBool>,
 }
 
 /// Opaque host-owned cancellation flag. `#[repr(C)]` with a single opaque
@@ -57,7 +58,7 @@ pub struct MapleCancelFlag {
 #[no_mangle]
 pub extern "C" fn maple_cancel_flag_new() -> *mut MapleCancelFlag {
     let inner = Box::new(Inner {
-        flag: AtomicBool::new(false),
+        flag: Arc::new(AtomicBool::new(false)),
     });
     let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
     Box::into_raw(Box::new(MapleCancelFlag { inner: inner_ptr }))
@@ -107,7 +108,20 @@ pub(crate) unsafe fn token_from_ptr(
 ) -> Option<std::ptr::NonNull<AtomicBool>> {
     let handle = flag.as_ref()?;
     let inner = (handle.inner as *const Inner).as_ref()?;
-    Some(std::ptr::NonNull::from(&inner.flag))
+    Some(std::ptr::NonNull::from(inner.flag.as_ref()))
+}
+
+/// Share the same host signal with the GPU pass encoder. A new independent
+/// token would lose cancellation requested while waiting for the GPU lock.
+///
+/// # Safety
+/// `flag` is null or a live flag from `maple_cancel_flag_new`.
+#[cfg(feature = "gpu")]
+pub(crate) unsafe fn gpu_token(flag: *const MapleCancelFlag) -> raw_gpu::CancelToken {
+    flag.as_ref()
+        .and_then(|handle| (handle.inner as *const Inner).as_ref())
+        .map(|inner| raw_gpu::CancelToken::from_flag(Arc::clone(&inner.flag)))
+        .unwrap_or_default()
 }
 
 /// A `Send` shim so a raw `*const MapleCancelFlag` can cross the
@@ -126,6 +140,19 @@ unsafe impl Send for SendCancelPtr {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn gpu_encode_token_observes_late_host_cancellation_and_retains_signal() {
+        let flag = maple_cancel_flag_new();
+        let token = unsafe { gpu_token(flag) };
+        assert!(!token.is_cancelled());
+        unsafe { maple_cancel_flag_set(flag) };
+        assert!(token.is_cancelled());
+        unsafe { maple_cancel_flag_free(flag) };
+        assert!(token.is_cancelled());
+        assert!(!unsafe { gpu_token(std::ptr::null()) }.is_cancelled());
+    }
 
     #[test]
     fn null_pointer_yields_never_token() {

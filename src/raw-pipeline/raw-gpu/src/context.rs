@@ -230,21 +230,14 @@ pub struct GpuContext {
     /// + params uniform. Dispatched as ONE workgroup.
     pub(crate) airlight_reduce_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled NLM noise-reduction pipelines (epic #925 P3 wave 1 /
-    /// #991). All five entry points share one WGSL module
+    /// #991). All four entry points share one WGSL module
     /// (`noise_reduction.wgsl` + the generated color matrices, for the Oklab
     /// round-trip); each `OnceCell` caches the pipeline for one `@compute` entry.
     /// `extract_channel`: RGBA → one Oklab channel (L/a/b) plane (2 storage).
     pub(crate) nr_extract_pipeline: OnceCell<wgpu::ComputePipeline>,
-    /// `prepare_scale`: the per-pixel noise-profile modulation plane, from the
-    /// Oklab L plane (#1714). 2 storage: L + the packed (max_w, scale) plane.
-    pub(crate) nr_prepare_pipeline: OnceCell<wgpu::ComputePipeline>,
-    /// `accumulate_shift`: the per-shift NLM core — direct patch-SSD → weight →
-    /// acc/wsum/max_w (4 storage: plane + acc + wsum + the packed (max_w, scale)
-    /// plane; no integral image, so it fits the `downlevel_defaults()` cap).
-    pub(crate) nr_accumulate_pipeline: OnceCell<wgpu::ComputePipeline>,
-    /// `finalize`: `(acc + mw·plane) / (wsum + mw)` written in place to acc
-    /// (4 storage: plane + acc + wsum + the packed (max_w, scale) plane).
-    pub(crate) nr_finalize_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `denoise_plane`: source + L guide → denoised plane, one tiled dispatch
+    /// with all shift accumulators in registers (four storage buffers with exp LUT).
+    pub(crate) nr_denoise_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// `writeback_luma`: RGBA-src + denoised-L → RGBA-dst, a/b recomputed from
     /// src (3 storage).
     pub(crate) nr_writeback_luma_pipeline: OnceCell<wgpu::ComputePipeline>,
@@ -409,9 +402,7 @@ impl GpuContext {
             airlight_hist_pipeline: OnceCell::new(),
             airlight_reduce_pipeline: OnceCell::new(),
             nr_extract_pipeline: OnceCell::new(),
-            nr_prepare_pipeline: OnceCell::new(),
-            nr_accumulate_pipeline: OnceCell::new(),
-            nr_finalize_pipeline: OnceCell::new(),
+            nr_denoise_pipeline: OnceCell::new(),
             nr_writeback_luma_pipeline: OnceCell::new(),
             nr_writeback_color_pipeline: OnceCell::new(),
             sharpen_luma_pipeline: OnceCell::new(),

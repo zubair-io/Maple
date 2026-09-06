@@ -189,7 +189,7 @@ fn encode_reduce_single_wg(
     let pipeline = ctx.airlight_reduce_pipeline();
     let layout = pipeline.get_bind_group_layout(0);
 
-    let pooled = pool_dispatch(ctx, pipeline, |device| {
+    let pooled = pool_dispatch(ctx, pipeline, params_bytes, buffers, |device| {
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: params_len,
@@ -218,7 +218,6 @@ fn encode_reduce_single_wg(
             data: Vec::new(),
         }
     });
-    ctx.queue.write_buffer(&pooled.uniform, 0, params_bytes);
 
     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some(label),

@@ -419,9 +419,9 @@ pub(super) fn direct_raw_gpu(
         nr_color: model.nr_color,
         contrast: model.contrast,
         capture_sharpening: None,
-        profile_curve_flat: curve.to_flat(),
+        profile_curve_flat: curve.to_flat().into(),
         residual_lut_size: lut.size,
-        residual_lut_data: lut.data.clone(),
+        residual_lut_data: lut.data.clone().into(),
         // sRGB primaries (#1337 default).
         target_primaries: 0,
         // RAW shape — full chain including WB (pre-#1331 default).
@@ -434,7 +434,7 @@ pub(super) fn direct_raw_gpu(
         film_strength: 0.0,
         film_lut_size: 0,
         film_lut_key: 0,
-        film_lut_data: Vec::new(),
+        film_lut_data: Vec::new().into(),
         display_tone_curves: raw_gpu::DisplayToneCurveInputs {
             master: model.display_tone_curve_luma.points.clone(),
             red: model.display_tone_curve_red.points.clone(),

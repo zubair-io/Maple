@@ -12,15 +12,11 @@
 //!
 //! ## Test-image design (why MODEST content keeps the gate honest)
 //!
-//! raw-core is the integral-image side: its f32 rect query
-//! (`ii_bot[x1]-ii_top[x1]-ii_bot[x0]+ii_top[x0]`) carries cumulative-sum
-//! CANCELLATION error our direct patch-sum doesn't reproduce. On a pathological
-//! image (hard edges, large cumulative sums) raw-core becomes the noisy side and
-//! we'd diverge through no GPU fault. So the fixtures use a gentle gradient + a
-//! few localized features — keeping neighbour sqdiff tiny (so raw-core's integral
-//! sums stay O(1–10) and cancellation stays well under 1e-4), while still
-//! exercising the patch-radius border strip, interior FULL windows, and a real
-//! spread of patch SSDs (so the exp weighting is non-vacuous).
+//! Gentle gradients plus deterministic texture and edge features make the
+//! denoising effect non-vacuous without hiding differences behind saturated
+//! weights. raw-core's local sliding sums and the GPU's tile-local separable
+//! sums differ only in summation order. The sibling tile tests add discontinuities,
+//! tiny images, partial workgroups and profile gates across tile boundaries.
 
 use super::*;
 use crate::chain::{read_buffer_async, ChainRunner};
@@ -28,13 +24,15 @@ use crate::context::GpuContext;
 use crate::image::GpuImage;
 use wgpu::util::DeviceExt;
 
+#[path = "tests_tiled.rs"]
+mod tiled;
+
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 /// A modest `w×h` scalar plane: a gentle diagonal gradient (small slope, so
 /// neighbour differences are tiny) plus deterministic low-amplitude texture and a
 /// couple of localized features hugging the borders. Values land in ~[0, ~0.3] —
-/// the Oklab L / a / b range NLM operates in — and vary smoothly enough that
-/// raw-core's integral sums stay small. Border + interior pixels both get real
+/// the Oklab L / a / b range NLM operates in. Border + interior pixels both get real
 /// (distinct) patch SSDs.
 fn modest_plane(w: usize, h: usize) -> Vec<f32> {
     let mut v = vec![0.0f32; w * h];
