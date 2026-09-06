@@ -73,6 +73,24 @@ public sealed class ExportNativeTests(ITestOutputHelper output)
             Assert.False(File.Exists(result.Entries[0].TempPath));
             Assert.Equal("applied", store.Load(job.Id).Entries[0].Status);
             output.WriteLine($"Actual native export: {bytes.Length} bytes, ICC present, original SHA256 unchanged.");
+
+            const string filmId = "black_white_ilford_delta_100";
+            Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "film-luts", filmId + ".mlut")),
+                "The shared app/test packaging must copy the actual film LUT payload.");
+            var filmXmp = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+                "<rdf:Description xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:FilmLook=\"" +
+                filmId + "\" papp:FilmStrength=\"100\"/></rdf:RDF>";
+            var filmJob = runner.Create(Recipe(root), new[]
+            {
+                new ExportInput(raw, filmXmp, "with-film", "2026:09:06 12:30:00"),
+            }, Array.Empty<string>());
+            var filmResult = await runner.RunAsync(filmJob.Id, false, CancellationToken.None);
+            Assert.Equal("applied", filmResult.Entries[0].Status);
+            var filmBytes = File.ReadAllBytes(filmResult.Entries[0].OutputPath);
+            Assert.False(bytes.SequenceEqual(filmBytes), "The captured film look must affect actual output pixels.");
+            Assert.Contains("ICC_PROFILE", System.Text.Encoding.Latin1.GetString(filmBytes));
+            Assert.Equal(originalHash, ExportPaths.Hash(raw));
+            output.WriteLine($"Actual bundled {filmId} export: {filmBytes.Length} bytes; differs from the no-film output.");
         }
         finally { Directory.Delete(root, recursive: true); }
     }
