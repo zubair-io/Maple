@@ -43,7 +43,17 @@ export function createNativeDetail(
         host.canvasSvc.pixelScale() < 1
       )
         return null;
-      if (!isIdentityCrop(host.state.adjustmentFor(asset.id)().crop)) return null;
+      const model = host.state.adjustmentFor(asset.id)();
+      if (
+        !isIdentityCrop(model.crop) ||
+        model.geoPerspectiveH !== 0 ||
+        model.geoPerspectiveV !== 0 ||
+        model.geoRotation !== 0 ||
+        model.geoAspect !== 1 ||
+        model.geoScale !== 1 ||
+        (model.lensProfileEnable === 'On' && !!model.lensProfile)
+      )
+        return null;
       return {
         nativeW: dims.w,
         nativeH: dims.h,
