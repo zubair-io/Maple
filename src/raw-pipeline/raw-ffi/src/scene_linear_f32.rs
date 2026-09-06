@@ -17,8 +17,10 @@ use crate::model::{
     force_ae_off_if_auto_will_fit_bytes, force_ae_off_if_auto_will_fit_path, load_xmp_model_owned,
     LoadModel,
 };
-use raw_core::decode::decode_bytes;
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
+
+#[path = "scene_linear_f32/file_decode.rs"]
+mod file_decode;
 use raw_core::error::Error as CoreError;
 use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
@@ -83,29 +85,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        // Compute the key BEFORE reading — if the file changes between here and
-        // fs::read we cache the new bytes under the new mtime, not the old one.
-        let cache_key = CacheKey::from_path(raw_path);
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
-            Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
-        };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        // #949: route through the decoded-RawImage cache keyed on (path, mtime)
-        // so the back-to-back Auto-Profile fit (same key) hits instead of
-        // re-decoding. The `stage` wrapper stays so a hit reads as ~0ms.
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_file_cached(cache_key.as_ref(), &raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+        let raw_img = match file_decode::decode_file_cached(raw_path, token) {
+            Ok(raw) => raw,
+            Err(rc) => return rc,
         };
         let quality = match quality_preview {
             1 => raw_core::pipeline::RenderQuality::Preview,
@@ -293,27 +275,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        // Compute the key BEFORE reading — if the file changes between here and
-        // fs::read we cache the new bytes under the new mtime, not the old one.
-        let cache_key = CacheKey::from_path(raw_path);
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
-            Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
-        };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        // #949: cache keyed on (path, mtime) — see the full-res variant above.
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_file_cached(cache_key.as_ref(), &raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+        let raw_img = match file_decode::decode_file_cached(raw_path, token) {
+            Ok(raw) => raw,
+            Err(rc) => return rc,
         };
         let quality = match quality_preview {
             1 => raw_core::pipeline::RenderQuality::Preview,
@@ -443,25 +407,6 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
         );
         0
     })
-}
-
-/// Decode a RAW file through the decoded-`RawImage` cache (#949), keyed on
-/// `(canonical path, mtime)`. On a cache hit this skips the ~1.8s decode; the
-/// back-to-back Auto-Profile fit FFI builds the same path key and hits.
-/// `key` must be computed via `CacheKey::from_path` BEFORE `std::fs::read` at
-/// the call site — computing it after risks caching `T0`-content under a
-/// `T1`-mtime key if the file is replaced between read and stat (a race:
-/// TOCTOU stale-hit). `None` (un-stattable path) falls back to a plain
-/// uncached `decode_bytes` — never worse than before the cache.
-fn decode_file_cached(
-    key: Option<&CacheKey>,
-    raw_bytes: &[u8],
-    ext: &str,
-) -> raw_core::Result<std::sync::Arc<raw_core::RawImage>> {
-    match key {
-        Some(k) => decode_bytes_cached(k, raw_bytes, ext),
-        None => Ok(std::sync::Arc::new(decode_bytes(raw_bytes, ext)?)),
-    }
 }
 
 /// Resolve the WB slider-frame export for a decoded RAW (#1781): the
