@@ -96,6 +96,8 @@ struct StackedAdjustmentsPanel: View {
       if group == .detail && state.armedTool == .mask {
         MaskPanel(state: state).id(Tool.mask.rawValue)
       } else {
+        // Temp's scroll target includes the WB actions and provenance above
+        // its scalar row. That row uses a secondary ID to avoid duplicate IDs.
         if group == .color { ColorAccessoryRow(state: state).id(Tool.temp.rawValue) }
         ForEach(sliderTools, id: \.self) { tool in
           VStack(spacing: 4) {
