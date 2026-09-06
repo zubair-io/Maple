@@ -27,6 +27,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import Photos
+import OSLog
 import MapleBackup
 
 #if canImport(AppKit)
@@ -34,6 +35,8 @@ import AppKit
 #elseif canImport(UIKit)
 import UIKit
 #endif
+
+private let photoKitLog = Logger(subsystem: "app.justmaple.aperture", category: "PhotoKitSource")
 
 // MARK: - PhotoKitSourceError
 
@@ -240,16 +243,33 @@ public actor PhotoKitSource {
             PHImageManager.default().requestImageDataAndOrientation(
                 for: phAsset,
                 options: options
-            ) { data, dataUTI, _, _ in
-                if latch.tryFire() {
-                    if let data {
-                        continuation.resume(returning: (data, dataUTI))
-                    } else {
-                        continuation.resume(returning: nil)
-                    }
+            ) { data, dataUTI, _, info in
+                guard latch.tryFire() else { return }
+                if let data {
+                    continuation.resume(returning: (data, dataUTI))
+                } else {
+                    // PhotoKit's own reason is the only diagnostic there is
+                    // for a full-resolution fetch that comes back empty —
+                    // an iCloud download that failed, a decode PhotoKit
+                    // rejected, a cancelled request. Discarding it left the
+                    // caller with a bare "not found" and Console with
+                    // nothing to go on (#3386).
+                    Self.logEmptyResult(localID: localID, info: info)
+                    continuation.resume(returning: nil)
                 }
             }
         }
+    }
+
+    /// Log why a `PHImageManager` request produced no bytes. Called from the
+    /// result handler (PhotoKit's private queue); `Logger` is `Sendable`.
+    public static func logEmptyResult(localID: String, info: [AnyHashable: Any]?) {
+        let error = (info?[PHImageErrorKey] as? Error).map { String(describing: $0) } ?? "none"
+        let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
+        let inCloud = (info?[PHImageResultIsInCloudKey] as? Bool) == true
+        photoKitLog.error(
+            "PhotoKit image request returned no data phid=\(localID, privacy: .public) error=\(error, privacy: .public) cancelled=\(cancelled) inCloud=\(inCloud)"
+        )
     }
 
     /// Request a thumbnail for the given PHAsset via PhotoKit and return JPEG

@@ -109,6 +109,31 @@ public final class BackupProgressViewModel {
     /// Most recent walk outcome, or nil before the first walk completes.
     public private(set) var lastWalkSummary: WalkSummary?
 
+    /// Live phase of the PhotoKit walk that seeds the queue (#3386). The
+    /// walk enumerates the library, pulls the server's known-asset list,
+    /// then hashes every remaining candidate and asks the server which it
+    /// lacks — minutes on a large library, during which the queue is still
+    /// empty. Without this the panel sat on Running / "No photos queued" for
+    /// the whole scan, indistinguishable from a wedged engine.
+    public enum WalkPhase: Sendable, Hashable {
+        /// No walk in flight.
+        case idle
+        /// Enumerating `PHAsset`s and fetching the server's known-asset list.
+        case enumerating
+        /// Content-hashing candidates and checking them against the server.
+        case reconciling(checked: Int, total: Int)
+        /// The walk gave up before seeding the queue; the reason is shown
+        /// verbatim so the user isn't left guessing.
+        case failed(String)
+    }
+
+    /// Current walk phase. `recordWalkSummary` returns it to `.idle`.
+    public private(set) var walkPhase: WalkPhase = .idle
+
+    public func setWalkPhase(_ phase: WalkPhase) {
+        walkPhase = phase
+    }
+
     /// How many distinct assets we've observed enqueued in this session.
     /// Resets if `.start(queue:)` is called against a different queue.
     public private(set) var totalEnqueued: Int = 0
@@ -243,6 +268,29 @@ public final class BackupProgressViewModel {
     /// Record the outcome of a finished PhotoKit walk (#3097).
     public func recordWalkSummary(_ summary: WalkSummary) {
         lastWalkSummary = summary
+        walkPhase = .idle
+    }
+
+    /// Human-readable walk-phase line for the status panel, or nil while no
+    /// walk is in flight.
+    public var walkPhaseLabel: String? {
+        switch walkPhase {
+        case .idle:
+            return nil
+        case .enumerating:
+            return "Scanning Photos library…"
+        case .reconciling(let checked, let total):
+            return "Checking \(checked.formatted()) of \(total.formatted()) photos against the server…"
+        case .failed(let reason):
+            return "Library scan failed: \(reason)"
+        }
+    }
+
+    /// 0.0 → 1.0 progress through the reconciliation pass, nil for the
+    /// phases that have no meaningful fraction (indeterminate spinner).
+    public var walkFraction: Double? {
+        guard case .reconciling(let checked, let total) = walkPhase, total > 0 else { return nil }
+        return min(1.0, Double(checked) / Double(total))
     }
 
     /// Computed convenience: 0.0 → 1.0 progress when totalEnqueued > 0.

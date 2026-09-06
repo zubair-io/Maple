@@ -348,6 +348,10 @@ private extension ThumbnailProvider {
                       (info?[PHImageErrorKey] as? Error) == nil,
                       let image
                 else {
+                    // Same diagnostic as the full-resolution path: without
+                    // PhotoKit's reason a display tier that never upgrades
+                    // past the grid thumbnail leaves nothing in Console (#3386).
+                    PhotoKitSource.logEmptyResult(localID: localID, info: info)
                     continuation.resume(returning: nil)
                     return
                 }

@@ -22,17 +22,26 @@ public protocol BackupQueue: Actor {
 
 public actor InProcessBackupQueue: BackupQueue {
 
-    /// Internal entry with stable sequence number so FIFO within a priority
-    /// is deterministic across re-sorts.
+    /// Internal entry with stable sequence number so ordering within a
+    /// priority is deterministic across re-sorts.
     private struct Entry: Comparable {
         let task: BackupTask
         let priority: BackupPriority
         let seq: UInt64
 
         static func < (a: Entry, b: Entry) -> Bool {
-            // Higher priority first; same priority → earlier sequence first.
+            // Higher priority first. Within a priority, the newer capture
+            // first (#3388) — a fresh capture that lands mid-backlog, or a
+            // backlog rehydrated after relaunch in whatever order SQLite
+            // returned it, both drain newest-first. Undated tasks go after
+            // every dated one; ties fall back to FIFO by sequence.
             if a.priority != b.priority { return a.priority > b.priority }
-            return a.seq < b.seq
+            switch (a.task.capturedAt, b.task.capturedAt) {
+            case let (x?, y?) where x != y: return x > y
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: return a.seq < b.seq
+            }
         }
     }
 
