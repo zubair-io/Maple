@@ -170,12 +170,6 @@ namespace Maple.WinUI.Native
         public nuint display_tone_curve_green_len;
         public float* display_tone_curve_blue_ptr;
         public nuint display_tone_curve_blue_len;
-        public float geo_perspective_h;
-        public float geo_perspective_v;
-        public float geo_rotation;
-        public float geo_aspect;
-        public float geo_scale;
-
         // Vectorscope scope statistics (#3272, raw-ffi's mask_registry/scope_stats
         // work). Left at the struct default (0 / 0 / null) by every builder below —
         // Windows does not yet drive the scope pass — which reads as "disabled",
@@ -186,6 +180,12 @@ namespace Maple.WinUI.Native
         public int scope_layer;
         public byte scope_enabled;
         public void* scope_out;
+        // Geometry follows the pre-existing scope fields in raw-ffi's ABI.
+        public float geo_perspective_h;
+        public float geo_perspective_v;
+        public float geo_rotation;
+        public float geo_aspect;
+        public float geo_scale;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
