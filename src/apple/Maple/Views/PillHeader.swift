@@ -119,19 +119,23 @@ struct PillHeader: View {
         .fill(ProTokens.border)
         .frame(width: 1, height: 18)
 
-      // Zoom percent readout — integer-rounded, same value the bottom-
-      // leading zoom badge shows. Read from `effectivePixelScale` on
-      // the zoom controller, formatted via FullImageViewVM.
-      Text(FullImageViewVM.zoomPercentLabel(for: state.zoom.effectivePixelScale))
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
-        .foregroundStyle(ProTokens.textMuted)
-        .monospacedDigit()
-        .frame(minWidth: 36, alignment: .trailing)
-        .allowsHitTesting(false)
-        .accessibilityLabel(
-          FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
-        )
-        .accessibilityIdentifier("editor-pill-zoom")
+      // Both zoom readouts return to fit through the same controller.
+      Button(action: state.zoom.resetToFit) {
+        Text(FullImageViewVM.zoomPercentLabel(for: state.zoom.effectivePixelScale))
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .foregroundStyle(ProTokens.textMuted)
+          .monospacedDigit()
+          .frame(minWidth: 36, minHeight: 30, alignment: .trailing)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .disabled(state.zoom.displayFrameInPoints == nil)
+      .help("Zoom to Fit (⌘0)")
+      .accessibilityLabel("Zoom to Fit")
+      .accessibilityValue(
+        FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
+      )
+      .accessibilityIdentifier("editor-pill-zoom")
 
       // GPU / CPU render-path indicator — mirrors the removed bottom-
       // trailing badge in EditorView.canvasLayer, same pill style.
