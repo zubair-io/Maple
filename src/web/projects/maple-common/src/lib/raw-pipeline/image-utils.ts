@@ -218,7 +218,9 @@ export function f32ToF16(value: number): number {
 }
 
 /** Convert raw-wasm RGB output (packed R,G,B bytes) to an ImageBitmap. */
-export async function imageDataToBitmap(img: DecodedImage): Promise<ImageBitmap> {
+export async function imageDataToBitmap(
+  img: Pick<DecodedImage, 'width' | 'height' | 'rgb'>,
+): Promise<ImageBitmap> {
   const rgba = new Uint8ClampedArray(img.width * img.height * 4);
   const rgb = img.rgb;
   for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {

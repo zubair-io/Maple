@@ -10,6 +10,8 @@
 // (docs/zoom.md's `refinedTargetSize` formula), and `drawCanvas2d` paints the
 // viewport-sized backing store.
 
+import type { DetailOverlay } from './image-canvas.native-detail';
+
 /** Canvas CSS size + scale for a zoom level (the `effectivePx` derivation). */
 export interface EffectivePx {
   scale: number;
@@ -128,6 +130,7 @@ export interface Draw2dInputs {
   pan: { x: number; y: number };
   /** Decoded pixels; `null` falls back to the gradient placeholder. */
   bitmap: ImageBitmap | null;
+  detail?: DetailOverlay | null;
   /** Before/after divider position as a 0..1 fraction; `null` = no split. */
   split: number | null;
   /** Mock-asset gradient thumbnail URL (placeholder path when no bitmap). */
@@ -239,6 +242,15 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
       ctx.restore();
     } else {
       ctx.drawImage(bitmap, dx, dy, dw, dh);
+      const detail = inputs.detail;
+      if (detail)
+        ctx.drawImage(
+          detail.bitmap,
+          dx + (detail.rect.x / detail.nativeW) * dw,
+          dy + (detail.rect.y / detail.nativeH) * dh,
+          (detail.rect.width / detail.nativeW) * dw,
+          (detail.rect.height / detail.nativeH) * dh,
+        );
     }
   } else {
     // Gradient placeholder for mock assets — fills the would-be image rect.

@@ -101,6 +101,23 @@ pub struct TileRect {
     pub out_h: u32,
 }
 
+/// Exact padded working area for a host's allocation budget (#1107).
+pub(crate) fn tile_working_pixels(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+) -> Result<u64> {
+    guards::reject_untileable(raw, model, rect)?;
+    let (x, y, w, h) = raw.orientation.display_rect_to_sensor(
+        rect.src_x, rect.src_y, rect.src_w, rect.src_h, raw.width, raw.height,
+    );
+    let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
+    let overlap = tile_overlap_px(model, full_frame_long_edge(raw, quality), divisor);
+    let ((_, _, pw, ph), _) = pad_and_clamp_mosaic_rect(x, y, w, h, overlap, raw.width, raw.height);
+    Ok(u64::from(pw) * u64::from(ph))
+}
+
 /// Render a tile of the developed scene-linear Rec.2020 fp16 RGBA image.
 ///
 /// Parameters:

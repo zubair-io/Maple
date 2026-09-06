@@ -147,16 +147,23 @@ Two subtleties worth keeping if the path is revived. The composite is anchored t
 
 ## Web
 
-There is no tile or deep-zoom code in the Angular workspace — a search of `src/web/projects` for tile rendering, deep zoom, or the tile FFI symbols turns up nothing but unrelated UI "tile" naming (grid cells, map tiles, kanban cards). Web zoom is the same model driving whole-image sized renders:
+Web uses the same continuous zoom model. The CPU fallback keeps a sized whole-image base and, at `pixelScale >= 1`, develops one visible source patch through the retained `NativeDetailSession` WASM handle (#1107):
 
 - `image-canvas.zoom-gestures.ts` — continuous `pixelScale`, pinch/wheel/keyboard, anchored zoom, pan clamp.
 - `image-canvas.service.ts` — the `pixelScale` / `pan` signals and the Fit / 100% buttons.
 - `image-canvas.two-phase.ts` — the fast/refine scheduler. Fast renders coalesce latest-wins: at most one render in the worker and one tick waiting behind it, with superseded results dropped by generation counter, because a WASM render cannot be interrupted mid-flight (so "cancel" means "discard the result").
 - `image-canvas.draw2d.ts` — the target formulas and the 2D paint path.
+- `image-canvas.native-detail.ts` — the single patch, source-rect containment, and stale-result guards. Its published rectangle has the same 25% pan margin (512 px total cap) as the Apple patch; raw-core adds the exact filter overlap internally.
 
 On the GPU live path the persistent session holds resident buffers, so a tick is uniforms plus dispatch and the refine pass is skipped entirely (`gpuActive`).
 
-Consequence: on Web, zooming past 100% does not sharpen beyond a native-resolution whole-image render, and there is no viewport-bounded develop. See [web](web.md) for the render worker and WASM/WebGPU details.
+The handle retains the decoded mosaic across pans. On the first patch for a completed CPU base, it repeats that bounded reference render at the base's actual quality and cap, retaining its AE gain and exact Auto curve/residual pair. Every subsequent patch reuses those anchors and the base's resolved film LUT; no patch-local histogram is used to fit exposure or Auto. Grain and quantization noise use full-source coordinates. The reference render is an initial cost, not a per-pan full-image develop.
+
+Patch coordinates are display-oriented and relative to DNG DefaultCrop, matching the zoom service's native dimensions. The binding translates them to the shared tile core's oriented full-sensor coordinates, then runs the common display tail. The overlay uses the base canvas's pan/zoom transform, with the sized image always beneath it.
+
+The patch's padded develop is capped at 8,388,608 pixels. The reference render also obeys the existing WASM CPU develop cap for sensors above 32 MP. A new base decode, asset change, or canvas destruction releases the retained handle before another mosaic opens. Refine work has one in-flight request and one latest waiting view; synchronous WASM work finishes, but a superseded result is discarded.
+
+GPU live rendering continues to skip CPU refinement. Non-RAW images, applied crops, the active crop tool, before/after comparison, X-Trans, LinearRaw, dehaze, BM3D, OpcodeList3, and patches exceeding the memory cap use the existing sized-render fallback. The native-detail path does not enable the old grid compositor. See [web](web.md) for the render worker and WASM/WebGPU details.
 
 ## Tools and tests
 
@@ -178,6 +185,7 @@ The gates that do run in CI:
 cd src/raw-pipeline
 cargo test -p raw-core --lib                     # includes the tile geometry + guard tests
 cargo test -p raw-core --features test-support   # adds the live-vs-tile parity sweep
+cargo test -p raw-core --features test-support --lib pipeline::render::detail
 ```
 
 The parity sweep (`pipeline/tile/tests_live_parity.rs`, plus `tests_live_parity_gaps.rs`) is the important one. It renders the same fixture and `AdjustmentModel` through both the live/refine chain and the tile develop and diffs them, which is precisely the comparison that was missing when a white-balance mismatch shipped as a visible horizontal band where refined tiles met the live canvas. The two paths express the same edit through different algebras — the live chain applies a Rec.2020 delta on top of an already-developed buffer, while the tile chain applies white balance in camera space before the DCP and retargets the profile — so the sweep is what proves they agree, and the gaps file pins the identity case (parked at the decode anchor, both must reproduce the decode buffer itself). `tests_full_parity.rs` is the other half: the tile against the whole-image develop, which is the oracle for the stages the live chain cannot exercise — vignette and local adjustments (bit-exact, given the window), capture sharpening, and a case with every spatial slider engaged (within a float-ordering ceiling). It is fixture-free by construction, built on a synthesised Bayer chart, so it runs on every CI machine. Fixture-gated tile-vs-full comparisons live in `tests_render_anchors.rs`.

@@ -184,6 +184,11 @@ pub fn srgb_gamma_encode(img: &mut Image) {
 /// concentrates that variance in high spatial frequencies, so it is less
 /// visible than an ordered Bayer pattern.
 pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
+    dither_and_quantize_windowed(img, (0, 0))
+}
+
+/// Quantize a patch using the full image's noise coordinates (#1107).
+pub fn dither_and_quantize_windowed(img: &mut Image, origin: (u32, u32)) -> Vec<u8> {
     img.assert_space(ColorSpace::DisplayEncodedSrgb);
     let w = img.width as usize;
     let mut out = vec![0u8; img.pixels.len() * 3];
@@ -196,8 +201,8 @@ pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
             // `i = y * w + x`. The same offset is applied to all three
             // channels at a pixel, so a neutral input stays neutral
             // after dithering (no chroma noise).
-            let x = (i % w) as u32;
-            let y = (i / w) as u32;
+            let x = origin.0 + (i % w) as u32;
+            let y = origin.1 + (i / w) as u32;
             let off = blue_noise_offset_lsb(x, y);
             for (j, &c) in p.iter().enumerate() {
                 dst[j] = (c * 255.0 + off + 0.5).clamp(0.0, 255.0) as u8;

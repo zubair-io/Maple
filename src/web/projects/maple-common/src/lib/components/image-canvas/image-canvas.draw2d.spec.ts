@@ -76,6 +76,37 @@ function fakeCtx(): FakeCtx {
   };
 }
 
+describe('native-detail canvas composition', () => {
+  it('places the patch in the same source transform as the base at DPR2', () => {
+    vi.stubGlobal('devicePixelRatio', 2);
+    const ctx = fakeCtx();
+    const canvas = fakeCanvas(ctx);
+    const base = {} as ImageBitmap;
+    const detail = {} as ImageBitmap;
+    drawCanvas2d(canvas, {
+      wrapW: 800,
+      wrapH: 600,
+      canvasW: 3000,
+      canvasH: 2000,
+      pan: { x: 100, y: 50 },
+      bitmap: base,
+      split: null,
+      gradientUrl: undefined,
+      detail: {
+        bitmap: detail,
+        nativeW: 6000,
+        nativeH: 4000,
+        rect: { x: 2000, y: 1400, width: 1600, height: 1200 },
+      },
+    });
+    expect(ctx.drawImage.mock.calls).toEqual([
+      [base, -2000, -1300, 6000, 4000],
+      [detail, 0, 100, 1600, 1200],
+    ]);
+    vi.unstubAllGlobals();
+  });
+});
+
 function fakeCanvas(ctx: FakeCtx): HTMLCanvasElement {
   return { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement;
 }

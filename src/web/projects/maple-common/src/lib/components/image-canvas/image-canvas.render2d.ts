@@ -15,6 +15,7 @@ import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
+import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 
@@ -30,6 +31,7 @@ export interface Render2dHost {
   /** #3171 — `runRender2d` reads `cpuLutBytesForCurrent()` off this for the
    *  focused asset's currently-resolved film-look LUT bytes. */
   readonly filmSync: ImageCanvasFilmSync;
+  readonly nativeDetail?: Pick<ImageCanvasNativeDetail, 'recordBase'>;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
   readonly loading: WritableSignal<boolean>;
   readonly currentAssetId: AssetId | null;
@@ -85,13 +87,16 @@ export async function coldOpen2d(
   bytes: Uint8Array,
 ): Promise<void> {
   host.loading.set(true);
+  const generation = host.renderGeneration;
+  const sizing = { maxLongEdge: host.fastTargetPx(), qualityPreview: true };
   // Bracket the whole click → pixels path. `maple:open` is the outer measure;
   // `maple:decode` (service) and `maple:wasm` (worker) are nested sub-intervals.
   performance.mark(`maple:open:${assetId}:start`);
   try {
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
-    const decoded = await host.pipeline.decode(bytes, ext, undefined, host.fastTargetPx(), true);
+    const decoded = await host.pipeline.decode(bytes, ext, undefined, sizing.maxLongEdge, true);
+    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
     // Update dimensions on the asset — the NATIVE dims (the sized reply carries
     // them), not the viewport-sized buffer's.
@@ -131,6 +136,16 @@ export async function coldOpen2d(
     host.canvasSvc.currentPixels.set(decoded);
 
     const bitmap = await imageDataToBitmap(decoded);
+    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) {
+      bitmap.close();
+      return;
+    }
+    host.nativeDetail?.recordBase({
+      assetId,
+      generation,
+      displayXmp: host.lastRenderedXmp!,
+      sizing,
+    });
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
     host.recordPaintedDims(decoded.width, decoded.height);
@@ -172,13 +187,14 @@ export async function runRender2d(
   ext: string,
 ): Promise<void> {
   try {
+    const filmLut = host.filmSync.cpuLutBytesForCurrent();
     const decoded = await host.pipeline.decode(
       bytes,
       ext,
       xmp,
       sizing.maxLongEdge,
       sizing.qualityPreview,
-      host.filmSync.cpuLutBytesForCurrent(),
+      filmLut,
     );
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration) return;
@@ -193,6 +209,15 @@ export async function runRender2d(
     host.imageBitmap.set(bitmap);
     host.recordPaintedDims(decoded.width, decoded.height);
     host.lastRenderedXmp = xmp;
+    if (host.currentAssetId)
+      host.nativeDetail?.recordBase({
+        assetId: host.currentAssetId,
+        generation,
+        renderXmp: xmp,
+        displayXmp: xmp,
+        sizing,
+        filmLut,
+      });
   } catch (e) {
     console.error('[image-canvas] adjustment re-render failed:', e);
   }

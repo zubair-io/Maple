@@ -85,7 +85,13 @@ fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
 /// pins that separation, and every entry in [`present_chains`] re-attaches this
 /// prefix so each chain is still checked end to end.
 fn colour_chain() -> Vec<&'static str> {
-    stage_call_order(slice_fn(include_str!("mod.rs"), "render_display_scene"))
+    let render = include_str!("mod.rs");
+    assert!(slice_fn(render, "render_display_scene").contains("render_display_scene_with_context("));
+    let body = slice_fn(render, "render_display_scene_with_context");
+    assert!(body.contains("display_prefix::apply("));
+    let mut stages = stage_call_order(include_str!("display_prefix.rs"));
+    stages.extend(stage_call_order(body));
+    stages
 }
 
 /// Every present display-encode chain this crate ships, as the full ordered

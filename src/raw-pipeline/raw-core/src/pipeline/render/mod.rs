@@ -10,17 +10,16 @@
 use std::path::Path;
 
 use super::{
-    develop::develop_scene_linear_from_raw_with_quality,
-    develop_sized::develop_scene_linear_sized_from_raw_with_quality, dump_after, stage,
+    develop::develop_scene_linear_from_raw_with_quality_with_gain,
+    develop_sized::develop_scene_linear_sized_from_raw_with_quality_with_gain, dump_after, stage,
     RenderQuality,
 };
 use crate::{
     error::Result,
     film,
     image::{Image, RawImage},
-    stages::{color_grade, display_tone_curve, film_look, grain},
     types::adjustment::{AutoExposureMode, Profile},
-    view::{agx, auto_profile, encode},
+    view::{auto_profile, encode},
     xmp::AdjustmentModel,
 };
 
@@ -40,7 +39,10 @@ pub use sized::{
 };
 
 // The orientation + crop tail, shared by the display and export depths (#943).
+mod detail;
+mod display_prefix;
 mod finish;
+pub use detail::{render_detail_base, render_detail_tile, DetailContext, DetailRenderOptions};
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
@@ -210,6 +212,27 @@ fn render_display_scene(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<Image> {
+    render_display_scene_with_context(
+        raw,
+        model,
+        quality,
+        raw_source,
+        max_long_edge,
+        target,
+        film_lut,
+    )
+    .map(|(scene, _)| scene)
+}
+
+fn render_display_scene_with_context(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    target: encode::TargetPrimaries,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(Image, DetailContext)> {
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -293,89 +316,20 @@ fn render_display_scene(
     } else {
         model
     };
-    let mut scene = match max_long_edge {
+    let (mut scene, ae_gain) = match max_long_edge {
         // Sized: early-downsample develop — post-demosaic stages run on the
         // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
-        Some(mle) => {
-            develop_scene_linear_sized_from_raw_with_quality(raw, active_model, quality, mle)?
-        }
-        None => develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?,
+        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_with_gain(
+            raw,
+            active_model,
+            quality,
+            mle,
+        )?,
+        None => develop_scene_linear_from_raw_with_quality_with_gain(raw, active_model, quality)?,
     };
 
-    // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
-    // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
-    // Auto branch REPLACED AgX with the scene-linear curve fit, throwing
-    // away AgX's hue-restoring sigmoid + ratio-preserving compression and
-    // measuring an S-curve mismatch vs the camera JPEG (T8 #548: shadows
-    // biased +0.16, highlights −0.16 — the lone curve could not reproduce
-    // AgX's sigmoid). The Auto Profile per-channel curve now layers ON TOP
-    // of AgX in f32 sRGB-encoded display space (see below), a tone residual
-    // toward the JPEG distribution rather than a wholesale replacement.
-    // View transform — AgX scene-referred sigmoid for every profile. Auto
-    // and Neutral differ only in the Auto Profile tail layered on below;
-    // the chart-fitted AcrMatch branch that used to sit here was retired in
-    // #2312 (superseded by Auto's per-image embedded-JPEG fit).
-    stage("agx", || agx::apply(&mut scene, model.contrast));
-    dump_after("16_agx", &scene);
-    // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) — run
-    // immediately after AgX, before color_grade, in the display-linear
-    // `[0, 1]` range AgX's own gamut compression guarantees. A DIFFERENT
-    // quantity from the pre-AgX `tone_curves` stage inside `develop` — see
-    // `stages::display_tone_curve`'s module docs.
-    stage("display_tone_curve", || {
-        display_tone_curve::apply(&mut scene, model)
-    });
-    dump_after("16a0_display_tone_curve", &scene);
-    // Split toning (#1111, tone/zoom design § 10.3) — display-linear Oklab
-    // a/b tint with a balance-shifted crossover; L untouched. Runs before
-    // grain so the monochromatic noise lands on the graded image untinted.
-    // Any out-of-gamut push from split-tone / grain is caught by the
-    // hue-preserving Oklab compression in `rec2020_to_srgb` below (the sRGB
-    // hull ⊂ the Rec.2020 working hull), so they need no separate compress
-    // pass here (#1942).
-    stage("color_grade", || {
-        color_grade::apply_model(&mut scene, model)
-    });
-    dump_after("16a_color_grade", &scene);
-    // Film emulation (epic #2683) — display-linear Rec.2020, same stage
-    // position as `grain` (post-color-grade, pre-grain, so grain's noise
-    // lands on the graded film result rather than being reprocessed by the
-    // film print LUT). `film_lut: None` is a hard skip — no stage call, no
-    // dump — so the no-look baseline stays bit-identical regardless of
-    // `model.film_look` / `model.film_strength`: a host that couldn't
-    // resolve the `.mlut` asset passes `None` here (see
-    // `render_from_raw_with_quality_source_and_film`).
-    if let Some(lut) = film_lut {
-        stage("film_look", || {
-            film_look::apply(&mut scene, lut, model.film_strength)
-        });
-        dump_after("16a2_film_look", &scene);
-    }
-    // Film grain (#1110, tone/zoom design § 10.2) — display-linear
-    // (post-AgX, before the target gamut): grain is a display-domain
-    // aesthetic; injected scene-linear its amplitude would swing with
-    // exposure. Identity short-circuit at amount 0 keeps the baseline
-    // bit-identical.
-    stage("grain", || {
-        grain::apply(
-            &mut scene,
-            model.grain_amount,
-            model.grain_size,
-            model.grain_roughness,
-        )
-    });
-    dump_after("16b_grain", &scene);
-    stage("rec2020_to_srgb", || {
-        encode::rec2020_to_display(&mut scene, target)
-    });
-    // Buffer is in display-linear sRGB primaries here. Gamma encoding
-    // happens later in `srgb_gamma_encode`. Name reflects that —
-    // "srgb_linear", not "post_srgb_encode" which would have implied a
-    // full sRGB encode (per PR #281 review feedback).
-    dump_after("17_srgb_linear", &scene);
-    stage("srgb_gamma_encode", || {
-        encode::srgb_gamma_encode(&mut scene)
-    });
+    let full = (scene.width, scene.height);
+    display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
     // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
     // residual 3D LUT fit on the curved buffer. The fit samples the PINNED
@@ -385,8 +339,9 @@ fn render_display_scene(
     // `apply_pipeline::fit_auto_profile_artifacts` for the ordering/cache
     // contract. No-op for Neutral, no RAW source (legacy `maple_render_bytes`
     // FFI), or a failed fit.
+    let mut artifacts = (None, None);
     if model.profile == Profile::Auto && raw_source.is_some() {
-        stage("auto_profile", || {
+        artifacts = stage("auto_profile", || {
             auto_fit::run_auto_profile_stage(
                 &mut scene,
                 raw,
@@ -398,7 +353,7 @@ fn render_display_scene(
                 auto_cache_key.as_ref(),
                 cached_curve,
                 cached_lut,
-            );
+            )
         });
         // Hue-preserving gamut guard AFTER the Auto Profile curve+LUT (#1942):
         // that stack runs in display-encoded space and can push a channel back
@@ -424,7 +379,17 @@ fn render_display_scene(
     // gap via their lazy display transform (CIImage scale on Apple; texture
     // upload on Web). Pixel-doubling here added ~300 MB of FFI traffic and
     // 4× the allocator pressure on a 100 MP RAW for no extra information.
-    Ok(scene)
+    Ok((
+        scene,
+        DetailContext {
+            model: model.clone(),
+            active_model: active_model.clone(),
+            ae_gain,
+            profile_curve: artifacts.0,
+            profile_lut: artifacts.1,
+            auto_guard: model.profile == Profile::Auto && raw_source.is_some(),
+        },
+    ))
 }
 
 // Tests live in the sibling `tests.rs` file so this module stays under
