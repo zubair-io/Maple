@@ -9,14 +9,15 @@
 // See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
 
 import XCTest
+
 // MapleAppDriver is macOS-only: it drives Maple via XCUIApplication and
 // uses AppKit APIs (NSApplication, screen coordinates). On iOS targets
 // (including the iOS Simulator used for PanoOrtSelftestUITests) AppKit is
 // absent and this struct is excluded from compilation.
 #if os(macOS)
-import AppKit
+  import AppKit
 
-struct MapleAppDriver {
+  struct MapleAppDriver {
     let app: XCUIApplication
     /// The tmp dir `launch(fixture:)` staged the fixture into, if any.
     /// `defer { driver.cleanupStagedFixture() }` in the caller removes it.
@@ -41,55 +42,67 @@ struct MapleAppDriver {
     /// XCUITest runner and the app it launches share access to paths under
     /// the runner's own temp directory, which sits outside the app's own
     /// sandbox but is still reachable by it for exactly this reason.
-    static func launch(fixture: String,
-                       file: StaticString = #file,
-                       line: UInt = #line) throws -> MapleAppDriver {
-        let root = Self.fixtureRoot()
-        let fixtureURL = URL(fileURLWithPath: root)
-            .appendingPathComponent(fixture)
-        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
-            throw XCTSkip("UITest fixture missing: \(fixtureURL.path) " +
-                          "— set MAPLE_UITEST_FIXTURE_ROOT or check test-fixtures/raws/.",
-                          file: file, line: line)
-        }
+    static func launch(
+      fixture: String,
+      file: StaticString = #file,
+      line: UInt = #line
+    ) throws -> MapleAppDriver {
+      let root = Self.fixtureRoot()
+      let fixtureURL = URL(fileURLWithPath: root)
+        .appendingPathComponent(fixture)
+      guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+        throw XCTSkip(
+          "UITest fixture missing: \(fixtureURL.path) "
+            + "— set MAPLE_UITEST_FIXTURE_ROOT or check test-fixtures/raws/.",
+          file: file, line: line)
+      }
 
-        let stagedDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("maple-uitest-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
-        let stagedFixtureURL = stagedDirectory.appendingPathComponent(fixture)
-        do {
-            try FileManager.default.copyItem(at: fixtureURL, to: stagedFixtureURL)
-        } catch {
-            // A partially-staged directory from a failed copy would
-            // otherwise leak silently (Copilot review on #3193) — this
-            // driver only throws from here on, so there's no later point
-            // that would clean it up.
-            try? FileManager.default.removeItem(at: stagedDirectory)
-            throw error
-        }
+      return try launch(fixtureURL: fixtureURL)
+    }
 
-        let app = XCUIApplication()
-        // Pass the basename (not the full path); MapleApp.init combines it
-        // with MAPLE_UITEST_FIXTURE_ROOT inside the running process — here
-        // pointed at the STAGED copy, not the original repo path, so the
-        // sandboxed app can actually read it.
-        app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = fixture
-        app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = stagedDirectory.path
-        // Pin the CPU + Metal render path. This driver's only consumer is
-        // the golden visual-regression gate, whose committed PNG is a CPU
-        // render; the GPU live path is default-on since #1064, so disable
-        // it here to keep the canvas byte-comparable to the goldens.
-        app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
-        app.launch()
-        return MapleAppDriver(app: app, stagedDirectory: stagedDirectory)
+    /// Stage a committed fixture without skipping if it is missing. Launch
+    /// arguments let control tests select a concrete saved UI variant through
+    /// the standard UserDefaults argument domain, without changing user settings.
+    static func launch(fixtureURL: URL, launchArguments: [String] = []) throws -> MapleAppDriver {
+      let fixture = fixtureURL.lastPathComponent
+      let stagedDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-uitest-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: stagedDirectory, withIntermediateDirectories: true)
+      let stagedFixtureURL = stagedDirectory.appendingPathComponent(fixture)
+      do {
+        try FileManager.default.copyItem(at: fixtureURL, to: stagedFixtureURL)
+      } catch {
+        // A partially-staged directory from a failed copy would
+        // otherwise leak silently (Copilot review on #3193) — this
+        // driver only throws from here on, so there's no later point
+        // that would clean it up.
+        try? FileManager.default.removeItem(at: stagedDirectory)
+        throw error
+      }
+
+      let app = XCUIApplication()
+      // Pass the basename (not the full path); MapleApp.init combines it
+      // with MAPLE_UITEST_FIXTURE_ROOT inside the running process — here
+      // pointed at the STAGED copy, not the original repo path, so the
+      // sandboxed app can actually read it.
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = fixture
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = stagedDirectory.path
+      // Pin the CPU + Metal render path. The visual-regression gate's
+      // committed PNG is a CPU render. The GPU live path is default-on since
+      // #1064, so disable it to keep the canvas byte-comparable to the goldens.
+      app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
+      app.launchArguments = launchArguments
+      app.launch()
+      return MapleAppDriver(app: app, stagedDirectory: stagedDirectory)
     }
 
     /// Remove the tmp directory `launch(fixture:)` staged the fixture
     /// into, if any. Best-effort — callers `defer` this; a leaked tmp dir
     /// from a failed cleanup is harmless (the OS reclaims `/tmp` content).
     func cleanupStagedFixture() {
-        guard let stagedDirectory else { return }
-        try? FileManager.default.removeItem(at: stagedDirectory)
+      guard let stagedDirectory else { return }
+      try? FileManager.default.removeItem(at: stagedDirectory)
     }
 
     /// Block until the canvas accessibility identifier flips to
@@ -98,16 +111,19 @@ struct MapleAppDriver {
     /// Default 30s timeout — first-pass decode of a 100MP RAW takes
     /// ~250-1000ms cold (CLAUDE.md § Performance invariants), with
     /// generous headroom for CI machines.
-    func waitForCanvasReady(timeout: TimeInterval = 30,
-                            file: StaticString = #file,
-                            line: UInt = #line) {
-        let canvas = app.otherElements["canvas-render-ready"]
-        let predicate = NSPredicate(format: "exists == 1")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: canvas)
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
-        XCTAssertEqual(result, .completed,
-                       "canvas-render-ready did not appear within \(timeout)s",
-                       file: file, line: line)
+    func waitForCanvasReady(
+      timeout: TimeInterval = 30,
+      file: StaticString = #file,
+      line: UInt = #line
+    ) {
+      let canvas = app.otherElements["canvas-render-ready"]
+      let predicate = NSPredicate(format: "exists == 1")
+      let expectation = XCTNSPredicateExpectation(predicate: predicate, object: canvas)
+      let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+      XCTAssertEqual(
+        result, .completed,
+        "canvas-render-ready did not appear within \(timeout)s",
+        file: file, line: line)
     }
 
     /// Screenshot the canvas element and return the PNG bytes, cropped
@@ -127,35 +143,39 @@ struct MapleAppDriver {
     /// dedicated Spike B test can read it without re-running the whole
     /// flow.
     func screenshotCanvas() -> Data {
-        let canvas = app.otherElements["canvas-render-ready"]
-        let frame = canvas.frame
-        let elementSnap = canvas.screenshot().image
-        let elementSize = elementSnap.size  // points (NSImage), should match captured pixel-extent / scale
+      let canvas = app.otherElements["canvas-render-ready"]
+      let frame = canvas.frame
+      let elementSnap = canvas.screenshot().image
+      // NSImage points should match the captured pixel extent divided by scale.
+      let elementSize = elementSnap.size
 
-        // Heuristic: if the element snapshot is roughly the size of the
-        // canvas frame (in points), trust it. The 1.1× cushion absorbs
-        // backing-scale rounding and a few-px Retina overshoot.
-        let tight =
-            elementSize.width  <= frame.width  * 1.1 &&
-            elementSize.height <= frame.height * 1.1
+      // Heuristic: if the element snapshot is roughly the size of the
+      // canvas frame (in points), trust it. The 1.1× cushion absorbs
+      // backing-scale rounding and a few-px Retina overshoot.
+      let tight =
+        elementSize.width <= frame.width * 1.1 && elementSize.height <= frame.height * 1.1
 
-        if tight {
-            Self.lastSpikeBOutcome = "tight (\(Int(elementSize.width))×\(Int(elementSize.height)) within \(Int(frame.width))×\(Int(frame.height)) frame * 1.1)"
-            return canvas.screenshot().pngRepresentation
-        }
+      if tight {
+        Self.lastSpikeBOutcome =
+          "tight (\(Int(elementSize.width))×\(Int(elementSize.height)) within \(Int(frame.width))×\(Int(frame.height)) frame * 1.1)"
+        return canvas.screenshot().pngRepresentation
+      }
 
-        // Fallback: capture the full screen, crop to canvas frame.
-        Self.lastSpikeBOutcome = "manual-crop (\(Int(elementSize.width))×\(Int(elementSize.height)) >> \(Int(frame.width))×\(Int(frame.height)) frame)"
-        let screen = XCUIScreen.main.screenshot().image
-        let cropped = Self.crop(screen, to: frame)
-        guard let png = cropped.tiffRepresentation
-            .flatMap({ NSBitmapImageRep(data: $0) })
-            .flatMap({ $0.representation(using: .png, properties: [:]) }) else {
-            // Fall back to the (probably-too-big) element snapshot if
-            // crop somehow failed; let the diff bear the noise.
-            return canvas.screenshot().pngRepresentation
-        }
-        return png
+      // Fallback: capture the full screen, crop to canvas frame.
+      Self.lastSpikeBOutcome =
+        "manual-crop (\(Int(elementSize.width))×\(Int(elementSize.height)) >> \(Int(frame.width))×\(Int(frame.height)) frame)"
+      let screen = XCUIScreen.main.screenshot().image
+      let cropped = Self.crop(screen, to: frame)
+      guard
+        let png = cropped.tiffRepresentation
+          .flatMap({ NSBitmapImageRep(data: $0) })
+          .flatMap({ $0.representation(using: .png, properties: [:]) })
+      else {
+        // Fall back to the (probably-too-big) element snapshot if
+        // crop somehow failed; let the diff bear the noise.
+        return canvas.screenshot().pngRepresentation
+      }
+      return png
     }
 
     /// Spike B verdict, populated by the most recent `screenshotCanvas()`
@@ -168,14 +188,14 @@ struct MapleAppDriver {
     /// larger than the canvas frame (the macOS full-window-capture
     /// fallback path).
     private static func crop(_ image: NSImage, to frame: CGRect) -> NSImage {
-        let target = NSSize(width: frame.width, height: frame.height)
-        let cropped = NSImage(size: target)
-        cropped.lockFocus()
-        defer { cropped.unlockFocus() }
-        let drawRect = NSRect(origin: .zero, size: target)
-        let srcRect = NSRect(origin: frame.origin, size: target)
-        image.draw(in: drawRect, from: srcRect, operation: .copy, fraction: 1.0)
-        return cropped
+      let target = NSSize(width: frame.width, height: frame.height)
+      let cropped = NSImage(size: target)
+      cropped.lockFocus()
+      defer { cropped.unlockFocus() }
+      let drawRect = NSRect(origin: .zero, size: target)
+      let srcRect = NSRect(origin: frame.origin, size: target)
+      image.draw(in: drawRect, from: srcRect, operation: .copy, fraction: 1.0)
+      return cropped
     }
 
     /// Convenience for the empty-stub Task 3.3 test: confirms the canvas
@@ -183,20 +203,21 @@ struct MapleAppDriver {
     /// `XCUIElement` so callers can inspect frame / take screenshots.
     @discardableResult
     func canvasElement() -> XCUIElement {
-        return app.otherElements["canvas-render-ready"]
+      return app.otherElements["canvas-render-ready"]
     }
 
     // MARK: - Fixture root resolution
 
     private static func fixtureRoot() -> String {
-        if let explicit = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"],
-           !explicit.isEmpty {
-            return explicit
-        }
-        // Best-effort fallback when the env var isn't set: the harness
-        // process's CWD is typically the project root. Mirrors the
-        // default in MapleApp.defaultFixtureRoot().
-        return FileManager.default.currentDirectoryPath + "/test-fixtures/raws"
+      if let explicit = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"],
+        !explicit.isEmpty
+      {
+        return explicit
+      }
+      // Best-effort fallback when the env var isn't set: the harness
+      // process's CWD is typically the project root. Mirrors the
+      // default in MapleApp.defaultFixtureRoot().
+      return FileManager.default.currentDirectoryPath + "/test-fixtures/raws"
     }
-}
-#endif // os(macOS)
+  }
+#endif  // os(macOS)

@@ -78,6 +78,7 @@ struct ColorAccessoryRow: View {
     .padding(.vertical, compactStyle ? 6 : 8)
     .frame(maxWidth: .infinity)
     .background(MapleTokens.bg)
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-color-accessory")
   }
 }

@@ -16,75 +16,76 @@
 // group-switcher layout so the ControlCard can be simplified to show ONLY the
 // sliders of the active group (without embedding the group selector).
 
-import SwiftUI
 import MapleCore
+import SwiftUI
 
 struct ToolDock: View {
-    @Bindable var state: EditorState
-    var onPresetsTap: () -> Void = {}
+  @Bindable var state: EditorState
+  var onPresetsTap: () -> Void = {}
 
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 4) {
-                // ── Group buttons ────────────────────────────────────────────
-                ForEach(ToolGroup.allCases, id: \.self) { group in
-                    GroupDockButton(state: state, group: group)
-                }
-
-                Divider()
-                    .background(ProTokens.border)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-
-                // ── Special tool buttons ──────────────────────────────────────
-                // Crop — real Tool case.
-                SpecialDockButton(
-                    state: state,
-                    tool: .crop,
-                    onPresetsTap: onPresetsTap
-                )
-                // Curve — real Tool case since #367. It belongs to the Light
-                // GROUP but cannot be reached through that group's slider
-                // stack: it has no primary field, so `displayRange` is nil and
-                // `LivingSliderGrid` filters it out. The dock is therefore its
-                // only route in this variant, which is exactly what the
-                // "Curve" placeholder this file's header anticipated.
-                SpecialDockButton(
-                    state: state,
-                    tool: .toneCurve,
-                    onPresetsTap: onPresetsTap
-                )
-                // Film — real Tool case since #2683. It belongs to the
-                // Effects GROUP but, like Curve, has no primary field (the
-                // catalog pick is a string id, not a drag-bar value), so
-                // `LivingSliderGrid` filters it out of that group's slider
-                // stack. The dock is therefore its only route here too.
-                SpecialDockButton(
-                    state: state,
-                    tool: .filmLook,
-                    onPresetsTap: onPresetsTap
-                )
-                // Presets — real Tool case; tapping also fires the presets sheet.
-                SpecialDockButton(
-                    state: state,
-                    tool: .presets,
-                    onPresetsTap: onPresetsTap
-                )
-
-                // Mask — disabled placeholder; Tool.mask does not exist yet.
-                DisabledDockPlaceholder(symbol: "lasso", label: "Mask")
-                // Heal — disabled placeholder; Tool.heal does not exist yet.
-                DisabledDockPlaceholder(symbol: "bandage", label: "Heal")
-            }
-            .padding(.vertical, 10)
+  var body: some View {
+    ScrollView(.vertical, showsIndicators: false) {
+      VStack(spacing: 4) {
+        // ── Group buttons ────────────────────────────────────────────
+        ForEach(ToolGroup.allCases, id: \.self) { group in
+          GroupDockButton(state: state, group: group)
         }
-        // Width is 64pt (same as before); height grows to fit the content
-        // (4 groups + divider + 3 real special + 2 disabled ≈ 9 rows × 54pt + padding).
-        .frame(width: 64, height: min(CGFloat(ToolGroup.allCases.count + 5) * 54 + 40, 520))
-        .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
-        .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
-        .accessibilityIdentifier("editor-tool-dock")
+
+        Divider()
+          .background(ProTokens.border)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 4)
+
+        // ── Special tool buttons ──────────────────────────────────────
+        // Crop — real Tool case.
+        SpecialDockButton(
+          state: state,
+          tool: .crop,
+          onPresetsTap: onPresetsTap
+        )
+        // Curve — real Tool case since #367. It belongs to the Light
+        // GROUP but cannot be reached through that group's slider
+        // stack: it has no primary field, so `displayRange` is nil and
+        // `LivingSliderGrid` filters it out. The dock is therefore its
+        // only route in this variant, which is exactly what the
+        // "Curve" placeholder this file's header anticipated.
+        SpecialDockButton(
+          state: state,
+          tool: .toneCurve,
+          onPresetsTap: onPresetsTap
+        )
+        // Film — real Tool case since #2683. It belongs to the
+        // Effects GROUP but, like Curve, has no primary field (the
+        // catalog pick is a string id, not a drag-bar value), so
+        // `LivingSliderGrid` filters it out of that group's slider
+        // stack. The dock is therefore its only route here too.
+        SpecialDockButton(
+          state: state,
+          tool: .filmLook,
+          onPresetsTap: onPresetsTap
+        )
+        // Presets — real Tool case; tapping also fires the presets sheet.
+        SpecialDockButton(
+          state: state,
+          tool: .presets,
+          onPresetsTap: onPresetsTap
+        )
+
+        // Mask — disabled placeholder; Tool.mask does not exist yet.
+        DisabledDockPlaceholder(symbol: "lasso", label: "Mask")
+        // Heal — disabled placeholder; Tool.heal does not exist yet.
+        DisabledDockPlaceholder(symbol: "bandage", label: "Heal")
+      }
+      .padding(.vertical, 10)
     }
+    // Width is 64pt (same as before); height grows to fit the content
+    // (4 groups + divider + 3 real special + 2 disabled ≈ 9 rows × 54pt + padding).
+    .frame(width: 64, height: min(CGFloat(ToolGroup.allCases.count + 5) * 54 + 40, 520))
+    .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
+    .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("editor-tool-dock")
+  }
 }
 
 // MARK: - GroupDockButton
@@ -92,88 +93,90 @@ struct ToolDock: View {
 /// Dock button that ARMS A GROUP — the active indicator follows `armedGroup`,
 /// not `armedTool`.
 private struct GroupDockButton: View {
-    @Bindable var state: EditorState
-    let group: ToolGroup
+  @Bindable var state: EditorState
+  let group: ToolGroup
 
-    private var isSelected: Bool { state.armedGroup == group }
+  private var isSelected: Bool { state.armedGroup == group }
 
-    /// Dot shown when any tool in the group has a non-neutral value.
-    private var isModified: Bool {
-        Tool.tools(in: group).contains { tool in
-            // Film (#2683) has a catalog pick with no sub-param of its
-            // own — only its Strength scalar is a sub-param — so the dot
-            // must also light whenever a look is chosen, independent of
-            // whether Strength itself has moved off 100.
-            if tool == .filmLook, !state.session.model.filmLook.isEmpty {
-                return true
-            }
-            guard tool.isWired else { return false }
-            let subs = tool.subParams
-            if !subs.isEmpty {
-                return subs.contains { sub in
-                    abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
-                }
-            }
-            guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
-            let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
-            let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
-            return abs(v - neutral) > 1e-6
+  /// Dot shown when any tool in the group has a non-neutral value.
+  private var isModified: Bool {
+    Tool.tools(in: group).contains { tool in
+      // Film (#2683) has a catalog pick with no sub-param of its
+      // own — only its Strength scalar is a sub-param — so the dot
+      // must also light whenever a look is chosen, independent of
+      // whether Strength itself has moved off 100.
+      if tool == .filmLook, !state.session.model.filmLook.isEmpty {
+        return true
+      }
+      guard tool.isWired else { return false }
+      let subs = tool.subParams
+      if !subs.isEmpty {
+        return subs.contains { sub in
+          abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
         }
+      }
+      guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
+      let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
+      let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
+      return abs(v - neutral) > 1e-6
     }
+  }
 
-    /// SF Symbols approximations for group icons (no per-group glyph spec yet).
-    private var symbol: String {
-        switch group {
-        case .light:   return "sun.max"
-        case .color:   return "paintpalette"
-        case .effects: return "sparkles"
-        case .detail:  return "camera.aperture"
+  /// SF Symbols approximations for group icons (no per-group glyph spec yet).
+  private var symbol: String {
+    switch group {
+    case .light: return "sun.max"
+    case .color: return "paintpalette"
+    case .effects: return "sparkles"
+    case .detail: return "camera.aperture"
+    }
+  }
+
+  var body: some View {
+    Button {
+      withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: group) }
+    } label: {
+      VStack(spacing: 4) {
+        ZStack {
+          Circle()
+            .fill(
+              isSelected
+                ? ProTokens.accent(0x28)
+                : ProTokens.panel
+            )
+            .overlay(
+              Circle().stroke(
+                isSelected ? ProTokens.accent : ProTokens.border,
+                lineWidth: 0.5
+              )
+            )
+            .frame(width: 36, height: 36)
+
+          Image(systemName: symbol)
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
+
+          if isModified {
+            Circle()
+              .fill(ProTokens.accent)
+              .frame(width: 5, height: 5)
+              .offset(x: 12, y: 12)
+          }
         }
+        Text(group.displayName)
+          .font(.system(size: 9, weight: isSelected ? .semibold : .regular))
+          .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.textMuted)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+      }
+      .frame(width: 52)
+      .contentShape(Rectangle())
     }
-
-    var body: some View {
-        Button {
-            withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: group) }
-        } label: {
-            VStack(spacing: 4) {
-                ZStack {
-                    Circle()
-                        .fill(isSelected
-                              ? ProTokens.accent(0x28)
-                              : ProTokens.panel)
-                        .overlay(
-                            Circle().stroke(
-                                isSelected ? ProTokens.accent : ProTokens.border,
-                                lineWidth: 0.5
-                            )
-                        )
-                        .frame(width: 36, height: 36)
-
-                    Image(systemName: symbol)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
-
-                    if isModified {
-                        Circle()
-                            .fill(ProTokens.accent)
-                            .frame(width: 5, height: 5)
-                            .offset(x: 12, y: 12)
-                    }
-                }
-                Text(group.displayName)
-                    .font(.system(size: 9, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.textMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(width: 52)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(group.displayName)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
-    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(group.displayName)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
+  }
 }
 
 // MARK: - SpecialDockButton
@@ -181,73 +184,75 @@ private struct GroupDockButton: View {
 /// Dock button for a special tool (Crop, Presets) that arms the tool directly.
 /// Mirrors the old `ToolDockButton` logic.
 private struct SpecialDockButton: View {
-    @Bindable var state: EditorState
-    let tool: Tool
-    var onPresetsTap: () -> Void = {}
+  @Bindable var state: EditorState
+  let tool: Tool
+  var onPresetsTap: () -> Void = {}
 
-    private var isSelected: Bool { state.armedTool == tool }
+  private var isSelected: Bool { state.armedTool == tool }
 
-    private var isModified: Bool {
-        if tool == .crop { return !state.session.model.crop.isIdentity }
-        // Film (#2683): the dot must light on a chosen look even before
-        // Strength (its only sub-param) has been touched.
-        if tool == .filmLook { return !state.session.model.filmLook.isEmpty }
-        guard tool.isWired else { return false }
-        let subs = tool.subParams
-        if !subs.isEmpty {
-            return subs.contains { sub in
-                abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
-            }
-        }
-        guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
-        let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
-        let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
-        return abs(v - neutral) > 1e-6
+  private var isModified: Bool {
+    if tool == .crop { return !state.session.model.crop.isIdentity }
+    // Film (#2683): the dot must light on a chosen look even before
+    // Strength (its only sub-param) has been touched.
+    if tool == .filmLook { return !state.session.model.filmLook.isEmpty }
+    guard tool.isWired else { return false }
+    let subs = tool.subParams
+    if !subs.isEmpty {
+      return subs.contains { sub in
+        abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
+      }
     }
+    guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
+    let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
+    let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
+    return abs(v - neutral) > 1e-6
+  }
 
-    var body: some View {
-        Button {
-            state.arm(tool: tool)
-            if tool == .presets { onPresetsTap() }
-        } label: {
-            VStack(spacing: 4) {
-                ZStack {
-                    Circle()
-                        .fill(isSelected
-                              ? ProTokens.accent(0x28)
-                              : ProTokens.panel)
-                        .overlay(
-                            Circle().stroke(
-                                isSelected ? ProTokens.accent : ProTokens.border,
-                                lineWidth: 0.5
-                            )
-                        )
-                        .frame(width: 36, height: 36)
+  var body: some View {
+    Button {
+      state.arm(tool: tool)
+      if tool == .presets { onPresetsTap() }
+    } label: {
+      VStack(spacing: 4) {
+        ZStack {
+          Circle()
+            .fill(
+              isSelected
+                ? ProTokens.accent(0x28)
+                : ProTokens.panel
+            )
+            .overlay(
+              Circle().stroke(
+                isSelected ? ProTokens.accent : ProTokens.border,
+                lineWidth: 0.5
+              )
+            )
+            .frame(width: 36, height: 36)
 
-                    ToolGlyph.icon(for: tool, size: 16)
-                        .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
+          ToolGlyph.icon(for: tool, size: 16)
+            .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
 
-                    if isModified {
-                        Circle()
-                            .fill(ProTokens.accent)
-                            .frame(width: 5, height: 5)
-                            .offset(x: 12, y: 12)
-                    }
-                }
-                Text(tool.displayName)
-                    .font(.system(size: 9, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.textMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(width: 52)
-            .contentShape(Rectangle())
+          if isModified {
+            Circle()
+              .fill(ProTokens.accent)
+              .frame(width: 5, height: 5)
+              .offset(x: 12, y: 12)
+          }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(tool.displayName)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
+        Text(tool.displayName)
+          .font(.system(size: 9, weight: isSelected ? .semibold : .regular))
+          .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.textMuted)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+      }
+      .frame(width: 52)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .accessibilityLabel(tool.displayName)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
+  }
 }
 
 // MARK: - DisabledDockPlaceholder
@@ -256,30 +261,30 @@ private struct SpecialDockButton: View {
 /// been added to the enum yet.  Shown at reduced opacity so it reads as
 /// "coming later" rather than "broken".
 private struct DisabledDockPlaceholder: View {
-    let symbol: String
-    let label: String
+  let symbol: String
+  let label: String
 
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                Circle()
-                    .fill(ProTokens.panel)
-                    .overlay(Circle().stroke(ProTokens.border, lineWidth: 0.5))
-                    .frame(width: 36, height: 36)
+  var body: some View {
+    VStack(spacing: 4) {
+      ZStack {
+        Circle()
+          .fill(ProTokens.panel)
+          .overlay(Circle().stroke(ProTokens.border, lineWidth: 0.5))
+          .frame(width: 36, height: 36)
 
-                Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(ProTokens.textDim)
-            }
-            Text(label)
-                .font(.system(size: 9, weight: .regular))
-                .foregroundStyle(ProTokens.textDim)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(width: 52)
-        .opacity(0.40)
-        // Not in the a11y tree — disabled tools add no navigable value.
-        .accessibilityHidden(true)
+        Image(systemName: symbol)
+          .font(.system(size: 14, weight: .regular))
+          .foregroundStyle(ProTokens.textDim)
+      }
+      Text(label)
+        .font(.system(size: 9, weight: .regular))
+        .foregroundStyle(ProTokens.textDim)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
+    .frame(width: 52)
+    .opacity(0.40)
+    // Not in the a11y tree — disabled tools add no navigable value.
+    .accessibilityHidden(true)
+  }
 }
