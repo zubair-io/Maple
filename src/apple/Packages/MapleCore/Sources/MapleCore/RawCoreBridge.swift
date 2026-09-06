@@ -149,281 +149,295 @@ private let bridgeLog = Logger(subsystem: "app.justmaple.aperture", category: "R
 
 public enum RawCoreBridge {
 
-    /// Zero the AdjustmentModel fields that Apple's live scene-linear
-    /// chain re-applies post-decode. Returns a copy; the input is
-    /// unchanged. See file header for the strip rationale.
-    public static func stripAppleGPUStages(_ model: AdjustmentModel) -> AdjustmentModel {
-        let d = AdjustmentModel()  // canonical defaults
-        var m = model
-        // White balance — chain applies it from a D65 reference (see above).
-        m.temperature = d.temperature
-        m.tint = d.tint
-        // scene_tone_controls (exposure + brightness + tone regions) + AgX
-        // contrast. brightness (#1102) is a midtone-band gain inside
-        // scene_tone_controls — the decode bakes it and the chain re-applies
-        // it, so it must be zeroed here like every other scene_tone control.
-        m.exposure = d.exposure
-        m.brightness = d.brightness
-        m.contrast = d.contrast
-        m.highlights = d.highlights
-        m.shadows = d.shadows
-        m.whites = d.whites
-        m.blacks = d.blacks
-        // Parametric tone curve (#273) — fed to the `tone_curves` stage,
-        // which BOTH the decode and the chain run. Left un-stripped they
-        // double-apply exactly like brightness, so zero all four regions.
-        m.parametricHighlights = d.parametricHighlights
-        m.parametricLights = d.parametricLights
-        m.parametricDarks = d.parametricDarks
-        m.parametricShadows = d.parametricShadows
-        // Per-channel POINT curves (#273 fields, wired to the UI at #367)
-        // — the SAME `tone_curves` stage as the four parametric scalars
-        // above, and the live wgpu chain now carries them through
-        // `MapleGpuLiveParams.tone_curve_*_ptr`. Left un-stripped they
-        // would bake into the decoded buffer and then be applied a second
-        // time by the chain, so they follow the parametric fields exactly.
-        m.toneCurveLuma = d.toneCurveLuma
-        m.toneCurveRed = d.toneCurveRed
-        m.toneCurveGreen = d.toneCurveGreen
-        m.toneCurveBlue = d.toneCurveBlue
-        // Hue/sat/local-contrast/dehaze
-        m.vibrance = d.vibrance
-        m.saturation = d.saturation
-        m.clarity = d.clarity
-        m.texture = d.texture
-        m.dehaze = d.dehaze
-        // HSL 8-band hue/sat/lum (#1112) — the `hsl` stage runs in both the
-        // decode and the chain (scene-linear Oklab, after saturation), so
-        // all 24 bands double-apply unless zeroed here.
-        m.hueAdjustmentRed = d.hueAdjustmentRed
-        m.hueAdjustmentOrange = d.hueAdjustmentOrange
-        m.hueAdjustmentYellow = d.hueAdjustmentYellow
-        m.hueAdjustmentGreen = d.hueAdjustmentGreen
-        m.hueAdjustmentAqua = d.hueAdjustmentAqua
-        m.hueAdjustmentBlue = d.hueAdjustmentBlue
-        m.hueAdjustmentPurple = d.hueAdjustmentPurple
-        m.hueAdjustmentMagenta = d.hueAdjustmentMagenta
-        m.saturationAdjustmentRed = d.saturationAdjustmentRed
-        m.saturationAdjustmentOrange = d.saturationAdjustmentOrange
-        m.saturationAdjustmentYellow = d.saturationAdjustmentYellow
-        m.saturationAdjustmentGreen = d.saturationAdjustmentGreen
-        m.saturationAdjustmentAqua = d.saturationAdjustmentAqua
-        m.saturationAdjustmentBlue = d.saturationAdjustmentBlue
-        m.saturationAdjustmentPurple = d.saturationAdjustmentPurple
-        m.saturationAdjustmentMagenta = d.saturationAdjustmentMagenta
-        m.luminanceAdjustmentRed = d.luminanceAdjustmentRed
-        m.luminanceAdjustmentOrange = d.luminanceAdjustmentOrange
-        m.luminanceAdjustmentYellow = d.luminanceAdjustmentYellow
-        m.luminanceAdjustmentGreen = d.luminanceAdjustmentGreen
-        m.luminanceAdjustmentAqua = d.luminanceAdjustmentAqua
-        m.luminanceAdjustmentBlue = d.luminanceAdjustmentBlue
-        m.luminanceAdjustmentPurple = d.luminanceAdjustmentPurple
-        m.luminanceAdjustmentMagenta = d.luminanceAdjustmentMagenta
-        // Black & white mix (#276) — same `hsl` stage as the 24 bands
-        // above; zeroed/defaulted here for the same double-apply reason.
-        m.blackWhite = d.blackWhite
-        m.grayMixerRed = d.grayMixerRed
-        m.grayMixerOrange = d.grayMixerOrange
-        m.grayMixerYellow = d.grayMixerYellow
-        m.grayMixerGreen = d.grayMixerGreen
-        m.grayMixerAqua = d.grayMixerAqua
-        m.grayMixerBlue = d.grayMixerBlue
-        m.grayMixerPurple = d.grayMixerPurple
-        m.grayMixerMagenta = d.grayMixerMagenta
-        // Vignette (#1109) — scene-linear radial gain, run in both the decode
-        // and the chain (after local adjustments, before the omitted sharpen).
-        // Zeroing amount short-circuits the stage; feather rides back to its
-        // default for a clean neutral reference.
-        m.vignetteAmount = d.vignetteAmount
-        m.vignetteFeather = d.vignetteFeather
-        // Noise reduction (chain handles luminance; Metal handles color).
-        // nrLuminance default is 0 → decode early-exits, so default is fine.
-        m.nrLuminance = d.nrLuminance
-        // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults
-        // (#973). Their defaults are non-zero and the Rust decode only
-        // early-exits below 1e-3, so defaulting would run the stage in the
-        // decode AND have the live chain re-apply it — a double-apply.
-        // Zero makes the decode skip both; the chain owns the single live
-        // pass on BOTH the GPU (`SharpenPass` / `NlmColorPass`) and the CPU
-        // (`apply_scene_linear_chain_f32`) paths since #1043.
-        m.nrColor = 0
-        // Sharpen (the chain handles it — see the nrColor note above).
-        m.sharpenAmount = 0
-        return m
-    }
+  /// Zero the AdjustmentModel fields that Apple's live scene-linear
+  /// chain re-applies post-decode. Returns a copy; the input is
+  /// unchanged. See file header for the strip rationale.
+  public static func stripAppleGPUStages(_ model: AdjustmentModel) -> AdjustmentModel {
+    let d = AdjustmentModel()  // canonical defaults
+    var m = model
+    // White balance — chain applies it from a D65 reference (see above).
+    m.temperature = d.temperature
+    m.tint = d.tint
+    // Preset/provenance describe the live WB pair, not decoded pixels.
+    // Keep them out of the baked-model cache key as well as decode XMP.
+    m.whiteBalancePreset = d.whiteBalancePreset
+    m.wbScaleVersion = d.wbScaleVersion
+    m.wbSource = d.wbSource
+    m.wbSampleX = d.wbSampleX
+    m.wbSampleY = d.wbSampleY
+    m.wbAlgorithmVersion = d.wbAlgorithmVersion
+    // scene_tone_controls (exposure + brightness + tone regions) + AgX
+    // contrast. brightness (#1102) is a midtone-band gain inside
+    // scene_tone_controls — the decode bakes it and the chain re-applies
+    // it, so it must be zeroed here like every other scene_tone control.
+    m.exposure = d.exposure
+    m.brightness = d.brightness
+    m.contrast = d.contrast
+    m.highlights = d.highlights
+    m.shadows = d.shadows
+    m.whites = d.whites
+    m.blacks = d.blacks
+    // Parametric tone curve (#273) — fed to the `tone_curves` stage,
+    // which BOTH the decode and the chain run. Left un-stripped they
+    // double-apply exactly like brightness, so zero all four regions.
+    m.parametricHighlights = d.parametricHighlights
+    m.parametricLights = d.parametricLights
+    m.parametricDarks = d.parametricDarks
+    m.parametricShadows = d.parametricShadows
+    // Per-channel POINT curves (#273 fields, wired to the UI at #367)
+    // — the SAME `tone_curves` stage as the four parametric scalars
+    // above, and the live wgpu chain now carries them through
+    // `MapleGpuLiveParams.tone_curve_*_ptr`. Left un-stripped they
+    // would bake into the decoded buffer and then be applied a second
+    // time by the chain, so they follow the parametric fields exactly.
+    m.toneCurveLuma = d.toneCurveLuma
+    m.toneCurveRed = d.toneCurveRed
+    m.toneCurveGreen = d.toneCurveGreen
+    m.toneCurveBlue = d.toneCurveBlue
+    // Hue/sat/local-contrast/dehaze
+    m.vibrance = d.vibrance
+    m.saturation = d.saturation
+    m.clarity = d.clarity
+    m.texture = d.texture
+    m.dehaze = d.dehaze
+    // HSL 8-band hue/sat/lum (#1112) — the `hsl` stage runs in both the
+    // decode and the chain (scene-linear Oklab, after saturation), so
+    // all 24 bands double-apply unless zeroed here.
+    m.hueAdjustmentRed = d.hueAdjustmentRed
+    m.hueAdjustmentOrange = d.hueAdjustmentOrange
+    m.hueAdjustmentYellow = d.hueAdjustmentYellow
+    m.hueAdjustmentGreen = d.hueAdjustmentGreen
+    m.hueAdjustmentAqua = d.hueAdjustmentAqua
+    m.hueAdjustmentBlue = d.hueAdjustmentBlue
+    m.hueAdjustmentPurple = d.hueAdjustmentPurple
+    m.hueAdjustmentMagenta = d.hueAdjustmentMagenta
+    m.saturationAdjustmentRed = d.saturationAdjustmentRed
+    m.saturationAdjustmentOrange = d.saturationAdjustmentOrange
+    m.saturationAdjustmentYellow = d.saturationAdjustmentYellow
+    m.saturationAdjustmentGreen = d.saturationAdjustmentGreen
+    m.saturationAdjustmentAqua = d.saturationAdjustmentAqua
+    m.saturationAdjustmentBlue = d.saturationAdjustmentBlue
+    m.saturationAdjustmentPurple = d.saturationAdjustmentPurple
+    m.saturationAdjustmentMagenta = d.saturationAdjustmentMagenta
+    m.luminanceAdjustmentRed = d.luminanceAdjustmentRed
+    m.luminanceAdjustmentOrange = d.luminanceAdjustmentOrange
+    m.luminanceAdjustmentYellow = d.luminanceAdjustmentYellow
+    m.luminanceAdjustmentGreen = d.luminanceAdjustmentGreen
+    m.luminanceAdjustmentAqua = d.luminanceAdjustmentAqua
+    m.luminanceAdjustmentBlue = d.luminanceAdjustmentBlue
+    m.luminanceAdjustmentPurple = d.luminanceAdjustmentPurple
+    m.luminanceAdjustmentMagenta = d.luminanceAdjustmentMagenta
+    // Black & white mix (#276) — same `hsl` stage as the 24 bands
+    // above; zeroed/defaulted here for the same double-apply reason.
+    m.blackWhite = d.blackWhite
+    m.grayMixerRed = d.grayMixerRed
+    m.grayMixerOrange = d.grayMixerOrange
+    m.grayMixerYellow = d.grayMixerYellow
+    m.grayMixerGreen = d.grayMixerGreen
+    m.grayMixerAqua = d.grayMixerAqua
+    m.grayMixerBlue = d.grayMixerBlue
+    m.grayMixerPurple = d.grayMixerPurple
+    m.grayMixerMagenta = d.grayMixerMagenta
+    // Vignette (#1109) — scene-linear radial gain, run in both the decode
+    // and the chain (after local adjustments, before the omitted sharpen).
+    // Zeroing amount short-circuits the stage; feather rides back to its
+    // default for a clean neutral reference.
+    m.vignetteAmount = d.vignetteAmount
+    m.vignetteFeather = d.vignetteFeather
+    // Noise reduction (chain handles luminance; Metal handles color).
+    // nrLuminance default is 0 → decode early-exits, so default is fine.
+    m.nrLuminance = d.nrLuminance
+    // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults
+    // (#973). Their defaults are non-zero and the Rust decode only
+    // early-exits below 1e-3, so defaulting would run the stage in the
+    // decode AND have the live chain re-apply it — a double-apply.
+    // Zero makes the decode skip both; the chain owns the single live
+    // pass on BOTH the GPU (`SharpenPass` / `NlmColorPass`) and the CPU
+    // (`apply_scene_linear_chain_f32`) paths since #1043.
+    m.nrColor = 0
+    // Sharpen (the chain handles it — see the nrColor note above).
+    m.sharpenAmount = 0
+    return m
+  }
 
-    /// Call `body` with a path to a temporary XMP sidecar whose contents
-    /// are `original` with `stripAppleGPUStages` applied. The temp file
-    /// is created in `FileManager.default.temporaryDirectory` and removed
-    /// on `defer` regardless of whether `body` throws.
-    ///
-    /// `profileOverride` (#871): when non-nil, the stripped model's
-    /// `profile` is forced to this value before the temp XMP is written —
-    /// regardless of what the on-disk sidecar says. The decode's
-    /// auto-exposure decision (raw-ffi forces `auto_exposure: Off` when an
-    /// Auto Profile curve will fit) keys off this profile, so the LIVE
-    /// profile selection must drive the decode rather than the sidecar's
-    /// possibly-stale value (the sidecar write is debounced; a fresh-open
-    /// with no sidecar would otherwise rely on raw-core's default). This
-    /// keeps the Apple Auto displayed buffer developed AE-Off — matching
-    /// the buffer the Auto curve was fit against — so AE-lift and
-    /// curve-lift don't stack and blow out highlights. `nil` preserves the
-    /// sidecar's profile (the pre-#871 behaviour).
-    ///
-    /// When `original` is `nil` AND `profileOverride` is `nil`, `body` is
-    /// called with `nil` directly — no temp file is written. The raw-ffi
-    /// treats a null xmp_path as "use AdjustmentModel::default()". Note
-    /// (#973): that default is NOT identical to the stripped model — the
-    /// strip forces `nrColor`/`sharpenAmount` to 0 while the Rust default
-    /// bakes them at 25/40 (non-zero, so the decode runs both stages).
-    ///
-    /// The nil/nil branch IS reachable: unit tests and the tile /
-    /// `openRawHandle` openers (`renderTile`, `decodePreviewTile`,
-    /// `decodeSceneLinear` called without a `profileOverride`) all arrive
-    /// here. On that path the decode runs with `AdjustmentModel::default()`
-    /// (nrColor=25, sharpenAmount=40), but those callers do NOT run the live
-    /// chain's `nr_color`/`sharpen` re-apply on top — so there is no
-    /// double-apply on this path.
-    ///
-    /// The PRODUCTION scene-linear AgX path (the one that WOULD double-apply
-    /// if nrColor/sharpenAmount were left non-zero in the decode) always
-    /// passes a non-nil `profileOverride`. That means it always takes the
-    /// strip-temp-XMP branch, which zeros both fields before the decode —
-    /// the live chain then owns the sole pass. This invariant is what #977
-    /// enforces; the nil/nil shortcut is never taken by that path.
-    ///
-    /// When `profileOverride` is non-nil a temp XMP is always written (even
-    /// with no sidecar) so the override lands.
-    ///
-    /// When `original` cannot be read or parsed, `body` is still called
-    /// with a temp XMP derived from `AdjustmentModel()` so the FFI call
-    /// proceeds with default behaviour rather than failing. The parse
-    /// error is logged so we can spot bad sidecars without breaking the
-    /// open path. Rust's xmp::parse is permissive (unknown attrs are
-    /// silently ignored); Swift's `XMPParser.parse` is similarly
-    /// permissive, so reaching this branch normally means a non-XMP
-    /// file at the sidecar URL.
-    public static func withStrippedXMP<T>(
-        _ original: URL?,
-        profileOverride: Profile? = nil,
-        autoExposureOverride: AutoExposureMode? = nil,
-        body: (URL?) throws -> T
-    ) throws -> T {
-        guard original != nil || profileOverride != nil || autoExposureOverride != nil else {
-            return try body(nil)
-        }
-        var stripped: AdjustmentModel
-        let culling: CullingState
-        if let original {
-            do {
-                let xml = try String(contentsOf: original, encoding: .utf8)
-                let parsed = try XMPParser.parse(xml)
-                stripped = stripAppleGPUStages(parsed.0)
-                culling = parsed.1
-            } catch {
-                bridgeLog.warning("withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults.")
-                stripped = stripAppleGPUStages(AdjustmentModel())
-                culling = CullingState()
-            }
-        } else {
-            // No sidecar but an override is requested — start from
-            // canonical defaults so the override is the only deviation.
-            stripped = stripAppleGPUStages(AdjustmentModel())
-            culling = CullingState()
-        }
-        applyOverrides(profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
-        return try withTemporaryXMP(model: stripped, culling: culling, body: body)
+  /// Call `body` with a path to a temporary XMP sidecar whose contents
+  /// are `original` with `stripAppleGPUStages` applied. The temp file
+  /// is created in `FileManager.default.temporaryDirectory` and removed
+  /// on `defer` regardless of whether `body` throws.
+  ///
+  /// `profileOverride` (#871): when non-nil, the stripped model's
+  /// `profile` is forced to this value before the temp XMP is written —
+  /// regardless of what the on-disk sidecar says. The decode's
+  /// auto-exposure decision (raw-ffi forces `auto_exposure: Off` when an
+  /// Auto Profile curve will fit) keys off this profile, so the LIVE
+  /// profile selection must drive the decode rather than the sidecar's
+  /// possibly-stale value (the sidecar write is debounced; a fresh-open
+  /// with no sidecar would otherwise rely on raw-core's default). This
+  /// keeps the Apple Auto displayed buffer developed AE-Off — matching
+  /// the buffer the Auto curve was fit against — so AE-lift and
+  /// curve-lift don't stack and blow out highlights. `nil` preserves the
+  /// sidecar's profile (the pre-#871 behaviour).
+  ///
+  /// When `original` is `nil` AND `profileOverride` is `nil`, `body` is
+  /// called with `nil` directly — no temp file is written. The raw-ffi
+  /// treats a null xmp_path as "use AdjustmentModel::default()". Note
+  /// (#973): that default is NOT identical to the stripped model — the
+  /// strip forces `nrColor`/`sharpenAmount` to 0 while the Rust default
+  /// bakes them at 25/40 (non-zero, so the decode runs both stages).
+  ///
+  /// The nil/nil branch IS reachable: unit tests and the tile /
+  /// `openRawHandle` openers (`renderTile`, `decodePreviewTile`,
+  /// `decodeSceneLinear` called without a `profileOverride`) all arrive
+  /// here. On that path the decode runs with `AdjustmentModel::default()`
+  /// (nrColor=25, sharpenAmount=40), but those callers do NOT run the live
+  /// chain's `nr_color`/`sharpen` re-apply on top — so there is no
+  /// double-apply on this path.
+  ///
+  /// The PRODUCTION scene-linear AgX path (the one that WOULD double-apply
+  /// if nrColor/sharpenAmount were left non-zero in the decode) always
+  /// passes a non-nil `profileOverride`. That means it always takes the
+  /// strip-temp-XMP branch, which zeros both fields before the decode —
+  /// the live chain then owns the sole pass. This invariant is what #977
+  /// enforces; the nil/nil shortcut is never taken by that path.
+  ///
+  /// When `profileOverride` is non-nil a temp XMP is always written (even
+  /// with no sidecar) so the override lands.
+  ///
+  /// When `original` cannot be read or parsed, `body` is still called
+  /// with a temp XMP derived from `AdjustmentModel()` so the FFI call
+  /// proceeds with default behaviour rather than failing. The parse
+  /// error is logged so we can spot bad sidecars without breaking the
+  /// open path. Rust's xmp::parse is permissive (unknown attrs are
+  /// silently ignored); Swift's `XMPParser.parse` is similarly
+  /// permissive, so reaching this branch normally means a non-XMP
+  /// file at the sidecar URL.
+  public static func withStrippedXMP<T>(
+    _ original: URL?,
+    profileOverride: Profile? = nil,
+    autoExposureOverride: AutoExposureMode? = nil,
+    body: (URL?) throws -> T
+  ) throws -> T {
+    guard original != nil || profileOverride != nil || autoExposureOverride != nil else {
+      return try body(nil)
     }
-
-    /// Variant of `withStrippedXMP` for renderers that must use the live
-    /// in-memory model instead of waiting for the debounced sidecar write.
-    /// The RAW-handle tile path uses this once when it opens a handle, then
-    /// reuses the parsed stripped model for every visible-region render.
-    public static func withStrippedModelXMP<T>(
-        _ model: AdjustmentModel,
-        profileOverride: Profile? = nil,
-        autoExposureOverride: AutoExposureMode? = nil,
-        body: (URL?) throws -> T
-    ) throws -> T {
-        var stripped = stripAppleGPUStages(model)
-        applyOverrides(profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
-        return try withTemporaryXMP(
-            model: stripped,
-            culling: CullingState(),
-            body: body
+    var stripped: AdjustmentModel
+    let culling: CullingState
+    if let original {
+      do {
+        let xml = try String(contentsOf: original, encoding: .utf8)
+        let parsed = try XMPParser.parse(xml)
+        stripped = stripAppleGPUStages(parsed.0)
+        culling = parsed.1
+      } catch {
+        bridgeLog.warning(
+          "withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults."
         )
+        stripped = stripAppleGPUStages(AdjustmentModel())
+        culling = CullingState()
+      }
+    } else {
+      // No sidecar but an override is requested — start from
+      // canonical defaults so the override is the only deviation.
+      stripped = stripAppleGPUStages(AdjustmentModel())
+      culling = CullingState()
     }
+    applyOverrides(
+      profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
+    return try withTemporaryXMP(model: stripped, culling: culling, body: body)
+  }
 
-    /// Force the LIVE (in-memory session) `profile` and/or `autoExposure`
-    /// into the stripped model before it's written to the decode's temp
-    /// XMP — regardless of what the possibly-stale on-disk sidecar says.
-    ///
-    /// `profileOverride` (#871): the decode's auto-exposure-Off-when-Auto
-    /// decision keys off `profile`, so the live selection must drive the
-    /// decode rather than the debounced sidecar write.
-    ///
-    /// `autoExposureOverride` (#1387): `auto_exposure` is itself a
-    /// decode-baked field (like `profile`), so it has the exact same
-    /// staleness problem — `EditorState.applyAuto` sets the LIVE model's
-    /// `autoExposure` to `.off` alongside `exposure` so a `Profile.neutral`
-    /// decode doesn't double-count the AE anchor gain under AUTO's
-    /// recommendation, and that must land on the SAME render tick, not
-    /// ~750ms later when the debounced sidecar write finally lands.
-    private static func applyOverrides(
-        profileOverride: Profile?,
-        autoExposureOverride: AutoExposureMode?,
-        to model: inout AdjustmentModel
-    ) {
-        if let profileOverride {
-            model.profile = profileOverride
-            // Guard the serialize→parse round-trip: the serializer omits
-            // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
-            // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
-            // migration, gated on no explicit `papp:Profile`). A
-            // Look=Neutral sidecar would therefore silently flip our Auto
-            // override back to Neutral on the decode side. The Look field
-            // is a retired no-op (#443) and the pre-AgX decode never reads
-            // it, so neutralise it here so the override is the sole signal.
-            model.look = .default
-        }
-        if let autoExposureOverride {
-            model.autoExposure = autoExposureOverride
-        }
-    }
+  /// Variant of `withStrippedXMP` for renderers that must use the live
+  /// in-memory model instead of waiting for the debounced sidecar write.
+  /// The RAW-handle tile path uses this once when it opens a handle, then
+  /// reuses the parsed stripped model for every visible-region render.
+  public static func withStrippedModelXMP<T>(
+    _ model: AdjustmentModel,
+    profileOverride: Profile? = nil,
+    autoExposureOverride: AutoExposureMode? = nil,
+    body: (URL?) throws -> T
+  ) throws -> T {
+    var stripped = stripAppleGPUStages(model)
+    applyOverrides(
+      profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
+    return try withTemporaryXMP(
+      model: stripped,
+      culling: CullingState(),
+      body: body
+    )
+  }
 
-    private static func withTemporaryXMP<T>(
-        model: AdjustmentModel,
-        culling: CullingState,
-        body: (URL?) throws -> T
-    ) throws -> T {
-        // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
-        // decode; the Apple chain re-applies it live as a delta". Since
-        // #1726's camera-space WB, writing an EXPLICIT crs:Temperature=6500
-        // crs:Tint=0 parses as an authored Custom WB (temperature_seen /
-        // tint_seen true) and retargets the camera-space stage to D65 —
-        // diverging from the CPU reference's As-Shot no-op on the same
-        // image. Omitting the WB attributes keeps both flags false, which
-        // is the As-Shot resolution on BOTH WB stages — the same semantics
-        // `PipelineRenderer.render(xmpPath: nil)` gets from an absent model.
-        // This applies to BOTH decode temp-XMP writers: the sidecar-derived
-        // `withStrippedXMP` and the live-model `withStrippedModelXMP` (the
-        // native-detail tile path re-applies WB live through the decoded
-        // temperature/tint anchors, exactly like the whole-image chain).
-        let xml = XMPSerializer.serialize(model: model, culling: culling, omitWhiteBalance: true)
-        // Unique temp file name — UUID avoids collision across concurrent
-        // renders, and the .xmp suffix keeps the extension intact so any
-        // downstream extension-based dispatching still sees an XMP.
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("maple-strip-\(UUID().uuidString).xmp")
-        do {
-            try xml.write(to: tmp, atomically: true, encoding: .utf8)
-        } catch {
-            bridgeLog.error("withStrippedXMP: failed to write temp XMP \(tmp.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            // Fall back to nil — FFI uses AdjustmentModel::default,
-            // which is the same defaults the strip would produce.
-            return try body(nil)
-        }
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        return try body(tmp)
+  /// Force the LIVE (in-memory session) `profile` and/or `autoExposure`
+  /// into the stripped model before it's written to the decode's temp
+  /// XMP — regardless of what the possibly-stale on-disk sidecar says.
+  ///
+  /// `profileOverride` (#871): the decode's auto-exposure-Off-when-Auto
+  /// decision keys off `profile`, so the live selection must drive the
+  /// decode rather than the debounced sidecar write.
+  ///
+  /// `autoExposureOverride` (#1387): `auto_exposure` is itself a
+  /// decode-baked field (like `profile`), so it has the exact same
+  /// staleness problem — `EditorState.applyAuto` sets the LIVE model's
+  /// `autoExposure` to `.off` alongside `exposure` so a `Profile.neutral`
+  /// decode doesn't double-count the AE anchor gain under AUTO's
+  /// recommendation, and that must land on the SAME render tick, not
+  /// ~750ms later when the debounced sidecar write finally lands.
+  private static func applyOverrides(
+    profileOverride: Profile?,
+    autoExposureOverride: AutoExposureMode?,
+    to model: inout AdjustmentModel
+  ) {
+    if let profileOverride {
+      model.profile = profileOverride
+      // Guard the serialize→parse round-trip: the serializer omits
+      // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
+      // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
+      // migration, gated on no explicit `papp:Profile`). A
+      // Look=Neutral sidecar would therefore silently flip our Auto
+      // override back to Neutral on the decode side. The Look field
+      // is a retired no-op (#443) and the pre-AgX decode never reads
+      // it, so neutralise it here so the override is the sole signal.
+      model.look = .default
     }
+    if let autoExposureOverride {
+      model.autoExposure = autoExposureOverride
+    }
+  }
+
+  private static func withTemporaryXMP<T>(
+    model: AdjustmentModel,
+    culling: CullingState,
+    body: (URL?) throws -> T
+  ) throws -> T {
+    // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
+    // decode; the Apple chain re-applies it live as a delta". Since
+    // #1726's camera-space WB, writing an EXPLICIT crs:Temperature=6500
+    // crs:Tint=0 parses as an authored Custom WB (temperature_seen /
+    // tint_seen true) and retargets the camera-space stage to D65 —
+    // diverging from the CPU reference's As-Shot no-op on the same
+    // image. Omitting the WB attributes keeps both flags false, which
+    // is the As-Shot resolution on BOTH WB stages — the same semantics
+    // `PipelineRenderer.render(xmpPath: nil)` gets from an absent model.
+    // This applies to BOTH decode temp-XMP writers: the sidecar-derived
+    // `withStrippedXMP` and the live-model `withStrippedModelXMP` (the
+    // native-detail tile path re-applies WB live through the decoded
+    // temperature/tint anchors, exactly like the whole-image chain).
+    let xml = XMPSerializer.serialize(model: model, culling: culling, omitWhiteBalance: true)
+    // Unique temp file name — UUID avoids collision across concurrent
+    // renders, and the .xmp suffix keeps the extension intact so any
+    // downstream extension-based dispatching still sees an XMP.
+    let tmp = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-strip-\(UUID().uuidString).xmp")
+    do {
+      try xml.write(to: tmp, atomically: true, encoding: .utf8)
+    } catch {
+      bridgeLog.error(
+        "withStrippedXMP: failed to write temp XMP \(tmp.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+      )
+      // Fall back to nil — FFI uses AdjustmentModel::default,
+      // which is the same defaults the strip would produce.
+      return try body(nil)
+    }
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    return try body(tmp)
+  }
 }
