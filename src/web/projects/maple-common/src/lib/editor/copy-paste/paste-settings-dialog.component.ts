@@ -23,6 +23,8 @@ import {
 } from '../../ui/selective-paste-modal/mui-selective-paste-modal.component';
 import { ADJUSTMENT_GROUPS } from './adjustment-groups';
 import type { AdjustmentGroupId } from './adjustment-groups';
+import type { AdjustmentModel } from '../../models/adjustment-model';
+import { groupValuePreview } from './group-value-preview';
 
 function allEnabledGroups(): readonly MuiSelectivePasteGroup[] {
   return ADJUSTMENT_GROUPS.map((g) => ({ id: g.id, label: g.label, enabled: true }));
@@ -42,15 +44,34 @@ export class PasteSettingsDialogComponent {
   readonly targetCount = input<number>(0);
   /** Label of the asset the clipboard was copied from, for the header. */
   readonly sourceLabel = input<string>('');
+  readonly sourceModel = input<AdjustmentModel | null>(null);
+  readonly targetModels = input<readonly AdjustmentModel[] | null>(null);
+  readonly previewError = input<string | null>(null);
   /** Emitted with the checked group ids when the user confirms. */
   readonly paste = output<readonly AdjustmentGroupId[]>();
   readonly dismiss = output<void>();
 
   protected readonly groups = signal<readonly MuiSelectivePasteGroup[]>(allEnabledGroups());
+  protected readonly waitingForPreview = computed(
+    () => this.sourceModel() !== null && this.targetModels() === null,
+  );
+  protected readonly previewGroups = computed(() => {
+    const source = this.sourceModel();
+    const targets = this.targetModels();
+    if (!source || !targets) return this.groups();
+    const previews = groupValuePreview(source, targets);
+    return this.groups().map((group) => ({
+      ...group,
+      changes: previews[group.id as AdjustmentGroupId],
+      description: previews[group.id as AdjustmentGroupId].length === 0 ? 'No changes' : undefined,
+    }));
+  });
 
   protected readonly summary = computed(() => {
     const count = this.targetCount();
-    return `Paste from ${this.sourceLabel()} onto ${count} ${count === 1 ? 'photo' : 'photo' + 's'}.`;
+    const status =
+      this.previewError() ?? (this.waitingForPreview() ? 'Reading current settings…' : '');
+    return `Paste from ${this.sourceLabel()} onto ${count} ${count === 1 ? 'photo' : 'photos'}. ${status}`.trim();
   });
 
   constructor() {
@@ -65,7 +86,7 @@ export class PasteSettingsDialogComponent {
   }
 
   onPasteConfirmed(ids: readonly string[]): void {
-    if (ids.length === 0) return;
+    if (ids.length === 0 || this.waitingForPreview() || this.previewError()) return;
     this.paste.emit(ids as readonly AdjustmentGroupId[]);
   }
 

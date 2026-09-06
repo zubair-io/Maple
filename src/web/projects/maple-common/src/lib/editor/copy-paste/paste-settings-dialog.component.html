@@ -2,7 +2,9 @@
   [open]="visible()"
   title="Paste Settings…"
   [summary]="summary()"
-  [(groups)]="groups"
+  [groups]="previewGroups()"
+  (groupsChange)="groups.set($event)"
+  [confirmDisabled]="waitingForPreview() || previewError() !== null"
   (pasteConfirmed)="onPasteConfirmed($event)"
   (dismissed)="onDismissed()"
 />

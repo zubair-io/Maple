@@ -102,6 +102,12 @@ export class XmpAdjustmentRestoreService {
     return load;
   }
 
+  /** A server batch changed the sidecar outside this session's read/write cache. */
+  invalidateForAsset(id: AssetId): void {
+    this._attempted.delete(id);
+    this._sidecars.delete(id);
+  }
+
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
   private _eligible(id: AssetId): boolean {
     return this._addressable(id) && !this._attempted.has(id);
