@@ -121,3 +121,51 @@ fn bitmap_mask_with_no_registered_raster_is_bit_exact_passthrough() {
         "an unresolved bitmap mask must not touch a single pixel"
     );
 }
+
+/// Two layers referencing the same raster share one copy in the plane, and
+/// a raster the plane can no longer address exactly is left unresolved
+/// (#3282 review).
+#[test]
+fn shared_rasters_upload_once_and_oversized_planes_leave_layers_unresolved() {
+    let raster = diagonal_raster(7);
+    let layer = |hue: f32| LocalAdjustment {
+        mask: Mask::Bitmap {
+            recipe: Default::default(),
+            raster_id: 7,
+        },
+        range: None,
+        adjustments: only(|a| a.hue = Some(hue)),
+    };
+    let flat = raw_core::types::layers_to_flat(&[layer(10.0), layer(-10.0)]);
+    let gpu = GpuMaskRaster {
+        id: 7,
+        width: raster.width,
+        height: raster.height,
+        data: raster.data.clone(),
+    };
+    let pass = LocalAdjustmentsPass::new(&flat, &[gpu]);
+    assert_eq!(
+        pass.plane.len(),
+        raster.data.len(),
+        "shared raster appended once"
+    );
+    assert_eq!(pass.layers_flat[2], 0.0);
+    assert_eq!(
+        pass.layers_flat[LAYER_FLAT_LEN + 2],
+        0.0,
+        "second layer reuses offset 0"
+    );
+
+    let huge = GpuMaskRaster {
+        id: 7,
+        width: 4096,
+        height: 4097,
+        data: vec![1.0; 4096 * 4097],
+    };
+    let pass = LocalAdjustmentsPass::new(&flat, &[huge]);
+    assert_eq!(
+        pass.layers_flat[2], -1.0,
+        "unaddressable raster is unresolved"
+    );
+    assert_eq!(pass.plane, vec![0.0]);
+}
