@@ -39,7 +39,8 @@
     "e2e:production:hosted": "npm run e2e:production -- --project chrome-hosted",
     "e2e:production:self-hosted": "npm run e2e:production -- --project chrome-self-hosted",
     "storybook": "ng run maple:storybook",
-    "build-storybook": "ng run maple:build-storybook"
+    "build-storybook": "ng run maple:build-storybook",
+    "check:export-recipe-storage": "bun scripts/verify-export-recipe-storage.ts"
   },
   "private": true,
   "packageManager": "npm@11.12.1",

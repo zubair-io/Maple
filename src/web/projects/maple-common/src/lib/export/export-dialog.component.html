@@ -1,7 +1,7 @@
 <!-- Export chrome is only needed after Export; idle prefetch avoids a cold click on most sessions. -->
 @defer (when visible(); prefetch on idle) {
   <mui-export-modal
-    [open]="visible()"
+    [open]="visible() && !recipesVisible()"
     [formatOptions]="formatOptions"
     [colorSpaceOptions]="colorSpaceOptions"
     [format]="format()"
@@ -25,7 +25,11 @@
     (exportRequested)="onExportRequested($event)"
     (dismissed)="onDismissed()"
     (retryRequested)="onRetry()"
-  />
+  >
+    <mui-button variant="ghost" (pressed)="recipesVisible.set(true)"
+      >Saved recipes and export queue</mui-button
+    >
+  </mui-export-modal>
 } @loading (after 100ms) {
   <mui-overlay-shell
     [open]="visible()"
@@ -46,4 +50,11 @@
     <p role="alert" class="mb-4">Could not load export options. Reload Maple to try again.</p>
     <mui-button (pressed)="onDismissed()">Close</mui-button>
   </mui-overlay-shell>
+}
+@defer (when recipesVisible()) {
+  <app-recipe-export-dialog
+    [visible]="visible() && recipesVisible()"
+    [assets]="recipeAssets()"
+    (dismiss)="recipesVisible.set(false)"
+  />
 }

@@ -16,6 +16,7 @@ import type { JobKind } from '../../db/schema.ts';
 import { batchJpegExportHandler } from './batch-jpeg-export.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
 import { batchAdjustmentSyncHandler } from './batch-adjustment-sync.ts';
+import { batchRecipeExportHandler } from './batch-recipe-export.ts';
 
 /** Per-step context passed to handlers by the runner. */
 export interface JobHandlerContext {
@@ -50,4 +51,5 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   batch_jpeg_export: batchJpegExportHandler,
   pano_stitch: panoStitchHandler,
   batch_adjustment_sync: batchAdjustmentSyncHandler,
+  batch_recipe_export: batchRecipeExportHandler,
 };
