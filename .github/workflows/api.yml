@@ -33,6 +33,19 @@ jobs:
       - name: Install API deps
         working-directory: src/api
         run: bun install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: api-native-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      # The paired white-balance regression calls the real native decoder.
+      # Build it before tests so a clean runner cannot pass by skipping FFI.
+      - name: Build native RAW library for API integration tests
+        run: bash src/api/scripts/build-raw-ffi.sh
       - name: Run API tests
         working-directory: src/api
         env:
@@ -51,18 +64,9 @@ jobs:
       # in test-fixtures/qualification/sidecar_contract_api.json — the file
       # the capability registry cites as this surface's persistence
       # evidence. A test added or removed without re-recording fails here.
-      # The Rust toolchain is for the record stamper
+      # The Rust toolchain used above also builds the record stamper
       # (src/raw-pipeline/codegen/src/qualification_record.rs), which is
       # what knows the current pipeline + schema version and corpus hash.
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo registry + raw-pipeline target (record stamper)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/raw-pipeline/target
-          key: api-qualification-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
       - name: Sidecar contract evidence check
         env:
           MAPLE_MONGO_URI: mongodb://localhost:27017
