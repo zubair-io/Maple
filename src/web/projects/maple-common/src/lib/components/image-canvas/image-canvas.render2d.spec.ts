@@ -66,6 +66,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       canvasSvc: { currentPixels: signal<DecodedImage | null>(null) },
       pipeline: { decode },
       filmSync: { cpuLutBytesForCurrent: () => cpuLutBytes },
+      nativeDetail: { recordBase: vi.fn() },
       imageBitmap: signal<ImageBitmap | null>(null),
       loading: signal(false),
       currentAssetId: ASSET_ID,
@@ -90,6 +91,14 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       SIZING.qualityPreview,
       filmLut,
     );
+    expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
+      assetId: ASSET_ID,
+      generation: 1,
+      renderXmp: '<xmp />',
+      displayXmp: '<xmp />',
+      sizing: SIZING,
+      filmLut,
+    });
   });
 
   it('passes undefined to decode() when no look is loaded / still resolving', async () => {
@@ -113,6 +122,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     (host as unknown as { state: unknown }).state = {
       updateAssetDimensions: vi.fn(),
       seedAsShotWhiteBalance: vi.fn(),
+      seedLensCorrections: vi.fn(),
       adjustmentFor: () => () => ({}),
     };
     (host as unknown as { serializeForRender: () => string }).serializeForRender = () => '<xmp />';
@@ -132,5 +142,11 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     // against a future accidental filmLut leak into the cold-open path.
     expect(decode.mock.calls[0]!.length).toBe(5);
     expect(decode.mock.calls[0]![4]).toBe(true); // qualityPreview, not filmLut
+    expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
+      assetId: ASSET_ID,
+      generation: 1,
+      displayXmp: '<xmp />',
+      sizing: SIZING,
+    });
   });
 });

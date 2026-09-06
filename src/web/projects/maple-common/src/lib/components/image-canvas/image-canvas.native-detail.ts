@@ -1,0 +1,145 @@
+import { NativeDetailSupersededError } from '../../raw-pipeline/raw-pipeline.native-detail.types';
+import { signal } from '@angular/core';
+import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import type { DetailRect } from '../../raw-pipeline/raw-pipeline.native-detail.types';
+import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
+import type { RenderSizing } from './image-canvas.two-phase';
+import {
+  containsDetailRect,
+  expandDetailRect,
+  visibleDetailRect,
+  type DetailView,
+} from './image-canvas.native-detail.geometry';
+
+export interface DetailBase {
+  assetId: string;
+  generation: number;
+  /** Cold open actually rendered without XMP; displayXmp is its seeded UI model. */
+  renderXmp?: string;
+  displayXmp: string;
+  sizing: RenderSizing;
+  filmLut?: ArrayBuffer;
+}
+export interface DetailOverlay {
+  bitmap: ImageBitmap;
+  rect: DetailRect;
+  nativeW: number;
+  nativeH: number;
+}
+export interface NativeDetailHost {
+  readonly pipeline: Pick<RawPipelineService, 'renderNativeDetail' | 'closeNativeDetail'>;
+  currentInput(): {
+    assetId: string;
+    bytes: Uint8Array;
+    ext: string;
+    generation: number;
+    xmp: string;
+  } | null;
+  /** Null for GPU, crop, before/after, non-RAW, or a zoom below true 100%. */
+  detailView(): DetailView | null;
+}
+
+/** One patch over the sized CPU base. All asynchronous results are generation guarded. */
+export class ImageCanvasNativeDetail {
+  readonly overlay = signal<DetailOverlay | null>(null);
+  private base: DetailBase | null = null;
+  private revision = 0;
+  private failedRect: string | null = null;
+
+  constructor(
+    private readonly host: NativeDetailHost,
+    private readonly toBitmap = imageDataToBitmap,
+  ) {}
+
+  visibleOverlay(): DetailOverlay | null {
+    return this.base && this.matches(this.base) && this.host.detailView() ? this.overlay() : null;
+  }
+
+  recordBase(base: DetailBase): void {
+    this.clearPatch();
+    this.base = base;
+  }
+
+  reset(): void {
+    this.clearPatch();
+    this.base = null;
+    this.host.pipeline.closeNativeDetail();
+  }
+
+  private clearPatch(): void {
+    this.revision++;
+    this.failedRect = null;
+    this.overlay()?.bitmap.close();
+    this.overlay.set(null);
+  }
+
+  private matches(base: DetailBase): boolean {
+    const input = this.host.currentInput();
+    return (
+      !!input &&
+      input.assetId === base.assetId &&
+      input.generation === base.generation &&
+      input.xmp === base.displayXmp
+    );
+  }
+
+  async render(xmp: string, generation: number): Promise<boolean> {
+    const base = this.base;
+    const input = this.host.currentInput();
+    const view = this.host.detailView();
+    if (
+      !base ||
+      !input ||
+      !view ||
+      !this.matches(base) ||
+      xmp !== base.displayXmp ||
+      generation !== base.generation
+    )
+      return false;
+    const visible = visibleDetailRect(view);
+    if (!visible) return false;
+    const existing = this.overlay();
+    if (existing && containsDetailRect(existing.rect, visible)) return true;
+    const rect = expandDetailRect(visible, view.nativeW, view.nativeH);
+    const rectKey = JSON.stringify(rect);
+    if (this.failedRect === rectKey) return false;
+    // A cheap preflight; WASM also counts the real padded develop allocation.
+    if (rect.width * rect.height > 8 * 1024 * 1024) return false;
+    const revision = this.revision;
+    try {
+      const pixels = await this.host.pipeline.renderNativeDetail({
+        sourceId: input.assetId,
+        bytes: input.bytes,
+        ext: input.ext,
+        xmp: base.renderXmp,
+        rect,
+        maxLongEdge: base.sizing.maxLongEdge,
+        qualityPreview: base.sizing.qualityPreview,
+        filmLut: base.filmLut,
+      });
+      if (revision !== this.revision || !this.matches(base)) return true;
+      if (pixels.width !== rect.width || pixels.height !== rect.height)
+        throw new Error('Invalid native-detail dimensions');
+      const bitmap = await this.toBitmap(pixels);
+      const currentView = this.host.detailView();
+      const currentVisible = currentView && visibleDetailRect(currentView);
+      if (
+        revision !== this.revision ||
+        !this.matches(base) ||
+        !currentVisible ||
+        !containsDetailRect(rect, currentVisible)
+      ) {
+        bitmap.close();
+        return true;
+      }
+      this.overlay()?.bitmap.close();
+      this.overlay.set({ bitmap, rect, nativeW: view.nativeW, nativeH: view.nativeH });
+      return true;
+    } catch (error) {
+      // Unsupported CFA/stage or allocation budget keeps the sized fallback.
+      if (error instanceof NativeDetailSupersededError) return true;
+      if (revision === this.revision) this.failedRect = rectKey;
+      return false;
+    }
+  }
+}
