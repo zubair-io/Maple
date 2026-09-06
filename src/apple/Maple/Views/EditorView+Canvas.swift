@@ -56,6 +56,7 @@ extension EditorView {
         }
         if state.whiteBalancePicker.isArmed {
           WhiteBalancePickOverlay(state: state)
+            .id(ObjectIdentifier(state.session))
         }
       }
       .padding(state.armedTool == .crop ? Self.cropViewportMargin : 0)
