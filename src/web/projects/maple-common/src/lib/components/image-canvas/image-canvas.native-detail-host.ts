@@ -44,12 +44,7 @@ export function createNativeDetail(
       )
         return null;
       const model = host.state.adjustmentFor(asset.id)();
-      if (
-        !isIdentityCrop(model.crop) ||
-        manualGeometryActive(model) ||
-        importedCorrectionsActive(model)
-      )
-        return null;
+      if (!supportsNativeCanvas(model)) return null;
       return {
         nativeW: dims.w,
         nativeH: dims.h,
@@ -59,6 +54,12 @@ export function createNativeDetail(
       };
     },
   });
+}
+
+function supportsNativeCanvas(model: AdjustmentModel): boolean {
+  return (
+    isIdentityCrop(model.crop) && !manualGeometryActive(model) && !importedCorrectionsActive(model)
+  );
 }
 
 function manualGeometryActive(model: AdjustmentModel): boolean {

@@ -140,6 +140,11 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   lens_correction_distortion: [0.0, 100.0],
   lens_correction_ca: [0.0, 100.0],
   lens_correction_vignetting: [0.0, 100.0],
+  geo_perspective_h: [-0.4, 0.4],
+  geo_perspective_v: [-0.4, 0.4],
+  geo_rotation: [-180.0, 180.0],
+  geo_aspect: [0.5, 2.0],
+  geo_scale: [0.25, 4.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */
