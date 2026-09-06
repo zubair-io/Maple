@@ -58,6 +58,7 @@ async function handle(req: FfiRequest): Promise<FfiResponse> {
   }
 
   if (req.type === 'exportRecipe') {
+    await restoreLensProfile(req.rawPath, req.xmp);
     const error =
       ffi.exportRecipeToFile?.(req.rawPath, req.xmp, req.recipeJson, req.filmPath, req.outPath) ??
       (ffi.exportRecipeToFile ? null : 'Rebuild raw-ffi: recipe encoder unavailable');
