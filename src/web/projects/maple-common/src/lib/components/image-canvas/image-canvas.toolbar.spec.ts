@@ -53,6 +53,7 @@ describe('ImageCanvasComponent — hideToolbar input (#1558)', () => {
           // #1153: the canvas template reads the deep-denoise progress signal.
           useValue: {
             decode: vi.fn(() => new Promise(() => {})),
+            closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
           },
         },

@@ -52,6 +52,7 @@ import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
 import { createNativeDetail } from './image-canvas.native-detail-host';
+import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
 @Component({
@@ -113,10 +114,8 @@ export class ImageCanvasComponent
   currentAssetId: AssetId | null = null;
 
   // ── Two-phase live render (#846 → #1101) ──────────────────────────────────
-  // Fast/refine scheduling lives in `image-canvas.two-phase.ts` (the full
-  // phase contract is documented there); this component supplies the host
-  // surface (targets, generation, `runRender`).
-  readonly nativeDetail = createNativeDetail(
+  // Fast/refine scheduling lives in `image-canvas.two-phase.ts`.
+  readonly nativeDetail: ImageCanvasNativeDetail = createNativeDetail(
     this,
     () => this.gpuPresent.active() || this.cropSession.active(),
   );
@@ -271,19 +270,9 @@ export class ImageCanvasComponent
           return;
         }
 
-        // Backend-resolvable asset (Self-Hosted): the bytes aren't in the
-        // in-memory cache yet. Kick off the async read; once it resolves we
-        // re-enter loadReal. Guard with a stale-id check so a fast asset switch
-        // doesn't decode the wrong file.
-        //
-        // The gate accepts EITHER the legacy `fs:<absPath>` deep-link field OR a
-        // MapleAddress id. The M2 unified addressing (#1325) keys assets by
-        // `slug:relPath` and no longer populates `absPath`, so gating on
-        // `absPath` alone dropped every browse-opened backend asset into the
-        // mock-gradient branch below — it fetched nothing and showed a
-        // placeholder. A MapleAddress id always contains ':' (slug:relPath);
-        // mock assets (Hosted demo: `a-film`, `f-france`, …) and UUID imports
-        // never do, so they still fall through to the gradient / in-memory path.
+        // Fetch backend bytes with a stale-asset guard. Both legacy absPath
+        // and MapleAddress `slug:relPath` identify resolvable assets (#1325);
+        // mock ids and UUID imports have neither.
         if (a.absPath || a.id.includes(':')) {
           fetchAndLoadBytes(this, a.id, a.filename);
           return;

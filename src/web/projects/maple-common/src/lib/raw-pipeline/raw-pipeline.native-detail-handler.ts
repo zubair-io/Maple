@@ -77,7 +77,7 @@ export class NativeDetailWorker {
       this.deps.post({
         id: req.id,
         type: 'native-detail-error',
-        message: String(error),
+        message: error instanceof Error ? error.message : String(error),
         superseded: error instanceof NativeDetailSupersededError,
       });
     }

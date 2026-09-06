@@ -1,6 +1,7 @@
 export class NativeDetailSupersededError extends Error {
   constructor() {
     super('Native-detail request superseded');
+    this.name = 'NativeDetailSupersededError';
   }
 }
 

@@ -116,7 +116,11 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
         {
           provide: RawPipelineService,
           // #1153: the canvas template reads the deep-denoise progress signal.
-          useValue: { decode: decodeSpy, deepDenoiseProgress: signal(null) },
+          useValue: {
+            decode: decodeSpy,
+            closeNativeDetail: vi.fn(),
+            deepDenoiseProgress: signal(null),
+          },
         },
       ],
     });
@@ -397,6 +401,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     const pipelineStub = {
       decode: decodeSpy,
       // #1153: the canvas template reads the deep-denoise progress signal.
+      closeNativeDetail: vi.fn(),
       deepDenoiseProgress: signal(null),
       gpuLiveRenderEnabled: true,
       openLiveSession: openSessionSpy,

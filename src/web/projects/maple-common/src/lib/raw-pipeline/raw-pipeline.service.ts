@@ -139,6 +139,8 @@ export class RawPipelineService implements OnDestroy {
     this.pending,
   );
 
+  // Called through NativeDetailHost's Pick<RawPipelineService, ...> boundary.
+  // fallow-ignore-next-line unused-class-member
   renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
     const revision = this.detailClient.revision();
     const run = () => this.detailClient.render(args, revision);

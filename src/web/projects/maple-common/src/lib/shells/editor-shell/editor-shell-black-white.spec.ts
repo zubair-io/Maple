@@ -145,6 +145,7 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
             // #2240: `ImageCanvasComponent`'s template reads this signal
             // every change-detection pass, so the stub has to carry it even
             // though nothing here exercises deep denoise.
+            closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
           },
         },
