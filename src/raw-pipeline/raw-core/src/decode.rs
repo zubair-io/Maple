@@ -673,7 +673,15 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         lens_metadata: crate::lens_profile::LensMetadata {
             camera_make: Some(raw.make.clone()),
             camera_model: Some(raw.model.clone()),
-            lens_model: md.as_ref().and_then(|m| m.exif.lens_model.clone()),
+            lens_model: md
+                .as_ref()
+                .and_then(|m| m.exif.lens_model.clone())
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| {
+                    root_ifd
+                        .as_deref()
+                        .and_then(crate::lens_profile::metadata::lens_model)
+                }),
             focus_m: md
                 .as_ref()
                 .and_then(|m| m.exif.subject_distance)
