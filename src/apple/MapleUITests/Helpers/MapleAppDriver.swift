@@ -105,7 +105,7 @@ import XCTest
       try? FileManager.default.removeItem(at: stagedDirectory)
     }
 
-    /// Block until the canvas accessibility identifier flips to
+    /// Block until the canvas accessibility value flips to
     /// `canvas-render-ready` (the refine pass has published a preview AND
     /// `EditSession.isRendering` is false — see Task 2.1 in the plan).
     /// Default 30s timeout — first-pass decode of a 100MP RAW takes
@@ -116,7 +116,7 @@ import XCTest
       file: StaticString = #file,
       line: UInt = #line
     ) {
-      let canvas = app.otherElements["canvas-render-ready"]
+      let canvas = canvasElement()
       let predicate = NSPredicate(format: "exists == 1")
       let expectation = XCTNSPredicateExpectation(predicate: predicate, object: canvas)
       let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
@@ -143,7 +143,7 @@ import XCTest
     /// dedicated Spike B test can read it without re-running the whole
     /// flow.
     func screenshotCanvas() -> Data {
-      let canvas = app.otherElements["canvas-render-ready"]
+      let canvas = canvasElement()
       let frame = canvas.frame
       let elementSnap = canvas.screenshot().image
       // NSImage points should match the captured pixel extent divided by scale.
@@ -198,12 +198,17 @@ import XCTest
       return cropped
     }
 
-    /// Convenience for the empty-stub Task 3.3 test: confirms the canvas
-    /// element is present and has the ready identifier. Returns the
-    /// `XCUIElement` so callers can inspect frame / take screenshots.
+    /// Match the rendered leaf by its label and readiness value (#1769).
+    /// SwiftUI container identifiers can replace descendant identifiers on
+    /// macOS too, and the leaf's XCUIElement type differs between render paths.
+    /// Waits, screenshots and pointer interactions all use this same query.
     @discardableResult
     func canvasElement() -> XCUIElement {
-      return app.otherElements["canvas-render-ready"]
+      app.descendants(matching: .any)
+        .matching(
+          NSPredicate(format: "label == 'Editor canvas' AND value == 'canvas-render-ready'")
+        )
+        .firstMatch
     }
 
     // MARK: - Fixture root resolution
