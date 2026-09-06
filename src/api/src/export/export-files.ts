@@ -1,7 +1,7 @@
 /** Collision-safe delivery; original files are read-only and only staged outputs are published. */
 import { createHash, randomUUID } from 'node:crypto';
-import { basename, extname, join, resolve } from 'node:path';
-import { open, realpath, stat, link, rename, rm } from '../fs/mirrored.ts';
+import { basename, dirname, extname, join, resolve } from 'node:path';
+import { open, realpath, lstat, stat, link, rename, rm } from '../fs/mirrored.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { tryGetRawFfi } from '../ffi/raw_ffi.ts';
@@ -128,6 +128,57 @@ async function recoverPrepared(
   throw new Error('Prepared output is missing or changed; retry this photo to render it again');
 }
 
+async function validateStagingPath(
+  entry: ExportEntry,
+  directory: string,
+  jobId: string,
+  originals: ReadonlySet<string>,
+): Promise<void> {
+  const temp = entry.tempPath;
+  if (
+    !temp ||
+    resolve(temp) !== temp ||
+    dirname(temp) !== directory ||
+    !isStagingName(basename(temp), jobId)
+  )
+    throw new Error('Saved staging path does not belong to this export job and destination');
+  await guardOriginal(temp, '', originals);
+  const info = await lstat(temp).catch((error) => {
+    if (hasCode(error, 'ENOENT')) return null;
+    throw error;
+  });
+  if (info && (!info.isFile() || info.isSymbolicLink()))
+    throw new Error('Staging output must be a regular file, not a link or directory');
+}
+
+function isStagingName(name: string, jobId: string): boolean {
+  const prefix = `.maple-export-${jobId}-`;
+  return (
+    name.startsWith(prefix) &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/.test(
+      name.slice(prefix.length),
+    )
+  );
+}
+
+async function commitStaging(
+  temp: string,
+  output: string,
+  policy: string,
+): Promise<'applied' | 'skipped'> {
+  if (policy === 'replace') {
+    await rename(temp, output);
+    return 'applied';
+  }
+  try {
+    await link(temp, output);
+    return 'applied';
+  } catch (error) {
+    if (!hasCode(error, 'EEXIST') || policy !== 'skip') throw error;
+    return 'skipped';
+  }
+}
+
 async function recoverRendering(
   previous: ExportEntry,
   outputPath: string,
@@ -177,6 +228,8 @@ export async function prepareExport(
 ): Promise<ExportEntry> {
   const paths = await exportPaths(target, recipe, originalPaths);
   const currentHash = await fileHash(paths.outputPath);
+  if (previous?.status === 'prepared' || previous?.status === 'rendering')
+    await validateStagingPath(previous, paths.directory, jobId, originalPaths);
   if (previous?.status === 'prepared')
     return recoverPrepared(previous, paths.outputPath, currentHash);
   if (previous?.status === 'rendering')
@@ -194,6 +247,7 @@ export async function prepareExport(
     tempPath: join(paths.directory, `.maple-export-${jobId}-${randomUUID()}.tmp`),
     beforeHash: currentHash,
   };
+  await validateStagingPath(entry, paths.directory, jobId, originalPaths);
   // Persist the staging identity before the native child can create any bytes.
   await beforeRender(entry);
   return renderStaging(target, recipe, paths, entry);
@@ -202,9 +256,16 @@ export async function prepareExport(
 export async function publishExport(
   entry: ExportEntry,
   recipe: ExportRecipe,
+  jobId: string,
+  originals: ReadonlySet<string>,
 ): Promise<ExportEntry> {
   if (!entry.tempPath || !entry.outputPath || !entry.afterHash)
     throw new Error('Incomplete prepared export');
+  const directory = await authorize(recipe.directory!);
+  await validateStagingPath(entry, directory, jobId, originals);
+  if (dirname(entry.outputPath) !== directory)
+    throw new Error('Saved output is outside the selected destination');
+  await guardOriginal(entry.outputPath, '', originals);
   const currentHash = await fileHash(entry.outputPath);
   if (currentHash !== entry.beforeHash) {
     if (currentHash !== null && recipe.overwritePolicy === 'skip') {
@@ -213,17 +274,12 @@ export async function publishExport(
     }
     throw new Error('Output changed before publication; review it before retrying');
   }
-  if (recipe.overwritePolicy === 'replace') await rename(entry.tempPath, entry.outputPath);
-  else {
-    try {
-      await link(entry.tempPath, entry.outputPath);
-    } catch (error) {
-      if (!hasCode(error, 'EEXIST') || recipe.overwritePolicy !== 'skip') throw error;
-      await rm(entry.tempPath, { force: true }).catch(() => undefined);
-      return { ...entry, status: 'skipped' };
-    }
-  }
+  if ((await fileHash(entry.tempPath)) !== entry.afterHash)
+    throw new Error(
+      'Prepared output changed before publication; retry this photo to render it again',
+    );
+  const status = await commitStaging(entry.tempPath, entry.outputPath, recipe.overwritePolicy);
   // Publication already committed; an orphaned staging link must not turn success into failure.
   await rm(entry.tempPath, { force: true }).catch(() => undefined);
-  return { ...entry, status: 'applied' };
+  return { ...entry, status };
 }

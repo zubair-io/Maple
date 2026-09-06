@@ -31,9 +31,5 @@ png = { workspace = true, optional = true }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-# Securely-random unique temp dirs for integration tests that shell out to
-# the built binary (avoids a predictable-path TOCTOU race). Same pin as
-# raw-core's own [dev-dependencies].
+# Unique, exclusively created export staging files and test directories.
 tempfile = "3"
