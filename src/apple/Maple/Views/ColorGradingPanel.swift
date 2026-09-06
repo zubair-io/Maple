@@ -1,11 +1,6 @@
 // ColorGradingPanel.swift — Color Grading tool surface (#275).
 //
-// Replaces the flat sub-param-chip + slider stack while the Color Grading
-// tool is armed — the same swap-in-a-custom-surface pattern `CropOverlay`
-// uses for the Crop tool (see `FlyoutSliderPanel` / `MobileControlBar` /
-// `StackedAdjustmentsPanel`, each of which special-cases `armedTool == .crop`
-// for `CropToolbar` the same way they special-case `armedTool == .colorGrade`
-// for this panel).
+// Shared color-grading surface for the Apple editor's adjustments panel.
 //
 // Layout: four `ColorWheelView`s (Shadows / Midtones / Highlights / Global)
 // in a 2×2 grid, each paired with its zone's luminance offset slider, plus
@@ -75,7 +70,11 @@ struct ColorGradingPanel: View {
         isBipolar: true,
         defaultValue: 0,
         onEditingChanged: { editing in
-          if editing { state.commit() } else { state.endGesture() }
+          if editing {
+            state.beginSliderInteraction(tool: .colorGrade, subParamID: "balance")
+          } else {
+            state.endGesture()
+          }
         }
       )
     }
@@ -94,8 +93,7 @@ struct ColorGradingPanel: View {
         label: "\(zone.title) colour wheel",
         hue: bind(zone.hue),
         saturation: bind(zone.saturation),
-        onCommit: { state.commit() },
-        onEnd: { state.endGesture() }
+        onCommit: { state.commit() }
       )
       .frame(width: 96, height: 96)
 
@@ -106,7 +104,13 @@ struct ColorGradingPanel: View {
         isBipolar: true,
         defaultValue: 0,
         onEditingChanged: { editing in
-          if editing { state.commit() } else { state.endGesture() }
+          if editing {
+            state.beginSliderInteraction(
+              tool: .colorGrade,
+              subParamID: Tool.colorGrade.subParams.first { $0.keyPath == zone.luminance }?.id)
+          } else {
+            state.endGesture()
+          }
         }
       )
     }

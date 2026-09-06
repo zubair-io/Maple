@@ -20,6 +20,7 @@ import SwiftUI
 
 struct PillHeader: View {
   @Bindable var state: EditorState
+  @Environment(\.editorCommandRouter) private var router
   let onBack: () -> Void
   let onShare: () -> Void
   let onInfo: () -> Void
@@ -52,29 +53,12 @@ struct PillHeader: View {
 
       // Before/after toggle — shown only when there are edits
       if state.isDirty {
-        Button {
-          state.session.showingOriginal.toggle()
-        } label: {
-          Image(
-            systemName: state.session.showingOriginal
-              ? "circle.lefthalf.filled"
-              : "circle.righthalf.filled"
-          )
-          .font(.system(size: 15, weight: .regular))
-          .foregroundStyle(
-            state.session.showingOriginal
-              ? ProTokens.accent
-              : ProTokens.textMuted
-          )
-          .frame(width: 30, height: 30)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(state.session.showingOriginal ? "Show edited" : "Show original")
-        .accessibilityIdentifier("editor-before-after")
+        EditorCompareButton(state: state)
+          .id(ObjectIdentifier(state.session))
       }
 
       // Undo (tap) / Redo (long-press)
-      Button(action: { state.undo() }) {
+      Button(action: { history(redo: false) }) {
         Image(systemName: "arrow.uturn.backward")
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(
@@ -82,15 +66,18 @@ struct PillHeader: View {
               ? ProTokens.text
               : ProTokens.textDim
           )
-          .frame(width: 30, height: 30)
+          .frame(minWidth: 44, minHeight: 44)
       }
       .buttonStyle(.plain)
       .disabled(!state.canUndo && !state.canRedo)
-      .simultaneousGesture(
-        LongPressGesture(minimumDuration: 0.5).onEnded { _ in state.redo() }
+      .highPriorityGesture(
+        LongPressGesture(minimumDuration: 0.5).onEnded { _ in history(redo: true) }
       )
       .accessibilityLabel("Undo")
+      .accessibilityHint("Tap to undo; hold to redo.")
+      .accessibilityAction(named: "Redo") { history(redo: true) }
       .accessibilityIdentifier("editor-undo")
+      .help("Undo (⌘Z); hold to Redo (⌘⇧Z)")
 
       // Info — opens the iPhone Info sheet / reveals the desktop
       // inspector via the editor's `onInfo` closure.
@@ -160,5 +147,15 @@ struct PillHeader: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-pill-header")
+  }
+
+  private func history(redo: Bool) {
+    if let router {
+      router.perform(redo ? .redo : .undo, assetID: state.session.asset.id)
+    } else if redo {
+      state.redo()
+    } else {
+      state.undo()
+    }
   }
 }

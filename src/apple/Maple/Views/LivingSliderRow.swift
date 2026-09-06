@@ -1,13 +1,12 @@
 // LivingSliderRow.swift — Pro Editor Canvas-first (A2, #1555).
 //
 // Single `LivingSlider` wired to one tool's `AdjustmentModel` field.
-// Factored out of `LivingSliderGrid` so `StackedAdjustmentsPanel` can
-// reuse the same wiring without duplicating the bipolar / range / gradient
-// logic.  `LivingSliderGrid` is unchanged except it references this type
-// instead of the private struct it formerly declared locally.
+// Shared by the editor panels, with one range/default/gradient and
+// transaction path for every tool.
 //
 // Arms the tool on first drag so the value chip + dock both follow the
-// active slider.  Commits an undo snapshot on drag-end.
+// active slider. Starts the undo transaction before its first value write
+// and finishes it on drag/key release or focus loss.
 
 import MapleCore
 import SwiftUI
@@ -15,8 +14,7 @@ import SwiftUI
 // MARK: - LivingSliderRow
 
 /// A single `LivingSlider` wired to a tool's `AdjustmentModel` field.
-/// Public (internal) so both `LivingSliderGrid` and
-/// `StackedAdjustmentsPanel` can import it without a module boundary.
+/// Shared by the editor's tool and stacked adjustment panels.
 struct LivingSliderRow: View {
   @Bindable var state: EditorState
   let tool: Tool
@@ -75,36 +73,36 @@ struct LivingSliderRow: View {
         // `armedDisplayValue` (not the raw model read) so a parked
         // commit-on-release value shows on the thumb while the
         // decode stays untouched (#1153).
-        if armedSub != nil { return state.armedDisplayValue }
+        if state.armedTool == tool { return state.armedDisplayValue }
         return ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
       },
       set: { newVal in
-        if state.armedTool != tool { state.arm(tool: tool) }
-        if armedSub != nil {
-          state.setArmedDisplayValue(newVal)
-        } else {
-          ToolValueMapping.apply(newVal, to: &state.session.model, tool: tool)
-        }
+        state.setArmedDisplayValue(newVal)
       }
     )
   }
 
-  var body: some View { slider }
+  var body: some View {
+    slider
+      .id("\(state.session.asset.id)-\(tool)")
+      .accessibilityIdentifier("editor-slider-\(tool.rawValue)")
+  }
 
   var slider: LivingSlider {
     LivingSlider(
-      label: tool.displayName,
+      label: armedSub.map { "\(tool.displayName) · \($0.label)" } ?? tool.displayName,
       value: valueBinding,
       range: range,
       isBipolar: isBipolar,
       defaultValue: defaultValue,
       gradient: GradientCatalog.stops(for: tool),
       displayValue: displayString,
+      // An unarmed row displays the primary field. Do not restore a
+      // remembered secondary parameter underneath its first value write.
       onEditingChanged: { editing in
         if editing {
-          if state.armedTool != tool { state.arm(tool: tool) }
-          state.commit()
-          state.beginGesture()
+          state.beginSliderInteraction(
+            tool: tool, subParamID: armedSub?.id ?? tool.subParams.first?.id)
         } else {
           state.endGesture()
         }
