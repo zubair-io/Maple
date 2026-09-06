@@ -147,9 +147,9 @@ public actor RenderActor {
   /// image so `NativeDetailRenderer` threads the SAME gain into its tile refine.
   var decodedAeGain: Float = 1.0
 
-  /// Whether the cached `decodedImage`'s RAW carries lens-correction opcodes, and whether the
-  /// CA/distortion sliders are inert (#2231, #3189) — see `SceneLinearDecodeResult`'s doc.
+  /// Actual camera and lens resolver metadata owned by the cached decoded RAW.
   var decodedCameraSupport: RawCameraSupport?
+  /// Cached RAW lens-correction opcode presence and inert slider flags (#2231, #3189).
   var decodedHasLensCorrections: Bool = false
   var decodedLensCorrectionCaInert: Bool = true
   var decodedLensCorrectionDistortionInert: Bool = true
