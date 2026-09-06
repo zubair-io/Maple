@@ -5,11 +5,33 @@ import XCTest
 
 @MainActor
 final class AdjustmentTransferRenderTests: XCTestCase {
-  private var fixtures: URL {
+  private var repositoryRoot: URL {
     URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
-      .appendingPathComponent("test-fixtures/batch-transfer")
+  }
+
+  private var fixtures: URL {
+    repositoryRoot.appendingPathComponent("test-fixtures/batch-transfer")
+  }
+
+  func testFramelessRawStillProvidesFiniteCameraBaselineWithoutWritingSidecar() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "frameless-baseline")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let raw = root.appendingPathComponent("grey.dng")
+    try FileManager.default.copyItem(
+      at: repositoryRoot.appendingPathComponent(
+        "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"), to: raw)
+    let bytes = try Data(contentsOf: raw)
+    let decoded = try PipelineRenderer.renderSceneLinear(
+      rawBytes: bytes, hint: "dng", quality: .full, profileOverride: .neutral)
+    XCTAssertFalse(decoded.wbFrame?.isPresent == true)
+    let baseline = try await WhiteBalanceTransferBaseline.read(asset: AssetRef(url: raw))
+    XCTAssertTrue(baseline.isValid)
+    XCTAssertEqual(baseline.temperature.truncatingRemainder(dividingBy: 50), 0)
+    XCTAssertEqual(baseline.tint, baseline.tint.rounded())
+    XCTAssertEqual(try Data(contentsOf: raw), bytes)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
   }
 
   func testCameraBaselineRoundsNegativeHalfTintAwayFromZero() {
@@ -53,10 +75,14 @@ final class AdjustmentTransferRenderTests: XCTestCase {
       FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: targetURL).path))
 
     var source = AdjustmentModel.default
+    source.profile = .neutral
     source.temperature = sourceBaseline.temperature + 1200
     source.tint = sourceBaseline.tint + 10
     source.wbSource = .manual
     source.crop = Crop(top: 0.25, left: 0.25, bottom: 0.75, right: 0.75)
+    let sourceSession = EditSession(asset: sourceAsset, model: source, culling: CullingState())
+    let sourceImage = try await sourceSession.renderForExport()
+    XCTAssertEqual(sourceImage.extent.size, CGSize(width: 48, height: 32))
     let patch = try AdjustmentTransfer.prepare(
       source: source, groups: [.whiteBalance, .geometry],
       relativeWhiteBalance: true, sourceBaseline: sourceBaseline, targetBaseline: targetBaseline)
