@@ -97,6 +97,7 @@ namespace Maple.WinUI.ViewModels
                         node.Children.Clear();
                         foreach (var child in children)
                             node.Children.Add(child);
+                        SynchronizeFolderSelection();
                     });
                 }
                 catch (Exception ex)
@@ -164,6 +165,7 @@ namespace Maple.WinUI.ViewModels
             var cts = new CancellationTokenSource();
             _libraryCts = cts;
 
+            BeginBrowse(cloud: node);
             CurrentFolderPath = $"{_cloud.ServerUrl} · {node.Path}";
             ActiveSectionName = node.Name;
             _libraryWatcher?.Stop();    // no local directory to watch
@@ -239,18 +241,20 @@ namespace Maple.WinUI.ViewModels
                     : $"{node.Name} — {AllPhotos.Count} photo{(AllPhotos.Count == 1 ? "" : "s")}.";
 
             ApplyFilters();
+            FinishBrowse(cts, failed ? "Could not load this folder. Select it to retry." : string.Empty);
             Timeline.GroupPhotosByDate(AllPhotos);
-            _ = Task.Run(() => HydrateCloudThumbnailsAsync(AllPhotos.ToList(), cts.Token), cts.Token);
+            var photos = AllPhotos.ToList();
+            _ = Task.Run(() => HydrateCloudThumbnailsAsync(photos, cts.Token), cts.Token);
         }
 
-        private static PhotoItem CloudDirPhotoItem(CloudDirImage image, CloudFolderNode node)
+        private static PhotoItem CloudDirPhotoItem(CloudDirImage image, CloudFolderNode node, string? address = null)
         {
             var exif = image.Exif;
             var captured = exif?.CapturedAtLocal;
             var item = new PhotoItem
             {
                 IsCloud = true,
-                CloudAddress = CloudAddressFor(node, image.Name),
+                CloudAddress = address ?? CloudAddressFor(node, image.Name),
                 FilePath = image.Path,
                 FileName = image.Name,
                 Format = image.Ext.Length > 0 ? image.Ext.ToUpperInvariant() : "RAW",

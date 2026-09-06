@@ -138,7 +138,6 @@ namespace Maple.WinUI
         {
             if (args.InvokedItem is ViewModels.CloudFolderNode { IsPlaceholder: false } node)
             {
-                ViewModel.SetDateFilter(null, null);
                 SetMode(ShellMode.Browse);
                 await ViewModel.LoadCloudDirectoryAsync(node);
             }
@@ -162,7 +161,6 @@ namespace Maple.WinUI
                     await ViewModel.LoadCloudDirectoryAsync(cloud);
                     break;
                 case ViewModels.FolderNode { IsPlaceholder: false, IsUnavailable: false } local:
-                    ViewModel.SetDateFilter(null, null);
                     ViewModel.LoadDirectory(local.Path);
                     break;
             }

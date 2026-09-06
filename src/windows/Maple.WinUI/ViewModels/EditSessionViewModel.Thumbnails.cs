@@ -36,6 +36,7 @@ namespace Maple.WinUI.ViewModels
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {
+                    if (ct.IsCancellationRequested) return;
                     // JPEGs are directly displayable, so a missing embedded
                     // preview falls back to the file itself.
                     var effectiveThumb = thumb
@@ -56,7 +57,7 @@ namespace Maple.WinUI.ViewModels
                             ? $"{w} × {h}"
                             : $"{item.FileSizeBytes / (1024.0 * 1024.0):0.0} MB";
                     }
-                    if (ReferenceEquals(item, items[^1]))
+                    if (ReferenceEquals(item, items[^1]) && (IsDateGrouped || !string.IsNullOrWhiteSpace(SearchText)))
                     {
                         // EXIF capture dates are now in; regroup the timeline
                         // and the grid sections (mtime was the placeholder).

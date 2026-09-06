@@ -107,6 +107,7 @@ namespace Maple.WinUI
             // folder tiles ARE the content — so the empty-state text keys off
             // both collections (#3082).
             void UpdateEmptyState() => EmptyStateText.Visibility =
+                !ViewModel.IsLibraryLoading && string.IsNullOrEmpty(ViewModel.LibraryLoadStatus) &&
                 ViewModel.Photos.Count == 0 && ViewModel.BrowseFolders.Count == 0
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -116,6 +117,11 @@ namespace Maple.WinUI
                 UpdateEmptyState();
             };
             ViewModel.BrowseFolders.CollectionChanged += (_, _) => UpdateEmptyState();
+            ViewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(ViewModel.IsLibraryLoading) or nameof(ViewModel.LibraryLoadStatus))
+                    UpdateEmptyState();
+            };
 
             // Title-bar / taskbar icon (the exe icon covers Explorer; unpackaged
             // windows need the runtime SetIcon too).
@@ -187,6 +193,7 @@ namespace Maple.WinUI
         private void SetMode(ShellMode mode)
         {
             _mode = mode;
+            UpdateInfoPane();
             var browse = mode == ShellMode.Browse;
             var edit = mode == ShellMode.Edit;
 
