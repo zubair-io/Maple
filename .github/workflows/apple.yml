@@ -1,6 +1,6 @@
 # .github/workflows/apple.yml
 #
-# Swift compile gate for the Apple platforms. Per #2789.
+# Swift compile and executable regression gates for Apple (#2789, #3363).
 #
 # No cloud CI built Swift, so a change that broke the MapleCore compile
 # merged green and main went red until a human built locally or an Xcode
@@ -9,10 +9,9 @@
 # gained an arm: neither PR touches the other's lines, git merges both
 # cleanly, and nothing re-compiles until the TestFlight archive).
 #
-# Scope: COMPILE coverage only — `swift build` of the MapleCore package.
-# That alone would have caught every incident above. Running the tests
-# needs a real libraw_ffi.a (a full Rust cross-build, tens of minutes);
-# compiling only needs the cbindgen-generated header plus a stub archive,
+# The swift-build job keeps its COMPILE-only scope. The separate regression
+# job links a real host-only Rust archive and executes the selected tests.
+# Compiling only needs the cbindgen-generated header plus a stub archive,
 # because SwiftPM validates that the binary target's .a EXISTS but never
 # links a static library into a library target — linking happens in the
 # app/test executables, which this job doesn't build.
@@ -117,3 +116,147 @@ jobs:
       - name: swift build
         working-directory: src/apple/Packages/MapleCore
         run: swift build
+
+
+  swift-regressions:
+    name: swift-regressions (MapleCore execution gate)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      MAPLE_GPU_LIVE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        id: xcode
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(python3 -c 'import glob, re; print(max(glob.glob("/Applications/Xcode_*.app"), key=lambda p: tuple(map(int, re.findall(r"\d+", p)))))')"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/maple-apple-native" >> "$GITHUB_ENV"
+          echo "MAPLE_SWIFT_TEST_ROOT=$RUNNER_TEMP/maple-swift-regressions" >> "$GITHUB_ENV"
+          sudo xcode-select -s "$XCODE_APP"
+          swift --version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cbindgen binary
+        id: cbindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      - name: Install cbindgen
+        if: steps.cbindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+      - name: Cache host Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.CARGO_TARGET_DIR }}
+          key: apple-test-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/raw-pipeline/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Build real host archive
+        working-directory: src/raw-pipeline
+        # pano supplies maple_pano_stitch, referenced by the linked package
+        # even when no panorama test runs. Host ORT is dynamically loaded;
+        # this does not download iOS ORT or build any cross-target slice.
+        run: cargo build --locked --release -p raw-ffi --features gpu,pano
+      - name: Stage isolated Swift package and host framework
+        run: |
+          set -euo pipefail
+          NATIVE_LIB="$CARGO_TARGET_DIR/release/libraw_ffi.a"
+          HEADERS="$MAPLE_SWIFT_TEST_ROOT/Headers"
+          mkdir -p "$HEADERS" "$MAPLE_SWIFT_TEST_ROOT/Packages" "$MAPLE_SWIFT_TEST_ROOT/Frameworks"
+          (cd src/raw-pipeline/raw-ffi && cbindgen --config cbindgen.toml --lang C \
+            --output "$HEADERS/RawPipeline.h" --crate raw-ffi)
+          cp src/apple/Frameworks/RawPipeline.xcframework/macos-arm64_x86_64/Headers/module.modulemap "$HEADERS/"
+          # Compare the host-visible header declarations with real exports.
+          # Preprocessing excludes guarded Windows-only symbols.
+          xcrun clang -E -P -x c "$HEADERS/RawPipeline.h" -o "$HEADERS/host.h"
+          python3 - "$HEADERS" "$NATIVE_LIB" <<'PYCODE'
+          from pathlib import Path
+          import platform, re, subprocess, sys
+          headers = Path(sys.argv[1])
+          expected = set(re.findall(r'\b(maple_[a-z0-9_]+)\s*\(', (headers / 'host.h').read_text()))
+          # cbindgen leaves this iOS-only ORT declaration unguarded; match
+          # build-xcframework.sh's macOS exclusion (M6 #1244).
+          expected -= {'maple_pano_ort_selftest'}
+          # As in build-xcframework.sh, Apple nm can reject newer Rust std
+          # bitcode while still emitting native exports. Require every FFI
+          # symbol; the subsequent executable link validates the full archive.
+          symbols = subprocess.run(['xcrun', 'nm', '-arch', platform.machine(), '-gU', sys.argv[2]],
+                                   capture_output=True, text=True)
+          exported = set(re.findall(r'\b_(maple_[a-z0-9_]+)\b', symbols.stdout))
+          missing = expected - exported
+          if not expected or missing:
+              raise SystemExit(f'Invalid native archive; missing symbols: {sorted(missing)}\n{symbols.stderr}')
+          print(f'Verified {len(expected)} host FFI symbols')
+          PYCODE
+          rm "$HEADERS/host.h"
+          xcodebuild -create-xcframework -library "$NATIVE_LIB" -headers "$HEADERS" \
+            -output "$MAPLE_SWIFT_TEST_ROOT/Frameworks/RawPipeline.xcframework"
+          # Keep the checkout's local framework untouched. Preserve package
+          # relative paths, including the tiny committed synthetic RAW.
+          for package in MapleCore MapleBackup; do
+            rsync -a --exclude=.build --exclude=.swiftpm \
+              "src/apple/Packages/$package" "$MAPLE_SWIFT_TEST_ROOT/Packages/"
+          done
+          cp "$HEADERS/RawPipeline.h" "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore/Sources/MapleCore/include/"
+          mkdir -p "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures"
+          cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
+      - name: Cache SwiftPM regression build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
+      - name: Execute scheduling, cache, geometry and Metal regressions
+        run: |
+          set -euo pipefail
+          classes=(RenderSchedulingBackpressureTests RenderRequestIdentityTests RenderActivityTests
+            NativeDetailCancellationTests DecodedCacheAutosaveTests RenderedPreviewCacheWriteTests
+            RawRenderSourceTests EditSessionNativeSizeSeedTests EditSessionPreviewCeilingTests
+            CanvasMathTests GpuPrescaledExtentTests GpuReadbackFreshnessTests GpuExitPreviewCacheTests
+            GpuPresentationOutcomeTests GpuSessionReplacementTests)
+          FILTER="MapleCoreTests\.($(IFS='|'; echo "${classes[*]}"))/"
+          swift test --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" \
+            --configuration release -Xswiftc -enable-testing --no-parallel --filter "$FILTER" \
+            2>&1 | tee "$MAPLE_SWIFT_TEST_ROOT/tests.log"
+          # Serial SwiftPM does not emit XCTest xUnit (only Swift Testing).
+          # Validate actual XCTest records, then derive the artifact from them.
+          python3 - "$MAPLE_SWIFT_TEST_ROOT" "${classes[@]}" <<'PYCODE'
+          from pathlib import Path
+          import re, sys, xml.etree.ElementTree as ET
+          root = Path(sys.argv[1])
+          log = (root / 'tests.log').read_text()
+          events = re.findall(r"Test Case '-\[MapleCoreTests\.(\w+) (\w+)\]' (started|passed|failed|skipped)(?: \(([\d.]+) seconds\))?\.", log)
+          starts = [(cls, name) for cls, name, status, _ in events if status == 'started']
+          results = [(cls, name, status, duration) for cls, name, status, duration in events if status != 'started']
+          completed = [(cls, name) for cls, name, _, _ in results]
+          actual = {cls for cls, _, _, _ in results}
+          summaries = re.findall(r'Executed (\d+) tests?, with (\d+) failures? \((\d+) unexpected\)', log)
+          valid = (len(results) >= 67 and actual == set(sys.argv[2:])
+                   and len(starts) == len(set(starts)) == len(completed) == len(set(completed))
+                   and set(starts) == set(completed)
+                   and all(status == 'passed' for _, _, status, _ in results)
+                   and "Test Suite 'Selected tests' passed" in log
+                   and summaries and tuple(map(int, summaries[-1])) == (len(results), 0, 0))
+          if not valid:
+              raise SystemExit(f'Incomplete regression gate: {len(results)} cases; classes={sorted(actual)}; summary={summaries[-1:]}; see tests.log')
+          suite = ET.Element('testsuite', name='MapleCore serial XCTest', tests=str(len(results)), failures='0', skipped='0')
+          properties = ET.SubElement(suite, 'properties')
+          ET.SubElement(properties, 'property', name='source', value='Validated serial XCTest records in tests.log')
+          for cls, name, _, duration in results:
+              ET.SubElement(suite, 'testcase', classname=f'MapleCoreTests.{cls}', name=name, time=duration)
+          ET.ElementTree(suite).write(root / 'results.xml', encoding='utf-8', xml_declaration=True)
+          print(f'Passed {len(results)} regression cases; no failures or skips')
+          PYCODE
+      - name: Upload regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-swift-regressions
+          path: |
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/results.xml
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/tests.log
