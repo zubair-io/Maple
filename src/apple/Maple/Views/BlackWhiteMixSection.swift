@@ -14,10 +14,7 @@ struct BlackWhiteMixSection: View {
           value: Binding(
             get: { state.session.model[keyPath: sub.keyPath] },
             set: { value in
-              if state.armedTool != .bwMix { state.arm(tool: .bwMix) }
-              if state.armedSubParamId != sub.id { state.arm(subParamId: sub.id) }
-              state.beginGesture()
-              state.setArmedDisplayValue(value)
+              state.setBlackWhiteMixValue(value, bandID: sub.id)
             }),
           range: sub.range,
           isBipolar: true,

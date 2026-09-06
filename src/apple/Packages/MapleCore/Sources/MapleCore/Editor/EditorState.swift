@@ -336,7 +336,7 @@ public final class EditorState {
   /// In-flight, uncommitted display value; `nil` when nothing is deferred.
   public private(set) var deferredDisplayValue: Double?
   /// `true` between `beginGesture()` and `endGesture()`.
-  @ObservationIgnored private var gestureActive = false
+  @ObservationIgnored var gestureActive = false
 
   /// `true` when writes from the armed pair are held until gesture end.
   public var armedCommitsOnRelease: Bool { armedSubParam?.commitsOnRelease ?? false }
