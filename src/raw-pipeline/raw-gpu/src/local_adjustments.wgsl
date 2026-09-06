@@ -264,8 +264,11 @@ fn mask_weight(layer: Layer, p: vec2<f32>) -> f32 {
 }
 
 // raw_core::stages::hsl::circular_delta_deg — absolute wrapped hue distance.
+// Wrapped with floor rather than `%`: f32 `%` is not uniformly
+// supported across WGSL backends (#3281 review).
 fn circular_delta_deg(h: f32, center: f32) -> f32 {
-    var d = abs(h - center) % 360.0;
+    let raw = abs(h - center);
+    var d = raw - 360.0 * floor(raw / 360.0);
     if (d > 180.0) {
         d = 360.0 - d;
     }
