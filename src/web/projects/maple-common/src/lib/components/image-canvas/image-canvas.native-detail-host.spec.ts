@@ -74,6 +74,21 @@ describe('native-detail host eligibility', () => {
     expect(s.pipeline.renderNativeDetail).toHaveBeenCalledOnce();
   });
 
+  for (const mode of ['master-off', 'zero-scales']) {
+    it(`allows native detail for a disabled external profile (${mode})`, async () => {
+      const s = setup();
+      s.model.lensProfile = `lcp1:${'a'.repeat(64)}`;
+      if (mode === 'master-off') s.model.lensProfileEnable = 'Off';
+      else {
+        s.model.lensCorrectionDistortion = 0;
+        s.model.lensCorrectionCa = 0;
+        s.model.lensCorrectionVignetting = 0;
+      }
+      await s.detail.render('xmp', 1);
+      expect(s.pipeline.renderNativeDetail).toHaveBeenCalledOnce();
+    });
+  }
+
   for (const mode of [
     'gpu-or-crop-tool',
     'applied-crop',

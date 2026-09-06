@@ -51,7 +51,11 @@ export function createNativeDetail(
         model.geoRotation !== 0 ||
         model.geoAspect !== 1 ||
         model.geoScale !== 1 ||
-        (model.lensProfileEnable === 'On' && !!model.lensProfile)
+        (model.lensProfileEnable === 'On' &&
+          !!model.lensProfile &&
+          (model.lensCorrectionDistortion > 0 ||
+            model.lensCorrectionCa > 0 ||
+            model.lensCorrectionVignetting > 0))
       )
         return null;
       return {
