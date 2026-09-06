@@ -75,6 +75,5 @@ struct EditorCanvasView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(MapleTokens.bg)
     .contentShape(Rectangle())
-    .editorCanvasHitRegion()
   }
 }
