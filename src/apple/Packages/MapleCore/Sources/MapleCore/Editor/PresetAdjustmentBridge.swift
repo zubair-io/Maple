@@ -40,376 +40,393 @@
 import Foundation
 
 extension AdjustmentModel.FieldName {
-    /// Key path into the Swift model for numeric schema fields; nil for
-    /// enum-valued fields and for fields the Swift model doesn't carry.
-    var numericKeyPath: WritableKeyPath<AdjustmentModel, Double>? {
-        switch self {
-        case .temperature:                  return \.temperature
-        case .tint:                         return \.tint
-        case .exposure:                     return \.exposure
-        case .contrast:                     return \.contrast
-        case .brightness:                   return \.brightness
-        case .highlights:                   return \.highlights
-        case .shadows:                      return \.shadows
-        case .whites:                       return \.whites
-        case .blacks:                       return \.blacks
-        case .parametricHighlights:         return \.parametricHighlights
-        case .parametricLights:             return \.parametricLights
-        case .parametricDarks:              return \.parametricDarks
-        case .parametricShadows:            return \.parametricShadows
-        // ACR's parametric split points (#2320) — the Swift model carries
-        // them as ordinary scalars, so they capture/apply like any other
-        // numeric field even though the curve builder does not yet consume
-        // them (#3152).
-        case .parametricShadowSplit:        return \.parametricShadowSplit
-        case .parametricMidtoneSplit:       return \.parametricMidtoneSplit
-        case .parametricHighlightSplit:     return \.parametricHighlightSplit
-        case .vibrance:                     return \.vibrance
-        case .saturation:                   return \.saturation
-        case .clarity:                      return \.clarity
-        case .texture:                      return \.texture
-        case .sharpenAmount:                return \.sharpenAmount
-        case .sharpenRadius:                return \.sharpenRadius
-        case .sharpenDetail:                return \.sharpenDetail
-        case .sharpenMasking:               return \.sharpenMasking
-        case .captureSharpeningAmount:      return \.captureSharpeningAmount
-        case .captureSharpeningSigma:       return \.captureSharpeningSigma
-        case .nrLuminance:                  return \.nrLuminance
-        case .nrColor:                      return \.nrColor
-        case .dehaze:                       return \.dehaze
-        case .vignetteAmount:               return \.vignetteAmount
-        case .vignetteFeather:              return \.vignetteFeather
-        case .grainAmount:                  return \.grainAmount
-        case .grainSize:                    return \.grainSize
-        case .grainRoughness:               return \.grainRoughness
-        case .splitToneShadowHue:           return \.splitToneShadowHue
-        case .splitToneShadowSaturation:    return \.splitToneShadowSaturation
-        case .splitToneHighlightHue:        return \.splitToneHighlightHue
-        case .splitToneHighlightSaturation: return \.splitToneHighlightSaturation
-        case .splitToneBalance:             return \.splitToneBalance
-        // Color Grading (#275) — the rest of the panel beyond the five
-        // `splitTone*` fields above.
-        case .colorGradeShadowLuminance:    return \.colorGradeShadowLuminance
-        case .colorGradeMidtoneHue:         return \.colorGradeMidtoneHue
-        case .colorGradeMidtoneSaturation:  return \.colorGradeMidtoneSaturation
-        case .colorGradeMidtoneLuminance:   return \.colorGradeMidtoneLuminance
-        case .colorGradeHighlightLuminance: return \.colorGradeHighlightLuminance
-        case .colorGradeGlobalHue:          return \.colorGradeGlobalHue
-        case .colorGradeGlobalSaturation:   return \.colorGradeGlobalSaturation
-        case .colorGradeGlobalLuminance:    return \.colorGradeGlobalLuminance
-        // HSL 8-band per-channel adjustments (#1112).
-        case .hueAdjustmentRed:             return \.hueAdjustmentRed
-        case .hueAdjustmentOrange:          return \.hueAdjustmentOrange
-        case .hueAdjustmentYellow:          return \.hueAdjustmentYellow
-        case .hueAdjustmentGreen:           return \.hueAdjustmentGreen
-        case .hueAdjustmentAqua:            return \.hueAdjustmentAqua
-        case .hueAdjustmentBlue:            return \.hueAdjustmentBlue
-        case .hueAdjustmentPurple:          return \.hueAdjustmentPurple
-        case .hueAdjustmentMagenta:         return \.hueAdjustmentMagenta
-        case .saturationAdjustmentRed:      return \.saturationAdjustmentRed
-        case .saturationAdjustmentOrange:   return \.saturationAdjustmentOrange
-        case .saturationAdjustmentYellow:   return \.saturationAdjustmentYellow
-        case .saturationAdjustmentGreen:    return \.saturationAdjustmentGreen
-        case .saturationAdjustmentAqua:     return \.saturationAdjustmentAqua
-        case .saturationAdjustmentBlue:     return \.saturationAdjustmentBlue
-        case .saturationAdjustmentPurple:   return \.saturationAdjustmentPurple
-        case .saturationAdjustmentMagenta:  return \.saturationAdjustmentMagenta
-        case .luminanceAdjustmentRed:       return \.luminanceAdjustmentRed
-        case .luminanceAdjustmentOrange:    return \.luminanceAdjustmentOrange
-        case .luminanceAdjustmentYellow:    return \.luminanceAdjustmentYellow
-        case .luminanceAdjustmentGreen:     return \.luminanceAdjustmentGreen
-        case .luminanceAdjustmentAqua:      return \.luminanceAdjustmentAqua
-        case .luminanceAdjustmentBlue:      return \.luminanceAdjustmentBlue
-        case .luminanceAdjustmentPurple:    return \.luminanceAdjustmentPurple
-        case .luminanceAdjustmentMagenta:   return \.luminanceAdjustmentMagenta
-        // Black & white mix (#276) — eight gray-mixer weights.
-        case .grayMixerRed:                 return \.grayMixerRed
-        case .grayMixerOrange:              return \.grayMixerOrange
-        case .grayMixerYellow:              return \.grayMixerYellow
-        case .grayMixerGreen:               return \.grayMixerGreen
-        case .grayMixerAqua:                return \.grayMixerAqua
-        case .grayMixerBlue:                return \.grayMixerBlue
-        case .grayMixerPurple:              return \.grayMixerPurple
-        case .grayMixerMagenta:             return \.grayMixerMagenta
-        // Decode-time chroma pre-filter (#1104) — numeric decode-product
-        // field; capture/apply like any slider.
-        case .chromaPrefilter:              return \.chromaPrefilter
-        // BM3D deep denoise (#1105) — numeric decode-product field.
-        case .deepDenoise:                  return \.deepDenoise
-        // DNG lens corrections (#376) — numeric decode-product fields; the
-        // `.lensProfileEnable` master switch is the enum half, below.
-        case .lensCorrectionDistortion:     return \.lensCorrectionDistortion
-        case .lensCorrectionCa:             return \.lensCorrectionCa
-        case .lensCorrectionVignetting:     return \.lensCorrectionVignetting
-        // Film-look blend strength (epic #2683) — numeric, like every other
-        // blend-strength field.
-        case .filmStrength:                 return \.filmStrength
-        // Deprecated alias — no Swift property (see AdjustmentModel docs).
-        case .captureSharpeningRadius:      return nil
-        // Enum-valued fields have no *numeric* key path. `.highlightRecovery`
-        // / `.autoExposure` / `.look` / `.profile` / `.hotPixelSuppression` /
-        // `.blackWhite` / `.lensProfileEnable` are captured and applied as a
-        // string enum below instead. `.wbMethod` / `.toneCurveMode` have no
-        // Swift property at all yet (see the file header) — they map to nil
-        // here too, and fall through to `default` in `PresetAdjustments`
-        // below.
-        // #2434 provenance detail: raw-core's NON_COPYABLE_FIELDS — a look
-        // must not carry one image's sample point or derivation version, so
-        // they are invisible to presets and to the group merge, like the
-        // deprecated `captureSharpeningRadius` alias above.
-        case .wbSampleX, .wbSampleY, .wbAlgorithmVersion: return nil
-        case .wbMethod, .wbSource, .highlightRecovery, .autoExposure, .look, .profile,
-             .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
-            return nil
-        // Film-look id (epic #2683) — a free-form string, not a numeric
-        // slider or a closed rawValue enum, so it has no key path here (like
-        // the point tone curves below); captured/applied as `.string` in
-        // `PresetAdjustments` below (#2720). (`film_strength` DOES have a
-        // key path above — it is an ordinary numeric field.)
-        case .filmLook:                     return nil
-        // Point curves (#366) — structured `ToneCurve` values, not scalars.
-        // A preset `fields` map is flat (number | string | bool) on every
-        // client, so curves are neither captured nor applied here; the web
-        // preset layer skips them for the same reason. Point-curve presets
-        // land with the curve editor (#367).
-        case .toneCurveLuma, .toneCurveRed, .toneCurveGreen, .toneCurveBlue:
-            return nil
-        // Display-referred point curves (#2232) — same structured-`ToneCurve`
-        // reasoning as the scene-linear curves above.
-        case .displayToneCurveLuma, .displayToneCurveRed, .displayToneCurveGreen,
-            .displayToneCurveBlue:
-            return nil
-        }
+  /// Key path into the Swift model for numeric schema fields; nil for
+  /// enum-valued fields and for fields the Swift model doesn't carry.
+  var numericKeyPath: WritableKeyPath<AdjustmentModel, Double>? {
+    switch self {
+    case .temperature: return \.temperature
+    case .tint: return \.tint
+    case .exposure: return \.exposure
+    case .contrast: return \.contrast
+    case .brightness: return \.brightness
+    case .highlights: return \.highlights
+    case .shadows: return \.shadows
+    case .whites: return \.whites
+    case .blacks: return \.blacks
+    case .parametricHighlights: return \.parametricHighlights
+    case .parametricLights: return \.parametricLights
+    case .parametricDarks: return \.parametricDarks
+    case .parametricShadows: return \.parametricShadows
+    // ACR's parametric split points (#2320) — the Swift model carries
+    // them as ordinary scalars, so they capture/apply like any other
+    // numeric field even though the curve builder does not yet consume
+    // them (#3152).
+    case .parametricShadowSplit: return \.parametricShadowSplit
+    case .parametricMidtoneSplit: return \.parametricMidtoneSplit
+    case .parametricHighlightSplit: return \.parametricHighlightSplit
+    case .vibrance: return \.vibrance
+    case .saturation: return \.saturation
+    case .clarity: return \.clarity
+    case .texture: return \.texture
+    case .sharpenAmount: return \.sharpenAmount
+    case .sharpenRadius: return \.sharpenRadius
+    case .sharpenDetail: return \.sharpenDetail
+    case .sharpenMasking: return \.sharpenMasking
+    case .captureSharpeningAmount: return \.captureSharpeningAmount
+    case .captureSharpeningSigma: return \.captureSharpeningSigma
+    case .nrLuminance: return \.nrLuminance
+    case .nrColor: return \.nrColor
+    case .dehaze: return \.dehaze
+    case .vignetteAmount: return \.vignetteAmount
+    case .vignetteFeather: return \.vignetteFeather
+    case .grainAmount: return \.grainAmount
+    case .grainSize: return \.grainSize
+    case .grainRoughness: return \.grainRoughness
+    case .splitToneShadowHue: return \.splitToneShadowHue
+    case .splitToneShadowSaturation: return \.splitToneShadowSaturation
+    case .splitToneHighlightHue: return \.splitToneHighlightHue
+    case .splitToneHighlightSaturation: return \.splitToneHighlightSaturation
+    case .splitToneBalance: return \.splitToneBalance
+    // Color Grading (#275) — the rest of the panel beyond the five
+    // `splitTone*` fields above.
+    case .colorGradeShadowLuminance: return \.colorGradeShadowLuminance
+    case .colorGradeMidtoneHue: return \.colorGradeMidtoneHue
+    case .colorGradeMidtoneSaturation: return \.colorGradeMidtoneSaturation
+    case .colorGradeMidtoneLuminance: return \.colorGradeMidtoneLuminance
+    case .colorGradeHighlightLuminance: return \.colorGradeHighlightLuminance
+    case .colorGradeGlobalHue: return \.colorGradeGlobalHue
+    case .colorGradeGlobalSaturation: return \.colorGradeGlobalSaturation
+    case .colorGradeGlobalLuminance: return \.colorGradeGlobalLuminance
+    // HSL 8-band per-channel adjustments (#1112).
+    case .hueAdjustmentRed: return \.hueAdjustmentRed
+    case .hueAdjustmentOrange: return \.hueAdjustmentOrange
+    case .hueAdjustmentYellow: return \.hueAdjustmentYellow
+    case .hueAdjustmentGreen: return \.hueAdjustmentGreen
+    case .hueAdjustmentAqua: return \.hueAdjustmentAqua
+    case .hueAdjustmentBlue: return \.hueAdjustmentBlue
+    case .hueAdjustmentPurple: return \.hueAdjustmentPurple
+    case .hueAdjustmentMagenta: return \.hueAdjustmentMagenta
+    case .saturationAdjustmentRed: return \.saturationAdjustmentRed
+    case .saturationAdjustmentOrange: return \.saturationAdjustmentOrange
+    case .saturationAdjustmentYellow: return \.saturationAdjustmentYellow
+    case .saturationAdjustmentGreen: return \.saturationAdjustmentGreen
+    case .saturationAdjustmentAqua: return \.saturationAdjustmentAqua
+    case .saturationAdjustmentBlue: return \.saturationAdjustmentBlue
+    case .saturationAdjustmentPurple: return \.saturationAdjustmentPurple
+    case .saturationAdjustmentMagenta: return \.saturationAdjustmentMagenta
+    case .luminanceAdjustmentRed: return \.luminanceAdjustmentRed
+    case .luminanceAdjustmentOrange: return \.luminanceAdjustmentOrange
+    case .luminanceAdjustmentYellow: return \.luminanceAdjustmentYellow
+    case .luminanceAdjustmentGreen: return \.luminanceAdjustmentGreen
+    case .luminanceAdjustmentAqua: return \.luminanceAdjustmentAqua
+    case .luminanceAdjustmentBlue: return \.luminanceAdjustmentBlue
+    case .luminanceAdjustmentPurple: return \.luminanceAdjustmentPurple
+    case .luminanceAdjustmentMagenta: return \.luminanceAdjustmentMagenta
+    // Black & white mix (#276) — eight gray-mixer weights.
+    case .grayMixerRed: return \.grayMixerRed
+    case .grayMixerOrange: return \.grayMixerOrange
+    case .grayMixerYellow: return \.grayMixerYellow
+    case .grayMixerGreen: return \.grayMixerGreen
+    case .grayMixerAqua: return \.grayMixerAqua
+    case .grayMixerBlue: return \.grayMixerBlue
+    case .grayMixerPurple: return \.grayMixerPurple
+    case .grayMixerMagenta: return \.grayMixerMagenta
+    // Decode-time chroma pre-filter (#1104) — numeric decode-product
+    // field; capture/apply like any slider.
+    case .chromaPrefilter: return \.chromaPrefilter
+    // BM3D deep denoise (#1105) — numeric decode-product field.
+    case .deepDenoise: return \.deepDenoise
+    // DNG lens corrections (#376) — numeric decode-product fields; the
+    // `.lensProfileEnable` master switch is the enum half, below.
+    case .lensCorrectionDistortion: return \.lensCorrectionDistortion
+    case .lensCorrectionCa: return \.lensCorrectionCa
+    case .lensCorrectionVignetting: return \.lensCorrectionVignetting
+    // Film-look blend strength (epic #2683) — numeric, like every other
+    // blend-strength field.
+    case .filmStrength: return \.filmStrength
+    // Deprecated alias — no Swift property (see AdjustmentModel docs).
+    case .captureSharpeningRadius: return nil
+    // Enum-valued fields have no *numeric* key path. `.highlightRecovery`
+    // / `.autoExposure` / `.look` / `.profile` / `.hotPixelSuppression` /
+    // `.blackWhite` / `.lensProfileEnable` are captured and applied as a
+    // string enum below instead. `.wbMethod` / `.toneCurveMode` have no
+    // Swift property at all yet (see the file header) — they map to nil
+    // here too, and fall through to `default` in `PresetAdjustments`
+    // below.
+    // #2434 provenance detail: raw-core's NON_COPYABLE_FIELDS — a look
+    // must not carry one image's sample point or derivation version, so
+    // they are invisible to presets and to the group merge, like the
+    // deprecated `captureSharpeningRadius` alias above.
+    case .wbSampleX, .wbSampleY, .wbAlgorithmVersion: return nil
+    case .wbMethod, .wbSource, .highlightRecovery, .autoExposure, .look, .profile,
+      .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
+      return nil
+    // Film-look id (epic #2683) — a free-form string, not a numeric
+    // slider or a closed rawValue enum, so it has no key path here (like
+    // the point tone curves below); captured/applied as `.string` in
+    // `PresetAdjustments` below (#2720). (`film_strength` DOES have a
+    // key path above — it is an ordinary numeric field.)
+    case .filmLook: return nil
+    // Point curves (#366) — structured `ToneCurve` values, not scalars.
+    // A preset `fields` map is flat (number | string | bool) on every
+    // client, so curves are neither captured nor applied here; the web
+    // preset layer skips them for the same reason. Point-curve presets
+    // land with the curve editor (#367).
+    case .toneCurveLuma, .toneCurveRed, .toneCurveGreen, .toneCurveBlue:
+      return nil
+    // Display-referred point curves (#2232) — same structured-`ToneCurve`
+    // reasoning as the scene-linear curves above.
+    case .displayToneCurveLuma, .displayToneCurveRed, .displayToneCurveGreen,
+      .displayToneCurveBlue:
+      return nil
     }
+  }
 
-    /// Canonical generated range for numeric schema fields.
-    var numericRange: ClosedRange<Double>? {
-        switch self {
-        case .temperature:                  return AdjustmentModel.temperatureRange
-        case .tint:                         return AdjustmentModel.tintRange
-        case .exposure:                     return AdjustmentModel.exposureRange
-        case .contrast:                     return AdjustmentModel.contrastRange
-        case .brightness:                   return AdjustmentModel.brightnessRange
-        case .highlights:                   return AdjustmentModel.highlightsRange
-        case .shadows:                      return AdjustmentModel.shadowsRange
-        case .whites:                       return AdjustmentModel.whitesRange
-        case .blacks:                       return AdjustmentModel.blacksRange
-        case .parametricHighlights:         return AdjustmentModel.parametricHighlightsRange
-        case .parametricLights:             return AdjustmentModel.parametricLightsRange
-        case .parametricDarks:              return AdjustmentModel.parametricDarksRange
-        case .parametricShadows:            return AdjustmentModel.parametricShadowsRange
-        case .vibrance:                     return AdjustmentModel.vibranceRange
-        case .saturation:                   return AdjustmentModel.saturationRange
-        case .clarity:                      return AdjustmentModel.clarityRange
-        case .texture:                      return AdjustmentModel.textureRange
-        case .sharpenAmount:                return AdjustmentModel.sharpenAmountRange
-        case .sharpenRadius:                return AdjustmentModel.sharpenRadiusRange
-        case .sharpenDetail:                return AdjustmentModel.sharpenDetailRange
-        case .sharpenMasking:               return AdjustmentModel.sharpenMaskingRange
-        case .captureSharpeningAmount:      return AdjustmentModel.captureSharpeningAmountRange
-        case .captureSharpeningSigma:       return AdjustmentModel.captureSharpeningSigmaRange
-        case .nrLuminance:                  return AdjustmentModel.nrLuminanceRange
-        case .nrColor:                      return AdjustmentModel.nrColorRange
-        case .dehaze:                       return AdjustmentModel.dehazeRange
-        case .vignetteAmount:               return AdjustmentModel.vignetteAmountRange
-        case .vignetteFeather:              return AdjustmentModel.vignetteFeatherRange
-        case .grainAmount:                  return AdjustmentModel.grainAmountRange
-        case .grainSize:                    return AdjustmentModel.grainSizeRange
-        case .grainRoughness:               return AdjustmentModel.grainRoughnessRange
-        case .splitToneShadowHue:           return AdjustmentModel.splitToneShadowHueRange
-        case .splitToneShadowSaturation:    return AdjustmentModel.splitToneShadowSaturationRange
-        case .splitToneHighlightHue:        return AdjustmentModel.splitToneHighlightHueRange
-        case .splitToneHighlightSaturation:
-            return AdjustmentModel.splitToneHighlightSaturationRange
-        case .splitToneBalance:             return AdjustmentModel.splitToneBalanceRange
-        // Color Grading (#275) — the rest of the panel beyond the five
-        // `splitTone*` fields above.
-        case .colorGradeShadowLuminance:    return AdjustmentModel.colorGradeShadowLuminanceRange
-        case .colorGradeMidtoneHue:         return AdjustmentModel.colorGradeMidtoneHueRange
-        case .colorGradeMidtoneSaturation:  return AdjustmentModel.colorGradeMidtoneSaturationRange
-        case .colorGradeMidtoneLuminance:   return AdjustmentModel.colorGradeMidtoneLuminanceRange
-        case .colorGradeHighlightLuminance: return AdjustmentModel.colorGradeHighlightLuminanceRange
-        case .colorGradeGlobalHue:          return AdjustmentModel.colorGradeGlobalHueRange
-        case .colorGradeGlobalSaturation:   return AdjustmentModel.colorGradeGlobalSaturationRange
-        case .colorGradeGlobalLuminance:    return AdjustmentModel.colorGradeGlobalLuminanceRange
-        // HSL 8-band per-channel adjustments (#1112).
-        case .hueAdjustmentRed:             return AdjustmentModel.hueAdjustmentRedRange
-        case .hueAdjustmentOrange:          return AdjustmentModel.hueAdjustmentOrangeRange
-        case .hueAdjustmentYellow:          return AdjustmentModel.hueAdjustmentYellowRange
-        case .hueAdjustmentGreen:           return AdjustmentModel.hueAdjustmentGreenRange
-        case .hueAdjustmentAqua:            return AdjustmentModel.hueAdjustmentAquaRange
-        case .hueAdjustmentBlue:            return AdjustmentModel.hueAdjustmentBlueRange
-        case .hueAdjustmentPurple:          return AdjustmentModel.hueAdjustmentPurpleRange
-        case .hueAdjustmentMagenta:         return AdjustmentModel.hueAdjustmentMagentaRange
-        case .saturationAdjustmentRed:      return AdjustmentModel.saturationAdjustmentRedRange
-        case .saturationAdjustmentOrange:   return AdjustmentModel.saturationAdjustmentOrangeRange
-        case .saturationAdjustmentYellow:   return AdjustmentModel.saturationAdjustmentYellowRange
-        case .saturationAdjustmentGreen:    return AdjustmentModel.saturationAdjustmentGreenRange
-        case .saturationAdjustmentAqua:     return AdjustmentModel.saturationAdjustmentAquaRange
-        case .saturationAdjustmentBlue:     return AdjustmentModel.saturationAdjustmentBlueRange
-        case .saturationAdjustmentPurple:   return AdjustmentModel.saturationAdjustmentPurpleRange
-        case .saturationAdjustmentMagenta:  return AdjustmentModel.saturationAdjustmentMagentaRange
-        case .luminanceAdjustmentRed:       return AdjustmentModel.luminanceAdjustmentRedRange
-        case .luminanceAdjustmentOrange:    return AdjustmentModel.luminanceAdjustmentOrangeRange
-        case .luminanceAdjustmentYellow:    return AdjustmentModel.luminanceAdjustmentYellowRange
-        case .luminanceAdjustmentGreen:     return AdjustmentModel.luminanceAdjustmentGreenRange
-        case .luminanceAdjustmentAqua:      return AdjustmentModel.luminanceAdjustmentAquaRange
-        case .luminanceAdjustmentBlue:      return AdjustmentModel.luminanceAdjustmentBlueRange
-        case .luminanceAdjustmentPurple:    return AdjustmentModel.luminanceAdjustmentPurpleRange
-        case .luminanceAdjustmentMagenta:   return AdjustmentModel.luminanceAdjustmentMagentaRange
-        // Black & white mix (#276) — eight gray-mixer weights.
-        case .grayMixerRed:                 return AdjustmentModel.grayMixerRedRange
-        case .grayMixerOrange:              return AdjustmentModel.grayMixerOrangeRange
-        case .grayMixerYellow:              return AdjustmentModel.grayMixerYellowRange
-        case .grayMixerGreen:               return AdjustmentModel.grayMixerGreenRange
-        case .grayMixerAqua:                return AdjustmentModel.grayMixerAquaRange
-        case .grayMixerBlue:                return AdjustmentModel.grayMixerBlueRange
-        case .grayMixerPurple:              return AdjustmentModel.grayMixerPurpleRange
-        case .grayMixerMagenta:             return AdjustmentModel.grayMixerMagentaRange
-        case .chromaPrefilter:              return AdjustmentModel.chromaPrefilterRange
-        case .deepDenoise:                  return AdjustmentModel.deepDenoiseRange
-        // DNG lens corrections (#376) — 0..100 strengths; an out-of-range
-        // preset value clamps rather than amplifying the vendor's warp.
-        case .lensCorrectionDistortion:     return AdjustmentModel.lensCorrectionDistortionRange
-        case .lensCorrectionCa:             return AdjustmentModel.lensCorrectionCaRange
-        case .lensCorrectionVignetting:     return AdjustmentModel.lensCorrectionVignettingRange
-        case .filmStrength:                 return AdjustmentModel.filmStrengthRange
-        default:                            return nil
-        }
+  /// Canonical generated range for numeric schema fields.
+  var numericRange: ClosedRange<Double>? {
+    switch self {
+    case .temperature: return AdjustmentModel.temperatureRange
+    case .tint: return AdjustmentModel.tintRange
+    case .exposure: return AdjustmentModel.exposureRange
+    case .contrast: return AdjustmentModel.contrastRange
+    case .brightness: return AdjustmentModel.brightnessRange
+    case .highlights: return AdjustmentModel.highlightsRange
+    case .shadows: return AdjustmentModel.shadowsRange
+    case .whites: return AdjustmentModel.whitesRange
+    case .blacks: return AdjustmentModel.blacksRange
+    case .parametricHighlights: return AdjustmentModel.parametricHighlightsRange
+    case .parametricLights: return AdjustmentModel.parametricLightsRange
+    case .parametricDarks: return AdjustmentModel.parametricDarksRange
+    case .parametricShadows: return AdjustmentModel.parametricShadowsRange
+    case .vibrance: return AdjustmentModel.vibranceRange
+    case .saturation: return AdjustmentModel.saturationRange
+    case .clarity: return AdjustmentModel.clarityRange
+    case .texture: return AdjustmentModel.textureRange
+    case .sharpenAmount: return AdjustmentModel.sharpenAmountRange
+    case .sharpenRadius: return AdjustmentModel.sharpenRadiusRange
+    case .sharpenDetail: return AdjustmentModel.sharpenDetailRange
+    case .sharpenMasking: return AdjustmentModel.sharpenMaskingRange
+    case .captureSharpeningAmount: return AdjustmentModel.captureSharpeningAmountRange
+    case .captureSharpeningSigma: return AdjustmentModel.captureSharpeningSigmaRange
+    case .nrLuminance: return AdjustmentModel.nrLuminanceRange
+    case .nrColor: return AdjustmentModel.nrColorRange
+    case .dehaze: return AdjustmentModel.dehazeRange
+    case .vignetteAmount: return AdjustmentModel.vignetteAmountRange
+    case .vignetteFeather: return AdjustmentModel.vignetteFeatherRange
+    case .grainAmount: return AdjustmentModel.grainAmountRange
+    case .grainSize: return AdjustmentModel.grainSizeRange
+    case .grainRoughness: return AdjustmentModel.grainRoughnessRange
+    case .splitToneShadowHue: return AdjustmentModel.splitToneShadowHueRange
+    case .splitToneShadowSaturation: return AdjustmentModel.splitToneShadowSaturationRange
+    case .splitToneHighlightHue: return AdjustmentModel.splitToneHighlightHueRange
+    case .splitToneHighlightSaturation:
+      return AdjustmentModel.splitToneHighlightSaturationRange
+    case .splitToneBalance: return AdjustmentModel.splitToneBalanceRange
+    // Color Grading (#275) — the rest of the panel beyond the five
+    // `splitTone*` fields above.
+    case .colorGradeShadowLuminance: return AdjustmentModel.colorGradeShadowLuminanceRange
+    case .colorGradeMidtoneHue: return AdjustmentModel.colorGradeMidtoneHueRange
+    case .colorGradeMidtoneSaturation: return AdjustmentModel.colorGradeMidtoneSaturationRange
+    case .colorGradeMidtoneLuminance: return AdjustmentModel.colorGradeMidtoneLuminanceRange
+    case .colorGradeHighlightLuminance: return AdjustmentModel.colorGradeHighlightLuminanceRange
+    case .colorGradeGlobalHue: return AdjustmentModel.colorGradeGlobalHueRange
+    case .colorGradeGlobalSaturation: return AdjustmentModel.colorGradeGlobalSaturationRange
+    case .colorGradeGlobalLuminance: return AdjustmentModel.colorGradeGlobalLuminanceRange
+    // HSL 8-band per-channel adjustments (#1112).
+    case .hueAdjustmentRed: return AdjustmentModel.hueAdjustmentRedRange
+    case .hueAdjustmentOrange: return AdjustmentModel.hueAdjustmentOrangeRange
+    case .hueAdjustmentYellow: return AdjustmentModel.hueAdjustmentYellowRange
+    case .hueAdjustmentGreen: return AdjustmentModel.hueAdjustmentGreenRange
+    case .hueAdjustmentAqua: return AdjustmentModel.hueAdjustmentAquaRange
+    case .hueAdjustmentBlue: return AdjustmentModel.hueAdjustmentBlueRange
+    case .hueAdjustmentPurple: return AdjustmentModel.hueAdjustmentPurpleRange
+    case .hueAdjustmentMagenta: return AdjustmentModel.hueAdjustmentMagentaRange
+    case .saturationAdjustmentRed: return AdjustmentModel.saturationAdjustmentRedRange
+    case .saturationAdjustmentOrange: return AdjustmentModel.saturationAdjustmentOrangeRange
+    case .saturationAdjustmentYellow: return AdjustmentModel.saturationAdjustmentYellowRange
+    case .saturationAdjustmentGreen: return AdjustmentModel.saturationAdjustmentGreenRange
+    case .saturationAdjustmentAqua: return AdjustmentModel.saturationAdjustmentAquaRange
+    case .saturationAdjustmentBlue: return AdjustmentModel.saturationAdjustmentBlueRange
+    case .saturationAdjustmentPurple: return AdjustmentModel.saturationAdjustmentPurpleRange
+    case .saturationAdjustmentMagenta: return AdjustmentModel.saturationAdjustmentMagentaRange
+    case .luminanceAdjustmentRed: return AdjustmentModel.luminanceAdjustmentRedRange
+    case .luminanceAdjustmentOrange: return AdjustmentModel.luminanceAdjustmentOrangeRange
+    case .luminanceAdjustmentYellow: return AdjustmentModel.luminanceAdjustmentYellowRange
+    case .luminanceAdjustmentGreen: return AdjustmentModel.luminanceAdjustmentGreenRange
+    case .luminanceAdjustmentAqua: return AdjustmentModel.luminanceAdjustmentAquaRange
+    case .luminanceAdjustmentBlue: return AdjustmentModel.luminanceAdjustmentBlueRange
+    case .luminanceAdjustmentPurple: return AdjustmentModel.luminanceAdjustmentPurpleRange
+    case .luminanceAdjustmentMagenta: return AdjustmentModel.luminanceAdjustmentMagentaRange
+    // Black & white mix (#276) — eight gray-mixer weights.
+    case .grayMixerRed: return AdjustmentModel.grayMixerRedRange
+    case .grayMixerOrange: return AdjustmentModel.grayMixerOrangeRange
+    case .grayMixerYellow: return AdjustmentModel.grayMixerYellowRange
+    case .grayMixerGreen: return AdjustmentModel.grayMixerGreenRange
+    case .grayMixerAqua: return AdjustmentModel.grayMixerAquaRange
+    case .grayMixerBlue: return AdjustmentModel.grayMixerBlueRange
+    case .grayMixerPurple: return AdjustmentModel.grayMixerPurpleRange
+    case .grayMixerMagenta: return AdjustmentModel.grayMixerMagentaRange
+    case .chromaPrefilter: return AdjustmentModel.chromaPrefilterRange
+    case .deepDenoise: return AdjustmentModel.deepDenoiseRange
+    // DNG lens corrections (#376) — 0..100 strengths; an out-of-range
+    // preset value clamps rather than amplifying the vendor's warp.
+    case .lensCorrectionDistortion: return AdjustmentModel.lensCorrectionDistortionRange
+    case .lensCorrectionCa: return AdjustmentModel.lensCorrectionCaRange
+    case .lensCorrectionVignetting: return AdjustmentModel.lensCorrectionVignettingRange
+    case .filmStrength: return AdjustmentModel.filmStrengthRange
+    default: return nil
     }
+  }
 }
 
 // MARK: - PresetAdjustments
 
 public enum PresetAdjustments {
-    /// Capture the model's NON-DEFAULT schema fields as a sparse preset
-    /// `fields` map (canonical snake_case keys). Enum fields record their
-    /// raw string value; only fields the Swift model carries can ever be
-    /// captured (matching the S5 sliders, which write the same fields).
-    public static func captureFields(from model: AdjustmentModel) -> [String: PresetFieldValue] {
-        let defaults = AdjustmentModel.default
-        var fields: [String: PresetFieldValue] = [:]
-        for field in AdjustmentModel.FieldName.allCases {
-            if let keyPath = field.numericKeyPath {
-                let value = model[keyPath: keyPath]
-                if value != defaults[keyPath: keyPath] {
-                    fields[field.rawValue] = .number(value)
-                }
-                continue
-            }
-            switch field {
-            case .highlightRecovery where model.highlightRecovery != defaults.highlightRecovery:
-                fields[field.rawValue] = .string(model.highlightRecovery.rawValue)
-            case .look where model.look != defaults.look:
-                fields[field.rawValue] = .string(model.look.rawValue)
-            case .profile where model.profile != defaults.profile:
-                fields[field.rawValue] = .string(model.profile.rawValue)
-            case .wbSource where model.wbSource != defaults.wbSource:
-                fields[field.rawValue] = .string(model.wbSource.rawValue)
-            // Hot/dead-pixel suppression (#1106) — enum decode-product field.
-            case .hotPixelSuppression
-                where model.hotPixelSuppression != defaults.hotPixelSuppression:
-                fields[field.rawValue] = .string(model.hotPixelSuppression.rawValue)
-            // Auto-exposure (#1387) — enum decode-product field.
-            case .autoExposure where model.autoExposure != defaults.autoExposure:
-                fields[field.rawValue] = .string(model.autoExposure.rawValue)
-            // Black & white mix (#276) — enum toggle field.
-            case .blackWhite where model.blackWhite != defaults.blackWhite:
-                fields[field.rawValue] = .string(model.blackWhite.rawValue)
-            // DNG lens corrections master switch (#376) — enum
-            // decode-product field.
-            case .lensProfileEnable where model.lensProfileEnable != defaults.lensProfileEnable:
-                fields[field.rawValue] = .string(model.lensProfileEnable.rawValue)
-            // Film-look id (#2720) — free-form string, not a closed enum;
-            // same non-default capture gate as every other field here. The
-            // default is the empty string ("no look"), so this only fires
-            // for a genuinely selected look — matching web's
-            // `capturePresetFields` (`preset-model.ts`).
-            case .filmLook where model.filmLook != defaults.filmLook:
-                fields[field.rawValue] = .string(model.filmLook)
-            default:
-                break
-            }
+  /// Capture the model's NON-DEFAULT schema fields as a sparse preset
+  /// `fields` map (canonical snake_case keys). Enum fields record their
+  /// raw string value; only fields the Swift model carries can ever be
+  /// captured (matching the S5 sliders, which write the same fields).
+  public static func captureFields(from model: AdjustmentModel) -> [String: PresetFieldValue] {
+    let defaults = AdjustmentModel.default
+    var fields: [String: PresetFieldValue] = [:]
+    for field in AdjustmentModel.FieldName.allCases {
+      if let keyPath = field.numericKeyPath {
+        let value = model[keyPath: keyPath]
+        if value != defaults[keyPath: keyPath] {
+          fields[field.rawValue] = .number(value)
         }
-        return fields
+        continue
+      }
+      switch field {
+      case .highlightRecovery where model.highlightRecovery != defaults.highlightRecovery:
+        fields[field.rawValue] = .string(model.highlightRecovery.rawValue)
+      case .look where model.look != defaults.look:
+        fields[field.rawValue] = .string(model.look.rawValue)
+      case .profile where model.profile != defaults.profile:
+        fields[field.rawValue] = .string(model.profile.rawValue)
+      case .wbSource where model.wbSource != defaults.wbSource:
+        fields[field.rawValue] = .string(model.wbSource.rawValue)
+      // Hot/dead-pixel suppression (#1106) — enum decode-product field.
+      case .hotPixelSuppression
+      where model.hotPixelSuppression != defaults.hotPixelSuppression:
+        fields[field.rawValue] = .string(model.hotPixelSuppression.rawValue)
+      // Auto-exposure (#1387) — enum decode-product field.
+      case .autoExposure where model.autoExposure != defaults.autoExposure:
+        fields[field.rawValue] = .string(model.autoExposure.rawValue)
+      // Black & white mix (#276) — enum toggle field.
+      case .blackWhite where model.blackWhite != defaults.blackWhite:
+        fields[field.rawValue] = .string(model.blackWhite.rawValue)
+      // DNG lens corrections master switch (#376) — enum
+      // decode-product field.
+      case .lensProfileEnable where model.lensProfileEnable != defaults.lensProfileEnable:
+        fields[field.rawValue] = .string(model.lensProfileEnable.rawValue)
+      // Film-look id (#2720) — free-form string, not a closed enum;
+      // same non-default capture gate as every other field here. The
+      // default is the empty string ("no look"), so this only fires
+      // for a genuinely selected look — matching web's
+      // `capturePresetFields` (`preset-model.ts`).
+      case .filmLook where model.filmLook != defaults.filmLook:
+        fields[field.rawValue] = .string(model.filmLook)
+      default:
+        break
+      }
     }
+    return fields
+  }
 
-    /// Merge a sparse `fields` map into `model`. Returns the merged model
-    /// plus how many fields were recognized and applied — zero means the
-    /// preset had nothing this client understands (apply should no-op
-    /// rather than push an empty undo entry).
-    public static func merged(
-        _ model: AdjustmentModel,
-        applying fields: [String: PresetFieldValue]
-    ) -> (model: AdjustmentModel, appliedFieldCount: Int) {
-        var merged = model
-        var applied = 0
-        for (key, value) in fields {
-            guard let field = AdjustmentModel.FieldName(rawValue: key) else {
-                continue // Unknown field (newer schema) — preserved, never applied.
-            }
-            if let keyPath = field.numericKeyPath {
-                guard case .number(let raw) = value, raw.isFinite else { continue }
-                let clamped = field.numericRange.map { min($0.upperBound, max($0.lowerBound, raw)) }
-                merged[keyPath: keyPath] = clamped ?? raw
-                applied += 1
-                continue
-            }
-            // Enum-valued fields: apply only known variants (`film_look`
-            // below is the one exception — free-form, so ANY string
-            // applies). `wb_method` / `tone_curve_mode` /
-            // `capture_sharpening_radius` have no Swift property at all
-            // (see the file header) and fall through to `default`.
-            guard case .string(let rawValue) = value else { continue }
-            switch field {
-            case .highlightRecovery:
-                guard let mode = HighlightRecoveryMode(rawValue: rawValue) else { continue }
-                merged.highlightRecovery = mode
-                applied += 1
-            case .look:
-                guard let look = Look(rawValue: rawValue) else { continue }
-                merged.look = look
-                applied += 1
-            case .profile:
-                guard let profile = Profile(rawValue: rawValue) else { continue }
-                merged.profile = profile
-                applied += 1
-            case .hotPixelSuppression:
-                guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }
-                merged.hotPixelSuppression = mode
-                applied += 1
-            case .autoExposure:
-                guard let mode = AutoExposureMode(rawValue: rawValue) else { continue }
-                merged.autoExposure = mode
-                applied += 1
-            case .blackWhite:
-                guard let mode = BlackWhiteMode(rawValue: rawValue) else { continue }
-                merged.blackWhite = mode
-                applied += 1
-            case .lensProfileEnable:
-                guard let mode = LensProfileEnable(rawValue: rawValue) else { continue }
-                merged.lensProfileEnable = mode
-                applied += 1
-            // Film-look id (#2720) — free-form string: ANY value applies,
-            // including the empty string, which is the canonical
-            // "no look" / explicit-clear value (mirrors web's
-            // `FREE_FORM_STRING_FIELDS` / the API's `allowsEmptyString`).
-            // Unlike every other case here there is no rawValue-membership
-            // guard, because there is no fixed variant list to check
-            // against — an id the film catalog doesn't recognise still
-            // applies and resolves to identity at render time
-            // (`FilmLutStore`), matching the XMP parser's `papp:FilmLook`.
-            case .filmLook:
-                merged.filmLook = rawValue
-                applied += 1
-            case .wbSource:
-                guard let source = WbSource(rawValue: rawValue) else { continue }
-                merged.wbSource = source
-                applied += 1
-            default:
-                continue
-            }
-        }
-        return (merged, applied)
+  /// Merge a sparse `fields` map into `model`. Returns the merged model
+  /// plus how many fields were recognized and applied — zero means the
+  /// preset had nothing this client understands (apply should no-op
+  /// rather than push an empty undo entry).
+  public static func merged(
+    _ model: AdjustmentModel,
+    applying fields: [String: PresetFieldValue]
+  ) -> (model: AdjustmentModel, appliedFieldCount: Int) {
+    var merged = model
+    var applied = 0
+    for (key, value) in fields {
+      guard let field = AdjustmentModel.FieldName(rawValue: key) else {
+        continue  // Unknown field (newer schema) — preserved, never applied.
+      }
+      if let keyPath = field.numericKeyPath {
+        guard case .number(let raw) = value, raw.isFinite else { continue }
+        let clamped = field.numericRange.map { min($0.upperBound, max($0.lowerBound, raw)) }
+        merged[keyPath: keyPath] = clamped ?? raw
+        applied += 1
+        continue
+      }
+      // Enum-valued fields: apply only known variants (`film_look`
+      // below is the one exception — free-form, so ANY string
+      // applies). `wb_method` / `tone_curve_mode` /
+      // `capture_sharpening_radius` have no Swift property at all
+      // (see the file header) and fall through to `default`.
+      guard case .string(let rawValue) = value else { continue }
+      switch field {
+      case .highlightRecovery:
+        guard let mode = HighlightRecoveryMode(rawValue: rawValue) else { continue }
+        merged.highlightRecovery = mode
+        applied += 1
+      case .look:
+        guard let look = Look(rawValue: rawValue) else { continue }
+        merged.look = look
+        applied += 1
+      case .profile:
+        guard let profile = Profile(rawValue: rawValue) else { continue }
+        merged.profile = profile
+        applied += 1
+      case .hotPixelSuppression:
+        guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }
+        merged.hotPixelSuppression = mode
+        applied += 1
+      case .autoExposure:
+        guard let mode = AutoExposureMode(rawValue: rawValue) else { continue }
+        merged.autoExposure = mode
+        applied += 1
+      case .blackWhite:
+        guard let mode = BlackWhiteMode(rawValue: rawValue) else { continue }
+        merged.blackWhite = mode
+        applied += 1
+      case .lensProfileEnable:
+        guard let mode = LensProfileEnable(rawValue: rawValue) else { continue }
+        merged.lensProfileEnable = mode
+        applied += 1
+      // Film-look id (#2720) — free-form string: ANY value applies,
+      // including the empty string, which is the canonical
+      // "no look" / explicit-clear value (mirrors web's
+      // `FREE_FORM_STRING_FIELDS` / the API's `allowsEmptyString`).
+      // Unlike every other case here there is no rawValue-membership
+      // guard, because there is no fixed variant list to check
+      // against — an id the film catalog doesn't recognise still
+      // applies and resolves to identity at render time
+      // (`FilmLutStore`), matching the XMP parser's `papp:FilmLook`.
+      case .filmLook:
+        merged.filmLook = rawValue
+        applied += 1
+      case .wbSource:
+        guard let source = WbSource(rawValue: rawValue) else { continue }
+        merged.wbSource = source
+        applied += 1
+      default:
+        continue
+      }
     }
+    // A preset can transfer a WB pair/source, never the destination's
+    // previous sample point. Ignore invalid numeric values just as the
+    // apply loop does, so an inert preset preserves genuine provenance.
+    let authoredPair = ["temperature", "tint"].contains { key in
+      guard case .number(let value) = fields[key] else { return false }
+      return value.isFinite
+    }
+    let authoredSource: WbSource? = {
+      guard case .string(let value) = fields["wb_source"] else { return nil }
+      return WbSource(rawValue: value)
+    }()
+    if authoredPair || authoredSource != nil {
+      merged.wbSource = authoredSource ?? .preset
+      merged.wbSampleX = 0
+      merged.wbSampleY = 0
+      merged.wbAlgorithmVersion = 0
+    }
+    return (merged, applied)
+  }
 }
