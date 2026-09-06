@@ -125,7 +125,7 @@ struct PillHeader: View {
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(ProTokens.textMuted)
           .monospacedDigit()
-          .frame(minWidth: 36, minHeight: 30, alignment: .trailing)
+          .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
           .contentShape(Rectangle())
       }
       .buttonStyle(.plain)

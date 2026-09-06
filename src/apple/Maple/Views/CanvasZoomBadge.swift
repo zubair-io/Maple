@@ -14,6 +14,8 @@ struct CanvasZoomBadge: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.xs))
+        .frame(minWidth: 44, minHeight: 44)
+        .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .disabled(!canvasReady)
