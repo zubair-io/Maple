@@ -227,9 +227,9 @@ const SHELL: readonly ParityCapability[] = [
     name: 'AUTO (exposure + tone, one undo entry)',
     group: 'shell',
     order: 90,
-    reachability: { apple: 'absent', web: 'released' },
+    reachability: BOTH,
     presentation: SAME(
-      'AUTO button in the floating top bar; a polite live region reports the applied exposure',
+      'AUTO button in the floating top bar; Apple announces the edit transaction, web reports the applied exposure',
     ),
     interaction: {
       keyboard: 'Tab + Enter',
@@ -240,16 +240,12 @@ const SHELL: readonly ParityCapability[] = [
     accessibility: {
       role: 'button + status',
       name: 'Auto adjust',
-      value: 'status text "Auto applied · Exposure ±N.NN EV"',
-      state: 'aria-busy while analysing; disabled without an asset',
+      value:
+        'Apple: Ready / Analysing and edit announcement; web: "Auto applied · Exposure ±N.NN EV"',
+      state: 'Busy while analysing; disabled without a supported asset',
       actions: ['apply'],
     },
     participation: { undo: true, copyPaste: 'tone', history: true, preview: 'live', export: true },
-    exception: {
-      platform: 'apple',
-      rationale: 'EditorState+AutoReset.swift has the method; no Apple view calls it.',
-      ticket: '#3249',
-    },
     featuresRow: 'AUTO',
   },
   {

@@ -9,89 +9,91 @@ import Foundation
 
 extension EditorState {
 
-    // MARK: Reset to factory defaults (#1372)
+  // MARK: Reset to factory defaults (#1372)
 
-    /// Reset every develop slider to its FACTORY default, point white balance
-    /// at the camera's As-Shot reading (falling back to the 6500 K / 0 default
-    /// when no As-Shot value was captured), and restore the Auto profile.
-    /// Crop / rotation is deliberately preserved — RESET clears develop
-    /// adjustments, never the user's framing. Applied as ONE undo entry
-    /// (`commit()` then a single `session.model` write, mirroring
-    /// `applyPreset`). (#1372)
-    public func resetToFactoryDefaults() {
-        commit(kind: .reset, description: "Reset all adjustments")
-        defer { session.endEdit() }
-        var m = AdjustmentModel.default
-        m.crop = session.model.crop // preserve crop / rotation
-        if let cct = session.asShotCCT, let tint = session.asShotTint {
-            m.temperature = cct
-            m.tint = tint
-        }
-        m.profile = .auto
-        session.model = m
+  /// Reset every develop slider to its FACTORY default, point white balance
+  /// at the camera's As-Shot reading (falling back to the 6500 K / 0 default
+  /// when no As-Shot value was captured), and restore the Auto profile.
+  /// Crop / rotation is deliberately preserved — RESET clears develop
+  /// adjustments, never the user's framing. Applied as ONE undo entry
+  /// (`commit()` then a single `session.model` write, mirroring
+  /// `applyPreset`). (#1372)
+  public func resetToFactoryDefaults() {
+    commit(kind: .reset, description: "Reset all adjustments")
+    defer { session.endEdit() }
+    var m = AdjustmentModel.default
+    m.crop = session.model.crop  // preserve crop / rotation
+    if let cct = session.asShotCCT, let tint = session.asShotTint {
+      m.temperature = cct
+      m.tint = tint
     }
+    m.profile = .auto
+    session.model = m
+  }
 
-    // MARK: AUTO (#1379)
+  // MARK: AUTO (#1379)
 
-    /// Analyse the scene and apply AUTO's **exposure + the five calibrated
-    /// tone sliders** (#1376/#2255) as ONE undo entry (`commit()` then a
-    /// single `session.model` write). Async — the analysis decodes + develops
-    /// a probe buffer. Generation-guarded so a stale result can't overwrite a
-    /// newer edit / image switch.
-    ///
-    /// White balance is intentionally NOT written (single-image gray-world WB
-    /// is unreliable on colour-dominant scenes — it skews green on foliage,
-    /// warm on skin — so As-Shot stays the default). The exposure uses
-    /// highlight-protected metering so a bright sky / background can't be
-    /// blown out; the tone sliders (contrast/highlights/shadows/whites/
-    /// blacks) are scene-proportional values calibrated in #1376.
-    ///
-    /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
-    /// default `Profile.auto` the Apple decode already forces auto-exposure off
-    /// internally whenever an Auto Profile curve will fit, so the recommendation
-    /// lands correctly there regardless; on `Profile.neutral`
-    /// nothing forces that, so applying AUTO's exposure on top of an AE-On decode
-    /// would double-count the anchor gain and blow out highlights. #1387 closes
-    /// that gap: `autoExposure` is set to `.off` alongside `exposure`, on every
-    /// profile, so the decode this recommendation is valid for is always the one
-    /// that actually renders.
-    public func applyAuto() async {
-        guard let url = session.asset.primaryURL else { return } // RAW path only
-        autoGeneration &+= 1
-        let gen = autoGeneration
-        autoInProgress = true
-        defer { if gen == autoGeneration { autoInProgress = false } }
+  /// Analyse the scene and apply AUTO's **exposure + the five calibrated
+  /// tone sliders** (#1376/#2255) as ONE undo entry (`commit()` then a
+  /// single `session.model` write). Async — the analysis decodes + develops
+  /// a probe buffer. Generation-guarded so a stale result can't overwrite a
+  /// newer edit / image switch.
+  ///
+  /// White balance is intentionally NOT written (single-image gray-world WB
+  /// is unreliable on colour-dominant scenes — it skews green on foliage,
+  /// warm on skin — so As-Shot stays the default). The exposure uses
+  /// highlight-protected metering so a bright sky / background can't be
+  /// blown out; the tone sliders (contrast/highlights/shadows/whites/
+  /// blacks) are scene-proportional values calibrated in #1376.
+  ///
+  /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
+  /// default `Profile.auto` the Apple decode already forces auto-exposure off
+  /// internally whenever an Auto Profile curve will fit, so the recommendation
+  /// lands correctly there regardless; on `Profile.neutral`
+  /// nothing forces that, so applying AUTO's exposure on top of an AE-On decode
+  /// would double-count the anchor gain and blow out highlights. #1387 closes
+  /// that gap: `autoExposure` is set to `.off` alongside `exposure`, on every
+  /// profile, so the decode this recommendation is valid for is always the one
+  /// that actually renders.
+  public func applyAuto() async {
+    guard let url = session.asset.primaryURL else { return }  // RAW path only
+    autoGeneration &+= 1
+    let gen = autoGeneration
+    autoInProgress = true
+    defer { if gen == autoGeneration { autoInProgress = false } }
 
-        let result: AutoAdjustmentsResult
-        do {
-            result = try await autoProvider(url)
-        } catch {
-            return // leave the model untouched; the button re-enables
-        }
-        // Drop a stale result: a newer AUTO ran, or the user switched images.
-        guard gen == autoGeneration, session.asset.primaryURL == url else { return }
-
-        func clamp(_ v: Double, _ r: ClosedRange<Double>) -> Double {
-            min(max(v, r.lowerBound), r.upperBound)
-        }
-        commit(kind: .auto, description: "Auto adjustments")
-        defer { session.endEdit() }
-        var m = session.model
-        // AUTO applies EXPOSURE + the five calibrated tone sliders (#2255).
-        // White balance is intentionally NOT touched: single-image gray-world
-        // WB is unreliable on colour-dominant scenes (it skews green on
-        // foliage, warm on skin), so As-Shot stays the trustworthy default.
-        m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
-        m.contrast = clamp(result.contrast, AdjustmentModel.contrastRange)
-        m.highlights = clamp(result.highlights, AdjustmentModel.highlightsRange)
-        m.shadows = clamp(result.shadows, AdjustmentModel.shadowsRange)
-        m.whites = clamp(result.whites, AdjustmentModel.whitesRange)
-        m.blacks = clamp(result.blacks, AdjustmentModel.blacksRange)
-        // #1387: the exposure recommendation is measured against an AE-Off
-        // probe (see `autoProvider`), so pin the decode to match — otherwise
-        // a `Profile.neutral` decode keeps auto_exposure On
-        // and AE-lift stacks with AUTO's lift, blowing out highlights.
-        m.autoExposure = .off
-        session.model = m
+    let result: AutoAdjustmentsResult
+    do {
+      result = try await autoProvider(url)
+    } catch {
+      return  // leave the model untouched; the button re-enables
     }
+    // The chrome task is cancelled when its editor disappears. A native
+    // analysis can finish after cancellation; it must not commit to the
+    // session (or its sidecar) after the user has left the image.
+    guard !Task.isCancelled, gen == autoGeneration, session.asset.primaryURL == url else { return }
+
+    func clamp(_ v: Double, _ r: ClosedRange<Double>) -> Double {
+      min(max(v, r.lowerBound), r.upperBound)
+    }
+    commit(kind: .auto, description: "Auto adjustments")
+    defer { session.endEdit() }
+    var m = session.model
+    // AUTO applies EXPOSURE + the five calibrated tone sliders (#2255).
+    // White balance is intentionally NOT touched: single-image gray-world
+    // WB is unreliable on colour-dominant scenes (it skews green on
+    // foliage, warm on skin), so As-Shot stays the trustworthy default.
+    m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
+    m.contrast = clamp(result.contrast, AdjustmentModel.contrastRange)
+    m.highlights = clamp(result.highlights, AdjustmentModel.highlightsRange)
+    m.shadows = clamp(result.shadows, AdjustmentModel.shadowsRange)
+    m.whites = clamp(result.whites, AdjustmentModel.whitesRange)
+    m.blacks = clamp(result.blacks, AdjustmentModel.blacksRange)
+    // #1387: the exposure recommendation is measured against an AE-Off
+    // probe (see `autoProvider`), so pin the decode to match — otherwise
+    // a `Profile.neutral` decode keeps auto_exposure On
+    // and AE-lift stacks with AUTO's lift, blowing out highlights.
+    m.autoExposure = .off
+    session.model = m
+  }
 }
