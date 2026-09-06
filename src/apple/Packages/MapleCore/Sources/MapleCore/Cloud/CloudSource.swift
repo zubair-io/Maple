@@ -10,11 +10,8 @@
 // editor identifiers). Thumbnails and raw bytes are fetched by
 // absolute path via `/api/fs/thumb` and `/api/fs/raw`.
 //
-// Limitations (carried over from web):
-//   • Editing XMP requires a Mongo asset id — not available from
-//     the FS-walk endpoints — so cloud XMP writes go through the
-//     CloudSidecarStore path and only succeed once the indexer
-//     has caught up.
+// CloudSidecarStore routes these fs: identifiers through the path-keyed
+// XMP endpoint, so edits do not depend on the indexer catching up (#3357).
 
 import Foundation
 import MapleCloudKit
@@ -28,10 +25,12 @@ public actor CloudSource {
   public private(set) var currentPath: String
   private let httpClient: AuthenticatedHTTPClient
 
-  public init(server: URL,
-              folderID: String,
-              libraryPath: String,
-              httpClient: AuthenticatedHTTPClient) {
+  public init(
+    server: URL,
+    folderID: String,
+    libraryPath: String,
+    httpClient: AuthenticatedHTTPClient
+  ) {
     self.server = server
     self.folderID = folderID
     self.libraryPath = libraryPath
@@ -71,16 +70,18 @@ extension CloudSource: ImageSource {
     // plain-only formatter would have silently failed to parse.
     return listing.images.map { img in
       let captureDate = img.exif?.captured_at.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
-      return ImageRef(id: "fs:\(img.path)", displayName: img.name, url: nil,
-                      captureDate: captureDate)
+      return ImageRef(
+        id: "fs:\(img.path)", displayName: img.name, url: nil,
+        captureDate: captureDate)
     }
   }
 
   /// Full directory listing — used by callers that also want subfolders
   /// (sidebar drill-down, breadcrumb navigation).
   public func listDir(absPath: String) async throws -> FsDirListing {
-    let dirURL = url("/api/fs/dir",
-                     query: [URLQueryItem(name: "path", value: absPath)])
+    let dirURL = url(
+      "/api/fs/dir",
+      query: [URLQueryItem(name: "path", value: absPath)])
     let req = URLRequest(url: dirURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
@@ -88,16 +89,21 @@ extension CloudSource: ImageSource {
       return try JSONDecoder().decode(FsDirListing.self, from: data)
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-      cloudHTTPLogger.error("decode FsDirListing failed (path \(absPath, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      cloudHTTPLogger.error(
+        "decode FsDirListing failed (path \(absPath, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)"
+      )
       throw error
     }
   }
 
   public func thumb(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
-    let thumbURL = url("/api/fs/thumb",
-                      query: [URLQueryItem(name: "path", value: abs),
-                              URLQueryItem(name: "size", value: "512")])
+    let thumbURL = url(
+      "/api/fs/thumb",
+      query: [
+        URLQueryItem(name: "path", value: abs),
+        URLQueryItem(name: "size", value: "512"),
+      ])
     return try await getOrNilOn404(thumbURL)
   }
 
@@ -107,15 +113,17 @@ extension CloudSource: ImageSource {
   /// nil on 404/415 so the Preview screen keeps showing the thumbnail.
   public func preview(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
-    let previewURL = url("/api/fs/preview",
-                         query: [URLQueryItem(name: "path", value: abs)])
+    let previewURL = url(
+      "/api/fs/preview",
+      query: [URLQueryItem(name: "path", value: abs)])
     return try await getOrNilOn404(previewURL)
   }
 
   public func rawBytes(for ref: ImageRef) async throws -> Data {
     let abs = Self.absPath(from: ref.id)
-    let rawURL = url("/api/fs/raw",
-                     query: [URLQueryItem(name: "path", value: abs)])
+    let rawURL = url(
+      "/api/fs/raw",
+      query: [URLQueryItem(name: "path", value: abs)])
     let req = URLRequest(url: rawURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
@@ -127,10 +135,12 @@ extension CloudSource: ImageSource {
   public func videoURL(for refID: String) async throws -> URL {
     let abs = Self.absPath(from: refID)
     let token = try await httpClient.accessTokenForURL()
-    return url("/api/video/fs", query: [
-      URLQueryItem(name: "path", value: abs),
-      URLQueryItem(name: "token", value: token),
-    ])
+    return url(
+      "/api/video/fs",
+      query: [
+        URLQueryItem(name: "path", value: abs),
+        URLQueryItem(name: "token", value: token),
+      ])
   }
 
   /// Download the full RAW bytes for `ref` while reporting byte-level
@@ -157,8 +167,9 @@ extension CloudSource: ImageSource {
     onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void
   ) async throws -> Data {
     let abs = Self.absPath(from: ref.id)
-    let rawURL = url("/api/fs/raw",
-                     query: [URLQueryItem(name: "path", value: abs)])
+    let rawURL = url(
+      "/api/fs/raw",
+      query: [URLQueryItem(name: "path", value: abs)])
     let req = URLRequest(url: rawURL)
 
     // The progress delegate is its own URLSession's delegate (a delegate is
@@ -178,8 +189,9 @@ extension CloudSource: ImageSource {
     cfg.urlCache = nil
     cfg.httpCookieStorage = nil
     cfg.urlCredentialStorage = nil
-    let session = URLSession(configuration: cfg,
-                             delegate: delegate, delegateQueue: nil)
+    let session = URLSession(
+      configuration: cfg,
+      delegate: delegate, delegateQueue: nil)
     defer { session.invalidateAndCancel() }
 
     let (fileURL, resp) = try await httpClient.refreshIfNeededAndRetry(request: req) { injected in
@@ -196,14 +208,14 @@ extension CloudSource: ImageSource {
   }
 
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
-    // The XMP write endpoint requires a Mongo asset id, which the FS-walk
-    // listing doesn't expose. Editing flows through CloudSidecarStore's
-    // own /api/assets/<id>/xmp path once the indexer has assigned an id.
-    // Calls here would 400 with "Invalid asset id" — surface a clear
-    // error rather than firing a doomed request.
-    throw NSError(domain: "CloudSource", code: -1, userInfo: [
-      NSLocalizedDescriptionKey: "Use CloudSidecarStore for cloud XMP writes (requires asset id)."
-    ])
+    // Editing uses CloudSidecarStore for full adjustment serialization,
+    // passthrough preservation, and debounce. This protocol's metadata-only
+    // Sidecar value cannot represent that edit transaction.
+    throw NSError(
+      domain: "CloudSource", code: -1,
+      userInfo: [
+        NSLocalizedDescriptionKey: "Use CloudSidecarStore for cloud XMP writes."
+      ])
     _ = sidecar
   }
 
@@ -236,8 +248,9 @@ extension CloudSource: ImageSource {
 
     // #959: see the same fix in `images()` above.
     return window.map { a in
-      ImageRef(id: a.id, displayName: a.filename, url: nil,
-               captureDate: a.captured_at.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) })
+      ImageRef(
+        id: a.id, displayName: a.filename, url: nil,
+        captureDate: a.captured_at.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) })
     }
   }
 
@@ -254,9 +267,10 @@ extension CloudSource: ImageSource {
   static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let body = String(data: data, encoding: .utf8) ?? ""
-      throw NSError(domain: "CloudSource",
-                    code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
-                    userInfo: [NSLocalizedDescriptionKey: body])
+      throw NSError(
+        domain: "CloudSource",
+        code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
+        userInfo: [NSLocalizedDescriptionKey: body])
     }
   }
 }
