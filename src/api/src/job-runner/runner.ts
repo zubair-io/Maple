@@ -139,10 +139,10 @@ export class JobRunner {
     handler: JobHandler,
   ) {
     let progress = claim.progress ?? { current: 0, total: 0 };
-    let leaseError: unknown;
+    let leaseError: Error | null = null;
     let renewal: Promise<void> | null = null;
     const check = () => {
-      if (leaseError) throw leaseError;
+      if (leaseError) throw new Error(leaseError.message, { cause: leaseError });
     };
     const renew = () => updateProgress(claim._id, progress, this.leaseMs, this.now, this.workerId);
     const timer = setInterval(
@@ -150,7 +150,7 @@ export class JobRunner {
         if (renewal || leaseError) return;
         renewal = renew()
           .catch((error: unknown) => {
-            leaseError = error;
+            leaseError = error instanceof Error ? error : new Error(String(error));
           })
           .finally(() => {
             renewal = null;

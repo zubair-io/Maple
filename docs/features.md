@@ -182,7 +182,7 @@ Zoom on Apple is a tiled deep-zoom path (`MapleCore/DeepZoomState.swift`, `Cache
 
 Web (`lib/export/export-dialog.component.ts`) and Windows (`MainWindow.Dialogs.cs`) present exactly this dialog. Apple has its own encoder (`MapleCore/MapleExporter.swift`) offering JPEG sRGB, JPEG P3, **HEIC P3**, TIFF 16-bit, and PNG with a quality slider — but no size control, even though the option exists in its `ExportOptions` struct.
 
-**Export is single-asset on every front end.** The server has a `batch_jpeg_export` job (`src/api/src/job-runner/handlers/batch-jpeg-export.ts`) that renders a list of assets to a directory at a 4096px cap, but no client UI creates one.
+Web adds saved versioned recipes and a durable batch queue from Browse or the focused image’s Export dialog. Browser workspaces deliver to Downloads or a chosen writable folder; Self Hosted submits a persisted native export job to a server directory. Both preserve captured edits and support cancel, resume and retry-failed. See [export recipes](export-recipes.md) for capabilities, collision policies and recovery semantics.
 
 ---
 
@@ -270,7 +270,7 @@ Web is split into its two deployments because they differ substantially. Every c
 | Histogram                          | yes                                              | yes               | yes                | yes (+ clipping dots)     | no        |
 | Deep-zoom tiles                    | yes                                              | no                | no                 | no                        | no        |
 | Export                             | yes (+HEIC, no resize)                           | yes               | yes                | yes                       | no        |
-| Batch export                       | no                                               | no                | no                 | no                        | no        |
+| Batch export                       | no                                               | yes               | yes                | no                        | no        |
 | Panorama stitch                    | yes                                              | yes               | no                 | yes                       | no        |
 | Rename / batch rename              | yes                                              | yes               | no                 | yes                       | no        |
 | Move / drag to folder              | yes                                              | yes               | no                 | yes                       | no        |

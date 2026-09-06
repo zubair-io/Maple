@@ -1,5 +1,9 @@
 import { isAbsolute } from 'node:path';
-import { parseExportRecipe, exportRecipeProblem } from '../generated/export-recipe.generated.ts';
+import {
+  parseExportRecipe,
+  exportRecipeProblem,
+  exportCaptureTime,
+} from '../generated/export-recipe.generated.ts';
 import type { ExportRecipe } from '../generated/export-recipe.generated.ts';
 
 export interface ExportTarget {
@@ -29,7 +33,7 @@ function photoSequence(entry: Record<string, unknown>): {
   const capturedAt = entry['capturedAt'];
   if (capturedAt !== null && typeof capturedAt !== 'string')
     throw new Error('capturedAt must be EXIF date text or null');
-  return { index, capturedAt };
+  return { index, capturedAt: exportCaptureTime(capturedAt) };
 }
 function target(value: unknown): ExportTarget {
   if (!value || typeof value !== 'object') throw new Error('Invalid export photo');
@@ -52,7 +56,7 @@ export function parseExportPayload(raw: Record<string, unknown>): ExportPayload 
   if (!Array.isArray(values) || values.length < 1 || values.length > 2000)
     throw new Error('Choose 1–2,000 photos');
   const targets = values.map(target);
-  if (new Set(targets.map((target) => target.id)).size !== targets.length)
+  if (new Set(targets.map((photo) => photo.id)).size !== targets.length)
     throw new Error('Export photo identities must be unique');
   if (new TextEncoder().encode(JSON.stringify({ targets, recipe })).length > 12_000_000)
     throw new Error('This export contains too many edit snapshots; split it into smaller batches');

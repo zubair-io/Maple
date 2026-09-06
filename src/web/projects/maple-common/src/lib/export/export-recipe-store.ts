@@ -10,12 +10,15 @@ export interface RecipeTarget {
   filmLook: string;
   capturedAt: string | null;
   index: number;
+  sourceHandle?: FileSystemFileHandle;
 }
 export interface RecipeEntry {
   id: string;
-  status: 'pending' | 'rendering' | 'delivering' | 'applied' | 'skipped' | 'failed';
+  status: 'pending' | 'rendering' | 'delivering' | 'writing' | 'applied' | 'skipped' | 'failed';
   reason?: string;
   filename?: string;
+  beforeHash?: string | null;
+  afterHash?: string;
 }
 export interface RecipeQueueRecord {
   id: string;
@@ -24,6 +27,7 @@ export interface RecipeQueueRecord {
   entries: RecipeEntry[];
   serverJobId: string | null;
   cancelled: boolean;
+  directoryHandle?: FileSystemDirectoryHandle;
 }
 
 async function db(): Promise<IDBDatabase> {
@@ -77,6 +81,15 @@ export async function readExportQueue(): Promise<RecipeQueueRecord | null> {
 }
 export async function saveExportQueue(value: RecipeQueueRecord): Promise<void> {
   await transaction('queue', 'readwrite', (store) => store.put(value, 'active'));
+}
+/** A browser recipe stores an opaque handle key, never a guessed operating-system path. */
+export async function saveRecipeDirectory(handle: FileSystemDirectoryHandle): Promise<string> {
+  const key = `browser-folder:${crypto.randomUUID()}`;
+  await transaction('queue', 'readwrite', (store) => store.put(handle, key));
+  return key;
+}
+export async function readRecipeDirectory(key: string): Promise<FileSystemDirectoryHandle | null> {
+  return (await transaction('queue', 'readonly', (store) => store.get(key))) ?? null;
 }
 export function recipeSummary(record: RecipeQueueRecord): BatchSummary<string> {
   return {
