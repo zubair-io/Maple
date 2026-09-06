@@ -34,17 +34,14 @@ extension EditorState {
   // MARK: AUTO (#1379)
 
   /// Analyse the scene and apply AUTO's **exposure + the five calibrated
-  /// tone sliders** (#1376/#2255) as ONE undo entry (`commit()` then a
+  /// tone sliders and white balance** (#1376/#2255/#3307) as ONE undo entry (`commit()` then a
   /// single `session.model` write). Async — the analysis decodes + develops
   /// a probe buffer. Generation-guarded so a stale result can't overwrite a
   /// newer edit / image switch.
   ///
-  /// White balance is intentionally NOT written (single-image gray-world WB
-  /// is unreliable on colour-dominant scenes — it skews green on foliage,
-  /// warm on skin — so As-Shot stays the default). The exposure uses
-  /// highlight-protected metering so a bright sky / background can't be
-  /// blown out; the tone sliders (contrast/highlights/shadows/whites/
-  /// blacks) are scene-proportional values calibrated in #1376.
+  /// White balance uses the clip-aware estimator corrected in #2247. Auto
+  /// records its explicit pair, current scale and algorithm provenance.
+  /// `whiteBalanceOnly` serves the WB picker's Auto choice without changing tone.
   ///
   /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
   /// default `Profile.auto` the Apple decode already forces auto-exposure off
@@ -55,9 +52,10 @@ extension EditorState {
   /// that gap: `autoExposure` is set to `.off` alongside `exposure`, on every
   /// profile, so the decode this recommendation is valid for is always the one
   /// that actually renders.
-  public func applyAuto() async {
+  public func applyAuto(whiteBalanceOnly: Bool = false) async {
     let asset = session.asset
     guard asset.isRaw else { return }
+    whiteBalancePicker.cancel()
     autoGeneration &+= 1
     let gen = autoGeneration
     let originalModel = session.model
@@ -95,24 +93,33 @@ extension EditorState {
       min(max(v, r.lowerBound), r.upperBound)
     }
     var m = session.model
-    // AUTO applies EXPOSURE + the five calibrated tone sliders (#2255).
-    // White balance is intentionally NOT touched: single-image gray-world
-    // WB is unreliable on colour-dominant scenes (it skews green on
-    // foliage, warm on skin), so As-Shot stays the trustworthy default.
-    m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
-    m.contrast = clamp(result.contrast, AdjustmentModel.contrastRange)
-    m.highlights = clamp(result.highlights, AdjustmentModel.highlightsRange)
-    m.shadows = clamp(result.shadows, AdjustmentModel.shadowsRange)
-    m.whites = clamp(result.whites, AdjustmentModel.whitesRange)
-    m.blacks = clamp(result.blacks, AdjustmentModel.blacksRange)
-    // #1387: the exposure recommendation is measured against an AE-Off
-    // probe (see `autoProvider`), so pin the decode to match — otherwise
-    // a `Profile.neutral` decode keeps auto_exposure On
-    // and AE-lift stacks with AUTO's lift, blowing out highlights.
-    m.autoExposure = .off
+    guard
+      [
+        result.temperature, result.tint, result.exposure, result.contrast,
+        result.highlights, result.shadows, result.whites, result.blacks,
+      ].allSatisfy(\.isFinite)
+    else { return }
+    if !whiteBalanceOnly {
+      m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
+      m.contrast = clamp(result.contrast, AdjustmentModel.contrastRange)
+      m.highlights = clamp(result.highlights, AdjustmentModel.highlightsRange)
+      m.shadows = clamp(result.shadows, AdjustmentModel.shadowsRange)
+      m.whites = clamp(result.whites, AdjustmentModel.whitesRange)
+      m.blacks = clamp(result.blacks, AdjustmentModel.blacksRange)
+      // The exposure recommendation replaces the AE-Off probe's anchor.
+      m.autoExposure = .off
+    }
+    m.temperature = clamp(result.temperature, AdjustmentModel.temperatureRange)
+    m.tint = clamp(result.tint, AdjustmentModel.tintRange)
+    m.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
+    m.whiteBalancePreset = .auto
+    m.wbSource = .auto
+    m.wbSampleX = 0
+    m.wbSampleY = 0
+    m.wbAlgorithmVersion = autoWhiteBalanceAlgorithmVersion
     // Beginning even an unchanged transaction would clear the redo stack.
     guard m != session.model else { return }
-    commit(kind: .auto, description: "Auto adjustments")
+    commit(kind: .auto, description: whiteBalanceOnly ? "Auto white balance" : "Auto adjustments")
     defer { session.endEdit() }
     session.model = m
   }

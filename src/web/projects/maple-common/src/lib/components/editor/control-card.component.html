@@ -79,6 +79,9 @@
   } @else if (activeTool() === 'lensCorrections') {
     <ng-content select="[cardBodyLens]" />
   } @else {
+    @if (activeGroup() === 'color') {
+      <ng-content select="[cardBodyWhiteBalance]" />
+    }
     <div class="slider-grid flex flex-col gap-2.5">
       @for (tool of slidersFor(activeGroup()); track tool) {
         <mui-living-slider

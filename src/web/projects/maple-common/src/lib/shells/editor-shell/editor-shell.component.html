@@ -413,6 +413,7 @@
             (groupChange)="onGroupChange($event)"
             (toolChange)="onToolChange($event)"
           >
+            <pro-wb-pad cardBodyWhiteBalance [showPad]="false" />
             <!-- HSL / bwMix shared sub-param body (#1807 Task 4) — same
                  chip selector + drag bar + value chip as the Noise panel
                  above, plus bwMix's Black & White toggle. Projected into
@@ -494,6 +495,7 @@
             (groupChange)="onGroupChange($event)"
             (toolChange)="onToolChange($event)"
           >
+            <pro-wb-pad cardBodyWhiteBalance [showPad]="false" />
             <!-- HSL / bwMix shared sub-param body (#1807 Task 4) — same
                  content as the tablet/desktop card's `cardBodySubParam`
                  slot, authored once in `cardBodySubParamTpl` above. -->

@@ -26,6 +26,10 @@ const [TINT_MIN, TINT_MAX] = ADJUSTMENT_RANGES.tint;
 
 class LibraryStub {
   readonly model = signal<AdjustmentModel>(defaultAdjustmentModel());
+  readonly assets = signal([{ id: ID, filename: 'test.dng' }]);
+  asShotWbFor() {
+    return { temperature: 6500, tint: 0 };
+  }
 
   focusedAssetId(): string {
     return ID;

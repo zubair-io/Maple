@@ -37,7 +37,7 @@ These are design tools, not product surfaces.
 Only two rows in the whole catalog are not implemented everywhere.
 
 - **Toggle** — an atom, contract written, implemented only on Apple (`Atoms/MuiToggle.swift`). No `mui-toggle` component on web and no `MuiToggle.cs` on Windows. The contract draws the line against Checkbox precisely: Toggle is for a preference that takes effect the instant it flips; a control whose change waits for a separate Save is a Checkbox.
-- **Select** — an atom with a written contract and no implementation on any platform. The contract describes a single-choice dropdown for short, fixed option sets, distinct from the searchable Command Menu molecule.
+- **Select** — an atom with a written contract and a native HTML implementation on Web. The contract describes a single-choice dropdown for short, fixed option sets, distinct from the searchable Command Menu molecule.
 
 Web additionally carries five internal sub-components that the other platforms fold into their parent: `mui-export-options-fields`, `mui-kanban-card-tile`, `mui-rating-flags-display`, `mui-rating-flags-selector`, and `mui-tree-row-chevron`. They are implementation detail, not catalog entries.
 
@@ -69,7 +69,7 @@ Nothing depends on anything else. Every atom has a contract.
 | QR Code          |  ✓  |   ✓   |    ✓    | [qr-code.md](design/maple-ui/components/qr-code.md)                   |
 | Remote Image     |  ✓  |   ✓   |    ✓    | [remote-image.md](design/maple-ui/components/remote-image.md)         |
 | Segmented Toggle |  ✓  |   ✓   |    ✓    | [segmented-toggle.md](design/maple-ui/components/segmented-toggle.md) |
-| Select           |  —  |   —   |    —    | [select.md](design/maple-ui/components/select.md)                     |
+| Select           |  ✓  |   —   |    —    | [select.md](design/maple-ui/components/select.md)                     |
 | Spinner          |  ✓  |   ✓   |    ✓    | [spinner.md](design/maple-ui/components/spinner.md)                   |
 | Stat             |  ✓  |   ✓   |    ✓    | [stat.md](design/maple-ui/components/stat.md)                         |
 | Status Text      |  ✓  |   ✓   |    ✓    | [status-text.md](design/maple-ui/components/status-text.md)           |
