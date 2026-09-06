@@ -10,11 +10,10 @@
 //! (`view::auto_profile::cache`) but NOT the decoded `RawImage` — this module
 //! closes that gap so the second decode of the same key is a hit (~0 ms).
 //!
-//! This is a deliberate parallel of [`crate::view::auto_profile::cache`]:
-//! identical [`CacheKey`] shape, the same `Mutex` + `OnceLock` global, the same
-//! bounded-LRU eviction. The two caches stay separate (different value types,
-//! different capacities) rather than being generified — keeping the auto_profile
-//! cache byte-for-byte intact while this one lands.
+//! This cache shares key shapes with [`crate::view::auto_profile::cache`],
+//! while retaining its own capacity-one LRU. Concurrent misses for the same
+//! key share a flight; unrelated keys only share the brief registry lookup.
+//! File callers use [`get_or_decode`] to defer source I/O until a cold miss.
 //!
 //! Key shapes (see [`CacheKey`]):
 //! - [`CacheKey::Path`] — `(canonical path, mtime)` for native callers. Mtime
@@ -49,7 +48,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::SystemTime;
 
 use crate::image::RawImage;
@@ -169,29 +168,76 @@ pub fn insert(key: CacheKey, img: Arc<RawImage>) {
     guard.map.insert(key, img);
 }
 
-/// Decode `bytes` (extension hint `ext`) through the LRU keyed on `key`.
-///
-/// On a hit this returns the cached `Arc<RawImage>` WITHOUT touching the
-/// decoder — that is the ~0 ms path the cache exists for. On a miss it decodes
-/// via [`crate::decode::decode_bytes`] **without holding the lock** (a 1.8 s
-/// decode under the mutex would serialize every decode), wraps the result in an
-/// `Arc`, inserts it, and returns the same `Arc`.
-///
-/// The returned image is bit-identical to a fresh `decode_bytes` call: on a
-/// miss it IS a fresh decode; on a hit it is the very `Arc` instance an earlier
-/// fresh decode produced.
-///
-/// A rare double-decode race (two callers miss the same cold key
-/// simultaneously) is harmless — both produce a valid `RawImage`, last insert
-/// wins, both callers get a valid `Arc`. This matches the auto_profile cache's
-/// accepted behaviour.
-pub fn decode_bytes_cached(key: &CacheKey, bytes: &[u8], ext: &str) -> Result<Arc<RawImage>> {
+type FlightValue = Mutex<Option<Arc<RawImage>>>;
+
+fn flights() -> &'static Mutex<HashMap<CacheKey, Weak<FlightValue>>> {
+    static FLIGHTS: OnceLock<Mutex<HashMap<CacheKey, Weak<FlightValue>>>> = OnceLock::new();
+    FLIGHTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct Flight {
+    key: CacheKey,
+    value: Arc<FlightValue>,
+}
+
+impl Flight {
+    fn acquire(key: &CacheKey) -> Self {
+        let mut registry = flights().lock().unwrap_or_else(|e| e.into_inner());
+        let value = registry
+            .get(key)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                let value = Arc::new(Mutex::new(None));
+                registry.insert(key.clone(), Arc::downgrade(&value));
+                value
+            });
+        Self {
+            key: key.clone(),
+            value,
+        }
+    }
+}
+
+impl Drop for Flight {
+    fn drop(&mut self) {
+        let mut registry = flights().lock().unwrap_or_else(|e| e.into_inner());
+        // The registry holds only a Weak. Once the last caller leaves, remove
+        // the key too: browsing many assets cannot retain dead flight metadata.
+        if Arc::strong_count(&self.value) == 1 {
+            registry.remove(&self.key);
+        }
+    }
+}
+
+/// Cache-first RAW loading, shared by file and byte callers. The closure runs
+/// only on a cold miss, so a path caller can defer the full file read as well
+/// as demux. Same-key cold callers share one result; unrelated keys never hold
+/// each other behind a decode lock. The successful flight retains its Arc for
+/// waiting callers even if a different asset evicts the single LRU slot.
+pub fn get_or_decode(
+    key: &CacheKey,
+    decode: impl FnOnce() -> Result<Arc<RawImage>>,
+) -> Result<Arc<RawImage>> {
     if let Some(hit) = get(key) {
         return Ok(hit);
     }
-    let img = Arc::new(crate::decode::decode_bytes(bytes, ext)?);
-    insert(key.clone(), Arc::clone(&img));
-    Ok(img)
+    let flight = Flight::acquire(key);
+    let mut completed = flight.value.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = completed.as_ref().cloned().or_else(|| get(key)) {
+        *completed = Some(Arc::clone(&hit));
+        return Ok(hit);
+    }
+    let image = decode()?;
+    insert(key.clone(), Arc::clone(&image));
+    *completed = Some(Arc::clone(&image));
+    Ok(image)
+}
+
+/// Decode in-memory bytes through the same coalescing cache as file callers.
+pub fn decode_bytes_cached(key: &CacheKey, bytes: &[u8], ext: &str) -> Result<Arc<RawImage>> {
+    get_or_decode(key, || {
+        Ok(Arc::new(crate::decode::decode_bytes(bytes, ext)?))
+    })
 }
 
 /// Test-only: clear the cache so tests start from a known empty state.
@@ -212,12 +258,12 @@ mod tests {
     /// serialize via a test-local mutex so a `clear_for_test` + assertions are
     /// not interleaved with another test's inserts. Mirrors the auto_profile
     /// cache test harness.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    pub(super) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     /// Build a tiny, distinct `Arc<RawImage>` tagged by `white_level` so cached
     /// entries are tellable apart by value. The fields are arbitrary — these
     /// tests exercise the cache container, not the decoder.
-    fn dummy_image(tag: u32) -> Arc<RawImage> {
+    pub(super) fn dummy_image(tag: u32) -> Arc<RawImage> {
         Arc::new(RawImage {
             width: 1,
             height: 1,
@@ -451,3 +497,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "decode_cache_singleflight_tests.rs"]
+mod singleflight_tests;
