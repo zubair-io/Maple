@@ -28,6 +28,21 @@ final class WhiteBalanceTransferProvenanceTests: XCTestCase {
     XCTAssertEqual(toneOnly.wbAlgorithmVersion, 1)
   }
 
+  func testManualWhiteBalanceTransferClearsPresetNameButAbsolutePresetRetainsIt() {
+    var source = sampled
+    source.whiteBalancePreset = .daylight
+    source.wbSource = .manual
+    let manual = AdjustmentGroupMerge.merged(sampled, applying: source, groups: [.whiteBalance])
+    XCTAssertEqual(manual.whiteBalancePreset, .custom)
+    XCTAssertEqual(manual.wbSource, .manual)
+    assertNoDerivation(manual)
+    source.wbSource = .preset
+    let preset = AdjustmentGroupMerge.merged(sampled, applying: source, groups: [.whiteBalance])
+    XCTAssertEqual(preset.whiteBalancePreset, .daylight)
+    XCTAssertEqual(preset.wbSource, .preset)
+    assertNoDerivation(preset)
+  }
+
   func testNumericWhiteBalancePresetSetsPresetSourceAndDropsOldDerivation() {
     for key in ["temperature", "tint"] {
       let preset = PresetAdjustments.merged(sampled, applying: [key: .number(6000)]).model

@@ -31,7 +31,7 @@ public enum AdjustmentGroupMerge {
       }
     }
     if groups.contains(.whiteBalance) {
-      merged.whiteBalancePreset = source.whiteBalancePreset
+      merged.whiteBalancePreset = source.wbSource == .manual ? .custom : source.whiteBalancePreset
       merged.wbSampleX = 0
       merged.wbSampleY = 0
       merged.wbAlgorithmVersion = 0
