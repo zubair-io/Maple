@@ -7,12 +7,12 @@
 //! (CLAUDE.md § Performance invariants). This cache lets second-and-after
 //! ticks on the same RAW reuse the previously fitted curve.
 //!
-//! Key shapes (see [`CacheKey`]); both carry `(quality, origin)` on top of
+//! Key shapes (see [`CacheKey`]); both carry `(quality, origin, fit_model_version)` on top of
 //! the raw identity:
-//! - [`CacheKey::Path`] — `(canonical path, mtime, quality, origin)` for
+//! - [`CacheKey::Path`] — `(canonical path, mtime)` for
 //!   native callers. Mtime catches "user re-edited and re-exported the RAW out from
 //!   under us"; the path discriminates between fixtures.
-//! - [`CacheKey::Bytes`] — `(hash, quality, origin)` where the hash is a 64-bit
+//! - [`CacheKey::Bytes`] — a hash where the hash is a 64-bit
 //!   blake3 digest of the first 64 KB + last 64 KB + total length of the
 //!   bytes. Full blake3 of a 50 MB RAW alone is ~50 ms (would defeat the
 //!   cache); prefix+suffix+length is collision-free across distinct RAW
@@ -52,6 +52,10 @@ use crate::pipeline::RenderQuality;
 
 use super::curve::ProfileCurve;
 use super::lut::ColorLut;
+
+/// Identity of the Auto curve/residual fitting model (#2441). Bump when
+/// fitting semantics change; both artifact caches share this version.
+pub const AUTO_FIT_MODEL_VERSION: u32 = 1;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts
@@ -105,7 +109,8 @@ pub enum FitOrigin {
 /// Cache key shape — see module doc. `quality` is the develop quality the
 /// fit ran at (#2035) — Preview- and Full-fit artifacts must never serve
 /// each other; `origin` is the develop the artifacts were fitted from
-/// (#3233 / #3235) — see [`FitOrigin`].
+/// (#3233 / #3235) — see [`FitOrigin`]. `fit_model_version` identifies the
+/// fitting semantics for both curves and residual LUTs (#2441).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CacheKey {
     Path {
@@ -113,11 +118,13 @@ pub enum CacheKey {
         mtime: SystemTime,
         quality: RenderQuality,
         origin: FitOrigin,
+        fit_model_version: u32,
     },
     Bytes {
         hash: u64,
         quality: RenderQuality,
         origin: FitOrigin,
+        fit_model_version: u32,
     },
 }
 
@@ -139,6 +146,7 @@ impl CacheKey {
             mtime,
             quality,
             origin: FitOrigin::Standalone,
+            fit_model_version: AUTO_FIT_MODEL_VERSION,
         })
     }
 
@@ -149,17 +157,25 @@ impl CacheKey {
                 path,
                 mtime,
                 quality,
+                fit_model_version,
                 ..
             } => CacheKey::Path {
                 path,
                 mtime,
                 quality,
                 origin,
+                fit_model_version,
             },
-            CacheKey::Bytes { hash, quality, .. } => CacheKey::Bytes {
+            CacheKey::Bytes {
+                hash,
+                quality,
+                fit_model_version,
+                ..
+            } => CacheKey::Bytes {
                 hash,
                 quality,
                 origin,
+                fit_model_version,
             },
         }
     }
@@ -204,6 +220,7 @@ impl CacheKey {
             hash,
             quality,
             origin: FitOrigin::Standalone,
+            fit_model_version: AUTO_FIT_MODEL_VERSION,
         }
     }
 }
