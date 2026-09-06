@@ -112,6 +112,8 @@ Four point curves — `toneCurveLuma`, `toneCurveRed`, `toneCurveGreen`, `toneCu
 - `highlightRecovery` picks the reconstruction mode (`Off`, `Blend`, `Luminance`, `ChromaticAdaptation` — the default — or `OklabChromaReduction`).
 - `profile` chooses the render shaping: `Auto` (default) fits a per-image curve from the RAW's embedded JPEG preview; `Neutral` runs the plain scene-referred AgX view transform.
 
+Web and Windows expose an **Auto / Neutral** picker in the editor's Color controls. A selection is one undoable edit and saves the profile explicitly to XMP; reopening and exporting retain that intent. Auto's description explains that it falls back to Neutral when no embedded preview is available. The picker does not change the default or offer Camera Match.
+
 ### Detail
 
 | Field                                            | Range         | Default |

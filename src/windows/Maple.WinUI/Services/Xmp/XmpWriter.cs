@@ -5,7 +5,8 @@
 // `XmpSerializerService` / `xmp-canonical.ts`: fixed envelope, LF line
 // endings, two-space indentation ladder, the three core namespace
 // declarations in fixed order, attributes sorted by namespace priority then
-// name, non-default fields only, and passthrough re-emitted verbatim.
+// name, explicit Profile intent, other develop fields omitted at default,
+// and passthrough re-emitted verbatim.
 
 using System;
 using System.Collections.Generic;
@@ -85,10 +86,8 @@ namespace Maple.WinUI.Services.Xmp
             {
                 parts.Add($"papp:Look=\"{state.Look}\"");
             }
-            if (state.Profile != ProfileMode.Auto)
-            {
-                parts.Add($"papp:Profile=\"{state.Profile}\"");
-            }
+            // Persist the selected intent even when it is the default (#2441).
+            parts.Add($"papp:Profile=\"{state.Profile}\"");
             if (state.HotPixelSuppression != ToggleMode.Off)
             {
                 parts.Add("papp:HotPixelSuppression=\"On\"");

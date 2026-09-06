@@ -24,6 +24,10 @@
     </button>
   </div>
 
+  @if (activeGroup() === 'color') {
+    <editor-profile-section />
+  }
+
   <!-- Sub-tool row (#1807 Task 4) — Basic plus whichever field-less tools
        belong to the active group (Colour: HSL/B&W; Effects: Grade; Light
        and Detail: none — `showSubtools`/`subtools()`). Picking a chip

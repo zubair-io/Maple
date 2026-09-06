@@ -247,15 +247,31 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(m2.profile, .neutral)
     }
 
-    /// `.auto` is the canonical default — serializer omits the attribute.
-    func testProfileRoundTripAutoOmitted() throws {
+    /// `.auto` remains the default and now records its intent explicitly.
+    func testProfileRoundTripAutoExplicit() throws {
         var m = AdjustmentModel()
         m.profile = .auto
         let xml = XMPSerializer.serialize(model: m, culling: CullingState())
-        XCTAssertFalse(xml.contains("papp:Profile"),
-                       "Default Profile (.auto) should be omitted from sidecar")
+        XCTAssertTrue(xml.contains(#"papp:Profile="Auto""#),
+                      "Default Profile (.auto) must be explicit in the sidecar")
         let (m2, _) = try XMPParser.parse(xml)
         XCTAssertEqual(m2.profile, .auto)
+    }
+
+    func testResavingLegacyProfileMakesItsIntentExplicit() throws {
+        for (attrs, expected) in [
+            ("", "Auto"),
+            (#"papp:Look="Default""#, "Auto"),
+            (#"papp:Look="Neutral""#, "Neutral"),
+            (#"papp:Profile="AcrMatch""#, "Auto"),
+        ] {
+            let (model, culling) = try XMPParser.parse(xmp(attrs: attrs))
+            let saved = XMPSerializer.serialize(model: model, culling: culling)
+            XCTAssertTrue(saved.contains("papp:Profile=\"\(expected)\""))
+            let (reopened, reopenedCulling) = try XMPParser.parse(saved)
+            XCTAssertEqual(reopened.profile, model.profile)
+            XCTAssertEqual(XMPSerializer.serialize(model: reopened, culling: reopenedCulling), saved)
+        }
     }
 
     /// Legacy migration: `papp:Look="Neutral"` with no `papp:Profile`

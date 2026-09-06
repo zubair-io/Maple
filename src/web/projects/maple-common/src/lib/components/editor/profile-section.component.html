@@ -1,0 +1,11 @@
+<div class="flex items-center justify-between gap-2">
+  <span class="text-xs font-medium text-text-main">Profile</span>
+  <mui-segmented-toggle
+    [options]="options"
+    [value]="profile()"
+    [disabled]="!adjustment()"
+    ariaLabel="Render profile"
+    (valueChange)="select($event)"
+  />
+</div>
+<p class="mt-2 text-xs leading-4 text-text-muted">{{ description() }}</p>

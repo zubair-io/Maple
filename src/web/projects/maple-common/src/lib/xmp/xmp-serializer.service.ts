@@ -9,7 +9,7 @@
 // Spec guarantees:
 //  - Standard xpacket header + x:xmpmeta + rdf:RDF + rdf:Description wrapper.
 //  - crs:Version, crs:ProcessVersion, crs:HasSettings always emitted.
-//  - Non-default fields only (fields matching defaults are omitted).
+//  - Profile is explicit; other develop fields omit their default values.
 //  - Passthrough attributes and nested nodes preserved verbatim.
 //  - <?xpacket end="w"?> trailer, LF line endings.
 

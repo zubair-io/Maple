@@ -83,6 +83,7 @@ namespace Maple.WinUI
             EffectsTabRow.Visibility = group == "Effects" ? Visibility.Visible : Visibility.Collapsed;
             PanelFootnote.Visibility = Visibility.Collapsed;
             PanelGradeHost.Visibility = Visibility.Collapsed;
+            PanelProfileHost.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
             PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
             PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
 
