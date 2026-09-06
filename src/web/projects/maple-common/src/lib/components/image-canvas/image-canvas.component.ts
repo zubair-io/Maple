@@ -40,7 +40,7 @@ import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
-import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
+import { cropStraightenTransform, renderModelForCrop } from './image-canvas.crop';
 import { WbPickOverlayComponent } from './wb-pick-overlay.component';
 import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
@@ -51,7 +51,7 @@ import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
-import { createNativeDetail } from './image-canvas.native-detail-host';
+import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
@@ -185,13 +185,9 @@ export class ImageCanvasComponent
     return { pass: p.pass, pct: Math.round(Math.min(1, Math.max(0, p.fraction)) * 100) };
   });
 
-  // Displayed image size + scale in CSS px (the draw transform's geometry;
-  // pure math in `image-canvas.draw2d.ts`). Sized from the PAINTED bitmap's
-  // aspect so a cropped result isn't stretched into the full-frame rect
-  // (#638 review); falls back to the asset's stored dims pre-paint.
+  // Source extent makes 100% pixel-perfect; applied crops keep the painted aspect.
   private effectivePx = computed(() => {
-    const asset = this.state.focusedAsset();
-    const { w, h } = displayDims(this.canvasSvc.paintedAspect(), asset?.width, asset?.height);
+    const { w, h } = canvasDisplayDims(this);
     return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
