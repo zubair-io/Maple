@@ -62,4 +62,36 @@ final class MaskRasterStoreTests: XCTestCase {
         }
         XCTAssertEqual(calls, 2, "a failed generate must not be cached")
     }
+
+    /// Actor reentrancy: two callers missing the cache for the same digest
+    /// at the same time must share one generate (#3284 review).
+    func testConcurrentMissesForTheSameDigestGenerateOnce() async throws {
+        let store = MaskRasterStore(directory: tempDir())
+        let counter = Counter()
+        let gen: @Sendable () async throws -> (width: Int, height: Int, bytes: [UInt8]) = {
+            await counter.bump()
+            try await Task.sleep(nanoseconds: 50_000_000)
+            return (1, 1, [7])
+        }
+        async let a = store.raster(for: "shared", model: "test/1", generate: gen)
+        async let b = store.raster(for: "shared", model: "test/1", generate: gen)
+        let (ra, rb) = try await (a, b)
+        XCTAssertEqual(ra.bytes, [7])
+        XCTAssertEqual(rb.bytes, [7])
+        let calls = await counter.value
+        XCTAssertEqual(calls, 1, "the second miss must join the in-flight generate")
+    }
+
+    func testNoTempFileIsLeftBesideTheCachedPNG() async throws {
+        let dir = tempDir()
+        let store = MaskRasterStore(directory: dir)
+        _ = try await store.raster(for: "clean", model: "test/1") { (1, 1, [9]) }
+        let entries = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertEqual(entries, ["clean.png"])
+    }
+}
+
+private actor Counter {
+    private(set) var value = 0
+    func bump() { value += 1 }
 }
