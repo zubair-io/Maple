@@ -1,3 +1,4 @@
+import { cameraSupportFromJson } from '../state/camera-support';
 /// <reference lib="webworker" />
 
 import {
@@ -259,7 +260,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const asShotTint = result.as_shot_tint;
   const hasLensCorrections = result.has_lens_corrections; // #3182
   const lensCorrectionCaInert = result.lens_correction_ca_inert;
-  const cameraSupportJson = result.camera_support_json;
+  const cameraSupport = cameraSupportFromJson(result.camera_support_json);
   const rgb = result.take_rgb();
   result.free();
   const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
@@ -275,7 +276,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
     asShotTint,
     hasLensCorrections,
     lensCorrectionCaInert,
-    cameraSupportJson,
+    cameraSupport,
   };
   (self as unknown as Worker).postMessage(response, [buffer]);
 }

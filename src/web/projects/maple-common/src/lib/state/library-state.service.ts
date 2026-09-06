@@ -1,3 +1,4 @@
+import type { CameraSupport } from './camera-support';
 // LibraryStateService — thin facade over the four split modules.
 //
 // **Why this file still exists** (ticket #122): the public API is consumed by
@@ -263,14 +264,9 @@ export class LibraryStateService {
     id: AssetId,
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
-    cameraSupportJson?: string | null,
+    cameraSupport?: CameraSupport,
   ): void {
-    this.store.lensCorrections.seed(
-      id,
-      hasLensCorrections,
-      lensCorrectionCaInert,
-      cameraSupportJson,
-    );
+    this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert, cameraSupport);
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default

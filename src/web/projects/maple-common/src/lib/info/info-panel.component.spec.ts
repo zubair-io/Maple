@@ -20,6 +20,7 @@ import { LibraryStateService } from '../state/library-state.service';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { ServerLibraryIo, ApiHistogram } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
+import { cameraSupportFromJson } from '../state/camera-support';
 import { LensCorrectionCapabilities } from '../state/library-store-lens-corrections';
 
 const STUB_ASSET: Asset = {
@@ -109,11 +110,13 @@ describe('InfoPanelComponent', () => {
       STUB_ASSET.id,
       false,
       true,
-      JSON.stringify({
-        cameraKey: STUB_ASSET.camera,
-        resolution: 'rawler_fallback',
-        lens: 'no_correction_data',
-      }),
+      cameraSupportFromJson(
+        JSON.stringify({
+          cameraKey: STUB_ASSET.camera,
+          resolution: 'rawler_fallback',
+          lens: 'no_correction_data',
+        }),
+      ),
     );
     fixture.detectChanges();
     expect(el.querySelector('[data-testid="camera-support"]')?.textContent).toContain(
