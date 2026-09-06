@@ -175,40 +175,6 @@ extension EditorCanvasView {
     )
   }
 
-  /// "4.2 MB / 12 MB" or "4.2 MB" when the total is unknown. Adaptive units
-  /// via `ByteCountFormatStyle`, monospaced digits at the call-site keep the
-  /// number stable as bytes tick up. Local helper rather than two inline
-  /// `.formatted(...)` calls per render — the placeholder re-evaluates on
-  /// every `receivedBytes` Observable write, and a one-call hoisted helper
-  /// keeps the body terse.
-  private func downloadByteCountText(for progress: DownloadProgress) -> String {
-    let style = ByteCountFormatStyle(style: .file)
-    let received = progress.receivedBytes.formatted(style)
-    if let total = progress.expectedBytes, total > 0 {
-      return "\(received) / \(total.formatted(style))"
-    }
-    return received
-  }
-
-  /// Speed rendered as "320 KB" / "1.2 MB" — the calling site adds the "/ s"
-  /// suffix so a future change to a different cadence label (e.g. "/ min")
-  /// only touches that one line. The `Int64` cast clamps NaN / ±∞ /
-  /// out-of-range values to 0…Int64.max so a corrupted
-  /// `URLResourceValues` read (rare but theoretically possible from a
-  /// misbehaving FileProvider extension) can't crash the editor. Real
-  /// network rates fit Int64.max by orders of magnitude.
-  private func downloadSpeedText(_ bytesPerSecond: Double) -> String {
-    let clamped: Int64
-    if bytesPerSecond.isNaN || bytesPerSecond <= 0 {
-      clamped = 0
-    } else if bytesPerSecond >= Double(Int64.max) {
-      clamped = .max
-    } else {
-      clamped = Int64(bytesPerSecond)
-    }
-    return clamped.formatted(ByteCountFormatStyle(style: .file))
-  }
-
   /// Byte-download progress for a cloud open (#822). Composed in
   /// `canvasLayer` above the seed thumbnail rather than inside the
   /// placeholder, so it is visible on the GPU path too — there the leaf
@@ -235,11 +201,14 @@ extension EditorCanvasView {
         // Bytes received / total + running-average speed. Both lines
         // are derived from `DownloadProgress`'s Observable state so
         // they tick alongside the progress bar without a timer.
-        Text(downloadByteCountText(for: progress))
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(MapleTokens.textMuted)
+        Text(
+          EditorCanvasViewVM.downloadByteCountText(
+            receivedBytes: progress.receivedBytes, expectedBytes: progress.expectedBytes)
+        )
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(MapleTokens.textMuted)
         if let speed = progress.bytesPerSecond {
-          Text("\(downloadSpeedText(speed)) / s")
+          Text("\(EditorCanvasViewVM.downloadSpeedText(speed)) / s")
             .font(.caption2.monospacedDigit())
             .foregroundStyle(MapleTokens.textMuted)
             .accessibilityIdentifier("editor-download-speed")
