@@ -1,16 +1,11 @@
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { restoreRequestedLensProfile } from './raw-pipeline.lens-profile-fetch';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
-// T10: the worker still reports its thread-pool status (`threadedSubject`/
-// `threadCountSubject` below) once WASM init completes — but the public
-// `isThreaded$`/`threadCount$` observables that surfaced this to a UI were
-// removed as dead (#3048): no production caller remained anywhere in the
-// app. Retiring the worker-side status message and its request/response
-// protocol is a further, separate cleanup (touches raw-pipeline.worker.ts
-// and raw-pipeline.types.ts, outside this ticket's scope) — flagged as a
-// follow-up rather than folded in here.
+// The worker's thread-pool status protocol remains after #3048 removed its
+// unused public observables. The subjects below still receive those messages.
 
 import { Injectable, OnDestroy, Injector, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
@@ -84,16 +79,8 @@ export class RawPipelineService implements OnDestroy {
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
-  /**
-   * #1153: live BM3D deep-denoise progress, or `null` when the stage is not
-   * running. Fed by the worker's `deep-denoise-progress` broadcast, which
-   * carries raw-core's own per-reference-row ticks — the editor binds this
-   * to a DETERMINATE indicator, never a simulated one.
-   *
-   * Cleared when the request the develop belonged to settles (below): the
-   * stage itself has no "finished" tick, and the render still has GPU work
-   * to do after the last one.
-   */
+  /** Real BM3D progress from worker broadcasts (#1153), cleared when the
+   * develop request settles because the stage has no final completion tick. */
   readonly deepDenoiseProgress = signal<{ pass: 1 | 2; fraction: number } | null>(null);
 
   private ensureWorker(): Worker {
@@ -109,16 +96,12 @@ export class RawPipelineService implements OnDestroy {
           return;
         }
         if (e.data.type === 'lens-profile-fetch') {
-          const request = e.data;
-          const restore =
-            this.backend === 'self-hosted'
-              ? import('../lens/lens-profile-server-bridge').then((bridge) =>
-                  bridge.restoreServerLensProfile(this.injector, request.reference),
-                )
-              : Promise.resolve();
-          void restore
-            .catch(() => undefined)
-            .finally(() => worker.postMessage({ id: request.id, type: 'lens-profile-restored' }));
+          restoreRequestedLensProfile(
+            worker,
+            e.data,
+            this.injector,
+            this.backend === 'self-hosted',
+          );
           return;
         }
         // Routing lives in `raw-pipeline.worker-dispatch.ts` (#2314) — this
