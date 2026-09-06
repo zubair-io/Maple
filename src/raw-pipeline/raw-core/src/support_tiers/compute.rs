@@ -206,7 +206,7 @@ impl SupportRegistry {
             .iter()
             .find(|b| b.key == key)
             .filter(|b| resolved >= tier_for_profile_source(b.resolution))
-            .map(|b| b.tier)
+            .map(|b| b.tier.max(resolved))
             .unwrap_or(resolved)
     }
 }
