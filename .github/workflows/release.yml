@@ -77,11 +77,13 @@ jobs:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          MACOS_PROVISIONING_PROFILES_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILES_BASE64 }}
         run: |
           set -euo pipefail
           missing=""
           for v in APPLE_TEAM_ID MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD \
-                   APPSTORE_KEY_ID APPSTORE_ISSUER_ID APPSTORE_PRIVATE_KEY; do
+                   APPSTORE_KEY_ID APPSTORE_ISSUER_ID APPSTORE_PRIVATE_KEY \
+                   MACOS_PROVISIONING_PROFILES_BASE64; do
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -132,6 +134,74 @@ jobs:
           tr '\n' ' ' < "$RUNNER_TEMP/keychains.before" \
             | xargs security list-keychains -d user -s "$KEYCHAIN_PATH"
           rm "$RUNNER_TEMP/cert.p12"
+
+      # Developer ID provisioning profiles, installed by hand.
+      #
+      # A developer-id export needs one profile per signed bundle — the app
+      # and each embedded extension — because the App Group, keychain
+      # sharing and aps-environment entitlements are all restricted and only
+      # a profile authorizes them.
+      #
+      # Xcode cannot mint them here. Minting through an App Store Connect
+      # API key is "cloud signing", and Apple does not support cloud signing
+      # for Developer ID: an Admin key gets
+      #
+      #   error: exportArchive Cloud signing permission error
+      #   "detail": "You haven't been given access to cloud-managed
+      #              distribution certificates..."
+      #
+      # (v0.0.15-test.1). Apple DTS confirms this as a known bug,
+      # FB16835802 — cloud signing works for iOS but not Developer ID — and
+      # names locally installed certificates plus profiles as the
+      # workaround. That is what this step and the manual export below are.
+      #
+      # The other route, letting xcodebuild fall back to a signed-in Xcode
+      # account, is not available either: the build user (`lawrence`) is a
+      # standard account and reports "No Accounts" (v0.0.16).
+      #
+      # These expire with the certificate (2031-09-04 for the current set),
+      # but a revoked or regenerated certificate invalidates them sooner, so
+      # the expiry is checked rather than assumed. Failing here, in seconds,
+      # beats failing in the export after a 17-minute archive.
+      - name: Install Developer ID provisioning profiles
+        env:
+          MACOS_PROVISIONING_PROFILES_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILES_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$MACOS_PROVISIONING_PROFILES_BASE64" \
+            | openssl base64 -d -A > "$RUNNER_TEMP/profiles.tar.gz"
+          mkdir -p "$RUNNER_TEMP/profiles"
+          tar xzf "$RUNNER_TEMP/profiles.tar.gz" -C "$RUNNER_TEMP/profiles"
+
+          DEST="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$DEST"
+
+          found=0
+          while IFS= read -r prof; do
+            found=$((found + 1))
+            plist="$RUNNER_TEMP/profile.plist"
+            # A .provisionprofile is CMS-signed; -D gives back the plist.
+            security cms -D -i "$prof" > "$plist"
+            uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$plist")"
+            name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$plist")"
+            expiry="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$plist")"
+            # macOS profiles key this as com.apple.application-identifier;
+            # iOS ones use the bare name. Accept either.
+            appid="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$plist" 2>/dev/null \
+                     || /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$plist")"
+            echo "installing '$name' — $appid — expires $expiry"
+            cp "$prof" "$DEST/$uuid.provisionprofile"
+
+            if [ "$(date -j -f '%a %b %d %T %Z %Y' "$expiry" +%s 2>/dev/null || echo 0)" \
+                 -lt "$(date -v+30d +%s)" ]; then
+              echo "::warning::provisioning profile '$name' expires $expiry (under 30 days)"
+            fi
+          done < <(find "$RUNNER_TEMP/profiles" -name '*.provisionprofile')
+
+          if [ "$found" -ne 4 ]; then
+            echo "::error::expected 4 provisioning profiles, found $found — the export signs the app plus three extensions."
+            exit 1
+          fi
 
       - name: Stage App Store Connect API key
         env:
@@ -285,13 +355,20 @@ jobs:
       - name: Export with Developer ID
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           # This step is the full codesigning pass, so it needs the
           # keychain unlocked just as much as the archive does.
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
+          # Which identities xcodebuild can actually see. An export that
+          # cannot find "Developer ID Application" fails with a message that
+          # does not say whether the certificate is absent, in a locked
+          # keychain, or ambiguous — this line distinguishes all three.
+          security find-identity -v -p codesigning
+
+          # Manual signing, naming a profile per bundle. Automatic would
+          # send xcodebuild back to cloud signing, which is the thing Apple
+          # does not support for Developer ID.
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -299,35 +376,28 @@ jobs:
           <dict>
             <key>method</key><string>developer-id</string>
             <key>teamID</key><string>${APPLE_TEAM_ID}</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Developer ID Application</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>app.justmaple.aperture</key><string>Maple DevID App</string>
+              <key>app.justmaple.aperture.FileProvider</key><string>Maple DevID FileProvider</string>
+              <key>app.justmaple.aperture.QuickLook</key><string>Maple DevID QuickLook</string>
+              <key>app.justmaple.aperture.Widget</key><string>Maple DevID Widget</string>
+            </dict>
             <key>destination</key><string>export</string>
           </dict>
           </plist>
           EOF
-          # No -authenticationKey* here, unlike the archive and notarytool.
-          #
-          # A developer-id export needs a Developer ID provisioning profile
-          # for the app and each embedded extension — the App Group,
-          # keychain-sharing and aps-environment entitlements each require
-          # one. Minting those through an API key is "cloud signing", and
-          # Apple gates Developer ID assets more tightly than the rest: an
-          # *Admin* key still gets
-          #
-          #   error: exportArchive No profiles for 'app.justmaple.aperture' were found
-          #   error: exportArchive Cloud signing permission error
-          #
-          # (v0.0.15-test.1 — so this is not a role that can be raised).
-          # This job runs on a Mac signed into Xcode with the team account,
-          # and that account demonstrably can mint these profiles: it
-          # created the macOS FileProvider profile on 2026-09-05 the moment
-          # the project was opened. Dropping the key here lets Xcode use
-          # the local account instead. The archive step keeps the key, and
-          # notarytool below needs it.
+          # No -authenticationKey* and no -allowProvisioningUpdates: both
+          # only matter when xcodebuild is allowed to fetch or mint signing
+          # assets, and everything it needs is already on disk — the
+          # certificate in the keychain built above, the profiles installed
+          # two steps up. The archive keeps the key, and notarytool needs it.
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates
+            -exportPath "$RUNNER_TEMP/export"
 
       - name: Notarize and staple
         env:
