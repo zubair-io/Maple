@@ -358,6 +358,7 @@ fn empty_image_is_a_noop() {
 /// timing failures.
 #[test]
 #[cfg(not(debug_assertions))]
+#[ignore = "4 ms reference-machine benchmark; run explicitly with --release --ignored"]
 fn perf_chromatic_adaptation_2mp_under_4ms_release() {
     // 1600 × 1250 ≈ 2 MP
     let w = 1600u32;
