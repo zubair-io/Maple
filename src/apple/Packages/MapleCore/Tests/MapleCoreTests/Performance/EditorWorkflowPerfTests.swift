@@ -86,6 +86,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
       "sameSessionEnsureStartedNoopMs": Self.ms(revisit.duration(to: .now)),
       "viewport": "1920x1280", "profile": String(describing: session.model.profile),
     ])
+    let initialModel = session.model
     let changes: [(String, (inout AdjustmentModel, Double) -> Void)] = [
       ("exposure", { $0.exposure = -1 + $1 * 2 }),
       ("whiteBalance", { $0.temperature = 4500 + $1 * 3000 }),
@@ -105,8 +106,12 @@ final class EditorWorkflowPerfTests: XCTestCase {
     }
     // Explicit attribution control, separate from the default-quality results.
     // Never use this arm as the product's 60 Hz acceptance measurement.
-    session.model.nrColor = 0
-    session.model.nrLuminance = 0
+    // Match the first exposure arm's settings; later WB/tone/curve edits
+    // would otherwise change more than noise reduction in this comparison.
+    var withoutNoiseReduction = initialModel
+    withoutNoiseReduction.nrColor = 0
+    withoutNoiseReduction.nrLuminance = 0
+    session.model = withoutNoiseReduction
     _ = await session.latestRenderSchedule?.value
     await session.renderActor.awaitCurrentRenderIfInFlight()
     try await Task.sleep(for: .milliseconds(500))
