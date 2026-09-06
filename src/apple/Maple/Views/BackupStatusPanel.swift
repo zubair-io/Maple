@@ -70,6 +70,14 @@ struct BackupStatusPanel: View {
       }
       .progressViewStyle(.linear)
 
+      // Library-scan row (#3386): the PhotoKit walk that seeds the queue
+      // runs for minutes on a large library while `totalEnqueued` is still
+      // 0, so without this the panel read "Running · No photos queued" for
+      // the whole scan and looked wedged. A walk that bails reports why.
+      if let walkLabel = progress.walkPhaseLabel {
+        walkRow(label: walkLabel)
+      }
+
       // Completion caption (#3097): when the last walk confirmed everything
       // is backed up, say when it checked and surface any terminal failures
       // (photos that ran out of retries — e.g. deleted from Photos before
@@ -225,6 +233,34 @@ struct BackupStatusPanel: View {
     // away from Settings and back. The `lastStartError` banner above
     // covers the "engine didn't actually start" diagnostic that the old
     // .task path used to surface implicitly.
+  }
+
+  // MARK: - Library-scan row (#3386)
+
+  @ViewBuilder
+  private func walkRow(label: String) -> some View {
+    if case .failed = progress.walkPhase {
+      Label(label, systemImage: "exclamationmark.triangle.fill")
+        .font(.caption)
+        .foregroundStyle(.red)
+        .accessibilityIdentifier("backup.status.walkFailed")
+    } else {
+      HStack(spacing: 8) {
+        if let fraction = progress.walkFraction {
+          ProgressView(value: fraction)
+            .progressViewStyle(.linear)
+            .frame(maxWidth: 120)
+        } else {
+          ProgressView()
+            .controlSize(.small)
+        }
+        Text(label)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+      }
+      .accessibilityIdentifier("backup.status.walkPhase")
+    }
   }
 
   // MARK: - Status row

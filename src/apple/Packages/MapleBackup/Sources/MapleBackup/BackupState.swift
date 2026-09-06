@@ -26,11 +26,20 @@ public actor BackupStateStore {
                 t.column("retry_count", .integer).notNull().defaults(to: 0)
                 t.column("last_error", .text)
                 t.column("enqueued_at", .double).notNull()
+                t.column("captured_at", .double)
                 t.primaryKey(["device_id", "phasset_local_id"])
             }
             try db.create(index: "tasks_state_idx",
                           on: "tasks", columns: ["state"],
                           ifNotExists: true)
+            // Stores created before `captured_at` existed (#3388): add the
+            // column in place. Existing rows keep NULL and sort after every
+            // dated task; the next walk doesn't rewrite them, so the
+            // newest-first guarantee applies to tasks queued from here on.
+            let columns = try db.columns(in: "tasks").map(\.name)
+            if !columns.contains("captured_at") {
+                try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
+            }
         }
     }
 
@@ -39,17 +48,20 @@ public actor BackupStateStore {
         try dbQueue.write { db in
             try db.execute(literal: """
                 INSERT INTO tasks
-                  (device_id, phasset_local_id, state, priority, retry_count, last_error, enqueued_at)
+                  (device_id, phasset_local_id, state, priority, retry_count, last_error,
+                   enqueued_at, captured_at)
                 VALUES
                   (\(task.id.deviceId), \(task.id.phassetLocalId), \(task.state.rawValue),
                    \(task.priority.rawValue), \(task.retryCount), \(task.lastError),
-                   \(task.enqueuedAt.timeIntervalSince1970))
+                   \(task.enqueuedAt.timeIntervalSince1970),
+                   \(task.capturedAt?.timeIntervalSince1970))
                 ON CONFLICT(device_id, phasset_local_id) DO UPDATE SET
                   state=excluded.state,
                   priority=excluded.priority,
                   retry_count=excluded.retry_count,
                   last_error=excluded.last_error,
-                  enqueued_at=excluded.enqueued_at
+                  enqueued_at=excluded.enqueued_at,
+                  captured_at=excluded.captured_at
                 """)
         }
     }
@@ -126,6 +138,7 @@ public actor BackupStateStore {
             priority: BackupPriority(rawValue: row["priority"]) ?? .background,
             retryCount: row["retry_count"],
             lastError: row["last_error"],
-            enqueuedAt: Date(timeIntervalSince1970: row["enqueued_at"]))
+            enqueuedAt: Date(timeIntervalSince1970: row["enqueued_at"]),
+            capturedAt: (row["captured_at"] as Double?).map(Date.init(timeIntervalSince1970:)))
     }
 }
