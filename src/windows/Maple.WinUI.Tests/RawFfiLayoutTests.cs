@@ -45,7 +45,7 @@ namespace Maple.WinUI.Tests
             // on the probing path (it does not, for a plain `dotnet test`).
             NativeLibrary.SetDllImportResolver(typeof(RawFfiLayoutTests).Assembly, (name, _, _) =>
             {
-                if (name != DllImportName) return IntPtr.Zero;
+                if (name != DllImportName && name != "raw_ffi.dll") return IntPtr.Zero;
                 var dll = Environment.GetEnvironmentVariable(DllEnvVar);
                 return string.IsNullOrEmpty(dll) ? IntPtr.Zero : NativeLibrary.Load(dll);
             });
