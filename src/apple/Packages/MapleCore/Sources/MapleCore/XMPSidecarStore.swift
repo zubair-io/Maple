@@ -24,193 +24,207 @@ import Foundation
 /// await store.flush()   // Force immediate write before close.
 /// ```
 public actor XMPSidecarStore {
-    private let rawURL: URL
-    private let sidecarURL: URL
+  private let rawURL: URL
+  private let sidecarURL: URL
 
-    private var cached: (AdjustmentModel, CullingState)?
-    private var pendingTask: Task<Void, Never>?
-    private var pendingModel: AdjustmentModel?
-    private var pendingCulling: CullingState?
+  private var cached: (AdjustmentModel, CullingState)?
+  private var pendingTask: Task<Void, Never>?
+  private var pendingModel: AdjustmentModel?
+  private var pendingCulling: CullingState?
 
-    private var pendingMetadata: XmpMetadata? = nil
+  private var pendingMetadata: XmpMetadata? = nil
 
-    private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
-    private var nextSubscriberID: UInt64 = 0
+  private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
+  private var nextSubscriberID: UInt64 = 0
 
-    static let debounceInterval: Duration = .milliseconds(750)
+  static let debounceInterval: Duration = .milliseconds(750)
 
-    public init(rawURL: URL) {
-        self.rawURL = rawURL
-        self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+  public init(rawURL: URL) {
+    self.rawURL = rawURL
+    self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+  }
+
+  /// Load current model+culling from disk (or return cached).
+  /// Returns defaults if no sidecar exists.
+  public func load() async throws -> (AdjustmentModel, CullingState) {
+    if let cached { return cached }
+    let result = try readFromDisk()
+    cached = result
+    return result
+  }
+
+  /// Like `load()`, but returns `nil` when the sidecar file does not
+  /// exist on disk. Lets callers (specifically `EditSession`) tell
+  /// "fresh image, seed from as-shot WB" apart from "user has saved
+  /// edits, honor them" without poking at FileManager themselves.
+  public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+    if let cached { return cached }
+    guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+      return nil
     }
+    let data = try Data(contentsOf: sidecarURL)
+    let result = try XMPParser.parse(data: data)
+    cached = result
+    return result
+  }
 
-    /// Load current model+culling from disk (or return cached).
-    /// Returns defaults if no sidecar exists.
-    public func load() async throws -> (AdjustmentModel, CullingState) {
-        if let cached { return cached }
-        let result = try readFromDisk()
-        cached = result
-        return result
+  /// Schedule a debounced write. Resets the 750ms timer on each call.
+  public func update(model: AdjustmentModel, culling: CullingState) {
+    pendingModel = model
+    pendingCulling = culling
+    cached = (model, culling)
+
+    pendingTask?.cancel()
+    pendingTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: XMPSidecarStore.debounceInterval)
+        await self?.writePending()
+      } catch {
+        // Task cancelled — a newer update superseded this one.
+      }
     }
+  }
 
-    /// Like `load()`, but returns `nil` when the sidecar file does not
-    /// exist on disk. Lets callers (specifically `EditSession`) tell
-    /// "fresh image, seed from as-shot WB" apart from "user has saved
-    /// edits, honor them" without poking at FileManager themselves.
-    public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
-        if let cached { return cached }
-        guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
-            return nil
+  /// Schedule a debounced write including the IPTC/EXIF metadata block.
+  /// Resets the 750ms timer on each call, superseding any pending write.
+  public func update(model: AdjustmentModel, culling: CullingState, metadata: XmpMetadata) {
+    pendingModel = model
+    pendingCulling = culling
+    pendingMetadata = metadata
+    cached = (model, culling)
+
+    pendingTask?.cancel()
+    pendingTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: XMPSidecarStore.debounceInterval)
+        await self?.writePending()
+      } catch {
+        // Task cancelled — a newer update superseded this one.
+      }
+    }
+  }
+
+  /// Force an immediate flush of any pending write (call before closing).
+  public func flush() async {
+    pendingTask?.cancel()
+    pendingTask = nil
+    await writePending()
+  }
+
+  public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+    try writeAtomically(model: model, culling: culling)
+    cached = (model, culling)
+  }
+
+  /// Returns an async stream of errors encountered during background writes.
+  public func errors() -> AsyncStream<Error> {
+    let id = nextSubscriberID
+    nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
+    return AsyncStream { continuation in
+      subscribers[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { [weak self] in
+          await self?.removeSubscriber(id)
         }
-        let data = try Data(contentsOf: sidecarURL)
-        let result = try XMPParser.parse(data: data)
-        cached = result
-        return result
+      }
     }
+  }
 
-    /// Schedule a debounced write. Resets the 750ms timer on each call.
-    public func update(model: AdjustmentModel, culling: CullingState) {
-        pendingModel = model
-        pendingCulling = culling
-        cached = (model, culling)
+  private func removeSubscriber(_ id: UInt64) {
+    subscribers.removeValue(forKey: id)
+  }
 
-        pendingTask?.cancel()
-        pendingTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: XMPSidecarStore.debounceInterval)
-                await self?.writePending()
-            } catch {
-                // Task cancelled — a newer update superseded this one.
-            }
-        }
+  /// Returns the sidecar URL regardless of whether it exists.
+  public var url: URL { sidecarURL }
+
+  // MARK: Private
+
+  /// The sidecar text currently on disk, or nil when there is none.
+  ///
+  /// The write path reads it for the two things a model+culling write must
+  /// not destroy: the IPTC/EXIF metadata block, and the passthrough bucket
+  /// (#2233). Disk is the carrier for both rather than in-memory state
+  /// threaded down from `EditSession`, so an externally-edited sidecar
+  /// contributes its current contents instead of a stale snapshot taken at
+  /// open time.
+  private func existingSidecarXML() throws -> String? {
+    guard FileManager.default.fileExists(atPath: sidecarURL.path) else { return nil }
+    return try String(contentsOf: sidecarURL, encoding: .utf8)
+  }
+
+  private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
+    guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+      return (.default, CullingState())
     }
+    let data = try Data(contentsOf: sidecarURL)
+    return try XMPParser.parse(data: data)
+  }
 
-    /// Schedule a debounced write including the IPTC/EXIF metadata block.
-    /// Resets the 750ms timer on each call, superseding any pending write.
-    public func update(model: AdjustmentModel, culling: CullingState, metadata: XmpMetadata) {
-        pendingModel = model
-        pendingCulling = culling
-        pendingMetadata = metadata
-        cached = (model, culling)
-
-        pendingTask?.cancel()
-        pendingTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: XMPSidecarStore.debounceInterval)
-                await self?.writePending()
-            } catch {
-                // Task cancelled — a newer update superseded this one.
-            }
-        }
+  private func writePending() async {
+    guard let model = pendingModel, let culling = pendingCulling else { return }
+    pendingModel = nil
+    pendingCulling = nil
+    do {
+      try writeAtomically(model: model, culling: culling)
+    } catch {
+      for subscriber in subscribers.values {
+        subscriber.yield(error)
+      }
     }
+  }
 
-    /// Force an immediate flush of any pending write (call before closing).
-    public func flush() async {
-        pendingTask?.cancel()
-        pendingTask = nil
-        await writePending()
+  private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
+    let existingXML = try existingSidecarXML()
+    // Non-destructive: a model/culling-only write must NOT drop an existing
+    // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
+    // the pending metadata if this write carries one, otherwise preserve
+    // whatever is already on disk. (parseMetadata of a no-metadata sidecar
+    // returns an empty struct, which we treat as "no block".)
+    let metadataOnDisk =
+      existingXML
+      .map(XMPParser.parseMetadata)
+      .flatMap { $0.isEmpty ? nil : $0 }
+    let metadata = pendingMetadata ?? metadataOnDisk
+    pendingMetadata = nil
+    // Likewise for every field Maple does not model at all (#2233) — the
+    // Lightroom masks, history, snapshots and display-referred curves that
+    // this writer used to delete on the first slider nudge.
+    let passthrough = existingXML.map(XMPParser.parsePassthrough) ?? .empty
+    let xml: String
+    if let metadata, !metadata.isEmpty {
+      xml = XMPSerializer.serialize(
+        model: model, culling: culling, metadata: metadata, passthrough: passthrough)
+    } else {
+      xml = XMPSerializer.serialize(
+        model: model, culling: culling, passthrough: passthrough)
     }
-
-    /// Returns an async stream of errors encountered during background writes.
-    public func errors() -> AsyncStream<Error> {
-        let id = nextSubscriberID
-        nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
-        return AsyncStream { continuation in
-            subscribers[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { [weak self] in
-                    await self?.removeSubscriber(id)
-                }
-            }
-        }
+    guard let data = xml.data(using: .utf8) else {
+      throw XMPStoreError.encodingError
     }
-
-    private func removeSubscriber(_ id: UInt64) {
-        subscribers.removeValue(forKey: id)
+    let tmpURL = sidecarURL.deletingLastPathComponent()
+      .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
+    try data.write(to: tmpURL, options: .atomic)
+    // Atomic rename
+    if FileManager.default.fileExists(atPath: sidecarURL.path) {
+      _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
+    } else {
+      try FileManager.default.moveItem(at: tmpURL, to: sidecarURL)
     }
-
-    /// Returns the sidecar URL regardless of whether it exists.
-    public var url: URL { sidecarURL }
-
-    // MARK: Private
-
-    /// The sidecar text currently on disk, or nil when there is none.
-    ///
-    /// The write path reads it for the two things a model+culling write must
-    /// not destroy: the IPTC/EXIF metadata block, and the passthrough bucket
-    /// (#2233). Disk is the carrier for both rather than in-memory state
-    /// threaded down from `EditSession`, so an externally-edited sidecar
-    /// contributes its current contents instead of a stale snapshot taken at
-    /// open time.
-    private func existingSidecarXML() -> String? {
-        guard FileManager.default.fileExists(atPath: sidecarURL.path) else { return nil }
-        return try? String(contentsOf: sidecarURL, encoding: .utf8)
-    }
-
-    private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
-        guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
-            return (.default, CullingState())
-        }
-        let data = try Data(contentsOf: sidecarURL)
-        return try XMPParser.parse(data: data)
-    }
-
-    private func writePending() async {
-        guard let model = pendingModel, let culling = pendingCulling else { return }
-        pendingModel = nil
-        pendingCulling = nil
-        do {
-            try writeAtomically(model: model, culling: culling)
-        } catch {
-            for subscriber in subscribers.values {
-                subscriber.yield(error)
-            }
-        }
-    }
-
-    private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
-        let existingXML = existingSidecarXML()
-        // Non-destructive: a model/culling-only write must NOT drop an existing
-        // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
-        // the pending metadata if this write carries one, otherwise preserve
-        // whatever is already on disk. (parseMetadata of a no-metadata sidecar
-        // returns an empty struct, which we treat as "no block".)
-        let metadataOnDisk = existingXML
-            .map(XMPParser.parseMetadata)
-            .flatMap { $0.isEmpty ? nil : $0 }
-        let metadata = pendingMetadata ?? metadataOnDisk
-        pendingMetadata = nil
-        // Likewise for every field Maple does not model at all (#2233) — the
-        // Lightroom masks, history, snapshots and display-referred curves that
-        // this writer used to delete on the first slider nudge.
-        let passthrough = existingXML.map(XMPParser.parsePassthrough) ?? .empty
-        let xml: String
-        if let metadata, !metadata.isEmpty {
-            xml = XMPSerializer.serialize(
-                model: model, culling: culling, metadata: metadata, passthrough: passthrough)
-        } else {
-            xml = XMPSerializer.serialize(
-                model: model, culling: culling, passthrough: passthrough)
-        }
-        guard let data = xml.data(using: .utf8) else {
-            throw XMPStoreError.encodingError
-        }
-        let tmpURL = sidecarURL.deletingLastPathComponent()
-            .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
-        try data.write(to: tmpURL, options: .atomic)
-        // Atomic rename
-        _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
-    }
+  }
 }
 
 // MARK: - XMPStoreError
 
 public enum XMPStoreError: Error, LocalizedError {
-    case encodingError
+  case encodingError
 
-    public var errorDescription: String? {
-        switch self {
-        case .encodingError: return "XMP serialization produced non-UTF8 data"
-        }
+  public var errorDescription: String? {
+    switch self {
+    case .encodingError: return "XMP serialization produced non-UTF8 data"
     }
+  }
 }

@@ -130,6 +130,7 @@
     [targetCount]="pasteTargetIds().length"
     [sourceLabel]="clipboardSourceLabel()"
     [sourceModel]="clipboardModel()"
+    [readSourceBaseline]="readPasteSourceBaseline"
     [targetModels]="pastePreviewTargets()"
     [previewError]="pastePreviewError()"
     (paste)="onPasteDialogConfirm($event)"
@@ -165,4 +166,13 @@
     [assets]="exportAssets()"
     (dismiss)="exportRecipesVisible.set(false)"
   />
+}
+
+@if (pastePreviewError() && !pasteDialogVisible()) {
+  <div class="dlg-toast border-[0.5px] border-border bg-surface text-text-main" role="alert">
+    <span>{{ pastePreviewError() }}</span>
+    <mui-button variant="ghost" size="sm" (pressed)="pastePreviewError.set(null)"
+      >Dismiss</mui-button
+    >
+  </div>
 }

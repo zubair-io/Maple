@@ -8,23 +8,36 @@
  * operations and can't drift on field names.
  */
 
-import { ObjectId } from 'mongodb';
+import { batchScopes } from './batch-scope.ts';
+import { MongoServerError, ObjectId } from 'mongodb';
 import { isDeepStrictEqual } from 'node:util';
 import { type WithId } from 'mongodb';
 import { jobsCollection } from '../db/client.ts';
 import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
-
-export class JobRequestConflictError extends Error {
-  constructor() {
-    super('The request id already belongs to a different job');
-  }
-}
 
 export interface CreateJobInput {
   kind: JobKind;
   payload: Record<string, unknown>;
   /** Optional caller-generated identity makes a lost creation response recoverable. */
   requestId?: string;
+}
+
+/** A caller reused an identity or overlaps another active settings batch. */
+export class JobConflictError extends Error {
+  override name = 'JobConflictError';
+}
+
+/** Only the active-library index is a user conflict; other database failures propagate. */
+export function jobConflictMessage(error: unknown): string | undefined {
+  if (error instanceof JobConflictError) return error.message;
+  if (
+    error instanceof MongoServerError &&
+    error.code === 11000 &&
+    error.keyPattern?.['batch_scopes'] === 1
+  ) {
+    return 'Another settings batch is active in this library. Wait for it or cancel it first.';
+  }
+  return undefined;
 }
 
 /** Snapshot returned by `claim()` — enough for the runner to hand to a
@@ -54,9 +67,25 @@ export async function createJob(
   now: () => Date = () => new Date(),
 ): Promise<JobWithId> {
   const c = await jobsCollection();
+  const scopes =
+    input.kind === 'batch_adjustment_sync' ? await batchScopes(input.payload) : undefined;
+  if (scopes)
+    await c.createIndex(
+      { batch_scopes: 1 },
+      {
+        name: 'batch_active_library',
+        unique: true,
+        partialFilterExpression: {
+          kind: 'batch_adjustment_sync',
+          status: { $in: ['queued', 'running'] },
+          batch_scopes: { $exists: true },
+        },
+      },
+    );
   const nowIso = now().toISOString();
   const doc: JobDoc = {
     kind: input.kind,
+    ...(scopes ? { batch_scopes: scopes } : {}),
     status: 'queued',
     payload: input.payload,
     progress: { current: 0, total: 0 },
@@ -80,7 +109,7 @@ export async function createJob(
       existing.kind !== input.kind ||
       !isDeepStrictEqual(existing.payload, input.payload)
     ) {
-      throw new JobRequestConflictError();
+      throw new JobConflictError('The request id already belongs to a different job');
     }
     return existing as JobWithId;
   }
@@ -192,6 +221,31 @@ export async function updateProgress(
     throw new Error('The job lease was claimed by another worker');
 }
 
+/** Apply a terminal state under the same lease fence used for progress writes. */
+async function finishJob(
+  id: ObjectId,
+  terminal: {
+    status: 'done' | 'failed' | 'cancelled';
+    result?: Record<string, unknown> | null;
+    error?: string | null;
+  },
+  now: () => Date,
+  workerId?: string,
+): Promise<void> {
+  const c = await jobsCollection();
+  await c.updateOne(
+    { _id: id, ...(workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {}) },
+    {
+      $set: {
+        ...terminal,
+        locked_by: null,
+        lease_expires_at: null,
+        updated_at: now().toISOString(),
+      },
+    },
+  );
+}
+
 /** Mark a job done with its result payload. Releases the lock. */
 export async function completeJob(
   id: ObjectId,
@@ -199,7 +253,7 @@ export async function completeJob(
   now: () => Date = () => new Date(),
   workerId?: string,
 ): Promise<void> {
-  await setTerminalState(id, { status: 'done', result, error: null }, now(), workerId);
+  await finishJob(id, { status: 'done', result, error: null }, now, workerId);
 }
 
 /** Mark a job failed with an error message. Releases the lock. */
@@ -209,43 +263,17 @@ export async function failJob(
   now: () => Date = () => new Date(),
   workerId?: string,
 ): Promise<void> {
-  await setTerminalState(id, { status: 'failed', error }, now(), workerId);
+  await finishJob(id, { status: 'failed', error }, now, workerId);
 }
 
-/**
- * Mark a job cancelled — handler observed `cancel_requested` and exited.
- * `result` may carry a partial payload (e.g. how many assets did succeed
- * before the cancel) so the API caller can surface the partial work.
- */
+/** Mark a job cancelled, retaining any supplied partial result. Releases the lock. */
 export async function markCancelled(
   id: ObjectId,
   result: Record<string, unknown> | null = null,
   now: () => Date = () => new Date(),
   workerId?: string,
 ): Promise<void> {
-  await setTerminalState(id, { status: 'cancelled', result }, now(), workerId);
-}
-
-/** Keep lease fencing identical for every terminal transition. */
-async function setTerminalState(
-  id: ObjectId,
-  fields: Partial<JobDoc>,
-  at: Date,
-  workerId?: string,
-): Promise<void> {
-  const jobs = await jobsCollection();
-  const owner = workerId ? { locked_by: workerId, status: 'running' as JobStatus } : {};
-  await jobs.updateOne(
-    { _id: id, ...owner },
-    {
-      $set: {
-        ...fields,
-        locked_by: null,
-        lease_expires_at: null,
-        updated_at: at.toISOString(),
-      },
-    },
-  );
+  await finishJob(id, { status: 'cancelled', result }, now, workerId);
 }
 
 /** Flip the `cancel_requested` flag. The runner observes it between
@@ -282,6 +310,7 @@ export async function saveJobCheckpoint(
   checkpoint: Record<string, unknown>,
   leaseMs: number,
   now: () => Date = () => new Date(),
+  entryIndex?: number,
 ): Promise<void> {
   const c = await jobsCollection();
   const at = now();
@@ -289,13 +318,33 @@ export async function saveJobCheckpoint(
     { _id: id, locked_by: workerId, status: 'running' },
     {
       $set: {
-        checkpoint,
+        ...checkpointFields(checkpoint, entryIndex),
         updated_at: at.toISOString(),
         lease_expires_at: new Date(at.getTime() + leaseMs).toISOString(),
       },
     },
   );
   if (result.matchedCount !== 1) throw new Error('The job lease was claimed by another worker');
+}
+
+/** Keep each acknowledged target write bounded: do not resend all 2,000
+ * frozen patches twice per photo. Summary arrays remain the polling contract. */
+function checkpointFields(checkpoint: Record<string, unknown>, entryIndex?: number) {
+  if (entryIndex === undefined) return { checkpoint };
+  const entries = checkpoint['entries'];
+  if (
+    !Number.isSafeInteger(entryIndex) ||
+    entryIndex < 0 ||
+    !Array.isArray(entries) ||
+    entryIndex >= entries.length
+  )
+    throw new Error('Invalid batch checkpoint entry');
+  return {
+    [`checkpoint.entries.${entryIndex}`]: entries[entryIndex],
+    'checkpoint.applied': checkpoint['applied'],
+    'checkpoint.failed': checkpoint['failed'],
+    'checkpoint.remaining': checkpoint['remaining'],
+  };
 }
 
 /** Resume only unfinished entries of an interrupted batch; the saved ledger is retained. */
@@ -318,6 +367,10 @@ export async function resumeBatchJob(id: ObjectId): Promise<boolean> {
         updated_at: new Date().toISOString(),
       },
     },
-  );
-  return result.matchedCount === 1;
+  )
+    .catch((error: unknown) => {
+      if (jobConflictMessage(error)) return null;
+      throw error;
+    });
+  return result?.matchedCount === 1;
 }

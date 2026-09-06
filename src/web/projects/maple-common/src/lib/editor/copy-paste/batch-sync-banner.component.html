@@ -47,7 +47,7 @@
     role="status"
     data-testid="batch-sync-summary"
   >
-    <div class="flex min-w-0 flex-col gap-0.5">
+    <div class="flex max-h-[60vh] min-w-0 flex-col gap-0.5 overflow-y-auto break-words">
       <span>{{ summary }}</span>
       @if (batch.error(); as error) {
         <span>{{ error }}</span>

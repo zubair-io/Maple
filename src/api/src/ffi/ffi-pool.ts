@@ -161,12 +161,7 @@ class FfiWorkerPool {
     type: 'renderThumb' | 'renderPreviewJpeg' | 'renderDevelop' | 'exportRecipe',
     payload: Record<string, unknown>,
   ): Promise<boolean> {
-    // Existing histogram/render dispatch shares transport setup with different response types.
-    // fallow-ignore-next-line code-duplication
-    if (!this.available()) {
-      throw new Error('ffi-pool: raw-ffi dylib not available');
-    }
-    const id = this.nextId++;
+    const id = this.requestId();
     return new Promise<boolean>((resolve, reject) => {
       this.enqueue({
         id,
@@ -255,16 +250,29 @@ class FfiWorkerPool {
     });
   }
 
-  /**
-   * Render a RAW with `xmpPath`'s adjustments applied, bin the RGB888 output
-   * into 3×256 channel histograms inside the worker, and return the bins.
-   * Rejects on dylib-missing or any render failure.
-   */
+  /** Read camera as-shot white balance in the isolated child process.
+   * Rejects if the native library or the RAW's baseline is unavailable. */
+  async asShotWhiteBalance(rawPath: string): Promise<{ temperature: number; tint: number }> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue({
+        id,
+        post: (w) => w.postMessage({ type: 'asShot', id, rawPath }),
+        onResponse: (msg) => {
+          if (msg.type !== 'asShot') return false;
+          if (msg.ok && msg.baseline) resolve(msg.baseline);
+          else reject(new Error(msg.error ?? 'Cannot read as-shot white balance'));
+          return true;
+        },
+        onError: reject,
+      });
+    });
+  }
+
+  /** Render a RAW with the sidecar applied and return the child's 3×256 RGB bins.
+   * Rejects on dylib-missing or any render failure. */
   async computeHistogram(rawPath: string, xmpPath: string | null): Promise<HistogramBins> {
-    if (!this.available()) {
-      throw new Error('ffi-pool: raw-ffi dylib not available');
-    }
-    const id = this.nextId++;
+    const id = this.requestId();
     return new Promise<HistogramBins>((resolve, reject) => {
       this.enqueue({
         id,
@@ -302,6 +310,12 @@ class FfiWorkerPool {
   }
 
   // ── internals ──────────────────────────────────────────────────────────
+
+  /** Every request checks native availability before consuming a queue identity. */
+  private requestId(): number {
+    if (!this.available()) throw new Error('ffi-pool: raw-ffi dylib not available');
+    return this.nextId++;
+  }
 
   private enqueue(req: PendingRequest): void {
     this.queue.push(req);

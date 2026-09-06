@@ -72,8 +72,21 @@ export interface ExportRecipeRequest {
   filmPath: string | null;
   outPath: string;
 }
+export interface AsShotRequest {
+  type: 'asShot';
+  id: number;
+  rawPath: string;
+}
+export interface AsShotResponse {
+  type: 'asShot';
+  id: number;
+  ok: boolean;
+  baseline?: { temperature: number; tint: number };
+  error?: string;
+}
 
 export type FfiRequest =
+  | AsShotRequest
   | ExportRecipeRequest
   | RenderThumbRequest
   | HistogramRequest
@@ -111,6 +124,7 @@ export interface RenderPreviewJpegResponse {
 
 export type FfiResponse =
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
+  | AsShotResponse
   | RenderThumbResponse
   | HistogramResponse
   | RenderDevelopResponse

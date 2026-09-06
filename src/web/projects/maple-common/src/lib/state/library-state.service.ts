@@ -387,6 +387,10 @@ export class LibraryStateService {
     this.fetch_.scheduleSidecarWrite(id);
   }
 
+  flushSidecarWrite(id: AssetId): Promise<void> {
+    return this.fetch_.flushSidecarWrite(id);
+  }
+
   flushPendingXmpWrites(): Promise<void> {
     return this.fetch_.flushPendingXmpWrites();
   }

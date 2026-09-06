@@ -5,6 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
+import { PERSISTED_BATCH_SYNC } from '../../editor/copy-paste/persisted-batch-sync';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayoutService, type MapleLayout } from '../../layout-service';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -47,6 +48,16 @@ describe('BrowseShellComponent capability boundary', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideHostedWorkspace(),
+        {
+          provide: PERSISTED_BATCH_SYNC,
+          useValue: {
+            progress: signal(null),
+            lastSummary: signal(null),
+            error: signal(null),
+            remaining: signal([]),
+            needsReconnect: signal(false),
+          },
+        },
         { provide: LayoutService, useValue: { layout } },
       ],
     }).compileComponents();
@@ -161,6 +172,16 @@ describe('BrowseShellComponent capability boundary', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideHostedWorkspace(),
+        {
+          provide: PERSISTED_BATCH_SYNC,
+          useValue: {
+            progress: signal(null),
+            lastSummary: signal(null),
+            error: signal(null),
+            remaining: signal([]),
+            needsReconnect: signal(false),
+          },
+        },
         { provide: LayoutService, useValue: { layout } },
         {
           provide: ASSET_RENAME_CAPABILITY,

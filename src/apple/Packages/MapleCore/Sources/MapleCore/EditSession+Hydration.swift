@@ -18,6 +18,21 @@ import ImageIO
 
 @MainActor
 extension EditSession {
+  /// The WB delta anchor: the WB actually baked into the buffer. The
+  /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own
+  /// pair when present, else the legacy estimate. NOT 6500/0 (#1976):
+  /// post-#1894 that mislabel overcooled every settled render to cyan.
+  var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
+    if let frame = wbSliderFrame, frame.isPresent {
+      return ImageEditPipeline.AsShotWB(
+        temperature: Double(frame.sceneCCT),
+        tint: Double(frame.asShotTint)
+      )
+    }
+    guard let cct = asShotCCT, let t = asShotTint else { return nil }
+    return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+  }
+
   // MARK: - Sidecar / model hydration
 
   /// Load model + culling from disk; call once after init.
@@ -32,6 +47,10 @@ extension EditSession {
   /// Hydration is silent for sessions pre-created by the browse grid; a
   /// render is scheduled only if the editor has already requested pixels.
   public func loadSidecar() async {
+    guard !hasLoadedSidecar else { return }
+    let startingModel = model
+    let startingCulling = culling
+    let startingTransaction = transactions.nextID
     // (1) As-shot white balance — needed by Browse so the WB chip
     // shows the correct value without opening the editor. CIRAWFilter
     // metadata reads still perform source I/O, so use a detached task.
@@ -76,6 +95,14 @@ extension EditSession {
         return
       }
     }
+
+    // An edit or another completed load owns the current state. In particular,
+    // a confirmed batch paste must not be overwritten by a late browse hydrate.
+    guard !hasLoadedSidecar else { return }
+    hasLoadedSidecar = true
+    guard model == startingModel, culling == startingCulling,
+      transactions.nextID == startingTransaction
+    else { return }
 
     // (3/4) Build the initial model. As-shot seeding only applies when
     // no sidecar was loaded — once the user has saved edits, their

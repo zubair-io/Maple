@@ -1239,6 +1239,8 @@ export type JobKind =
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface JobDoc {
+  /** Registered library roots locked while a selected settings batch is active. */
+  batch_scopes?: string[];
   /** Handler-owned recovery ledger; absent for jobs which do not checkpoint. */
   checkpoint?: Record<string, unknown>;
   kind: JobKind;

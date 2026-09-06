@@ -66,7 +66,7 @@ pub mod stage_dump;
 /// Vectorscope statistics (#3272): the CPU producer/parity oracle for the GPU
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;
-
+pub mod batch_transfer;
 pub mod types;
 pub use types::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,

@@ -41,108 +41,145 @@ import Foundation
 // MARK: - SMBSidecarStore
 
 public actor SMBSidecarStore: SidecarStoreProtocol {
-    private let source: SMBSource
-    private let ref: ImageRef
+  private let source: SMBSource
+  private let ref: ImageRef
 
-    private var cached: (AdjustmentModel, CullingState)?
+  private var cached: (AdjustmentModel, CullingState)?
 
-    /// Fields the SMB sidecar carried that Maple does not model (#2233).
-    /// Captured on `load()` and held for the store's lifetime — see the
-    /// file header for why this can't re-read from a cheap local disk the
-    /// way `XMPSidecarStore` does.
-    private var cachedPassthrough: XMPPassthrough = .empty
+  /// Fields the SMB sidecar carried that Maple does not model (#2233).
+  /// Captured on `load()` and held for the store's lifetime — see the
+  /// file header for why this can't re-read from a cheap local disk the
+  /// way `XMPSidecarStore` does.
+  private var cachedPassthrough: XMPPassthrough = .empty
+  private var cachedMetadata = XmpMetadata()
 
-    private var pendingTask: Task<Void, Never>?
-    private var pendingModel: AdjustmentModel?
-    private var pendingCulling: CullingState?
+  private var pendingTask: Task<Void, Never>?
+  private var writeTail: Task<Void, Error>?
+  private var pendingModel: AdjustmentModel?
+  private var pendingCulling: CullingState?
 
-    private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
-    private var nextSubscriberID: UInt64 = 0
+  private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
+  private var nextSubscriberID: UInt64 = 0
 
-    static let debounceInterval: Duration = .milliseconds(750)
+  static let debounceInterval: Duration = .milliseconds(750)
 
-    public init(source: SMBSource, ref: ImageRef) {
-        self.source = source
-        self.ref = ref
+  public init(source: SMBSource, ref: ImageRef) {
+    self.source = source
+    self.ref = ref
+  }
+
+  /// Load current model+culling, or defaults if no sidecar exists yet.
+  public func load() async throws -> (AdjustmentModel, CullingState) {
+    try await loadIfPresent() ?? (.default, CullingState())
+  }
+
+  /// Like `load()`, but returns `nil` when no sidecar has ever been
+  /// written for this asset — lets `EditSession` tell "fresh SMB asset"
+  /// apart from "user has saved edits" the same way it already does for
+  /// `XMPSidecarStore` / `CloudSidecarStore` / `PhotoKitSidecarStore`.
+  public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+    if let cached { return cached }
+    guard let data = try await source.readSidecarData(for: ref) else { return nil }
+    let result = try XMPParser.parse(data: data)
+    cached = result
+    cachedPassthrough = XMPParser.parsePassthrough(data: data)
+    cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
+    return result
+  }
+
+  /// Schedule a debounced write. Resets the 750ms timer on each call.
+  public func update(model: AdjustmentModel, culling: CullingState) {
+    pendingModel = model
+    pendingCulling = culling
+    cached = (model, culling)
+
+    pendingTask?.cancel()
+    pendingTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: SMBSidecarStore.debounceInterval)
+        await self?.writePending()
+      } catch {
+        // Task cancelled — a newer update superseded this one.
+      }
     }
+  }
 
-    /// Load current model+culling, or defaults if no sidecar exists yet.
-    public func load() async throws -> (AdjustmentModel, CullingState) {
-        try await loadIfPresent() ?? (.default, CullingState())
-    }
+  /// Force an immediate flush of any pending write (call before closing).
+  public func flush() async {
+    pendingTask?.cancel()
+    pendingTask = nil
+    await writePending()
+  }
 
-    /// Like `load()`, but returns `nil` when no sidecar has ever been
-    /// written for this asset — lets `EditSession` tell "fresh SMB asset"
-    /// apart from "user has saved edits" the same way it already does for
-    /// `XMPSidecarStore` / `CloudSidecarStore` / `PhotoKitSidecarStore`.
-    public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
-        if let cached { return cached }
-        guard let data = try await source.readSidecarData(for: ref) else { return nil }
-        let result = try XMPParser.parse(data: data)
-        cached = result
-        cachedPassthrough = XMPParser.parsePassthrough(data: data)
-        return result
-    }
-
-    /// Schedule a debounced write. Resets the 750ms timer on each call.
-    public func update(model: AdjustmentModel, culling: CullingState) {
-        pendingModel = model
-        pendingCulling = culling
-        cached = (model, culling)
-
-        pendingTask?.cancel()
-        pendingTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: SMBSidecarStore.debounceInterval)
-                await self?.writePending()
-            } catch {
-                // Task cancelled — a newer update superseded this one.
-            }
+  /// Returns an async stream of errors encountered during background writes.
+  public func errors() -> AsyncStream<Error> {
+    let id = nextSubscriberID
+    nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
+    return AsyncStream { continuation in
+      subscribers[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { [weak self] in
+          await self?.removeSubscriber(id)
         }
+      }
     }
+  }
 
-    /// Force an immediate flush of any pending write (call before closing).
-    public func flush() async {
-        pendingTask?.cancel()
-        pendingTask = nil
-        await writePending()
+  private func removeSubscriber(_ id: UInt64) {
+    subscribers.removeValue(forKey: id)
+  }
+
+  // MARK: Private
+
+  public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+
+    cached = (model, culling)
+    try await persist(model: model, culling: culling)
+  }
+
+  private func persist(model: AdjustmentModel, culling: CullingState) async throws {
+    // Actor reentrancy must not let an older network write finish after a
+    // confirmed batch write. Each real write waits for its predecessor.
+    let previous = writeTail
+    let task = Task {
+      _ = await previous?.result
+      try await send(model: model, culling: culling)
     }
+    writeTail = task
+    try await task.value
+  }
 
-    /// Returns an async stream of errors encountered during background writes.
-    public func errors() -> AsyncStream<Error> {
-        let id = nextSubscriberID
-        nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
-        return AsyncStream { continuation in
-            subscribers[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { [weak self] in
-                    await self?.removeSubscriber(id)
-                }
-            }
-        }
+  private func send(model: AdjustmentModel, culling: CullingState) async throws {
+    // Metadata can change independently of this editor session. Preserve
+    // the current sidecar's foreign XML and IPTC fields at the write boundary.
+    let existing = try await source.readSidecarData(for: ref)
+    if let existing {
+      _ = try XMPParser.parse(data: existing)
+      cachedMetadata = XMPParser.parseMetadata(String(decoding: existing, as: UTF8.self))
+      cachedPassthrough = XMPParser.parsePassthrough(data: existing)
     }
-
-    private func removeSubscriber(_ id: UInt64) {
-        subscribers.removeValue(forKey: id)
+    let xml = XMPSerializer.serialize(
+      model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
+    guard let data = xml.data(using: .utf8) else {
+      throw XMPStoreError.encodingError
     }
+    try await source.writeSidecarData(data, for: ref)
+  }
 
-    // MARK: Private
-
-    private func writePending() async {
-        guard let model = pendingModel, let culling = pendingCulling else { return }
-        pendingModel = nil
-        pendingCulling = nil
-        do {
-            let xml = XMPSerializer.serialize(
-                model: model, culling: culling, passthrough: cachedPassthrough)
-            guard let data = xml.data(using: .utf8) else {
-                throw XMPStoreError.encodingError
-            }
-            try await source.writeSidecarData(data, for: ref)
-        } catch {
-            for subscriber in subscribers.values {
-                subscriber.yield(error)
-            }
-        }
+  private func writePending() async {
+    guard let model = pendingModel, let culling = pendingCulling else { return }
+    pendingModel = nil
+    pendingCulling = nil
+    do {
+      try await persist(model: model, culling: culling)
+    } catch {
+      for subscriber in subscribers.values {
+        subscriber.yield(error)
+      }
     }
+  }
 }

@@ -21,6 +21,10 @@ public protocol SidecarStoreProtocol: Actor {
   func update(model: AdjustmentModel, culling: CullingState)
   func flush() async
 
+  /// Cancel pending debounce and durably write this exact snapshot. Batch
+  /// operations count success only after this throwing boundary returns.
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws
+
   /// Returns an async stream of errors encountered during background writes.
   func errors() -> AsyncStream<Error>
 }

@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { LibraryStore } from '../../state/library-store.service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -8,6 +8,14 @@ import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjus
 
 @Injectable({ providedIn: 'root' })
 export class BatchPreviewService {
+  private readonly injector = inject(Injector);
+  // Resolved through Injector after a dynamic import from BrowseShell.
+  // fallow-ignore-next-line unused-class-member
+  async baseline(id: string) {
+    const { BatchSyncAssetIO } = await import('./batch-sync-asset-io.service');
+    return this.injector.get(BatchSyncAssetIO).baseline(id);
+  }
+
   private readonly store = inject(LibraryStore);
   private readonly persistence = inject(SERVER_WORKSPACE_PERSISTENCE, { optional: true });
   private readonly parser = inject(XmpParserService);
@@ -43,7 +51,10 @@ export class BatchPreviewService {
           ids.slice(offset, offset + 8).map(async (id) => {
             const current = this.store.adjustmentModels().get(id);
             if (current) return structuredClone(current);
-            if (this.store.backend !== 'self-hosted') return defaultAdjustmentModel();
+            if (this.store.backend !== 'self-hosted') {
+              const { BatchSyncAssetIO } = await import('./batch-sync-asset-io.service');
+              return this.injector.get(BatchSyncAssetIO).model(id);
+            }
             return this.readPersisted(id);
           }),
         )),

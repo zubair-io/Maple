@@ -65,6 +65,17 @@ function handle(req: FfiRequest): FfiResponse {
       error: error ?? undefined,
     };
   }
+  if (req.type === 'asShot') {
+    const baseline = ffi.asShotWhiteBalance(req.rawPath);
+    return baseline
+      ? { type: 'asShot', id: req.id, ok: true, baseline }
+      : {
+          type: 'asShot',
+          id: req.id,
+          ok: false,
+          error: 'Cannot decode camera as-shot white balance',
+        };
+  }
 
   if (req.type === 'renderThumb') {
     const ok = ffi.renderThumbnailAvifToFile(req.rawPath, req.outPath, req.maxPx, req.quality);
