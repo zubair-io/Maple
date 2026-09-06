@@ -427,8 +427,25 @@ pub fn develop_non_raw(
     let chained =
         raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
             .map_err(|e| JsError::new(&e.to_string()))?;
-    let encoded = raw_core::pipeline::encode_display_srgb_f32(&chained, width, height)
+    let mut encoded = raw_core::pipeline::encode_display_srgb_f32(&chained, width, height)
         .map_err(|e| JsError::new(&e.to_string()))?;
+    // Browser-decoded inputs already have EXIF orientation applied. Keep the
+    // same final display warp as RAW without applying that orientation twice.
+    let inverse = raw_core::stages::geometry::Geometry::from(&model)
+        .inverse_sensor(width, height, raw_core::ExifOrientation::Normal)
+        .map_err(JsError::new)?;
+    if inverse != raw_core::stages::geometry::Transform::IDENTITY {
+        let pixels = encoded.as_chunks_mut::<4>().0;
+        let mut scratch = vec![[0.0; 4]; pixels.len()];
+        raw_core::stages::geometry::apply_into(
+            pixels,
+            &mut scratch,
+            width as usize,
+            height as usize,
+            inverse,
+        );
+        pixels.copy_from_slice(&scratch);
+    }
 
     // Pack sRGB-gamma-encoded f32 [0,1] RGBA -> u8 RGB (drop alpha), matching
     // every other entry in this file's `MapleRender.rgb` contract.
@@ -460,3 +477,7 @@ pub fn develop_non_raw(
 fn f32_unit_to_u8(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * 255.0).round() as u8
 }
+
+#[cfg(test)]
+#[path = "render_geometry_tests.rs"]
+mod geometry_tests;
