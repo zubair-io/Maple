@@ -92,7 +92,7 @@ extension AppShell {
         return AssetRef(
           displayName: target.name, hintExtension: target.hintExtension, stableID: target.id,
           explicitIsRaw: target.isRaw, thumbnailProvenance: provenance,
-          bytesProvider: { try await source.rawBytes(ref) })
+          bytesProvider: { try await source.rawBytes(for: ref) })
       },
       session: { asset in
         sessions[asset.id]
