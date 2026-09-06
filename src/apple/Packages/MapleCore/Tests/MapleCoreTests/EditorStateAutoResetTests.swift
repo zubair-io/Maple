@@ -124,6 +124,89 @@ final class EditorStateAutoResetTests: XCTestCase {
 
   // MARK: - AUTO (#1379)
 
+  func testAutoDoesNotOverwriteAnEditMadeDuringAnalysis() async {
+    await assertStaleAutoIsDiscarded(undoInterveningEdit: false)
+  }
+
+  func testAutoDoesNotApplyAfterAnInterveningEditIsUndone() async {
+    await assertStaleAutoIsDiscarded(undoInterveningEdit: true)
+  }
+
+  private func assertStaleAutoIsDiscarded(undoInterveningEdit: Bool) async {
+    let session = makeFileBackedSession()
+    let state = EditorState(session: session)
+    let started = expectation(description: "AUTO analysis started")
+    let gate = AutoAnalysisGate()
+    state.autoProvider = { _ in
+      started.fulfill()
+      await gate.wait()
+      return AutoAdjustmentsResult(
+        exposure: 1.2, temperature: 5200, tint: 8,
+        contrast: 12, highlights: -18, shadows: 22, whites: -6, blacks: -9
+      )
+    }
+    let task = Task { @MainActor in await state.applyAuto() }
+    await fulfillment(of: [started], timeout: 5)
+    XCTAssertTrue(state.autoInProgress)
+
+    state.commit(description: "Manual exposure")
+    session.model.exposure = -1.5
+    session.endEdit()
+    if undoInterveningEdit { state.undo() }
+    let expected = session.model
+    let history = session.undoHistory
+    let canRedo = state.canRedo
+
+    await gate.open()
+    await task.value
+
+    XCTAssertEqual(
+      session.model, expected, "A slow AUTO result must preserve the newer user intent.")
+    XCTAssertEqual(session.undoHistory, history, "Discarding AUTO must not create an undo entry.")
+    XCTAssertEqual(state.canRedo, canRedo, "Discarding AUTO must preserve the user's redo history.")
+    XCTAssertFalse(state.autoInProgress)
+  }
+
+  func testUnchangedAutoPreservesRedoHistory() async {
+    let session = makeFileBackedSession()
+    let state = EditorState(session: session)
+    state.autoProvider = { _ in
+      AutoAdjustmentsResult(
+        exposure: 1.2, temperature: 5200, tint: 8,
+        contrast: 12, highlights: -18, shadows: 22, whites: -6, blacks: -9
+      )
+    }
+    await state.applyAuto()
+    let autoModel = session.model
+    state.commit(description: "Manual exposure")
+    session.model.exposure = -1.5
+    session.endEdit()
+    state.undo()
+    XCTAssertTrue(state.canRedo)
+
+    await state.applyAuto()
+
+    XCTAssertEqual(session.model, autoModel)
+    XCTAssertEqual(session.undoHistory.count, 1)
+    XCTAssertTrue(state.canRedo, "An unchanged AUTO recommendation must not discard redo.")
+    state.redo()
+    XCTAssertEqual(session.model.exposure, -1.5)
+  }
+
+  func testFailedAutoLeavesModelAndHistoryUntouched() async {
+    struct AnalysisFailure: Error {}
+    let session = makeFileBackedSession()
+    let state = EditorState(session: session)
+    let before = session.model
+    state.autoProvider = { _ in throw AnalysisFailure() }
+
+    await state.applyAuto()
+
+    XCTAssertEqual(session.model, before)
+    XCTAssertFalse(state.canUndo)
+    XCTAssertFalse(state.autoInProgress)
+  }
+
   func testCancelledAutoDoesNotCommitAfterLeavingEditor() async {
     let session = makeFileBackedSession()
     let state = EditorState(session: session)
@@ -186,6 +269,7 @@ final class EditorStateAutoResetTests: XCTestCase {
     XCTAssertEqual(state.session.model.exposure, AdjustmentModel.default.exposure, accuracy: 1e-9)
     XCTAssertEqual(state.session.model.contrast, 40, accuracy: 1e-9)
     XCTAssertEqual(state.session.model.autoExposure, AdjustmentModel.default.autoExposure)
+    XCTAssertFalse(state.canUndo, "AUTO must create exactly one undo entry.")
   }
 
   /// #1387 — the exact regression this ticket closes: on `Profile.neutral`
@@ -303,5 +387,21 @@ final class EditorStateAutoResetTests: XCTestCase {
     XCTAssertEqual(onDisk.whites, -8, accuracy: 1e-9)
     XCTAssertEqual(onDisk.blacks, -12, accuracy: 1e-9)
     XCTAssertEqual(onDisk.autoExposure, .off)
+  }
+}
+
+private actor AutoAnalysisGate {
+  private var isOpen = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func wait() async {
+    guard !isOpen else { return }
+    await withCheckedContinuation { continuation = $0 }
+  }
+
+  func open() {
+    isOpen = true
+    continuation?.resume()
+    continuation = nil
   }
 }
