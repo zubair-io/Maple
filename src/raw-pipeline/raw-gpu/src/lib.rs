@@ -211,6 +211,8 @@ mod context_pipelines_helpers;
 mod context_pipelines_spatial;
 mod dehaze;
 mod display_encode;
+#[cfg(any(target_vendor = "apple", test))]
+mod display_histogram;
 mod display_tone_curve;
 mod dither;
 mod exposure;
@@ -257,6 +259,7 @@ mod present_web;
 // a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only — `SurfaceTarget::
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
+mod color_grade;
 mod grain;
 mod hsl;
 #[cfg(target_arch = "wasm32")]
@@ -268,7 +271,6 @@ mod saturation;
 mod scene_tone_controls;
 mod sharpen;
 mod spatial;
-mod color_grade;
 mod srgb_gamma;
 mod texture;
 mod tone_curves;
@@ -284,6 +286,7 @@ pub use auto_profile_curve::{
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
+pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
@@ -316,7 +319,6 @@ pub use spatial::{
     plane_byte_len, plane_vec2_byte_len, pool_data_storage, ClarityTextureArgs, GuidedFilterArgs,
     Plane,
 };
-pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};

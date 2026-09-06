@@ -40,6 +40,8 @@ pub struct GpuContext {
     pub adapter: wgpu::Adapter,
     /// Lazily-compiled exposure compute pipeline (`exposure.wgsl`). Built on
     /// first use via [`GpuContext::exposure_pipeline`] and reused thereafter.
+    #[cfg(any(target_vendor = "apple", test))]
+    pub(crate) histogram_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) exposure_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled vibrance compute pipeline (`vibrance.wgsl` + the
     /// generated color matrices). The P2 template (#990); built on first use
@@ -373,6 +375,8 @@ impl GpuContext {
             queue,
             instance,
             adapter,
+            #[cfg(any(target_vendor = "apple", test))]
+            histogram_pipeline: OnceCell::new(),
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
