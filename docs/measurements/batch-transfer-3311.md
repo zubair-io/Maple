@@ -1,28 +1,30 @@
 # Batch settings transfer measurement (#3311)
 
-Measured on 2026-09-06 with 2,000 distinct photographs from an existing library, copied into an isolated temporary directory. The corpus contains JPG, CR2, HEIC and JPEG files totaling 3,034,079,453 bytes. No original library files or sidecars were written. Filenames are anonymized in the staged copies.
+Measured on 2026-09-06 with 2,000 distinct photographs from an existing library: JPG, CR2, HEIC and JPEG files totaling 3,034,079,453 bytes. The files were copied into an isolated temporary directory, anonymized, then streamed into Chromium's disk-backed OPFS using an owned temporary persistent browser profile. No original library files or sidecars were written. This measures Chromium OPFS storage; it does not characterize an external-disk folder picker or a network share.
 
-The declared budget is **120 seconds and at most 512 MiB of additional resident memory** for 2,000 committed sidecars. This measures completion of authoritative XMP writes, not completion of derived preview rendering.
+The declared budget remains **120 seconds and at most 512 MiB of additional resident memory** for 2,000 committed sidecars. The test seeds every staged sidecar with exposure -0.5 before timing, then applies exposure 1.25 and the other tone-group values, so every target receives a changed value on every run.
 
-The measured run applied all tone-group values through the real `LibraryStateService.updateAdjustment`, strict canonical XMP reads, debounced writes, atomic filesystem close, and one durable per-asset ledger entry per target. The preview persistence scheduler was active and bounded to one original fetch/decode at a time. The test reread all 2,000 resulting sidecars and verified every original's size and modification time remained unchanged. The Node filesystem adapter uses real files; the separate browser tests exercise actual Worker, IndexedDB, Web Locks and OPFS behavior.
+The measured path is the production Web Worker, per-asset IndexedDB ledger, `BatchSyncAssetIO`, real `LibraryStateService.updateAdjustment`, strict canonical XMP reads, debounced writes flushed through actual `FileSystemWritableFileStream.close`, and Web Locks. The preview scheduler remains active and bounds original fetch/decode work to one asset at a time. Completion means authoritative sidecar commits; derived preview completion is outside this budget.
 
-| Result                     | Measurement                             |
-| -------------------------- | --------------------------------------- |
-| Applied / failed           | 2,000 / 0                               |
-| Elapsed                    | 97.780 seconds                          |
-| Throughput                 | 20.45 photos/second                     |
-| Additional resident memory | 94.23 MiB                               |
-| Peak resident memory       | 324.84 MiB                              |
-| Runtime / machine          | Node 24.14.0, Apple M5 Max, macOS arm64 |
+| Result                          | Measurement                                       |
+| ------------------------------- | ------------------------------------------------- |
+| Applied / failed                | 2,000 / 0                                         |
+| Processing time                 | 12.571 seconds                                    |
+| Throughput                      | 159.10 photos/second                              |
+| Additional resident memory      | 94.73 MiB                                         |
+| Baseline / peak resident memory | 772.22 / 866.95 MiB                               |
+| Runtime / machine               | Chromium 147.0.7727.15, Apple M5 Max, macOS arm64 |
 
-This final run includes the persisted before/after conflict guards and ran under substantial concurrent build load. The full [JSON report](batch-transfer-3311.json) also records heap usage and event-loop delay. This is an end-to-end sidecar measurement on one local machine, not a promise for network shares, remote APIs or every camera decode.
+All 2,000 resulting XMP files were reread after timing, and every staged original's size and modification time matched its pre-run value. The [JSON report](batch-transfer-3311.json) records phase timings and 79 process-memory samples. RSS sums this Chromium instance's browser, GPU, network and renderer processes; shared pages may be counted more than once. Node and Vite are excluded. Staging and verification are outside both processing time and memory sampling. The persistent profile was closed and removed after the run.
 
-Reproduce from `src/web` with an isolated copied photo corpus:
+Reproduce from `src/web`, after building/syncing WASM, with 2,000 disposable photo copies named `asset-0000.ext` through `asset-1999.ext` under a temporary directory:
 
 ```sh
-MAPLE_BATCH_CORPUS=/path/to/isolated-photo-copies bun x ng test Maple-common --watch=false --include='**/editor/copy-paste/batch-library-benchmark.spec.ts'
+MAPLE_BATCH_CORPUS=/tmp/maple-batch-photo-copies bun run e2e:batch-library
 ```
 
-The test writes XMP files beside the staged photos; use disposable copies. It writes the machine-readable result to `/tmp/maple-3311-library-measurement.json`. The ordinary unit suite skips this one benchmark unless that explicit corpus is supplied. The committed tiny DNG pair under `test-fixtures/batch-transfer` is a different controlled fixture set used for rendered white-balance/crop correctness, not this throughput corpus.
+The localhost server accepts only the anonymized files in that temporary corpus and serves them read-only. The browser writes copies and XMP to its own temporary profile. The test writes its report to `/tmp/maple-3311-browser-measurement.json`, and both performance ceilings are hard assertions. The committed tiny DNG pair under `test-fixtures/batch-transfer` is a separate controlled fixture set for rendered white-balance/crop correctness.
 
-The Self Hosted job runner also completed a separate 2,000-target recovery/throughput exercise against real MongoDB and real sidecars: 2,000 applied, zero failed, 443.101 seconds of processing, with resident memory rising from 122 MiB to a 233 MiB peak. Those targets used synthetic local JPEG sentinel originals rather than the real-photo corpus, and the machine was under severe concurrent build load. This is supporting correctness evidence for the server path, not a replacement for the real-library measurement or a steady-state server performance claim.
+The superseded Node/jsdom timing harness failed at 419.572 seconds and, with phase profiling, 287.442 seconds. Those failures are preserved in the [diagnostic report](batch-transfer-3311-jsdom.json). A 20.17-second CPU profile attributed 87.17% of samples to jsdom event-listener registration: each XML parse creates a selector helper that installs additional global-window listeners, whose duplicate checks scan a growing list. The authoritative performance gate therefore runs the native browser DOM parser with the same real state/write path and unchanged budgets. No production behavior was changed to bypass that emulator cost.
+
+Supporting platform checks also passed. Apple completed 2,000 confirmed temporary sidecar writes in 3.762 seconds, with 10.625 MiB of additional process high-water RSS; this was a synthetic sidecar/store exercise, separate from the real-photo browser corpus. Self Hosted completed a separate 2,000-target exercise against real MongoDB and real sidecars in 443.101 seconds, with RSS rising from 122 MiB to 233 MiB under severe concurrent build load. Its originals were synthetic JPEG sentinels. These support platform correctness and do not replace the real-library measurement or establish steady-state network/server performance.
