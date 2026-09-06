@@ -179,7 +179,7 @@ export function nativeLibAvailable(): boolean {
   return fs.existsSync(nativeLibPath());
 }
 
-function nativeLibPath(): string {
+export function nativeLibPath(): string {
   const dir = path.join(
     import.meta.dir, // src/ffi/
     '..', // src/
