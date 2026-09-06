@@ -22,6 +22,8 @@ pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 
 pub mod decode;
 
+pub mod lens_profile;
+
 pub mod decode_cache;
 
 pub mod dng_ifd_walker;
