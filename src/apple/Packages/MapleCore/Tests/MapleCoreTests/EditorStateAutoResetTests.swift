@@ -16,7 +16,7 @@ final class EditorStateAutoResetTests: XCTestCase {
     EditSession.preview()
   }
 
-  /// A file-backed session (AUTO is gated on `asset.primaryURL`).
+  /// A file-backed session for injected analysis results.
   private func makeFileBackedSession() -> EditSession {
     EditSession(
       asset: AssetRef(url: URL(fileURLWithPath: "/tmp/maple-auto-test.dng")),
@@ -325,13 +325,13 @@ final class EditorStateAutoResetTests: XCTestCase {
     XCTAssertEqual(m.tint, AdjustmentModel.default.tint, accuracy: 1e-9)
   }
 
-  func testApplyAutoNoOpWhenAssetHasNoFileURL() async {
-    // The bytes-backed preview asset has no primaryURL → AUTO is a no-op:
-    // the analyzer never runs and the model is untouched (had it run, the
-    // injected result would have set exposure to 1).
+  func testApplyAutoNoOpWhenOriginalBytesCannotBeRead() async {
+    // The preview asset's bytes provider throws: source resolution fails
+    // before the native analyzer runs, leaving model and history untouched.
     let state = EditorState(session: makeSession())
     state.autoProvider = { _ in
-      AutoAdjustmentsResult(
+      XCTFail("Unavailable source must not reach native analysis")
+      return AutoAdjustmentsResult(
         exposure: 1, temperature: 5000, tint: 0,
         contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0
       )

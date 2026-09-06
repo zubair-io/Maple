@@ -56,7 +56,8 @@ extension EditorState {
   /// profile, so the decode this recommendation is valid for is always the one
   /// that actually renders.
   public func applyAuto() async {
-    guard let url = session.asset.primaryURL else { return }  // RAW path only
+    let asset = session.asset
+    guard asset.isRaw else { return }
     autoGeneration &+= 1
     let gen = autoGeneration
     let originalModel = session.model
@@ -66,6 +67,17 @@ extension EditorState {
 
     let result: AutoAdjustmentsResult
     do {
+      // PhotoKit/cloud originals use the same session-owned staged file as
+      // Auto Profile. The path-only FFI therefore works for every RAW source.
+      let url = try await session.renderActor.rawRenderSource.url(for: asset)
+      guard !Task.isCancelled, gen == autoGeneration,
+        session.model == originalModel, session.transactions.nextID == editID
+      else { return }
+      // A bookmark-granted parent is the sandbox capability for a local
+      // original. Keep it live through the detached native analysis.
+      let scope = asset.scopeParentURL ?? url
+      let accessing = scope.startAccessingSecurityScopedResource()
+      defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
       result = try await autoProvider(url)
     } catch {
       return  // leave the model untouched; the button re-enables
@@ -75,7 +87,7 @@ extension EditorState {
     // session (or its sidecar) after the user has left the image.
     // The model catches in-progress slider writes; the transaction ID also
     // catches edit → undo while analysis runs, when the model matches again.
-    guard !Task.isCancelled, gen == autoGeneration, session.asset.primaryURL == url,
+    guard !Task.isCancelled, gen == autoGeneration, session.asset.id == asset.id,
       session.model == originalModel, session.transactions.nextID == editID
     else { return }
 
