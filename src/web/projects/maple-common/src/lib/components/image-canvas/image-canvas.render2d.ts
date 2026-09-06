@@ -10,6 +10,7 @@
 
 import type { WritableSignal } from '@angular/core';
 import type { LibraryStateService } from '../../state/library-state.service';
+import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
@@ -74,6 +75,44 @@ export function lensCorrectionCapabilityFrom(reply: {
   };
 }
 
+function recordColdOpenMetadata(host: Render2dHost, assetId: AssetId, decoded: DecodedImage): void {
+  // Update dimensions on the asset — the NATIVE dims (the sized reply carries
+  // them), not the viewport-sized buffer's.
+  const nativeW = decoded.nativeWidth ?? decoded.width;
+  const nativeH = decoded.nativeHeight ?? decoded.height;
+  host.state.updateAssetDimensions(assetId, nativeW, nativeH);
+  if (assetId === host.currentAssetId) {
+    host.recordNativeDims(nativeW, nativeH);
+  }
+
+  // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
+  // what Rust used; guarded on "still default" so it never clobbers edits).
+  host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
+  // #3182: record the decode-time lens-correction signal for the Lens
+  // Corrections panel. Absent (older stubs / non-updated fakes) reads as
+  // the fail-closed default (see `lensCorrectionCapabilityFrom` above).
+  const lensCorrections = lensCorrectionCapabilityFrom(decoded);
+  host.state.seedLensCorrections(
+    assetId,
+    lensCorrections.hasLensCorrections,
+    lensCorrections.lensCorrectionCaInert,
+    decoded.cameraSupport,
+    decoded.lensProfile,
+  );
+
+  // Open the gate + record what this initial render reflects (the seed's effect
+  // re-fire dedups against it). Guard on still-current asset.
+  if (assetId === host.currentAssetId) {
+    host.markColdOpenDone();
+    const liveXmp = host.serializeForRender(host.state.adjustmentFor(assetId)());
+    if (host.lastRenderedXmp === null) {
+      // Normal cold open: record the seeded baseline so the gate-driven +
+      // As-Shot-seed effect re-fires dedup against it.
+      host.lastRenderedXmp = liveXmp;
+    }
+  }
+}
+
 /**
  * WASM-CPU cold open (#1101): decode at the fast-phase target, seed the asset
  * dims + As-Shot WB, open the cold-open gate, paint, and kick a refine if the
@@ -100,41 +139,7 @@ export async function coldOpen2d(
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
-    // Update dimensions on the asset — the NATIVE dims (the sized reply carries
-    // them), not the viewport-sized buffer's.
-    const nativeW = decoded.nativeWidth ?? decoded.width;
-    const nativeH = decoded.nativeHeight ?? decoded.height;
-    host.state.updateAssetDimensions(assetId, nativeW, nativeH);
-    if (assetId === host.currentAssetId) {
-      host.recordNativeDims(nativeW, nativeH);
-    }
-
-    // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
-    // what Rust used; guarded on "still default" so it never clobbers edits).
-    host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
-    // #3182: record the decode-time lens-correction signal for the Lens
-    // Corrections panel. Absent (older stubs / non-updated fakes) reads as
-    // the fail-closed default (see `lensCorrectionCapabilityFrom` above).
-    const lensCorrections = lensCorrectionCapabilityFrom(decoded);
-    host.state.seedLensCorrections(
-      assetId,
-      lensCorrections.hasLensCorrections,
-      lensCorrections.lensCorrectionCaInert,
-      decoded.cameraSupport,
-      decoded.lensProfile,
-    );
-
-    // Open the gate + record what this initial render reflects (the seed's effect
-    // re-fire dedups against it). Guard on still-current asset.
-    if (assetId === host.currentAssetId) {
-      host.markColdOpenDone();
-      const liveXmp = host.serializeForRender(host.state.adjustmentFor(assetId)());
-      if (host.lastRenderedXmp === null) {
-        // Normal cold open: record the seeded baseline so the gate-driven +
-        // As-Shot-seed effect re-fires dedup against it.
-        host.lastRenderedXmp = liveXmp;
-      }
-    }
+    recordColdOpenMetadata(host, assetId, decoded);
 
     host.canvasSvc.currentPixels.set(decoded);
 
