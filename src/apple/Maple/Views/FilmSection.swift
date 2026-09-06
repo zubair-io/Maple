@@ -214,7 +214,11 @@ struct FilmSection: View {
       isBipolar: false,
       defaultValue: Self.strengthSub.defaultDisplayValue,
       onEditingChanged: { editing in
-        if editing { state.commit() } else { state.endGesture() }
+        if editing {
+          state.beginSliderInteraction(tool: .filmLook, subParamID: Self.strengthSub.id)
+        } else {
+          state.endGesture()
+        }
       }
     )
     .accessibilityIdentifier("slider-film-strength")

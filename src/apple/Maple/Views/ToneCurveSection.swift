@@ -212,7 +212,11 @@ struct ToneCurveSection: View {
       isBipolar: true,
       defaultValue: sub.defaultDisplayValue,
       onEditingChanged: { editing in
-        if editing { state.commit() } else { state.endGesture() }
+        if editing {
+          state.beginSliderInteraction(tool: .toneCurve, subParamID: sub.id)
+        } else {
+          state.endGesture()
+        }
       }
     )
     .accessibilityIdentifier("editor-tone-curve-\(sub.id)")
