@@ -93,7 +93,8 @@ struct ColorGradingPanel: View {
         label: "\(zone.title) colour wheel",
         hue: bind(zone.hue),
         saturation: bind(zone.saturation),
-        onCommit: { state.commit() }
+        onCommit: { state.commit() },
+        onEnd: { state.endGesture() }
       )
       .frame(width: 96, height: 96)
 
