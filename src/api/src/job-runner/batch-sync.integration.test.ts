@@ -89,6 +89,44 @@ describe('persisted batch adjustment sync', () => {
     ).rejects.toThrow('different job');
   });
 
+  it('returns 409 for conflicting create and retry identities without changing either job', async () => {
+    if (!mongo) return;
+    const targets = [await target('identity-conflict')];
+    const original = await claimed(targets);
+    const ctx = await context(original._id);
+    await ctx.saveCheckpoint!({ failed: [{ id: targets[0].id, reason: 'Disk full' }] });
+    await jobs.completeJob(original._id, {});
+    const occupiedId = new ObjectId().toHexString();
+    const occupied = await jobs.createJob({
+      kind: 'batch_jpeg_export',
+      payload: { assetIds: [] },
+      requestId: occupiedId,
+    });
+    const app = new Elysia().use(jobsRoutes);
+    for (const [route, body] of [
+      [
+        '/api/jobs',
+        { kind: 'batch_adjustment_sync', payload: { targets, patch }, requestId: occupiedId },
+      ],
+      [`/api/jobs/${original._id}/retry-failed`, { requestId: occupiedId }],
+    ] as const) {
+      const response = await app.handle(
+        new Request(`http://localhost${route}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      );
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toContain('different job');
+    }
+    expect(await jobs.getJob(occupied._id)).toEqual(occupied);
+    expect((await jobs.getJob(original._id))?.checkpoint?.failed).toEqual([
+      { id: targets[0].id, reason: 'Disk full' },
+    ]);
+    expect(await mongo.db(dbName).collection('jobs').countDocuments()).toBe(2);
+  });
+
   it('measures a 2,000-sidecar run when MAPLE_BATCH_BENCHMARK=1', async () => {
     if (!mongo || process.env.MAPLE_BATCH_BENCHMARK !== '1') return;
     const targets = [];

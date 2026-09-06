@@ -14,10 +14,11 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
-import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
+import { getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
 import { batchSyncJobRoutes } from './jobs-batch-sync.ts';
+import { createJobResponse } from './jobs-create.ts';
 
 const KNOWN_KINDS: ReadonlySet<JobKind> = new Set(['batch_jpeg_export', 'batch_adjustment_sync']);
 const KNOWN_STATUSES: ReadonlySet<JobStatus> = new Set([
@@ -78,6 +79,24 @@ const ListQuery = t.Object({
   limit: t.Optional(t.String()),
 });
 
+function parseListFilter(query: { status?: string; kind?: string; limit?: string }) {
+  for (const [key, allowed] of [
+    ['status', KNOWN_STATUSES],
+    ['kind', KNOWN_KINDS],
+  ] as const) {
+    const value = query[key];
+    if (value && !(allowed as ReadonlySet<string>).has(value)) return `Unknown ${key}: ${value}`;
+  }
+  const requestedLimit = query.limit ? Number(query.limit) : 50;
+  if (!Number.isFinite(requestedLimit) || requestedLimit < 1)
+    return `Invalid limit: ${query.limit}`;
+  return {
+    status: query.status as JobStatus | undefined,
+    kind: query.kind as JobKind | undefined,
+    limit: Math.min(200, Math.floor(requestedLimit)),
+  };
+}
+
 export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
   .post(
     '/',
@@ -94,13 +113,13 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
           return { error: error instanceof Error ? error.message : String(error) };
         }
       }
-      const doc = await createJob({
+      const created = await createJobResponse({
         kind: body.kind as JobKind,
         payload: body.payload as Record<string, unknown>,
         requestId: body.requestId,
       });
-      set.status = 201;
-      return { id: doc._id.toHexString() };
+      set.status = created.status;
+      return created.body;
     },
     { body: CreateBody },
   )
@@ -108,28 +127,10 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
   .get(
     '/',
     async ({ query, set }) => {
-      const filter: { status?: JobStatus; kind?: JobKind; limit?: number } = {};
-      if (query.status) {
-        if (!KNOWN_STATUSES.has(query.status as JobStatus)) {
-          set.status = 400;
-          return { error: `Unknown status: ${query.status}` };
-        }
-        filter.status = query.status as JobStatus;
-      }
-      if (query.kind) {
-        if (!KNOWN_KINDS.has(query.kind as JobKind)) {
-          set.status = 400;
-          return { error: `Unknown kind: ${query.kind}` };
-        }
-        filter.kind = query.kind as JobKind;
-      }
-      if (query.limit !== undefined && query.limit !== '') {
-        const n = Number(query.limit);
-        if (!Number.isFinite(n) || n < 1) {
-          set.status = 400;
-          return { error: `Invalid limit: ${query.limit}` };
-        }
-        filter.limit = Math.min(200, Math.floor(n));
+      const filter = parseListFilter(query);
+      if (typeof filter === 'string') {
+        set.status = 400;
+        return { error: filter };
       }
       const docs = await listJobs(filter);
       return { jobs: docs.map((doc) => projectJob(doc)) };

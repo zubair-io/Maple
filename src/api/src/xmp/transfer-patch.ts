@@ -9,6 +9,7 @@ import {
   EMPTY_TRANSFER_XMP,
   patchedOpeningTag,
   xmlSpans,
+  type XmlSpan,
 } from './transfer-document.ts';
 
 export interface XmpTransferPatch {
@@ -31,14 +32,17 @@ function record(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
+function allowedField(key: string, value: unknown, elements: boolean): boolean {
+  if (elements) return ALLOWED_ELEMENTS.has(key);
+  return ALLOWED_ATTRIBUTES.has(key) || (PROVENANCE_RESET.has(key) && value === null);
+}
+
 function parseEntries(raw: unknown, elements: boolean): Record<string, string | null> {
   const entries = Object.entries(record(raw));
   if (entries.length > (elements ? 8 : 160)) throw new Error('Too many transfer fields');
   return Object.fromEntries(
     entries.map(([key, value]) => {
-      const allowed = elements
-        ? ALLOWED_ELEMENTS.has(key)
-        : ALLOWED_ATTRIBUTES.has(key) || (PROVENANCE_RESET.has(key) && value === null);
+      const allowed = allowedField(key, value, elements);
       if (!allowed) throw new Error(`Field cannot be transferred: ${key}`);
       if (
         value !== null &&
@@ -46,15 +50,16 @@ function parseEntries(raw: unknown, elements: boolean): Record<string, string | 
       ) {
         throw new Error(`Invalid transfer value for ${key}`);
       }
-      if (elements && typeof value === 'string') {
-        const roots = xmlSpans(value);
-        if (roots.length !== 1 || canonicalXmpName(roots[0].tag.uri, roots[0].tag.local) !== key) {
-          throw new Error(`Curve XML does not match ${key}`);
-        }
-      }
+      if (elements && typeof value === 'string') validateCurve(value, key);
       return [key, value];
     }),
   );
+}
+
+function validateCurve(value: string, key: string): void {
+  const roots = xmlSpans(value);
+  if (roots.length !== 1 || canonicalXmpName(roots[0].tag.uri, roots[0].tag.local) !== key)
+    throw new Error(`Curve XML does not match ${key}`);
 }
 
 export function parseTransferPatch(raw: unknown): XmpTransferPatch {
@@ -68,6 +73,30 @@ export function parseTransferPatch(raw: unknown): XmpTransferPatch {
   return patch;
 }
 
+interface XmlEdit {
+  start: number;
+  end: number;
+  value: string;
+}
+
+function replaceCurveNodes(
+  span: XmlSpan,
+  primary: XmlSpan,
+  patch: XmpTransferPatch,
+  pendingElements: Map<string, string | null>,
+  edits: XmlEdit[],
+): void {
+  for (const child of span.children) {
+    const name = canonicalXmpName(child.tag.uri, child.tag.local);
+    if (!name || !Object.hasOwn(patch.elements, name)) continue;
+    // Replace the first primary node in place. This keeps repeat application
+    // byte-idempotent and removes duplicates without accumulating whitespace.
+    const replacement = span === primary ? (pendingElements.get(name) ?? '') : '';
+    edits.push({ start: child.start, end: child.end, value: replacement });
+    if (span === primary) pendingElements.delete(name);
+  }
+}
+
 /** All other fields, nested masks, comments, and sibling RDF resources survive byte-for-byte. */
 export function applyTransferPatch(existing: string, patch: XmpTransferPatch): string {
   const xml = existing.length === 0 ? EMPTY_TRANSFER_XMP : existing;
@@ -77,18 +106,10 @@ export function applyTransferPatch(existing: string, patch: XmpTransferPatch): s
     Object.values(span.tag.attributes).find((a) => canonicalXmpName(a.uri, a.local) === 'rdf:about')
       ?.value ?? '';
   const primary = allDescriptions.find((span) => about(span) === '') ?? allDescriptions[0];
-  const subject =
-    Object.values(primary.tag.attributes).find(
-      (a) => canonicalXmpName(a.uri, a.local) === 'rdf:about',
-    )?.value ?? '';
-  const targets = allDescriptions.filter(
-    (span) =>
-      (Object.values(span.tag.attributes).find(
-        (a) => canonicalXmpName(a.uri, a.local) === 'rdf:about',
-      )?.value ?? '') === subject,
-  );
+  const subject = about(primary);
+  const targets = allDescriptions.filter((span) => about(span) === subject);
   const pendingElements = new Map(Object.entries(patch.elements));
-  const edits: { start: number; end: number; value: string }[] = [];
+  const edits: XmlEdit[] = [];
   for (const span of targets) {
     // A sidecar explicitly marked unedited must become authored when settings
     // are pasted, just as the full-document writers always emit HasSettings=True.
@@ -98,15 +119,7 @@ export function applyTransferPatch(existing: string, patch: XmpTransferPatch): s
       { ...patch.attributes, 'crs:HasSettings': 'True' },
       span === primary,
     );
-    for (const child of span.children) {
-      const name = canonicalXmpName(child.tag.uri, child.tag.local);
-      if (!name || !Object.hasOwn(patch.elements, name)) continue;
-      // Replace the first primary node in place. This keeps repeat application
-      // byte-idempotent and removes duplicates without accumulating whitespace.
-      const replacement = span === primary ? (pendingElements.get(name) ?? '') : '';
-      edits.push({ start: child.start, end: child.end, value: replacement });
-      if (span === primary) pendingElements.delete(name);
-    }
+    replaceCurveNodes(span, primary, patch, pendingElements, edits);
     edits.push({ start: span.start, end: span.openEnd, value: opening });
   }
   const elements = [...pendingElements.values()]

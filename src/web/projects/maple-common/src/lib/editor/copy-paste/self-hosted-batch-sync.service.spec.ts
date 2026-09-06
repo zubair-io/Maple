@@ -168,6 +168,29 @@ describe('Self Hosted batch sync recovery', () => {
     expect(localStorage.getItem(key)).toBe('retry');
   });
 
+  it('restores the previous recovery pointer after a rejected retry identity', async () => {
+    localStorage.setItem(key, 'saved');
+    const service = TestBed.inject(SelfHostedBatchSyncService);
+    await settle();
+    http
+      .expectOne('/api/jobs/saved?summary=1')
+      .flush(view('done', ['a'], [{ id: 'b', reason: 'Disk full' }]));
+    await settle();
+    const previous = service.lastSummary();
+    const run = service.retryFailed();
+    http
+      .expectOne('/api/jobs/saved/retry-failed')
+      .flush(
+        { error: 'The request id already belongs to a different job' },
+        { status: 409, statusText: 'Conflict' },
+      );
+    await run;
+    expect(localStorage.getItem(key)).toBe('saved');
+    expect(service.lastSummary()).toEqual(previous);
+    expect(service.needsReconnect()).toBe(false);
+    expect(service.error()).toContain('different job');
+  });
+
   it('does not overwrite a local edit made while the server job was running', async () => {
     models.set(new Map([['a', defaultAdjustmentModel()]]));
     const service = TestBed.inject(SelfHostedBatchSyncService);

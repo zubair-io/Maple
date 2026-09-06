@@ -1,7 +1,8 @@
 /** Resume preserves the ledger; retry creates a fresh job containing failures only. */
 import { Elysia, t } from 'elysia';
+import { createJobResponse } from './jobs-create.ts';
 import { ObjectId } from 'mongodb';
-import { createJob, getJob, resumeBatchJob } from '../job-runner/jobs.repo.ts';
+import { getJob, resumeBatchJob } from '../job-runner/jobs.repo.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
 
 export const batchSyncJobRoutes = new Elysia()
@@ -40,13 +41,13 @@ export const batchSyncJobRoutes = new Elysia()
         set.status = 409;
         return { error: 'This batch has no failures to retry' };
       }
-      const created = await createJob({
+      const created = await createJobResponse({
         kind: 'batch_adjustment_sync',
         payload: { targets, patch: payload.patch },
         requestId: body?.requestId,
       });
-      set.status = 201;
-      return { id: created._id.toHexString() };
+      set.status = created.status;
+      return created.body;
     },
     {
       body: t.Optional(
