@@ -12,8 +12,8 @@
 //!   - the sub-parameter short-circuits (#1109 / #1110 / #1111): a stage's
 //!     shape/hue/feather sub-slider alone must NOT engage its pass.
 
-use super::*;
 use super::tests::{neutral_case, run_live_chain, TEST_SESSION_ID};
+use super::*;
 use crate::dehaze::AirlightSource;
 
 /// #1513/#1516 PIXEL PROOF (real GPU): a WHITE scene-linear pixel is AgX-crushed
@@ -60,7 +60,8 @@ fn linear_rec2020_shape_skips_capture_sharpening_look_and_keeps_wb_gated() {
     assert!(inputs.capture_sharpening.is_none());
 
     // A neutral RAW chain is the FULL view tail; non-RAW must be that minus the 3 look passes.
-    let raw_passes = build_live_chain(&case.gpu_inputs(), AirlightSource::Cpu([0.0; 3]));
+    let raw_inputs = case.gpu_inputs();
+    let raw_passes = build_live_chain(&raw_inputs, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         raw_passes.len(),
         VIEW_TAIL_PASS_COUNT,
@@ -201,7 +202,7 @@ fn film_look_default_off_loaded_and_engaged_adds_one_pass() {
     // strength gate, not just the presence gate, decides inclusion.
     let mut loaded_but_zero = case.gpu_inputs();
     loaded_but_zero.film_lut_size = 5;
-    loaded_but_zero.film_lut_data = vec![0.0f32; 5 * 5 * 5 * 3];
+    loaded_but_zero.film_lut_data = vec![0.0f32; 5 * 5 * 5 * 3].into();
     let passes_zero = build_live_chain(&loaded_but_zero, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         passes_zero.len(),
@@ -213,7 +214,7 @@ fn film_look_default_off_loaded_and_engaged_adds_one_pass() {
     let mut engaged = case.gpu_inputs();
     engaged.film_lut_size = 5;
     engaged.film_lut_key = 42;
-    engaged.film_lut_data = vec![0.0f32; 5 * 5 * 5 * 3];
+    engaged.film_lut_data = vec![0.0f32; 5 * 5 * 5 * 3].into();
     engaged.film_strength = 65.0;
     let passes_on = build_live_chain(&engaged, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
@@ -232,6 +233,7 @@ fn film_look_default_off_loaded_and_engaged_adds_one_pass() {
         "signature must differ once film look crosses the gate threshold"
     );
 
+    drop(passes_on);
     let mut engaged_other_look = engaged;
     engaged_other_look.film_lut_key = 7;
     let sig_other_look = chain_signature(&engaged_other_look, (8, 8), TEST_SESSION_ID);

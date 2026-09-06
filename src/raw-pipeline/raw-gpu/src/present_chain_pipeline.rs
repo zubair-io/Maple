@@ -16,6 +16,7 @@
 
 use crate::context::GpuContext;
 use std::cell::{Cell, RefCell};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, plus
@@ -239,42 +240,21 @@ pub(crate) fn encode_present_pass(
 /// One cached present dispatch, tagged with the buffer identity it was built
 /// against (see [`PresentDispatchCache`]).
 struct CachedPresentEntry {
-    /// Identity of the `chain_buf` this entry's bind group is bound to — an
-    /// address token (`&wgpu::Buffer` pointer, never dereferenced), mirroring
-    /// `frame_pool::DispatchEntry::pipeline_id`'s identity-guard shape. A
-    /// `wgpu::Buffer` doesn't move once created (owned by the session's
-    /// `ping_pong` array or a similar stable place), so its address is a valid,
-    /// stable per-buffer identity for the cache's lifetime.
-    buf_identity: usize,
+    // Hash wgpu's resource identities, not the address of the Rust wrapper:
+    // a newly opened session can reuse the old wrapper's allocation address.
+    identity: u64,
+    dims: (u32, u32),
+    src_dims: (u32, u32),
     uniform: Arc<wgpu::Buffer>,
     bind_group: Arc<wgpu::BindGroup>,
 }
 
-/// A per-surface present-dispatch cache keyed on the sampled `chain_buf`'s
-/// identity (epic #925, P4b — #1930).
-///
-/// `encode_present_pass`'s uniform only carries `(width, height)`, fixed for a
-/// surface's lifetime, yet the pre-#1930 present path called
-/// `create_buffer`/`create_bind_group` on EVERY tick — a literal violation of
-/// CLAUDE.md's "no allocation inside the render loop" invariant. The obvious
-/// fix (build once at surface `create`, reuse thereafter) doesn't quite work
-/// as-is: the bind group's OTHER binding is `chain_buf` —
-/// [`crate::LiveSession::ping_pong_buffer`] at the chain's final ping-pong
-/// index, which ALTERNATES between the session's two persistent buffers
-/// depending on the chain's pass-count parity for that tick's active-stage set.
-/// A single always-reused bind group would go stale (bound to the wrong
-/// physical buffer) the moment parity flips.
-///
-/// So this caches by IDENTITY instead of unconditionally: a present against the
-/// SAME `chain_buf` as last time (the steady state while dragging one slider,
-/// where the active-stage set — and so the pass count — doesn't change) is a
-/// zero-alloc hit; a present against a DIFFERENT `chain_buf` (a pass-count
-/// parity flip, or a brand-new session's freshly-allocated buffers after a
-/// re-open) is a bounded miss that rebuilds and re-caches. This mirrors
-/// `frame_pool::pool_dispatch`'s pipeline-identity mismatch guard — same shape,
-/// applied to the present pass's single dispatch instead of a whole chain.
+/// Two cached dispatches cover both persistent ping-pong outputs. Crossing a
+/// slider's no-op threshold flips the final buffer without allocating again.
+/// The fixed capacity bounds retained resources across image/session changes.
 pub(crate) struct PresentDispatchCache {
-    entry: RefCell<Option<CachedPresentEntry>>,
+    entries: RefCell<[Option<CachedPresentEntry>; 2]>,
+    next_slot: Cell<usize>,
     /// Count of actual `create_buffer` + `create_bind_group` builds (misses) —
     /// the allocation-accounting hook, mirroring `FramePool::alloc_count`. Never
     /// bumped on a cache hit.
@@ -285,7 +265,8 @@ impl PresentDispatchCache {
     /// A fresh, empty cache (the first present is always a miss).
     pub fn new() -> Self {
         Self {
-            entry: RefCell::new(None),
+            entries: RefCell::new([None, None]),
+            next_slot: Cell::new(0),
             alloc_count: Cell::new(0),
         }
     }
@@ -300,12 +281,8 @@ impl PresentDispatchCache {
         self.alloc_count.get()
     }
 
-    /// Get-or-build the `(uniform, bind_group)` pair for presenting `chain_buf`
-    /// through `bind_group_layout` at `dims`. Builds (2 allocations: the
-    /// uniform buffer + the bind group) ONLY when the cached entry's buffer
-    /// identity differs from `chain_buf`'s; a same-identity call is a
-    /// zero-alloc hit returning `Arc` clones (a refcount bump, not a GPU
-    /// allocation) of the cached pair.
+    /// Reuse a dispatch keyed on resource identity and sampling geometry.
+    /// Each buffer direction allocates once, then updates allocate nothing.
     pub fn get_or_build(
         &self,
         ctx: &GpuContext,
@@ -316,11 +293,8 @@ impl PresentDispatchCache {
         self.get_or_build_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0))
     }
 
-    /// [`Self::get_or_build`] with an explicit chain-buffer size (#2587 —
-    /// the winui surface presents half- and full-res sessions into one
-    /// fixed-size surface). The cache key stays the buffer identity: the two
-    /// sessions own distinct buffers, so a phase swap is an identity miss
-    /// that rebuilds with the right src dims.
+    /// Scaled sibling for a chain buffer smaller than the surface. Geometry
+    /// participates in the key even when the source buffer stays the same.
     pub fn get_or_build_scaled(
         &self,
         ctx: &GpuContext,
@@ -329,9 +303,15 @@ impl PresentDispatchCache {
         dims: (u32, u32),
         src_dims: (u32, u32),
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
-        let buf_identity = std::ptr::from_ref(chain_buf) as usize;
-        if let Some(existing) = self.entry.borrow().as_ref() {
-            if existing.buf_identity == buf_identity {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        chain_buf.hash(&mut hasher);
+        bind_group_layout.hash(&mut hasher);
+        let identity = hasher.finish();
+        for existing in self.entries.borrow().iter().flatten() {
+            if existing.identity == identity
+                && existing.dims == dims
+                && existing.src_dims == src_dims
+            {
                 return (
                     Arc::clone(&existing.uniform),
                     Arc::clone(&existing.bind_group),
@@ -344,8 +324,12 @@ impl PresentDispatchCache {
         self.alloc_count.set(self.alloc_count.get() + 2);
         let uniform = Arc::new(dispatch.uniform);
         let bind_group = Arc::new(dispatch.bind_group);
-        *self.entry.borrow_mut() = Some(CachedPresentEntry {
-            buf_identity,
+        let slot = self.next_slot.get();
+        self.next_slot.set((slot + 1) % 2);
+        self.entries.borrow_mut()[slot] = Some(CachedPresentEntry {
+            identity,
+            dims,
+            src_dims,
             uniform: Arc::clone(&uniform),
             bind_group: Arc::clone(&bind_group),
         });
@@ -362,7 +346,8 @@ impl PresentDispatchCache {
     /// whole new surface), so this is legitimately unused on `wasm32`.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn invalidate(&self) {
-        *self.entry.borrow_mut() = None;
+        *self.entries.borrow_mut() = [None, None];
+        self.next_slot.set(0);
     }
 }
 

@@ -294,13 +294,13 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
 /// branch flags itself (replicating apply.rs's predicates) so the production Pass
 /// gates itself without a raw-core dependency. Uploads the curve to storage
 /// binding 3 and the metadata to uniform binding 0 inside `encode`.
-pub struct AutoProfileCurvePass {
+pub struct AutoProfileCurvePass<'a> {
     /// Flat `ProfileCurve` (`ProfileCurve::to_flat()` output, length
     /// [`PROFILE_CURVE_FLAT_LEN`]).
-    pub flat_curve: Vec<f32>,
+    pub flat_curve: std::borrow::Cow<'a, [f32]>,
 }
 
-impl Pass for AutoProfileCurvePass {
+impl Pass for AutoProfileCurvePass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,
