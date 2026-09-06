@@ -16,11 +16,16 @@ import { ObjectId } from 'mongodb';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 import { getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 
+import { parseExportPayload } from '../export/export-payload.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
 import { batchSyncJobRoutes } from './jobs-batch-sync.ts';
 import { createJobResponse } from './jobs-create.ts';
 
-const KNOWN_KINDS: ReadonlySet<JobKind> = new Set(['batch_jpeg_export', 'batch_adjustment_sync']);
+const KNOWN_KINDS: ReadonlySet<JobKind> = new Set([
+  'batch_jpeg_export',
+  'batch_adjustment_sync',
+  'batch_recipe_export',
+]);
 const KNOWN_STATUSES: ReadonlySet<JobStatus> = new Set([
   'queued',
   'running',
@@ -55,6 +60,8 @@ function projectJob(doc: JobWithId, compact = false): JobView {
             applied: doc.checkpoint['applied'],
             failed: doc.checkpoint['failed'],
             remaining: doc.checkpoint['remaining'],
+            skipped: doc.checkpoint['skipped'],
+            outputs: doc.checkpoint['outputs'],
           },
         }
       : {}),
@@ -105,12 +112,15 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
         set.status = 400;
         return { error: `Unknown job kind: ${body.kind}` };
       }
-      if (body.kind === 'batch_adjustment_sync') {
+      if (body.kind === 'batch_adjustment_sync' || body.kind === 'batch_recipe_export') {
         try {
-          parseSyncPayload(body.payload);
+          if (body.kind === 'batch_recipe_export') parseExportPayload(body.payload);
+          else parseSyncPayload(body.payload);
         } catch (error) {
           set.status = 400;
-          return { error: error instanceof Error ? error.message : String(error) };
+          return {
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
       }
       const created = await createJobResponse({
@@ -127,6 +137,8 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
   .get(
     '/',
     async ({ query, set }) => {
+      // Existing import/job route validation is parallel, but the DTOs and repositories differ.
+      // fallow-ignore-next-line code-duplication
       const filter = parseListFilter(query);
       if (typeof filter === 'string') {
         set.status = 400;

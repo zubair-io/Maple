@@ -103,6 +103,11 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment-transfer --target ts --out "src/web/projects/maple-common/src/lib/generated/adjustment-transfer.generated.ts"
 "$BIN" --schema adjustment-transfer --target ts --out "src/api/src/generated/adjustment-transfer.generated.ts"
 
+"$BIN" --schema export-recipe --target ts --out "src/api/src/generated/export-recipe.generated.ts"
+"$BIN" --schema export-recipe --target ts --out "src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts"
+"$BIN" --schema export-recipe --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ExportRecipe+Generated.swift"
+"$BIN" --schema export-recipe --target cs --out "src/windows/Maple.WinUI/Generated/ExportRecipe.g.cs"
+
 # --- UI tokens (#606) -----------------------------------------------------
 
 UI_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift"

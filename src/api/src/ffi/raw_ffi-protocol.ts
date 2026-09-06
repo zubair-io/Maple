@@ -63,7 +63,18 @@ export interface RenderPreviewJpegRequest {
   quality: number;
 }
 
+export interface ExportRecipeRequest {
+  type: 'exportRecipe';
+  id: number;
+  rawPath: string;
+  xmp: string;
+  recipeJson: string;
+  filmPath: string | null;
+  outPath: string;
+}
+
 export type FfiRequest =
+  | ExportRecipeRequest
   | RenderThumbRequest
   | HistogramRequest
   | RenderDevelopRequest
@@ -99,6 +110,7 @@ export interface RenderPreviewJpegResponse {
 }
 
 export type FfiResponse =
+  | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
   | RenderThumbResponse
   | HistogramResponse
   | RenderDevelopResponse
