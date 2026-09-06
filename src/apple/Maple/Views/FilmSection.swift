@@ -33,7 +33,7 @@
 // sliders use.
 //
 // The category chip row is horizontally scrollable (six chips don't all fit
-// the 300pt panel width) — it rides inside `FlyoutSliderPanel`, which
+// the 300pt panel width) — it rides inside `StackedAdjustmentsPanel`, which
 // reports its own frame as a wheel-exclusion region to `CanvasZoomHost`
 // (#2683 round 2, Bug A fix): that exclusion covers the WHOLE panel, not
 // just the look list, so trackpad scroll over the chip row reaches its
@@ -44,18 +44,8 @@
 // Task 12); both read the same generated `FilmCatalog` / `filmLook` field
 // so the two pickers can't drift on which looks exist.
 //
-// iPhone (#2794): the layout above is the macOS/iPad shape. `FilmSection`
-// IS mounted in the phone chrome too (`MobileControlBar`,
-// `IPhoneLegacyControlBar`), but a fixed 240pt vertical list plus the chip
-// row and slider doesn't fit a phone's bottom control bar. On COMPACT width
-// (`horizontalSizeClass == .compact`, i.e. iPhone) the look list is replaced
-// by `FilmLookStrip` — a horizontally-scrolling row of look cards, same chip
-// row on top and same strength slider below. Sizing is compact-first: read
-// via `@Environment(\.horizontalSizeClass)`, same signal `ControlCard` /
-// `LivingSliderGrid` / `EditorView` already branch on for the phone-vs-tablet
-// split, so this doesn't invent a second convention for the same decision.
-// The strip lives in a sibling file (`FilmLookStrip.swift`) rather than
-// inline — this file was already near the 400-line soft budget.
+// Compact layouts use FilmLookStrip's horizontal cards so the catalog fits
+// the same stacked inspector above a horizontal tool dock (#3252).
 
 import MapleCore
 import SwiftUI
@@ -67,7 +57,7 @@ struct FilmSection: View {
 
   /// Compact width (iPhone) swaps the vertical look list for
   /// `FilmLookStrip`'s horizontal card row — see the file header note.
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.mapleLayout) private var layout
 
   /// `FilmCatalog.all` grouped by category. Built once — the catalog is a
   /// static generated table, not session state.
@@ -81,7 +71,7 @@ struct FilmSection: View {
   /// The category chip row's current selection. Local UI state, not part
   /// of the edit model — `.onAppear` (re-)derives it from the ACTIVE
   /// look's category each time the panel mounts (arming Film re-mounts
-  /// `FilmSection`, per `FlyoutSliderPanel`'s tool-swap branches), so
+  /// `FilmSection`, per `StackedAdjustmentsPanel`'s tool-swap branches), so
   /// switching tools away and back to Film always lands the chip row on
   /// whichever category the current look actually belongs to, rather than
   /// remembering a stale in-session pick.
@@ -93,7 +83,7 @@ struct FilmSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       categoryChipRow
-      if horizontalSizeClass == .compact {
+      if layout == .phone {
         FilmLookStrip(
           looks: Self.looksByCategory[selectedCategory] ?? [],
           activeLookId: activeLookId,
@@ -175,9 +165,8 @@ struct FilmSection: View {
       }
     }
     // A FIXED height (not `maxHeight:`) rather than a ceiling: every
-    // host that mounts `FilmSection` (`ControlCard`, `FlyoutSliderPanel`,
-    // `StackedAdjustmentsPanel`, `MobileControlBar`,
-    // `IPhoneLegacyControlBar`) hugs its content with no height of its
+    // The shared StackedAdjustmentsPanel needs a bounded nested catalog list;
+    // otherwise this ScrollView would have no intrinsic height.
     // own, and `StackedAdjustmentsPanel` additionally nests this list
     // inside its own outer `ScrollView(.vertical)` — a `maxHeight:`
     // ceiling only caps an already-resolved ideal size, so an ambiguous
@@ -280,7 +269,7 @@ private struct FilmLookRow: View {
 // MARK: - FilmCategoryChip
 
 /// One chip in the category row — same idiom `SubParamRow`'s
-/// `SubParamChip` and `ControlCard`'s `GroupChipsRow` chip use (capsule,
+/// `SubParamChip` uses (capsule,
 /// accent fill + border when selected, plain label otherwise), rendered
 /// with `ProTokens` to match the rest of this Pro-flyout panel rather than
 /// `SubParamRow`'s `MapleTokens` (that one lives in the legacy DragBar

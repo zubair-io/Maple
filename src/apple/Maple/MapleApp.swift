@@ -442,11 +442,6 @@ struct GeneralSettingsTab: View {
   // Default mirrors `AmazeFlag.isEnabled` (ON since #940) so the toggle
   // reads correctly before the key is ever written.
   @AppStorage(AmazeFlag.defaultsKey) private var useAmaze: Bool = true
-  // Control-panel layout variant for the Pro Editor canvas-first shell.
-  // Bound to the same @AppStorage key EditorView reads so toggling here
-  // flips the editor layout immediately.
-  @AppStorage("proControlVariant") private var controlVariant: String = ControlVariant.compact
-    .rawValue
   // Canvas colorspace (#1338) — default mirrors `CanvasColorSpace.current`
   // (P3 if the display reports the gamut, sRGB otherwise) so the picker
   // reads correctly before the key is ever written, same pattern as
@@ -456,16 +451,6 @@ struct GeneralSettingsTab: View {
 
   var body: some View {
     Form {
-      Section("Editor") {
-        Picker("Control layout", selection: $controlVariant) {
-          Text("Card").tag(ControlVariant.compact.rawValue)
-          Text("Panel").tag(ControlVariant.panel.rawValue)
-        }
-        .pickerStyle(.segmented)
-        .accessibilityLabel("Pro Editor control panel layout")
-        .accessibilityIdentifier("general.settings.proControlVariant")
-      }
-      .listRowBackground(MapleTokens.surface)
       Section("Rendering") {
         Toggle(isOn: $useAmaze) {
           VStack(alignment: .leading, spacing: 2) {
