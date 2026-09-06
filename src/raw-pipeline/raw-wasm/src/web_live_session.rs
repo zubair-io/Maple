@@ -421,11 +421,17 @@ impl WebLiveSession {
         self.full_height
     }
 
-    /// Whether this RAW carries a DNG `OpcodeList3` (#3182 — mirrors Apple's
-    /// `EditSession.hasLensCorrections`). Read straight off the retained
-    /// `raw_img` rather than a cached field — a decode-time fact that never
-    /// changes across the session's re-develops. Disables the web Lens
-    /// Corrections panel when `false`.
+    /// Decode-time resolver provenance, read by the host only when opening.
+    #[wasm_bindgen(getter, js_name = cameraSupportJson)]
+    pub fn camera_support_json(&self) -> Result<String, JsError> {
+        raw_core::support_tiers::RenderSupport::resolve(&self.raw_img)
+            .map(|support| support.to_json())
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Whether the retained RAW carries a DNG `OpcodeList3` (#3182).
+    /// This decode-time fact never changes across the session's re-develops.
+    /// Disables the web Lens Corrections panel when `false`.
     #[wasm_bindgen(getter, js_name = hasLensCorrections)]
     pub fn has_lens_corrections(&self) -> bool {
         self.raw_img.has_lens_corrections()

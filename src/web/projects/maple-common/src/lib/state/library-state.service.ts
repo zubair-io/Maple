@@ -263,8 +263,14 @@ export class LibraryStateService {
     id: AssetId,
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
+    cameraSupportJson?: string | null,
   ): void {
-    this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert);
+    this.store.lensCorrections.seed(
+      id,
+      hasLensCorrections,
+      lensCorrectionCaInert,
+      cameraSupportJson,
+    );
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default

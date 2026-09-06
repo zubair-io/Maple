@@ -97,6 +97,7 @@ export interface WebLiveSessionInstance {
   readonly hasLensCorrections: boolean;
   /** See `DecodeSuccess.lensCorrectionCaInert` (#3182). */
   readonly lensCorrectionCaInert: boolean;
+  readonly cameraSupportJson: string;
   readonly colorSpace: string;
   free(): void;
 }

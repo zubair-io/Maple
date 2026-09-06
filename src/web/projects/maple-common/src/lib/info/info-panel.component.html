@@ -28,6 +28,12 @@
     <mui-histogram [r]="bins.r" [g]="bins.g" [b]="bins.b" />
   }
   <mui-label-value-grid [rows]="metadataRows()" />
+  @if (cameraSupport(); as support) {
+    <section data-testid="camera-support" aria-label="Camera support" class="flex flex-col gap-1">
+      <mui-text variant="row-label">Camera support: {{ support.label }}</mui-text>
+      <mui-text color="muted" [block]="true">{{ support.explanation }}</mui-text>
+    </section>
+  }
   <mui-keyword-row
     [keywords]="keywords()"
     (added)="onKeywordAdded($event)"

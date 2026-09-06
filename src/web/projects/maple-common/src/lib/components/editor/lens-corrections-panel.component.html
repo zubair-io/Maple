@@ -66,3 +66,14 @@
     />
   </div>
 </div>
+
+@if (lensSupport(); as support) {
+  <section
+    aria-label="Lens support"
+    data-testid="lens-support"
+    class="flex flex-col gap-1 px-2.5 pb-2.5"
+  >
+    <mui-text variant="row-label">{{ support.lensLabel }}</mui-text>
+    <mui-text color="muted" [block]="true">{{ support.lensExplanation }}</mui-text>
+  </section>
+}

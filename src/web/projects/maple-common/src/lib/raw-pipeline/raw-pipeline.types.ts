@@ -100,6 +100,7 @@ export interface DecodeSuccess {
    * whenever `hasLensCorrections` is `false`.
    */
   lensCorrectionCaInert: boolean;
+  cameraSupportJson?: string | null;
 }
 
 export interface DecodeError {
@@ -256,6 +257,7 @@ export interface OpenSessionSuccess {
   hasLensCorrections: boolean;
   /** See `DecodeSuccess.lensCorrectionCaInert` (#3182). */
   lensCorrectionCaInert: boolean;
+  cameraSupportJson?: string | null;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
   /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
@@ -501,6 +503,7 @@ export interface DecodedImage {
    */
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
+  cameraSupportJson?: string | null;
 }
 
 export interface DecodeSceneLinearRequest {

@@ -36,6 +36,7 @@ mod capability_summary;
 mod color_matrices;
 mod film_catalog;
 mod support_tiers;
+mod support_tiers_cs;
 mod support_tiers_summary;
 mod ui_tokens;
 mod ui_tokens_xaml;
@@ -236,6 +237,10 @@ fn main() {
             );
             std::process::exit(2);
         }
+        (Schema::SupportTiers, Target::Cs) => {
+            let evidence = load_evidence(&cli);
+            support_tiers_cs::emit_cs(&SupportRegistry::compute(&evidence), &evidence)
+        }
         (Schema::SupportTiers, Target::Swift) => {
             let evidence = load_evidence(&cli);
             support_tiers::emit_swift(&SupportRegistry::compute(&evidence), &evidence)
@@ -252,12 +257,9 @@ fn main() {
             let evidence = load_evidence(&cli);
             support_tiers_summary::emit_json(&SupportRegistry::compute(&evidence), &evidence)
         }
-        (
-            Schema::SupportTiers,
-            Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml | Target::Cs,
-        ) => {
+        (Schema::SupportTiers, Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml) => {
             eprintln!(
-                "codegen: --schema support-tiers supports only the swift / ts / md / json targets"
+                "codegen: --schema support-tiers supports only the swift / ts / cs / md / json targets"
             );
             std::process::exit(2);
         }
