@@ -477,7 +477,6 @@ export class EditorStateService {
   // state. Body in `editor-state.wb-sample.ts` (this file is at its budget).
 
   /** True while a white-balance sample is in flight. */
-  // fallow-ignore-next-line unused-class-member
   readonly wbSampleInFlight = signal<boolean>(false); // read via WbSampleHost
 
   /**

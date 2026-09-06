@@ -8,7 +8,7 @@ import { AUTO_WB_ALGORITHM_VERSION } from '../generated/white-balance-presets.ge
 import { isSupportedRaw } from '../state/raw-extensions';
 import { stableStringify } from './edit-transaction';
 
-export function autoAdjustmentPatch(
+function autoAdjustmentPatch(
   result: AutoAdjustPatch,
   whiteBalanceOnly: boolean,
 ): Partial<AdjustmentModel> {
@@ -63,24 +63,33 @@ export async function applyAutoInto(
     const ext = asset.filename.split('.').pop()?.toLowerCase() ?? 'dng';
     const result = await editor.pipeline.computeAutoAdjustments(bytes, ext);
     if (!stillCurrent()) return false;
-    if (!Object.values(result).every(Number.isFinite))
-      throw new Error('Invalid AUTO recommendation');
-    const patch = autoAdjustmentPatch(result, whiteBalanceOnly);
-    if (stableStringify(before) === stableStringify({ ...before, ...patch })) return false;
-    editor.commit('auto', whiteBalanceOnly ? 'Auto white balance' : 'Auto adjustments');
-    editor.library.updateAdjustment(id, patch);
-    editor.endEdit();
-    const exposure = patch.exposure ?? before.exposure;
-    editor.autoResult.set(
-      whiteBalanceOnly
-        ? `Auto white balance applied · ${Math.round(patch.temperature ?? 0)} K, tint ${Math.round(patch.tint ?? 0)}`
-        : `Auto applied · Exposure ${exposure >= 0 ? '+' : ''}${exposure.toFixed(2)} EV`,
-    );
-    return true;
+    return commitRecommendation(editor, id, before, result, whiteBalanceOnly);
   } catch {
     if (stillCurrent()) editor.autoResult.set('Auto could not be applied');
     return false;
   } finally {
     editor.autoInFlight.set(false);
   }
+}
+
+function commitRecommendation(
+  editor: EditorStateService,
+  id: AssetId,
+  before: AdjustmentModel,
+  result: AutoAdjustPatch,
+  whiteBalanceOnly: boolean,
+): boolean {
+  if (!Object.values(result).every(Number.isFinite)) throw new Error('Invalid AUTO recommendation');
+  const patch = autoAdjustmentPatch(result, whiteBalanceOnly);
+  if (stableStringify(before) === stableStringify({ ...before, ...patch })) return false;
+  editor.commit('auto', whiteBalanceOnly ? 'Auto white balance' : 'Auto adjustments');
+  editor.library.updateAdjustment(id, patch);
+  editor.endEdit();
+  const exposure = patch.exposure ?? before.exposure;
+  editor.autoResult.set(
+    whiteBalanceOnly
+      ? `Auto white balance applied · ${Math.round(patch.temperature ?? 0)} K, tint ${Math.round(patch.tint ?? 0)}`
+      : `Auto applied · Exposure ${exposure >= 0 ? '+' : ''}${exposure.toFixed(2)} EV`,
+  );
+  return true;
 }
