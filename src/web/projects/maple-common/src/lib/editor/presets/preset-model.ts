@@ -142,8 +142,8 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
 /**
  * String-valued schema fields (canonical snake_case names) that are NOT
  * closed enums — free-form text with no fixed variant list, so they don't
- * belong in `ENUM_FIELD_VALUES` above. `buildApplyPatch` accepts any string
- * for these instead of checking membership.
+ * belong in `ENUM_FIELD_VALUES` above. Copyable fields accept any string
+ * instead of checking membership; non-copyable fields still never apply.
  *
  * `film_look` (#2683) is the first: a film-catalog id. Unlike every enum
  * field above, an id the current catalog doesn't recognise is not an
@@ -151,15 +151,19 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
  * identity at render time rather than rejecting it, and the client-side
  * apply path follows the same rule.
  */
-export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
+export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set([
+  'film_look',
+  // Capture-specific calibration/approximation consent (#2435). Preserved in
+  // imported preset documents, but excluded from capture and apply below.
+  'lens_profile',
+]);
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────
 
 /**
- * raw-core's `NON_COPYABLE_FIELDS` — fields a preset must never carry,
- * because they describe one specific image rather than a look (#2434: a
- * white-balance sample point is a coordinate in one image's raster, and its
- * algorithm version records how that one pair was derived).
+ * raw-core's `NON_COPYABLE_FIELDS` — fields presets never capture or apply,
+ * because they describe one image rather than a look (#2434 sampled WB,
+ * #2435 lens calibration). Existing imported documents retain them as data.
  */
 const NON_COPYABLE = new Set<string>(ADJUSTMENT_NON_COPYABLE_FIELDS);
 
@@ -233,6 +237,7 @@ function coerceStringField(snakeKey: string, value: string): string | undefined 
  * NEWER schema versions flow through here too:
  *
  *   - unknown keys → skipped (preserved in storage, never applied)
+ *   - non-copyable capture metadata → skipped without changing stored fields
  *   - numeric fields → must be finite numbers; clamped to the canonical
  *     generated range
  *   - enum fields → applied only when the value is a known variant
@@ -244,6 +249,7 @@ function coerceStringField(snakeKey: string, value: string): string | undefined 
 export function buildApplyPatch(fields: PresetFields): Partial<AdjustmentModel> {
   const patch: Partial<AdjustmentModel> = {};
   for (const [snakeKey, value] of Object.entries(fields)) {
+    if (NON_COPYABLE.has(snakeKey)) continue;
     const key = SNAKE_TO_GENERATED_KEY.get(snakeKey);
     if (!key) continue; // Unknown field (newer schema) — skip on apply.
     const resolved =

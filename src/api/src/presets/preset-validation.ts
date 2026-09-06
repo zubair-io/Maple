@@ -12,9 +12,9 @@
  *     range; KNOWN string fields must be non-empty strings (variant-level
  *     enum checks stay client-side so a downlevel server never rejects an
  *     uplevel client's preset) — EXCEPT the free-form fields in
- *     `FREE_FORM_STRING_FIELDS` (currently just `film_look`), whose empty
- *     string is itself a valid, meaningful value (explicit "clear the
- *     look") rather than a missing one.
+ *     `FREE_FORM_STRING_FIELDS` (`film_look`, `lens_profile`), whose empty
+ *     string is itself a valid value. Calibration references are preserved
+ *     as document data; clients exclude them from preset capture/apply.
  *   - UNKNOWN fields (newer schema versions) are accepted and preserved
  *     verbatim — but must still be JSON scalars within size caps, so the
  *     collection can't be used as a blob store.
@@ -163,5 +163,8 @@ export function validatePresetDocument(body: {
   if ('error' in name) return { ok: false, error: name.error };
   const fields = validatePresetFields(body.fields);
   if ('error' in fields) return { ok: false, error: fields.error };
-  return { ok: true, preset: { name: name.name, schemaVersion: version, fields: fields.fields } };
+  return {
+    ok: true,
+    preset: { name: name.name, schemaVersion: version, fields: fields.fields },
+  };
 }
