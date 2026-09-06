@@ -1,0 +1,29 @@
+{
+  "correction": {
+    "temperature": 1200,
+    "tint": 10
+  },
+  "crop": {
+    "angle": 0,
+    "bottom": 0.75,
+    "left": 0.25,
+    "right": 0.75,
+    "top": 0.25
+  },
+  "fixtures": [
+    {
+      "height": 64,
+      "name": "source",
+      "temperature": 7350.0,
+      "tint": 14.0,
+      "width": 96
+    },
+    {
+      "height": 120,
+      "name": "target",
+      "temperature": 5050.0,
+      "tint": 38.0,
+      "width": 80
+    }
+  ]
+}

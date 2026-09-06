@@ -87,20 +87,8 @@ export function buildGroupPatch(
   // Dense snake_case → value map for every canonical schema field that
   // belongs to a selected group, read from the FULL source model (not just
   // its non-default fields).
-  const denseFields: PresetFields = {};
-  for (const camelKey of GENERATED_KEYS) {
-    const snakeKey = camelToSnakeField(camelKey);
-    if (!selectedFieldNames.has(snakeKey)) continue;
-    const mode = ADJUSTMENT_TRANSFER_MODES[snakeKey];
-    if (mode === 'Unsupported') continue;
-    if (mode !== 'Absolute') throw new Error(`No scalar transfer implementation for ${snakeKey}`);
-    const value = source[camelKey];
-    if (typeof value === 'object') continue; // Copied structurally below.
-    denseFields[snakeKey] = value;
-  }
-
-  const patch: Partial<AdjustmentModel> = buildApplyPatch(denseFields);
-  copyStructuredFields(source, selectedFieldNames, patch);
+  const patch = scalarGroupPatch(source, selectedFieldNames);
+  copyCurves(source, selectedFieldNames, patch);
 
   // Web-only extensions carried alongside a schema-generated group but not
   // part of `GeneratedAdjustmentModel` itself — see module doc.
@@ -118,14 +106,31 @@ export function buildGroupPatch(
   return patch;
 }
 
-function copyStructuredFields(
+function scalarGroupPatch(source: AdjustmentModel, fields: Set<string>): Partial<AdjustmentModel> {
+  const denseFields: PresetFields = {};
+  for (const camelKey of GENERATED_KEYS) {
+    const snakeKey = camelToSnakeField(camelKey);
+    if (!fields.has(snakeKey)) continue;
+    const mode = ADJUSTMENT_TRANSFER_MODES[snakeKey];
+    if (mode === 'Unsupported') continue;
+    if (mode !== 'Absolute' && mode !== 'Relative')
+      throw new Error(`No scalar transfer implementation for ${snakeKey}`);
+    const value = source[camelKey];
+    if (typeof value === 'object') continue; // Copied structurally below.
+    denseFields[snakeKey] = value;
+  }
+
+  return buildApplyPatch(denseFields);
+}
+
+function copyCurves(
   source: AdjustmentModel,
-  selectedFieldNames: ReadonlySet<string>,
+  fields: Set<string>,
   patch: Partial<AdjustmentModel>,
 ): void {
   for (const key of GENERATED_KEYS) {
     const field = camelToSnakeField(key);
-    if (!selectedFieldNames.has(field) || ADJUSTMENT_TRANSFER_MODES[field] !== 'Absolute') continue;
+    if (!fields.has(field) || ADJUSTMENT_TRANSFER_MODES[field] !== 'Absolute') continue;
     const value = source[key];
     if (typeof value === 'object' && value !== null) {
       Object.assign(patch, { [key]: structuredClone(value) });
