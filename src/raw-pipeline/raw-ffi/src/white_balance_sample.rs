@@ -11,6 +11,7 @@
 
 use std::os::raw::c_char;
 
+use raw_core::image::ExifOrientation;
 use raw_core::stages::white_balance_sample::{sample_white_balance, WbSampleError};
 
 use crate::error::{set_last_error, with_large_stack};
@@ -43,6 +44,35 @@ pub unsafe extern "C" fn maple_sample_white_balance(
     nx: f32,
     ny: f32,
     out: *mut MapleWbSample,
+) -> i32 {
+    unsafe { sample(raw_path, xmp_path, nx, ny, out, false) }
+}
+
+/// Sample an uncropped DISPLAY-oriented image point. Apple first inverts its
+/// crop/straighten and canvas transforms; this boundary uses the decoder's
+/// own EXIF orientation to address the un-oriented scene-linear probe (#3308).
+/// The existing sensor-coordinate entry remains unchanged.
+///
+/// # Safety
+/// Same pointer requirements as `maple_sample_white_balance`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_sample_white_balance_oriented(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    nx: f32,
+    ny: f32,
+    out: *mut MapleWbSample,
+) -> i32 {
+    unsafe { sample(raw_path, xmp_path, nx, ny, out, true) }
+}
+
+unsafe fn sample(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    nx: f32,
+    ny: f32,
+    out: *mut MapleWbSample,
+    display_oriented: bool,
 ) -> i32 {
     if raw_path.is_null() || out.is_null() {
         return 1;
@@ -90,6 +120,11 @@ pub unsafe extern "C" fn maple_sample_white_balance(
                 set_last_error(format!("raw decode: {}", e));
                 return 3;
             }
+        };
+        let (nx, ny) = if display_oriented {
+            display_point_to_sensor(raw_img.orientation, nx, ny)
+        } else {
+            (nx, ny)
         };
         match sample_white_balance(&raw_img, &model, nx, ny) {
             Ok(s) => {
@@ -167,3 +202,21 @@ mod tests {
         assert_eq!(code_for(&WbSampleError::Develop("x".into())), 3);
     }
 }
+
+/// Normalised counterpart of `ExifOrientation::display_rect_to_sensor`.
+fn display_point_to_sensor(orientation: ExifOrientation, x: f32, y: f32) -> (f32, f32) {
+    match orientation {
+        ExifOrientation::Normal => (x, y),
+        ExifOrientation::HorizontalFlip => (1.0 - x, y),
+        ExifOrientation::Rotate180 => (1.0 - x, 1.0 - y),
+        ExifOrientation::VerticalFlip => (x, 1.0 - y),
+        ExifOrientation::Transpose => (y, x),
+        ExifOrientation::Rotate90 => (y, 1.0 - x),
+        ExifOrientation::Transverse => (1.0 - y, 1.0 - x),
+        ExifOrientation::Rotate270 => (1.0 - y, x),
+    }
+}
+
+#[cfg(test)]
+#[path = "white_balance_sample_orientation_tests.rs"]
+mod orientation_tests;
