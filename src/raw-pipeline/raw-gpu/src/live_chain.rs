@@ -99,11 +99,6 @@ use noop::*;
 mod signature;
 pub use signature::chain_signature;
 
-// `chain_signature` lives in a sibling file to keep this module inside the
-// file-size budget (same split shape as `noop` / `tests`).
-#[path = "live_chain/signature.rs"]
-
-
 /// Build the LIVE develop+view chain for `inputs`, OMITTING every no-op pass
 /// (the gated counterpart to [`crate::build_full_chain_passes`]). A neutral
 /// `AdjustmentModel` yields only the always-on view tail; each engaged slider
