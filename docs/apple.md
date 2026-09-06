@@ -92,6 +92,8 @@ Every committed editor action is one `EditTransaction` (`Editor/EditTransaction.
 
 **There are no hand-written Apple render kernels.** `MetalKernels.swift` survives only as an accessor for the bundled `Metal/agx_lut.bin`, used as a parity oracle asserting the Apple-bundled AgX LUT byte-matches the Rust one. Render math exists in exactly two places: Rust CPU (`raw_core::pipeline::apply_scene_linear_chain_f32`) and WGSL on the GPU (`raw-gpu`). See [pipeline](pipeline.md).
 
+Local histograms also share one process-wide compute slot across RAW and non-RAW callers (#3360). The slot is acquired before reading image bytes and held until native processing actually returns: cancelling a Swift task does not interrupt synchronous Rust/CoreImage work. Cancelled waiters leave without loading bytes, cancellation is rechecked after source I/O, and obsolete results are discarded. `LocalHistogramCancellationTests` covers a 40-update mixed-format burst, cancellation during source loading, pre-cancelled requests, and recovery after source errors. The histogram still uses its existing independent develop; the concurrency bound does not change its pixels or the canvas resolution.
+
 ### GPU live vs CPU refine
 
 GPU session replacement is bounded: waiting requests share the previous session's teardown, and only the newest uncancelled request materializes pixels after that teardown finishes. A superseded open is treated as a dropped frame, so it cannot start a CPU fallback. Memory-pressure eviction invalidates pending opens as well as clearing the current upload. `GpuSessionReplacementTests` covers queued replacements, cancellation, eviction, reuse, and recovery after a failed readback (#3360).
