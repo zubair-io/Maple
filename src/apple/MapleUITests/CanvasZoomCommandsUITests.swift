@@ -58,9 +58,12 @@ import XCTest
 
       app.buttons["editor-back"].click()
       XCTAssertTrue(badge.waitForNonExistence(timeout: 10))
-      app.menuBars.menuBarItems["View"].click()
+      openZoomMenu(in: app)
       XCTAssertFalse(
-        app.menuItems["Zoom"].isEnabled, "Browse must not retain the editor's commands.")
+        app.menuItems["Zoom to Fit"].isEnabled, "Browse must not retain the editor's Fit command.")
+      XCTAssertFalse(
+        app.menuItems["Actual Size (100%)"].isEnabled,
+        "Browse must not retain the editor's Actual Size command.")
       app.typeKey(.escape, modifierFlags: [])
     }
 
