@@ -75,7 +75,7 @@ import XCTest
             return canvas.width > 50 && canvas.height > 50
               && (width == 700
                 ? canvas.maxY < panel.frame.minY : canvas.maxX < panel.frame.minX)
-          }, object: nil)
+          }, object: panel)
         XCTAssertEqual(
           XCTWaiter.wait(for: [clearHandles], timeout: 5), .completed,
           "Crop handles must clear the inspector after reflow")
