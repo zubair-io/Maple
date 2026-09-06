@@ -80,7 +80,7 @@ public sealed partial class MainWindow
         {
             if (running || choices.SelectedItem is not ComboBoxItem { Tag: string id }) return;
             running = true;
-            ++selectionRevision;
+            var runRevision = ++selectionRevision;
             choices.IsEnabled = false;
             dialog.IsPrimaryButtonEnabled = dialog.IsSecondaryButtonEnabled = false;
             cancellation = new CancellationTokenSource();
@@ -94,7 +94,7 @@ public sealed partial class MainWindow
                     var snapshot = ExportQueuePresentation.Capture(job);
                     DispatcherQueue.TryEnqueue(() =>
                     {
-                        if (running) Show(snapshot);
+                        if (running && runRevision == selectionRevision) Show(snapshot);
                     });
                 });
             }
