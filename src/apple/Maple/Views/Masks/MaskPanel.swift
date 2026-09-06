@@ -151,6 +151,10 @@ private struct MaskSliderRow: View {
                 // written anything — not at release, when `model` would
                 // already hold the new value and undo would be a no-op.
                 onEditingChanged: { editing in
+                    // Drives the overlay's hide-while-adjusting (#3364) —
+                    // this is the only drag start/end signal a plain
+                    // `Slider` gives, and the same one `beginEdit()` needs.
+                    state.session.isAdjustingMask = editing
                     if editing { state.session.beginEdit() }
                 }
             )

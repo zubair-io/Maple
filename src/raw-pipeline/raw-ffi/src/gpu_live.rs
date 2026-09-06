@@ -284,3 +284,9 @@ mod gpu_live_film_tests;
 #[cfg(test)]
 #[path = "gpu_live_scope_tests.rs"]
 mod gpu_live_scope_tests;
+#[cfg(test)]
+#[path = "gpu_live_bitmap_scope_tests.rs"]
+mod gpu_live_bitmap_scope_tests;
+#[cfg(test)]
+#[path = "gpu_live_scope_timing_tests.rs"]
+mod gpu_live_scope_timing_tests;

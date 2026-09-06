@@ -453,6 +453,10 @@ public final class EditSession {
   /// and only `renderModel` clears these layers (#3291 review).
   public internal(set) var disabledMaskIds: Set<UUID> = []
 
+  /// True while a per-mask slider is actively being dragged (#3364).
+  /// Set from the slider's `onEditingChanged`, cleared on release.
+  public var isAdjustingMask: Bool = false
+
   /// Latest scope sample (#3277); published by the GPU present or `EditSession+ScopeCpu.swift`.
   public var scopeSample: ScopeSample?
 
@@ -460,9 +464,15 @@ public final class EditSession {
   public var scopeEnabled: Bool = false {
     didSet {
       guard scopeEnabled != oldValue else { return }
+      // A fresh arm gets a fresh priming budget (#3344) — see `ScopeTickState`.
+      scopeTick.primingTicks = 0
       _scheduleRender(phase: .fast)
     }
   }
+
+  /// GPU scope readback bookkeeping — priming budget and freshness tracking
+  /// (#3344, #3387); the fields and the rule live in `EditSession+GpuLive.swift`.
+  @ObservationIgnored var scopeTick = ScopeTickState()
 
   /// Pending debounced compute — see `EditSession+ScopeCpu.swift`.
   @ObservationIgnored var scopeCpuTask: Task<Void, Never>?
@@ -477,26 +487,8 @@ public final class EditSession {
   // `DeepZoomState.previewSize`).
   @ObservationIgnored var deepZoomState = DeepZoomState()
 
-  public internal(set) var viewportSourceRect: CGRect {
-    get { deepZoomState.viewportSourceRect }
-    set { deepZoomState.viewportSourceRect = newValue }
-  }
-
-  public var previewSize: CGSize {
-    get { deepZoomState.previewSize }
-    set {
-      let oldValue = deepZoomState.previewSize
-      guard newValue != oldValue else { return }
-      deepZoomState.previewSize = newValue
-      clearNativeDetailPreview()
-      if oldValue == .zero {
-        _scheduleRender(phase: .fast)
-      } else {
-        _scheduleRefine()
-      }
-      retryCachedPreviewSeedIfPending()
-    }
-  }
+  // `viewportSourceRect` / `previewSize` forwarders live in
+  // `EditSession+Derived.swift` (file-size budget).
 
   // `canvasMath` + `fastTargetSize` + `refinedTargetSize` moved to
   // `EditSession+CanvasMath.swift` (file-size budget, #2041).

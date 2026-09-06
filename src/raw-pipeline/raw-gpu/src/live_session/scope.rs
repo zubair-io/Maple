@@ -29,11 +29,20 @@ pub(super) struct ScopeBuffers {
     staging: [wgpu::Buffer; 2],
     /// Which staging slot the NEXT tick's copy lands in.
     slot: Cell<usize>,
-    /// Per slot: the frame number tagging the pending `map_async`, and its
-    /// receiver. `None` = nothing pending in that slot.
-    pending: RefCell<[Option<(u64, oneshot::Receiver<Result<(), wgpu::BufferAsyncError>>)>; 2]>,
+    /// Per slot: the frame number tagging the pending `map_async`, the
+    /// submission that produced it, and its receiver. `None` = nothing
+    /// pending in that slot.
+    pending: RefCell<[Option<PendingMap>; 2]>,
     frame: Cell<u64>,
 }
+
+/// One in-flight staging map: the frame it tags, the submission whose
+/// completion makes it readable, and the `map_async` receiver.
+type PendingMap = (
+    u64,
+    wgpu::SubmissionIndex,
+    oneshot::Receiver<Result<(), wgpu::BufferAsyncError>>,
+);
 
 impl ScopeBuffers {
     pub(super) fn new(ctx: &GpuContext) -> Self {
@@ -95,7 +104,7 @@ impl LiveSession {
     /// Request the async map of this tick's staging slot and advance the slot.
     /// A slot whose previous map was never taken is dropped first (a stale
     /// sample nobody read is worthless; the host only ever wants the newest).
-    pub(super) fn scope_after_submit(&self) {
+    pub(super) fn scope_after_submit(&self, submission: wgpu::SubmissionIndex) {
         let s = &self.scope;
         let slot = s.slot.get();
         let frame = s.frame.get() + 1;
@@ -110,7 +119,7 @@ impl LiveSession {
             .map_async(wgpu::MapMode::Read, move |res| {
                 let _ = tx.send(res);
             });
-        pending[slot] = Some((frame, rx));
+        pending[slot] = Some((frame, submission, rx));
         s.slot.set(1 - slot);
     }
 
@@ -132,8 +141,18 @@ impl LiveSession {
         let s = &self.scope;
         let prev = s.slot.get();
         let mut pending = s.pending.borrow_mut();
-        let (frame, mut rx) = pending[prev].take()?;
-        ctx.device.poll(wgpu::Maintain::Poll);
+        let (frame, submission, mut rx) = pending[prev].take()?;
+        // Wait for the submission that PRODUCED this map — the previous
+        // tick's, a whole present ago — not for everything in flight. On the
+        // present path nothing else ever waits on the device (the readback
+        // path does, which is why the race only showed up on screen, #3387):
+        // a non-blocking poll here saw the map "still in flight" every single
+        // tick, and the slot reuse below then dropped it, so no sample ever
+        // reached the HUD after the open sequence's own blocking readbacks
+        // stopped flushing callbacks for it. Bounded by that one submission's
+        // remaining work, which is normally already zero.
+        ctx.device
+            .poll(wgpu::Maintain::wait_for(submission.clone()));
         match rx.try_recv() {
             Ok(Some(Ok(()))) => {
                 let buf = &s.staging[prev];
@@ -144,7 +163,7 @@ impl LiveSession {
             }
             Ok(None) => {
                 // Still in flight — put it back so the next call can retry.
-                pending[prev] = Some((frame, rx));
+                pending[prev] = Some((frame, submission, rx));
                 None
             }
             _ => None, // channel dropped, or the map itself errored: skip this sample

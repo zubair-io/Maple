@@ -162,3 +162,52 @@ fn scope_disabled_never_produces_stats() {
         assert!(session.take_scope_stats(&ctx).is_none());
     }
 }
+
+/// The PRESENT path never does a blocking readback, so the scope map's
+/// delivery cannot lean on one the way the readback path's does. This drives
+/// the present-path entry exactly as the FFI does — `render_chain_to_f32`,
+/// no `Maintain::Wait` anywhere — and requires every tick to deliver.
+///
+/// Honest scope: headless, this ALSO passed with the old non-blocking poll
+/// (wgpu delivered the map in time here), so it is a delivery guard for the
+/// present path, not a reproduction of the on-screen stall in #3387 — that
+/// one was only ever observed inside the app (frame stuck at 2 while every
+/// later present returned no sample). `take_scope_stats` now waits for the
+/// specific submission that produced the map, which the project's own test
+/// above already called out as the race the live path could not afford.
+#[test]
+fn present_path_delivers_a_sample_every_tick_without_a_blocking_readback() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (256u32, 192u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
+    let mut inputs = scope_test_case().gpu_inputs();
+    inputs.scope = ScopeRequest {
+        layer: -1,
+        enabled: true,
+    };
+    let cancel = CancelToken::new();
+
+    let mut delivered = Vec::new();
+    for tick in 1..=6u64 {
+        session
+            .render_chain_to_f32(&ctx, &inputs, &cancel)
+            .unwrap()
+            .unwrap();
+        // NO device wait here — that is the whole point.
+        let got = session.take_scope_stats(&ctx).map(|s| s.frame);
+        eprintln!("PRESENT-PATH tick {tick}: took {got:?}");
+        delivered.push(got);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(delivered[0], None, "tick 1 has no previous tick to report");
+    for (i, got) in delivered.iter().enumerate().skip(1) {
+        assert_eq!(
+            *got,
+            Some(i as u64),
+            "tick {} must deliver frame {} — a dropped map means the HUD stalls (#3387): {delivered:?}",
+            i + 1,
+            i
+        );
+    }
+}

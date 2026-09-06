@@ -341,9 +341,9 @@ impl LiveSession {
             &self.dither_out,
             dims,
         );
-        let out = self.submit_and_read_surface(ctx, encoder).await?;
+        let (out, submission) = self.submit_and_read_surface(ctx, encoder).await?;
         if inputs.scope.enabled {
-            self.scope_after_submit();
+            self.scope_after_submit(submission);
         }
         Ok(Some(out))
     }
@@ -435,9 +435,9 @@ impl LiveSession {
                 inputs.scope.layer >= 0,
             );
         }
-        ctx.queue.submit(Some(encoder.finish()));
+        let submission = ctx.queue.submit(Some(encoder.finish()));
         if inputs.scope.enabled {
-            self.scope_after_submit();
+            self.scope_after_submit(submission);
         }
         Some(final_idx)
     }

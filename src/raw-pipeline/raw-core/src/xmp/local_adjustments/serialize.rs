@@ -17,6 +17,15 @@ fn fmt2(v: f32) -> String {
     format!("{rounded}")
 }
 
+/// `crs:LocalHue` rides Adobe's ±1 scale, so the canonical 2-decimal wire
+/// precision would quantise Maple's ±100 slider to whole units and drift a
+/// fractional value (e.g. an Amount-scaled −42.5) on every round-trip
+/// (#3280 review). Four decimals keep two decimals of the ±100 value.
+fn fmt4(v: f32) -> String {
+    let rounded = (v * 10_000.0).round() / 10_000.0;
+    format!("{rounded}")
+}
+
 /// Emit the canonical `crs:GradientBasedCorrections` /
 /// `crs:CircularGradientBasedCorrections` nested child elements for
 /// `model.local_adjustments`, each line prefixed so the container element
@@ -112,7 +121,7 @@ fn serialize_adjustments(a: &PartialAdjustments, indent: &str) -> String {
     // same scale convention every other `crs:Local*` key uses, so it can't
     // ride the plain loop above.
     if let Some(h) = a.hue {
-        out.push_str(&format!("\n{indent}crs:LocalHue=\"{}\"", fmt2(h / 100.0)));
+        out.push_str(&format!("\n{indent}crs:LocalHue=\"{}\"", fmt4(h / 100.0)));
     }
     out
 }
