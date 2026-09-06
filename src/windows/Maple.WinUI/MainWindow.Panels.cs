@@ -444,6 +444,7 @@ namespace Maple.WinUI
             }
 
             AddRow(ExifRows, "Camera", photo.CameraModel);
+            AddCameraSupport(ExifRows, photo);
             AddRow(ExifRows, "Lens", photo.LensInfo);
             AddRow(ExifRows, "ISO", photo.IsoDisplay);
             AddRow(ExifRows, "Aperture", photo.Aperture);

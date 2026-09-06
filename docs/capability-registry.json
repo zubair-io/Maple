@@ -80,8 +80,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -179,8 +179,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -305,8 +305,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -399,8 +399,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -461,8 +461,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -854,8 +854,8 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:bd8594aa4cfd8c8102c304f26f30e96cfbc36b2f2b10cf2b35a28f2e41f20263",
-      "status": "satisfied",
+      "corpus_hash": "blake3:f0b478e3d8ec9500bfa593a189bcc128ead29f09728331c5c5a49714e21c023f",
+      "status": "stale_corpus",
       "record": {
         "backend": "metal",
         "pipeline_version": 2,

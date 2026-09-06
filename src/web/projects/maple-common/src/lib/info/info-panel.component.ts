@@ -57,6 +57,7 @@ import { computeRgbHistograms } from '../raw-pipeline/image-utils';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { LibraryStateService } from '../state/library-state.service';
 import { InfoFilenameRowComponent } from './info-filename-row.component';
+import { MuiTextComponent } from '../ui/text/mui-text.component';
 import { INFO_PANEL_EXTENSION } from './info-panel-extension';
 import {
   cameraLocationRows,
@@ -76,6 +77,7 @@ import type { MuiRatingFlagState } from '../ui/rating-flags/mui-rating-flags.com
   selector: 'app-info-panel',
   standalone: true,
   imports: [
+    MuiTextComponent,
     InfoFilenameRowComponent,
     MuiButtonComponent,
     MuiRatingFlagsComponent,
@@ -160,6 +162,10 @@ export class InfoPanelComponent {
   // ── EXIF / GPS grid — mui-label-value-grid wiring ────────────────────
 
   protected readonly metadataRows = computed(() => cameraLocationRows(this.asset()));
+  protected readonly cameraSupport = computed(() => {
+    const asset = this.asset();
+    return asset ? this.state.lensCorrectionsFor(asset.id).cameraSupport : undefined;
+  });
 
   // ── Keywords — mui-keyword-row wiring ────────────────────────────────
 

@@ -41,6 +41,7 @@ export interface OpenedLiveSession {
    */
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
+  cameraSupportJson?: string | null;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).

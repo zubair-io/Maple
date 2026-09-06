@@ -58,6 +58,7 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       asShotTint: msg.asShotTint,
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
+      cameraSupportJson: msg.cameraSupportJson,
     });
     return true;
   }
@@ -99,6 +100,7 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       asShotTint: msg.asShotTint,
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
+      cameraSupportJson: msg.cameraSupportJson,
       colorSpace: msg.colorSpace,
       scopePixels: scopeToDecoded(msg.scope),
     });

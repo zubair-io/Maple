@@ -41,6 +41,8 @@
 //! by the fixture-gated `fixture_tests`.
 
 mod compute;
+mod render_support;
+pub use render_support::RenderSupport;
 #[cfg(test)]
 mod fixture_tests;
 #[cfg(test)]

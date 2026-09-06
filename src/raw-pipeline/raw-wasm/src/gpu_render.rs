@@ -505,13 +505,14 @@ pub async fn render_bytes_gpu(
     let raw_img =
         raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    // As-shot derivation — IDENTICAL to `render_bytes` (see its doc for the
-    // #1892 rationale), so the GPU path's cold-open white balance matches the
-    // CPU path's: display-only estimate, fresh open renders at the default
-    // model (identity WB matrix over the as-shot-balanced prefix buffer).
+    // Same display-only as-shot estimate as the CPU cold-open path (#1892).
     let (as_shot_temperature, as_shot_tint) = crate::as_shot_wb(&raw_img);
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
+    let camera_support = Some(
+        raw_core::support_tiers::RenderSupport::resolve(&raw_img)
+            .map_err(|e| JsError::new(&e.to_string()))?,
+    );
 
     let model = match &xmp {
         Some(x) => raw_core::xmp::parse(x).map_err(|e| JsError::new(&e.to_string()))?,
@@ -522,9 +523,7 @@ pub async fn render_bytes_gpu(
         .await
         .map_err(|e| JsError::new(&e))?;
 
-    // Native oriented dims for `full_width`/`full_height` — the develop above is
-    // viewport-sized (#1080), so the editor's fit/100% zoom math needs the dims a
-    // full-res render would produce (the `render_bytes_sized` contract, #1101).
+    // Preserve native oriented dims for fit/100% zoom on viewport-sized output.
     let (full_w, full_h) = raw_core::pipeline::native_render_dims(&raw_img);
 
     Ok(MapleRender::new(
@@ -537,6 +536,7 @@ pub async fn render_bytes_gpu(
         as_shot_tint,
         has_lens_corrections,
         lens_correction_ca_inert,
+        camera_support,
     ))
 }
 

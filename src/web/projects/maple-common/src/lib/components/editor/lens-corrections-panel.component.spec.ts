@@ -16,6 +16,7 @@ import { LensCorrectionsPanelComponent } from './lens-corrections-panel.componen
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { LensCorrectionCapability } from '../../state/library-store-lens-corrections';
+import { cameraSupportFromJson } from '../../state/camera-support';
 
 const ASSET_ID = 'local-asset-1';
 
@@ -58,9 +59,15 @@ class FakeLibraryStateService {
 
   lensCorrectionsFor = vi.fn((id: string) => this.capsFor(id)());
 
-  seedLensCorrections = vi.fn((id: string, hasLensCorrections: boolean, caInert: boolean) => {
-    this.capsFor(id).set({ hasLensCorrections, lensCorrectionCaInert: caInert });
-  });
+  seedLensCorrections = vi.fn(
+    (id: string, hasLensCorrections: boolean, caInert: boolean, supportJson?: string) => {
+      this.capsFor(id).set({
+        hasLensCorrections,
+        lensCorrectionCaInert: caInert,
+        cameraSupport: cameraSupportFromJson(supportJson),
+      });
+    },
+  );
 }
 
 function makeFixture() {
@@ -75,6 +82,30 @@ function makeFixture() {
 }
 
 describe('LensCorrectionsPanelComponent', () => {
+  it('explains missing lens correction independently of the camera calibration', () => {
+    const { fixture, library } = makeFixture();
+    library.seedLensCorrections(
+      ASSET_ID,
+      false,
+      true,
+      JSON.stringify({
+        cameraKey: 'Example',
+        resolution: 'bundle_confident',
+        lens: 'no_correction_data',
+      }),
+    );
+    fixture.detectChanges();
+    const support = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="lens-support"]',
+    );
+    expect(support?.textContent).toContain('No correction data');
+    expect(support?.textContent).toContain('controls have nothing to apply');
+    const controls = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="lens-corrections-panel"]',
+    )!;
+    expect(controls.classList.contains('opacity-[0.45]')).toBe(true);
+    expect(controls.contains(support)).toBe(false);
+  });
   it('reflects lensProfileEnable ("On" default) via `enabled`', () => {
     const { component } = makeFixture();
     expect(component.enabled()).toBe(true);
