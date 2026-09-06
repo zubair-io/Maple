@@ -59,8 +59,6 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     if (this.jobId) void this.reconnect();
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   async apply(
     ids: readonly string[],
     patch: Partial<AdjustmentModel>,
@@ -106,13 +104,9 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }, ids.length);
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   retryFailed(): Promise<BatchSummary<string> | null> {
     return this.remaining().length ? Promise.resolve(null) : this.action('retry-failed');
   }
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   resume(): Promise<BatchSummary<string> | null> {
     return this.action('resume');
   }
@@ -134,8 +128,6 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }, 0);
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   cancel(): void {
     this.cancelRequested = true;
     if (this.jobId && this.inFlight) void this.requestCancel();
@@ -149,8 +141,6 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   dismissSummary(): void {
     if (this.inFlight || this.needsReconnect()) return;
     this.lastSummary.set(null);
