@@ -149,6 +149,7 @@ public actor RenderActor {
 
   /// Whether the cached `decodedImage`'s RAW carries lens-correction opcodes, and whether the
   /// CA/distortion sliders are inert (#2231, #3189) — see `SceneLinearDecodeResult`'s doc.
+  var decodedCameraSupport: RawCameraSupport?
   var decodedHasLensCorrections: Bool = false
   var decodedLensCorrectionCaInert: Bool = true
   var decodedLensCorrectionDistortionInert: Bool = true
@@ -199,7 +200,10 @@ public actor RenderActor {
   /// lensCorrectionDistortionInert) — see `SceneLinearDecodeResult`'s doc for each field
   /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields (image, nil, 0, nil, 1.0, false, true, true).
   var decodeTask:
-    Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool)?, Never>?
+    Task<
+      (CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool, RawCameraSupport?)?,
+      Never
+    >?
   var decodeTaskAssetID: AssetRef.ID?
   /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
   /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
@@ -327,6 +331,7 @@ public actor RenderActor {
     public let hasLensCorrections: Bool
     public let lensCorrectionCaInert: Bool
     public let lensCorrectionDistortionInert: Bool
+    public let cameraSupport: RawCameraSupport?
   }
 
   // MARK: - Scheduler state (slice 3)
