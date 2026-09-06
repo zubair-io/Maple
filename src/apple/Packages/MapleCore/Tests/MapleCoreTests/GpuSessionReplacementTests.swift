@@ -10,7 +10,7 @@ final class GpuSessionReplacementTests: XCTestCase {
     let driver = GpuLiveDriver()
     let barrier = TeardownBarrier()
     driver.sessionTeardown = Task { await barrier.wait() }
-    var readbacks: [UInt64] = []
+    let readbacks = ReadbackRecorder()
     var requests: [Task<Bool, Error>] = []
     // Simulate the old GPU actor being occupied by a slow profile fit.
     // Each new request must wait without materializing its image buffer.
@@ -34,13 +34,13 @@ final class GpuSessionReplacementTests: XCTestCase {
       requests.append(request)
       await fulfillment(of: [started], timeout: 5)
     }
-    XCTAssertTrue(readbacks.isEmpty)
+    XCTAssertTrue(readbacks.values.isEmpty)
     barrier.release()
     for (index, request) in requests.enumerated() {
       let opened = try await request.value
       XCTAssertEqual(opened, index == requests.count - 1)
     }
-    XCTAssertEqual(readbacks, [40])
+    XCTAssertEqual(readbacks.values, [40])
     XCTAssertTrue(
       driver.isOpen(
         coveringWidth: 16, height: 16,
@@ -163,25 +163,77 @@ final class GpuSessionReplacementTests: XCTestCase {
     }
     await fulfillment(of: [closing], timeout: 5)
     let started = expectation(description: "fresh open queued")
-    var readbacks = 0
+    let readbacks = ReadbackRecorder()
     let request = Task { @MainActor in
       started.fulfill()
       try await driver.open(width: 16, height: 16, identity: identity) {
-        readbacks += 1
+        readbacks.append(1)
         return Self.pixels()
       }
     }
     await fulfillment(of: [started], timeout: 5)
-    XCTAssertEqual(readbacks, 0)
+    XCTAssertEqual(readbacks.values.count, 0)
     barrier.release()
     await eviction.value
     try await request.value
-    XCTAssertEqual(readbacks, 1)
+    XCTAssertEqual(readbacks.values.count, 1)
     XCTAssertTrue(driver.isOpen(coveringWidth: 16, height: 16, identity: identity))
     await driver.closeSession()
   }
 
-  private static func pixels() -> [Float] {
+  func testSlowReadbackLeavesMainActorResponsiveAndSupersededOpenCannotPublish() async throws {
+    let driver = GpuLiveDriver()
+    let started = expectation(description: "background readback started")
+    let release = DispatchSemaphore(value: 0)
+    let old = Task {
+      try await driver.open(width: 16, height: 16, identity: identity) {
+        XCTAssertFalse(Thread.isMainThread)
+        started.fulfill()
+        XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+        return Self.pixels()
+      }
+    }
+    await fulfillment(of: [started], timeout: 5)
+    // Executing this continuation while readback waits proves MainActor is free.
+    let newestStarted = expectation(description: "new open queued")
+    let newestIdentity = GpuUploadIdentity(decodeGeneration: 2, crop: .identity)
+    let newest = Task {
+      newestStarted.fulfill()
+      try await driver.open(width: 16, height: 16, identity: newestIdentity, pixels: Self.pixels)
+    }
+    await fulfillment(of: [newestStarted], timeout: 5)
+    release.signal()
+    do {
+      try await old.value
+      XCTFail("Superseded background open succeeded")
+    } catch is CancellationError {}
+    try await newest.value
+    XCTAssertTrue(driver.isOpen(coveringWidth: 16, height: 16, identity: newestIdentity))
+    await driver.closeSession()
+  }
+
+  func testCancelledBackgroundReadbackDoesNotOpenSession() async throws {
+    let driver = GpuLiveDriver()
+    let started = expectation(description: "readback started")
+    let release = DispatchSemaphore(value: 0)
+    let request = Task {
+      try await driver.open(width: 16, height: 16, identity: identity) {
+        started.fulfill()
+        XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+        return Self.pixels()
+      }
+    }
+    await fulfillment(of: [started], timeout: 5)
+    request.cancel()
+    release.signal()
+    do {
+      try await request.value
+      XCTFail("Cancelled preparation succeeded")
+    } catch is CancellationError {}
+    XCTAssertFalse(driver.hasSession)
+  }
+
+  nonisolated private static func pixels() -> [Float] {
     Array(repeating: [Float(0.18), 0.18, 0.18, 1], count: 16 * 16).flatMap { $0 }
   }
 }
@@ -201,5 +253,16 @@ private final class TeardownBarrier {
     let pending = waiters
     waiters.removeAll()
     for waiter in pending { waiter.resume() }
+  }
+}
+
+private final class ReadbackRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [UInt64] = []
+
+  var values: [UInt64] { lock.withLock { storage } }
+
+  func append(_ value: UInt64) {
+    lock.withLock { storage.append(value) }
   }
 }

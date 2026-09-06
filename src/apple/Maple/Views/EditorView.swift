@@ -72,19 +72,13 @@ struct EditorView: View {
   @State private var presetsOpen = false
   @State private var presetStore = PresetStore()
 
-  /// Value HUD (center) — fades in while a value is being scrubbed, then
-  /// recedes.  Mirrors the web `hudVisible()` gated HUD layer; replaces the
-  /// always-on top-center chip that collided with the pill header.
-  @State private var hudVisible = false
-  @State private var hudHideTask: Task<Void, Never>?
-
   /// Frame (in `editorCanvas` space) of whichever floating chrome panel is
   /// currently reporting itself as a wheel-exclusion region — e.g.
   /// `FlyoutSliderPanel` while its Film catalog list is showing (#2683).
   /// Threaded into `CanvasZoomHost` so a trackpad scroll over the panel
   /// reaches the panel's own `ScrollView` instead of nudging the armed
   /// tool or zooming/panning the canvas underneath it.
-  @State var wheelExclusionFrame: CGRect?
+  @State private var wheelExclusionFrame: CGRect?
 
   // ── TEMPORARY: control-panel variant (exploration only) ──────────────────
   // Persisted with @AppStorage so the choice survives app restarts during
@@ -98,7 +92,7 @@ struct EditorView: View {
   }
   // ── END TEMPORARY ─────────────────────────────────────────────────────────
 
-  var isRegular: Bool { hSizeClass == .regular }
+  private var isRegular: Bool { hSizeClass == .regular }
 
   /// The restored S5 control stack is deliberately phone-idiom-only.
   /// Size class alone is insufficient because an iPad can become compact
@@ -114,19 +108,17 @@ struct EditorView: View {
   var body: some View {
     ZStack {
       // ── LAYER 0 : full-bleed canvas ──────────────────────────────
-      canvasLayer
+      EditorCanvasView(
+        state: state,
+        filmstripSource: filmstripSource,
+        wheelExclusionFrame: wheelExclusionFrame
+      )
+      .onTapGesture { bumpChrome() }
 
       // ── LAYER 1 : value HUD (center, fades in during scrub) ───────
-      // Gated by `hudVisible` so it only appears while a value is being
-      // changed — the always-on top-center chip used to overlap the
-      // pill header (LAYER 4).
-      ValueChipOverlay(state: state)
-        .opacity(hudVisible ? 1 : 0)
-        .animation(.easeOut(duration: 0.18), value: hudVisible)
-        .allowsHitTesting(false)
-        // `opacity(0)` stays in the a11y tree — hide it from VoiceOver
-        // while it's not visible so the chip isn't read mid-scrub-idle.
-        .accessibilityHidden(!hudVisible)
+      // The overlay owns its value observation and idle timer, so input
+      // does not invalidate the surrounding editor shell.
+      EditorValueHUD(state: state)
 
       // ── LAYER 2 : left filmstrip rail (regular only) ───────────────
       // Vertically centered with its own max-height cap (set inside
@@ -248,8 +240,7 @@ struct EditorView: View {
             state: state,
             onBack: onDismiss,
             onShare: onShare,
-            onInfo: onInfo,
-            showBeforeAfter: state.isDirty
+            onInfo: onInfo
           )
           Spacer(minLength: 0)
         }
@@ -314,55 +305,16 @@ struct EditorView: View {
         .allowsHitTesting(isRegular || chromeVisible)
       }
 
-      // ── LAYER 6 : cold-open loading bar ───────────────────────────
-      // Pinned to the top edge and does NOT recede with the chrome (no
-      // chromeOpacity) so the in-flight full-res render of a big RAW
-      // stays legible — the instant embedded preview otherwise looks
-      // "done" with no sign the real image is still resolving. Shows
-      // from open until the full-quality frame publishes
-      // (`isResolvingFirstFrame`, cleared only once
-      // `!isFullQualityDecoding` on both CPU and GPU paths). #1658
-      if EditSession.shouldShowLoadingIndicator(
-        isResolvingFirstFrame: state.session.isResolvingFirstFrame,
-        isRendering: state.session.isRendering,
-        hasOnscreenFrame: canvasHasOnscreenFrame
-      ) {
-        VStack {
-          IndeterminateLoadingBar()
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-          Spacer()
-        }
-        .frame(maxWidth: .infinity)
-        .allowsHitTesting(false)
-      }
+      // Status observations belong to a leaf: per-frame publication
+      // must not rebuild the filmstrip, tool dock, and controls.
+      EditorRenderStatus(session: state.session)
 
-      // ── LAYER 7 : deep-denoise (BM3D) progress ───────────────────
-      // DETERMINATE, driven by raw-core's own per-reference-row stage
-      // ticks (#1153) — the stage runs for seconds on a big RAW, so
-      // spec § 3.2 requires visible, real progress. Only present while
-      // the stage is actually engaged (Noise · Deep > 0).
-      if let denoise = state.session.deepDenoiseProgress.progress {
-        VStack(spacing: 8) {
-          ProgressView(value: denoise.fraction)
-            .progressViewStyle(.linear)
-            .frame(maxWidth: 240)
-            .accessibilityIdentifier("editor-deep-denoise-progress")
-            .accessibilityValue(Text("\(Int(denoise.fraction * 100)) percent"))
-          Text("Deep denoise \u{2014} pass \(denoise.pass) of 2")
-            .font(.caption)
-            .foregroundStyle(MapleTokens.textMuted)
-        }
-        .padding(20)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .allowsHitTesting(false)
-      }
     }
     .overlay(alignment: .topTrailing) {
       // GPU frame-time HUD — validation-only (gpu build +
       // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
       // from the legacy FullImageView when it was retired (#1807).
-      frameTimeHud
+      EditorFrameTimeHUD(session: state.session)
     }
     // Full-bleed editor (#4 follow-up): on regular size class (Mac/iPad)
     // pull the content into the top safe-area inset left over from the
@@ -402,17 +354,11 @@ struct EditorView: View {
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
     #endif
-    .onChange(of: state.armedTool) { _, _ in
-      bumpChrome()
-      flashHUD()
-    }
+    .onChange(of: state.armedTool) { _, _ in bumpChrome() }
     .onChange(of: state.armedGroup) { _, _ in bumpChrome() }
-    .onChange(of: state.armedDisplayValue) { _, _ in flashHUD() }
-    // Cancel the idle-recede + HUD timers on tear-down so they can't fire
-    // and mutate state after the editor is gone (review #3).
+    // The HUD owns its timer; this shell owns only chrome recede.
     .onDisappear {
       recedeTask?.cancel()
-      hudHideTask?.cancel()
     }
     // ── Arrow-key group cycling (regular / iPad & Mac only) ────────────
     // Down = next group (Detail → Light wraps), Up = previous.
@@ -449,23 +395,11 @@ struct EditorView: View {
     return 0.15
   }
 
-  func bumpChrome() {
+  private func bumpChrome() {
     guard !isRegular else { return }
     recedeTask?.cancel()
     chromeVisible = true
     scheduleRecede()
-  }
-
-  /// Flash the center value HUD, then schedule it to recede ~1.1s after the
-  /// last value change (mirrors the web scrub HUD behaviour).
-  private func flashHUD() {
-    hudHideTask?.cancel()
-    hudVisible = true
-    hudHideTask = Task { @MainActor in
-      try? await Task.sleep(for: .milliseconds(1100))
-      guard !Task.isCancelled else { return }
-      withAnimation(.easeOut(duration: 0.25)) { hudVisible = false }
-    }
   }
 
   private func scheduleRecede() {

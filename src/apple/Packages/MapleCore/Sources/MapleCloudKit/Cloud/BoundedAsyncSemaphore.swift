@@ -95,6 +95,7 @@ public actor BoundedAsyncSemaphore {
 
   private var waiters: [(id: UInt64, continuation: CheckedContinuation<Void, Error>)] = []
   private var waiterIDCounter: UInt64 = 0
+  package var queuedCount: Int { waiters.count }
 
   /// Clamps to ≥1 — a 0/negative cap would suspend `acquire()` forever
   /// since `current < value` would never be true.
@@ -142,11 +143,11 @@ public actor BoundedAsyncSemaphore {
 
   public func release() {
     guard !waiters.isEmpty else {
-      current -= 1 // No waiter: free the permit.
+      current -= 1  // No waiter: free the permit.
       return
     }
     let waiter = waiters.removeFirst()
-    waiter.continuation.resume() // Transfer this permit directly; `current` unchanged.
+    waiter.continuation.resume()  // Transfer this permit directly; `current` unchanged.
   }
 
   /// Invoked (via an unstructured `Task`) from `acquire()`'s `onCancel`

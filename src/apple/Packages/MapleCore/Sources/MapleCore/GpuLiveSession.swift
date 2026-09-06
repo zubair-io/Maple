@@ -38,6 +38,8 @@ import RawPipeline
 import os
 
 private let gpuLiveLog = Logger(subsystem: "app.justmaple.aperture", category: "gpu-live")
+private let gpuLiveSignposter = OSSignposter(
+  subsystem: "app.justmaple.aperture", category: .pointsOfInterest)
 
 /// Errors surfaced by the GPU live session (carry the Rust `maple_last_error`
 /// message or the return code so callers / the in-app HUD can show it — device
@@ -244,14 +246,14 @@ public actor GpuLiveSession {
   /// the GPU. Returns normally on success or a silent drop (cancelled); throws on
   /// a real GPU/present failure so the caller can surface it.
   ///
-  /// Returns the GPU render+present latency in MILLISECONDS for a real present
+  /// Returns the native submission duration in MILLISECONDS for a real present
   /// (`rc == 0`), or `nil` when the present was cancelled (`rc == 4`, a newer
   /// edit superseded it). The latency is a `CACurrentMediaTime()` delta around
-  /// the `maple_gpu_present_chain` FFI — the encode+submit+present span that
-  /// maps to the 16ms slider-tick budget — with NO added GPU sync/readback (that
-  /// would distort the very number we measure). The HUD's recorder drops the
-  /// `nil` (cancelled) frames so they don't flatter the rolling average; see
-  /// `GpuFrameTimeStats`.
+  /// the `maple_gpu_present_chain` FFI. It excludes input dispatch, waiting for
+  /// this actor, GPU completion and display scanout; it does not establish the
+  /// 16ms input-to-visible-frame budget. No GPU sync/readback is added. The
+  /// `GpuPresentRequest` / `GpuPresentExecution` Instruments intervals expose
+  /// actor queue time and include cancelled calls omitted from HUD statistics.
   ///
   /// The actor serializes this — one render in flight (the `!Send` Rust context).
   @discardableResult
@@ -266,6 +268,10 @@ public actor GpuLiveSession {
     wbFrame: WbSliderFrame? = nil,
     targetColorSpace: CanvasColorSpace = .current
   ) throws -> Double? {
+    let interval = gpuLiveSignposter.beginInterval(
+      "GpuPresentExecution", id: gpuLiveSignposter.makeSignpostID())
+    defer { gpuLiveSignposter.endInterval("GpuPresentExecution", interval) }
+    try Task.checkCancellation()
     guard var h = handle else {
       throw GpuLiveError(message: "present: session is closed")
     }
@@ -281,11 +287,9 @@ public actor GpuLiveSession {
     // The helper yields a pointer to the (array-wired) params so the FFI call
     // doesn't re-borrow `params` (Swift exclusivity).
     //
-    // Stamp the wall clock immediately around the FFI: this span is the GPU
-    // encode+submit+present — the meaningful edit→on-screen latency. The two
-    // `CACurrentMediaTime()` reads are sub-microsecond, so the measurement
-    // does not perturb the number (and is unconditional — the HUD flag gates
-    // RECORDING, not the cheap timestamp).
+    // This is a native submission subspan, not edit-to-visible latency. The
+    // signpost above additionally includes Swift parameter marshalling, while
+    // the driver's interval starts before the actor hop.
     let t0 = CACurrentMediaTime()
     let rc = withGpuLiveParams(params, curves: model) { pp in
       maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr, surfaceGeneration)
@@ -294,10 +298,10 @@ public actor GpuLiveSession {
 
     switch rc {
     case 0:
-      return elapsedMs  // presented — real edit→on-screen frame
+      return elapsedMs  // submitted to the surface; completion is asynchronous
     case 4:
       // RC_PRESENT_CANCELLED — a newer edit superseded this present; drop
-      // quietly AND report `nil` so the cancelled (near-zero) frame never
+      // quietly AND report `nil` so a cancelled request never
       // enters the HUD's rolling stats.
       return nil
     default:
@@ -321,6 +325,9 @@ public actor GpuLiveSession {
     inputShape: UInt32 = 0,
     wbFrame: WbSliderFrame? = nil
   ) throws -> [UInt8]? {
+    let interval = gpuLiveSignposter.beginInterval(
+      "GpuFrameReadback", id: gpuLiveSignposter.makeSignpostID())
+    defer { gpuLiveSignposter.endInterval("GpuFrameReadback", interval) }
     guard let h = handle else {
       throw GpuLiveError(message: "renderToBuffer: session is closed")
     }

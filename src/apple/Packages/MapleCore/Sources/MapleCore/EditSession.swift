@@ -206,6 +206,7 @@ public final class EditSession {
   @ObservationIgnored var previewIsThumbnailSeed: Bool = false
   public var renderPhase: RenderPhase = .fast
   public var isRendering: Bool = false
+  @ObservationIgnored var renderActivityID: UInt64 = 0
   /// Determinate BM3D deep-denoise progress for the current render (#1153),
   /// fed by raw-core's own stage ticks. `progress` is `nil` whenever the
   /// stage is not running, which is what hides the indicator.
@@ -274,6 +275,7 @@ public final class EditSession {
   /// upscale on display), and anchoring zoom against the preview extent
   /// produces inconsistent targets across fast/refine and slider ticks.
   public internal(set) var nativeImageSize: CGSize = .zero
+  @ObservationIgnored var nativeSizeTask: Task<ImageMetadataReader.PixelSize?, Never>?
 
   // MARK: Crop (#638)
 
@@ -380,6 +382,8 @@ public final class EditSession {
   @ObservationIgnored public var announcer: any EditAnnouncer = AccessibilityEditAnnouncer()
   /// Generation of the last frame that reached the canvas (the stale-render guard's observable).
   @ObservationIgnored public internal(set) var lastPublishedRenderGeneration: UInt64?
+  /// Joins the existing forwarding task to identify an admitted render exactly.
+  @ObservationIgnored var latestRenderSchedule: Task<UInt64, Never>?
 
   // MARK: Internals (shared across EditSession+* extensions)
 
@@ -508,7 +512,8 @@ public final class EditSession {
     downloadProgress: DownloadProgress? = nil,
     filmLutStore: FilmLutStore = FilmLutStore()
   ) {
-    self.asset = asset
+    let rawSource = RawRenderSource(asset: asset)
+    self.asset = AssetRef(sharingBytesOf: asset, through: rawSource)
     self.model = model
     self.originalModel = model
     self.culling = culling
@@ -517,7 +522,7 @@ public final class EditSession {
     let pipeline = ImageEditPipeline()
     self.pipeline = pipeline
     self.nativeDetailRenderer = NativeDetailRenderer()
-    self.renderActor = RenderActor(pipeline: pipeline)
+    self.renderActor = RenderActor(pipeline: pipeline, rawRenderSource: rawSource)
     if let url = asset.primaryURL {
       // Local-file asset — write to the .xmp sidecar next to the RAW.
       self.sidecarStore = XMPSidecarStore(rawURL: url)
@@ -561,10 +566,5 @@ public final class EditSession {
     sidecarErrorTask?.cancel()
     previewPersistTask?.cancel()
   }
-
-  // `setKeywords` + `flushPendingSidecarWrite` moved to
-  // `EditSession+Lifecycle.swift` (file-size budget, #2009).
-  // `beginEdit` / `undo` / `redo` / `resetToOriginal` moved to
-  // `EditSession+UndoRedo.swift` (file-size budget, #1153).
 
 }

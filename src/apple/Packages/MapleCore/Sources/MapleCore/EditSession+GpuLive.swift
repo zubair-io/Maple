@@ -277,7 +277,7 @@ extension EditSession {
     // (#1734).
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
-    await driver.present(
+    let didPresent = await driver.present(
       model: m,
       asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
       asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
@@ -301,10 +301,15 @@ extension EditSession {
       )
       return false
     }
+    // A cancelled/native-skipped submission is handled, but did not publish
+    // pixels. Do not wake histograms or claim that a stale frame is ready.
+    guard didPresent, !Task.isCancelled else { return true }
+    if let gen, gen != (await renderActor.currentGeneration()) { return true }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
     if !gpuFramePresented { gpuFramePresented = true }
     histogramState.framePresented()
+    editSessionSignposter.emitEvent("GPU frame submitted")
     // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns
     // early on a successful GPU present and never reaches its `renderedPreview`
     // block, so the cold-open indicator must be settled HERE too — otherwise

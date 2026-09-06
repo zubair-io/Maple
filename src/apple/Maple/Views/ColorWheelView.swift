@@ -22,132 +22,162 @@
 // drag gesture's undo boundary. `accessibilityAdjustableAction` gives
 // VoiceOver users the same nudge on a horizontal swipe.
 
-import SwiftUI
 import MapleCore
+import SwiftUI
 
 struct ColorWheelView: View {
-    /// Accessibility label, e.g. "Shadows colour wheel".
-    let label: String
-    @Binding var hue: Double
-    @Binding var saturation: Double
-    /// Called once per gesture / per discrete nudge, BEFORE the mutation —
-    /// the caller's undo snapshot boundary (typically `{ state.commit() }`).
-    let onCommit: () -> Void
+  /// Accessibility label, e.g. "Shadows colour wheel".
+  let label: String
+  @Binding var hue: Double
+  @Binding var saturation: Double
+  /// Called once per gesture / per discrete nudge, BEFORE the mutation —
+  /// the caller's undo snapshot boundary (typically `{ state.commit() }`).
+  let onCommit: () -> Void
+  let onEnd: () -> Void
 
-    /// True once this gesture has already fired `onCommit()` — reset on
-    /// `.onEnded` so the NEXT drag commits again exactly once.
-    @State private var hasCommittedThisDrag = false
-    @FocusState private var isFocused: Bool
+  /// True once this gesture has already fired `onCommit()` — reset on
+  /// `.onEnded` so the NEXT drag commits again exactly once.
+  @State private var hasCommittedThisDrag = false
+  @GestureState private var dragGestureActive = false
+  @FocusState private var isFocused: Bool
 
-    private var puckColor: Color {
-        Color(hue: hue / 360.0, saturation: saturation / 100.0, brightness: 1.0)
+  private var puckColor: Color {
+    Color(hue: hue / 360.0, saturation: saturation / 100.0, brightness: 1.0)
+  }
+
+  var body: some View {
+    GeometryReader { geo in
+      let side = min(geo.size.width, geo.size.height)
+      let position = ColorWheelGeometry.position(hue: hue, saturation: saturation)
+
+      ZStack {
+        hueRing
+        saturationFade(side: side)
+        puck(side: side, position: position)
+      }
+      .frame(width: side, height: side)
+      .contentShape(Circle())
+      .gesture(dragGesture(side: side))
+      .focusable()
+      .focused($isFocused)
+      .onKeyPress(.leftArrow) {
+        nudge(dx: -1, dy: 0)
+        return .handled
+      }
+      .onKeyPress(.rightArrow) {
+        nudge(dx: 1, dy: 0)
+        return .handled
+      }
+      .onKeyPress(.upArrow) {
+        nudge(dx: 0, dy: 1)
+        return .handled
+      }
+      .onKeyPress(.downArrow) {
+        nudge(dx: 0, dy: -1)
+        return .handled
+      }
     }
+    .aspectRatio(1, contentMode: .fit)
+    .onChange(of: dragGestureActive) { old, new in
+      if old && !new { endDrag() }
+    }
+    .onDisappear { endDrag() }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(label)
+    .accessibilityValue(
+      "Hue \(Int(hue.rounded())) degrees, saturation \(Int(saturation.rounded())) percent"
+    )
+    .accessibilityAdjustableAction { direction in
+      switch direction {
+      case .increment: nudge(dx: 1, dy: 0)
+      case .decrement: nudge(dx: -1, dy: 0)
+      @unknown default: break
+      }
+    }
+  }
 
-    var body: some View {
-        GeometryReader { geo in
-            let side = min(geo.size.width, geo.size.height)
-            let position = ColorWheelGeometry.position(hue: hue, saturation: saturation)
+  // MARK: - Layers
 
-            ZStack {
-                hueRing
-                saturationFade(side: side)
-                puck(side: side, position: position)
-            }
-            .frame(width: side, height: side)
-            .contentShape(Circle())
-            .gesture(dragGesture(side: side))
-            .focusable()
-            .focused($isFocused)
-            .onKeyPress(.leftArrow)  { nudge(dx: -1, dy: 0); return .handled }
-            .onKeyPress(.rightArrow) { nudge(dx: 1, dy: 0); return .handled }
-            .onKeyPress(.upArrow)    { nudge(dx: 0, dy: 1); return .handled }
-            .onKeyPress(.downArrow)  { nudge(dx: 0, dy: -1); return .handled }
+  /// `AngularGradient` sweeps CLOCKWISE from 3 o'clock, but
+  /// `ColorWheelGeometry` reads the puck angle COUNTER-clockwise from the
+  /// same origin (it negates `dy` for SwiftUI's downward y). Feeding the
+  /// stops in DESCENDING hue order flips the visual sweep to match, so the
+  /// colour the user drags onto is the hue the model receives — without it,
+  /// the bottom of the wheel paints green while the geometry there reports
+  /// 270° (purple). The web wheel gets the same result from
+  /// `conic-gradient(from -90deg, …)` with descending stops.
+  private var hueRing: some View {
+    let stops = stride(from: 0.0, through: 360.0, by: 30.0).map {
+      Color(hue: (360.0 - $0) / 360.0, saturation: 1, brightness: 1)
+    }
+    return AngularGradient(gradient: Gradient(colors: stops), center: .center)
+      .clipShape(Circle())
+  }
+
+  /// `RadialGradient`'s radii are absolute points, not frame-relative,
+  /// so `side` (the wheel's rendered diameter) is threaded in to make
+  /// the fade reach exactly the rim regardless of layout size.
+  private func saturationFade(side: CGFloat) -> some View {
+    RadialGradient(
+      colors: [.white, .white.opacity(0)],
+      center: .center,
+      startRadius: 0,
+      endRadius: side / 2
+    )
+    .clipShape(Circle())
+  }
+
+  private func puck(side: CGFloat, position: ColorWheelGeometry.Position) -> some View {
+    let diameter: CGFloat = 18
+    return Circle()
+      .fill(puckColor)
+      .frame(width: diameter, height: diameter)
+      .overlay(Circle().stroke(Color.white, lineWidth: 2))
+      .shadow(color: .black.opacity(0.45), radius: 1.5, x: 0, y: 0.5)
+      .position(x: CGFloat(position.x) * side, y: CGFloat(position.y) * side)
+  }
+
+  // MARK: - Gesture
+
+  private func dragGesture(side: CGFloat) -> some Gesture {
+    DragGesture(minimumDistance: 0)
+      .updating($dragGestureActive) { _, active, _ in active = true }
+      .onChanged { value in
+        if !hasCommittedThisDrag {
+          onCommit()
+          hasCommittedThisDrag = true
         }
-        .aspectRatio(1, contentMode: .fit)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
-        .accessibilityValue(
-            "Hue \(Int(hue.rounded())) degrees, saturation \(Int(saturation.rounded())) percent"
-        )
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: nudge(dx: 1, dy: 0)
-            case .decrement: nudge(dx: -1, dy: 0)
-            @unknown default: break
-            }
-        }
-    }
+        updateDrag(location: value.location, side: side)
+      }
+      .onEnded { value in
+        if hasCommittedThisDrag { updateDrag(location: value.location, side: side) }
+        endDrag()
+      }
+  }
 
-    // MARK: - Layers
+  private func updateDrag(location: CGPoint, side: CGFloat) {
+    guard side > 0 else { return }
+    let position = ColorWheelGeometry.Position(
+      x: Double(location.x / side), y: Double(location.y / side)
+    )
+    let result = ColorWheelGeometry.hueSaturation(at: position)
+    if hue != result.hue { hue = result.hue }
+    if saturation != result.saturation { saturation = result.saturation }
+  }
 
-    /// `AngularGradient` sweeps CLOCKWISE from 3 o'clock, but
-    /// `ColorWheelGeometry` reads the puck angle COUNTER-clockwise from the
-    /// same origin (it negates `dy` for SwiftUI's downward y). Feeding the
-    /// stops in DESCENDING hue order flips the visual sweep to match, so the
-    /// colour the user drags onto is the hue the model receives — without it,
-    /// the bottom of the wheel paints green while the geometry there reports
-    /// 270° (purple). The web wheel gets the same result from
-    /// `conic-gradient(from -90deg, …)` with descending stops.
-    private var hueRing: some View {
-        let stops = stride(from: 0.0, through: 360.0, by: 30.0).map {
-            Color(hue: (360.0 - $0) / 360.0, saturation: 1, brightness: 1)
-        }
-        return AngularGradient(gradient: Gradient(colors: stops), center: .center)
-            .clipShape(Circle())
-    }
+  private func endDrag() {
+    guard hasCommittedThisDrag else { return }
+    hasCommittedThisDrag = false
+    onEnd()
+  }
 
-    /// `RadialGradient`'s radii are absolute points, not frame-relative,
-    /// so `side` (the wheel's rendered diameter) is threaded in to make
-    /// the fade reach exactly the rim regardless of layout size.
-    private func saturationFade(side: CGFloat) -> some View {
-        RadialGradient(
-            colors: [.white, .white.opacity(0)],
-            center: .center,
-            startRadius: 0,
-            endRadius: side / 2
-        )
-        .clipShape(Circle())
-    }
+  // MARK: - Keyboard nudge
 
-    private func puck(side: CGFloat, position: ColorWheelGeometry.Position) -> some View {
-        let diameter: CGFloat = 18
-        return Circle()
-            .fill(puckColor)
-            .frame(width: diameter, height: diameter)
-            .overlay(Circle().stroke(Color.white, lineWidth: 2))
-            .shadow(color: .black.opacity(0.45), radius: 1.5, x: 0, y: 0.5)
-            .position(x: CGFloat(position.x) * side, y: CGFloat(position.y) * side)
-    }
-
-    // MARK: - Gesture
-
-    private func dragGesture(side: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                if !hasCommittedThisDrag {
-                    onCommit()
-                    hasCommittedThisDrag = true
-                }
-                guard side > 0 else { return }
-                let position = ColorWheelGeometry.Position(
-                    x: Double(value.location.x / side),
-                    y: Double(value.location.y / side)
-                )
-                let result = ColorWheelGeometry.hueSaturation(at: position)
-                hue = result.hue
-                saturation = result.saturation
-            }
-            .onEnded { _ in
-                hasCommittedThisDrag = false
-            }
-    }
-
-    // MARK: - Keyboard nudge
-
-    private func nudge(dx: Int, dy: Int) {
-        onCommit()
-        let result = ColorWheelGeometry.nudge(hue: hue, saturation: saturation, dx: dx, dy: dy)
-        hue = result.hue
-        saturation = result.saturation
-    }
+  private func nudge(dx: Int, dy: Int) {
+    onCommit()
+    let result = ColorWheelGeometry.nudge(hue: hue, saturation: saturation, dx: dx, dy: dy)
+    hue = result.hue
+    saturation = result.saturation
+    onEnd()
+  }
 }

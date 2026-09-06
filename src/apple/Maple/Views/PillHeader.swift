@@ -23,7 +23,6 @@ struct PillHeader: View {
   let onBack: () -> Void
   let onShare: () -> Void
   let onInfo: () -> Void
-  let showBeforeAfter: Bool
 
   var body: some View {
     FloatingImageHeader(
@@ -51,7 +50,7 @@ struct PillHeader: View {
         .id(ObjectIdentifier(state.session))
 
       // Before/after toggle — shown only when there are edits
-      if showBeforeAfter {
+      if state.isDirty {
         Button {
           state.session.showingOriginal.toggle()
         } label: {

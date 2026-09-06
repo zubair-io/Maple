@@ -51,105 +51,109 @@ import MapleUI
 import SwiftUI
 
 struct LensCorrectionsSection: View {
-    @Bindable var state: EditorState
+  @Bindable var state: EditorState
 
-    private var session: EditSession { state.session }
+  private var session: EditSession { state.session }
 
-    private static let distortionSub = Tool.lensCorrections.subParams[0]
-    private static let caSub = Tool.lensCorrections.subParams[1]
-    private static let vignettingSub = Tool.lensCorrections.subParams[2]
+  private static let distortionSub = Tool.lensCorrections.subParams[0]
+  private static let caSub = Tool.lensCorrections.subParams[1]
+  private static let vignettingSub = Tool.lensCorrections.subParams[2]
 
-    /// Disabled-state opacity — matches `MuiToggle.opacity(disabled:)` so
-    /// the toggle and the sliders it gates read as one visual system.
-    private static let disabledOpacity = 0.45
+  /// Disabled-state opacity — matches `MuiToggle.opacity(disabled:)` so
+  /// the toggle and the sliders it gates read as one visual system.
+  private static let disabledOpacity = 0.45
 
-    private var enabledBinding: Binding<Bool> {
-        Binding(
-            get: { session.model.lensProfileEnable == .on },
-            set: { newValue in
-                state.commit()
-                session.model.lensProfileEnable = newValue ? .on : .off
-            }
+  private var enabledBinding: Binding<Bool> {
+    Binding(
+      get: { session.model.lensProfileEnable == .on },
+      set: { newValue in
+        state.commit()
+        session.model.lensProfileEnable = newValue ? .on : .off
+      }
+    )
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      MuiToggle(
+        checked: enabledBinding,
+        label: "Lens Profile Corrections",
+        disabled: !session.hasLensCorrections
+      )
+      .accessibilityIdentifier("editor-lens-corrections-toggle")
+
+      slider(Self.distortionSub)
+        .disabled(!session.hasLensCorrections || session.lensCorrectionDistortionInert)
+        // Same opacity-multiplication reasoning as the CA slider below:
+        // only gate the distortion-alone-inert case here.
+        .opacity(
+          (session.hasLensCorrections && session.lensCorrectionDistortionInert)
+            ? Self.disabledOpacity : 1
         )
+        .accessibilityIdentifier("slider-lens-distortion")
+        .accessibilityHint(
+          (session.hasLensCorrections && session.lensCorrectionDistortionInert)
+            ? "This RAW's lens profile carries no distortion data"
+            : ""
+        )
+      slider(Self.caSub)
+        .disabled(!session.hasLensCorrections || session.lensCorrectionCaInert)
+        // Opacity gates ONLY the CA-alone-inert case: the whole-section
+        // disabled case is already covered by the VStack's own
+        // `.opacity` below, and SwiftUI opacities MULTIPLY down the
+        // view tree — repeating that same condition here would double
+        // it to 0.45×0.45 ≈ 0.2, visibly darker than its siblings
+        // (Jules review).
+        .opacity(
+          (session.hasLensCorrections && session.lensCorrectionCaInert) ? Self.disabledOpacity : 1
+        )
+        .accessibilityIdentifier("slider-lens-ca")
+        .accessibilityHint(
+          (session.hasLensCorrections && session.lensCorrectionCaInert)
+            ? "This RAW's lens profile carries no chromatic-aberration data"
+            : ""
+        )
+      slider(Self.vignettingSub)
+        .accessibilityIdentifier("slider-lens-vignetting")
     }
+    .disabled(!session.hasLensCorrections)
+    .opacity(session.hasLensCorrections ? 1 : Self.disabledOpacity)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("editor-lens-corrections-section")
+  }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            MuiToggle(
-                checked: enabledBinding,
-                label: "Lens Profile Corrections",
-                disabled: !session.hasLensCorrections
-            )
-            .accessibilityIdentifier("editor-lens-corrections-toggle")
-
-            slider(Self.distortionSub)
-                .disabled(!session.hasLensCorrections || session.lensCorrectionDistortionInert)
-                // Same opacity-multiplication reasoning as the CA slider below:
-                // only gate the distortion-alone-inert case here.
-                .opacity(
-                    (session.hasLensCorrections && session.lensCorrectionDistortionInert)
-                        ? Self.disabledOpacity : 1
-                )
-                .accessibilityIdentifier("slider-lens-distortion")
-                .accessibilityHint(
-                    (session.hasLensCorrections && session.lensCorrectionDistortionInert)
-                        ? "This RAW's lens profile carries no distortion data"
-                        : ""
-                )
-            slider(Self.caSub)
-                .disabled(!session.hasLensCorrections || session.lensCorrectionCaInert)
-                // Opacity gates ONLY the CA-alone-inert case: the whole-section
-                // disabled case is already covered by the VStack's own
-                // `.opacity` below, and SwiftUI opacities MULTIPLY down the
-                // view tree — repeating that same condition here would double
-                // it to 0.45×0.45 ≈ 0.2, visibly darker than its siblings
-                // (Jules review).
-                .opacity((session.hasLensCorrections && session.lensCorrectionCaInert) ? Self.disabledOpacity : 1)
-                .accessibilityIdentifier("slider-lens-ca")
-                .accessibilityHint(
-                    (session.hasLensCorrections && session.lensCorrectionCaInert)
-                        ? "This RAW's lens profile carries no chromatic-aberration data"
-                        : ""
-                )
-            slider(Self.vignettingSub)
-                .accessibilityIdentifier("slider-lens-vignetting")
+  private func slider(_ sub: ToolSubParam) -> some View {
+    LivingSlider(
+      label: sub.label,
+      value: Binding(
+        get: { session.model[keyPath: sub.keyPath] },
+        set: { newValue in
+          if state.armedTool != .lensCorrections { state.arm(tool: .lensCorrections) }
+          if state.armedSubParamId != sub.id {
+            state.arm(subParamId: sub.id)
+          }
+          state.setArmedDisplayValue(newValue)
         }
-        .disabled(!session.hasLensCorrections)
-        .opacity(session.hasLensCorrections ? 1 : Self.disabledOpacity)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("editor-lens-corrections-section")
-    }
-
-    private func slider(_ sub: ToolSubParam) -> some View {
-        LivingSlider(
-            label: sub.label,
-            value: Binding(
-                get: { session.model[keyPath: sub.keyPath] },
-                set: { newValue in
-                    if state.armedTool != .lensCorrections { state.arm(tool: .lensCorrections) }
-                    if state.armedSubParamId != sub.id {
-                        state.arm(subParamId: sub.id)
-                    }
-                    state.setArmedDisplayValue(newValue)
-                }
-            ),
-            range: sub.range,
-            isBipolar: false,
-            defaultValue: sub.defaultDisplayValue,
-            onCommit: { state.commit() }
-        )
-    }
+      ),
+      range: sub.range,
+      isBipolar: false,
+      defaultValue: sub.defaultDisplayValue,
+      onEditingChanged: { editing in
+        if editing { state.commit() } else { state.endGesture() }
+      }
+    )
+  }
 }
 
 // MARK: - Preview
 
 #if DEBUG
-#Preview("LensCorrectionsSection") {
+  #Preview("LensCorrectionsSection") {
     let state = EditorState(session: EditSession.preview())
     return LensCorrectionsSection(state: state)
-        .frame(width: 320)
-        .padding()
-        .background(ProTokens.bg)
-}
+      .frame(width: 320)
+      .padding()
+      .background(ProTokens.bg)
+  }
 #endif
