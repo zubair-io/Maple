@@ -443,6 +443,8 @@ export interface ExportError {
   id: number;
   type: 'export-error';
   message: string;
+  /** A WASM trap poisons the instance; terminate its worker before another photo. */
+  fatal?: boolean;
 }
 
 /** Main-thread view of a completed export. */

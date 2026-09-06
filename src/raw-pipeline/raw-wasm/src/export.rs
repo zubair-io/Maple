@@ -11,8 +11,9 @@
 //! endpoint could not serve Hosted at all without first uploading the whole
 //! RAW.
 //!
-//! Encoding on this side of the boundary is also what keeps a 100 MP export
-//! inside a browser's means. If JS asked for pixels it would take a
+//! Encoding here keeps full-resolution output pixels off the JavaScript heap.
+//! The CPU renderer's separate wasm32 budget can still reject large exports.
+//! If JS asked for pixels a 100 MP output would take a
 //! ~300 MB (8-bit) or ~600 MB (16-bit) `ArrayBuffer` onto the JS heap and then
 //! need a second buffer for the encoded file. Instead only the compressed
 //! result crosses, and it crosses in slices: JS pulls it with [`MapleExport::chunk`]
@@ -186,6 +187,11 @@ fn export_core_with_film(
         .ok_or_else(|| format!("export_bytes: unsupported format '{format}'"))?;
 
     let raw_img = raw_core::decode::decode_bytes(raw, ext).map_err(|e| e.to_string())?;
+    crate::cpu_budget::validate_export_dimensions(
+        raw_img.width,
+        raw_img.height,
+        (max_long_edge > 0).then_some(max_long_edge),
+    )?;
 
     let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| e.to_string())?,
