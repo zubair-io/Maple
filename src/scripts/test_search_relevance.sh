@@ -23,8 +23,11 @@
 #
 # One-time setup (writes to a throwaway `maple_relevance_probe` index,
 # never the managed `assets` index):
-#   docker run -p 7700:7700 getmeili/meilisearch:v1.50.0   # matches CI + docs/operations/meilisearch.md
+#   # Native Meilisearch 1.50.0 and Ollama on the same machine:
+#   meilisearch --http-addr 127.0.0.1:7700 --experimental-allowed-ip-networks 127.0.0.1/32
 #   ollama pull bge-m3
+# Use MAPLE_OLLAMA_INTEGRATION_URL=http://127.0.0.1:11434 with that exception.
+# Container/remote address policy: docs/indexer-enrichment.md, Local embedding connectivity.
 
 set -euo pipefail
 cd "$(dirname "$0")/../api"
