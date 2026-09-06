@@ -93,7 +93,9 @@ Every platform edits the same `AdjustmentModel`. The generated TypeScript mirror
 | `tint`        | −150 … 150                   | 0       |
 | `wbMethod`    | `Cat16` \| `DiagonalRec2020` | `Cat16` |
 
-`whiteBalancePreset` is a sidecar-only marker outside the generated schema; its vocabulary (As Shot, Auto, Daylight, Cloudy, Shade, Tungsten, Fluorescent, Flash, Custom) round-trips faithfully, but no front end offers a picker — Maple itself only ever writes `As Shot` or `Custom`. Web and Apple do offer a two-dimensional WB pad that drives temperature and tint together, and an "as shot" restore.
+`whiteBalancePreset` is a sidecar-only marker outside the generated schema; its vocabulary (As Shot, Auto, Daylight, Cloudy, Shade, Tungsten, Fluorescent, Flash, Custom) round-trips faithfully, but no front end offers a picker — Maple itself only ever writes `As Shot` or `Custom`. Web offers a two-dimensional WB pad that drives temperature and tint together; both Web and Apple provide temperature/tint sliders and an "as shot" restore.
+
+Apple's Color controls include **Pick white balance** on macOS, iPadOS, and iOS. A pick resolves through the displayed zoom, pan, crop, straighten and EXIF orientation into the shared RAW neutral sampler. Local, PhotoKit and cloud RAWs use the current edit model; a successful sample writes temperature, tint, `wbSource = Sampled`, the normalized point in the uncropped display-oriented image and the algorithm version as one undoable action. Blown-out, too-dark, implausibly colored and outside-image picks explain how to retry. The provenance readout shows As Shot, Manual, Preset, Auto or Sampled; sampled values include the point and version. Manual WB edits and As Shot clear old sample provenance. Canceling, navigating away or editing during analysis prevents a late result from replacing the user's work.
 
 ### Tone
 
