@@ -1,3 +1,5 @@
+import { explainEmbeddingPolicyError } from './meilisearch-embedding-policy.ts';
+
 export interface MeilisearchFailureDetails {
   status: number | null;
   code: string | null;
@@ -35,7 +37,7 @@ function failureDetails(status: number, errorText: string | null): MeilisearchFa
     status: status > 0 ? status : null,
     code: failureField(payload, 'code', 100),
     type: failureField(payload, 'type', 100),
-    message: message || 'Meilisearch search request failed',
+    message: explainEmbeddingPolicyError(message || 'Meilisearch search request failed'),
   };
 }
 

@@ -1,3 +1,5 @@
+import { explainEmbeddingPolicyError } from './meilisearch-embedding-policy.ts';
+
 export interface MeilisearchTransportConfig {
   url: string | undefined;
   apiKey: string | undefined;
@@ -111,7 +113,7 @@ export async function meilisearchHttp<T>(
 
 function taskFailure(task: MeilisearchTask): string {
   const detail = task.error === undefined ? '' : ` ${JSON.stringify(task.error)}`;
-  return `meilisearch task ${task.uid} ${task.status}${detail}`;
+  return explainEmbeddingPolicyError(`meilisearch task ${task.uid} ${task.status}${detail}`);
 }
 
 function acceptedTaskUid(
