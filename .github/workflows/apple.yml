@@ -219,9 +219,10 @@ jobs:
             CanvasMathTests GpuPrescaledExtentTests GpuReadbackFreshnessTests GpuExitPreviewCacheTests
             GpuPresentationOutcomeTests GpuSessionReplacementTests)
           FILTER="MapleCoreTests\.($(IFS='|'; echo "${classes[*]}"))/"
+          test_status=0
           swift test --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" \
             --configuration release -Xswiftc -enable-testing --no-parallel --filter "$FILTER" \
-            2>&1 | tee "$MAPLE_SWIFT_TEST_ROOT/tests.log"
+            2>&1 | tee "$MAPLE_SWIFT_TEST_ROOT/tests.log" || test_status=$?
           # Serial SwiftPM does not emit XCTest xUnit (only Swift Testing).
           # Validate actual XCTest records, then derive the artifact from them.
           python3 - "$MAPLE_SWIFT_TEST_ROOT" "${classes[@]}" <<'PYCODE'
@@ -241,16 +242,28 @@ jobs:
                    and all(status == 'passed' for _, _, status, _ in results)
                    and "Test Suite 'Selected tests' passed" in log
                    and summaries and tuple(map(int, summaries[-1])) == (len(results), 0, 0))
-          if not valid:
-              raise SystemExit(f'Incomplete regression gate: {len(results)} cases; classes={sorted(actual)}; summary={summaries[-1:]}; see tests.log')
-          suite = ET.Element('testsuite', name='MapleCore serial XCTest', tests=str(len(results)), failures='0', skipped='0')
+          failure_message = f'Incomplete regression gate: {len(results)} cases; classes={sorted(actual)}; summary={summaries[-1:]}; see tests.log'
+          suite = ET.Element('testsuite', name='MapleCore serial XCTest',
+                             tests=str(len(results) + (not valid)),
+                             failures=str(sum(status == 'failed' for _, _, status, _ in results) + (not valid)),
+                             skipped=str(sum(status == 'skipped' for _, _, status, _ in results)))
           properties = ET.SubElement(suite, 'properties')
-          ET.SubElement(properties, 'property', name='source', value='Validated serial XCTest records in tests.log')
-          for cls, name, _, duration in results:
-              ET.SubElement(suite, 'testcase', classname=f'MapleCoreTests.{cls}', name=name, time=duration)
+          ET.SubElement(properties, 'property', name='source', value='Serial XCTest records in tests.log')
+          for cls, name, status, duration in results:
+              case = ET.SubElement(suite, 'testcase', classname=f'MapleCoreTests.{cls}', name=name, time=duration or '0')
+              if status == 'failed':
+                  ET.SubElement(case, 'failure', message='XCTest failed; see tests.log')
+              elif status == 'skipped':
+                  ET.SubElement(case, 'skipped')
+          if not valid:
+              case = ET.SubElement(suite, 'testcase', classname='RegressionGate', name='complete_execution')
+              ET.SubElement(case, 'failure', message=failure_message)
           ET.ElementTree(suite).write(root / 'results.xml', encoding='utf-8', xml_declaration=True)
+          if not valid:
+              raise SystemExit(failure_message)
           print(f'Passed {len(results)} regression cases; no failures or skips')
           PYCODE
+          exit "$test_status"
       - name: Upload regression results
         if: always()
         uses: actions/upload-artifact@v4

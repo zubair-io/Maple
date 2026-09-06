@@ -35,11 +35,11 @@ extension AppShell {
     browseVM.loadSingleAsset(url: url, scopeParentURL: url)
     guard let asset = browseVM.assets.first else {
       docOpenShellLog.error(
-        "document open \(url.lastPathComponent, privacy: .public) — no asset after load")
+        "document open \(url.lastPathComponent, privacy: .private) — no asset after load")
       return
     }
     docOpenShellLog.notice(
-      "document open \(url.lastPathComponent, privacy: .public) — opening editor")
+      "document open \(url.lastPathComponent, privacy: .private) — opening editor")
     openEditor(for: asset)
   }
 }
