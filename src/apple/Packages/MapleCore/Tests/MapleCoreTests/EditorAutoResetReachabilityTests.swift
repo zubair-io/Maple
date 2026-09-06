@@ -31,6 +31,7 @@ final class EditorAutoResetReachabilityTests: XCTestCase {
     XCTAssertTrue(auto.text.contains("\"Auto adjust\""))
     XCTAssertTrue(auto.text.contains("\"editor-auto\""))
     XCTAssertTrue(auto.text.contains("state.autoInProgress"))
+    XCTAssertFalse(auto.text.contains("primaryURL"), "PhotoKit/cloud RAWs must keep AUTO reachable")
     XCTAssertFalse(auto.text.contains("#if os("), "AUTO must be available on every Apple editor")
   }
 
