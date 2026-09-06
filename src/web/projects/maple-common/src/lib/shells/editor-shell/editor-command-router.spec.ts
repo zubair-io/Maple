@@ -105,6 +105,17 @@ describe('focusContextOf', () => {
     expect(resolveKeydown(asShell(shell), e)).toBeNull();
   });
 
+  it('lets native selects own arrows, Escape and typeahead without editor commands', () => {
+    const select = document.createElement('select');
+    const shell = makeShell();
+    expect(focusContextOf(select, false)).toBe('text');
+    for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Escape', 'b', '1']) {
+      const event = new KeyboardEvent('keydown', { key });
+      Object.defineProperty(event, 'target', { value: select });
+      expect(resolveKeydown(asShell(shell), event)).toBeNull();
+    }
+  });
+
   it("treats the command menu's own search box as the menu, not a text field", () => {
     const menu = document.createElement('mui-command-menu');
     const search = document.createElement('input');

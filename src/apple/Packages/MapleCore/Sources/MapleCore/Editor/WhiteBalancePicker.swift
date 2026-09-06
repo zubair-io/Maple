@@ -65,6 +65,7 @@ public final class WhiteBalancePicker {
       sampled.temperature = result.temperature
       sampled.tint = result.tint
       sampled.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
+      sampled.whiteBalancePreset = .custom
       sampled.wbSource = .sampled
       sampled.wbSampleX = point.x
       sampled.wbSampleY = point.y
@@ -90,6 +91,7 @@ public final class WhiteBalancePicker {
     model.temperature = temperature
     model.tint = tint
     model.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
+    model.whiteBalancePreset = .asShot
     model.wbSource = .asShot
     model.wbSampleX = 0
     model.wbSampleY = 0
@@ -105,7 +107,9 @@ public final class WhiteBalancePicker {
     switch model.wbSource {
     case .asShot: return "White balance: As Shot"
     case .manual: return "White balance: Manual"
-    case .preset: return "White balance: Preset"
+    case .preset:
+      return
+        "White balance: \(model.whiteBalancePreset == .custom ? "Preset" : model.whiteBalancePreset.rawValue)"
     case .auto:
       return model.wbAlgorithmVersion > 0
         ? "White balance: Auto · version \(model.wbAlgorithmVersion.formatted(.number.precision(.fractionLength(0))))"
