@@ -241,7 +241,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         raw.as_shot_neutral
     };
     stage("highlight_recovery", || {
-        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
+        highlight_recovery::apply(
+            &mut camera_rgb,
+            model.highlight_recovery,
+            hr_neutral,
+            raw.baseline_exposure,
+        )
     });
     dump_after("02_highlight_recovery", &camera_rgb);
     let (profile, profile_source) =
