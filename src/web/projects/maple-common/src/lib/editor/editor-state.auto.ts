@@ -64,7 +64,8 @@ export async function applyAutoInto(
     const result = await editor.pipeline.computeAutoAdjustments(bytes, ext);
     if (!stillCurrent()) return false;
     return commitRecommendation(editor, id, before, result, whiteBalanceOnly);
-  } catch {
+  } catch (error) {
+    console.warn('[editor] Auto analysis failed:', error);
     if (stillCurrent()) editor.autoResult.set('Auto could not be applied');
     return false;
   } finally {
