@@ -140,7 +140,11 @@ struct LensCorrectionsSection: View {
       isBipolar: false,
       defaultValue: sub.defaultDisplayValue,
       onEditingChanged: { editing in
-        if editing { state.commit() } else { state.endGesture() }
+        if editing {
+          state.beginSliderInteraction(tool: .lensCorrections, subParamID: sub.id)
+        } else {
+          state.endGesture()
+        }
       }
     )
   }

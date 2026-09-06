@@ -4,12 +4,8 @@
 // navigation, commit-on-navigate) and the scopes. Assembled into the full
 // manifest by `editor-parity-manifest.ts`.
 //
-// This is where the two-directional gap the milestone 18 spec (§2.2 / §2.3)
-// records lives as data: scroll-wheel nudge is Apple-only, keyboard nudge /
-// zoom / undo shortcuts are web-only, momentary before/after and the
-// non-histogram scopes exist on neither. Each carries the ticket that
-// closes it, and the checker fails once a side is flipped to `released`
-// without the exception being removed.
+// The Apple and web command routers share the input contract. Remaining
+// asymmetric capabilities carry their own tracked exceptions.
 
 import type { ParityCapability, ParityException } from './editor-parity-types';
 
@@ -23,20 +19,6 @@ const NONE = {
 const EDIT = { undo: true, copyPaste: null, history: true, preview: 'live', export: true } as const;
 const BOTH = { apple: 'released', web: 'released' } as const;
 const SAME = (text: string) => ({ compact: text, regular: text, wide: text });
-
-const APPLE_ROUTER: ParityException = {
-  platform: 'apple',
-  rationale:
-    'Apple has no editor command router yet: neither slider primitive takes keyboard nudge, and the zoom / undo / reset shortcuts are unwired (design spec §2.2–2.3).',
-  ticket: '#3250',
-};
-
-const APPLE_SLIDER_SPLIT: ParityException = {
-  platform: 'apple',
-  rationale:
-    'Only the legacy DragBar.swift (IPhoneLegacyControlBar / ControlCard) has it; LivingSlider.swift, which both current control variants use, does not.',
-  ticket: '#3250',
-};
 
 const INPUT: readonly ParityCapability[] = [
   {
@@ -69,13 +51,13 @@ const INPUT: readonly ParityCapability[] = [
     name: 'Slider: keyboard arrow nudge',
     group: 'input',
     order: 20,
-    reachability: { apple: 'absent', web: 'released' },
+    reachability: BOTH,
     presentation: SAME(
       'No chrome; the focused slider / drag bar moves by one step per arrow press',
     ),
     interaction: {
       keyboard:
-        'Arrow ±step, Home / End on the focused slider; Shift+←/→ ±10 internal on the armed tool',
+        'Arrow / Shift+Arrow ±step on the focused slider; Home / End on Apple; Shift+←/→ ±10 internal on the armed tool outside a slider',
       pointer: 'n/a',
       touch: 'n/a',
       focus:
@@ -89,7 +71,7 @@ const INPUT: readonly ParityCapability[] = [
       actions: ['increment', 'decrement', 'jump to min / max'],
     },
     participation: EDIT,
-    exception: APPLE_ROUTER,
+    exception: null,
   },
   {
     id: 'input.slider-wheel-nudge',
@@ -120,7 +102,7 @@ const INPUT: readonly ParityCapability[] = [
     name: 'Slider: long-press fine mode',
     group: 'input',
     order: 40,
-    reachability: { apple: 'partial', web: 'released' },
+    reachability: BOTH,
     presentation: SAME(
       'Drag bar marker: long-press engages 0.25× sensitivity for the next drag, with a haptic',
     ),
@@ -138,14 +120,14 @@ const INPUT: readonly ParityCapability[] = [
       actions: ['fine adjust'],
     },
     participation: EDIT,
-    exception: APPLE_SLIDER_SPLIT,
+    exception: null,
   },
   {
     id: 'input.slider-double-tap-reset',
     name: 'Slider: double-tap / double-click reset',
     group: 'input',
     order: 50,
-    reachability: { apple: 'partial', web: 'released' },
+    reachability: BOTH,
     presentation: SAME('No chrome; double-click a slider or drag bar'),
     interaction: {
       keyboard: 'n/a (the control card header button resets the group)',
@@ -162,7 +144,7 @@ const INPUT: readonly ParityCapability[] = [
       actions: ['reset'],
     },
     participation: EDIT,
-    exception: APPLE_SLIDER_SPLIT,
+    exception: null,
   },
   {
     id: 'input.canvas-scrub',
@@ -203,7 +185,7 @@ const CANVAS: readonly ParityCapability[] = [
       'Full-bleed canvas; pixelScale 0 = fit, 1 = true 100%, cap 8; snap-to-fit below fit × 1.02',
     ),
     interaction: {
-      keyboard: 'Web: F fit, Z 100%, ⌘0 fit, ⌘1 100%, ⌘= / ⌘- step',
+      keyboard: 'F fit, Z 100%, ⌘0 fit, ⌘1 100%, ⌘= / ⌘- step',
       pointer:
         'Cmd/Ctrl+wheel or trackpad pinch zooms at the cursor; double-click toggles fit ↔ 100%; drag pans when zoomed',
       touch: 'Two-finger pinch at the centroid; one-finger drag pans when zoomed',
@@ -224,7 +206,7 @@ const CANVAS: readonly ParityCapability[] = [
     name: 'Zoom: keyboard shortcuts',
     group: 'canvas',
     order: 20,
-    reachability: { apple: 'absent', web: 'released' },
+    reachability: BOTH,
     presentation: SAME('No chrome; documented in the toolbar tooltips'),
     interaction: {
       keyboard:
@@ -241,33 +223,29 @@ const CANVAS: readonly ParityCapability[] = [
       actions: ['fit', '100%'],
     },
     participation: NONE,
-    exception: {
-      ...APPLE_ROUTER,
-      rationale:
-        'CanvasZoomController.swift documents ⌘0 / ⌘1 / ⌘= / ⌘- in comments; nothing calls them.',
-    },
+    exception: null,
   },
   {
     id: 'canvas.before-after-latched',
-    name: 'Before / after: latched split',
+    name: 'Before / after: latched comparison',
     group: 'canvas',
     order: 30,
     reachability: BOTH,
     presentation: SAME(
-      'Top-bar toggle; a draggable divider splits the canvas, zoom and pan preserved across the toggle',
+      'Top-bar toggle; Apple shows the whole opening render, web uses a draggable split; zoom and pan are preserved',
     ),
     interaction: {
       keyboard: '\\ or B toggles',
-      pointer: 'Click the toggle; drag the divider handle',
-      touch: 'Tap; drag the handle',
+      pointer: 'Click the toggle; web also supports dragging the divider handle',
+      touch: 'Tap; web also supports dragging the handle',
       focus: 'Ordinary button (aria-pressed)',
     },
     accessibility: {
       role: 'button',
       name: 'Toggle before/after',
       value: 'none',
-      state: 'aria-pressed while split',
-      actions: ['toggle', 'move the divider'],
+      state: 'Original / Edited accessibility value on Apple; aria-pressed while split on web',
+      actions: ['toggle', 'move the divider (web)'],
     },
     participation: NONE,
     exception: null,
@@ -278,12 +256,13 @@ const CANVAS: readonly ParityCapability[] = [
     name: 'Before / after: momentary (press-and-hold)',
     group: 'canvas',
     order: 40,
-    reachability: { apple: 'absent', web: 'released' },
+    reachability: BOTH,
     presentation: SAME(
-      'Web: the same before/after button and the \\ / B keys — a tap toggles the latched split, a hold (≥300ms) shows the whole frame as "before" until release; zoom and pan untouched',
+      'The same before/after button and the \\ / B keys — a tap toggles the latched comparison, a hold (≥300ms) shows the whole frame as "before" until release; zoom and pan untouched',
     ),
     interaction: {
-      keyboard: 'Hold \\ or B to peek, release to restore (a short tap toggles the latched split)',
+      keyboard:
+        'Hold \\ or B to peek, release to restore (a short tap toggles the latched comparison)',
       pointer:
         'Press-and-hold the toggle (pointer captured; a drag-off release still ends the peek)',
       touch: 'Press-and-hold',
@@ -297,12 +276,7 @@ const CANVAS: readonly ParityCapability[] = [
       actions: ['peek at before'],
     },
     participation: NONE,
-    exception: {
-      platform: 'apple',
-      rationale:
-        'Web ships the press/release peek through its command router (#2450); Apple builds the same contract in its router (#3250).',
-      ticket: '#3250',
-    },
+    exception: null,
   },
   {
     id: 'canvas.deep-zoom-tiles',
