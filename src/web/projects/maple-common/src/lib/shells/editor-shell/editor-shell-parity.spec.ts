@@ -18,7 +18,7 @@
 // Full template render, following the stubbing pattern shared by
 // editor-shell-crop.spec.ts / editor-shell-presets.spec.ts / editor-shell-hsl.spec.ts.
 
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -80,7 +80,7 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
     return models.get(id)!;
   }
 
-  function setup(): void {
+  async function setup(): Promise<void> {
     vi.useFakeTimers();
     stubGlobals();
 
@@ -123,6 +123,8 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
 
     TestBed.configureTestingModule({
       imports: [EditorShellComponent],
+      // Shell assertions keep real card routing; deferred child UIs have their own specs.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -156,6 +158,8 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       ],
     });
 
+    // JIT resolves deferred metadata asynchronously even in Manual mode.
+    await TestBed.compileComponents();
     TestBed.inject(ImageCanvasService);
     TestBed.inject(EditorStateService).bind(ASSET_ID);
     TestBed.inject(CropSessionService);
@@ -290,9 +294,9 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
   // ── Info button + sheet/pane ──────────────────────────────────────────
 
   describe('Info button', () => {
-    it('opens InfoPanelComponent as a right-side pane on tablet/desktop', () => {
+    it('opens InfoPanelComponent as a right-side pane on tablet/desktop', async () => {
       setWindowWidth(1024);
-      setup();
+      await setup();
 
       expect(fixture.nativeElement.querySelector('.info-pane')).toBeNull();
 
@@ -320,9 +324,9 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       expect(fixture.nativeElement.querySelector('.info-pane')).toBeNull();
     });
 
-    it('opens InfoPanelComponent inside a bottom sheet on phone', () => {
+    it('opens InfoPanelComponent inside a bottom sheet on phone', async () => {
       setWindowWidth(500);
-      setup();
+      await setup();
 
       infoButton().click();
       fixture.detectChanges();
@@ -334,9 +338,9 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       expect(panelDebugEl.componentInstance.allowServerHistogramFallback()).toBe(false);
     });
 
-    it('toggles closed on a second click', () => {
+    it('toggles closed on a second click', async () => {
       setWindowWidth(1024);
-      setup();
+      await setup();
 
       infoButton().click();
       fixture.detectChanges();

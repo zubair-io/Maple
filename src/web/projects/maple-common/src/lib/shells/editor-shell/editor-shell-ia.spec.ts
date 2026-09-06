@@ -13,7 +13,7 @@
 //
 // Boilerplate follows editor-shell-subtool-row.spec.ts's full-render harness.
 
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -97,7 +97,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
     return { id, filename, width: 6240, height: 4160 } as Asset;
   }
 
-  function setup(width: number): void {
+  async function setup(width: number): Promise<void> {
     stubGlobals();
     setWindowWidth(width);
 
@@ -139,6 +139,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
 
     TestBed.configureTestingModule({
       imports: [EditorShellComponent],
+      // Shell assertions keep real card routing; deferred child UIs have their own specs.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -168,6 +170,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       ],
     });
 
+    // JIT resolves deferred metadata asynchronously even in Manual mode.
+    await TestBed.compileComponents();
     TestBed.inject(ImageCanvasService);
     TestBed.inject(EditorStateService).bind(ASSET_A);
     TestBed.inject(CropSessionService);
@@ -197,8 +201,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
   }
 
   describe('stable regions', () => {
-    it('desktop exposes every primary region in task order, plus the filmstrip', () => {
-      setup(1440);
+    it('desktop exposes every primary region in task order, plus the filmstrip', async () => {
+      await setup(1440);
       const found = regions();
       expect(found.filter((r) => TOP_BAR_REGIONS.includes(r))).toEqual(TOP_BAR_REGIONS);
       expect(found.filter((r) => TOOL_REGIONS.includes(r))).toEqual(['tools', 'tool-controls']);
@@ -211,8 +215,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(fixture.nativeElement.querySelector('nav[aria-label="Editor tools"]')).not.toBeNull();
     });
 
-    it('phone exposes the same regions in the same order, with the bottom dock and no filmstrip', () => {
-      setup(390);
+    it('phone exposes the same regions in the same order, with the bottom dock and no filmstrip', async () => {
+      await setup(390);
       const found = regions();
       expect(found.filter((r) => TOP_BAR_REGIONS.includes(r))).toEqual(TOP_BAR_REGIONS);
       // Card above the dock on phone — DOM order matches the visible order.
@@ -224,16 +228,16 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(landmark('Tool controls')).not.toBeNull();
     });
 
-    it('the inspector is a docked pane named Info on desktop', () => {
-      setup(1440);
+    it('the inspector is a docked pane named Info on desktop', async () => {
+      await setup(1440);
       byTestId('editor-shell-info')!.click();
       fixture.detectChanges();
       expect(landmark('Info')).not.toBeNull();
       expect(regions()).toContain('inspector');
     });
 
-    it('the inspector is a sheet in the same region on phone', () => {
-      setup(390);
+    it('the inspector is a sheet in the same region on phone', async () => {
+      await setup(390);
       byTestId('editor-shell-info')!.click();
       fixture.detectChanges();
       expect(
@@ -243,8 +247,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
   });
 
   describe('scopes panel', () => {
-    it('opens from the top-bar toggle on desktop, hides the control card, and is exclusive with Curve', () => {
-      setup(1440);
+    it('opens from the top-bar toggle on desktop, hides the control card, and is exclusive with Curve', async () => {
+      await setup(1440);
       const toggle = byTestId('editor-shell-scopes') as HTMLButtonElement;
       expect(toggle.getAttribute('aria-pressed')).toBe('false');
 
@@ -263,8 +267,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(byTestId('editor-shell-scopes-panel')).toBeNull();
     });
 
-    it('opens as a flyout on phone and closes when Crop takes the anchor', () => {
-      setup(390);
+    it('opens as a flyout on phone and closes when Crop takes the anchor', async () => {
+      await setup(390);
       byTestId('editor-shell-scopes')!.click();
       fixture.detectChanges();
       expect(byTestId('editor-shell-scopes-panel')).not.toBeNull();
@@ -279,8 +283,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(fixture.componentInstance.scopesOpen()).toBe(false);
     });
 
-    it('stays closed while the Noise sub-param panel owns the anchor', () => {
-      setup(1440);
+    it('stays closed while the Noise sub-param panel owns the anchor', async () => {
+      await setup(1440);
       fixture.componentInstance.onToolChange('noise');
       fixture.detectChanges();
       expect(landmark('Noise')).not.toBeNull();
@@ -292,8 +296,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(fixture.componentInstance.curveOpen()).toBe(false);
     });
 
-    it('reports the no-frame state instead of mounting the organism without pixels', () => {
-      setup(1440);
+    it('reports the no-frame state instead of mounting the organism without pixels', async () => {
+      await setup(1440);
       byTestId('editor-shell-scopes')!.click();
       fixture.detectChanges();
       const panel = byTestId('editor-shell-scopes-panel')!;
@@ -303,8 +307,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
   });
 
   describe('live breakpoint change', () => {
-    it('preserves the asset, edit history, armed tool, zoom/pan and a parked value across phone ↔ desktop', () => {
-      setup(1440);
+    it('preserves the asset, edit history, armed tool, zoom/pan and a parked value across phone ↔ desktop', async () => {
+      await setup(1440);
       const editorState = TestBed.inject(EditorStateService);
       const canvasSvc = TestBed.inject(ImageCanvasService);
 
@@ -353,8 +357,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       expect(modelFor(ASSET_A)().deepDenoise).toBe(30);
     });
 
-    it('keeps an open scopes panel open across a resize', () => {
-      setup(1440);
+    it('keeps an open scopes panel open across a resize', async () => {
+      await setup(1440);
       byTestId('editor-shell-scopes')!.click();
       fixture.detectChanges();
       resizeTo(390);

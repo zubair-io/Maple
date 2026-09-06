@@ -28,7 +28,7 @@
 // Boilerplate follows editor-shell-hsl.spec.ts / editor-shell-auto-reset
 // .spec.ts's `setWindowWidth` pattern for the phone-breakpoint cases.
 
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -84,7 +84,7 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
     return models.get(id)!;
   }
 
-  function setup(width: number): void {
+  async function setup(width: number): Promise<void> {
     stubGlobals();
     setWindowWidth(width);
 
@@ -124,6 +124,8 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
 
     TestBed.configureTestingModule({
       imports: [EditorShellComponent],
+      // Shell assertions keep real card routing; deferred child UIs have their own specs.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -153,6 +155,8 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
       ],
     });
 
+    // JIT resolves deferred metadata asynchronously even in Manual mode.
+    await TestBed.compileComponents();
     TestBed.inject(ImageCanvasService);
     TestBed.inject(EditorStateService).bind(ASSET_ID);
     TestBed.inject(CropSessionService);
