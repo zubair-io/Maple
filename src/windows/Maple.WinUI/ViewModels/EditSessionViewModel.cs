@@ -475,48 +475,6 @@ namespace Maple.WinUI.ViewModels
                 ScheduleSidecarWrite();
         }
 
-        // --- Export (JPEG via the Rust develop chain, Amaze quality) ---
-
-        /// <summary>Develop + encode a deliverable via the canonical exporter
-        /// (#2584): format "jpeg" | "tiff" | "png", colorSpace "srgb" |
-        /// "display-p3", maxLongEdge 0 = native resolution.</summary>
-        public Task<(bool ok, string? error)> ExportAsync(
-            PhotoItem photo, string outPath, string format, byte quality,
-            string colorSpace, uint maxLongEdge)
-        {
-            FlushSidecarNow();
-            return Task.Run(() =>
-            {
-                // Cloud assets have no local sidecar — develop from the session
-                // document serialized to a temp file (the original is the
-                // downloaded cache copy via EditPath).
-                string? tempXmp = null;
-                if (photo.IsCloud)
-                {
-                    if (photo.LocalCachePath == null)
-                        return (false, (string?)"Open the photo in Edit once so the original downloads.");
-                    tempXmp = System.IO.Path.Combine(
-                        System.IO.Path.GetTempPath(), $"maple-export-{Guid.NewGuid():N}.xmp");
-                    System.IO.File.WriteAllText(tempXmp, XmpWriter.Serialize(
-                        new XmpSidecarDocument { Adjustments = Adjustments.Clone() }));
-                }
-                try
-                {
-                    var rc = RawFfi.maple_export_developed_to_file(
-                        photo.EditPath, tempXmp ?? ExistingSidecar(photo.FilePath),
-                        format, quality, colorSpace, maxLongEdge, outPath);
-                    return rc == 0
-                        ? (true, (string?)null)
-                        : (false, RawFfi.LastError() ?? $"export failed (rc={rc})");
-                }
-                finally
-                {
-                    if (tempXmp != null)
-                        try { System.IO.File.Delete(tempXmp); } catch { /* best effort */ }
-                }
-            });
-        }
-
         private static string? ExistingSidecar(string rawPath)
         {
             var path = SidecarStore.SidecarPathFor(rawPath);

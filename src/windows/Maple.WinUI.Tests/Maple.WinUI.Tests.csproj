@@ -229,6 +229,8 @@
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
+    <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
+    <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Models\LocalAdjustment.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
