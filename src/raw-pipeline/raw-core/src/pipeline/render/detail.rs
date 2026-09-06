@@ -60,6 +60,15 @@ pub fn render_detail_tile(
     max_working_pixels: u64,
 ) -> Result<(u32, u32, Vec<u8>)> {
     let (native_w, native_h) = super::native_render_dims(raw);
+    if crate::stages::geometry::Geometry::from(&context.model)
+        != crate::stages::geometry::Geometry::default()
+        || (!context.model.lens_profile.is_empty()
+            && crate::lens_profile::corrections_enabled(&context.model))
+    {
+        return Err(Error::Pipeline(
+            "native detail does not support a transformed canvas".into(),
+        ));
+    }
     if !context.model.crop.is_identity() {
         return Err(Error::Pipeline(
             "native detail requires an uncropped canvas".into(),
