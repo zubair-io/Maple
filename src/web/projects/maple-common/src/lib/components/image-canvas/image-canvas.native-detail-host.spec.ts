@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createNativeDetail } from './image-canvas.native-detail-host';
+import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
 import type { ImageCanvasComponent } from './image-canvas.component';
 
 function setup() {
@@ -23,6 +23,7 @@ function setup() {
     state: { focusedAsset: () => ({ id: 'one' }), adjustmentFor: () => () => ({ crop }) },
     canvasSvc: {
       nativeDimensions: () => ({ w: 6000, h: 4000 }),
+      paintedAspect: () => ({ w: 800, h: 533 }),
       pixelScale: () => scale,
       beforeAfterSplitX: () => split,
     },
@@ -50,6 +51,20 @@ function setup() {
 }
 
 describe('native-detail host eligibility', () => {
+  it('uses oriented native dimensions at 100% instead of the sized bitmap extent', () => {
+    const { host } = setup();
+    expect(canvasDisplayDims(host as unknown as ImageCanvasComponent)).toEqual({
+      w: 6000,
+      h: 4000,
+    });
+  });
+
+  it('keeps the rendered aspect for an applied crop', () => {
+    const { host, crop } = setup();
+    crop.right = 0.6;
+    expect(canvasDisplayDims(host as unknown as ImageCanvasComponent)).toEqual({ w: 800, h: 533 });
+  });
+
   it('requests source pixels at true 100% on the CPU RAW canvas', async () => {
     const s = setup();
     await s.detail.render('xmp', 1);

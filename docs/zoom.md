@@ -1,6 +1,6 @@
 # Zoom and tile rendering
 
-Maple's canvas has one zoom number — `pixelScale`, real screen pixels per image pixel — shared by the Apple and Web editors. `0` means fit-to-viewport, `1.0` means pixel-perfect 100% (one image pixel on one _device_ pixel, so 100% is genuinely 1:1 on a Retina display), and the cap is `8.0`. Everything downstream is a consequence of that number: at fit, both platforms render the whole image at viewport resolution and nothing more; zoomed in past 100%, rendering a full 100 MP frame would be wasteful and, on iOS, fatal, so Apple switches to developing **only the visible rectangle of source pixels** through a dedicated tile entry point in the Rust core. The Rust tile path pads the requested rectangle so filters that read neighbouring pixels still see context, then trims the pad away — the pad grows per render to the reach of the spatial stages the model engages, frame-anchored point ops are told where the tile sits, and the few stages that need a whole-frame product (dehaze, BM3D deep denoise) or an opcode mapping are _refused_ so the caller falls back to a bounded whole-image render. Web has no tile adoption: it uses the same zoom model and the same two-phase scheduler, but every phase is a whole-image sized render.
+Maple's canvas has one zoom number — `pixelScale`, real screen pixels per image pixel — shared by the Apple and Web editors. `0` means fit-to-viewport, `1.0` means pixel-perfect 100% (one image pixel on one _device_ pixel, so 100% is genuinely 1:1 on a Retina display), and the cap is `8.0`. Everything downstream is a consequence of that number: at fit, both platforms render the whole image at viewport resolution and nothing more; zoomed in past 100%, rendering a full 100 MP frame would be wasteful and, on iOS, fatal, so Apple switches to developing **only the visible rectangle of source pixels** through a dedicated tile entry point in the Rust core. The Rust tile path pads the requested rectangle so filters that read neighbouring pixels still see context, then trims the pad away — the pad grows per render to the reach of the spatial stages the model engages, frame-anchored point ops are told where the tile sits, and the few stages that need a whole-frame product (dehaze, BM3D deep denoise) or an opcode mapping are _refused_ so the caller falls back to a bounded whole-image render. Web CPU fallback uses the same single visible-patch approach at 100% and above; its sized whole-image preview remains underneath while native refinement runs.
 
 There are two distinct tile consumers on Apple, and only one of them is live. `NativeDetailRenderer` (on) develops a single viewport-sized patch and paints it as an overlay above the base preview. `TileManager` (off, behind `EditSession.deepZoomEnabled = false`) is the older 512²-grid compositor.
 
@@ -161,11 +161,66 @@ The handle retains the decoded mosaic across pans. On the first patch for a comp
 
 Patch coordinates are display-oriented and relative to DNG DefaultCrop, matching the zoom service's native dimensions. The binding translates them to the shared tile core's oriented full-sensor coordinates, then runs the common display tail. The overlay uses the base canvas's pan/zoom transform, with the sized image always beneath it.
 
-The patch's padded develop is capped at 8,388,608 pixels. The reference render also obeys the existing WASM CPU develop cap for sensors above 32 MP. A new base decode, asset change, or canvas destruction releases the retained handle before another mosaic opens. Refine work has one in-flight request and one latest waiting view; synchronous WASM work finishes, but a superseded result is discarded.
+The patch's padded develop is capped at 8,388,608 pixels. This is a working-pixel limit, not a byte limit: the retained RAW, source bytes, reference render, and multiple intermediate RGB buffers also consume memory. After the large-radius stages finish, the core trims their consumed overlap before the sharpening/noise-reduction tail, retaining the exact remaining stencil reach. The reference render also obeys the existing WASM CPU develop cap for sensors above 32 MP. A new base decode, asset change, or canvas destruction releases the retained handle before another mosaic opens. Refine work has one in-flight request and one latest waiting view; synchronous WASM work finishes, but a superseded result is discarded.
 
 GPU live rendering continues to skip CPU refinement. Non-RAW images, applied crops, the active crop tool, before/after comparison, X-Trans, LinearRaw, dehaze, BM3D, OpcodeList3, and patches exceeding the memory cap use the existing sized-render fallback. The native-detail path does not enable the old grid compositor. See [web](web.md) for the render worker and WASM/WebGPU details.
 
 ## Tools and tests
+
+The Web native-detail browser check uses real production WASM and canvas pixels,
+with WebGPU disabled to select the CPU fallback. Generate a small Bayer fixture,
+build/sync WASM and the Hosted production app, then serve it with the existing
+COOP/COEP server:
+
+```bash
+cd src/raw-pipeline
+cargo run --release -p raw-core --features test-support --example gen-synthetic-dng -- \
+  --width 2048 --height 1366 --out /tmp/native-detail-ui.dng
+cd ../web
+DIST="$PWD/dist/maple-syrup/browser" PORT=4417 bun scripts/serve-dist-coep.mjs
+# In another terminal, from src/web:
+node scripts/check-native-detail-browser.mjs http://127.0.0.1:4417 /tmp/native-detail-ui.dng
+```
+
+It checks actual 1:1 patch placement, a new pan rectangle without retransferring
+the RAW, immediate base painting before async refinement, retained-handle close,
+and an actual old worker result arriving after a photo switch without painting
+on the new photo. The output reports base-paint and refinement times separately.
+
+For a repeatable native stage profile, generate the default 12288×8192 fixture
+with the same generator (omit `--width`/`--height`), then run:
+
+```bash
+MAPLE_PROFILE=1 RAYON_NUM_THREADS=8 cargo run --release -p raw-core \
+  --example native-detail-profile -- /tmp/native-detail-100mp.dng
+```
+
+### Synthetic Web qualification, 2026-09-06
+
+Windows, Chrome 152, eight real Rayon workers, canonical release WASM, generated
+12288×8192 Bayer DNG without embedded JPEG or OpcodeList3. Model: exposure +0.4,
+contrast +15, highlights −20, shadows +20, clarity +10, texture +5, remaining
+defaults. The reference cap was 1600 px; native patches were 1600×1040, panned
+400 source pixels each time.
+
+| Actual WASM session operation                    | Measured time        |
+| ------------------------------------------------ | -------------------- |
+| Cold retained-handle open (bytes already loaded) | 1.55 s               |
+| First patch, including reference anchors         | 16.34 s              |
+| Three subsequent pans                            | 7.57 / 7.36 / 8.13 s |
+| Reject oversized 3000×3000 patch                 | 1.38 ms              |
+| Reopen after disposal                            | 0.41 s               |
+
+All overlapping patch pixels were identical (maximum 0 code values). The
+production Chromium heap guard reserved 3712 MiB before thread startup; the
+WASM heap stayed at 3,892,772,864 bytes throughout the run and a second
+open/render/dispose cycle, with freed handles and zero heap growth. That is
+reserved heap capacity, not a measurement of live allocations or browser RSS.
+
+This generated image exercises memory, geometry, and filter overlap. It cannot
+qualify real-camera color or an embedded-JPEG Auto fit. Background native
+refinement remains seconds long on this machine; these measurements do not
+establish the 16 ms slider target or real-camera reference-scene performance.
 
 Render one tile to a viewable PNG, without any UI, to sanity-check the tile math:
 

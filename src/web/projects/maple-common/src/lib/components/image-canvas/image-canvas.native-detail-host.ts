@@ -2,6 +2,15 @@ import type { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { isNonRawExtension } from '../../state/raw-extensions';
 import { isIdentityCrop } from '../../models/adjustment-model';
+import { displayDims } from './image-canvas.crop';
+
+/** A sized bitmap preserves aspect, but 100% zoom needs the source extent. */
+export function canvasDisplayDims(host: ImageCanvasComponent) {
+  const asset = host.state.focusedAsset();
+  const native = host.canvasSvc.nativeDimensions();
+  if (native && asset && isIdentityCrop(host.state.adjustmentFor(asset.id)().crop)) return native;
+  return displayDims(host.canvasSvc.paintedAspect(), asset?.width, asset?.height);
+}
 
 /** The component owns signals; the patch controller owns retained resources. */
 export function createNativeDetail(

@@ -102,19 +102,20 @@ pub fn render_detail_tile(
         src_y: rect.src_y + display_y,
         ..rect
     };
-    let working = super::super::tile::tile_working_pixels(
-        raw,
-        &context.active_model,
-        absolute,
-        RenderQuality::Amaze,
-    )?;
+    // The reference keeps its actual (often Preview) quality for global
+    // anchors. A native patch must demosaic every source pixel: Preview bins
+    // 2x2 and would merely enlarge half-resolution detail. Budget and develop
+    // therefore both use Amaze, matching the full-native quality reference.
+    let quality = RenderQuality::Amaze;
+    let working =
+        super::super::tile::tile_working_pixels(raw, &context.active_model, absolute, quality)?;
     if working > max_working_pixels {
         return Err(Error::Pipeline(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
     let (w, h, rgba) = super::super::tile::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
-        raw, &context.active_model, absolute, RenderQuality::Amaze, None, context.ae_gain,
+        raw, &context.active_model, absolute, quality, None, context.ae_gain,
     )?;
     let rgb: Vec<f32> = rgba
         .chunks_exact(4)
