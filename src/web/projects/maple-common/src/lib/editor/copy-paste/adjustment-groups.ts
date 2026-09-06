@@ -100,14 +100,7 @@ export function buildGroupPatch(
   }
 
   const patch: Partial<AdjustmentModel> = buildApplyPatch(denseFields);
-  for (const key of GENERATED_KEYS) {
-    const field = camelToSnakeField(key);
-    if (!selectedFieldNames.has(field) || ADJUSTMENT_TRANSFER_MODES[field] !== 'Absolute') continue;
-    const value = source[key];
-    if (typeof value === 'object' && value !== null) {
-      Object.assign(patch, { [key]: structuredClone(value) });
-    }
-  }
+  copyStructuredFields(source, selectedFieldNames, patch);
 
   // Web-only extensions carried alongside a schema-generated group but not
   // part of `GeneratedAdjustmentModel` itself — see module doc.
@@ -123,4 +116,19 @@ export function buildGroupPatch(
   }
 
   return patch;
+}
+
+function copyStructuredFields(
+  source: AdjustmentModel,
+  selectedFieldNames: ReadonlySet<string>,
+  patch: Partial<AdjustmentModel>,
+): void {
+  for (const key of GENERATED_KEYS) {
+    const field = camelToSnakeField(key);
+    if (!selectedFieldNames.has(field) || ADJUSTMENT_TRANSFER_MODES[field] !== 'Absolute') continue;
+    const value = source[key];
+    if (typeof value === 'object' && value !== null) {
+      Object.assign(patch, { [key]: structuredClone(value) });
+    }
+  }
 }
