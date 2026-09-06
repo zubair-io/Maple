@@ -335,6 +335,7 @@ fn develop_scene_linear_for_pano(
             &mut camera_rgb,
             HighlightRecoveryMode::default(),
             hr_neutral,
+            raw.baseline_exposure,
         )
     });
     dump_after("pano_02_highlight_recovery", &camera_rgb);

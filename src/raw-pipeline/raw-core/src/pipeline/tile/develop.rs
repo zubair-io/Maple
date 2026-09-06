@@ -175,6 +175,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             &mut camera_rgb,
             model.highlight_recovery,
             raw.as_shot_neutral,
+            raw.baseline_exposure,
         )
     });
     let (profile, profile_source) =

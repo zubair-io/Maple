@@ -91,7 +91,7 @@ public struct SupportedCamera: Sendable {
 
 public enum CameraSupportRegistry {
     public static let schemaVersion: UInt32 = 1
-    public static let pipelineOutputVersion: UInt32 = 2
+    public static let pipelineOutputVersion: UInt32 = 3
     /// Camera bodies the bundled profile table covers. Each is at
     /// least `.profiled`; the full list is in docs/camera-support.json.
     public static let bundledModelCount: Int = 1406
