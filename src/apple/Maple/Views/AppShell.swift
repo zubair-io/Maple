@@ -30,12 +30,13 @@
 //   ⌘O open folder         — fileImporter
 //   ⌘\ sidebar toggle      — NavigationSplitView column visibility
 
-import SwiftUI
-import WidgetKit
 import MapleCore
 import OSLog
+import SwiftUI
+import WidgetKit
+
 #if os(iOS)
-import UIKit
+  import UIKit
 #endif
 
 private let appShellLog = Logger(subsystem: "app.justmaple.aperture", category: "appshell")
@@ -43,175 +44,179 @@ private let appShellLog = Logger(subsystem: "app.justmaple.aperture", category: 
 // MARK: - AppShell
 
 struct AppShell: View {
-    /// Resolves an `AuthSession` for a Self-Hosted server URL (created +
-    /// bootstrapped on first request, cached at the `MapleApp` scope).
-    /// Plan 2026-04-28-passkey-auth Task B8.
-    let sessionFor: @MainActor (URL) -> AuthSession
+  /// Resolves an `AuthSession` for a Self-Hosted server URL (created +
+  /// bootstrapped on first request, cached at the `MapleApp` scope).
+  /// Plan 2026-04-28-passkey-auth Task B8.
+  let sessionFor: @MainActor (URL) -> AuthSession
 
-    @MainActor
-    init(sessionFor: @escaping @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver) {
-        self.sessionFor = sessionFor
-    }
+  @MainActor
+  init(sessionFor: @escaping @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver) {
+    self.sessionFor = sessionFor
+  }
 
-    /// Fallback for previews / tests — not cached across calls. Production
-    /// path always passes the real resolver from `MapleApp`. Hoisted to a
-    /// static method so the `init` default can reference it without
-    /// constructing an `AuthSession` from a non-MainActor synchronous
-    /// closure (which the compiler rejects).
-    @MainActor
-    static func defaultSessionResolver(_ server: URL) -> AuthSession {
-        AuthSession(server: server, client: AuthClient(server: server))
-    }
+  /// Fallback for previews / tests — not cached across calls. Production
+  /// path always passes the real resolver from `MapleApp`. Hoisted to a
+  /// static method so the `init` default can reference it without
+  /// constructing an `AuthSession` from a non-MainActor synchronous
+  /// closure (which the compiler rejects).
+  @MainActor
+  static func defaultSessionResolver(_ server: URL) -> AuthSession {
+    AuthSession(server: server, client: AuthClient(server: server))
+  }
 
-    // NOTE: several `@State` properties below dropped `private` to
-    // default-internal so the sibling action extensions
-    // (`AppShell+FolderActions.swift` / `+CloudActions.swift` /
-    // `+PhotoKitActions.swift`) can read and write them. The widened set
-    // is the minimum required by those extensions — properties used only
-    // by `body` / layout code stay `private`.
-    @State var browseVM = BrowseViewModel()
-    @State var sessions: [AssetRef.ID: EditSession] = [:]
-    /// Scene activation hook (#1769, iOS): Metal discards presents issued
-    /// while the app is backgrounded, so a GPU-live canvas backgrounded
-    /// mid-present can come back torn with nothing scheduled to repaint it.
-    /// On `.active` we ask the active editor session for one re-present.
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var showExport = false
-    @State private var showSettings = false
-    // Held in @State (not constructed inside the .sheet content closure) so a
-    // re-render of AppShell while the sheet is open cannot rebuild the view model
-    // and discard the user's in-progress edits. nil = sheet closed.
-    @State private var batchMetadataVM: BatchMetadataViewModel?
-    /// Batch rename sheet (#2641). Same "held in @State, not built inside
-    /// the sheet closure" reasoning as `batchMetadataVM` above.
-    @State private var batchRenameVM: BatchRenameViewModel?
-    /// App-level copy/paste/sync-adjustments clipboard (#944). Held here
-    /// (not created per-BrowseGrid-render) so it survives navigating in and
-    /// out of Browse / the editor for the lifetime of the app session —
-    /// matches the ticket's "session-scoped" contract.
-    @State private var adjustmentClipboard = AdjustmentClipboard()
-    /// Non-nil when the Settings sheet should open on a specific tab.
-    /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
-    /// callback so the sheet lands directly on the Pano tab. (#1241)
-    @State private var settingsInitialTab: SettingsTab? = nil
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    /// Whether the S5 editor's right-hand Info inspector is shown on the
-    /// Mac/iPad pane shell. The editor's `(i)` button toggles this (#875
-    /// item 2). Defaults to `true` so the inspector is visible on entry
-    /// (matching the prior always-visible detail column). Uses
-    /// `.inspector(isPresented:)` rather than a column-count swap so the
-    /// `EditorSessionHost`'s `@State` (armed tool / fine-mode, #816)
-    /// survives a toggle — swapping the NavigationSplitView column count
-    /// changes the content subtree's identity and would reset it.
-    @State private var editorDetailVisible = true
-    @State private var showFilePicker = false
-    /// Bumped after the user grants PhotoKit access from the permission
-    /// panel. `LibrarySidebar` skips all PhotoKit work while the user is
-    /// undecided — even registering a change observer prompts (#2454) — and
-    /// PhotoKit publishes no authorization change, so this counter is what
-    /// tells the sidebar it may now read the library.
-    @State var photosAuthGeneration = 0
+  // NOTE: several `@State` properties below dropped `private` to
+  // default-internal so the sibling action extensions
+  // (`AppShell+FolderActions.swift` / `+CloudActions.swift` /
+  // `+PhotoKitActions.swift`) can read and write them. The widened set
+  // is the minimum required by those extensions — properties used only
+  // by `body` / layout code stay `private`.
+  @State var browseVM = BrowseViewModel()
+  @State var sessions: [AssetRef.ID: EditSession] = [:]
+  /// Scene activation hook (#1769, iOS): Metal discards presents issued
+  /// while the app is backgrounded, so a GPU-live canvas backgrounded
+  /// mid-present can come back torn with nothing scheduled to repaint it.
+  /// On `.active` we ask the active editor session for one re-present.
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var showExport = false
+  @State private var showSettings = false
+  // Held in @State (not constructed inside the .sheet content closure) so a
+  // re-render of AppShell while the sheet is open cannot rebuild the view model
+  // and discard the user's in-progress edits. nil = sheet closed.
+  @State private var batchMetadataVM: BatchMetadataViewModel?
+  /// Batch rename sheet (#2641). Same "held in @State, not built inside
+  /// the sheet closure" reasoning as `batchMetadataVM` above.
+  @State private var batchRenameVM: BatchRenameViewModel?
+  /// App-level copy/paste/sync-adjustments clipboard (#944). Held here
+  /// (not created per-BrowseGrid-render) so it survives navigating in and
+  /// out of Browse / the editor for the lifetime of the app session —
+  /// matches the ticket's "session-scoped" contract.
+  @State private var adjustmentClipboard = AdjustmentClipboard()
+  /// Non-nil when the Settings sheet should open on a specific tab.
+  /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
+  /// callback so the sheet lands directly on the Pano tab. (#1241)
+  @State private var settingsInitialTab: SettingsTab? = nil
+  @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  /// Whether the S5 editor's right-hand Info inspector is shown on the
+  /// Mac/iPad pane shell. The editor's `(i)` button toggles this (#875
+  /// item 2). Defaults to `true` so the inspector is visible on entry
+  /// (matching the prior always-visible detail column). Uses
+  /// `.inspector(isPresented:)` rather than a column-count swap so the
+  /// `EditorSessionHost`'s `@State` (armed tool / fine-mode, #816)
+  /// survives a toggle — swapping the NavigationSplitView column count
+  /// changes the content subtree's identity and would reset it.
+  @State private var editorDetailVisible = true
+  @State private var showFilePicker = false
+  /// Bumped after the user grants PhotoKit access from the permission
+  /// panel. `LibrarySidebar` skips all PhotoKit work while the user is
+  /// undecided — even registering a change observer prompts (#2454) — and
+  /// PhotoKit publishes no authorization change, so this counter is what
+  /// tells the sidebar it may now read the library.
+  @State var photosAuthGeneration = 0
 
-    // Sidebar selection (single active row across the whole tree).
-    @State var librarySelection: LibrarySelection = .none
+  // Sidebar selection (single active row across the whole tree).
+  @State var librarySelection: LibrarySelection = .none
 
-    /// Absolute path inside the currently-open cloud library. Equal to
-    /// the library's root path immediately after picking, then bumped
-    /// by `navigateFolder` when the user drills into a subfolder. The
-    /// sidebar reads this to (a) auto-expand the ancestor chain on
-    /// cold start and (b) highlight the matching tree row. Persisted
-    /// via `SourceSelection.cloudLibrary` so cold-start restores the
-    /// deep path the user left off at.
-    @State var cloudCurrentPath: String? = nil
+  /// Absolute path inside the currently-open cloud library. Equal to
+  /// the library's root path immediately after picking, then bumped
+  /// by `navigateFolder` when the user drills into a subfolder. The
+  /// sidebar reads this to (a) auto-expand the ancestor chain on
+  /// cold start and (b) highlight the matching tree row. Persisted
+  /// via `SourceSelection.cloudLibrary` so cold-start restores the
+  /// deep path the user left off at.
+  @State var cloudCurrentPath: String? = nil
 
-    // Sheet state.
-    @State var showSMBSheet = false
-    /// Single AddMapleCloudSheet entry point. `nil` means hidden;
-    /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
-    /// they tapped a saved server without restored tokens. Modeling
-    /// presentation + payload as one optional eliminates the "what
-    /// was the prefill last time?" hazard from a separate `@State`.
-    @State var addCloudSheetTarget: AddCloudSheetTarget?
-    /// #1381 — the cloud folder to reopen after a re-sign-in triggered by an
-    /// auth error. Set alongside `addCloudSheetTarget = .prefilled(...)`;
-    /// replayed (then cleared) by the sheet's `onSignedIn`.
-    @State var pendingCloudReopen: PendingCloudOpen?
+  // Sheet state.
+  @State var showSMBSheet = false
+  /// Single AddMapleCloudSheet entry point. `nil` means hidden;
+  /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
+  /// they tapped a saved server without restored tokens. Modeling
+  /// presentation + payload as one optional eliminates the "what
+  /// was the prefill last time?" hazard from a separate `@State`.
+  @State var addCloudSheetTarget: AddCloudSheetTarget?
+  /// #1381 — the cloud folder to reopen after a re-sign-in triggered by an
+  /// auth error. Set alongside `addCloudSheetTarget = .prefilled(...)`;
+  /// replayed (then cleared) by the sheet's `onSignedIn`.
+  @State var pendingCloudReopen: PendingCloudOpen?
 
-    // Dynamic toolbar title — reflects the last-loaded source/filter.
-    @State var libraryTitle: String = "All"
+  // Dynamic toolbar title — reflects the last-loaded source/filter.
+  @State var libraryTitle: String = "All"
 
-    // Browse vs editor mode. Default to browse. `Mode` is internal (was
-    // `private`) so the action extensions can write it after a source
-    // load completes.
-    //
-    //   • `.preview` — the fast static `PreviewView` (Fast Preview §1). The
-    //     default target of a grid tap on the Mac/iPad pane shell: a
-    //     cached-JPEG surface with a Flag/Edit/Info bar + filmstrip that
-    //     mounts NO render pipeline (no EditSession render, no GPU/CPU canvas,
-    //     no zoom controller). Edit flips to `.editing`; back returns to
-    //     `.browse`. The iPhone shell doesn't use this — it pushes
-    //     `PreviewDestination` onto its Library-tab NavigationStack instead.
-    //   • `.editing` — the S5 `EditorView` (group tabs + tool pills). The
-    //     Mac/iPad pane shell flips to this when the user opens an image
-    //     (#815). The pane shell has no NavigationStack, so the editor
-    //     mounts in the center column rather than being pushed.
-    //   • `.panoramaMerge` — the PanoMergeView (M2, #1236). Presented as a
-    //     modal sheet on both Mac/iPad and iPhone via `.sheet(isPresented:)`.
-    //     Cancel/Done dismisses the sheet and returns to `.browse`.
-    //
-    // The legacy `.fullImage` case (the `FullImageView` zoom/pan loupe) was
-    // retired in #1807 once Preview + the S5 editor covered every path that
-    // used to reach it — the iPhone shell pushes the editor onto the Library
-    // tab's NavigationStack instead of flipping `mode` (#791/#809), and the
-    // UITest visual-harness fast path (AppShell+UITestFixture) already keyed
-    // on `.editing`, not `.fullImage`.
-    enum Mode { case browse, preview, editing, panoramaMerge }
-    @State var mode: Mode = .browse
+  // Browse vs editor mode. Default to browse. `Mode` is internal (was
+  // `private`) so the action extensions can write it after a source
+  // load completes.
+  //
+  //   • `.preview` — the fast static `PreviewView` (Fast Preview §1). The
+  //     default target of a grid tap on the Mac/iPad pane shell: a
+  //     cached-JPEG surface with a Flag/Edit/Info bar + filmstrip that
+  //     mounts NO render pipeline (no EditSession render, no GPU/CPU canvas,
+  //     no zoom controller). Edit flips to `.editing`; back returns to
+  //     `.browse`. The iPhone shell doesn't use this — it pushes
+  //     `PreviewDestination` onto its Library-tab NavigationStack instead.
+  //   • `.editing` — the S5 `EditorView` (group tabs + tool pills). The
+  //     Mac/iPad pane shell flips to this when the user opens an image
+  //     (#815). The pane shell has no NavigationStack, so the editor
+  //     mounts in the center column rather than being pushed.
+  //   • `.panoramaMerge` — the PanoMergeView (M2, #1236). Presented as a
+  //     modal sheet on both Mac/iPad and iPhone via `.sheet(isPresented:)`.
+  //     Cancel/Done dismisses the sheet and returns to `.browse`.
+  //
+  // The legacy `.fullImage` case (the `FullImageView` zoom/pan loupe) was
+  // retired in #1807 once Preview + the S5 editor covered every path that
+  // used to reach it — the iPhone shell pushes the editor onto the Library
+  // tab's NavigationStack instead of flipping `mode` (#791/#809), and the
+  // UITest visual-harness fast path (AppShell+UITestFixture) already keyed
+  // on `.editing`, not `.fullImage`.
+  enum Mode { case browse, preview, editing, panoramaMerge }
+  @State var mode: Mode = .browse
 
-    /// PanoMergeSession drives the panorama merge view. Created when the
-    /// user hits "Merge to panorama…" and torn down (session reset) on
-    /// cancel or navigation away. Uses RustPanoStitcher (M4, #1234) so the
-    /// real FFI stitch runs; MockPanoStitcher is retained for unit tests only.
-    @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: RustPanoStitcher())
+  /// PanoMergeSession drives the panorama merge view. Created when the
+  /// user hits "Merge to panorama…" and torn down (session reset) on
+  /// cancel or navigation away. Uses RustPanoStitcher (M4, #1234) so the
+  /// real FFI stitch runs; MockPanoStitcher is retained for unit tests only.
+  @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: RustPanoStitcher())
 
-    /// True when an image surface is open (`.preview` or `.editing`) — i.e.
-    /// the center column is showing an image, not the browse grid. The
-    /// Mac/iPad three-column layout and the navigation title key off "is an
-    /// image open?", which both answer yes to. (Back/export affordances now
-    /// live inside Preview/Editor, not the window toolbar.)
-    var isImageOpen: Bool { mode == .preview || mode == .editing }
+  /// True when an image surface is open (`.preview` or `.editing`) — i.e.
+  /// the center column is showing an image, not the browse grid. The
+  /// Mac/iPad three-column layout and the navigation title key off "is an
+  /// image open?", which both answer yes to. (Back/export affordances now
+  /// live inside Preview/Editor, not the window toolbar.)
+  var isImageOpen: Bool { mode == .preview || mode == .editing }
 
-    /// Mode to enter when the user opens an image from the grid. Fast Preview
-    /// §1: every pane-shell open now lands on the fast static `.preview`
-    /// surface (the editor is reached only from Preview's Edit button). The
-    /// iPhone shell doesn't consume this — it pushes `PreviewDestination` onto
-    /// its Library-tab NavigationStack — so the pane shell is the only reader,
-    /// but the value is idiom-independent per the design ("resolves to
-    /// `.preview` on all idioms").
-    var imageOpenMode: Mode { .preview }
+  /// Mode to enter when the user opens an image from the grid. Fast Preview
+  /// §1: every pane-shell open now lands on the fast static `.preview`
+  /// surface (the editor is reached only from Preview's Edit button). The
+  /// iPhone shell doesn't consume this — it pushes `PreviewDestination` onto
+  /// its Library-tab NavigationStack — so the pane shell is the only reader,
+  /// but the value is idiom-independent per the design ("resolves to
+  /// `.preview` on all idioms").
+  var imageOpenMode: Mode { .preview }
 
-    // BrowseGrid layout — fill (cropped square cover) vs fit (letterboxed).
-    // Session-scoped only; no UserDefaults persistence by design (see the
-    // toolbar button below).
-    @State private var browseDisplayMode: GridDisplayMode = .fill
+  // BrowseGrid layout — fill (cropped square cover) vs fit (letterboxed).
+  // Session-scoped only; no UserDefaults persistence by design (see the
+  // toolbar button below).
+  @State private var browseDisplayMode: GridDisplayMode = .fill
 
-    /// Observable singleton that captures incoming `maple://` URLs at
-    /// the `MapleApp` scene level. SwiftUI's `.onChange(of:)` only
-    /// re-evaluates an `@Observable` property when SOME view in the
-    /// body actually reads it during render, so the binding here is
-    /// load-bearing — without it the warm-launch path (a second
-    /// `.onOpenURL` after the app is up) would never fire `consume()`.
-    /// Spec: docs/design/responsive-program/deep-links.md §2.
-    @State private var deepLinkRouter = DeepLinkRouter.shared
-    @State private var documentOpenRouter = DocumentOpenRouter.shared
+  /// Observable singleton that captures incoming `maple://` URLs at
+  /// the `MapleApp` scene level. SwiftUI's `.onChange(of:)` only
+  /// re-evaluates an `@Observable` property when SOME view in the
+  /// body actually reads it during render, so the binding here is
+  /// load-bearing — without it the warm-launch path (a second
+  /// `.onOpenURL` after the app is up) would never fire `consume()`.
+  /// Spec: docs/design/responsive-program/deep-links.md §2.
+  @State private var deepLinkRouter = DeepLinkRouter.shared
+  @State private var documentOpenRouter = DocumentOpenRouter.shared
 
-    /// Same idiom as the two routers above: `MapleApp`'s process-level
-    /// memory-pressure observer can't reach `sessions` directly (plain
-    /// `@State`, no static handle), so it bumps this singleton and we react
-    /// via `.onChange(of:)`. See `MemoryPressureSignal`'s header doc (#2037).
-    @State private var memoryPressureSignal = MemoryPressureSignal.shared
+  // URL observers can fire while startup is suspended. Leave their pending
+  // destinations queued while the initial source-restore call is suspended.
+  @State var hasRestoredInitialSource = false
 
-    #if os(iOS)
+  /// Same idiom as the two routers above: `MapleApp`'s process-level
+  /// memory-pressure observer can't reach `sessions` directly (plain
+  /// `@State`, no static handle), so it bumps this singleton and we react
+  /// via `.onChange(of:)`. See `MemoryPressureSignal`'s header doc (#2037).
+  @State private var memoryPressureSignal = MemoryPressureSignal.shared
+
+  #if os(iOS)
 
     /// iPhone drawer snapped state. `dragOffset` (the in-flight finger
     /// translation) lives inside `AppShellIPhoneDrawer` as private
@@ -228,99 +233,99 @@ struct AppShell: View {
     /// render. Default-internal (not `private`) so `openEditor` /
     /// `consumePendingDeepLink` / `consumePendingOpenedDocument` can append.
     @State var libraryPath: [LibraryDestination] = []
-    #endif
+  #endif
 
-    /// Set when the user selects a cloud library in Timeline view mode;
-    /// when non-nil the center column renders CloudTimelineView instead
-    /// of BrowseGrid. Cleared on every other selection so we don't ghost-
-    /// render across mode changes.
-    @State var cloudTimelineVM: CloudTimelineViewModel?
+  /// Set when the user selects a cloud library in Timeline view mode;
+  /// when non-nil the center column renders CloudTimelineView instead
+  /// of BrowseGrid. Cleared on every other selection so we don't ghost-
+  /// render across mode changes.
+  @State var cloudTimelineVM: CloudTimelineViewModel?
 
-    /// Thumb client + cache for the active cloud timeline. Constructed
-    /// once in `loadCloudLibrary` alongside `cloudTimelineVM` and reused
-    /// for the whole lifetime of that VM. Previously these were rebuilt
-    /// per render inside the SwiftUI body, which constructed a fresh
-    /// `AuthenticatedHTTPClient` actor each time and defeated its
-    /// 401-refresh coalescer — under load N parallel cells would each
-    /// fire `/api/auth/refresh`, all but one would fail (refresh tokens
-    /// are single-use server-side), and the user would get force-signed
-    /// out.
-    @State var cloudTimelineThumbClient: CloudThumbClient?
-    @State var cloudTimelineThumbCache: CloudThumbCache?
+  /// Thumb client + cache for the active cloud timeline. Constructed
+  /// once in `loadCloudLibrary` alongside `cloudTimelineVM` and reused
+  /// for the whole lifetime of that VM. Previously these were rebuilt
+  /// per render inside the SwiftUI body, which constructed a fresh
+  /// `AuthenticatedHTTPClient` actor each time and defeated its
+  /// 401-refresh coalescer — under load N parallel cells would each
+  /// fire `/api/auth/refresh`, all but one would fail (refresh tokens
+  /// are single-use server-side), and the user would get force-signed
+  /// out.
+  @State var cloudTimelineThumbClient: CloudThumbClient?
+  @State var cloudTimelineThumbCache: CloudThumbCache?
 
-    /// Set when the user selects the sidebar's TIMELINE row (`.allSources`,
-    /// #2271/#2273); when non-nil the center column renders
-    /// `AllSourcesTimelineView` instead of `CloudTimelineView`/`BrowseGrid`.
-    /// Cleared on every other selection, same discipline as
-    /// `cloudTimelineVM`. Unlike the single-library timeline this VM
-    /// carries its OWN per-server thumb clients (`thumbClientsByHost`) —
-    /// a grid spanning several servers has no single fixed
-    /// `CloudThumbClient` to hand the center column, so there's no
-    /// `allSourcesTimelineThumbClient` counterpart to `cloudTimelineThumbClient`.
-    @State var allSourcesTimelineVM: AllSourcesTimelineViewModel?
-    /// Shared disk cache for the all-sources timeline's thumbs. One
-    /// instance for the VM's lifetime, same rationale as
-    /// `cloudTimelineThumbCache` — `CloudThumbCache` is host-keyed, so one
-    /// cache safely serves every connected server.
-    @State var allSourcesTimelineThumbCache: CloudThumbCache?
+  /// Set when the user selects the sidebar's TIMELINE row (`.allSources`,
+  /// #2271/#2273); when non-nil the center column renders
+  /// `AllSourcesTimelineView` instead of `CloudTimelineView`/`BrowseGrid`.
+  /// Cleared on every other selection, same discipline as
+  /// `cloudTimelineVM`. Unlike the single-library timeline this VM
+  /// carries its OWN per-server thumb clients (`thumbClientsByHost`) —
+  /// a grid spanning several servers has no single fixed
+  /// `CloudThumbClient` to hand the center column, so there's no
+  /// `allSourcesTimelineThumbClient` counterpart to `cloudTimelineThumbClient`.
+  @State var allSourcesTimelineVM: AllSourcesTimelineViewModel?
+  /// Shared disk cache for the all-sources timeline's thumbs. One
+  /// instance for the VM's lifetime, same rationale as
+  /// `cloudTimelineThumbCache` — `CloudThumbCache` is host-keyed, so one
+  /// cache safely serves every connected server.
+  @State var allSourcesTimelineThumbCache: CloudThumbCache?
 
-    /// Set when the user selects the sidebar's MAP row (#2830); when
-    /// non-nil the center column renders `MapView` instead of
-    /// `BrowseGrid`/`CloudTimelineView`/`AllSourcesTimelineView`. Cleared
-    /// on every other selection, same discipline as `allSourcesTimelineVM`.
-    /// Account-wide (no libraryID) — same scoping as the phone Search tab,
-    /// resolved via `resolveSearchServerURL()`. See `AppShell+Map.swift`.
-    @State var mapVM: MapViewModel?
-    /// Thumb client + cache for the map's single-photo pins. Built
-    /// alongside `mapVM` for the same 401-refresh-coalescer reason as
-    /// `cloudTimelineThumbClient`.
-    @State var mapThumbClient: CloudThumbClient?
-    @State var mapThumbCache: CloudThumbCache?
-    /// Why `.map` has no `mapVM` to render yet (#2848) — `nil` only while
-    /// `mapVM` is non-nil or `.map` isn't the current selection.
-    /// `AppShellCenterColumn` renders `MapEmptyState(reason:)` from this
-    /// instead of falling through to the browse grid when `.map` is
-    /// selected but `mapVM` is still nil. Set by `openMap()`
-    /// (`AppShell+Map.swift`); cleared below on any non-`.map` selection.
-    @State var mapUnavailableReason: MapUnavailableReason?
+  /// Set when the user selects the sidebar's MAP row (#2830); when
+  /// non-nil the center column renders `MapView` instead of
+  /// `BrowseGrid`/`CloudTimelineView`/`AllSourcesTimelineView`. Cleared
+  /// on every other selection, same discipline as `allSourcesTimelineVM`.
+  /// Account-wide (no libraryID) — same scoping as the phone Search tab,
+  /// resolved via `resolveSearchServerURL()`. See `AppShell+Map.swift`.
+  @State var mapVM: MapViewModel?
+  /// Thumb client + cache for the map's single-photo pins. Built
+  /// alongside `mapVM` for the same 401-refresh-coalescer reason as
+  /// `cloudTimelineThumbClient`.
+  @State var mapThumbClient: CloudThumbClient?
+  @State var mapThumbCache: CloudThumbCache?
+  /// Why `.map` has no `mapVM` to render yet (#2848) — `nil` only while
+  /// `mapVM` is non-nil or `.map` isn't the current selection.
+  /// `AppShellCenterColumn` renders `MapEmptyState(reason:)` from this
+  /// instead of falling through to the browse grid when `.map` is
+  /// selected but `mapVM` is still nil. Set by `openMap()`
+  /// (`AppShell+Map.swift`); cleared below on any non-`.map` selection.
+  @State var mapUnavailableReason: MapUnavailableReason?
 
-    /// Histogram client for the currently-open cloud asset (#633). Set
-    /// when `openCloudAsset(_:server:)` builds the editor session — the
-    /// AuthenticatedHTTPClient is reused with the existing
-    /// `cloudTimelineThumbClient` to preserve the 401-refresh coalescer.
-    /// `nil` when no cloud asset is selected, which short-circuits
-    /// `HistogramBlock` back to the placeholder.
-    @State var cloudHistogramClient: CloudHistogramClient?
+  /// Histogram client for the currently-open cloud asset (#633). Set
+  /// when `openCloudAsset(_:server:)` builds the editor session — the
+  /// AuthenticatedHTTPClient is reused with the existing
+  /// `cloudTimelineThumbClient` to preserve the 401-refresh coalescer.
+  /// `nil` when no cloud asset is selected, which short-circuits
+  /// `HistogramBlock` back to the placeholder.
+  @State var cloudHistogramClient: CloudHistogramClient?
 
-    /// Asset-detail client for the currently-open cloud asset — feeds the
-    /// InfoPanel's `EnrichmentBlock` (description / OCR / transcript).
-    /// Built alongside `cloudHistogramClient` from the same
-    /// AuthenticatedHTTPClient; `nil` when no cloud asset is open, which
-    /// hides the enrichment section for local / PhotoKit assets.
-    @State var cloudAssetDetailClient: CloudAssetDetailClient?
+  /// Asset-detail client for the currently-open cloud asset — feeds the
+  /// InfoPanel's `EnrichmentBlock` (description / OCR / transcript).
+  /// Built alongside `cloudHistogramClient` from the same
+  /// AuthenticatedHTTPClient; `nil` when no cloud asset is open, which
+  /// hides the enrichment section for local / PhotoKit assets.
+  @State var cloudAssetDetailClient: CloudAssetDetailClient?
 
-    /// Active CloudSource for the merged Photos+Cloud timeline. Non-nil when
-    /// a PhotoKit filter is active AND BackupSettings.isConfigured. Cleared
-    /// when the user switches to a non-PhotoKit source.
-    @State var mergedCloudSource: CloudSource?
+  /// Active CloudSource for the merged Photos+Cloud timeline. Non-nil when
+  /// a PhotoKit filter is active AND BackupSettings.isConfigured. Cleared
+  /// when the user switches to a non-PhotoKit source.
+  @State var mergedCloudSource: CloudSource?
 
-    // MARK: - Cloud search
+  // MARK: - Cloud search
 
-    /// Whether the cloud search UI is showing. When true the center column
-    /// renders `CloudSearchView` instead of the grid / timeline. Toggled by
-    /// the toolbar magnifying-glass; only meaningful while a cloud library
-    /// is selected (see `searchAvailable`).
-    @State var isSearchActive = false
-    /// Data model for the active search session — constructed by
-    /// `activateSearch()`, torn down by `deactivateSearch()`.
-    @State var searchVM: SearchViewModel?
-    /// Thumb client + cache for search result cells. Built alongside
-    /// `searchVM` and reused for the session so the AuthenticatedHTTPClient's
-    /// 401-refresh coalescer isn't defeated by per-cell client churn (same
-    /// rationale as the timeline thumb client).
-    @State var searchThumbClient: CloudThumbClient?
-    @State var searchThumbCache: CloudThumbCache?
-    #if os(iOS)
+  /// Whether the cloud search UI is showing. When true the center column
+  /// renders `CloudSearchView` instead of the grid / timeline. Toggled by
+  /// the toolbar magnifying-glass; only meaningful while a cloud library
+  /// is selected (see `searchAvailable`).
+  @State var isSearchActive = false
+  /// Data model for the active search session — constructed by
+  /// `activateSearch()`, torn down by `deactivateSearch()`.
+  @State var searchVM: SearchViewModel?
+  /// Thumb client + cache for search result cells. Built alongside
+  /// `searchVM` and reused for the session so the AuthenticatedHTTPClient's
+  /// 401-refresh coalescer isn't defeated by per-cell client churn (same
+  /// rationale as the timeline thumb client).
+  @State var searchThumbClient: CloudThumbClient?
+  @State var searchThumbCache: CloudThumbCache?
+  #if os(iOS)
     /// A widget/URL deep-link or Map pin tap's `SearchParams`, waiting to be
     /// applied to the iPhone Search tab's account-wide session (#3163).
     /// `switchToPhoneSearchTab(seeding:libraryID:)` (AppShell+PhoneSearchSeed.swift) sets
@@ -328,915 +333,959 @@ struct AppShell: View {
     /// it once its session is ready and clears it after submitting. iPhone
     /// only — mac/iPad seed `searchVM` directly via `activateSearch`.
     @State var pendingPhoneSearchSeed: SearchParams?
-    #endif
+  #endif
 
-    /// Search is only available against a Maple Cloud library — local /
-    /// PhotoKit / SMB sources have no server-side index to query.
-    var searchAvailable: Bool {
-        if case .cloudLibrary = librarySelection { return true }
-        return false
-    }
+  /// Search is only available against a Maple Cloud library — local /
+  /// PhotoKit / SMB sources have no server-side index to query.
+  var searchAvailable: Bool {
+    if case .cloudLibrary = librarySelection { return true }
+    return false
+  }
 
-    // The root bookmark for the currently-open folder tree — used to claim
-    // security scope when the user clicks a sub-folder cell inside the grid.
-    @State var currentRootBookmark: Data?
+  // The root bookmark for the currently-open folder tree — used to claim
+  // security scope when the user clicks a sub-folder cell inside the grid.
+  @State var currentRootBookmark: Data?
 
-    // Active security scope for the current browse session. macOS sandbox
-    // requires a scope-backed URL (resolved from a bookmark) to be "accessing"
-    // for descendant reads to succeed. Detached render tasks outlive the call
-    // that started them, so we hold the scope open for the whole time the
-    // library is on this folder. `claimScope(for:)` releases the previous
-    // claim and establishes a new one; release happens implicitly when the
-    // next claim comes in or when `releaseScope()` is called on app exit.
-    @State var activeScopeURL: URL?
+  // Active security scope for the current browse session. macOS sandbox
+  // requires a scope-backed URL (resolved from a bookmark) to be "accessing"
+  // for descendant reads to succeed. Detached render tasks outlive the call
+  // that started them, so we hold the scope open for the whole time the
+  // library is on this folder. `claimScope(for:)` releases the previous
+  // claim and establishes a new one; release happens implicitly when the
+  // next claim comes in or when `releaseScope()` is called on app exit.
+  @State var activeScopeURL: URL?
 
-    /// True while an OS file/folder drag hovers the window (#2649) — drives
-    /// a highlight so the drop target is visible before release, mirroring
-    /// the sidebar's asset-drop `isDropTargeted` convention.
-    @State private var isWindowDropTargeted = false
+  /// True while an OS file/folder drag hovers the window (#2649) — drives
+  /// a highlight so the drop target is visible before release, mirroring
+  /// the sidebar's asset-drop `isDropTargeted` convention.
+  @State private var isWindowDropTargeted = false
 
-    /// Single-flights the whole drop-to-mount flow (#2649 review finding
-    /// I2): SwiftUI's `.dropDestination` action closure can fire twice for
-    /// one physical drag-release, and the flow now awaits an async folder-
-    /// access confirmation panel (`confirmParentFolderAccess`) — without
-    /// this guard two overlapping drops could each present their own panel
-    /// or interleave mount state.
-    @State var isProcessingWindowDrop = false
-    /// iOS/iPadOS half of `confirmParentFolderAccess` (#2649): macOS uses
-    /// `NSOpenPanel` directly (no SwiftUI state needed); iOS has no
-    /// AppKit-equivalent seedable panel, so it bridges through this
-    /// `.fileImporter` + a suspended continuation instead.
-    @State var showDropConfirmationPicker = false
-    @State var dropConfirmationContinuation: CheckedContinuation<URL?, Never>?
+  /// Single-flights the whole drop-to-mount flow (#2649 review finding
+  /// I2): SwiftUI's `.dropDestination` action closure can fire twice for
+  /// one physical drag-release, and the flow now awaits an async folder-
+  /// access confirmation panel (`confirmParentFolderAccess`) — without
+  /// this guard two overlapping drops could each present their own panel
+  /// or interleave mount state.
+  @State var isProcessingWindowDrop = false
+  /// iOS/iPadOS half of `confirmParentFolderAccess` (#2649): macOS uses
+  /// `NSOpenPanel` directly (no SwiftUI state needed); iOS has no
+  /// AppKit-equivalent seedable panel, so it bridges through this
+  /// `.fileImporter` + a suspended continuation instead.
+  @State var showDropConfirmationPicker = false
+  @State var dropConfirmationContinuation: CheckedContinuation<URL?, Never>?
 
-    /// Bumped by `AppShell+FolderContextMenu` after a New Folder / Rename /
-    /// Move to Trash action commits. `LibrarySidebar`'s tree rows watch this
-    /// (mirrors `photosAuthGeneration`, #2454) to re-enumerate their
-    /// children — the sidebar has no filesystem watcher of its own, so
-    /// without an explicit nudge a folder created or renamed from the
-    /// context menu wouldn't appear until the user manually collapsed and
-    /// re-expanded the row (#2645).
-    @State var folderRefreshGeneration: Int = 0
+  /// Bumped by `AppShell+FolderContextMenu` after a New Folder / Rename /
+  /// Move to Trash action commits. `LibrarySidebar`'s tree rows watch this
+  /// (mirrors `photosAuthGeneration`, #2454) to re-enumerate their
+  /// children — the sidebar has no filesystem watcher of its own, so
+  /// without an explicit nudge a folder created or renamed from the
+  /// context menu wouldn't appear until the user manually collapsed and
+  /// re-expanded the row (#2645).
+  @State var folderRefreshGeneration: Int = 0
 
-    /// Inline single-asset rename (#2638). The asset id currently showing an
-    /// editable filename field (Info panel / Enter-key entry point) — `nil`
-    /// means no rename is in progress. See `AppShell+AssetRename.swift`.
-    @State var renamingAssetID: AssetRef.ID?
-    /// Set when the last rename commit failed; surfaced inline next to the
-    /// field, never as a generic alert. Cleared on the next `begin`/`commit`.
-    @State var renameError: String?
+  /// Inline single-asset rename (#2638). The asset id currently showing an
+  /// editable filename field (Info panel / Enter-key entry point) — `nil`
+  /// means no rename is in progress. See `AppShell+AssetRename.swift`.
+  @State var renamingAssetID: AssetRef.ID?
+  /// Set when the last rename commit failed; surfaced inline next to the
+  /// field, never as a generic alert. Cleared on the next `begin`/`commit`.
+  @State var renameError: String?
 
-    /// Drag assets onto the source tree (#2646). See
-    /// `AppShell+AssetDrop.swift`. `assetDropTask` guards against two
-    /// overlapping drops interleaving collision prompts; `nil` when no
-    /// drop is running. `assetDropCollisionPrompt` drives
-    /// `AssetDropCollisionSheet`; `assetDropResults` drives the
-    /// end-of-batch report, shown only when something was skipped or
-    /// failed.
-    @State var assetDropTask: Task<Void, Never>?
-    @State var assetDropCollisionPrompt: AssetDropCollisionPrompt?
-    /// Set alongside `assetDropCollisionPrompt` (same
-    /// `AssetDropCollisionResolver` instance the prompt itself carries) so
-    /// the sheet's `onDismiss` can still resolve an implicit dismissal
-    /// after `assetDropCollisionPrompt` has already gone `nil` — see
-    /// `AssetDropSheets.swift`.
-    @State var assetDropCollisionResolver: AssetDropCollisionResolver?
-    @State var assetDropResults: [AssetDropItemResult]?
+  /// Drag assets onto the source tree (#2646). See
+  /// `AppShell+AssetDrop.swift`. `assetDropTask` guards against two
+  /// overlapping drops interleaving collision prompts; `nil` when no
+  /// drop is running. `assetDropCollisionPrompt` drives
+  /// `AssetDropCollisionSheet`; `assetDropResults` drives the
+  /// end-of-batch report, shown only when something was skipped or
+  /// failed.
+  @State var assetDropTask: Task<Void, Never>?
+  @State var assetDropCollisionPrompt: AssetDropCollisionPrompt?
+  /// Set alongside `assetDropCollisionPrompt` (same
+  /// `AssetDropCollisionResolver` instance the prompt itself carries) so
+  /// the sheet's `onDismiss` can still resolve an implicit dismissal
+  /// after `assetDropCollisionPrompt` has already gone `nil` — see
+  /// `AssetDropSheets.swift`.
+  @State var assetDropCollisionResolver: AssetDropCollisionResolver?
+  @State var assetDropResults: [AssetDropItemResult]?
 
-    /// Grid Delete key / "Move to Trash" context menu (#2653). See
-    /// `AppShell+Trash.swift`. Same shape as the asset-drop state above:
-    /// `assetTrashTask` guards against overlapping batches, `assetTrashResults`
-    /// drives the end-of-batch report (shown only on failure or a
-    /// mixed-destination batch).
-    @State var assetTrashTask: Task<Void, Never>?
-    @State var assetTrashResults: [AssetTrashItemResult]?
-    /// In-app Trash browser (#2653) — `.maple/trash`-backed sources
-    /// (iOS/iPadOS Filesystem, SMB) and Cloud. `nil` when not shown; set by
-    /// the toolbar's "Trash" button for the current source.
-    @State var trashBrowserContext: TrashBrowserContext?
-    /// Throwaway connection backing the Trash browser when `trashBrowserContext`
-    /// is `.smb` — independent of `browseVM.currentSource` so browsing an
-    /// SMB share's trash doesn't disturb whatever the grid is currently
-    /// showing. Torn down when the sheet dismisses.
-    @State var trashBrowserSMBSource: SMBSource?
+  /// Grid Delete key / "Move to Trash" context menu (#2653). See
+  /// `AppShell+Trash.swift`. Same shape as the asset-drop state above:
+  /// `assetTrashTask` guards against overlapping batches, `assetTrashResults`
+  /// drives the end-of-batch report (shown only on failure or a
+  /// mixed-destination batch).
+  @State var assetTrashTask: Task<Void, Never>?
+  @State var assetTrashResults: [AssetTrashItemResult]?
+  /// In-app Trash browser (#2653) — `.maple/trash`-backed sources
+  /// (iOS/iPadOS Filesystem, SMB) and Cloud. `nil` when not shown; set by
+  /// the toolbar's "Trash" button for the current source.
+  @State var trashBrowserContext: TrashBrowserContext?
+  /// Throwaway connection backing the Trash browser when `trashBrowserContext`
+  /// is `.smb` — independent of `browseVM.currentSource` so browsing an
+  /// SMB share's trash doesn't disturb whatever the grid is currently
+  /// showing. Torn down when the sheet dismisses.
+  @State var trashBrowserSMBSource: SMBSource?
 
-    /// `nil` on macOS (Filesystem sources use the real OS Trash — see
-    /// `AppShell+Trash.swift`'s file header); wires the in-app Trash
-    /// browser on iOS/iPadOS. A computed property (not an inline `#if`
-    /// inside the `AppShellSidebar(...)` call) — conditional compilation
-    /// around a single labeled call argument doesn't parse cleanly mixed
-    /// with the surrounding unconditional arguments.
-    private var showLocalTrashHandler: ((URL, Data, String) -> Void)? {
-        #if os(iOS)
-        return { url, rootBookmark, displayName in
-            trashBrowserContext = .local(libraryRoot: url, rootBookmark: rootBookmark, displayName: displayName)
-        }
-        #else
-        return nil
-        #endif
-    }
-
-    private var selectedSession: EditSession? {
-        browseVM.selectedID.flatMap { sessions[$0] }
-    }
-
-    /// Core "prune to a keep-set" primitive — both `pruneInactiveSessions`
-    /// (editor-open) and `pruneSessionsForNewAssetList` (folder/library
-    /// navigation) reduce their intent to "these asset ids must stay
-    /// resident" and call this to do the actual eviction, rather than each
-    /// reimplementing the dictionary filter. The guard avoids a spurious
-    /// `@State` rewrite (and shell re-render) when nothing would actually
-    /// be dropped. The real teardown work — cancelling the evicted
-    /// `EditSession`'s outstanding tasks — happens in `EditSession.deinit`
-    /// once the reassignment below drops the last strong reference; see
-    /// `prunedSessions(_:keeping:)` in MapleCore.
-    @MainActor
-    private func pruneSessions(keeping keepIDs: Set<AssetRef.ID>) {
-        guard sessions.keys.contains(where: { !keepIDs.contains($0) }) else { return }
-        sessions = prunedSessions(sessions, keeping: keepIDs)
-    }
-
-    /// Pane-shell (iPad/Mac) memory guard: keep only the active editor's session
-    /// resident. Each EditSession holds GPU live buffers + a decoded cache —
-    /// roughly one large RAW's worth — and the `open*` actions cache every opened
-    /// asset in `sessions` without ever pruning, so switching between two 100 MP
-    /// RAWs held both resident and jetsam-killed iOS at the per-process limit
-    /// (#1660). Called when an editor opens and when the active asset changes;
-    /// no-op while browsing (so the folder pre-create priming survives the grid).
-    /// The iPhone shell prunes in `EditorDestination` — this is its pane-shell +
-    /// filmstrip equivalent.
-    @MainActor
-    func pruneInactiveSessions() {
-        guard isImageOpen, let id = browseVM.selectedID else { return }
-        // Whether or not `id` is resident yet, the only id allowed to survive
-        // is the active one — `pruneSessions` reduces to `sessions = [:]` when
-        // it isn't resident (mirrors EditorDestination's own `sessions = [:]`,
-        // #1661 review) and to "drop every other entry" when it is.
-        pruneSessions(keeping: [id])
-    }
-
-    /// Pane-shell + iPhone memory guard: prune `sessions` whenever a folder /
-    /// library navigation replaces the visible asset list. `loadFolder`
-    /// pre-creates a session for every asset in the folder it loads, and
-    /// `ensureSession(for:)` primes one for every grid cell scrolled into
-    /// view — neither ever prunes, so re-browsing the same folder, or
-    /// navigating to a different one, only ever added entries, growing
-    /// memory without bound while pure browsing (#2038). Keeps every asset
-    /// in the NEW current list (so a still-visible cell's `ensureSession`
-    /// call on next appear is a no-op, not a re-create) plus the actively-
-    /// open editor asset, if any (mirrors `pruneInactiveSessions`'s
-    /// `isImageOpen` guard — never evict the session the user is looking
-    /// at mid-navigation, e.g. a filmstrip-driven folder change).
-    @MainActor
-    func pruneSessionsForNewAssetList() {
-        let currentIDs = Set(browseVM.assets.map(\.id))
-        let openID = isImageOpen ? browseVM.selectedID : nil
-        let keepIDs = openID.map { currentIDs.union([$0]) } ?? currentIDs
-        pruneSessions(keeping: keepIDs)
-    }
-
-    /// System memory-pressure response (#2037): free every INACTIVE
-    /// session's decoded-image cache, deep-zoom tile cache, and GPU-live
-    /// session — reusing `pruneInactiveSessions()`'s "active = the current
-    /// `browseVM.selectedID`" signal. Unlike `pruneInactiveSessions()` (which
-    /// evicts the whole `EditSession` and only runs on an open/switch), this
-    /// keeps every session resident (so browsing back to one is instant) and
-    /// only drops its re-derivable transient buffers — the active session is
-    /// never touched, so the current edit doesn't stall.
-    @MainActor
-    func releaseTransientMemoryForInactiveSessions() {
-        let activeID = browseVM.selectedID
-        for (id, session) in sessions where id != activeID {
-            Task { await session.releaseTransientMemory() }
-        }
-    }
-
-    /// iOS backgrounding response (#2037): backgrounded apps are jetsam's
-    /// first victims, so free every session's transient buffers — including
-    /// the active one's GPU-live session and decoded cache. Both self-heal
-    /// on foreground: the GPU driver reopens via the existing `!isOpen`
-    /// guard (`presentViaGpuLive`), and the decoded-image cache repopulates
-    /// via the ordinary cache-miss decode path.
-    ///
-    /// `excluding` is the currently-editing session's id, when
-    /// `persistPreviewOnBackground` is about to run one for it: that persist
-    /// reads the live GPU frame (`refreshThumbnailFromCurrentGpuFrame`), so
-    /// releasing it concurrently here would race `closeSession()` against
-    /// that readback on the same `GpuLiveDriver`. That session releases
-    /// itself from within the persist's own completion instead (see the
-    /// `scenePhase` observer below), sequenced safely after the readback.
-    @MainActor
-    func releaseTransientMemoryForAllSessions(excluding: AssetRef.ID? = nil) {
-        for (id, session) in sessions where id != excluding {
-            Task { await session.releaseTransientMemory() }
-        }
-    }
-
-    var body: some View {
-        Group {
-            // Shell selection goes through `MapleShellKind.current`
-            // (responsive-program S0a, #581). Direct `UIDevice.userInterfaceIdiom`
-            // calls are forbidden elsewhere — grep should show zero hits outside
-            // MapleCore/Layout/MapleLayout.swift. `phoneTabShell` is `#if os(iOS)`
-            // only (it's the iPhone tab-bar shell from S1a, #597), so the macOS
-            // branch never references it and always renders the pane shell directly.
-            #if os(iOS)
-            if MapleShellKind.current == .phoneTab {
-                // iPhone idiom → bottom-tab shell (Library / Search / Settings),
-                // each tab a NavigationStack. Always phone-tier; no
-                // GeometryReader needed (width is implicitly <768pt).
-                phoneTabShell
-                    .environment(\.mapleLayout, .phone)
-            } else {
-                paneShellWithLayout
-            }
-            #else
-            paneShellWithLayout
-            #endif
-        }
-        // #633 — InfoPanel/HistogramBlock reads this. nil ⇒ placeholder
-        // (local/PhotoKit assets, no cloud asset open). Set + cleared by
-        // `openCloudAsset` / the library-selection reset below.
-        .environment(\.cloudHistogramClient, cloudHistogramClient)
-        // InfoPanel/EnrichmentBlock reads this. nil ⇒ no enrichment section
-        // (local/PhotoKit assets, no cloud asset open). Set + cleared
-        // alongside `cloudHistogramClient`.
-        .environment(\.cloudAssetDetailClient, cloudAssetDetailClient)
-        // Info pane's clickable file-path row → open the asset's containing
-        // folder in browse (#2518). Re-injected across the iPhone info sheet.
-        .environment(\.revealFolderAction, RevealFolderAction { asset in
-          revealContainingFolder(of: asset)
-        })
-        // Face chips → search for a person by name (#2518). This is the
-        // mac/iPad behavior (cloud search overlay); `PhoneTabShell` overrides
-        // it for the iPhone global Search tab.
-        .environment(\.searchForText, SearchTextAction { query in
-          activateSearch(query: query)
-        })
-        // Inline single-asset rename (#2638). Re-injected across the iPhone
-        // info sheet + PreviewView's inspector/sheet/popover (see
-        // AssetRenameAction.swift's doc comment for why).
-        .environment(\.assetRename, AssetRenameContext(
-          renamingAssetID: renamingAssetID,
-          errorText: renameError,
-          unsupportedReason: { asset in renameUnsupportedReason(for: asset) },
-          begin: { asset in beginRename(for: asset) },
-          cancel: { cancelRename() },
-          commit: { asset, newFilename in commitRename(asset: asset, to: newFilename) }
-        ))
-        .preferredColorScheme(.dark)
-        .fileImporter(isPresented: $showFilePicker,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                loadFolder(url: url)
-            }
-        }
-        // iOS/iPadOS half of the drop-to-mount folder-access confirmation
-        // (#2649) — see `confirmParentFolderAccess` in
-        // `AppShell+FolderDrop.swift`. macOS never sets
-        // `showDropConfirmationPicker` (it uses `NSOpenPanel` directly), so
-        // this modifier is inert there. Resolution goes through
-        // `resolveDropConfirmation(_:)` — see its doc comment for why both
-        // this AND the `.onChange` fallback below call it unconditionally
-        // rather than each racing to touch `dropConfirmationContinuation`
-        // directly (review findings on #2756: same continuation-race class
-        // `AssetDropCollisionResolver` exists to close).
-        // Explicit `Result<URL, Error>` closure-parameter annotation — this
-        // is load-bearing, not stylistic. `.fileImporter` has two same-arity
-        // overloads (single `Result<URL, Error>` vs
-        // `allowsMultipleSelection:`'s `Result<[URL], Error>`), and without
-        // an explicit annotation the closure `{ result in … }` type-checked
-        // to a DIFFERENT overload on macOS than on iOS/iPadOS for this exact
-        // unconditional call site (macOS: `URL`; iOS: `[URL]`) — a genuine
-        // per-platform overload-resolution divergence, not a guess, found by
-        // building both platforms. Annotating forces the single-URL overload
-        // deterministically on both.
-        .fileImporter(isPresented: $showDropConfirmationPicker,
-                      allowedContentTypes: [.folder]) { (result: Result<URL, Error>) in
-            resolveDropConfirmation(try? result.get())
-        }
-        // Safety net for cancel: `.fileImporter`'s completion handler is not
-        // reliably invoked when the user dismisses without picking anything
-        // — observed SwiftUI behavior, not documented — so a pending
-        // continuation could otherwise hang the drop flow forever without
-        // this. Deferred by one run-loop turn via `Task`: SwiftUI fires
-        // this `.onChange` and the `.fileImporter` success closure above
-        // from the SAME dismissal event in an order this framework does
-        // not document, so a real pick's completion closure — already
-        // scheduled on the main run loop by the same dismissal — gets a
-        // chance to resolve first during the yield; `resolveDropConfirmation`'s
-        // single consume-point guard then makes THIS call a no-op instead
-        // of clobbering a successful pick with a false cancellation.
-        .onChange(of: showDropConfirmationPicker) { _, isPresented in
-            guard !isPresented else { return }
-            Task { @MainActor in
-                resolveDropConfirmation(nil)
-            }
-        }
-        .sheet(isPresented: $showExport) {
-            if let session = selectedSession {
-                ExportPanel(session: session)
-            }
-        }
-        .sheet(isPresented: $showSMBSheet) {
-            SMBPickerSheet(onConnect: { creds in
-                showSMBSheet = false
-                connectSMB(credentials: creds)
-            }, onCancel: { showSMBSheet = false })
-        }
-        .sheet(item: $addCloudSheetTarget) { target in
-            AddMapleCloudSheet(
-                prefilledDomain: target.prefill,
-                onDismiss: {
-                    addCloudSheetTarget = nil
-                    // The user backed out of re-signing-in — drop any pending
-                    // folder reopen so it can't replay on a later sign-in.
-                    pendingCloudReopen = nil
-                },
-                onSignedIn: { url, tokens, _ in
-                    Task { @MainActor in
-                        try? TokenStore.save(tokens, server: url)
-                        CloudServerRegistry.shared.register(url)
-                        // Refresh the per-server AuthSession cache so the
-                        // sidebar sees the user as signed in immediately.
-                        let session = sessionFor(url)
-                        await session.bootstrapAndRestore()
-                        addCloudSheetTarget = nil
-                        // #1381: if this sign-in was triggered by a folder open
-                        // that hit an auth error, replay that load now so the
-                        // user lands on their photos, not the error screen.
-                        if let pending = pendingCloudReopen, pending.serverID == url {
-                            pendingCloudReopen = nil
-                            loadCloudLibrary(serverID: pending.serverID,
-                                             folderID: pending.folderID,
-                                             libraryPath: pending.libraryPath)
-                        }
-                    }
-                }
-            )
-        }
-        .onChange(of: librarySelection) { _, newValue in
-            // Close any active search when the user changes what they're
-            // looking at — the search VM is scoped to one library, so it
-            // would otherwise show stale results against the new selection.
-            // Teardown-only: the new selection's own load repopulates the
-            // center column, so we must not also trigger a restore here.
-            if isSearchActive { tearDownSearch() }
-            // Cloud-current-path + Timeline VM are both only meaningful
-            // while a cloud library is selected. Drop both on any
-            // non-cloud selection so the sidebar tree's auto-expand /
-            // highlight + the center column's Timeline don't ghost
-            // across mode changes.
-            if case .cloudLibrary = newValue { /* keep */ }
-            else {
-                cloudCurrentPath = nil
-                cloudTimelineVM = nil
-                cloudTimelineThumbClient = nil
-                cloudTimelineThumbCache = nil
-                cloudHistogramClient = nil
-                cloudAssetDetailClient = nil
-            }
-            // All-sources Timeline VM (#2271/#2273) is only meaningful while
-            // `.allSources` is selected — drop it on any other selection so
-            // the center column doesn't ghost-render it after the user picks
-            // a folder / library / Photos filter.
-            if case .allSources = newValue { /* keep */ }
-            else {
-                allSourcesTimelineVM = nil
-                allSourcesTimelineThumbCache = nil
-            }
-            // Map VM (#2830) is only meaningful while `.map` is selected —
-            // drop it on any other selection so the center column doesn't
-            // ghost-render it after the user picks a folder / library /
-            // Timeline / Photos filter.
-            if case .map = newValue { /* keep */ }
-            else {
-                mapVM = nil
-                mapThumbClient = nil
-                mapThumbCache = nil
-                mapUnavailableReason = nil
-            }
-            // Merged timeline only valid while a PhotoKit filter is active.
-            if case .photosFilter = newValue { /* keep mergedCloudSource */ }
-            else {
-                mergedCloudSource = nil
-                browseVM.clearMerged()
-            }
-        }
-        .task {
-            // UITest harness fast path lives in AppShell+UITestFixture
-            // (#if DEBUG). Returns true if a fixture URL was consumed —
-            // we then skip restoreLastSource() so the harness gets a
-            // known empty starting state.
-            #if DEBUG
-            if await loadUITestFixtureIfPresent() { return }
-            #endif
-            // Tear down File Provider domains for servers that are no longer
-            // connected. Without this, a server removed in a prior session
-            // (or one whose teardown was interrupted) leaves an orphaned
-            // domain whose extension keeps polling the gone/rebuilt server —
-            // an unrecoverable "bad signature" 401 loop with no UI to clear it.
-            await FileProviderDomainController().reconcile(
-                validServerURLs: CloudServerRegistry.shared.servers)
-            // Restore last-used source on cold start.
-            await restoreLastSource()
-            // Cold-start deep link wins over the restored source. The
-            // URL was captured by `.onOpenURL` at `MapleApp` level
-            // before this `.task` ran; consume now that the restored
-            // selection has settled so the navigation lands on the
-            // deep-link destination, not the restored grid.
-            // Implementation: AppShell+DeepLink.swift.
-            consumePendingDeepLink()
-            // Cold-start opened document ("Open With Maple" / `open -a`) —
-            // captured by `.onOpenURL` before this `.task` ran. Consumed after
-            // restore so the opened file lands as the active editor session.
-            // Implementation: AppShell+DocumentOpen.swift (#1589).
-            consumePendingOpenedDocument()
-            // 30-day `.maple/trash` auto-purge (#2653) — debounced to at
-            // most once per 24h, mirroring the PhotoKit orphan sweeper's
-            // launch-time cadence (`docs/spec/08-io.md` § "Deletion sweep").
-            // Implementation: AppShell+Trash.swift.
-            sweepExpiredMapleTrashIfDue()
-        }
-        // Warm-launch delivery. An `.onOpenURL` while the app is
-        // already foregrounded sets `pendingDestination`; we observe
-        // via the `@State`-bound singleton so SwiftUI registers the
-        // dependency and re-evaluates `.onChange(of:)` on each write.
-        // Spec §2.
-        .onChange(of: deepLinkRouter.pendingDestination) { _, newValue in
-            guard newValue != nil else { return }
-            consumePendingDeepLink()
-        }
-        // Warm-launch opened document — an `.onOpenURL` file delivery while the
-        // app is foregrounded sets `pendingFileURL`; observe it (the
-        // `@State`-bound singleton registers the dependency) and open the file.
-        // #1589.
-        .onChange(of: documentOpenRouter.pendingFileURL) { _, newValue in
-            guard newValue != nil else { return }
-            consumePendingOpenedDocument()
-        }
-        // System memory pressure (#2037): free every INACTIVE session's
-        // decoded/tile/GPU buffers. The active session is untouched — see
-        // `releaseTransientMemoryForInactiveSessions()`.
-        .onChange(of: memoryPressureSignal.pressureEventCount) { _, _ in
-            releaseTransientMemoryForInactiveSessions()
-        }
-    }
-
-    // MARK: - Mac / iPad
-
-    /// Pane shell (macShell) wrapped in `GeometryReader` so that the
-    /// width-derived `MapleLayout` env value flows to child views.
-    /// Responsive-program S0a (#581).
-    @ViewBuilder
-    private var paneShellWithLayout: some View {
-        GeometryReader { proxy in
-            macShell
-                .environment(\.mapleLayout, MapleLayout.from(width: proxy.size.width))
-        }
-        // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
-        // renders `phoneTabShell` instead of this view. Routing lives in
-        // `AppShell+FolderDrop.swift`; this modifier is the only wiring.
-        .urlDropDestination(isTargeted: { targeted in
-            isWindowDropTargeted = targeted
-        }, perform: { urls in
-            handleWindowDrop(urls)
-        })
-        .overlay {
-            if isWindowDropTargeted {
-                MapleTokens.primary.opacity(0.12)
-                    .overlay(Rectangle().strokeBorder(MapleTokens.primary, lineWidth: 3))
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var macShell: some View {
-        AppShellMacLayout(
-            // Every image mode (`.preview`, `.editing`) collapses the browse
-            // grid to the image surface.
-            isFullImage: isImageOpen,
-            // Fast Preview §1: the static Preview surface on `.preview`;
-            // otherwise (i.e. `.editing`) the S5 EditorView. iPhone never
-            // gets here — `phoneTabShell` is the iPhone path.
-            usePreview: mode == .preview,
-            columnVisibility: $columnVisibility,
-            editorDetailVisible: $editorDetailVisible,
-            libraryTitle: libraryTitle,
-            selectedSession: selectedSession,
-            cloudTimelineVM: cloudTimelineVM,
-            cloudTimelineThumbClient: cloudTimelineThumbClient,
-            cloudTimelineThumbCache: cloudTimelineThumbCache,
-            allSourcesTimelineVM: allSourcesTimelineVM,
-            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
-            mapVM: mapVM,
-            mapThumbClient: mapThumbClient,
-            mapThumbCache: mapThumbCache,
-            mapUnavailableReason: mapUnavailableReason,
-            isSearchActive: isSearchActive,
-            searchVM: searchVM,
-            searchThumbClient: searchThumbClient,
-            searchThumbCache: searchThumbCache,
-            browseDisplayMode: $browseDisplayMode,
-            browseVM: browseVM,
-            sessions: $sessions,
-            sidebar: { sharedSidebar },
-            toolbarContent: { browseToolbarContent },
-            onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
-            onSelectMapPlace: { target in selectMapPlace(target) },
-            onCloseSearch: { deactivateSearch() },
-            onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
-            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-            onNavigateFolder: { url in navigateFolder(url) },
-            // #2779: folder-tile drop target in the grid, routed into the
-            // SAME `handleAssetDrop` entry point the sidebar's
-            // `FolderTreeRow` uses — see `AppShell+AssetDrop.swift`.
-            currentRootBookmark: currentRootBookmark,
-            onDropAssetsOnFolder: { url, bookmark, ids, isCopy in
-                handleAssetDrop(ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
-            },
-            onOpenEditor: { asset in openEditor(for: asset) },
-            onPrimeSession: { asset in ensureSession(for: asset) },
-            onFullImageFallback: { mode = .browse },
-            // S5 EditorView callbacks (#815). Dismiss returns to the browse
-            // grid. Share reuses the existing ⌘E ExportPanel the desktop
-            // already has.
-            // Info reveals the DetailPanel third column — on the pane shell
-            // the info/develop inspector is that column, not a sheet (the
-            // iPhone-only Info sheet), so the button's job is to make sure
-            // the column is visible (e.g. after the user collapsed it via
-            // the Library toggle).
-            // Fast Preview §1: the editor's back returns to Preview, not
-            // straight to the grid (`grid → Preview → Editor` back stack).
-            // #1879: the GPU-live present path never runs the CPU publish
-            // tail that refreshes `ThumbnailDiskCache`, so without this
-            // one-shot readback the Preview view (which paints from the
-            // thumbnail pipeline) keeps showing the pre-edit render.
-            onEditorDismiss: {
-                if let id = browseVM.selectedID, let session = sessions[id] {
-                    // Strong `session` capture — the persist must finish even if
-                    // the session is later evicted from `sessions` (#2009).
-                    Task { await session.persistDisplayPreviewOnExit() }
-                }
-                mode = .preview
-            },
-            onEditorShare: { showExport = true },
-            // Toggle the editor's Info inspector (#875 item 2). On the pane
-            // shell the info surface is the right-hand inspector, shown via
-            // `.inspector(isPresented:)` — toggling preserves the editor's
-            // armed-tool / fine-mode state (#816), unlike a column swap.
-            onEditorInfo: { withAnimation { editorDetailVisible.toggle() } },
-            // Fast Preview §1: Preview's Edit button flips the pane shell into
-            // the S5 editor for the same asset. The asset is already selected
-            // (`browseVM.selectedID`), and `ensureSession` primed a session on
-            // grid appear, so the editor mounts against the warm session.
-            onPreviewEdit: { asset in
-                browseVM.selectedID = asset.id
-                mode = .editing
-            },
-            // Fast Preview §1: Preview's back returns to the browse grid.
-            onPreviewDismiss: { mode = .browse },
-            // M2 panorama merge (#1236).
-            onMergePanorama: { openPanoramaMerge() },
-            // M4 batch metadata editor (#1629).
-            onEditMetadata: { openBatchMetadata() },
-            // #2641 batch rename.
-            onBatchRename: { openBatchRename() },
-            // #2653: grid Delete-key/context-menu trash.
-            onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
-            // #944 copy/paste/sync adjustments.
-            clipboard: adjustmentClipboard
-        )
-        .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
-            SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
-                .frame(minWidth: 540, minHeight: 480)
-        }
-        .sheet(item: $batchMetadataVM) { vm in
-            BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
-        }
-        .sheet(item: $batchRenameVM) { vm in
-            BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
-                #if os(macOS)
-                .frame(minWidth: 560, minHeight: 480)
-                #endif
-        }
-        // #2646: drag-onto-source-tree collision ask-flow + end-of-batch
-        // report. See `AppShell+AssetDrop.swift` / `AssetDropSheets.swift`.
-        .assetDropSheets(
-            collisionPrompt: $assetDropCollisionPrompt,
-            collisionResolver: $assetDropCollisionResolver,
-            results: $assetDropResults
-        )
-        // #2653: grid Delete-key/context-menu trash report + the in-app
-        // Trash browser. See `AppShell+Trash.swift` / `TrashSheets.swift`.
-        .assetTrashSheets(
-            results: $assetTrashResults,
-            trashBrowserContext: $trashBrowserContext,
-            onLoad: { await loadTrashBrowserRows() },
-            onRestore: { row in await restoreTrashBrowserRow(row) },
-            onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
-            onDismissBrowser: { dismissTrashBrowser() },
-            onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
-        )
-        // M2: panorama merge view — presented as a sheet on Mac/iPad.
-        // Covers the full content area; Cancel dismisses back to Browse
-        // and exits select mode.
-        .sheet(isPresented: Binding(
-            get: { mode == .panoramaMerge },
-            set: { if !$0 { dismissPanoramaMerge() } }
-        )) {
-            PanoMergeView(
-                assets: browseVM.selectedAssets,
-                session: panoMergeSession,
-                onDismiss: { dismissPanoramaMerge() },
-                // M5 (#1234): inject the stitched PNG into the library so it
-                // shows in the browse grid and is auto-selected.
-                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
-                // M6 provisioning (#1241): modelsNotInstalled error offers a
-                // "Configure in Settings → Pano" button. We dismiss the pano
-                // sheet first, then open Settings on the Pano tab so the user
-                // can configure paths without the sheet stacking on top.
-                onOpenPanoSettings: {
-                    dismissPanoramaMerge()
-                    settingsInitialTab = .pano
-                    showSettings = true
-                }
-            )
-            #if os(macOS)
-            .frame(minWidth: 560, minHeight: 480)
-            #endif
-        }
-        // Full-bleed editor (#1586): hide the sources sidebar — and close the
-        // right inspector — when an image is open, so the canvas-first chrome
-        // floats over a full-bleed canvas (matching the web/design, where the
-        // floating filmstrip/dock replace the side panels). The sidebar
-        // returns on dismiss; ⌘\ and the Info button reopen them mid-session.
-        .onChange(of: mode) { _, newMode in
-            let imageOpen = (newMode == .preview || newMode == .editing)
-            // Entering an image surface on the pane shell (iPad/Mac): drop every other
-            // cached session so only the active asset's GPU + decoded buffers stay
-            // resident. The open* actions cache every opened asset in `sessions`
-            // and never prune, so two large RAWs held at once jetsam-killed iOS
-            // (#1660). Covers the "select in grid, then open" path (selectedID
-            // changed while browsing, so the watcher below didn't fire).
-            if imageOpen { pruneInactiveSessions() }
-            // The animated sidebar/inspector collapse read as janky on image
-            // open/close — snap the column swap instantly, with animations
-            // explicitly disabled so no ambient transaction re-animates it.
-            var noAnim = Transaction()
-            noAnim.disablesAnimations = true
-            withTransaction(noAnim) {
-                columnVisibility = imageOpen ? .detailOnly : .all
-                if newMode == .editing { editorDetailVisible = false }
-            }
-        }
-        // Filmstrip sibling switch (iPad/Mac) changes the active asset WITHOUT a
-        // mode change — prune here too so the previous sibling's heavy resources
-        // free before the new one renders.
-        .onChange(of: browseVM.selectedID) { _, _ in
-            pruneInactiveSessions()
-            // #2638 — selection moved on (grid tap, arrow nav, filmstrip
-            // sibling switch): a stale rename error or an armed-but-abandoned
-            // edit field must not bleed onto the newly-focused asset's
-            // filename row. `applyRenamed` already moves `selectedID` itself
-            // to the new asset on a successful commit, so this is a no-op
-            // for that path — it only fires for an unrelated selection
-            // change while renaming/erroring.
-            cancelRename()
-        }
-        // Foreground re-present (#1769, iOS): see the `scenePhase` property doc.
-        // macOS windows aren't backgrounded the same way (presents aren't
-        // discarded), so this is iOS-only.
-        .onChange(of: scenePhase) { _, newPhase in
-            #if os(iOS)
-            if newPhase == .active {
-                selectedSession?.representOnForeground()
-            }
-            #endif
-            // #2009 — backgrounding is an exit for the preview persist: an
-            // edit in flight (GPU frame not yet read back, or a captured frame
-            // still in the idle-debounce window) must land before the app can
-            // be suspended/killed. No-op unless a session is actively editing.
-            if newPhase == .background, mode == .editing, let session = selectedSession {
-                persistPreviewOnBackground(session)
-            }
-            #if os(iOS)
-            // #2037 — a backgrounded app is jetsam's first victim; free every
-            // session's decoded/tile/GPU buffers, including the active one's.
-            // The currently-editing session (if any) is excluded here and
-            // released instead from inside its own exit-persist completion
-            // above, so its GPU frame is captured before the session closes.
-            if newPhase == .background {
-                let activeEditingID = (mode == .editing) ? browseVM.selectedID : nil
-                releaseTransientMemoryForAllSessions(excluding: activeEditingID)
-            }
-            #endif
-        }
-    }
-
-    /// Persist the editing session's developed preview when the app
-    /// backgrounds (jules review, #2009).
-    ///
-    /// On iOS a bare `Task { … }` would be aborted mid-flight when the OS
-    /// suspends the process. Hold a UIKit background-task assertion for the
-    /// async readback + AVIF encode + local write (or `/api/preview` PUT).
-    /// This is async-friendly — no thread blocking: the persist runs on the
-    /// MainActor while the assertion is held (unlike a `DispatchSemaphore`
-    /// inside `performExpiringActivity`, whose wait could stall the actor and
-    /// starve the very persist Task it's waiting on). `end()` is idempotent, so
-    /// whichever of the completion or the OS expiration handler fires first
-    /// releases the assertion exactly once. Best-effort: the preview is a pure
-    /// cache, so an early expiration just leaves it to regenerate on next open.
-    ///
-    /// macOS doesn't suspend the process on background the way iOS does (as the
-    /// `scenePhase` comment above notes), so a plain task lands the write.
-    @MainActor
-    private func persistPreviewOnBackground(_ session: EditSession) {
-        #if os(iOS)
-        let bgTask = BackgroundTaskAssertion()
-        // Deliberately proceeding even when the assertion is denied
-        // (`begin` returns false — Low Power Mode, near-suspension): the
-        // persist is a pure cache and may be cut short, but the release
-        // MUST still run — the scenePhase handler excluded this session
-        // from the bulk release precisely because this path owns it
-        // (#2037/#2947); bailing out here left the active editor's buffers
-        // resident in a backgrounded app. `end()` no-ops without one.
-        _ = bgTask.begin(name: "app.justmaple.aperture.preview-persist") {
-            bgTask.end()
-        }
-        Task { @MainActor in
-            await session.persistDisplayPreviewOnExit()
-            // #2037 — now that the exit persist has read whatever GPU frame
-            // was live, release this session's decoded/tile/GPU buffers too
-            // (backgrounded apps are jetsam's first victims). Sequenced
-            // AFTER the persist — see `releaseTransientMemoryForAllSessions`'s
-            // `excluding` doc for why running it concurrently would race.
-            await session.releaseTransientMemory()
-            bgTask.end()
-        }
-        #else
-        Task { await session.persistDisplayPreviewOnExit() }
-        #endif
-    }
-
-    /// Shared between the Mac/iPad NavigationSplitView and the iPhone
-    /// drawer. Both shells fan the same 13 LibrarySidebar callbacks into
-    /// AppShell action methods — keeping this as one computed property
-    /// avoids the ~90-LOC duplicate that pre-slice-4 had between
-    /// `librarySidebarView` and `iPhoneSidebar`.
-    @ViewBuilder
-    private var sharedSidebar: some View {
-        AppShellSidebar(
-            selection: $librarySelection,
-            cloudCurrentPath: cloudCurrentPath,
-            onAddFolder: { showFilePicker = true },
-            onPickFolder: { folder in openSavedFolder(folder) },
-            onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
-            onPickAncestor: { url, bookmark in
-                openSubFolder(url: url, rootBookmark: bookmark)
-            },
-            onCreateFolder: { url, bookmark, name in
-                createLocalFolder(name: name, in: url, rootBookmark: bookmark)
-            },
-            onRenameFolder: { url, bookmark, newName in
-                renameLocalFolder(url, to: newName, rootBookmark: bookmark)
-            },
-            onTrashFolder: { url, bookmark in
-                trashLocalFolder(url, rootBookmark: bookmark)
-            },
-            // #2646: drag-onto-source-tree, and its "Move/Copy Selected
-            // Here" keyboard/menu equivalent. All three row kinds share
-            // one AppShell entry point (`handleAssetDrop`) — see
-            // `AppShell+AssetDrop.swift`.
-            onDropAssets: { url, bookmark, ids, isCopy in
-                handleAssetDrop(ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
-            },
-            onDropAssetsSMB: { share, ids, isCopy in
-                handleAssetDrop(ids: ids, destination: .smb(share: share), copy: isCopy)
-            },
-            onDropAssetsCloud: { server, libraryFolderID, libraryRootPath, absPath, ids, isCopy in
-                handleAssetDrop(
-                    ids: ids,
-                    destination: .cloud(server: server, libraryFolderID: libraryFolderID,
-                                        libraryRootPath: libraryRootPath, absPath: absPath),
-                    copy: isCopy)
-            },
-            selectedAssetCount: browseVM.isSelecting ? browseVM.selectedIDs.count : (browseVM.selectedID != nil ? 1 : 0),
-            folderRefreshGeneration: folderRefreshGeneration,
-            onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
-            onRequestPhotosAccess: { requestPhotosAccess() },
-            photosAuthGeneration: photosAuthGeneration,
-            onAddSMB: { showSMBSheet = true },
-            onPickSMB: { share in connectSavedSMB(share) },
-            onCreateSMBFolder: { share, parentPath, name in
-                createSMBFolder(name: name, share: share, parentPath: parentPath)
-            },
-            onRenameSMBFolder: { share, path, newName in
-                renameSMBFolder(path, to: newName, share: share)
-            },
-            onTrashSMBFolder: { share, path in
-                trashSMBFolder(path, share: share)
-            },
-            onListSMBDir: { share, path in
-                await listSMBSubdirectories(share: share, path: path)
-            },
-            onAddCloudServer: { addCloudSheetTarget = .fresh },
-            onPickCloudLibrary: { serverID, folderID, libraryPath in
-                loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-            },
-            onListCloudDir: { url, absPath in
-                await listCloudDirFor(server: url, absPath: absPath)
-            },
-            onSignOutCloudServer: { url in
-                Task { @MainActor in
-                    // Sign out keeps the server in the sidebar but
-                    // invalidates its tokens. The user can sign back
-                    // in by clicking the row (which falls through to
-                    // the prefilled AddMapleCloudSheet via the no-
-                    // credentials path in loadCloudLibrary).
-                    let session = sessionFor(url)
-                    await session.signOut()
-                    // The widget's own sign-out callback is deliberately a
-                    // no-op (an unattended 401 must not log the app out), so
-                    // the EXPLICIT sign-out is where its timeline gets
-                    // dropped — otherwise WidgetKit keeps the previous
-                    // account's photo on screen for up to the 4-hour policy.
-                    WidgetCenter.shared.reloadAllTimelines()
-                }
-            },
-            onSignInCloudServer: { url in
-                // Sidebar "Sign in" — present prefilled re-auth for this
-                // server. A pending folder reopen (if any) replays on success.
-                addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
-            },
-            sessionFor: sessionFor,
-            onRemoveCloudServer: { url in
-                Task { @MainActor in
-                    // Remove drops tokens, the registry entry, AND the File
-                    // Provider domain. Without the domain teardown the
-                    // extension keeps running against a server that's gone
-                    // from the UI — it reloads its persisted <host>.json
-                    // config and mirrored tokens and polls the (now stale or
-                    // rebuilt) server, surfacing as endless "bad signature"
-                    // 401 loops with no way to recover from the UI.
-                    let session = sessionFor(url)
-                    await session.signOut()
-                    CloudServerRegistry.shared.remove(url)
-                    // Same reasoning as onSignOutCloudServer above.
-                    WidgetCenter.shared.reloadAllTimelines()
-                    if let domainID = FileProviderDomainController.domainIdentifier(for: url) {
-                        // disable() clears local config + tokens even if it
-                        // throws, so the polling stops regardless; log a throw
-                        // so a failed File Provider teardown is visible.
-                        do {
-                            try await FileProviderDomainController().disable(domainIdentifier: domainID)
-                        } catch {
-                            appShellLog.error("File Provider teardown failed for removed server \(domainID, privacy: .public) (local state still cleared): \(error.localizedDescription, privacy: .public)")
-                        }
-                    }
-                }
-            },
-            onLoadCloudFolders: { url in
-                await loadCloudFoldersFor(url)
-            },
-            onCreateCloudFolder: { server, libraryFolderID, libraryRootPath, parentAbsPath, name in
-                createCloudFolder(server: server, libraryFolderID: libraryFolderID,
-                                  libraryRootPath: libraryRootPath, parentAbsPath: parentAbsPath, name: name)
-            },
-            onRenameCloudFolder: { server, libraryFolderID, libraryRootPath, absPath, newName in
-                renameCloudFolder(server: server, libraryFolderID: libraryFolderID,
-                                  libraryRootPath: libraryRootPath, absPath: absPath, newName: newName)
-            },
-            onTrashCloudFolder: { server, libraryFolderID, libraryRootPath, absPath in
-                trashCloudFolder(server: server, libraryFolderID: libraryFolderID,
-                                 libraryRootPath: libraryRootPath, absPath: absPath)
-            },
-            // macOS Filesystem sources use the real OS Trash and have no
-            // in-app Trash node — see `AppShell+Trash.swift`'s file header.
-            // `showLocalTrashHandler` is `nil` on macOS so the sidebar's
-            // "Show Trash…" item never appears there.
-            onShowLocalTrash: showLocalTrashHandler,
-            onShowSMBTrash: { share in
-                trashBrowserContext = .smb(share)
-            },
-            onShowCloudTrash: { server, libraryFolderID, displayName in
-                trashBrowserContext = .cloud(server: server, libraryFolderID: libraryFolderID, displayName: displayName)
-            },
-            onSelectTimeline: { openAllSourcesTimeline() },
-            onSelectMap: { openMap() },
-            // OS file/folder drop-to-mount (#2649) — every sidebar row also
-            // installs its OWN `URL.self` drop target (see
-            // `LibrarySidebar.onDropURLs`'s doc comment for why a
-            // window-level-only handler leaves rows dead to Finder drags);
-            // all of them share this one entry point, same as the window.
-            onDropURLs: { urls in handleWindowDrop(urls) }
-        )
-    }
-
-    // MARK: - iPhone
-
+  /// `nil` on macOS (Filesystem sources use the real OS Trash — see
+  /// `AppShell+Trash.swift`'s file header); wires the in-app Trash
+  /// browser on iOS/iPadOS. A computed property (not an inline `#if`
+  /// inside the `AppShellSidebar(...)` call) — conditional compilation
+  /// around a single labeled call argument doesn't parse cleanly mixed
+  /// with the surrounding unconditional arguments.
+  private var showLocalTrashHandler: ((URL, Data, String) -> Void)? {
     #if os(iOS)
+      return { url, rootBookmark, displayName in
+        trashBrowserContext = .local(
+          libraryRoot: url, rootBookmark: rootBookmark, displayName: displayName)
+      }
+    #else
+      return nil
+    #endif
+  }
+
+  private var selectedSession: EditSession? {
+    browseVM.selectedID.flatMap { sessions[$0] }
+  }
+
+  /// Core "prune to a keep-set" primitive — both `pruneInactiveSessions`
+  /// (editor-open) and `pruneSessionsForNewAssetList` (folder/library
+  /// navigation) reduce their intent to "these asset ids must stay
+  /// resident" and call this to do the actual eviction, rather than each
+  /// reimplementing the dictionary filter. The guard avoids a spurious
+  /// `@State` rewrite (and shell re-render) when nothing would actually
+  /// be dropped. The real teardown work — cancelling the evicted
+  /// `EditSession`'s outstanding tasks — happens in `EditSession.deinit`
+  /// once the reassignment below drops the last strong reference; see
+  /// `prunedSessions(_:keeping:)` in MapleCore.
+  @MainActor
+  private func pruneSessions(keeping keepIDs: Set<AssetRef.ID>) {
+    guard sessions.keys.contains(where: { !keepIDs.contains($0) }) else { return }
+    sessions = prunedSessions(sessions, keeping: keepIDs)
+  }
+
+  /// Pane-shell (iPad/Mac) memory guard: keep only the active editor's session
+  /// resident. Each EditSession holds GPU live buffers + a decoded cache —
+  /// roughly one large RAW's worth — and the `open*` actions cache every opened
+  /// asset in `sessions` without ever pruning, so switching between two 100 MP
+  /// RAWs held both resident and jetsam-killed iOS at the per-process limit
+  /// (#1660). Called when an editor opens and when the active asset changes;
+  /// no-op while browsing (so the folder pre-create priming survives the grid).
+  /// The iPhone shell prunes in `EditorDestination` — this is its pane-shell +
+  /// filmstrip equivalent.
+  @MainActor
+  func pruneInactiveSessions() {
+    guard isImageOpen, let id = browseVM.selectedID else { return }
+    // Whether or not `id` is resident yet, the only id allowed to survive
+    // is the active one — `pruneSessions` reduces to `sessions = [:]` when
+    // it isn't resident (mirrors EditorDestination's own `sessions = [:]`,
+    // #1661 review) and to "drop every other entry" when it is.
+    pruneSessions(keeping: [id])
+  }
+
+  /// Pane-shell + iPhone memory guard: prune `sessions` whenever a folder /
+  /// library navigation replaces the visible asset list. `loadFolder`
+  /// pre-creates a session for every asset in the folder it loads, and
+  /// `ensureSession(for:)` primes one for every grid cell scrolled into
+  /// view — neither ever prunes, so re-browsing the same folder, or
+  /// navigating to a different one, only ever added entries, growing
+  /// memory without bound while pure browsing (#2038). Keeps every asset
+  /// in the NEW current list (so a still-visible cell's `ensureSession`
+  /// call on next appear is a no-op, not a re-create) plus the actively-
+  /// open editor asset, if any (mirrors `pruneInactiveSessions`'s
+  /// `isImageOpen` guard — never evict the session the user is looking
+  /// at mid-navigation, e.g. a filmstrip-driven folder change).
+  @MainActor
+  func pruneSessionsForNewAssetList() {
+    let currentIDs = Set(browseVM.assets.map(\.id))
+    let openID = isImageOpen ? browseVM.selectedID : nil
+    let keepIDs = openID.map { currentIDs.union([$0]) } ?? currentIDs
+    pruneSessions(keeping: keepIDs)
+  }
+
+  /// System memory-pressure response (#2037): free every INACTIVE
+  /// session's decoded-image cache, deep-zoom tile cache, and GPU-live
+  /// session — reusing `pruneInactiveSessions()`'s "active = the current
+  /// `browseVM.selectedID`" signal. Unlike `pruneInactiveSessions()` (which
+  /// evicts the whole `EditSession` and only runs on an open/switch), this
+  /// keeps every session resident (so browsing back to one is instant) and
+  /// only drops its re-derivable transient buffers — the active session is
+  /// never touched, so the current edit doesn't stall.
+  @MainActor
+  func releaseTransientMemoryForInactiveSessions() {
+    let activeID = browseVM.selectedID
+    for (id, session) in sessions where id != activeID {
+      Task { await session.releaseTransientMemory() }
+    }
+  }
+
+  /// iOS backgrounding response (#2037): backgrounded apps are jetsam's
+  /// first victims, so free every session's transient buffers — including
+  /// the active one's GPU-live session and decoded cache. Both self-heal
+  /// on foreground: the GPU driver reopens via the existing `!isOpen`
+  /// guard (`presentViaGpuLive`), and the decoded-image cache repopulates
+  /// via the ordinary cache-miss decode path.
+  ///
+  /// `excluding` is the currently-editing session's id, when
+  /// `persistPreviewOnBackground` is about to run one for it: that persist
+  /// reads the live GPU frame (`refreshThumbnailFromCurrentGpuFrame`), so
+  /// releasing it concurrently here would race `closeSession()` against
+  /// that readback on the same `GpuLiveDriver`. That session releases
+  /// itself from within the persist's own completion instead (see the
+  /// `scenePhase` observer below), sequenced safely after the readback.
+  @MainActor
+  func releaseTransientMemoryForAllSessions(excluding: AssetRef.ID? = nil) {
+    for (id, session) in sessions where id != excluding {
+      Task { await session.releaseTransientMemory() }
+    }
+  }
+
+  var body: some View {
+    Group {
+      // Shell selection goes through `MapleShellKind.current`
+      // (responsive-program S0a, #581). Direct `UIDevice.userInterfaceIdiom`
+      // calls are forbidden elsewhere — grep should show zero hits outside
+      // MapleCore/Layout/MapleLayout.swift. `phoneTabShell` is `#if os(iOS)`
+      // only (it's the iPhone tab-bar shell from S1a, #597), so the macOS
+      // branch never references it and always renders the pane shell directly.
+      #if os(iOS)
+        if MapleShellKind.current == .phoneTab {
+          // iPhone idiom → bottom-tab shell (Library / Search / Settings),
+          // each tab a NavigationStack. Always phone-tier; no
+          // GeometryReader needed (width is implicitly <768pt).
+          phoneTabShell
+            .environment(\.mapleLayout, .phone)
+        } else {
+          paneShellWithLayout
+        }
+      #else
+        paneShellWithLayout
+      #endif
+    }
+    // #633 — InfoPanel/HistogramBlock reads this. nil ⇒ placeholder
+    // (local/PhotoKit assets, no cloud asset open). Set + cleared by
+    // `openCloudAsset` / the library-selection reset below.
+    .environment(\.cloudHistogramClient, cloudHistogramClient)
+    // InfoPanel/EnrichmentBlock reads this. nil ⇒ no enrichment section
+    // (local/PhotoKit assets, no cloud asset open). Set + cleared
+    // alongside `cloudHistogramClient`.
+    .environment(\.cloudAssetDetailClient, cloudAssetDetailClient)
+    // Info pane's clickable file-path row → open the asset's containing
+    // folder in browse (#2518). Re-injected across the iPhone info sheet.
+    .environment(
+      \.revealFolderAction,
+      RevealFolderAction { asset in
+        revealContainingFolder(of: asset)
+      }
+    )
+    // Face chips → search for a person by name (#2518). This is the
+    // mac/iPad behavior (cloud search overlay); `PhoneTabShell` overrides
+    // it for the iPhone global Search tab.
+    .environment(
+      \.searchForText,
+      SearchTextAction { query in
+        activateSearch(query: query)
+      }
+    )
+    // Inline single-asset rename (#2638). Re-injected across the iPhone
+    // info sheet + PreviewView's inspector/sheet/popover (see
+    // AssetRenameAction.swift's doc comment for why).
+    .environment(
+      \.assetRename,
+      AssetRenameContext(
+        renamingAssetID: renamingAssetID,
+        errorText: renameError,
+        unsupportedReason: { asset in renameUnsupportedReason(for: asset) },
+        begin: { asset in beginRename(for: asset) },
+        cancel: { cancelRename() },
+        commit: { asset, newFilename in commitRename(asset: asset, to: newFilename) }
+      )
+    )
+    .preferredColorScheme(.dark)
+    .fileImporter(
+      isPresented: $showFilePicker,
+      allowedContentTypes: [.folder]
+    ) { result in
+      if case .success(let url) = result {
+        loadFolder(url: url)
+      }
+    }
+    // iOS/iPadOS half of the drop-to-mount folder-access confirmation
+    // (#2649) — see `confirmParentFolderAccess` in
+    // `AppShell+FolderDrop.swift`. macOS never sets
+    // `showDropConfirmationPicker` (it uses `NSOpenPanel` directly), so
+    // this modifier is inert there. Resolution goes through
+    // `resolveDropConfirmation(_:)` — see its doc comment for why both
+    // this AND the `.onChange` fallback below call it unconditionally
+    // rather than each racing to touch `dropConfirmationContinuation`
+    // directly (review findings on #2756: same continuation-race class
+    // `AssetDropCollisionResolver` exists to close).
+    // Explicit `Result<URL, Error>` closure-parameter annotation — this
+    // is load-bearing, not stylistic. `.fileImporter` has two same-arity
+    // overloads (single `Result<URL, Error>` vs
+    // `allowsMultipleSelection:`'s `Result<[URL], Error>`), and without
+    // an explicit annotation the closure `{ result in … }` type-checked
+    // to a DIFFERENT overload on macOS than on iOS/iPadOS for this exact
+    // unconditional call site (macOS: `URL`; iOS: `[URL]`) — a genuine
+    // per-platform overload-resolution divergence, not a guess, found by
+    // building both platforms. Annotating forces the single-URL overload
+    // deterministically on both.
+    .fileImporter(
+      isPresented: $showDropConfirmationPicker,
+      allowedContentTypes: [.folder]
+    ) { (result: Result<URL, Error>) in
+      resolveDropConfirmation(try? result.get())
+    }
+    // Safety net for cancel: `.fileImporter`'s completion handler is not
+    // reliably invoked when the user dismisses without picking anything
+    // — observed SwiftUI behavior, not documented — so a pending
+    // continuation could otherwise hang the drop flow forever without
+    // this. Deferred by one run-loop turn via `Task`: SwiftUI fires
+    // this `.onChange` and the `.fileImporter` success closure above
+    // from the SAME dismissal event in an order this framework does
+    // not document, so a real pick's completion closure — already
+    // scheduled on the main run loop by the same dismissal — gets a
+    // chance to resolve first during the yield; `resolveDropConfirmation`'s
+    // single consume-point guard then makes THIS call a no-op instead
+    // of clobbering a successful pick with a false cancellation.
+    .onChange(of: showDropConfirmationPicker) { _, isPresented in
+      guard !isPresented else { return }
+      Task { @MainActor in
+        resolveDropConfirmation(nil)
+      }
+    }
+    .sheet(isPresented: $showExport) {
+      if let session = selectedSession {
+        ExportPanel(session: session)
+      }
+    }
+    .sheet(isPresented: $showSMBSheet) {
+      SMBPickerSheet(
+        onConnect: { creds in
+          showSMBSheet = false
+          connectSMB(credentials: creds)
+        }, onCancel: { showSMBSheet = false })
+    }
+    .sheet(item: $addCloudSheetTarget) { target in
+      AddMapleCloudSheet(
+        prefilledDomain: target.prefill,
+        onDismiss: {
+          addCloudSheetTarget = nil
+          // The user backed out of re-signing-in — drop any pending
+          // folder reopen so it can't replay on a later sign-in.
+          pendingCloudReopen = nil
+        },
+        onSignedIn: { url, tokens, _ in
+          Task { @MainActor in
+            try? TokenStore.save(tokens, server: url)
+            CloudServerRegistry.shared.register(url)
+            // Refresh the per-server AuthSession cache so the
+            // sidebar sees the user as signed in immediately.
+            let session = sessionFor(url)
+            await session.bootstrapAndRestore()
+            addCloudSheetTarget = nil
+            // #1381: if this sign-in was triggered by a folder open
+            // that hit an auth error, replay that load now so the
+            // user lands on their photos, not the error screen.
+            if let pending = pendingCloudReopen, pending.serverID == url {
+              pendingCloudReopen = nil
+              loadCloudLibrary(
+                serverID: pending.serverID,
+                folderID: pending.folderID,
+                libraryPath: pending.libraryPath)
+            }
+          }
+        }
+      )
+    }
+    .onChange(of: librarySelection) { _, newValue in
+      // Close any active search when the user changes what they're
+      // looking at — the search VM is scoped to one library, so it
+      // would otherwise show stale results against the new selection.
+      // Teardown-only: the new selection's own load repopulates the
+      // center column, so we must not also trigger a restore here.
+      if isSearchActive { tearDownSearch() }
+      // Cloud-current-path + Timeline VM are both only meaningful
+      // while a cloud library is selected. Drop both on any
+      // non-cloud selection so the sidebar tree's auto-expand /
+      // highlight + the center column's Timeline don't ghost
+      // across mode changes.
+      if case .cloudLibrary = newValue {
+        // Keep the state for the active source.
+      } else {
+        cloudCurrentPath = nil
+        cloudTimelineVM = nil
+        cloudTimelineThumbClient = nil
+        cloudTimelineThumbCache = nil
+        cloudHistogramClient = nil
+        cloudAssetDetailClient = nil
+      }
+      // All-sources Timeline VM (#2271/#2273) is only meaningful while
+      // `.allSources` is selected — drop it on any other selection so
+      // the center column doesn't ghost-render it after the user picks
+      // a folder / library / Photos filter.
+      if case .allSources = newValue {
+        // Keep the state for the active source.
+      } else {
+        allSourcesTimelineVM = nil
+        allSourcesTimelineThumbCache = nil
+      }
+      // Map VM (#2830) is only meaningful while `.map` is selected —
+      // drop it on any other selection so the center column doesn't
+      // ghost-render it after the user picks a folder / library /
+      // Timeline / Photos filter.
+      if case .map = newValue {
+        // Keep the state for the active source.
+      } else {
+        mapVM = nil
+        mapThumbClient = nil
+        mapThumbCache = nil
+        mapUnavailableReason = nil
+      }
+      // Merged timeline only valid while a PhotoKit filter is active.
+      if case .photosFilter = newValue {
+        // Keep mergedCloudSource for the active Photos filter.
+      } else {
+        mergedCloudSource = nil
+        browseVM.clearMerged()
+      }
+    }
+    .task {
+      guard !hasRestoredInitialSource else { return }
+      // UITest harness fast path lives in AppShell+UITestFixture
+      // (#if DEBUG). Returns true if a fixture URL was consumed —
+      // we then skip restoreLastSource() so the harness gets a
+      // known empty starting state.
+      #if DEBUG
+        if await loadUITestFixtureIfPresent() {
+          guard !Task.isCancelled else { return }
+          hasRestoredInitialSource = true
+          consumePendingDeepLink()
+          consumePendingOpenedDocument()
+          return
+        }
+      #endif
+      // Tear down File Provider domains for servers that are no longer
+      // connected. Without this, a server removed in a prior session
+      // (or one whose teardown was interrupted) leaves an orphaned
+      // domain whose extension keeps polling the gone/rebuilt server —
+      // an unrecoverable "bad signature" 401 loop with no UI to clear it.
+      await FileProviderDomainController().reconcile(
+        validServerURLs: CloudServerRegistry.shared.servers)
+      // Restore last-used source on cold start.
+      await restoreLastSource()
+      guard !Task.isCancelled else { return }
+      hasRestoredInitialSource = true
+      // Cold-start deep link wins over the restored source. The
+      // URL was captured by `.onOpenURL` at `MapleApp` level
+      // before this `.task` ran; consume now that the restored
+      // selection has settled so the navigation lands on the
+      // deep-link destination, not the restored grid.
+      // Implementation: AppShell+DeepLink.swift.
+      consumePendingDeepLink()
+      // Cold-start opened document ("Open With Maple" / `open -a`) —
+      // captured by `.onOpenURL` before this `.task` ran. Consumed after
+      // restore so the opened file lands as the active editor session.
+      // Implementation: AppShell+DocumentOpen.swift (#1589).
+      consumePendingOpenedDocument()
+      // 30-day `.maple/trash` auto-purge (#2653) — debounced to at
+      // most once per 24h, mirroring the PhotoKit orphan sweeper's
+      // launch-time cadence (`docs/spec/08-io.md` § "Deletion sweep").
+      // Implementation: AppShell+Trash.swift.
+      sweepExpiredMapleTrashIfDue()
+    }
+    // Warm-launch delivery. An `.onOpenURL` while the app is
+    // already foregrounded sets `pendingDestination`; we observe
+    // via the `@State`-bound singleton so SwiftUI registers the
+    // dependency and re-evaluates `.onChange(of:)` on each write.
+    // Spec §2.
+    .onChange(of: deepLinkRouter.pendingDestination) { _, newValue in
+      guard newValue != nil else { return }
+      consumePendingDeepLink()
+    }
+    // Warm-launch opened document — an `.onOpenURL` file delivery while the
+    // app is foregrounded sets `pendingFileURL`; observe it (the
+    // `@State`-bound singleton registers the dependency) and open the file.
+    // #1589.
+    .onChange(of: documentOpenRouter.pendingFileURL) { _, newValue in
+      guard newValue != nil else { return }
+      consumePendingOpenedDocument()
+    }
+    // System memory pressure (#2037): free every INACTIVE session's
+    // decoded/tile/GPU buffers. The active session is untouched — see
+    // `releaseTransientMemoryForInactiveSessions()`.
+    .onChange(of: memoryPressureSignal.pressureEventCount) { _, _ in
+      releaseTransientMemoryForInactiveSessions()
+    }
+  }
+
+  // MARK: - Mac / iPad
+
+  /// Pane shell (macShell) wrapped in `GeometryReader` so that the
+  /// width-derived `MapleLayout` env value flows to child views.
+  /// Responsive-program S0a (#581).
+  @ViewBuilder
+  private var paneShellWithLayout: some View {
+    GeometryReader { proxy in
+      macShell
+        .environment(\.mapleLayout, MapleLayout.from(width: proxy.size.width))
+    }
+    // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
+    // renders `phoneTabShell` instead of this view. Routing lives in
+    // `AppShell+FolderDrop.swift`; this modifier is the only wiring.
+    .urlDropDestination(
+      isTargeted: { targeted in
+        isWindowDropTargeted = targeted
+      },
+      perform: { urls in
+        handleWindowDrop(urls)
+      }
+    )
+    .overlay {
+      if isWindowDropTargeted {
+        MapleTokens.primary.opacity(0.12)
+          .overlay(Rectangle().strokeBorder(MapleTokens.primary, lineWidth: 3))
+          .allowsHitTesting(false)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var macShell: some View {
+    AppShellMacLayout(
+      // Every image mode (`.preview`, `.editing`) collapses the browse
+      // grid to the image surface.
+      isFullImage: isImageOpen,
+      // Fast Preview §1: the static Preview surface on `.preview`;
+      // otherwise (i.e. `.editing`) the S5 EditorView. iPhone never
+      // gets here — `phoneTabShell` is the iPhone path.
+      usePreview: mode == .preview,
+      columnVisibility: $columnVisibility,
+      editorDetailVisible: $editorDetailVisible,
+      libraryTitle: libraryTitle,
+      selectedSession: selectedSession,
+      cloudTimelineVM: cloudTimelineVM,
+      cloudTimelineThumbClient: cloudTimelineThumbClient,
+      cloudTimelineThumbCache: cloudTimelineThumbCache,
+      allSourcesTimelineVM: allSourcesTimelineVM,
+      allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+      mapVM: mapVM,
+      mapThumbClient: mapThumbClient,
+      mapThumbCache: mapThumbCache,
+      mapUnavailableReason: mapUnavailableReason,
+      isSearchActive: isSearchActive,
+      searchVM: searchVM,
+      searchThumbClient: searchThumbClient,
+      searchThumbCache: searchThumbCache,
+      browseDisplayMode: $browseDisplayMode,
+      browseVM: browseVM,
+      sessions: $sessions,
+      sidebar: { sharedSidebar },
+      toolbarContent: { browseToolbarContent },
+      onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+      onSelectMapPlace: { target in selectMapPlace(target) },
+      onCloseSearch: { deactivateSearch() },
+      onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
+      onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+      onNavigateFolder: { url in navigateFolder(url) },
+      // #2779: folder-tile drop target in the grid, routed into the
+      // SAME `handleAssetDrop` entry point the sidebar's
+      // `FolderTreeRow` uses — see `AppShell+AssetDrop.swift`.
+      currentRootBookmark: currentRootBookmark,
+      onDropAssetsOnFolder: { url, bookmark, ids, isCopy in
+        handleAssetDrop(
+          ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
+      },
+      onOpenEditor: { asset in openEditor(for: asset) },
+      onPrimeSession: { asset in ensureSession(for: asset) },
+      onFullImageFallback: { mode = .browse },
+      // S5 EditorView callbacks (#815). Dismiss returns to the browse
+      // grid. Share reuses the existing ⌘E ExportPanel the desktop
+      // already has.
+      // Info reveals the DetailPanel third column — on the pane shell
+      // the info/develop inspector is that column, not a sheet (the
+      // iPhone-only Info sheet), so the button's job is to make sure
+      // the column is visible (e.g. after the user collapsed it via
+      // the Library toggle).
+      // Fast Preview §1: the editor's back returns to Preview, not
+      // straight to the grid (`grid → Preview → Editor` back stack).
+      // #1879: the GPU-live present path never runs the CPU publish
+      // tail that refreshes `ThumbnailDiskCache`, so without this
+      // one-shot readback the Preview view (which paints from the
+      // thumbnail pipeline) keeps showing the pre-edit render.
+      onEditorDismiss: {
+        if let id = browseVM.selectedID, let session = sessions[id] {
+          // Strong `session` capture — the persist must finish even if
+          // the session is later evicted from `sessions` (#2009).
+          Task { await session.persistDisplayPreviewOnExit() }
+        }
+        mode = .preview
+      },
+      onEditorShare: { showExport = true },
+      // Toggle the editor's Info inspector (#875 item 2). On the pane
+      // shell the info surface is the right-hand inspector, shown via
+      // `.inspector(isPresented:)` — toggling preserves the editor's
+      // armed-tool / fine-mode state (#816), unlike a column swap.
+      onEditorInfo: { withAnimation { editorDetailVisible.toggle() } },
+      // Fast Preview §1: Preview's Edit button flips the pane shell into
+      // the S5 editor for the same asset. The asset is already selected
+      // (`browseVM.selectedID`), and `ensureSession` primed a session on
+      // grid appear, so the editor mounts against the warm session.
+      onPreviewEdit: { asset in
+        browseVM.selectedID = asset.id
+        mode = .editing
+      },
+      // Fast Preview §1: Preview's back returns to the browse grid.
+      onPreviewDismiss: { mode = .browse },
+      // M2 panorama merge (#1236).
+      onMergePanorama: { openPanoramaMerge() },
+      // M4 batch metadata editor (#1629).
+      onEditMetadata: { openBatchMetadata() },
+      // #2641 batch rename.
+      onBatchRename: { openBatchRename() },
+      // #2653: grid Delete-key/context-menu trash.
+      onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
+      // #944 copy/paste/sync adjustments.
+      clipboard: adjustmentClipboard
+    )
+    .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
+      SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
+        .frame(minWidth: 540, minHeight: 480)
+    }
+    .sheet(item: $batchMetadataVM) { vm in
+      BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
+    }
+    .sheet(item: $batchRenameVM) { vm in
+      BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
+        #if os(macOS)
+          .frame(minWidth: 560, minHeight: 480)
+        #endif
+    }
+    // #2646: drag-onto-source-tree collision ask-flow + end-of-batch
+    // report. See `AppShell+AssetDrop.swift` / `AssetDropSheets.swift`.
+    .assetDropSheets(
+      collisionPrompt: $assetDropCollisionPrompt,
+      collisionResolver: $assetDropCollisionResolver,
+      results: $assetDropResults
+    )
+    // #2653: grid Delete-key/context-menu trash report + the in-app
+    // Trash browser. See `AppShell+Trash.swift` / `TrashSheets.swift`.
+    .assetTrashSheets(
+      results: $assetTrashResults,
+      trashBrowserContext: $trashBrowserContext,
+      onLoad: { await loadTrashBrowserRows() },
+      onRestore: { row in await restoreTrashBrowserRow(row) },
+      onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
+      onDismissBrowser: { dismissTrashBrowser() },
+      onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
+    )
+    // M2: panorama merge view — presented as a sheet on Mac/iPad.
+    // Covers the full content area; Cancel dismisses back to Browse
+    // and exits select mode.
+    .sheet(
+      isPresented: Binding(
+        get: { mode == .panoramaMerge },
+        set: { if !$0 { dismissPanoramaMerge() } }
+      )
+    ) {
+      PanoMergeView(
+        assets: browseVM.selectedAssets,
+        session: panoMergeSession,
+        onDismiss: { dismissPanoramaMerge() },
+        // M5 (#1234): inject the stitched PNG into the library so it
+        // shows in the browse grid and is auto-selected.
+        onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
+        // M6 provisioning (#1241): modelsNotInstalled error offers a
+        // "Configure in Settings → Pano" button. We dismiss the pano
+        // sheet first, then open Settings on the Pano tab so the user
+        // can configure paths without the sheet stacking on top.
+        onOpenPanoSettings: {
+          dismissPanoramaMerge()
+          settingsInitialTab = .pano
+          showSettings = true
+        }
+      )
+      #if os(macOS)
+        .frame(minWidth: 560, minHeight: 480)
+      #endif
+    }
+    // Full-bleed editor (#1586): hide the sources sidebar — and close the
+    // right inspector — when an image is open, so the canvas-first chrome
+    // floats over a full-bleed canvas (matching the web/design, where the
+    // floating filmstrip/dock replace the side panels). The sidebar
+    // returns on dismiss; ⌘\ and the Info button reopen them mid-session.
+    .onChange(of: mode) { _, newMode in
+      let imageOpen = (newMode == .preview || newMode == .editing)
+      // Entering an image surface on the pane shell (iPad/Mac): drop every other
+      // cached session so only the active asset's GPU + decoded buffers stay
+      // resident. The open* actions cache every opened asset in `sessions`
+      // and never prune, so two large RAWs held at once jetsam-killed iOS
+      // (#1660). Covers the "select in grid, then open" path (selectedID
+      // changed while browsing, so the watcher below didn't fire).
+      if imageOpen { pruneInactiveSessions() }
+      // The animated sidebar/inspector collapse read as janky on image
+      // open/close — snap the column swap instantly, with animations
+      // explicitly disabled so no ambient transaction re-animates it.
+      var noAnim = Transaction()
+      noAnim.disablesAnimations = true
+      withTransaction(noAnim) {
+        columnVisibility = imageOpen ? .detailOnly : .all
+        if newMode == .editing { editorDetailVisible = false }
+      }
+    }
+    // Filmstrip sibling switch (iPad/Mac) changes the active asset WITHOUT a
+    // mode change — prune here too so the previous sibling's heavy resources
+    // free before the new one renders.
+    .onChange(of: browseVM.selectedID) { _, _ in
+      pruneInactiveSessions()
+      // #2638 — selection moved on (grid tap, arrow nav, filmstrip
+      // sibling switch): a stale rename error or an armed-but-abandoned
+      // edit field must not bleed onto the newly-focused asset's
+      // filename row. `applyRenamed` already moves `selectedID` itself
+      // to the new asset on a successful commit, so this is a no-op
+      // for that path — it only fires for an unrelated selection
+      // change while renaming/erroring.
+      cancelRename()
+    }
+    // Foreground re-present (#1769, iOS): see the `scenePhase` property doc.
+    // macOS windows aren't backgrounded the same way (presents aren't
+    // discarded), so this is iOS-only.
+    .onChange(of: scenePhase) { _, newPhase in
+      #if os(iOS)
+        if newPhase == .active {
+          selectedSession?.representOnForeground()
+        }
+      #endif
+      // #2009 — backgrounding is an exit for the preview persist: an
+      // edit in flight (GPU frame not yet read back, or a captured frame
+      // still in the idle-debounce window) must land before the app can
+      // be suspended/killed. No-op unless a session is actively editing.
+      if newPhase == .background, mode == .editing, let session = selectedSession {
+        persistPreviewOnBackground(session)
+      }
+      #if os(iOS)
+        // #2037 — a backgrounded app is jetsam's first victim; free every
+        // session's decoded/tile/GPU buffers, including the active one's.
+        // The currently-editing session (if any) is excluded here and
+        // released instead from inside its own exit-persist completion
+        // above, so its GPU frame is captured before the session closes.
+        if newPhase == .background {
+          let activeEditingID = (mode == .editing) ? browseVM.selectedID : nil
+          releaseTransientMemoryForAllSessions(excluding: activeEditingID)
+        }
+      #endif
+    }
+  }
+
+  /// Persist the editing session's developed preview when the app
+  /// backgrounds (jules review, #2009).
+  ///
+  /// On iOS a bare `Task { … }` would be aborted mid-flight when the OS
+  /// suspends the process. Hold a UIKit background-task assertion for the
+  /// async readback + AVIF encode + local write (or `/api/preview` PUT).
+  /// This is async-friendly — no thread blocking: the persist runs on the
+  /// MainActor while the assertion is held (unlike a `DispatchSemaphore`
+  /// inside `performExpiringActivity`, whose wait could stall the actor and
+  /// starve the very persist Task it's waiting on). `end()` is idempotent, so
+  /// whichever of the completion or the OS expiration handler fires first
+  /// releases the assertion exactly once. Best-effort: the preview is a pure
+  /// cache, so an early expiration just leaves it to regenerate on next open.
+  ///
+  /// macOS doesn't suspend the process on background the way iOS does (as the
+  /// `scenePhase` comment above notes), so a plain task lands the write.
+  @MainActor
+  private func persistPreviewOnBackground(_ session: EditSession) {
+    #if os(iOS)
+      let bgTask = BackgroundTaskAssertion()
+      // Deliberately proceeding even when the assertion is denied
+      // (`begin` returns false — Low Power Mode, near-suspension): the
+      // persist is a pure cache and may be cut short, but the release
+      // MUST still run — the scenePhase handler excluded this session
+      // from the bulk release precisely because this path owns it
+      // (#2037/#2947); bailing out here left the active editor's buffers
+      // resident in a backgrounded app. `end()` no-ops without one.
+      _ = bgTask.begin(name: "app.justmaple.aperture.preview-persist") {
+        bgTask.end()
+      }
+      Task { @MainActor in
+        await session.persistDisplayPreviewOnExit()
+        // #2037 — now that the exit persist has read whatever GPU frame
+        // was live, release this session's decoded/tile/GPU buffers too
+        // (backgrounded apps are jetsam's first victims). Sequenced
+        // AFTER the persist — see `releaseTransientMemoryForAllSessions`'s
+        // `excluding` doc for why running it concurrently would race.
+        await session.releaseTransientMemory()
+        bgTask.end()
+      }
+    #else
+      Task { await session.persistDisplayPreviewOnExit() }
+    #endif
+  }
+
+  /// Shared between the Mac/iPad NavigationSplitView and the iPhone
+  /// drawer. Both shells fan the same 13 LibrarySidebar callbacks into
+  /// AppShell action methods — keeping this as one computed property
+  /// avoids the ~90-LOC duplicate that pre-slice-4 had between
+  /// `librarySidebarView` and `iPhoneSidebar`.
+  @ViewBuilder
+  private var sharedSidebar: some View {
+    AppShellSidebar(
+      selection: $librarySelection,
+      cloudCurrentPath: cloudCurrentPath,
+      onAddFolder: { showFilePicker = true },
+      onPickFolder: { folder in openSavedFolder(folder) },
+      onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
+      onPickAncestor: { url, bookmark in
+        openSubFolder(url: url, rootBookmark: bookmark)
+      },
+      onCreateFolder: { url, bookmark, name in
+        createLocalFolder(name: name, in: url, rootBookmark: bookmark)
+      },
+      onRenameFolder: { url, bookmark, newName in
+        renameLocalFolder(url, to: newName, rootBookmark: bookmark)
+      },
+      onTrashFolder: { url, bookmark in
+        trashLocalFolder(url, rootBookmark: bookmark)
+      },
+      // #2646: drag-onto-source-tree, and its "Move/Copy Selected
+      // Here" keyboard/menu equivalent. All three row kinds share
+      // one AppShell entry point (`handleAssetDrop`) — see
+      // `AppShell+AssetDrop.swift`.
+      onDropAssets: { url, bookmark, ids, isCopy in
+        handleAssetDrop(
+          ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
+      },
+      onDropAssetsSMB: { share, ids, isCopy in
+        handleAssetDrop(ids: ids, destination: .smb(share: share), copy: isCopy)
+      },
+      onDropAssetsCloud: { server, libraryFolderID, libraryRootPath, absPath, ids, isCopy in
+        handleAssetDrop(
+          ids: ids,
+          destination: .cloud(
+            server: server, libraryFolderID: libraryFolderID,
+            libraryRootPath: libraryRootPath, absPath: absPath),
+          copy: isCopy)
+      },
+      selectedAssetCount: browseVM.isSelecting
+        ? browseVM.selectedIDs.count : (browseVM.selectedID != nil ? 1 : 0),
+      folderRefreshGeneration: folderRefreshGeneration,
+      onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
+      onRequestPhotosAccess: { requestPhotosAccess() },
+      photosAuthGeneration: photosAuthGeneration,
+      onAddSMB: { showSMBSheet = true },
+      onPickSMB: { share in connectSavedSMB(share) },
+      onCreateSMBFolder: { share, parentPath, name in
+        createSMBFolder(name: name, share: share, parentPath: parentPath)
+      },
+      onRenameSMBFolder: { share, path, newName in
+        renameSMBFolder(path, to: newName, share: share)
+      },
+      onTrashSMBFolder: { share, path in
+        trashSMBFolder(path, share: share)
+      },
+      onListSMBDir: { share, path in
+        await listSMBSubdirectories(share: share, path: path)
+      },
+      onAddCloudServer: { addCloudSheetTarget = .fresh },
+      onPickCloudLibrary: { serverID, folderID, libraryPath in
+        loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+      },
+      onListCloudDir: { url, absPath in
+        await listCloudDirFor(server: url, absPath: absPath)
+      },
+      onSignOutCloudServer: { url in
+        Task { @MainActor in
+          // Sign out keeps the server in the sidebar but
+          // invalidates its tokens. The user can sign back
+          // in by clicking the row (which falls through to
+          // the prefilled AddMapleCloudSheet via the no-
+          // credentials path in loadCloudLibrary).
+          let session = sessionFor(url)
+          await session.signOut()
+          // The widget's own sign-out callback is deliberately a
+          // no-op (an unattended 401 must not log the app out), so
+          // the EXPLICIT sign-out is where its timeline gets
+          // dropped — otherwise WidgetKit keeps the previous
+          // account's photo on screen for up to the 4-hour policy.
+          WidgetCenter.shared.reloadAllTimelines()
+        }
+      },
+      onSignInCloudServer: { url in
+        // Sidebar "Sign in" — present prefilled re-auth for this
+        // server. A pending folder reopen (if any) replays on success.
+        addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
+      },
+      sessionFor: sessionFor,
+      onRemoveCloudServer: { url in
+        Task { @MainActor in
+          // Remove drops tokens, the registry entry, AND the File
+          // Provider domain. Without the domain teardown the
+          // extension keeps running against a server that's gone
+          // from the UI — it reloads its persisted <host>.json
+          // config and mirrored tokens and polls the (now stale or
+          // rebuilt) server, surfacing as endless "bad signature"
+          // 401 loops with no way to recover from the UI.
+          let session = sessionFor(url)
+          await session.signOut()
+          CloudServerRegistry.shared.remove(url)
+          // Same reasoning as onSignOutCloudServer above.
+          WidgetCenter.shared.reloadAllTimelines()
+          if let domainID = FileProviderDomainController.domainIdentifier(for: url) {
+            // disable() clears local config + tokens even if it
+            // throws, so the polling stops regardless; log a throw
+            // so a failed File Provider teardown is visible.
+            do {
+              try await FileProviderDomainController().disable(domainIdentifier: domainID)
+            } catch {
+              appShellLog.error(
+                "File Provider teardown failed for removed server \(domainID, privacy: .public) (local state still cleared): \(error.localizedDescription, privacy: .public)"
+              )
+            }
+          }
+        }
+      },
+      onLoadCloudFolders: { url in
+        await loadCloudFoldersFor(url)
+      },
+      onCreateCloudFolder: { server, libraryFolderID, libraryRootPath, parentAbsPath, name in
+        createCloudFolder(
+          server: server, libraryFolderID: libraryFolderID,
+          libraryRootPath: libraryRootPath, parentAbsPath: parentAbsPath, name: name)
+      },
+      onRenameCloudFolder: { server, libraryFolderID, libraryRootPath, absPath, newName in
+        renameCloudFolder(
+          server: server, libraryFolderID: libraryFolderID,
+          libraryRootPath: libraryRootPath, absPath: absPath, newName: newName)
+      },
+      onTrashCloudFolder: { server, libraryFolderID, libraryRootPath, absPath in
+        trashCloudFolder(
+          server: server, libraryFolderID: libraryFolderID,
+          libraryRootPath: libraryRootPath, absPath: absPath)
+      },
+      // macOS Filesystem sources use the real OS Trash and have no
+      // in-app Trash node — see `AppShell+Trash.swift`'s file header.
+      // `showLocalTrashHandler` is `nil` on macOS so the sidebar's
+      // "Show Trash…" item never appears there.
+      onShowLocalTrash: showLocalTrashHandler,
+      onShowSMBTrash: { share in
+        trashBrowserContext = .smb(share)
+      },
+      onShowCloudTrash: { server, libraryFolderID, displayName in
+        trashBrowserContext = .cloud(
+          server: server, libraryFolderID: libraryFolderID, displayName: displayName)
+      },
+      onSelectTimeline: { openAllSourcesTimeline() },
+      onSelectMap: { openMap() },
+      // OS file/folder drop-to-mount (#2649) — every sidebar row also
+      // installs its OWN `URL.self` drop target (see
+      // `LibrarySidebar.onDropURLs`'s doc comment for why a
+      // window-level-only handler leaves rows dead to Finder drags);
+      // all of them share this one entry point, same as the window.
+      onDropURLs: { urls in handleWindowDrop(urls) }
+    )
+  }
+
+  // MARK: - iPhone
+
+  #if os(iOS)
     /// iPhone tab-bar shell (responsive-program S1a, #597) — bottom
     /// `TabView` with three per-tab NavigationStacks (Library / Search /
     /// Settings). Library tab content is `PhoneLibraryView`, which wraps
@@ -1244,291 +1293,297 @@ struct AppShell: View {
     /// is `PhoneSearchTab` (S7, #622); Settings embeds the existing `SettingsView`.
     @ViewBuilder
     private var phoneTabShell: some View {
-        PhoneTabShell(
-            libraryPath: $libraryPath,
-            isDrawerOpen: $isDrawerOpen,
-            mode: mode,
-            selectedSession: selectedSession,
-            libraryTitle: libraryTitle,
-            cloudTimelineVM: cloudTimelineVM,
-            cloudTimelineThumbClient: cloudTimelineThumbClient,
-            cloudTimelineThumbCache: cloudTimelineThumbCache,
-            allSourcesTimelineVM: allSourcesTimelineVM,
-            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
-            // #2886: forwarded to the Library tab's AppShellCenterColumn
-            // call site (PhoneTabShell → PhoneLibraryView →
-            // AppShellIPhoneShell) — same three values the Mac/iPad
-            // sidebar's MAP row feeds AppShellMacLayout.
-            mapVM: mapVM,
-            mapThumbClient: mapThumbClient,
-            mapThumbCache: mapThumbCache,
-            mapUnavailableReason: mapUnavailableReason,
-            browseDisplayMode: $browseDisplayMode,
-            browseVM: browseVM,
-            sessions: $sessions,
-            // ServerAdmin (#2766) reaches the Settings tab through here.
-            sessionFor: sessionFor,
-            phoneSearchServerKey: phoneSearchServerKey,
-            makePhoneSearchSession: { await makePhoneSearchSession() },
-            resolveSearchAsset: { asset, server in prepareCloudSession(asset, server: server) },
-            pendingSearchSeed: $pendingPhoneSearchSeed,
-            sidebar: { sharedSidebar },
-            toolbarContent: { browseToolbarContent },
-            // iPhone (#809): resolve the cloud / merged-PhotoKit asset's
-            // session and hand its AssetRef back to PhoneTabShell, which pushes
-            // the S5 EditorView onto the Library tab's NavigationStack — rather
-            // than the legacy `openCloudAsset` / `openLocalPhotoKitAsset`
-            // mode-flip handlers used by the Mac / iPad pane shell above. The
-            // resolution logic (bytes provider, CloudSidecarStore, histogram
-            // client) is identical — only the navigation target differs.
-            onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
-            onSelectMapPlace: { target in selectMapPlace(target) },
-            onSelectLocalAsset: { ref in
-                // Mirror the legacy `openLocalPhotoKitAsset` error handling
-                // (AppShell+PhotoKitActions.swift): a `PhotoKitSource` init
-                // failure must surface to the user via `browseVM.loadError`,
-                // not be silently swallowed by `try?` (which would turn the
-                // tap into a no-op). Returning `nil` tells `PhoneTabShell` not
-                // to push the S5 EditorView. (#809)
-                do {
-                    return try prepareLocalPhotoKitSession(ref)
-                } catch {
-                    browseVM.loadError = error
-                    return nil
-                }
-            },
-            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-            onNavigateFolder: { url in navigateFolder(url) },
-            onOpenEditor: { asset in openEditor(for: asset) },
-            onPrimeSession: { asset in ensureSession(for: asset) },
-            onFullImageFallback: { mode = .browse },
-            timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
-            onMergePanorama: { openPanoramaMerge() },
-            onEditMetadata: { openBatchMetadata() },
-            onBatchRename: { openBatchRename() },
-            // #2653: grid Delete-key/context-menu trash.
-            onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
-            clipboard: adjustmentClipboard
+      PhoneTabShell(
+        libraryPath: $libraryPath,
+        isDrawerOpen: $isDrawerOpen,
+        mode: mode,
+        selectedSession: selectedSession,
+        libraryTitle: libraryTitle,
+        cloudTimelineVM: cloudTimelineVM,
+        cloudTimelineThumbClient: cloudTimelineThumbClient,
+        cloudTimelineThumbCache: cloudTimelineThumbCache,
+        allSourcesTimelineVM: allSourcesTimelineVM,
+        allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+        // #2886: forwarded to the Library tab's AppShellCenterColumn
+        // call site (PhoneTabShell → PhoneLibraryView →
+        // AppShellIPhoneShell) — same three values the Mac/iPad
+        // sidebar's MAP row feeds AppShellMacLayout.
+        mapVM: mapVM,
+        mapThumbClient: mapThumbClient,
+        mapThumbCache: mapThumbCache,
+        mapUnavailableReason: mapUnavailableReason,
+        browseDisplayMode: $browseDisplayMode,
+        browseVM: browseVM,
+        sessions: $sessions,
+        // ServerAdmin (#2766) reaches the Settings tab through here.
+        sessionFor: sessionFor,
+        phoneSearchServerKey: phoneSearchServerKey,
+        makePhoneSearchSession: { await makePhoneSearchSession() },
+        resolveSearchAsset: { asset, server in prepareCloudSession(asset, server: server) },
+        pendingSearchSeed: $pendingPhoneSearchSeed,
+        sidebar: { sharedSidebar },
+        toolbarContent: { browseToolbarContent },
+        // iPhone (#809): resolve the cloud / merged-PhotoKit asset's
+        // session and hand its AssetRef back to PhoneTabShell, which pushes
+        // the S5 EditorView onto the Library tab's NavigationStack — rather
+        // than the legacy `openCloudAsset` / `openLocalPhotoKitAsset`
+        // mode-flip handlers used by the Mac / iPad pane shell above. The
+        // resolution logic (bytes provider, CloudSidecarStore, histogram
+        // client) is identical — only the navigation target differs.
+        onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
+        onSelectMapPlace: { target in selectMapPlace(target) },
+        onSelectLocalAsset: { ref in
+          // Mirror the legacy `openLocalPhotoKitAsset` error handling
+          // (AppShell+PhotoKitActions.swift): a `PhotoKitSource` init
+          // failure must surface to the user via `browseVM.loadError`,
+          // not be silently swallowed by `try?` (which would turn the
+          // tap into a no-op). Returning `nil` tells `PhoneTabShell` not
+          // to push the S5 EditorView. (#809)
+          do {
+            return try prepareLocalPhotoKitSession(ref)
+          } catch {
+            browseVM.loadError = error
+            return nil
+          }
+        },
+        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+        onNavigateFolder: { url in navigateFolder(url) },
+        onOpenEditor: { asset in openEditor(for: asset) },
+        onPrimeSession: { asset in ensureSession(for: asset) },
+        onFullImageFallback: { mode = .browse },
+        timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
+        onMergePanorama: { openPanoramaMerge() },
+        onEditMetadata: { openBatchMetadata() },
+        onBatchRename: { openBatchRename() },
+        // #2653: grid Delete-key/context-menu trash.
+        onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
+        clipboard: adjustmentClipboard
+      )
+      // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
+      // but presented over the tab shell instead of the pane shell.
+      .sheet(
+        isPresented: Binding(
+          get: { mode == .panoramaMerge },
+          set: { if !$0 { dismissPanoramaMerge() } }
         )
-        // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
-        // but presented over the tab shell instead of the pane shell.
-        .sheet(isPresented: Binding(
-            get: { mode == .panoramaMerge },
-            set: { if !$0 { dismissPanoramaMerge() } }
-        )) {
-            PanoMergeView(
-                assets: browseVM.selectedAssets,
-                session: panoMergeSession,
-                onDismiss: { dismissPanoramaMerge() },
-                // M5 (#1234): inject the stitched PNG into the library.
-                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
-                // M6 provisioning (#1241): direct not-provisioned errors to
-                // Settings → Pano on iPhone as well.
-                onOpenPanoSettings: {
-                    dismissPanoramaMerge()
-                    settingsInitialTab = .pano
-                    showSettings = true
-                }
-            )
-        }
-        // M4: batch metadata editor sheet for iPhone — same sheet as Mac/iPad,
-        // but presented over the tab shell instead of the pane shell.
-        .sheet(item: $batchMetadataVM) { vm in
-            BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
-        }
-        // #2641: batch rename sheet for iPhone — same sheet as Mac/iPad,
-        // presented over the tab shell instead of the pane shell.
-        .sheet(item: $batchRenameVM) { vm in
-            BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
-        }
-        // #2646: same collision ask-flow + end-of-batch report as Mac/iPad,
-        // reachable here via a source-tree row's "Move/Copy Selected Here"
-        // menu item (drag itself is Mac/iPad only per the ticket). Same
-        // shared helper as the Mac/iPad chain above — see its doc comment
-        // for why that sharing matters.
-        .assetDropSheets(
-            collisionPrompt: $assetDropCollisionPrompt,
-            collisionResolver: $assetDropCollisionResolver,
-            results: $assetDropResults
+      ) {
+        PanoMergeView(
+          assets: browseVM.selectedAssets,
+          session: panoMergeSession,
+          onDismiss: { dismissPanoramaMerge() },
+          // M5 (#1234): inject the stitched PNG into the library.
+          onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
+          // M6 provisioning (#1241): direct not-provisioned errors to
+          // Settings → Pano on iPhone as well.
+          onOpenPanoSettings: {
+            dismissPanoramaMerge()
+            settingsInitialTab = .pano
+            showSettings = true
+          }
         )
-        // #2653: grid Delete-key/context-menu trash report + the in-app
-        // Trash browser. See `AppShell+Trash.swift` / `TrashSheets.swift`.
-        .assetTrashSheets(
-            results: $assetTrashResults,
-            trashBrowserContext: $trashBrowserContext,
-            onLoad: { await loadTrashBrowserRows() },
-            onRestore: { row in await restoreTrashBrowserRow(row) },
-            onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
-            onDismissBrowser: { dismissTrashBrowser() },
-            onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
-        )
+      }
+      // M4: batch metadata editor sheet for iPhone — same sheet as Mac/iPad,
+      // but presented over the tab shell instead of the pane shell.
+      .sheet(item: $batchMetadataVM) { vm in
+        BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
+      }
+      // #2641: batch rename sheet for iPhone — same sheet as Mac/iPad,
+      // presented over the tab shell instead of the pane shell.
+      .sheet(item: $batchRenameVM) { vm in
+        BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
+      }
+      // #2646: same collision ask-flow + end-of-batch report as Mac/iPad,
+      // reachable here via a source-tree row's "Move/Copy Selected Here"
+      // menu item (drag itself is Mac/iPad only per the ticket). Same
+      // shared helper as the Mac/iPad chain above — see its doc comment
+      // for why that sharing matters.
+      .assetDropSheets(
+        collisionPrompt: $assetDropCollisionPrompt,
+        collisionResolver: $assetDropCollisionResolver,
+        results: $assetDropResults
+      )
+      // #2653: grid Delete-key/context-menu trash report + the in-app
+      // Trash browser. See `AppShell+Trash.swift` / `TrashSheets.swift`.
+      .assetTrashSheets(
+        results: $assetTrashResults,
+        trashBrowserContext: $trashBrowserContext,
+        onLoad: { await loadTrashBrowserRows() },
+        onRestore: { row in await restoreTrashBrowserRow(row) },
+        onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
+        onDismissBrowser: { dismissTrashBrowser() },
+        onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
+      )
     }
+  #endif
+
+  // MARK: - Deep-link helpers
+
+  /// Reset every transient piece of UI (sheets + iPhone drawer)
+  /// so a deep-link destination renders cleanly. Lives here, not
+  /// in `AppShell+DeepLink.swift`, because several of the state
+  /// vars below (`showSettings`, `showExport`, `isDrawerOpen`) are
+  /// `private` to this file — keeping the helper internal-but-
+  /// file-local lets the extension delegate without widening their
+  /// access. Per spec §2 warm-launch behavior.
+  @MainActor
+  func dismissAllTransientUI() {
+    showSMBSheet = false
+    addCloudSheetTarget = nil
+    showSettings = false
+    settingsInitialTab = nil
+    showExport = false
+    #if os(iOS)
+      isDrawerOpen = false
     #endif
+  }
 
-    // MARK: - Deep-link helpers
+  // MARK: - Toolbar
 
-    /// Reset every transient piece of UI (sheets + iPhone drawer)
-    /// so a deep-link destination renders cleanly. Lives here, not
-    /// in `AppShell+DeepLink.swift`, because several of the state
-    /// vars below (`showSettings`, `showExport`, `isDrawerOpen`) are
-    /// `private` to this file — keeping the helper internal-but-
-    /// file-local lets the extension delegate without widening their
-    /// access. Per spec §2 warm-launch behavior.
-    @MainActor
-    func dismissAllTransientUI() {
-        showSMBSheet = false
-        addCloudSheetTarget = nil
-        showSettings = false
-        settingsInitialTab = nil
-        showExport = false
-        #if os(iOS)
-        isDrawerOpen = false
-        #endif
+  /// Wires `AppShell` state into `AppShellToolbar` (defined in
+  /// `AppShellToolbar.swift`). Kept as a small computed property so each
+  /// call site can write `.toolbar { browseToolbarContent }` without
+  /// repeating the parameter list.
+  /// True on the iPhone tab-bar shell, where Library / Search / Settings
+  /// live in the bottom tab bar (so the toolbar omits them). Mirrors the
+  /// `MapleShellKind.current` check in `body`. Always false on macOS.
+  private var isCompactShell: Bool {
+    #if os(iOS)
+      return MapleShellKind.current == .phoneTab
+    #else
+      return false
+    #endif
+  }
+
+  @ToolbarContentBuilder
+  private var browseToolbarContent: some ToolbarContent {
+    AppShellToolbar(
+      // `.editing` and `.preview` both own their chrome (back chevron,
+      // export/share, filename), so the window toolbar suppresses every
+      // browse control (fill/fit, select) for both — only
+      // Library/Search/Settings survive so the sidebar stays
+      // toggleable (#815; Fast Preview §1).
+      isEditing: mode == .editing || mode == .preview,
+      isCompact: isCompactShell,
+      searchAvailable: searchAvailable,
+      isSearchActive: isSearchActive,
+      browseDisplayMode: $browseDisplayMode,
+      onOpenSearch: { toggleSearch() },
+      onOpenFolder: { showFilePicker = true },
+      onSettings: { showSettings = true },
+      // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.
+      isSelecting: browseVM.isSelecting,
+      onToggleSelect: mode == .browse
+        ? {
+          if browseVM.isSelecting {
+            browseVM.exitSelectMode()
+          } else {
+            browseVM.enterSelectMode()
+          }
+        } : nil
+    )
+  }
+
+  // MARK: - Batch metadata actions (M4, #1629)
+
+  /// Open the batch metadata editor with the currently-selected assets.
+  private func openBatchMetadata() {
+    guard !browseVM.selectedIDs.isEmpty else { return }
+    // Snapshot the selection + sessions once, at open time. Presenting via
+    // .sheet(item:) keeps this instance alive for the sheet's lifetime.
+    batchMetadataVM = BatchMetadataViewModel(
+      assets: browseVM.selectedAssets,
+      sessions: sessions
+    )
+  }
+
+  // MARK: - Batch rename actions (#2641)
+
+  /// Open the batch rename sheet with the currently-selected assets.
+  /// Snapshots the selection once, at open time — same reasoning as
+  /// `openBatchMetadata`. Routing (Filesystem/SMB/Cloud/unsupported) is
+  /// decided once for the whole selection here, then baked into the
+  /// `BatchRenameViewModel` the sheet is handed.
+  private func openBatchRename() {
+    guard !browseVM.selectedIDs.isEmpty else { return }
+    let assets = browseVM.selectedAssets
+    switch batchRenameRouting(for: assets) {
+    case .unsupported(let reason):
+      batchRenameVM = BatchRenameViewModel(assets: assets, routing: .unsupported(reason))
+    case .filesystem:
+      batchRenameVM = BatchRenameViewModel(assets: assets, routing: .filesystem)
+    case .smb:
+      guard let source = browseVM.currentSource as? SMBSource else {
+        batchRenameVM = BatchRenameViewModel(
+          assets: assets, routing: .unsupported("SMB share is not connected."))
+        return
+      }
+      batchRenameVM = BatchRenameViewModel(assets: assets, routing: .smb, smbSource: source)
+    case .cloud:
+      guard let catalog = assets.first(where: { $0.catalog != nil })?.catalog else {
+        batchRenameVM = BatchRenameViewModel(
+          assets: assets, routing: .unsupported("Not connected to the server."))
+        return
+      }
+      let httpClient = makeAuthenticatedHTTPClient(server: catalog.serverID)
+      let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
+      let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
+      batchRenameVM = BatchRenameViewModel(assets: assets, routing: .cloud, cloudCatalog: remote)
     }
+  }
 
-    // MARK: - Toolbar
-
-    /// Wires `AppShell` state into `AppShellToolbar` (defined in
-    /// `AppShellToolbar.swift`). Kept as a small computed property so each
-    /// call site can write `.toolbar { browseToolbarContent }` without
-    /// repeating the parameter list.
-    /// True on the iPhone tab-bar shell, where Library / Search / Settings
-    /// live in the bottom tab bar (so the toolbar omits them). Mirrors the
-    /// `MapleShellKind.current` check in `body`. Always false on macOS.
-    private var isCompactShell: Bool {
-        #if os(iOS)
-        return MapleShellKind.current == .phoneTab
-        #else
-        return false
-        #endif
+  /// Decide the ONE routing this whole selection will use. A Browse
+  /// multi-select is always drawn from a single `browseVM.currentSource`,
+  /// so in every real call site the selection is homogeneous — the
+  /// `allSatisfy` checks below are the (defensive, not load-bearing)
+  /// guard against that assumption ever being violated, in which case the
+  /// batch is reported unsupported rather than silently mis-routing a
+  /// subset of it. Mirrors the single-asset rename ticket's
+  /// `renameUnsupportedReason` per-asset checks (#2638).
+  private func batchRenameRouting(for assets: [AssetRef]) -> BatchRenameRouting {
+    guard !assets.isEmpty else { return .unsupported("No photos selected.") }
+    if browseVM.currentSource is PhotoKitSource
+      || assets.contains(where: { $0.thumbnailProvenance == .photoKit })
+    {
+      return .unsupported(
+        "PhotoKit photos have no file on disk Maple can rename — rename from the Photos app instead."
+      )
     }
-
-    @ToolbarContentBuilder
-    private var browseToolbarContent: some ToolbarContent {
-        AppShellToolbar(
-            // `.editing` and `.preview` both own their chrome (back chevron,
-            // export/share, filename), so the window toolbar suppresses every
-            // browse control (fill/fit, select) for both — only
-            // Library/Search/Settings survive so the sidebar stays
-            // toggleable (#815; Fast Preview §1).
-            isEditing: mode == .editing || mode == .preview,
-            isCompact: isCompactShell,
-            searchAvailable: searchAvailable,
-            isSearchActive: isSearchActive,
-            browseDisplayMode: $browseDisplayMode,
-            onOpenSearch: { toggleSearch() },
-            onOpenFolder: { showFilePicker = true },
-            onSettings: { showSettings = true },
-            // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.
-            isSelecting: browseVM.isSelecting,
-            onToggleSelect: mode == .browse ? {
-                if browseVM.isSelecting {
-                    browseVM.exitSelectMode()
-                } else {
-                    browseVM.enterSelectMode()
-                }
-            } : nil
-        )
+    if assets.allSatisfy({ $0.catalog != nil }) {
+      return .cloud
     }
-
-    // MARK: - Batch metadata actions (M4, #1629)
-
-    /// Open the batch metadata editor with the currently-selected assets.
-    private func openBatchMetadata() {
-        guard !browseVM.selectedIDs.isEmpty else { return }
-        // Snapshot the selection + sessions once, at open time. Presenting via
-        // .sheet(item:) keeps this instance alive for the sheet's lifetime.
-        batchMetadataVM = BatchMetadataViewModel(
-            assets: browseVM.selectedAssets,
-            sessions: sessions
-        )
+    if assets.allSatisfy({ $0.primaryURL != nil }) {
+      return .filesystem
     }
-
-    // MARK: - Batch rename actions (#2641)
-
-    /// Open the batch rename sheet with the currently-selected assets.
-    /// Snapshots the selection once, at open time — same reasoning as
-    /// `openBatchMetadata`. Routing (Filesystem/SMB/Cloud/unsupported) is
-    /// decided once for the whole selection here, then baked into the
-    /// `BatchRenameViewModel` the sheet is handed.
-    private func openBatchRename() {
-        guard !browseVM.selectedIDs.isEmpty else { return }
-        let assets = browseVM.selectedAssets
-        switch batchRenameRouting(for: assets) {
-        case .unsupported(let reason):
-            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .unsupported(reason))
-        case .filesystem:
-            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .filesystem)
-        case .smb:
-            guard let source = browseVM.currentSource as? SMBSource else {
-                batchRenameVM = BatchRenameViewModel(
-                    assets: assets, routing: .unsupported("SMB share is not connected."))
-                return
-            }
-            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .smb, smbSource: source)
-        case .cloud:
-            guard let catalog = assets.first(where: { $0.catalog != nil })?.catalog else {
-                batchRenameVM = BatchRenameViewModel(
-                    assets: assets, routing: .unsupported("Not connected to the server."))
-                return
-            }
-            let httpClient = makeAuthenticatedHTTPClient(server: catalog.serverID)
-            let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
-            let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
-            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .cloud, cloudCatalog: remote)
-        }
+    if browseVM.currentSource is SMBSource,
+      assets.allSatisfy({ $0.primaryURL == nil && $0.catalog == nil })
+    {
+      return .smb
     }
+    return .unsupported("Batch rename isn't available for this selection.")
+  }
 
-    /// Decide the ONE routing this whole selection will use. A Browse
-    /// multi-select is always drawn from a single `browseVM.currentSource`,
-    /// so in every real call site the selection is homogeneous — the
-    /// `allSatisfy` checks below are the (defensive, not load-bearing)
-    /// guard against that assumption ever being violated, in which case the
-    /// batch is reported unsupported rather than silently mis-routing a
-    /// subset of it. Mirrors the single-asset rename ticket's
-    /// `renameUnsupportedReason` per-asset checks (#2638).
-    private func batchRenameRouting(for assets: [AssetRef]) -> BatchRenameRouting {
-        guard !assets.isEmpty else { return .unsupported("No photos selected.") }
-        if browseVM.currentSource is PhotoKitSource
-            || assets.contains(where: { $0.thumbnailProvenance == .photoKit }) {
-            return .unsupported(
-                "PhotoKit photos have no file on disk Maple can rename — rename from the Photos app instead.")
-        }
-        if assets.allSatisfy({ $0.catalog != nil }) {
-            return .cloud
-        }
-        if assets.allSatisfy({ $0.primaryURL != nil }) {
-            return .filesystem
-        }
-        if browseVM.currentSource is SMBSource,
-           assets.allSatisfy({ $0.primaryURL == nil && $0.catalog == nil }) {
-            return .smb
-        }
-        return .unsupported("Batch rename isn't available for this selection.")
-    }
+  // MARK: - Panorama merge actions (M2, #1236)
 
-    // MARK: - Panorama merge actions (M2, #1236)
+  /// Open the panorama merge view with the currently-selected assets.
+  /// Only called when `browseVM.canMergePanorama` is true.
+  func openPanoramaMerge() {
+    guard browseVM.canMergePanorama else { return }
+    panoMergeSession.reset()
+    mode = .panoramaMerge
+  }
 
-    /// Open the panorama merge view with the currently-selected assets.
-    /// Only called when `browseVM.canMergePanorama` is true.
-    func openPanoramaMerge() {
-        guard browseVM.canMergePanorama else { return }
-        panoMergeSession.reset()
-        mode = .panoramaMerge
-    }
-
-    /// Dismiss the panorama merge view and return to browse. Exits select
-    /// mode so the grid resets to normal tap-to-open behaviour.
-    ///
-    /// Always cancels the in-flight stitch, regardless of how the sheet is
-    /// dismissed (Cancel/Done button OR system swipe-down / Escape gesture).
-    /// The `.sheet(isPresented:set:)` binding routes ALL dismissal paths here,
-    /// so the stitch can never leak after the sheet is gone.
-    func dismissPanoramaMerge() {
-        panoMergeSession.cancel()
-        mode = .browse
-        browseVM.exitSelectMode()
-    }
+  /// Dismiss the panorama merge view and return to browse. Exits select
+  /// mode so the grid resets to normal tap-to-open behaviour.
+  ///
+  /// Always cancels the in-flight stitch, regardless of how the sheet is
+  /// dismissed (Cancel/Done button OR system swipe-down / Escape gesture).
+  /// The `.sheet(isPresented:set:)` binding routes ALL dismissal paths here,
+  /// so the stitch can never leak after the sheet is gone.
+  func dismissPanoramaMerge() {
+    panoMergeSession.cancel()
+    mode = .browse
+    browseVM.exitSelectMode()
+  }
 }
 
 // MARK: - Previews
@@ -1539,8 +1594,8 @@ struct AppShell: View {
 // The full three-column split is the load-bearing case to surface.
 
 #Preview("Default") {
-    AppShell(sessionFor: { server in
-        AuthSession.preview(state: .signedOut, server: server)
-    })
-    .frame(width: 1100, height: 720)
+  AppShell(sessionFor: { server in
+    AuthSession.preview(state: .signedOut, server: server)
+  })
+  .frame(width: 1100, height: 720)
 }
