@@ -1,119 +1,102 @@
-// RawImageCache.swift — Session-scoped, single-entry cache for the
-// rawler-decoded RAW handle. Keyed on (URL, mtime). Eviction on asset
-// switch.
-//
-// Architectural prerequisite for Plan 3 (Deep Zoom tile rendering):
-// without this, every tile render rawler-decodes a 100 MP RAW
-// (~3-5 s per tile, blowing past the slider-tick budget). With it,
-// rawler-decode happens once per asset open and tiles share the
-// cached `MapleRawHandle`. See Plan 3 Task 5.
-//
-// In-memory only. No disk persistence — the underlying handle is an
-// opaque pointer to a heap-allocated rawler decode result, which can't
-// safely cross process boundaries. Disk persistence would require a
-// portable serialization of the decoded mosaic and is left to a
-// follow-up plan.
-//
-// Concurrency: an actor. The `handle(for:)` call is the public entry
-// point and is `async`. The actual rawler decode is offloaded onto a
-// detached `Task` so the actor isn't blocked while a 100 MP RAW
-// streams off disk. Once the decode lands, the actor stores the
-// resulting `MapleRawHandle` in `current` and returns it.
-//
-// Cross-link: .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
-// Task 5.
-
+// Single-entry rawler handle cache for deep-zoom tiles. Initial viewport
+// decoding uses RenderActor's separate scene-linear image cache.
 import Foundation
 
 public actor RawImageCache {
-    /// Process-wide shared instance. Most callers should use `.shared`
-    /// to ensure all tile fetches across the app see a single cached
-    /// handle. Tests construct their own instances for isolation.
-    public static let shared = RawImageCache()
+  public static let shared = RawImageCache()
 
-    private struct Entry {
-        let url: URL
-        let mtime: Date
-        let handle: MapleRawHandle
+  private struct Key: Hashable {
+    let url: URL
+    let mtime: Date
+  }
+  private struct Entry {
+    let key: Key
+    let handle: MapleRawHandle
+  }
+  private struct Pending {
+    let generation: UInt64
+    let task: Task<MapleRawHandle, Error>
+  }
+
+  private var current: Entry?
+  private var requestedKey: Key?
+  private var generation: UInt64 = 0
+  private var pendingDecodes: [Key: Pending] = [:]
+  private let decodeSlot = BoundedAsyncSemaphore(value: 1)
+  private let decode: @Sendable (URL) async throws -> MapleRawHandle
+
+  public init() {
+    decode = { try PipelineRenderer.openRawHandle(rawPath: $0, xmpPath: nil) }
+  }
+
+  /// Tests delay a real native handle open to exercise eviction races.
+  init(decode: @escaping @Sendable (URL) async throws -> MapleRawHandle) {
+    self.decode = decode
+  }
+
+  /// Same-asset tiles share one decode. Different assets serialize their
+  /// native opens, with superseded queued requests dropped before reading a
+  /// RAW. A completed obsolete request can satisfy its original caller but
+  /// cannot repopulate an evicted cache or replace a more recent asset.
+  public func handle(for url: URL) async throws -> MapleRawHandle {
+    try Task.checkCancellation()
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    let key = Key(url: url, mtime: attributes[.modificationDate] as? Date ?? .distantPast)
+    if let current, current.key == key { return current.handle }
+    if requestedKey != key {
+      generation &+= 1
+      requestedKey = key
+      current = nil
     }
-
-    private var current: Entry?
-
-    /// In-flight decode tasks, keyed by URL. The deep-zoom tile path
-    /// fires N concurrent `handle(for:)` calls (one per visible tile),
-    /// and without this map every concurrent call would START its own
-    /// `ffi_rawler_decode` because `current` is nil while the first
-    /// decode awaits. User reported on iPad: 20 visible tiles → 20
-    /// parallel decodes of a 100 MP RAW → 7-22 s per decode under
-    /// memory contention. With this map, the second-through-Nth caller
-    /// just await the same `Task` the first caller started.
-    private var pendingDecodes: [URL: Task<MapleRawHandle, Error>] = [:]
-
-    public init() {}
-
-    /// Returns the cached handle for `url` if its mtime hasn't changed
-    /// since the cached entry was decoded, otherwise evicts and decodes
-    /// fresh. The decode runs on a detached task at user-initiated
-    /// priority so the actor isn't blocked. Concurrent callers for the
-    /// same URL share a single in-flight decode (see `pendingDecodes`).
-    ///
-    /// Throws whatever `PipelineRenderer.openRawHandle(rawPath:)`
-    /// throws — typically `PipelineError.renderFailed` for missing
-    /// files or unsupported RAW formats.
-    public func handle(for url: URL) async throws -> MapleRawHandle {
-        let mtime = Self.modificationDate(for: url)
-        if let entry = current,
-           entry.url == url,
-           entry.mtime == mtime {
-            return entry.handle
-        }
-        // Concurrent caller for the same URL — share the in-flight Task.
-        if let pending = pendingDecodes[url] {
-            return try await pending.value
-        }
-        // Different asset OR same asset with newer sidecar — evict and
-        // decode. Eviction happens BEFORE the decode so that if the
-        // decode throws we don't leave a stale cached handle behind.
-        current = nil
-        let task = Task.detached(priority: .userInitiated) {
-            try PipelineRenderer.openRawHandle(rawPath: url, xmpPath: nil)
-        }
-        pendingDecodes[url] = task
-        do {
-            let handle = try await task.value
-            current = Entry(url: url, mtime: mtime, handle: handle)
-            pendingDecodes.removeValue(forKey: url)
-            return handle
-        } catch {
-            pendingDecodes.removeValue(forKey: url)
-            throw error
-        }
+    let requestGeneration = generation
+    if let pending = pendingDecodes[key], pending.generation == requestGeneration {
+      let handle = try await pending.task.value
+      try Task.checkCancellation()
+      return handle
     }
-
-    /// Force eviction. Useful when the editor switches assets and the
-    /// caller wants to free the ~30-300 MB of decoded mosaic
-    /// immediately rather than waiting for the next `handle(for:)`
-    /// call. Idempotent; safe to call when the cache is already empty.
-    public func evict() {
-        current = nil
-        // Don't cancel pending decodes — a caller may still be awaiting
-        // them. They'll resolve and just not get cached afterward (the
-        // entry won't be re-set since `current` is nil and the URL no
-        // longer matches anything).
+    let task = Task.detached(priority: .userInitiated) { [decode, decodeSlot, self] in
+      try await decodeSlot.acquire()
+      do {
+        guard await isCurrent(key, generation: requestGeneration) else {
+          throw CancellationError()
+        }
+        let handle = try await decode(url)
+        await decodeSlot.release()
+        return handle
+      } catch {
+        await decodeSlot.release()
+        throw error
+      }
     }
-
-    /// Currently cached URL, if any. Used by tests and instrumentation
-    /// to verify cache state without poking the internal storage.
-    public var cachedURL: URL? { current?.url }
-
-    // MARK: - Helpers
-
-    /// Best-effort filesystem mtime lookup. Falls back to
-    /// `Date.distantPast` when the file is unreachable so the very
-    /// next `handle(for:)` call always misses the cache (and surfaces
-    /// the underlying file error from the FFI).
-    private static func modificationDate(for url: URL) -> Date {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        return (attrs?[.modificationDate] as? Date) ?? Date.distantPast
+    pendingDecodes[key] = Pending(generation: requestGeneration, task: task)
+    do {
+      let handle = try await task.value
+      if isCurrent(key, generation: requestGeneration) {
+        current = Entry(key: key, handle: handle)
+      }
+      removePending(key, generation: requestGeneration)
+      try Task.checkCancellation()
+      return handle
+    } catch {
+      removePending(key, generation: requestGeneration)
+      throw error
     }
+  }
+
+  public func evict() {
+    generation &+= 1
+    requestedKey = nil
+    current = nil
+  }
+
+  public var cachedURL: URL? { current?.key.url }
+
+  private func isCurrent(_ key: Key, generation requestGeneration: UInt64) -> Bool {
+    generation == requestGeneration && requestedKey == key
+  }
+
+  private func removePending(_ key: Key, generation requestGeneration: UInt64) {
+    guard pendingDecodes[key]?.generation == requestGeneration else { return }
+    pendingDecodes.removeValue(forKey: key)
+  }
 }
