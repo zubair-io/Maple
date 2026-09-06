@@ -27,6 +27,13 @@ public enum LivingSliderMath {
     return 1
   }
 
+  /// Ignore arithmetic residue without hiding a real user adjustment.
+  public static func isModified(value: Double, defaultValue: Double, range: ClosedRange<Double>)
+    -> Bool
+  {
+    abs(value - defaultValue) > keyboardStep(range: range) * 0.000001
+  }
+
   // MARK: - Value → Percentage
 
   /// Convert `value` to a track percentage [0, 1] for a bipolar slider

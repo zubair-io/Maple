@@ -45,6 +45,10 @@ public struct LivingSlider: View {
     displayValue ?? LivingSliderMath.format(value: value, range: range)
   }
 
+  private var isModified: Bool {
+    LivingSliderMath.isModified(value: value, defaultValue: defaultValue, range: range)
+  }
+
   private var gradient: LinearGradient {
     let stops =
       gradientStops?.map {
@@ -62,7 +66,7 @@ public struct LivingSlider: View {
         Text(label).font(MapleTokens.Typography.toolLabel).foregroundStyle(ProTokens.textMuted)
         Spacer()
         Text(formattedValue).font(MapleTokens.Typography.valueChip).monospacedDigit()
-          .foregroundStyle(value == defaultValue ? ProTokens.textDim : ProTokens.accent)
+          .foregroundStyle(isModified ? ProTokens.accent : ProTokens.textDim)
       }
       .accessibilityHidden(true)
       GeometryReader { geometry in
@@ -79,7 +83,7 @@ public struct LivingSlider: View {
             .shadow(color: .black.opacity(0.45), radius: 1, y: 0.5)
             .overlay(
               Circle().strokeBorder(
-                focused || value != defaultValue ? ProTokens.accent : .clear, lineWidth: 2)
+                focused || isModified ? ProTokens.accent : .clear, lineWidth: 2)
             )
             .position(x: 8 + pct * max(width - 16, 0), y: 8)
         }
