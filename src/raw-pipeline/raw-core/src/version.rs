@@ -95,7 +95,10 @@
 ///   `(RAW, sidecar)` pair produces different pixels. The three
 ///   `lens_correction_*` scales added alongside it default to full
 ///   strength and do not, on their own, change any output.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 2;
+/// - 3 — highlight-recovery sensor ceilings include BaselineExposure (#3267),
+///   so RAWs with nonzero baseline exposure are reconstructed at their actual
+///   saturation level rather than using the zero-exposure thresholds.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 3;
 
 #[cfg(test)]
 mod tests {

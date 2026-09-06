@@ -75,7 +75,7 @@ export interface SupportedCamera {
 
 export const CAMERA_SUPPORT_BUILD = {
   schemaVersion: 1,
-  pipelineOutputVersion: 2,
+  pipelineOutputVersion: 3,
   bundledModelCount: 1406,
   profileBundleFormat: 1,
   profileBundleDigest: 'blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a',
