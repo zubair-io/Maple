@@ -1,150 +1,147 @@
-// EditSession+GpuPreviewPersist.swift — populate the rendered-preview disk cache
-// from the GPU-live path (#1665).
-//
-// The GPU live present (`presentViaGpuLive`) goes f32 storage → CAMetalLayer with
-// NO CIImage, so it skips the CPU path's `renderedPreview =` publish AND the
-// `persistCurrentPreviewToCache()` that rides it. Net: GPU-live images (every
-// large RAW since the #1647 gate-lift) never write a full-quality preview to
-// disk, so every cold open misses `RenderedPreviewCache` and re-runs the full
-// Rust decode (~15-20s for 100 MP) — the cache works for exactly the assets
-// where it matters least.
-//
-// Fix (#1665 option 1): on a cold open, after the first full-quality GPU frame
-// lands, read that EXACT frame back once (`maple_gpu_live_render` via
-// `GpuLiveDriver.renderCurrentFrameBytes`), wrap it as a CIImage, and store it to
-// `RenderedPreviewCache` — so the next cold open paints from disk instantly. This
-// is a ONE-SHOT per cold open (NOT per slider tick): the readback re-runs the
-// chain with a CPU readback, the cost the per-tick present deliberately avoids.
+// GPU-live presents do not materialize a CIImage. Reuse the existing awaited
+// editor-exit readback for thumbnails, display preview and rendered-preview
+// cache (#1665, #1879, #2009, #3363). No readback is queued at cold-open readiness.
 
-import Foundation
 import CoreImage
+import Foundation
 
 @MainActor
 extension EditSession {
-    /// One-shot: read back the just-presented GPU frame and persist it to the
-    /// rendered-preview disk cache so a future cold open paints instantly (#1665).
-    /// Called once per cold open from `presentViaGpuLive`'s first-full-quality-
-    /// frame branch. No-op without a driver / asset URL, or if the readback fails
-    /// (the cache simply stays unpopulated — no worse than today).
-    func persistGpuFrameToPreviewCache() async {
-        guard let driver = gpuLiveDriver, let url = asset.primaryURL else { return }
-        // Snapshot the MainActor inputs up front: the cold-open model (so the
-        // cached frame reflects the on-disk sidecar even if the user starts
-        // editing mid-readback) and `previewSize.width` — the same size bucket the
-        // CPU path stores under (`persistCurrentPreviewToCache`) and the cold-open
-        // hydration reads with, so the reopen lookup hits this entry.
-        let coldOpenModel = model
-        let screenWidth = Int(max(previewSize.width, 1))
-        // Same non-RAW D65-anchor contract as `presentViaGpuLive` (#1734): this
-        // one-shot cold-open readback re-runs the same GPU chain the live present
-        // just drew, so it must anchor WB identically or the persisted preview
-        // would disagree with what's on screen.
-        let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
-        // #1781/#1976: mirror `presentViaGpuLive`'s anchor exactly — the
-        // frame's as-shot pair + slider frame when present, legacy as-shot
-        // otherwise.
-        let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
-        let anchor = wbDeltaAnchor
-        let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
-        let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
-        guard let frame = await driver.renderCurrentFrameBytes(
-            model: coldOpenModel,
-            asShotCCT: cct,
-            asShotTint: tint,
-            wbFrame: liveWbFrame
-        ) else { return }
-        // Build + JPEG-encode + store on a DETACHED utility task so the per-pixel
-        // RGBA expansion + encode never touch the MainActor editor — matching
-        // `persistCurrentPreviewToCache`'s detach (the synchronous prefix of an
-        // awaited callee could otherwise run on this actor). All captures are
-        // Sendable (the readback bytes, the URL, the width). (Copilot #1670)
-        Task.detached(priority: .utility) {
-            guard let image = Self.ciImageFromGpuRgb(
-                frame.bytes, width: frame.width, height: frame.height
-            ) else { return }
-            await RenderedPreviewCache.shared.storePreview(image, for: url, screenWidth: screenWidth)
-        }
-    }
+  /// Refresh the browse/Preview thumbnail + persist the display preview from
+  /// the CURRENT GPU frame (#1879, #2009). The GPU-live present path returns
+  /// from `decodeAndRender` before the CPU publish tail ever runs, so
+  /// GPU-live edits never reach `ThumbnailLoader.updateThumbnailFromRender`
+  /// (the browse grid + Preview would keep the pre-edit render) nor
+  /// `scheduleDisplayPreviewPersist` (the `<filename>.avif` would stay the
+  /// camera original). Called on editor dismiss: ONE utility-priority
+  /// readback per editor exit, never at cold-open readiness or per slider tick.
+  /// The same bytes also populate the rendered-preview cache. No-op when the
+  /// GPU path never presented for this canvas (the CPU publish tail already
+  /// refreshed both on every refine) or without a driver.
+  ///
+  /// The thumbnail refresh needs a local URL and is skipped for cloud assets
+  /// (their grid thumbs are server-rendered); the preview persist runs for
+  /// both — a local file write or an `/api/preview` upload via `previewSink`.
+  ///
+  /// `async` + strong `self`, and it AWAITS the off-actor encode/write: this
+  /// is the teardown path, so the caller must be able to keep the session (and
+  /// on iOS the app) alive until the write lands. A fire-and-forget
+  /// `Task { [weak self] … }` would drop the final frame if the session
+  /// deallocated on exit or the app suspended (jules review, #2009).
+  public func refreshThumbnailFromCurrentGpuFrame() async {
+    await refreshThumbnailFromCurrentGpuFrame(expectedModel: model)
+  }
 
-    /// Refresh the browse/Preview thumbnail + persist the display preview from
-    /// the CURRENT GPU frame (#1879, #2009). The GPU-live present path returns
-    /// from `decodeAndRender` before the CPU publish tail ever runs, so
-    /// GPU-live edits never reach `ThumbnailLoader.updateThumbnailFromRender`
-    /// (the browse grid + Preview would keep the pre-edit render) nor
-    /// `scheduleDisplayPreviewPersist` (the `<filename>.avif` would stay the
-    /// camera original). Called on editor dismiss: ONE utility-priority
-    /// readback per editor exit, never per slider tick (the same cost profile
-    /// as `persistGpuFrameToPreviewCache`'s cold-open one-shot). No-op when the
-    /// GPU path never presented for this canvas (the CPU publish tail already
-    /// refreshed both on every refine) or without a driver.
-    ///
-    /// The thumbnail refresh needs a local URL and is skipped for cloud assets
-    /// (their grid thumbs are server-rendered); the preview persist runs for
-    /// both — a local file write or an `/api/preview` upload via `previewSink`.
-    ///
-    /// `async` + strong `self`, and it AWAITS the off-actor encode/write: this
-    /// is the teardown path, so the caller must be able to keep the session (and
-    /// on iOS the app) alive until the write lands. A fire-and-forget
-    /// `Task { [weak self] … }` would drop the final frame if the session
-    /// deallocated on exit or the app suspended (jules review, #2009).
-    public func refreshThumbnailFromCurrentGpuFrame() async {
-        guard gpuFramePresented, let driver = gpuLiveDriver else { return }
-        // Same anchor contract as `presentViaGpuLive` /
-        // `persistGpuFrameToPreviewCache`: the readback re-runs the chain the
-        // live present just drew, so WB must anchor identically.
-        let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
-        let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
-        let anchor = wbDeltaAnchor
-        let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
-        let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
-        guard let frame = await driver.renderCurrentFrameBytes(
-            model: model,
-            asShotCCT: cct,
-            asShotTint: tint,
-            wbFrame: liveWbFrame
-        ) else { return }
-        let thumbnailURL = asset.primaryURL
-        let sink = previewSink
-        // Off the MainActor (per-pixel RGBA expansion + AVIF encode), but
-        // AWAITED so the exit path knows the write completed.
-        await Task.detached(priority: .utility) {
-            guard let image = Self.ciImageFromGpuRgb(
-                frame.bytes, width: frame.width, height: frame.height
-            ) else { return }
-            if let thumbnailURL {
-                await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)
-            }
-            if let sink, let data = ThumbnailLoader.encodeDisplayPreview(from: image) {
-                await sink.write(data)
-            }
-        }.value
+  func refreshThumbnailFromCurrentGpuFrame(expectedModel capturedModel: AdjustmentModel) async {
+    guard gpuFramePresented, let driver = gpuLiveDriver else { return }
+    // A crop/baked edit can still be waiting for admission when the editor
+    // disappears. Join that work, then validate the actual uploaded pixels.
+    _ = await latestRenderSchedule?.value
+    await renderActor.awaitCurrentRenderIfInFlight()
+    let snapshot = await renderActor.snapshot(forAsset: asset)
+    let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
+    let identity = GpuUploadIdentity(
+      decodeGeneration: snapshot.decodeGeneration, crop: capturedModel.crop)
+    guard model == capturedModel, !isFullQualityDecoding, !gpuPresentFailed,
+      snapshot.image != nil, snapshot.isFresh,
+      !resolvedIsRaw
+        || (snapshot.profile == capturedModel.profile
+          && snapshot.autoExposure == capturedModel.autoExposure),
+      driver.isOpen(coveringWidth: 1, height: 1, identity: identity)
+    else { return }
+    let liveSession = driver.session
+    let thumbnailURL = asset.primaryURL
+    let screenWidth = Int(max(previewSize.width, 1))
+    let cacheWrite: RenderedPreviewCache.WriteSnapshot?
+    if let thumbnailURL {
+      cacheWrite = await RenderedPreviewCache.shared.captureWrite(
+        for: thumbnailURL, screenWidth: screenWidth)
+    } else {
+      cacheWrite = nil
     }
-
-    /// Wrap the GPU chain's `width·height·3` u8 RGB readback (the canonical
-    /// `dither_and_quantize` layout — sRGB-primary gamma-encoded, since the live
-    /// params hardcode `target_primaries = 0`) into a CIImage for the preview
-    /// cache. Expands RGB→RGBA (CIImage has no 3-channel bitmap format; alpha is
-    /// opaque) and tags **sRGB** to match the chain output, so the cache's sRGB
-    /// JPEG encode is an identity colour conversion. Pure → unit-testable; returns
-    /// `nil` on a degenerate size or a `count != width·height·3` mismatch.
-    nonisolated static func ciImageFromGpuRgb(_ rgb: [UInt8], width: Int, height: Int) -> CIImage? {
-        let pixelCount = width * height
-        guard width > 0, height > 0, rgb.count == pixelCount * 3,
-              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        // CIImage has no 3-channel bitmap format — expand RGB → opaque RGBA.
-        var rgba = [UInt8](repeating: 255, count: pixelCount * 4)
-        for i in 0..<pixelCount {
-            rgba[i * 4 + 0] = rgb[i * 3 + 0]
-            rgba[i * 4 + 1] = rgb[i * 3 + 1]
-            rgba[i * 4 + 2] = rgb[i * 3 + 2]
-            // alpha stays 255 (the chain output is opaque)
-        }
-        return CIImage(
-            bitmapData: Data(rgba),
-            bytesPerRow: width * 4,
-            size: CGSize(width: width, height: height),
-            format: .RGBA8,
-            colorSpace: space
+    guard model == capturedModel, liveSession === driver.session else { return }
+    // Same WB anchor as the live present; readback reruns that chain.
+    let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
+    let anchor = wbDeltaAnchor
+    let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
+    let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
+    guard
+      let frame = await driver.renderCurrentFrameBytes(
+        model: capturedModel,
+        asShotCCT: cct,
+        asShotTint: tint,
+        wbFrame: liveWbFrame
+      )
+    else { return }
+    guard model == capturedModel, driver === gpuLiveDriver,
+      liveSession === driver.session, !gpuPresentFailed
+    else { return }
+    let sink = previewSink
+    let stillCurrent: @MainActor @Sendable () -> Bool = {
+      self.model == capturedModel && driver === self.gpuLiveDriver
+        && liveSession === driver.session && !self.gpuPresentFailed
+    }
+    // Off the MainActor (per-pixel RGBA expansion + AVIF encode), but
+    // AWAITED so the exit path knows the write completed.
+    await Task.detached(priority: .utility) {
+      guard
+        let image = Self.ciImageFromGpuRgb(
+          frame.bytes, width: frame.width, height: frame.height
         )
+      else { return }
+      // Rendering/encoding may have scheduled another CPU preview since the
+      // initial exit drain. Join it before accepting the current GPU image.
+      guard await self.cancelAndJoinDisplayPreviewPersist(expectedModel: capturedModel) else {
+        return
+      }
+      let accepted = await MainActor.run {
+        guard stillCurrent() else { return false }
+        // Conversion succeeded; keep the CPU fallback until this point.
+        self.pendingPreviewImage = nil
+        return true
+      }
+      guard accepted else { return }
+      if let cacheWrite {
+        guard await stillCurrent() else { return }
+        await RenderedPreviewCache.shared.storePreview(image, for: cacheWrite)
+      }
+      if let thumbnailURL {
+        guard await stillCurrent() else { return }
+        await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)
+      }
+      if let sink, let data = ThumbnailLoader.encodeDisplayPreview(from: image) {
+        guard await stillCurrent() else { return }
+        await sink.write(data)
+      }
+    }.value
+  }
+
+  /// Wrap the GPU chain's `width·height·3` u8 RGB readback (the canonical
+  /// `dither_and_quantize` layout — sRGB-primary gamma-encoded, since the live
+  /// params hardcode `target_primaries = 0`) into a CIImage for the preview
+  /// cache. Expands RGB→RGBA (CIImage has no 3-channel bitmap format; alpha is
+  /// opaque) and tags **sRGB** to match the chain output, so the cache's sRGB
+  /// JPEG encode is an identity colour conversion. Pure → unit-testable; returns
+  /// `nil` on a degenerate size or a `count != width·height·3` mismatch.
+  nonisolated static func ciImageFromGpuRgb(_ rgb: [UInt8], width: Int, height: Int) -> CIImage? {
+    let pixelCount = width * height
+    guard width > 0, height > 0, rgb.count == pixelCount * 3,
+      let space = CGColorSpace(name: CGColorSpace.sRGB)
+    else { return nil }
+    // CIImage has no 3-channel bitmap format — expand RGB → opaque RGBA.
+    var rgba = [UInt8](repeating: 255, count: pixelCount * 4)
+    for i in 0..<pixelCount {
+      rgba[i * 4 + 0] = rgb[i * 3 + 0]
+      rgba[i * 4 + 1] = rgb[i * 3 + 1]
+      rgba[i * 4 + 2] = rgb[i * 3 + 2]
+      // alpha stays 255 (the chain output is opaque)
     }
+    return CIImage(
+      bitmapData: Data(rgba),
+      bytesPerRow: width * 4,
+      size: CGSize(width: width, height: height),
+      format: .RGBA8,
+      colorSpace: space
+    )
+  }
 }

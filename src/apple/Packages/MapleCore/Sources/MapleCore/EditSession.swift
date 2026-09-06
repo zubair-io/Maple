@@ -88,18 +88,14 @@ public final class EditSession {
       if !(cropEditingActive && onlyCropChanged) {
         _scheduleRender(phase: .fast)
       }
-      if let store = sidecarStore {
-        Task { await store.update(model: model, culling: culling) }
-      }
+      scheduleSidecarUpdate(model: model, culling: culling)
     }
   }
 
   public var culling: CullingState {
     didSet {
       guard !isHydratingInitialState else { return }
-      if let store = sidecarStore {
-        Task { await store.update(model: model, culling: culling) }
-      }
+      scheduleSidecarUpdate(model: model, culling: culling)
     }
   }
 
@@ -415,6 +411,8 @@ public final class EditSession {
   /// hosted API) where sidecar persistence goes through the source's
   /// `writeXMP` API instead.
   @ObservationIgnored let sidecarStore: (any SidecarStoreProtocol)?
+  /// Tail of the existing sidecar forwarding tasks, joined by an exit flush.
+  @ObservationIgnored var sidecarUpdateTask: Task<Void, Never>?
 
   /// Where the editor persists the developed display preview (#2009) — the
   /// canonical `<filename>.avif`. Local file for URL-backed assets, an
