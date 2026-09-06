@@ -69,6 +69,10 @@ public final class WhiteBalancePicker {
       sampled.wbSampleX = point.x
       sampled.wbSampleY = point.y
       sampled.wbAlgorithmVersion = Double(result.algorithmVersion)
+      guard sampled != before else {
+        isArmed = false
+        return
+      }
       session.beginEdit(description: "Sample white balance")
       session.model = sampled
       session.endEdit()
@@ -90,6 +94,7 @@ public final class WhiteBalancePicker {
     model.wbSampleX = 0
     model.wbSampleY = 0
     model.wbAlgorithmVersion = 0
+    guard model != session.model else { return }
     session.beginEdit(description: "As Shot white balance")
     session.model = model
     session.endEdit()
