@@ -44,7 +44,9 @@ pub fn emit_ts() -> String {
             strings.join(", ")
         ));
     }
-    out.push_str("\nexport const DEFAULT_EXPORT_RECIPE: ExportRecipe = {\n");
+    // The drift gate compares the raw emitter output. Preserve serde's JSON
+    // escaping here instead of trying to duplicate Prettier's quote selection.
+    out.push_str("\n// Preserve the generated JSON string literals.\n// prettier-ignore\nexport const DEFAULT_EXPORT_RECIPE: ExportRecipe = {\n");
     append_defaults(&mut out, &ExportRecipe::default());
     out.push_str("};\n");
     out.push_str(&include_str!("export_recipe_validation.ts").replace("\r\n", "\n"));

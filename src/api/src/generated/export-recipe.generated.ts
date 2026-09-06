@@ -42,21 +42,23 @@ const EXPORT_OUTPUT_PROFILES: readonly string[] = ['srgb', 'display-p3'];
 const EXPORT_RENDERING_INTENTS: readonly string[] = ['maple-display'];
 const EXPORT_METADATA_POLICIES: readonly string[] = ['strip'];
 
+// Preserve the generated JSON string literals.
+// prettier-ignore
 export const DEFAULT_EXPORT_RECIPE: ExportRecipe = {
   schemaVersion: 1,
-  name: 'JPEG sharing',
-  format: 'jpeg',
+  name: "JPEG sharing",
+  format: "jpeg",
   quality: 92,
   bitDepth: 8,
   maxLongEdge: null,
-  outputProfile: 'srgb',
-  renderingIntent: 'maple-display',
-  metadataPolicy: 'strip',
-  namingTemplate: '{original}.{ext}',
-  destination: 'download',
+  outputProfile: "srgb",
+  renderingIntent: "maple-display",
+  metadataPolicy: "strip",
+  namingTemplate: "{original}.{ext}",
+  destination: "download",
   directory: null,
   watermark: null,
-  overwritePolicy: 'browser',
+  overwritePolicy: "browser",
 };
 /** Read all declared fields without silently losing unknown or unsupported choices. */
 export function parseExportRecipe(input: unknown): ExportRecipe {
