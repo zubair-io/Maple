@@ -50,7 +50,13 @@ pub unsafe extern "C" fn maple_gpu_live_render(
 
     // Panic barrier (#1079) — see `maple_gpu_live_open`.
     catch_panic_rc("gpu_live_render", || {
-        let inputs = params::inputs_from_params(p);
+        let inputs = match params::inputs_from_params(p, inner.width, inner.height) {
+            Ok(inputs) => inputs,
+            Err(message) => {
+                set_last_error(message);
+                return -1;
+            }
+        };
         let cancel = CancelToken::new();
         let shared = lock_shared();
         let ctx = match shared.as_ref() {

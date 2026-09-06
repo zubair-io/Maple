@@ -286,7 +286,14 @@ const EFFECTS_FIELDS: &[&str] = &[
 
 /// Crop rect + straighten angle. The rect is normalized to display-oriented
 /// dimensions, so it maps proportionally onto a differently-sized target.
-const GEOMETRY_FIELDS: &[&str] = &["crop"];
+const GEOMETRY_FIELDS: &[&str] = &[
+    "crop",
+    "geo_perspective_h",
+    "geo_perspective_v",
+    "geo_rotation",
+    "geo_aspect",
+    "geo_scale",
+];
 
 /// `AdjustmentModel` fields deliberately excluded from every group, i.e.
 /// never moved by paste / sync. Every entry needs a reason; the coverage test

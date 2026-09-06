@@ -324,4 +324,10 @@ pub struct MapleGpuLiveParams {
     pub scope_layer: i32,
     pub scope_enabled: u8,
     pub scope_out: *mut crate::MapleScopeStats,
+    /// Manual geometry in this session's display-oriented frame (#2435).
+    pub geo_perspective_h: f32,
+    pub geo_perspective_v: f32,
+    pub geo_rotation: f32,
+    pub geo_aspect: f32,
+    pub geo_scale: f32,
 }

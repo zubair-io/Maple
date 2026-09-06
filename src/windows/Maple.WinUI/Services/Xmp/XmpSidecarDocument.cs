@@ -313,6 +313,11 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:LensProfileDistortionScale", a => a.LensCorrectionDistortion, (a, v) => a.LensCorrectionDistortion = v),
             F("crs:LensProfileChromaticAberrationScale", a => a.LensCorrectionCa, (a, v) => a.LensCorrectionCa = v),
             F("crs:LensProfileVignettingScale", a => a.LensCorrectionVignetting, (a, v) => a.LensCorrectionVignetting = v),
+            F("papp:GeoPerspectiveH", a => a.GeoPerspectiveH, (a, v) => a.GeoPerspectiveH = v),
+            F("papp:GeoPerspectiveV", a => a.GeoPerspectiveV, (a, v) => a.GeoPerspectiveV = v),
+            F("papp:GeoRotation", a => a.GeoRotation, (a, v) => a.GeoRotation = v),
+            F("papp:GeoAspect", a => a.GeoAspect, (a, v) => a.GeoAspect = v),
+            F("papp:GeoScale", a => a.GeoScale, (a, v) => a.GeoScale = v),
         };
 
         /// <summary>

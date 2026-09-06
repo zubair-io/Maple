@@ -132,6 +132,7 @@ impl Case {
     /// image data — the GPU stage params come straight from the CPU model.
     pub fn gpu_inputs(&self) -> FullChainInputs<'static> {
         FullChainInputs {
+            geometry_inverse: None,
             wb_matrix: wb_matrix(self.model.temperature, self.model.tint, self.wb_method),
             wb_temperature: self.model.temperature,
             wb_tint: self.model.tint,

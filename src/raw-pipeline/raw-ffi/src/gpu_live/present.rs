@@ -105,7 +105,13 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
             Ok(shared) => shared,
             Err(rc) => return rc,
         };
-        let inputs = params::inputs_from_params(p);
+        let inputs = match params::inputs_from_params(p, inner.width, inner.height) {
+            Ok(inputs) => inputs,
+            Err(message) => {
+                set_last_error(message);
+                return -1;
+            }
+        };
         let state = match shared.as_mut() {
             Some(s) => s,
             None => {

@@ -170,6 +170,11 @@ namespace Maple.WinUI.Native
         public nuint display_tone_curve_green_len;
         public float* display_tone_curve_blue_ptr;
         public nuint display_tone_curve_blue_len;
+        public float geo_perspective_h;
+        public float geo_perspective_v;
+        public float geo_rotation;
+        public float geo_aspect;
+        public float geo_scale;
 
         // Vectorscope scope statistics (#3272, raw-ffi's mask_registry/scope_stats
         // work). Left at the struct default (0 / 0 / null) by every builder below —
@@ -193,6 +198,11 @@ namespace Maple.WinUI.Native
             var p = new MapleGpuLiveParams
             {
                 temperature = (float)m.Temperature,
+                geo_perspective_h = (float)m.GeoPerspectiveH,
+                geo_perspective_v = (float)m.GeoPerspectiveV,
+                geo_rotation = (float)m.GeoRotation,
+                geo_aspect = (float)m.GeoAspect,
+                geo_scale = (float)m.GeoScale,
                 tint = (float)m.Tint,
                 wb_method = m.WbMethod == WbMethod.DiagonalRec2020 ? 1u : 0u,
                 exposure = (float)m.Exposure,

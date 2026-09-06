@@ -1,0 +1,16 @@
+<section aria-label="Manual geometry" data-testid="geometry-panel">
+  <h3>Manual geometry</h3>
+  @for (control of controls; track control.field) {
+    <mui-living-slider
+      [label]="control.label"
+      [value]="adjustment()?.[control.field] ?? control.identity"
+      [min]="ranges[control.field][0]"
+      [max]="ranges[control.field][1]"
+      [step]="control.step"
+      [disabled]="!adjustment()"
+      (dragStart)="begin()"
+      (valueChange)="change(control.field, $event)"
+      (resetRequest)="reset(control.field, control.identity)"
+    />
+  }
+</section>

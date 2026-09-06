@@ -158,6 +158,11 @@ namespace Maple.WinUI.Models
         public double LensCorrectionDistortion = 100.0;
         public double LensCorrectionCa = 100.0;
         public double LensCorrectionVignetting = 100.0;
+        public double GeoPerspectiveH;
+        public double GeoPerspectiveV;
+        public double GeoRotation;
+        public double GeoAspect = 1.0;
+        public double GeoScale = 1.0;
 
         public AdjustmentState Clone()
         {

@@ -110,6 +110,11 @@ pub(super) fn stripped_prefix_model(
         grain_amount: 0.0,
         grain_size: 25.0,
         grain_roughness: 50.0,
+        geo_perspective_h: 0.0,
+        geo_perspective_v: 0.0,
+        geo_rotation: 0.0,
+        geo_aspect: 1.0,
+        geo_scale: 1.0,
         // Split toning (#1111) — display-tail like grain; pin so sub-param
         // drags can't spuriously re-develop the prefix.
         split_tone_shadow_hue: 0.0,
@@ -198,6 +203,7 @@ pub(super) fn build_full_chain_inputs(
     };
 
     FullChainInputs {
+        geometry_inverse: None,
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,
@@ -353,4 +359,52 @@ pub(super) fn build_full_chain_inputs(
             blue: model.display_tone_curve_blue.points.clone(),
         },
     }
+}
+
+/// Assemble the [`FullChainInputs`] for `model` from the RAW + the (cache-served)
+/// Auto Profile fit. The view-tail-and-WB shape the live chain re-applies every
+/// render; cheap (no decode, no GPU compile), so the persistent session rebuilds
+/// it per tick from the latest model while reusing the uploaded prefix buffer.
+///
+/// `film_lut` / `film_lut_key` (epic #2683, Task 9) are the session-resident
+/// baked film-look grid + its content-identity key — see
+/// [`build_full_chain_inputs`]'s doc for why they ride alongside the
+/// model instead of inside it. One-shot callers with no loaded look pass
+/// `(None, 0)`.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn chain_inputs_for_model(
+    raw_img: &raw_core::image::RawImage,
+    developed_size: (u32, u32),
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    film_lut: Option<&raw_core::film::FilmLut>,
+    film_lut_key: u32,
+) -> Result<FullChainInputs<'static>, String> {
+    let (profile_curve_flat, residual_lut_size, residual_lut_data) =
+        super::fit_profile_artifacts(raw_img, raw, ext, model);
+    let mut inputs = build_full_chain_inputs(
+        model,
+        profile_curve_flat,
+        residual_lut_size,
+        residual_lut_data,
+        // The decoded frame's own noise characterisation drives the NR stages'
+        // per-pixel modulation on the GPU exactly as it does in `develop`
+        // (#1714) — both read `RawImage::{noise_profile, iso}`.
+        NoiseProfileInputs {
+            profile: raw_img.noise_profile.clone().unwrap_or_default(),
+            iso: raw_img.iso,
+        },
+        film_lut,
+        film_lut_key,
+    );
+    let inverse = raw_core::stages::geometry::Geometry::from(model).inverse_sensor(
+        developed_size.0,
+        developed_size.1,
+        raw_img.orientation,
+    )?;
+    if inverse != raw_core::stages::geometry::Transform::IDENTITY {
+        inputs.geometry_inverse = Some(inverse.0);
+    }
+    Ok(inputs)
 }

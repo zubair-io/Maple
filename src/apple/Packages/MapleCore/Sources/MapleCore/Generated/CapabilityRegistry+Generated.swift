@@ -362,7 +362,14 @@ public enum CapabilityRegistry {
             assetClasses: [.raw, .nonRaw],
             previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
             exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: ["crop"],
+            fields: [
+                "crop",
+                "geo_perspective_h",
+                "geo_perspective_v",
+                "geo_rotation",
+                "geo_aspect",
+                "geo_scale",
+            ],
             integration: [.sidecarContractApple, .sidecarContractApi],
             qualification: [.appleCanvasGolden],
             releaseState: .core

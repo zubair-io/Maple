@@ -249,6 +249,16 @@ extension _XMPParserDelegate {
             model.lensCorrectionCa = d(value) ?? model.lensCorrectionCa
         case "crs:LensProfileVignettingScale":
             model.lensCorrectionVignetting = d(value) ?? model.lensCorrectionVignetting
+        case "papp:GeoPerspectiveH":
+            model.geoPerspectiveH = d(value) ?? model.geoPerspectiveH
+        case "papp:GeoPerspectiveV":
+            model.geoPerspectiveV = d(value) ?? model.geoPerspectiveV
+        case "papp:GeoRotation":
+            model.geoRotation = d(value) ?? model.geoRotation
+        case "papp:GeoAspect":
+            model.geoAspect = d(value) ?? model.geoAspect
+        case "papp:GeoScale":
+            model.geoScale = d(value) ?? model.geoScale
         // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
         case "crs:HasCrop", "crs:CropConstrainToWarp": break
         // Consumed at document level in `didStartElement` (#1780).

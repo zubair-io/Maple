@@ -34,6 +34,7 @@ mod color_grade;
 // The four display-referred point-curve entries (#2232); same split reason.
 mod display_curves;
 // White balance: the slider pair, method, and the #2434 provenance fields.
+mod geometry;
 mod white_balance;
 
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
@@ -554,6 +555,11 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 0.0), default_f32: 0.0, enum_name: "",
         doc: "Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key.",
     },
+    geometry::PERSPECTIVE_H,
+    geometry::PERSPECTIVE_V,
+    geometry::ROTATION,
+    geometry::ASPECT,
+    geometry::SCALE,
 ];
 
 #[cfg(test)]

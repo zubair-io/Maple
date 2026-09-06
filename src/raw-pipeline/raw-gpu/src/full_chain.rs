@@ -140,6 +140,8 @@ impl Default for ScopeRequest {
 /// exception — it is position-dependent (see the module docs) and supplied
 /// separately to [`build_full_chain_passes`].
 pub struct FullChainInputs<'a> {
+    /// Output-to-source manual geometry, prepared in the shared core.
+    pub geometry_inverse: Option<[[f32; 3]; 3]>,
     /// Pre-derived linear-Rec.2020 white-balance matrix (raw-core's
     /// `wb_cat16_matrix` or a diagonal from `wb_gains`).
     pub wb_matrix: [[f32; 3]; 3],
@@ -523,6 +525,9 @@ pub fn build_split<'a>(
         data: inputs.residual_lut_data.as_ref().into(),
     }));
 
+    if let Some(inverse) = inputs.geometry_inverse {
+        suffix.push(Box::new(crate::geometry::GeometryPass { inverse }));
+    }
     (prefix, suffix)
 }
 

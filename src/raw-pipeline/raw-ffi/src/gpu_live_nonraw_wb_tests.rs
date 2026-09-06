@@ -214,7 +214,7 @@ fn nonraw_wb_delta_matches_gpu_live_and_cpu_chain() {
     let model_for_arrays = AdjustmentModel::default();
     let arr = owned_arrays(&model_for_arrays, &curve, &lut);
     let gpu_params = gpu_params_nonraw(&arr, LIVE_TEMP, LIVE_TINT, D65_TEMP, D65_TINT);
-    let gpu_inputs = unsafe { inputs_from_params(&gpu_params) };
+    let gpu_inputs = unsafe { inputs_from_params(&gpu_params, 1, 1).unwrap() };
     let gpu_result = Matrix3(gpu_inputs.wb_matrix).mul_vec(probe);
 
     // --- CPU chain side: the real FFI entry, on a 1x1 buffer, skip_agx so the
@@ -273,7 +273,7 @@ fn nonraw_wb_default_slider_is_identity_on_both_paths() {
     let arr = owned_arrays(&model_for_arrays, &curve, &lut);
 
     let gpu_params = gpu_params_nonraw(&arr, D65_TEMP, D65_TINT, D65_TEMP, D65_TINT);
-    let gpu_inputs = unsafe { inputs_from_params(&gpu_params) };
+    let gpu_inputs = unsafe { inputs_from_params(&gpu_params, 1, 1).unwrap() };
     let gpu_result = Matrix3(gpu_inputs.wb_matrix).mul_vec(probe);
 
     let mut cpu_params = cpu_params_nonraw();

@@ -17,6 +17,32 @@ use raw_core::film::FilmLut;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession};
 
+#[test]
+fn geometry_uses_the_developed_frame_aspect_after_crop_and_resize() {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
+    ));
+    let mut raw = raw_core::decode::decode_bytes(bytes, "dng").unwrap();
+    raw.orientation = raw_core::image::ExifOrientation::Rotate90;
+    let model = AdjustmentModel {
+        profile: raw_core::types::Profile::Neutral,
+        geo_rotation: 17.0,
+        geo_perspective_h: 0.2,
+        ..AdjustmentModel::default()
+    };
+    let inputs =
+        super::chain_inputs_for_model(&raw, (43, 27), bytes, "dng", &model, None, 0).unwrap();
+    let expected = raw_core::stages::geometry::Geometry::from(&model)
+        .inverse_sensor(43, 27, raw.orientation)
+        .unwrap();
+    assert_eq!(inputs.geometry_inverse, Some(expected.0));
+    let sensor = raw_core::stages::geometry::Geometry::from(&model)
+        .inverse_sensor(raw.width, raw.height, raw.orientation)
+        .unwrap();
+    assert_ne!(inputs.geometry_inverse, Some(sensor.0));
+}
+
 /// A tiny, deliberately NON-identity 2x2x2 lattice: every node maps to solid
 /// red. At `film_strength: 100` (the model default) this fully overrides
 /// whatever colour the develop produced, so a render with this LUT loaded is
@@ -55,7 +81,16 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
         ..AdjustmentModel::default()
     };
 
-    let no_look = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0);
+    let no_look = super::chain_inputs_for_model(
+        &raw_img,
+        (raw_img.width, raw_img.height),
+        &bytes,
+        ext,
+        &model,
+        None,
+        0,
+    )
+    .unwrap();
     assert_eq!(no_look.film_lut_size, 0, "no look ⇒ size 0");
     assert_eq!(no_look.film_lut_key, 0, "no look ⇒ key 0");
     assert!(no_look.film_lut_data.is_empty(), "no look ⇒ empty grid");
@@ -65,7 +100,16 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     assert_eq!(no_look.film_strength, 72.0);
 
     let lut = solid_red_lut();
-    let loaded = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, Some(&lut), 4242);
+    let loaded = super::chain_inputs_for_model(
+        &raw_img,
+        (raw_img.width, raw_img.height),
+        &bytes,
+        ext,
+        &model,
+        Some(&lut),
+        4242,
+    )
+    .unwrap();
     assert_eq!(loaded.film_lut_size, 2, "loaded look ⇒ the grid's own size");
     assert_eq!(loaded.film_lut_key, 4242, "loaded look ⇒ the caller's key");
     assert_eq!(
@@ -77,7 +121,16 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     // Clearing (the `set_film_lut(&[], _)` / `clear_film_lut` contract) must
     // reproduce the no-look inputs exactly — a session that loads then clears
     // a look renders identically to one that never loaded it.
-    let cleared = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0);
+    let cleared = super::chain_inputs_for_model(
+        &raw_img,
+        (raw_img.width, raw_img.height),
+        &bytes,
+        ext,
+        &model,
+        None,
+        0,
+    )
+    .unwrap();
     assert_eq!(cleared.film_lut_size, no_look.film_lut_size);
     assert_eq!(cleared.film_lut_key, no_look.film_lut_key);
     assert_eq!(cleared.film_lut_data, no_look.film_lut_data);
@@ -119,13 +172,31 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
         super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, target).expect("develop");
     let session = LiveSession::new(&ctx, &rgba, w, h).expect("session upload");
 
-    let no_look_inputs = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0);
+    let no_look_inputs = super::chain_inputs_for_model(
+        &raw_img,
+        (raw_img.width, raw_img.height),
+        &bytes,
+        ext,
+        &model,
+        None,
+        0,
+    )
+    .unwrap();
     let baseline = pollster::block_on(session.render_async(&ctx, &no_look_inputs, None))
         .expect("baseline render ok")
         .expect("baseline render");
 
     let lut = solid_red_lut();
-    let loaded_inputs = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, Some(&lut), 7);
+    let loaded_inputs = super::chain_inputs_for_model(
+        &raw_img,
+        (raw_img.width, raw_img.height),
+        &bytes,
+        ext,
+        &model,
+        Some(&lut),
+        7,
+    )
+    .unwrap();
     let with_look = pollster::block_on(session.render_async(&ctx, &loaded_inputs, None))
         .expect("with-look render ok")
         .expect("with-look render");
@@ -147,7 +218,16 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
 
     // Clear ⇒ back to `(None, 0)` inputs ⇒ byte-identical to the baseline —
     // the same session, same develop, only the film fields reverted.
-    let cleared_inputs = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0);
+    let cleared_inputs = super::chain_inputs_for_model(
+        &raw_img,
+        (raw_img.width, raw_img.height),
+        &bytes,
+        ext,
+        &model,
+        None,
+        0,
+    )
+    .unwrap();
     let cleared = pollster::block_on(session.render_async(&ctx, &cleared_inputs, None))
         .expect("cleared render ok")
         .expect("cleared render");

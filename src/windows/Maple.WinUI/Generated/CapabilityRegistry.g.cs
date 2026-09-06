@@ -117,7 +117,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw, CapabilityAssetClass.NonRaw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference, CapabilityPreviewPath.GpuLive, CapabilityPreviewPath.WasmCpu, CapabilityPreviewPath.WasmGpu },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi, CapabilityExportPath.Wasm, CapabilityExportPath.ApiFfi, CapabilityExportPath.WindowsDll },
-                new string[] { "crop" },
+                new string[] { "crop", "geo_perspective_h", "geo_perspective_v", "geo_rotation", "geo_aspect", "geo_scale" },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.SidecarContractApple, CapabilityEvidenceSource.SidecarContractApi },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.AppleCanvasGolden },
                 CapabilityReleaseState.Core),

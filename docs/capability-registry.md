@@ -132,7 +132,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Asset classes: `raw`, `non_raw`
 - Preview paths: `cpu_reference`, `gpu_live`, `wasm_cpu`, `wasm_gpu`
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
-- Fields: `crop`
+- Fields: `crop`, `geo_perspective_h`, `geo_perspective_v`, `geo_rotation`, `geo_aspect`, `geo_scale`
 - Integration evidence:
   - `sidecar_contract_apple` — satisfied
   - `sidecar_contract_api` — satisfied

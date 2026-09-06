@@ -16,6 +16,63 @@ use super::tests::{neutral_case, run_live_chain, TEST_SESSION_ID};
 use super::*;
 use crate::dehaze::AirlightSource;
 
+#[test]
+fn manual_geometry_is_the_final_live_pass_and_reuses_pool_shape() {
+    use raw_core::{
+        image::{ColorSpace, Image},
+        stages::geometry::{self, Geometry},
+    };
+    let mut inputs = neutral_case().gpu_inputs();
+    let identity_signature = chain_signature(&inputs, (16, 12), TEST_SESSION_ID);
+    let input: Vec<f32> = (0..192)
+        .flat_map(|i| [i as f32 / 192.0, 0.2, 0.4, 1.0])
+        .collect();
+    let base = run_live_chain(&input, 16, 12, &inputs);
+    let mut reference = Image::new(16, 12, ColorSpace::DisplayEncodedSrgb);
+    for (pixel, p) in reference.pixels.iter_mut().zip(base.chunks_exact(4)) {
+        *pixel = [p[0], p[1], p[2]];
+    }
+    let inverse = Geometry {
+        rotation: 8.0,
+        perspective_v: 0.1,
+        ..Geometry::default()
+    }
+    .forward(16, 12)
+    .unwrap()
+    .inverse()
+    .unwrap();
+    geometry::apply(&mut reference, inverse, &mut vec![]);
+    inputs.geometry_inverse = Some(inverse.0);
+    let geometry_signature = chain_signature(&inputs, (16, 12), TEST_SESSION_ID);
+    assert_ne!(identity_signature, geometry_signature);
+    let output = run_live_chain(&input, 16, 12, &inputs);
+    let error = reference
+        .pixels
+        .iter()
+        .zip(output.chunks_exact(4))
+        .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+        .fold(0.0_f32, f32::max);
+    assert!(
+        error < 1e-4,
+        "live geometry differed from encoded CPU tail: {error}"
+    );
+    inputs.geometry_inverse = Some(
+        Geometry {
+            rotation: 12.0,
+            ..Geometry::default()
+        }
+        .forward(16, 12)
+        .unwrap()
+        .inverse()
+        .unwrap()
+        .0,
+    );
+    assert_eq!(
+        geometry_signature,
+        chain_signature(&inputs, (16, 12), TEST_SESSION_ID)
+    );
+}
+
 /// #1513/#1516 PIXEL PROOF (real GPU): a WHITE scene-linear pixel is AgX-crushed
 /// to ~0.76 gamma for a RAW shape but passes ~unchanged (1.0 = 255) for a NON-RAW
 /// shape (look stages skipped) — proving the gate's pixel effect, not just the list.

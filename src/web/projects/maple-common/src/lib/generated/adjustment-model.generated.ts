@@ -253,6 +253,16 @@ export interface GeneratedAdjustmentModel {
   lensCorrectionCa: number;
   /** Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
   lensCorrectionVignetting: number;
+  /** Horizontal perspective in display framing. XMP key `papp:GeoPerspectiveH`. Range: [-0.4, 0.4]. */
+  geoPerspectiveH: number;
+  /** Vertical perspective in display framing. XMP key `papp:GeoPerspectiveV`. Range: [-0.4, 0.4]. */
+  geoPerspectiveV: number;
+  /** Clockwise rotation in degrees. XMP key `papp:GeoRotation`. Range: [-180.0, 180.0]. */
+  geoRotation: number;
+  /** Area-preserving horizontal/vertical aspect ratio. XMP key `papp:GeoAspect`. Range: [0.5, 2.0]. */
+  geoAspect: number;
+  /** Centered uniform image scale. XMP key `papp:GeoScale`. Range: [0.25, 4.0]. */
+  geoScale: number;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -366,6 +376,11 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     lensCorrectionDistortion: 100.0,
     lensCorrectionCa: 100.0,
     lensCorrectionVignetting: 100.0,
+    geoPerspectiveH: 0.0,
+    geoPerspectiveV: 0.0,
+    geoRotation: 0.0,
+    geoAspect: 1.0,
+    geoScale: 1.0,
   };
 }
 

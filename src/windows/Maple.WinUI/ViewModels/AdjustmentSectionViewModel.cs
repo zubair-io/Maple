@@ -158,6 +158,15 @@ namespace Maple.WinUI.ViewModels
                     Sl("Color NR", 0, 100, 1, m => m.NrColor, (m, v) => m.NrColor = v),
                 }, expanded: false),
 
+                new("Geometry", new[]
+                {
+                    Sl("Horizontal Perspective", -0.4, 0.4, 0.005, m => m.GeoPerspectiveH, (m, v) => m.GeoPerspectiveH = v, v => v.ToString("0.000")),
+                    Sl("Vertical Perspective", -0.4, 0.4, 0.005, m => m.GeoPerspectiveV, (m, v) => m.GeoPerspectiveV = v, v => v.ToString("0.000")),
+                    Sl("Rotation", -180, 180, 0.1, m => m.GeoRotation, (m, v) => m.GeoRotation = v, v => v.ToString("0.0°")),
+                    Sl("Aspect", 0.5, 2, 0.01, m => m.GeoAspect, (m, v) => m.GeoAspect = v, v => v.ToString("0.00")),
+                    Sl("Scale", 0.25, 4, 0.01, m => m.GeoScale, (m, v) => m.GeoScale = v, v => v.ToString("0.00")),
+                }, expanded: false),
+
                 new("Tone Curve", new[]
                 {
                     Sl("Highlights", -100, 100, 1, m => m.ParametricHighlights, (m, v) => m.ParametricHighlights = v, plain),

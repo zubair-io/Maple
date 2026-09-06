@@ -141,6 +141,11 @@ fn schema_matches_struct() {
         lens_correction_ca,
         lens_correction_vignetting,
         lens_profile,
+        geo_perspective_h,
+        geo_perspective_v,
+        geo_rotation,
+        geo_aspect,
+        geo_scale,
     } = m;
     let expected_order = [
         "temperature",
@@ -252,6 +257,11 @@ fn schema_matches_struct() {
         "lens_correction_ca",
         "lens_correction_vignetting",
         "lens_profile",
+        "geo_perspective_h",
+        "geo_perspective_v",
+        "geo_rotation",
+        "geo_aspect",
+        "geo_scale",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -380,6 +390,11 @@ fn schema_matches_struct() {
         lens_correction_ca,
         lens_correction_vignetting,
         lens_profile,
+        geo_perspective_h,
+        geo_perspective_v,
+        geo_rotation,
+        geo_aspect,
+        geo_scale,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema

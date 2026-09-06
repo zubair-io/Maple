@@ -167,6 +167,11 @@ impl Default for AdjustmentModel {
             lens_correction_ca: 100.0,
             lens_correction_vignetting: 100.0,
             lens_profile: String::new(),
+            geo_perspective_h: 0.0,
+            geo_perspective_v: 0.0,
+            geo_rotation: 0.0,
+            geo_aspect: 1.0,
+            geo_scale: 1.0,
         }
     }
 }
