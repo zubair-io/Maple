@@ -72,7 +72,8 @@ final class EditorWorkflowPerfTests: XCTestCase {
         && !session.isFullQualityDecoding
     }
     let fullMs = Self.ms(opened.duration(to: .now))
-    try await Task.sleep(for: .milliseconds(500))
+    // Start interaction immediately after readiness. Waiting here would hide
+    // background cache work contending with the user's first slider input.
     let beforeReopen = await session.renderActor._testDecodeGeneration()
     let revisit = ContinuousClock.now
     session.ensureRenderStarted()

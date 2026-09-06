@@ -438,7 +438,7 @@ public final class GpuLiveDriver {
   /// Render the CURRENT session's frame to a `width·height·3` u8 RGB CPU buffer —
   /// the EXACT bytes `present` puts on screen (same chain + dither; the live
   /// params hardcode `target_primaries = 0`, so sRGB-primary gamma-encoded).
-  /// For a ONE-SHOT cold-open preview-cache populate (#1665); NOT for per-tick
+  /// For editor-exit preview/thumbnail persistence; NOT for per-tick
   /// use — it re-runs the chain WITH a CPU readback, the very cost `present`
   /// avoids. Returns `nil` when no session is open or the render was cancelled
   /// (the caller then simply leaves the cache unpopulated).
@@ -449,6 +449,8 @@ public final class GpuLiveDriver {
     wbFrame: WbSliderFrame? = nil
   ) async -> (bytes: [UInt8], width: Int, height: Int)? {
     guard let s = session, let dims = sessionDims else { return nil }
+    guard !Task.isCancelled else { return nil }
+    let revision = sessionRevision
     do {
       guard
         let bytes = try await s.renderToBuffer(
@@ -459,6 +461,7 @@ public final class GpuLiveDriver {
           wbFrame: wbFrame
         )
       else { return nil }
+      guard !Task.isCancelled, revision == sessionRevision else { return nil }
       return (bytes, dims.width, dims.height)
     } catch {
       gpuDriverLog.error(
