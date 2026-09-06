@@ -1,7 +1,4 @@
-// ImageCanvasComponent — two-phase live render (#846 → #1101).
-//
-// Covers the TS-layer wiring that threads the current AdjustmentModel's XMP
-// into the WASM decode and re-renders on edits:
+// ImageCanvasComponent — two-phase live render and XMP wiring (#846/#1101):
 //   - cold open issues exactly one VIEWPORT-SIZED decode (no spurious decode)
 //   - every edit tick fires an immediate fast-phase sized decode (coalesced
 //     latest-wins while one is in flight — no storm)
@@ -10,10 +7,8 @@
 //   - zooming in without an edit schedules a refine for the current model
 //   - switching assets cancels pending renders
 //
-// Zoneless project: effects run on `fixture.detectChanges()`; the debounce
-// timer is driven with vitest fake timers. The WASM render itself is exercised
-// by raw-core's fixture-gated tests; this spec stubs RawPipelineService and
-// asserts on the requests it receives.
+// Zoneless effects run on detectChanges; fake timers drive refinement.
+// This suite asserts pipeline requests; raw-core tests exercise pixel output.
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
