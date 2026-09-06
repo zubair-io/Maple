@@ -17,15 +17,20 @@ pub struct RenderSupport {
 impl RenderSupport {
     pub fn resolve(raw: &RawImage) -> crate::Result<Self> {
         let (_, source) = dcp::profile_for_with_source(raw)?;
-        Ok(Self {
+        Ok(Self::from_source(raw, &source))
+    }
+
+    /// Reuse the provenance from a profile the caller already resolved.
+    pub fn from_source(raw: &RawImage, source: &dcp::ProfileSource) -> Self {
+        Self {
             camera_key: profile_loader::camera_key_for(raw).unique_camera_model,
-            resolution: ProfileResolution::from(&source),
+            resolution: ProfileResolution::from(source),
             lens: if raw.has_lens_corrections() {
                 LensSupport::EmbeddedCorrection
             } else {
                 LensSupport::NoCorrectionData
             },
-        })
+        }
     }
 
     /// Shared transport for WASM and C-FFI. The vocabulary is generated for

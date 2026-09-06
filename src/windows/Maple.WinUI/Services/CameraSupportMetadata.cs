@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Maple.WinUI.Generated;
@@ -28,6 +30,22 @@ namespace Maple.WinUI.Services
 
         /// <summary>Worker-thread only. Immediately after decode this reads the
         /// same native cached RawImage without another file read or decode.</summary>
+        public static CameraSupportMetadata? ReadFileBestEffort(string path) => ReadBestEffort(() => ReadFile(path));
+
+        // A decoded image remains usable when the optional native metadata ABI
+        // is unavailable or its payload cannot be understood by this host.
+        internal static CameraSupportMetadata? ReadBestEffort(Func<CameraSupportMetadata> read)
+        {
+            try { return read(); }
+            catch (Exception error) when (error is InvalidOperationException or JsonException
+                or KeyNotFoundException or ArgumentException or DllNotFoundException
+                or EntryPointNotFoundException or BadImageFormatException)
+            {
+                Debug.WriteLine($"Camera support remains unassessed: {error.Message}");
+                return null;
+            }
+        }
+
         public static CameraSupportMetadata ReadFile(string path)
         {
             var code = CameraSupportNative.maple_camera_support_file(path, out var json);
