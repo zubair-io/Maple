@@ -126,12 +126,12 @@ extension AdjustmentModel {
         case lensCorrectionDistortion = "lens_correction_distortion"
         case lensCorrectionCa = "lens_correction_ca"
         case lensCorrectionVignetting = "lens_correction_vignetting"
+        case lensProfile = "lens_profile"
         case geoPerspectiveH = "geo_perspective_h"
         case geoPerspectiveV = "geo_perspective_v"
         case geoRotation = "geo_rotation"
         case geoAspect = "geo_aspect"
         case geoScale = "geo_scale"
-        case lensProfile = "lens_profile"
     }
 
     // MARK: - Range constants (canonical, generated)

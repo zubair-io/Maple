@@ -112,6 +112,11 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   film_look: 'Absolute',
   film_strength: 'Absolute',
   crop: 'AssetRelative',
+  geo_perspective_h: 'Absolute',
+  geo_perspective_v: 'Absolute',
+  geo_rotation: 'Absolute',
+  geo_aspect: 'Absolute',
+  geo_scale: 'Absolute',
   lens_profile: 'Unsupported',
   local_adjustments: 'Unsupported',
   inpaint_removals: 'Unsupported',
@@ -123,6 +128,11 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
 };
 
 export const TRANSFER_XMP_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
+  geo_perspective_h: ['papp:GeoPerspectiveH'],
+  geo_perspective_v: ['papp:GeoPerspectiveV'],
+  geo_rotation: ['papp:GeoRotation'],
+  geo_aspect: ['papp:GeoAspect'],
+  geo_scale: ['papp:GeoScale'],
   temperature: ['crs:Temperature'],
   tint: ['crs:Tint'],
   exposure: ['crs:Exposure2012'],
