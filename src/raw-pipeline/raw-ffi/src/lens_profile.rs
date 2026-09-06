@@ -32,9 +32,7 @@ pub unsafe extern "C" fn maple_lens_profile_selected(
         .map_err(|error| error.to_string())
         .and_then(|xml| raw_core::xmp::parse(xml).map_err(|error| error.to_string()))
         .map(|model| {
-            let enabled =
-                raw_core::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(&model)
-                    != raw_core::pipeline::pano::opcode_apply::LensCorrectionScales::NONE;
+            let enabled = raw_core::lens_profile::corrections_enabled(&model);
             format!(
                 r#"{{"reference":"{}","enabled":{}}}"#,
                 model.lens_profile, enabled
@@ -123,7 +121,8 @@ pub unsafe extern "C" fn maple_lens_profile_resolve_file(
             };
             Ok(raw_core::lens_profile::resolve_for_raw(&raw,&reference)?
                 .map(|resolution| resolution.metadata().to_string())
-                .unwrap_or_else(|| r#"{"source":"embedded","confidence":"embedded","approximations":[],"unsupported":[]}"#.into()))
+                .unwrap_or_else(|| format!(r#"{{"source":"{}","confidence":"embedded","approximations":[],"unsupported":[],"hasDistortion":{},"hasCa":{},"hasVignetting":{}}}"#,
+                    if raw.has_lens_corrections() {"embedded"} else {"none"}, raw.has_lens_corrections(), !raw.lens_correction_ca_inert(), raw.has_lens_corrections())))
         };
         output_json(output as *mut *mut c_char, resolve())
     })

@@ -183,6 +183,7 @@ impl Resolution {
         })).collect::<Vec<_>>()
         };
         serde_json::json!({"source":"lcp","confidence":if self.approximations.is_empty() {"in-range"} else {"approximate"},
+            "hasDistortion":self.calibration.distortion.is_some(),"hasCa":self.calibration.ca.is_some(),"hasVignetting":self.calibration.vignette.is_some(),
             "approximations":self.approximations,"unsupported":self.unsupported,
             "distortion":samples(&self.distortion_samples),"ca":samples(&self.ca_samples),"vignetting":samples(&self.vignette_samples)})
     }
