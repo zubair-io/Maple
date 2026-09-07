@@ -94,6 +94,10 @@ export class XmpStoreService {
     return this._passthroughs.get(assetId);
   }
 
+  metadataFor(assetId: AssetId): XmpMetadata | undefined {
+    return this._metadata.get(assetId);
+  }
+
   // ── Write ───────────────────────────────────────────────────────────────────
 
   /**
