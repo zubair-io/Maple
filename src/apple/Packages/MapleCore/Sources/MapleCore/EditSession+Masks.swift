@@ -95,14 +95,7 @@ extension EditSession {
       guard case .bitmap(let recipe, let rasterId) = out.localAdjustments[index].mask, rasterId == 0
       else { continue }
       do {
-        let request = SkinRasterRequest(
-          person: recipe.person, facialSkin: recipe.facialSkin, bodySkin: recipe.bodySkin)
-        let (w, h, bytes) = try await maskRasterStore.raster(
-          for: recipe.digest, model: recipe.model
-        ) {
-          let image = try await self.renderForSegmentation()
-          return try await self.personSkinMaskService.makeRaster(image: image, request: request)
-        }
+        let (w, h, bytes) = try await sourceMaskRaster(for: recipe)
         guard
           let id = MaskRasterRegistry.register(
             digest: recipe.digest, width: w, height: h, bytes: bytes)
@@ -119,6 +112,19 @@ extension EditSession {
       }
     }
     return out
+  }
+
+  /// The full-frame raster `recipe` describes: `maskRasterStore`'s cached
+  /// PNG by digest, or a fresh Vision pass rebuilt from the recipe on a
+  /// cache miss. Shared by sidecar rehydration above and the per-window
+  /// derived rasters of `EditSession+MaskRemap.swift` (#355).
+  func sourceMaskRaster(for recipe: BitmapRecipe) async throws -> MaskRasterStore.Raster {
+    let request = SkinRasterRequest(
+      person: recipe.person, facialSkin: recipe.facialSkin, bodySkin: recipe.bodySkin)
+    return try await maskRasterStore.raster(for: recipe.digest, model: recipe.model) {
+      let image = try await self.renderForSegmentation()
+      return try await self.personSkinMaskService.makeRaster(image: image, request: request)
+    }
   }
 
   /// "Skin range only (whole image)" — the no-person fallback (spec §3.2).

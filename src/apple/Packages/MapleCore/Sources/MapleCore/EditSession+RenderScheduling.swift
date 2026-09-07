@@ -130,8 +130,13 @@ extension EditSession {
     // Recheck before fallback work, including the cache-only shortcut below.
     let current = await renderActor.currentGeneration()
     guard gen == current, !Task.isCancelled else { return }
-    // Plan 3 / Ticket 06 M4 — deep-zoom branch.
+    // Plan 3 / Ticket 06 M4 — deep-zoom branch. Off while a layer stack
+    // exists (#355): its tiles are developed from a stripped-model handle
+    // and published as scene-linear tiles with no per-tick chain on top,
+    // so nothing would apply the masks — the native-detail path above and
+    // the whole-image refine below both carry the stack correctly.
     if !cropApplied,
+      model.localAdjustments.isEmpty,
       Self.deepZoomEnabled,
       pixelScale >= 1.0,
       !viewportSourceRect.isEmpty,

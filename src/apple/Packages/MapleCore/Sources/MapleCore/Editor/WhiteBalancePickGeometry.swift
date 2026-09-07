@@ -17,7 +17,28 @@ public enum WhiteBalancePickGeometry {
     let x = (location.x - left) / displayFrame.width
     let y = (location.y - top) / displayFrame.height
     guard contains(x, y) else { return nil }
+    let p = uncroppedPoint(x: x, y: y, nativeSize: nativeSize, crop: crop)
+    // A rotated frame can expose empty corners inside the crop. Never
+    // clamp those to a real edge pixel and silently sample the wrong area.
+    guard contains(p.x, p.y) else { return nil }
+    return p
+  }
+
+  /// The full-frame normalized point that `crop` places at the CROPPED
+  /// frame's normalized `(x, y)` — the inverse of `CropImageStage.apply`'s
+  /// geometry (its canonical integer crop rect rounded against
+  /// `nativeSize`, cut from the frame rotated clockwise about its centre by
+  /// the straighten angle). Unbounded on purpose: a straightened crop's
+  /// empty corner maps OUTSIDE `[0, 1]²`, and the mask-placement affine
+  /// (`MaskAffine.cropToFullFrame`, #355) needs the unclamped linear map,
+  /// not a hit test — `imagePoint` applies the in-frame guard on top.
+  /// Identity when the crop does not apply (`CropImageStage.shouldApply`)
+  /// or the rect degenerates.
+  public static func uncroppedPoint(
+    x: CGFloat, y: CGFloat, nativeSize: CGSize, crop: Crop
+  ) -> CGPoint {
     guard CropImageStage.shouldApply(crop),
+      nativeSize.width > 0, nativeSize.height > 0,
       let rect = CropImageStage.cropRect(crop, bufferSize: nativeSize, nativeSize: nativeSize)
     else { return CGPoint(x: x, y: y) }
 
@@ -28,9 +49,6 @@ public enum WhiteBalancePickGeometry {
     let angle = crop.angle * .pi / 180
     let nx = (dx * cos(angle) + dy * sin(angle)) / nativeSize.width + 0.5
     let ny = (-dx * sin(angle) + dy * cos(angle)) / nativeSize.height + 0.5
-    // A rotated frame can expose empty corners inside the crop. Never
-    // clamp those to a real edge pixel and silently sample the wrong area.
-    guard contains(nx, ny) else { return nil }
     return CGPoint(x: nx, y: ny)
   }
 
