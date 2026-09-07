@@ -1,6 +1,7 @@
 /** Shared creation responses keep first submissions and failed-only retries consistent. */
 import type { ObjectId } from 'mongodb';
 import type { JobWithId } from '../db/schema.ts';
+import type { CreateJobInput } from '../job-runner/jobs.repo.ts';
 import {
   createJob,
   getJob,
@@ -22,6 +23,19 @@ export async function createdJobResponse(
     if (!message) throw error;
     set.status = 409;
     return { error: message };
+  }
+}
+
+/** Preserve the established export retry response shape while sharing the
+ * same request-identity and active-library conflict mapping as batch sync. */
+export async function createJobResponse(input: CreateJobInput) {
+  try {
+    const job = await createJob(input);
+    return { status: 201, body: { id: job._id.toHexString() } };
+  } catch (error) {
+    const message = jobConflictMessage(error);
+    if (!message) throw error;
+    return { status: 409, body: { error: message } };
   }
 }
 

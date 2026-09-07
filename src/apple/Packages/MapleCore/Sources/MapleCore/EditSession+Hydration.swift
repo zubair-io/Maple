@@ -98,6 +98,9 @@ extension EditSession {
 
     // An edit or another completed load owns the current state. In particular,
     // a confirmed batch paste must not be overwritten by a late browse hydrate.
+    // Mark this attempt resolved before the snapshot guard: when the guard
+    // rejects stale I/O, a later call must not replay that persisted snapshot
+    // over the edit that won the race.
     guard !hasLoadedSidecar else { return }
     hasLoadedSidecar = true
     guard model == startingModel, culling == startingCulling,

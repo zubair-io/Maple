@@ -8,7 +8,7 @@ import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.t
 import { cameraBaseline } from '../job-runner/handlers/batch-white-balance.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
-import { createJobResponse } from './jobs-create.ts';
+import { createdJobResponse, createJobResponse, createRetryFailedJob } from './jobs-create.ts';
 
 function retrySource(previous: JobDoc) {
   if (previous.kind === 'batch_adjustment_sync')
@@ -87,7 +87,11 @@ export const batchSyncJobRoutes = new Elysia()
         set.status = 400;
         return { error: 'Invalid job id' };
       }
-      const previous = await getJob(new ObjectId(params.id));
+      const id = new ObjectId(params.id);
+      const previous = await getJob(id);
+      if (previous?.kind === 'batch_adjustment_sync') {
+        return createdJobResponse(() => createRetryFailedJob(id, body?.requestId), set);
+      }
       const retry = retryPayload(previous);
       if (typeof retry === 'string') {
         set.status = 409;
