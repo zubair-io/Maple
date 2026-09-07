@@ -100,9 +100,12 @@ enum LocalAdjustmentXMP {
     /// `crs:LocalHue` (see the emitter). `-0.425` stays `-0.425`; `-0.2`
     /// stays `-0.2`.
     static func fmtNum4(_ v: Double) -> String {
+        // Explicit POSIX locale: the wire format is "." regardless of the
+        // user's region (#3347 review).
+        let posix = Locale(identifier: "en_US_POSIX")
         let rounded = (v * 10_000).rounded() / 10_000
-        if rounded == rounded.rounded() { return String(format: "%.0f", rounded) }
-        var text = String(format: "%.4f", rounded)
+        if rounded == rounded.rounded() { return String(format: "%.0f", locale: posix, rounded) }
+        var text = String(format: "%.4f", locale: posix, rounded)
         while text.hasSuffix("0") { text.removeLast() }
         return text
     }

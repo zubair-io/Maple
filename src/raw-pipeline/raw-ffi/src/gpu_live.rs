@@ -282,11 +282,11 @@ mod gpu_live_film_tests;
 // 600-LOC budget; reuses `gpu_live_tests`' `pub(super)` helpers the same way
 // the other siblings above do.
 #[cfg(test)]
-#[path = "gpu_live_scope_tests.rs"]
-mod gpu_live_scope_tests;
-#[cfg(test)]
 #[path = "gpu_live_bitmap_scope_tests.rs"]
 mod gpu_live_bitmap_scope_tests;
+#[cfg(test)]
+#[path = "gpu_live_scope_tests.rs"]
+mod gpu_live_scope_tests;
 #[cfg(test)]
 #[path = "gpu_live_scope_timing_tests.rs"]
 mod gpu_live_scope_timing_tests;
