@@ -101,6 +101,44 @@ final class EditorComparisonTests: XCTestCase {
     XCTAssertEqual(session.model.crop, edited.crop)
   }
 
+  func testNonRawComparisonDoesNotStageAnUnusedSidecar() async throws {
+    let input = CIImage(color: CIColor(red: 0.2, green: 0.3, blue: 0.4))
+      .cropped(to: CGRect(x: 0, y: 0, width: 16, height: 12))
+    let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let bytes = try XCTUnwrap(
+      CIContext().pngRepresentation(of: input, format: .RGBA8, colorSpace: space))
+    let requested = expectation(description: "PNG bytes requested")
+    let gate = ComparisonSourceGate()
+    let asset = AssetRef(displayName: "comparison.png", hintExtension: "png") {
+      requested.fulfill()
+      await gate.wait()
+      return bytes
+    }
+    var model = AdjustmentModel.default
+    model.exposure = 0.314159
+    let session = EditSession(asset: asset, model: model)
+    let work = Task {
+      try await session.renderActor.renderComparison(
+        asset: asset, model: model, target: input.extent.size,
+        nativeSize: input.extent.size, filmLattice: nil)
+    }
+    await fulfillment(of: [requested], timeout: 3)
+    // Inspect real staging while the byte source is suspended: an eager XMP
+    // would still exist here. Match this model's XML to exclude other editors.
+    let xml = XMPSerializer.serialize(model: model, culling: CullingState())
+    let entries = try? FileManager.default.contentsOfDirectory(
+      at: FileManager.default.temporaryDirectory, includingPropertiesForKeys: nil)
+    XCTAssertNotNil(entries)
+    let staged = (entries ?? []).filter { $0.lastPathComponent.hasPrefix("maple-comparison-") }
+    XCTAssertFalse(staged.contains { (try? String(contentsOf: $0, encoding: .utf8)) == xml })
+    await gate.release()
+    let image = try await work.value
+    XCTAssertEqual(image.extent.size, input.extent.size)
+    XCTAssertTrue(try red(image).isFinite)
+    XCTAssertEqual(session.model, model)
+    XCTAssertFalse(session.canUndo)
+  }
+
   func testComparisonRequestTracksLateLegacyWhiteBalanceAnchor() {
     let session = EditSession.preview()
     let comparison = EditorComparison(session: session)
