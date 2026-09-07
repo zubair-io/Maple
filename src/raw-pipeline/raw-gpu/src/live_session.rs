@@ -99,8 +99,9 @@ pub struct LiveSession {
     /// [`NEXT_LIVE_SESSION_ID`] at construction; stable for the session's whole
     /// lifetime.
     session_id: u64,
-    /// The vectorscope scope-pass histogram + double-buffered `MAP_READ`
-    /// staging (#3272) — see `live_session/scope.rs`. Session-owned
+    /// The vectorscope scope-pass histogram, the RGB8 snapshot (#3251) and
+    /// their double-buffered `MAP_READ` staging (#3272) — see
+    /// `live_session/scope.rs`. Session-owned
     /// (zero-alloc), like every other buffer above; unused (never read or
     /// written) when a render's `inputs.scope.enabled` is `false`.
     scope: scope::ScopeBuffers,
@@ -205,7 +206,7 @@ impl LiveSession {
             airlight_staging,
             airlight_readback_fallback,
             session_id,
-            scope: scope::ScopeBuffers::new(ctx),
+            scope: scope::ScopeBuffers::new(ctx, (width, height)),
         })
     }
 

@@ -3,10 +3,12 @@
 // trailing over the canvas by EditorView+Canvas.swift's `vectorscopeHud`,
 // toggled by the pill's "Scope" button (PillHeader.swift).
 //
-// Arms `session.scopeEnabled` on appear / disarms on disappear — the GPU-live
-// present (EditSession+GpuLive.swift) and the CPU fallback
-// (EditSession+ScopeCpu.swift) both gate their work on that flag, so the HUD
-// showing is what turns the producer on, not a separate switch.
+// `EditorView` arms `session.scopeEnabled` while this HUD or the four-up
+// scopes panel (`EditorScopesPanel`, #3251) is showing — the GPU-live present
+// (EditSession+GpuLive.swift) and the CPU fallback (EditSession+ScopeCpu.swift)
+// both gate their work on that flag, so a scope surface showing is what turns
+// the producer on, not a separate switch. Both surfaces read the same
+// `session.scopeSample`.
 
 import SwiftUI
 import MapleCore
@@ -62,8 +64,6 @@ struct VectorscopeHud: View {
         .accessibilityIdentifier("editor-vectorscope-hud")
         .accessibilityLabel("Skin tone vectorscope")
         .accessibilityValue(accessibilityValueText)
-        .onAppear { state.session.scopeEnabled = true }
-        .onDisappear { state.session.scopeEnabled = false }
     }
 
     /// Widened beyond a plain has/no-data flag (#3279) so an XCUITest can

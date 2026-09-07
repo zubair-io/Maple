@@ -289,6 +289,12 @@ pub struct GpuContext {
     /// 128×128+1 `u32` integer-atomics buffer. Standalone kernel (no Oklab /
     /// matrices). Built on first use via [`GpuContext::vectorscope_pipeline`].
     pub(crate) vectorscope_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled scope-snapshot pipeline (`scope_snapshot.wgsl`, #3251).
+    /// Runs beside the vectorscope pass on the same display-encoded chain
+    /// buffer: a box-mean downsample into a packed-RGB8 `u32` buffer, long
+    /// edge clamped to `scope::SCOPE_SNAPSHOT_MAX_DIM`. Standalone kernel.
+    /// Built on first use via [`GpuContext::scope_snapshot_pipeline`].
+    pub(crate) scope_snapshot_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// The dims/signature-keyed live-render resource pool (epic #925 P4b-core /
     /// #1027). Pools per-dispatch uniforms / bind groups + spatial scratch planes
     /// so a same-signature re-render allocates ZERO new GPU resources (the
@@ -421,6 +427,7 @@ impl GpuContext {
             cs_apply_pipeline: OnceCell::new(),
             dither_pipeline: OnceCell::new(),
             vectorscope_pipeline: OnceCell::new(),
+            scope_snapshot_pipeline: OnceCell::new(),
             frame_pool: RefCell::new(FramePool::default()),
         })
     }

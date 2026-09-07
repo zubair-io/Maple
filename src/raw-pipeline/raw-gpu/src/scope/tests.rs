@@ -13,7 +13,7 @@ use super::*;
 use crate::chain::ChainRunner;
 use crate::image::GpuImage;
 use crate::local_adjustments::LocalAdjustmentsPass;
-use raw_core::scope::vectorscope_histogram_rgba;
+use raw_core::scope::{snapshot_rgba_f32, vectorscope_histogram_rgba};
 use raw_core::types::{layers_to_flat, LocalAdjustment, Mask, PartialAdjustments, Point2};
 
 /// The constant this crate mirrors from raw-core (see `scope.rs`'s doc) must
@@ -21,6 +21,67 @@ use raw_core::types::{layers_to_flat, LocalAdjustment, Mask, PartialAdjustments,
 #[test]
 fn vectorscope_bins_matches_raw_core() {
     assert_eq!(VECTORSCOPE_BINS, raw_core::scope::VECTORSCOPE_BINS);
+}
+
+/// The snapshot clamp and the dims rule are mirrored the same way (#3251).
+#[test]
+fn snapshot_clamp_and_dims_match_raw_core() {
+    assert_eq!(
+        SCOPE_SNAPSHOT_MAX_DIM,
+        raw_core::scope::SCOPE_SNAPSHOT_MAX_DIM
+    );
+    for dims in [(2466, 1850), (512, 512), (8, 4), (10_000, 10), (0, 5)] {
+        assert_eq!(
+            snapshot_dims(dims.0, dims.1),
+            raw_core::scope::snapshot_dims(dims.0, dims.1),
+            "{dims:?}"
+        );
+    }
+}
+
+/// Per-byte agreement between the GPU snapshot and raw-core's producer.
+/// ±1 LSB: both box-mean the same pixels in the same order, but WGSL's
+/// `round` is ties-to-even where Rust's is ties-away-from-zero.
+fn assert_snapshot_matches(got: &ScopeSnapshot, want: &raw_core::scope::ScopeSnapshot) {
+    assert_eq!((got.width, got.height), (want.width, want.height));
+    assert_eq!(got.rgb.len(), want.rgb.len());
+    let worst = got
+        .rgb
+        .iter()
+        .zip(&want.rgb)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap_or(0);
+    assert!(worst <= 1, "snapshot byte drift {worst} > 1 LSB");
+}
+
+#[test]
+fn snapshot_kernel_matches_the_cpu_downsample_within_the_clamp() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (64u32, 48u32);
+    let rgba = gradient_rgba(w, h);
+    let img = GpuImage::upload(&ctx, &rgba, w, h);
+    let got = run_snapshot_blocking(&ctx, &img.buffer, (w, h));
+    assert_eq!(
+        (got.width, got.height),
+        (w, h),
+        "no downsample inside the clamp"
+    );
+    assert_snapshot_matches(&got, &snapshot_rgba_f32(&rgba, w, h));
+}
+
+/// A frame past the clamp on both axes, with a non-integer ratio, so the
+/// cell spans are ragged — the case an off-by-one in either producer's
+/// bounds would show up in.
+#[test]
+fn snapshot_kernel_matches_the_cpu_downsample_past_the_clamp() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (1234u32, 700u32);
+    let rgba = gradient_rgba(w, h);
+    let img = GpuImage::upload(&ctx, &rgba, w, h);
+    let got = run_snapshot_blocking(&ctx, &img.buffer, (w, h));
+    assert_eq!((got.width, got.height), (512, 290));
+    assert_snapshot_matches(&got, &snapshot_rgba_f32(&rgba, w, h));
 }
 
 fn gradient_rgba(w: u32, h: u32) -> Vec<f32> {

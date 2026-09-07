@@ -315,7 +315,10 @@ pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass, SceneToneOptions};
-pub use scope::{encode_vectorscope, unpack_scope, ScopeStats, SCOPE_HIST_BYTE_LEN};
+pub use scope::{
+    encode_snapshot, encode_vectorscope, snapshot_dims, unpack_scope, ScopeSnapshot, ScopeStats,
+    SCOPE_HIST_BYTE_LEN, SCOPE_SNAPSHOT_BYTE_LEN, SCOPE_SNAPSHOT_MAX_DIM, SCOPE_STAGING_BYTE_LEN,
+};
 pub use sharpen::SharpenPass;
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
