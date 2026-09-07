@@ -76,6 +76,8 @@ public final class EditorState {
   /// resets zoom to fit on every open, same as the legacy surface.
   public let zoom: CanvasZoomController
   public let whiteBalancePicker: WhiteBalancePicker
+  /// The mask panel's colour-range eyedropper (#362) — same shape as the WB picker.
+  public let maskRangePicker: MaskRangePicker
 
   /// `subParamMemory` defaults to the app-session `.shared` store;
   /// tests inject fresh instances for isolation. (`nil` sentinel
@@ -95,6 +97,7 @@ public final class EditorState {
     self.subParamMemory = memory
     self.zoom = CanvasZoomController(session: session)
     self.whiteBalancePicker = WhiteBalancePicker(session: session)
+    self.maskRangePicker = MaskRangePicker(session: session)
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
     )
@@ -138,6 +141,7 @@ public final class EditorState {
   /// the next render publishes the cropped+straightened result.
   public func arm(tool: Tool) {
     whiteBalancePicker.cancel()
+    maskRangePicker.cancel()
     // A parked commit-on-release value belongs to the OLD armed pair —
     // committing it now would land on the wrong field (#1153).
     cancelGesture()
