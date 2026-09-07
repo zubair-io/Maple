@@ -134,6 +134,12 @@ fn register_rejects_a_bad_digest_and_a_length_mismatch() {
         register("beef3000000000d3", 0, 0, &[]).is_ok(),
         "an empty raster is legal"
     );
+    // `usize::MAX` on this host, `u32::MAX`-adjacent on wasm32: either way
+    // `width * height` must not wrap around and match an empty `data`.
+    assert!(
+        register("beef3000000000d3", u32::MAX, u32::MAX, &[]).is_err(),
+        "an overflowing width * height is rejected, not wrapped to 0"
+    );
 }
 
 /// The load-bearing plumbing claim: a sidecar parsed through the shared
