@@ -380,9 +380,9 @@ struct AppShell: View {
   /// context menu wouldn't appear until the user manually collapsed and
   /// re-expanded the row (#2645).
   @State var folderRefreshGeneration: Int = 0
-  /// "Move Folder to…" destination picker (#2847) — `nil` when not shown.
-  /// See `AppShell+FolderMove.swift` / `FolderMoveSheets.swift`.
-  @State var folderMovePrompt: FolderMovePrompt?
+  /// "Move Folder to…" (#2847): idle → preparing (spinner sheet while the tree
+  /// is walked) → ready (the picker). See `FolderMove+VM.swift`, `FolderMoveSheets.swift`.
+  @State var folderMove = FolderMoveVM()
 
   /// Inline single-asset rename (#2638). The asset id currently showing an
   /// editable filename field (Info panel / Enter-key entry point) — `nil`
@@ -978,7 +978,7 @@ struct AppShell: View {
     )
     // #2847: "Move Folder to…" destination picker. See
     // `AppShell+FolderMove.swift` / `FolderMoveSheets.swift`.
-    .folderMoveOverlay(prompt: $folderMovePrompt) { prompt, destination in
+    .folderMoveOverlay(vm: folderMove) { prompt, destination in
       confirmFolderMove(prompt, destinationID: destination)
     }
     // M2: panorama merge view — presented as a sheet on Mac/iPad.
@@ -1424,7 +1424,7 @@ struct AppShell: View {
         onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
       )
       // #2847: same "Move Folder to…" picker as Mac/iPad.
-      .folderMoveOverlay(prompt: $folderMovePrompt) { prompt, destination in
+      .folderMoveOverlay(vm: folderMove) { prompt, destination in
         confirmFolderMove(prompt, destinationID: destination)
       }
     }

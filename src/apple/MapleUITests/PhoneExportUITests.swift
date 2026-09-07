@@ -16,9 +16,10 @@
 //     -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
 //     -only-testing:MapleUITests/PhoneExportUITests
 //
-// Needs `test-fixtures/raws/test_0017.dng` (resolved through
-// `MAPLE_UITEST_FIXTURE_ROOT`, TEST_RUNNER_-forwarded from the scheme —
-// #2366) and skip-passes without it, like the other fixture-gated gates.
+// Needs `test-fixtures/raws/test_0017.dng`, located by `UITestFixtureRoot`
+// (#2366: the scheme's `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` reaches the
+// iOS runner unexpanded, so the compile-time repo root is what resolves it
+// here) and skip-passes without it, like the other fixture-gated gates.
 // `MapleAppDriver` is macOS-only (AppKit), so the fixture is staged here.
 
 import XCTest
@@ -35,15 +36,7 @@ import XCTest
     }
 
     func testShareButtonPresentsTheExportPanelAndShareSheet() throws {
-      let root =
-        ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"]
-        ?? FileManager.default.currentDirectoryPath + "/test-fixtures/raws"
-      let fixtureURL = URL(fileURLWithPath: root).appendingPathComponent("test_0017.dng")
-      guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
-        throw XCTSkip(
-          "UITest fixture missing: \(fixtureURL.path) "
-            + "— set MAPLE_UITEST_FIXTURE_ROOT or check test-fixtures/raws/.")
-      }
+      let fixtureURL = try UITestFixtureRoot.locate("test_0017.dng")
       // Stage a private copy so the app's library root (and its `.maple/`
       // cache) is a throwaway directory, not the shared fixture tree.
       let staged = FileManager.default.temporaryDirectory

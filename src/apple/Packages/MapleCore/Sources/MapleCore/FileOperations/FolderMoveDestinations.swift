@@ -54,6 +54,11 @@ public enum FolderMoveDestinations {
     private static func localSubtree(
         _ dir: URL, name: String, parentID: String?, depth: Int, excludedPath: String
     ) -> [FolderMoveDestination] {
+        // The picker cancels the walk when the user dismisses its
+        // "Finding folders…" sheet (`FolderMoveVM.cancel`); a large library
+        // is a deep tree, so stop at the next directory rather than
+        // finishing a listing nobody will see.
+        guard !Task.isCancelled else { return [] }
         let id = dir.standardizedFileURL.path
         let children = localChildDirectories(of: dir)
             .filter { $0.standardizedFileURL.path != excludedPath }
@@ -95,6 +100,10 @@ public enum FolderMoveDestinations {
         _ path: String, name: String, parentID: String?, depth: Int, excludedPath: String,
         transport: SMBFileTransport
     ) async throws -> [FolderMoveDestination] {
+        // Same cancellation seam as `localSubtree` — one network round
+        // trip per directory, so a dismissed picker stops the walk at the
+        // next one instead of listing the whole share for nothing.
+        try Task.checkCancellation()
         let children = try await SMBFileOperations.listSubdirectories(at: path, transport: transport)
             .filter { $0.path != excludedPath }
         let node = FolderMoveDestination(
