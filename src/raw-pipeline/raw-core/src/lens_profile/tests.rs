@@ -15,6 +15,19 @@ fn attribute_and_element_properties_are_equivalent() {
 }
 
 #[test]
+fn element_camera_identity_is_scalar_while_calibration_models_are_preserved() {
+    let attributes = parse(&document(r#"<r:li c:Make="Example" c:Model="Body" c:UniqueCameraModel="Unique body" c:Lens="Prime" c:FocalLength="35" c:CameraRawProfile="True"><c:PerspectiveModel c:Version="2" c:RadialDistortParam1="0.1"/><c:FutureModel/></r:li>"#)).unwrap();
+    let elements = parse(&document(r#"<r:li><c:Make>Example</c:Make><c:Model>Body</c:Model><c:UniqueCameraModel>Unique body</c:UniqueCameraModel><c:Lens>Prime</c:Lens><c:FocalLength>35</c:FocalLength><c:CameraRawProfile>True</c:CameraRawProfile><c:PerspectiveModel><c:Version>2</c:Version><c:RadialDistortParam1>0.1</c:RadialDistortParam1></c:PerspectiveModel><c:FutureModel/></r:li>"#)).unwrap();
+    assert_eq!(attributes, elements);
+    let sample = &elements.samples[0];
+    assert_eq!(sample.properties["Model"], "Body");
+    assert_eq!(sample.properties["UniqueCameraModel"], "Unique body");
+    assert_eq!(sample.models.len(), 2);
+    assert_eq!(sample.models[0].kind, "PerspectiveModel");
+    assert_eq!(sample.models[1].kind, "FutureModel");
+}
+
+#[test]
 fn preserves_duplicate_samples_without_choosing_coefficients() {
     let sample = r#"<r:li c:Make="Example" c:Lens="Prime" c:FocalLength="50"><c:PerspectiveModel c:RadialDistortParam1="0.1"/></r:li>"#;
     let parsed = parse(&document(&format!("{sample}{sample}"))).unwrap();
