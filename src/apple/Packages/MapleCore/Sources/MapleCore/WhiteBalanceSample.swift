@@ -37,18 +37,20 @@ public enum WhiteBalanceSampleError: Error, LocalizedError, Sendable, Equatable 
   }
 }
 
-public enum WhiteBalanceSampler {
-  /// Cold, explicit analysis. Includes PhotoKit and cloud RAWs by staging
-  /// their bytes only for the duration of the call. The current model is
-  /// serialized to a private temporary XMP; a pending autosave cannot make
-  /// the sampler use stale lens/decode settings. Originals are never written.
-  public static func sample(
-    asset: AssetRef, model: AdjustmentModel, point: CGPoint
-  ) async throws -> WhiteBalanceSample {
-    guard asset.isRaw else { throw WhiteBalanceSampleError.unsupportedAsset }
-    return try await Task.detached(priority: .userInitiated) {
+/// The RAW + XMP staging every cold one-shot analysis over the FFI shares
+/// (the white-balance sampler, the colour-range eyedropper #362). Includes
+/// PhotoKit and cloud RAWs by staging their bytes only for the duration of
+/// the call. The current model is serialized to a private temporary XMP; a
+/// pending autosave cannot make the analysis use stale lens/decode settings.
+/// Originals are never written.
+enum RawProbeStaging {
+  static func withStagedProbe<T: Sendable>(
+    asset: AssetRef, model: AdjustmentModel,
+    _ body: @escaping @Sendable (_ rawURL: URL, _ xmpURL: URL) throws -> T
+  ) async throws -> T {
+    try await Task.detached(priority: .userInitiated) {
       let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("maple-wb-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("maple-probe-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       defer { try? FileManager.default.removeItem(at: directory) }
       let scope = asset.scopeParentURL ?? asset.primaryURL
@@ -70,8 +72,20 @@ public enum WhiteBalanceSampler {
       let xml = XMPSerializer.serialize(model: model, culling: CullingState())
       try xml.write(to: xmpURL, atomically: true, encoding: .utf8)
       try Task.checkCancellation()
-      return try sampleSync(rawURL: rawURL, xmpURL: xmpURL, point: point)
+      return try body(rawURL, xmpURL)
     }.value
+  }
+}
+
+public enum WhiteBalanceSampler {
+  /// Cold, explicit analysis over `RawProbeStaging`.
+  public static func sample(
+    asset: AssetRef, model: AdjustmentModel, point: CGPoint
+  ) async throws -> WhiteBalanceSample {
+    guard asset.isRaw else { throw WhiteBalanceSampleError.unsupportedAsset }
+    return try await RawProbeStaging.withStagedProbe(asset: asset, model: model) { rawURL, xmpURL in
+      try sampleSync(rawURL: rawURL, xmpURL: xmpURL, point: point)
+    }
   }
 
   nonisolated static func sampleSync(
