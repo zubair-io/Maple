@@ -46,6 +46,7 @@ export type ToolIconName =
   | 'tool-sharpen'
   | 'tool-noise'
   | 'tool-color-nr'
+  | 'tool-capture-sharpen'
   | 'tool-lens'
   | 'tool-crop'
   | 'tool-geometry'
@@ -212,6 +213,12 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
   // disorder is discrete specks rather than a continuous jag — chroma noise.
   // The dots sit on Noise's own vertices so the pair reads as one idea.
   'tool-color-nr': [dot(2.8, 8.4), dot(4.4, 5.8), dot(6, 10.6), p('M7.8 8.4H13.4')],
+  // A focus disc with crosshair marks — deconvolution pulling an edge back
+  // into focus. Mirrored verbatim from Apple's `ToolGlyphShapes.swift`
+  // (`case .captureSharpen`, #3414); Apple's `captureSigma` sibling draws the
+  // same disc with its radius, and has no web glyph because Sigma rides the
+  // Deconv tool's sub-param chip row rather than a dock entry of its own.
+  'tool-capture-sharpen': [c(8, 8, 4.8), p('M5.4 8h1.6M9 8h1.6M8 5.4v1.6M8 9v1.6')],
   // Concentric rings — a lens element viewed head-on. Mirrored verbatim to
   // Apple's `ToolGlyphShapes.swift` (`case .lensCorrections`, #2231).
   'tool-lens': [c(8, 8, 4.8), c(8, 8, 2.2)],

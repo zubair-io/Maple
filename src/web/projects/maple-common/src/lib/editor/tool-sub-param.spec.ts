@@ -40,18 +40,50 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('noise')).toBe('luminance');
   });
 
-  it('only the decode-product noise tiers commit on release (#1153)', () => {
+  it('exactly the decode-product tiers commit on release (#1153 / #3414)', () => {
     // Deep (BM3D) and Prefilter land inside the decoded buffer, so a per-tick
     // write would re-develop; the NLM pair stays on the live per-tick path.
+    // Capture sharpening runs at develop's stage-14 position, upstream of the
+    // GPU chain entirely, so BOTH its tiers defer.
     const deferred = ALL_TOOLS.flatMap((tool) =>
       subParamsFor(tool as ToolId)
         .filter((s) => isCommitOnRelease(s))
         .map((s) => `${tool}.${s.id}`),
     );
-    expect(deferred).toEqual(['noise.deep', 'noise.prefilter']);
+    // ALL_TOOLS order: Detail runs sharpen · noise · colorNR · captureSharpen.
+    expect(deferred).toEqual([
+      'noise.deep',
+      'noise.prefilter',
+      'captureSharpen.amount',
+      'captureSharpen.sigma',
+    ]);
     expect(isCommitOnRelease(subParamById('noise', 'luminance'))).toBe(false);
     expect(isCommitOnRelease(subParamById('noise', 'color'))).toBe(false);
+    expect(isCommitOnRelease(subParamById('sharpen', 'radius'))).toBe(false);
     expect(isCommitOnRelease(null)).toBe(false);
+  });
+
+  it('captureSharpen declares Amount + Sigma over the generated ranges (#3414)', () => {
+    const subs = subParamsFor('captureSharpen');
+    expect(subs.map((s) => s.id)).toEqual(['amount', 'sigma']);
+    expect(subs.map((s) => s.field)).toEqual(['captureSharpeningAmount', 'captureSharpeningSigma']);
+    expect(defaultSubParamId('captureSharpen')).toBe('amount');
+    expect(isMultiParam('captureSharpen')).toBe(true);
+    // Amount is one-sided 0..100 with its default at the floor, so the linear
+    // family maps -100 → 0; Sigma is anchored on its 1.0 default inside
+    // 0.5..2.0, so internal 0 IS the default.
+    const [amount, sigma] = subs;
+    expect(subParamDisplayRange(amount)).toEqual([0, 100]);
+    expect(subParamDefaultDisplay(amount)).toBe(0);
+    expect(subParamDisplayFromInternal(amount, -100)).toBeCloseTo(0, 6);
+    expect(subParamDisplayFromInternal(amount, 100)).toBeCloseTo(100, 6);
+    expect(subParamDisplayRange(sigma)).toEqual([0.5, 2]);
+    expect(subParamDefaultDisplay(sigma)).toBe(1);
+    expect(subParamDisplayFromInternal(sigma, 0)).toBeCloseTo(1, 6);
+    expect(subParamDisplayFromInternal(sigma, 100)).toBeCloseTo(2, 6);
+    expect(subParamDisplayFromInternal(sigma, -100)).toBeCloseTo(0.5, 6);
+    expect(subParamInternalFromDisplay(sigma, 1.5)).toBeCloseTo(50, 6);
+    expect(formatSubParamValue(sigma, 0.68)).toBe('0.68');
   });
 
   it('sharpen declares Amount / Radius / Detail / Masking', () => {
@@ -228,7 +260,8 @@ describe('sub-param catalog', () => {
         tool === 'grain' ||
         tool === 'colorGrade' ||
         tool === 'hsl' || // HSL wired at #1112: 24 sub-params
-        tool === 'bwMix' // bwMix wired at #276: 8 gray-mixer sub-params
+        tool === 'bwMix' || // bwMix wired at #276: 8 gray-mixer sub-params
+        tool === 'captureSharpen' // Deconv wired at #3414: Amount + Sigma
       )
         continue;
       expect(subParamsFor(tool as ToolId)).toEqual([]);

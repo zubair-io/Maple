@@ -1,29 +1,39 @@
 // editor-parity-manifest.effects-detail.ts — the Effects and Detail tool
-// rows of the editor parity manifest (#2448), including the two Apple-only
-// capture-sharpening cases that are the one approved permanent platform
-// exception (`docs/features.md` §8).
+// rows of the editor parity manifest (#2448). The two capture-sharpening
+// rows used to be the manifest's one approved permanent platform exception;
+// #3414 closed it by shipping the controls on web and Windows, so every row
+// in this file is now released on both platforms.
 
-import type { ParityCapability, ParityException } from './editor-parity-types';
+import type { ParityCapability, ParityPresentation } from './editor-parity-types';
 import {
+  BOTH,
+  CHIP_ROW_A11Y,
+  CHIP_ROW_INTERACTION,
   PARTICIPATION,
-  SLIDER_A11Y,
-  SLIDER_INTERACTION,
   SUBTOOL_CHIP,
   panelTool,
   sliderTool,
 } from './editor-parity-manifest.builders';
 
-const CAPTURE_SHARPENING_EXCEPTION: ParityException = {
-  platform: 'web',
-  rationale:
-    'Capture sharpening (deconvolution) needs a dedicated hardware-accelerated path the browser pipeline does not have; approved platform exception per docs/features.md §8.',
-  ticket: null,
+// Capture sharpening (#3414) is no longer a platform exception. The
+// Richardson–Lucy stage runs at DECODE-PRODUCT cadence on every platform —
+// Apple, web and Windows all bake it into the develop prefix and re-develop
+// when either field moves — and `raw-gpu`'s WGSL port of the same kernel is
+// parity-gated against `raw_core::stages::capture_sharpening`. Web reaches
+// both fields through the Detail group's "Deconv" sub-tool chip; Apple keeps
+// its two sibling pills.
+const CAPTURE_PRESENTATION: ParityPresentation = {
+  compact:
+    'Detail sub-tool chip "Deconv" swaps the phone control card body for the chip row + drag bar; Apple: two Detail-group pills (Deconv, Deconv σ)',
+  regular:
+    'Detail sub-tool chip "Deconv" swaps the control card body for the chip row + drag bar; Apple: two Detail-group pills (Deconv, Deconv σ)',
+  wide: 'Detail sub-tool chip "Deconv" swaps the control card body for the chip row + drag bar; Apple: two Detail-group pills (Deconv, Deconv σ)',
 };
 
-const APPLE_SLIDER = {
-  compact: 'Apple: Detail-group slider',
-  regular: 'Apple: Detail-group slider',
-  wide: 'Apple: Detail-group slider',
+const CAPTURE_SIGMA_PRESENTATION: ParityPresentation = {
+  compact: 'Sigma chip on the Deconv sub-param row; Apple: its own Detail-group pill',
+  regular: 'Sigma chip on the Deconv sub-param row; Apple: its own Detail-group pill',
+  wide: 'Sigma chip on the Deconv sub-param row; Apple: its own Detail-group pill',
 };
 
 export const EFFECTS_TOOLS: readonly ParityCapability[] = [
@@ -158,34 +168,40 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     units: '0–100',
     copyPaste: 'detail',
   }),
-  {
-    id: 'tool.captureSharpen',
+  panelTool({
+    id: 'captureSharpen',
     name: 'Deconv',
     group: 'detail',
     order: 40,
-    tool: { web: null, apple: 'captureSharpen' },
+    copyPaste: 'detail',
+    // Amount is the primary drag-bar field; Sigma rides the same chip row.
     field: 'captureSharpeningAmount',
-    reachability: { apple: 'released', web: 'absent' },
-    presentation: APPLE_SLIDER,
-    interaction: { ...SLIDER_INTERACTION, keyboard: 'Apple: no keyboard nudge yet (#3250)' },
-    accessibility: SLIDER_A11Y('Deconv', '0–100'),
-    participation: PARTICIPATION('detail'),
-    exception: CAPTURE_SHARPENING_EXCEPTION,
+    // Both fields sit inside the decode product, so the preview lands on
+    // gesture release rather than per tick — the Deep / Prefilter contract.
+    preview: 'commit-on-release',
+    presentation: CAPTURE_PRESENTATION,
+    interaction: CHIP_ROW_INTERACTION,
+    accessibility: CHIP_ROW_A11Y('Deconv Amount; Deconv σ'),
     featuresRow: 'Capture sharpening (deconvolution)',
-  },
+  }),
   {
+    // Sigma has no web `ToolId` of its own: Apple declares a sibling
+    // `Tool.captureSigma` pill, web reaches the same field through the Deconv
+    // tool's sub-param chip row (`tool-sub-param.ts`, and the divergence note
+    // in `tool-model.ts`'s header). Released on both platforms — the route
+    // differs, the capability does not, so there is no exception to carry.
     id: 'tool.captureSigma',
     name: 'Deconv σ',
     group: 'detail',
     order: 50,
     tool: { web: null, apple: 'captureSigma' },
     field: 'captureSharpeningSigma',
-    reachability: { apple: 'released', web: 'absent' },
-    presentation: APPLE_SLIDER,
-    interaction: { ...SLIDER_INTERACTION, keyboard: 'Apple: no keyboard nudge yet (#3250)' },
-    accessibility: SLIDER_A11Y('Deconv σ', '0.5–2.0'),
-    participation: PARTICIPATION('detail'),
-    exception: CAPTURE_SHARPENING_EXCEPTION,
+    reachability: BOTH,
+    presentation: CAPTURE_SIGMA_PRESENTATION,
+    interaction: CHIP_ROW_INTERACTION,
+    accessibility: CHIP_ROW_A11Y('Deconv σ'),
+    participation: PARTICIPATION('detail', 'commit-on-release'),
+    exception: null,
     featuresRow: 'Capture sharpening (deconvolution)',
   },
   panelTool({

@@ -29,6 +29,19 @@
 // `armedTool` — so an armed tool is the only way to reach the curve there.
 // Adding a dead `'toneCurve'` ToolId to mirror the enum shape would put an
 // unreachable entry in the dock and the `[`/`]` cycle for no gain.
+//
+// A second, deliberate divergence (#3414): capture sharpening is ONE tool
+// here (`captureSharpen`, "Deconv") carrying Amount and Sigma as sub-params,
+// where Apple declares two sibling `Tool` cases (`captureSharpen` /
+// `captureSigma`). Both deconvolution fields live inside the DECODE PRODUCT,
+// so both must commit on gesture release rather than per tick — and
+// `commitOnRelease` is a `ToolSubParam` property here (`tool-sub-param.ts`),
+// the same machinery Noise's Deep / Prefilter tiers already ride. Splitting
+// them into two drag-bar tools would mean a second, tool-level copy of that
+// deferral machinery for no behavioural gain; the parity manifest records the
+// shape difference on `tool.captureSigma` (web reaches Sigma through the
+// sub-param chip row, so its `tool.web` is null while both platforms are
+// released).
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { ADJUSTMENT_RANGES, defaultGeneratedAdjustmentModel } from '../models/adjustment-model';
@@ -63,6 +76,7 @@ export type ToolId =
   | 'sharpen'
   | 'noise'
   | 'colorNR'
+  | 'captureSharpen'
   | 'lensCorrections'
   | 'mask'
   | 'crop'
@@ -100,6 +114,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   sharpen: 'Sharpen',
   noise: 'Noise',
   colorNR: 'Color NR',
+  captureSharpen: 'Deconv',
   lensCorrections: 'Lens',
   mask: 'Mask',
   crop: 'Crop',
@@ -124,7 +139,19 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // geometry (#3410) joins Detail beside crop: the seven `crs:Perspective*`
   // sliders that compose into one homography, applied in the same display
   // tail the crop rect is applied in.
-  detail: ['sharpen', 'noise', 'colorNR', 'lensCorrections', 'mask', 'crop', 'geometry', 'presets'],
+  // captureSharpen (#3414) joins Detail after colorNR, matching Apple's own
+  // declaration order — Richardson-Lucy deconvolution Amount + Sigma.
+  detail: [
+    'sharpen',
+    'noise',
+    'colorNR',
+    'captureSharpen',
+    'lensCorrections',
+    'mask',
+    'crop',
+    'geometry',
+    'presets',
+  ],
 };
 
 export const ALL_TOOLS: readonly ToolId[] = Object.values(TOOLS_IN_GROUP).flat();
@@ -196,6 +223,10 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   sharpen: ADJUSTMENT_RANGES.sharpenAmount,
   noise: ADJUSTMENT_RANGES.nrLuminance,
   colorNR: ADJUSTMENT_RANGES.nrColor,
+  // Capture sharpening (#3414) — the drag bar drives `captureSharpeningAmount`
+  // (the first sub-param; Sigma rides the sub-param row). One-sided 0..100,
+  // the noise/colorNR affine family.
+  captureSharpen: ADJUSTMENT_RANGES.captureSharpeningAmount,
   // Vignette (#1109) — wired; the drag bar drives `vignetteAmount` (the
   // first sub-param; feather rides the sub-param row). The symmetric
   // [-100, 100] range takes the default `(v/100)·hi` mapping arm.
@@ -217,6 +248,14 @@ export function displayRange(tool: ToolId): readonly [number, number] | null {
   return DISPLAY_RANGE[tool] ?? null;
 }
 
+/** Tools whose display range is one-sided (`lo..hi`, default at `lo`) and
+ *  maps affinely onto the internal `[-100, +100]` span — `-100` is `lo` and
+ *  `+100` is `hi`. Mirrors the Apple
+ *  `case .noise, .colorNR, .grain, .captureSharpen` arm in
+ *  `ToolValueMapping.swift`. A set rather than a chain of `||` so adding a
+ *  tool is one entry, not one more branch (fallow's cyclomatic gate). */
+const ONE_SIDED_LINEAR_TOOLS = new Set<ToolId>(['noise', 'colorNR', 'grain', 'captureSharpen']);
+
 export function displayValueFromInternal(tool: ToolId, v: number): number {
   const r = DISPLAY_RANGE[tool];
   if (!r) return v;
@@ -226,7 +265,7 @@ export function displayValueFromInternal(tool: ToolId, v: number): number {
   if (tool === 'sharpen') {
     return v >= 0 ? 40 + (v / 100) * (150 - 40) : 40 + (v / 100) * 40;
   }
-  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
+  if (ONE_SIDED_LINEAR_TOOLS.has(tool)) {
     const [lo, hi] = r;
     return lo + ((v + 100) / 200) * (hi - lo);
   }
@@ -242,7 +281,7 @@ export function internalValueFromDisplay(tool: ToolId, d: number): number {
   if (tool === 'sharpen') {
     return d >= 40 ? ((d - 40) / (150 - 40)) * 100 : ((d - 40) / 40) * 100;
   }
-  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
+  if (ONE_SIDED_LINEAR_TOOLS.has(tool)) {
     const [lo, hi] = r;
     return ((d - lo) / (hi - lo)) * 200 - 100;
   }
@@ -276,6 +315,7 @@ const PRIMARY_FIELD: Partial<Record<ToolId, keyof AdjustmentModel>> = {
   sharpen: 'sharpenAmount',
   noise: 'nrLuminance',
   colorNR: 'nrColor',
+  captureSharpen: 'captureSharpeningAmount',
   vignette: 'vignetteAmount',
   grain: 'grainAmount',
   colorGrade: 'splitToneBalance',

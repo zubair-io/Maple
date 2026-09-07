@@ -92,8 +92,16 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
   // reason as colorGrade/filmLook above — so Detail gains a row too.
   // Geometry (#3410) joins that row for the same reason: seven
   // `crs:Perspective*` sliders and no single primary drag-bar field.
+  // Deconv (#3414) joins it for a different reason: capture sharpening DOES
+  // have a primary field, but both its fields are decode-product ones that
+  // must commit on gesture release. The card's own slider grid writes the
+  // model on every tick (`onSliderChange`), which would re-develop the whole
+  // decode prefix per pointer sample, so Deconv is reached through the shared
+  // sub-param surface (chip row + drag bar) instead — that path honours
+  // `commitOnRelease`.
   detail: [
     { id: null, label: 'Basic' },
+    { id: 'captureSharpen', label: 'Deconv' },
     { id: 'lensCorrections', label: 'Lens' },
     { id: 'geometry', label: 'Geometry' },
   ],
