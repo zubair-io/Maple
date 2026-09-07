@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -30,6 +31,17 @@ namespace Maple.WinUI
 
         /// <summary>The cell id for the photo at <paramref name="index"/>.</summary>
         public static string IdAt(int index) => index.ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>Passive culling status from the photo, with no editable
+        /// controls in the navigation strip. One compact badge fits the Sm
+        /// thumbnail and preserves the old filmstrip's rating/pick context.</summary>
+        public static IReadOnlyList<string> CullingBadgesFor(int rating, string? flag)
+        {
+            var stars = new string('★', Math.Clamp(rating, 0, 5));
+            var mark = flag == "pick" ? "✓" : flag == "reject" ? "×" : string.Empty;
+            var badge = string.Join(" ", new[] { stars, mark }).Trim();
+            return badge.Length == 0 ? Array.Empty<string>() : new[] { badge };
+        }
 
         /// <summary>The cell id the rail should mark active for
         /// <paramref name="selected"/>, or null when nothing is selected or
