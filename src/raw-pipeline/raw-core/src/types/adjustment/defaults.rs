@@ -134,6 +134,8 @@ impl Default for AdjustmentModel {
             local_adjustments: Vec::new(),
             mask_rasters: Vec::new(),
             inpaint_removals: Vec::new(),
+            // Per-#3409: an empty repair list is a bit-identical skip.
+            retouch_spots: Vec::new(),
             // Per-#436: `PerChannel` is the pre-existing behavior. Default
             // chosen for backward compatibility — `RatioPreserving` is opt-in.
             tone_curve_mode: ToneCurveMode::PerChannel,

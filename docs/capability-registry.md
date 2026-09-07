@@ -8,7 +8,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 
 - Pipeline output version: 2
 - Sidecar schema version: 5
-- Capabilities: 13 (0 released, 0 integrated, 13 core)
+- Capabilities: 14 (0 released, 0 integrated, 14 core)
 
 ## Capabilities
 
@@ -190,6 +190,22 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`
 - Fields: `local_adjustments`, `mask_rasters`
 - Integration evidence: none declared
+- Qualification evidence: none declared
+
+### `retouch_repair` — Clone / heal brush
+
+- State: **core**
+- Owner: `zubair-io`
+- Surfaces: `apple`, `web`
+- Storage adapters: `filesystem`, `smb`, `photokit`, `cloud`, `api_filesystem`, `file_system_access`, `indexed_db`
+- Asset classes: `raw`
+- Preview paths: `cpu_reference`, `gpu_live`
+- Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
+- Fields: `retouch_spots`
+- Integration evidence:
+  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_api` — satisfied
+  - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence: none declared
 
 ### `inpaint_repair` — Repair (local AI inpainting)
