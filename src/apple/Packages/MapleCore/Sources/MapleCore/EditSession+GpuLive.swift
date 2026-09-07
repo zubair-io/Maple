@@ -160,7 +160,15 @@ extension EditSession {
       return false
     }
 
-    let m = renderModel
+    // Local adjustments (#355): raw-core evaluates masks in FULL-FRAME
+    // normalized coordinates and the CPU refine / export apply the crop
+    // AFTER the chain, but `decoded` arrives here already cropped and
+    // straightened (#1617), so the wgpu chain's (x, y) are crop-normalized.
+    // Re-express every layer through the crop's affine so the live canvas
+    // places each mask exactly where the refine and the export do. An
+    // identity `appliedCrop` passes the stack through untouched.
+    let m = await renderModel(
+      remappedThrough: MaskAffine.cropToFullFrame(appliedCrop, nativeSize: nativeImageSize))
     let pipeline = self.pipeline
 
     let dims = Self.gpuTargetDims(for: decoded, targetSize: targetSize, pipeline: pipeline)
