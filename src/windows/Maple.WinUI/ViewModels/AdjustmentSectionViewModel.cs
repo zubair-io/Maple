@@ -179,6 +179,24 @@ namespace Maple.WinUI.ViewModels
                     Sl("Purple", -100, 100, 1, m => m.GrayMixerPurple, (m, v) => m.GrayMixerPurple = v, plain),
                     Sl("Magenta", -100, 100, 1, m => m.GrayMixerMagenta, (m, v) => m.GrayMixerMagenta = v, plain),
                 }, expanded: false),
+
+                // Manual geometry (#3410) — the seven `crs:Perspective*`
+                // scalars. Windows exposes the sliders; the guided line-drawing
+                // mode is web-only. `Scale` is a percentage and `Rotate` is in
+                // degrees, so both take a unit-carrying formatter rather than
+                // the bipolar `plain`.
+                new("Geometry", new[]
+                {
+                    Sl("Vertical", -100, 100, 1, m => m.PerspectiveVertical, (m, v) => m.PerspectiveVertical = v, plain),
+                    Sl("Horizontal", -100, 100, 1, m => m.PerspectiveHorizontal, (m, v) => m.PerspectiveHorizontal = v, plain),
+                    Sl("Rotate", -10, 10, 0.1, m => m.PerspectiveRotate, (m, v) => m.PerspectiveRotate = v,
+                        v => $"{v:0.0}°"),
+                    Sl("Scale", 50, 150, 1, m => m.PerspectiveScale, (m, v) => m.PerspectiveScale = v,
+                        v => $"{v:0}%"),
+                    Sl("Aspect", -100, 100, 1, m => m.PerspectiveAspect, (m, v) => m.PerspectiveAspect = v, plain),
+                    Sl("X Offset", -100, 100, 1, m => m.PerspectiveX, (m, v) => m.PerspectiveX = v, plain),
+                    Sl("Y Offset", -100, 100, 1, m => m.PerspectiveY, (m, v) => m.PerspectiveY = v, plain),
+                }, expanded: false),
             };
         }
 

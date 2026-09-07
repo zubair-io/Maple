@@ -179,6 +179,19 @@ namespace Maple.WinUI.Models
         public double LensCorrectionCa = 100.0;
         public double LensCorrectionVignetting = 100.0;
 
+        // --- Manual geometry (#3410) — Adobe's `crs:Perspective*` seven,
+        // composed into one homography by the shared core. These initializers
+        // ARE the omit-on-default sentinels: `XmpSchema.Defaults` is a fresh
+        // `AdjustmentState`, so the writer omits a field precisely when it
+        // still reads what is written here.
+        public double PerspectiveVertical = 0.0;
+        public double PerspectiveHorizontal = 0.0;
+        public double PerspectiveRotate = 0.0;
+        public double PerspectiveScale = 100.0;
+        public double PerspectiveAspect = 0.0;
+        public double PerspectiveX = 0.0;
+        public double PerspectiveY = 0.0;
+
         public AdjustmentState Clone()
         {
             var c = (AdjustmentState)MemberwiseClone();
