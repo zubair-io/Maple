@@ -166,6 +166,17 @@ impl Default for AdjustmentModel {
             lens_correction_distortion: 100.0,
             lens_correction_ca: 100.0,
             lens_correction_vignetting: 100.0,
+            // Per-#3410: manual geometry ships neutral — every field at the
+            // value that makes its factor the identity matrix, so the
+            // composed homography is exactly `Homography::IDENTITY` and the
+            // warp is skipped bit-identically on a fresh import.
+            perspective_vertical: 0.0,
+            perspective_horizontal: 0.0,
+            perspective_rotate: 0.0,
+            perspective_scale: 100.0,
+            perspective_aspect: 0.0,
+            perspective_x: 0.0,
+            perspective_y: 0.0,
         }
     }
 }

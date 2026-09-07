@@ -144,6 +144,19 @@ const ABSOLUTE_FIELDS: &[&str] = &[
     "grain_roughness",
     "film_look",
     "film_strength",
+    // Manual geometry (#3410). Absolute, not `AssetRelative` like `crop`:
+    // every one of the seven is already normalized to the target frame's own
+    // half-extents (see `stages::perspective::matrix`), so the same number
+    // means the same correction on an image of any size or aspect — there is
+    // no raster-dependent quantity to re-derive the way a crop rect's pixel
+    // edges would need re-deriving.
+    "perspective_vertical",
+    "perspective_horizontal",
+    "perspective_rotate",
+    "perspective_scale",
+    "perspective_aspect",
+    "perspective_x",
+    "perspective_y",
 ];
 
 #[cfg(test)]

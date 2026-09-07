@@ -33,6 +33,8 @@ mod hsl;
 mod color_grade;
 // The four display-referred point-curve entries (#2232); same split reason.
 mod display_curves;
+// The seven manual-geometry entries (#3410); same split reason.
+mod perspective;
 // White balance: the slider pair, method, and the #2434 provenance fields.
 mod white_balance;
 
@@ -548,6 +550,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.",
     },
+    // Manual geometry (#3410) — see `perspective.rs`.
+    perspective::PERSPECTIVE_VERTICAL,
+    perspective::PERSPECTIVE_HORIZONTAL,
+    perspective::PERSPECTIVE_ROTATE,
+    perspective::PERSPECTIVE_SCALE,
+    perspective::PERSPECTIVE_ASPECT,
+    perspective::PERSPECTIVE_X,
+    perspective::PERSPECTIVE_Y,
 ];
 
 #[cfg(test)]

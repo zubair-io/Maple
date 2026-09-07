@@ -79,6 +79,16 @@ pub(super) fn set_field(
         "crs:ParametricShadowSplit" => m.parametric_shadow_split = v()?,
         "crs:ParametricMidtoneSplit" => m.parametric_midtone_split = v()?,
         "crs:ParametricHighlightSplit" => m.parametric_highlight_split = v()?,
+        // Manual geometry (#3410) — Adobe's `crs:Perspective*` seven. Read
+        // unrescaled, so a Lightroom-authored keystone lands on the slider
+        // at the number Lightroom wrote.
+        "crs:PerspectiveVertical" => m.perspective_vertical = v()?,
+        "crs:PerspectiveHorizontal" => m.perspective_horizontal = v()?,
+        "crs:PerspectiveRotate" => m.perspective_rotate = v()?,
+        "crs:PerspectiveScale" => m.perspective_scale = v()?,
+        "crs:PerspectiveAspect" => m.perspective_aspect = v()?,
+        "crs:PerspectiveX" => m.perspective_x = v()?,
+        "crs:PerspectiveY" => m.perspective_y = v()?,
         "crs:Vibrance" => m.vibrance = v()?,
         "crs:Saturation" => m.saturation = v()?,
         "crs:Clarity2012" => m.clarity = v()?,

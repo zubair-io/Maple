@@ -536,6 +536,23 @@ pub struct AdjustmentModel {
     /// `FixVignetteRadial` and `GainMap` gain opcodes. XMP key
     /// `crs:LensProfileVignettingScale`.
     pub lens_correction_vignetting: f32, // 0..100, default 100
+
+    // Manual geometry (#3410) — Adobe's `crs:Perspective*` seven, composed
+    // into ONE homography by `stages::perspective` and applied between EXIF
+    // orientation and the user crop on the CPU tail and the GPU present path
+    // alike, so canvas and export frame identically. All seven at default
+    // compose to the exact identity matrix, which the stage short-circuits, so
+    // the parity-harness baseline pays nothing. Per-field semantics and the
+    // normalized coefficients each unit maps to: `schema/perspective.rs` and
+    // `stages::perspective::matrix`. Declared at the struct tail so schema
+    // additions stay append-only.
+    pub perspective_vertical: f32,   // -100..100, default 0
+    pub perspective_horizontal: f32, // -100..100, default 0
+    pub perspective_rotate: f32,     // -10..10 degrees, clockwise-positive, default 0
+    pub perspective_scale: f32,      // 50..150 percent, default 100
+    pub perspective_aspect: f32,     // -100..100, default 0
+    pub perspective_x: f32,          // -100..100, default 0
+    pub perspective_y: f32,          // -100..100, default 0
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this

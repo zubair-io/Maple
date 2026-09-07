@@ -198,6 +198,15 @@ pub const TRANSFER_XMP_ATTRIBUTES: &[(&str, &[&str])] = &[
             "crs:CropConstrainToWarp",
         ],
     ),
+    // Manual geometry (#3410) — one Adobe `crs:` key each, so a transfer
+    // patches exactly the attribute the writers emit.
+    ("perspective_vertical", &["crs:PerspectiveVertical"]),
+    ("perspective_horizontal", &["crs:PerspectiveHorizontal"]),
+    ("perspective_rotate", &["crs:PerspectiveRotate"]),
+    ("perspective_scale", &["crs:PerspectiveScale"]),
+    ("perspective_aspect", &["crs:PerspectiveAspect"]),
+    ("perspective_x", &["crs:PerspectiveX"]),
+    ("perspective_y", &["crs:PerspectiveY"]),
 ];
 
 pub const TRANSFER_XMP_ELEMENTS: &[(&str, &str)] = &[

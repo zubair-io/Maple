@@ -110,7 +110,7 @@ fn inverse_rotate(dx: f32, dy: f32, p: &RotationParams) -> (f32, f32) {
 /// reads return `[0.0, 0.0, 0.0, 1.0]` — the alpha stays 1.0 so downstream
 /// view transforms don't see a premultiplied-alpha discontinuity.
 #[inline]
-fn sample_rgba(rgba: &[f32], w: u32, h: u32, sx: f32, sy: f32) -> [f32; 4] {
+pub(crate) fn sample_rgba(rgba: &[f32], w: u32, h: u32, sx: f32, sy: f32) -> [f32; 4] {
     let wi = w as i32;
     let hi = h as i32;
     let x0 = sx.floor() as i32;
@@ -145,9 +145,11 @@ fn sample_rgba(rgba: &[f32], w: u32, h: u32, sx: f32, sy: f32) -> [f32; 4] {
 
 /// Bilinear sample into a packed integer RGB buffer at fractional `(sx, sy)`
 /// pixel coordinates. Out-of-bounds reads return the "empty corner" black the
-/// spec acknowledges large rotations may expose.
+/// spec acknowledges large rotations may expose — which is also the surround
+/// `stages::perspective` leaves outside a warped frame (#3410), the reason
+/// this is shared rather than reimplemented there.
 #[inline]
-fn sample_rgb<T: Sample>(rgb: &[T], w: u32, h: u32, sx: f32, sy: f32) -> [T; 3] {
+pub(crate) fn sample_rgb<T: Sample>(rgb: &[T], w: u32, h: u32, sx: f32, sy: f32) -> [T; 3] {
     let wi = w as i32;
     let hi = h as i32;
     let x0 = sx.floor() as i32;

@@ -132,6 +132,13 @@ fn all_struct_field_names() -> Vec<&'static str> {
         lens_correction_distortion: _,
         lens_correction_ca: _,
         lens_correction_vignetting: _,
+        perspective_vertical: _,
+        perspective_horizontal: _,
+        perspective_rotate: _,
+        perspective_scale: _,
+        perspective_aspect: _,
+        perspective_x: _,
+        perspective_y: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -250,6 +257,13 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "lens_correction_distortion",
         "lens_correction_ca",
         "lens_correction_vignetting",
+        "perspective_vertical",
+        "perspective_horizontal",
+        "perspective_rotate",
+        "perspective_scale",
+        "perspective_aspect",
+        "perspective_x",
+        "perspective_y",
     ]
 }
 

@@ -27,6 +27,7 @@ pub mod inpaint_composite;
 pub mod local_adjustments;
 pub mod nlm;
 pub mod noise_reduction;
+pub mod perspective;
 pub mod saturation;
 pub mod scene_tone_controls;
 pub mod sharpen;

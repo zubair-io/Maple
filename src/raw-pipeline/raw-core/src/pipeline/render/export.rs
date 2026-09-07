@@ -16,7 +16,7 @@ use crate::{
     film,
     image::{ExifOrientation, Image, RawImage},
     pipeline::RenderQuality,
-    types::Crop,
+    stages::perspective::Perspective,
     view::{encode, encode::TargetPrimaries, quantize16::dither_and_quantize_u16},
     xmp::AdjustmentModel,
 };
@@ -98,8 +98,8 @@ pub fn render_export_from_raw_with_film(
         film_lut,
     )?;
     let (w, h, pixels) = match depth {
-        ExportDepth::Eight => finish_eight(&mut scene, raw.orientation, &model.crop),
-        ExportDepth::Sixteen => finish_sixteen(&mut scene, raw.orientation, &model.crop),
+        ExportDepth::Eight => finish_eight(&mut scene, raw.orientation, model),
+        ExportDepth::Sixteen => finish_sixteen(&mut scene, raw.orientation, model),
     };
     Ok((w, h, pixels))
 }
@@ -113,11 +113,13 @@ pub fn render_export_from_raw_with_film(
 fn finish_eight(
     scene: &mut Image,
     orientation: ExifOrientation,
-    crop: &Crop,
+    model: &AdjustmentModel,
 ) -> (u32, u32, ExportPixels) {
     let (width, height) = (scene.width, scene.height);
     let samples = stage("dither_and_quantize", || encode::dither_and_quantize(scene));
-    let (w, h, out) = finish::apply_geometry(samples, width, height, orientation, crop);
+    let geometry = Perspective::from_model(model);
+    let (w, h, out) =
+        finish::apply_geometry(samples, width, height, orientation, &geometry, &model.crop);
     (w, h, ExportPixels::Eight(out))
 }
 
@@ -125,10 +127,12 @@ fn finish_eight(
 fn finish_sixteen(
     scene: &mut Image,
     orientation: ExifOrientation,
-    crop: &Crop,
+    model: &AdjustmentModel,
 ) -> (u32, u32, ExportPixels) {
     let (width, height) = (scene.width, scene.height);
     let samples = stage("dither_and_quantize_u16", || dither_and_quantize_u16(scene));
-    let (w, h, out) = finish::apply_geometry(samples, width, height, orientation, crop);
+    let geometry = Perspective::from_model(model);
+    let (w, h, out) =
+        finish::apply_geometry(samples, width, height, orientation, &geometry, &model.crop);
     (w, h, ExportPixels::Sixteen(out))
 }

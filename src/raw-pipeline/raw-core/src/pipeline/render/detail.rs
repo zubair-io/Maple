@@ -44,8 +44,14 @@ pub fn render_detail_base(
         options.film_lut,
     )?;
     let rgb = encode::dither_and_quantize(&mut scene);
-    let (w, h, rgb) =
-        finish::apply_geometry(rgb, scene.width, scene.height, raw.orientation, &model.crop);
+    let (w, h, rgb) = finish::apply_geometry(
+        rgb,
+        scene.width,
+        scene.height,
+        raw.orientation,
+        &crate::stages::perspective::Perspective::from_model(model),
+        &model.crop,
+    );
     Ok((w, h, rgb, context))
 }
 
