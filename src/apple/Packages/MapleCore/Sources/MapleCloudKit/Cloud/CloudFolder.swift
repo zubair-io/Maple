@@ -8,6 +8,12 @@ import Foundation
 
 public struct CloudFolder: Codable, Equatable, Sendable, Identifiable {
   public let id: String
+  /// Unified-addressing identifier (#1325): the `slug` half of every
+  /// `slug:relPath` address under this library, minted by the server at
+  /// registration and backfilled for older rows. Optional only so a
+  /// pre-slug server payload still decodes; `CloudAddressResolver` skips
+  /// libraries without one.
+  public let slug: String?
   public let path: String
   public let label: String
   public let last_scan: String?
@@ -21,8 +27,10 @@ public struct CloudFolder: Codable, Equatable, Sendable, Identifiable {
 
   public init(id: String, path: String, label: String,
               last_scan: String? = nil, file_count: Int = 0,
-              created_at: String = "", connected: Bool? = nil) {
+              created_at: String = "", connected: Bool? = nil,
+              slug: String? = nil) {
     self.id = id
+    self.slug = slug
     self.path = path
     self.label = label
     self.last_scan = last_scan

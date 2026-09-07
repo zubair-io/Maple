@@ -42,8 +42,9 @@ public final class AllSourcesTimelineViewModel {
     public let server: URL
     public let libraryIDs: [String]
     public let searchClient: CloudSearchClient
-    /// One `CloudThumbClient` per server — `/api/fs/thumb` isn't scoped to
-    /// a library, so a single client covers every library on this server.
+    /// One `CloudThumbClient` per server — its address resolver maps any
+    /// absolute path on the server to the owning library's `slug:relPath`,
+    /// so a single client covers every library on this server.
     public let thumbClient: CloudThumbClient
 
     public init(server: URL, libraryIDs: [String],

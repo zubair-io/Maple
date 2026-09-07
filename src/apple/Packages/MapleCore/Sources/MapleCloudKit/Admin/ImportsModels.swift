@@ -2,26 +2,38 @@
 //
 // Covers `/api/imports/*` plus the slice of `/api/fs` the wizard's source
 // picker needs (`routes/imports.ts`, `routes/fs.ts`). The picker uses
-// `/api/fs/dir-fast`, NOT the EXIF-enriched `/api/fs/dir` that
-// `CloudFoldersClient.listDir` / `FsDirListing` already cover — dir-fast is
-// a distinct route with a distinct (narrower) response shape, so it gets
-// its own decode type here rather than overloading `FsDirListing`.
+// `/api/fs/list` — the directories-only pre-registration picker route —
+// NOT the EXIF-enriched `/api/fs/dir` that `CloudFoldersClient.listDir` /
+// `FsDirListing` cover; it is a distinct route with a distinct response
+// shape, so it gets its own decode type here.
 
 import Foundation
 
 // MARK: - Step 1: source picker
 
-/// `GET /api/fs/dir-fast?path=` response. The picker only ever needs
-/// `parent` (to disable Up at the MAPLE_ROOTS jail root — a null parent
-/// means "at the root") and `dirs` (to drill down); the real response also
-/// carries an `images` array, left off this type since nothing here reads
-/// it. `dirs` entries are `{name, path, mtime}` — identical in shape to
-/// `/api/fs/dir`'s subfolder entries, so this reuses `FsDirEntry` rather
-/// than declaring a second identical struct.
+/// One subdirectory from `GET /api/fs/list`. `hasChildren` is the server's
+/// hint that drilling in will show further folders.
+public struct ImportsDirEntry: Decodable, Sendable, Equatable {
+  public let name: String
+  public let path: String
+  public let hasChildren: Bool
+
+  public init(name: String, path: String, hasChildren: Bool) {
+    self.name = name
+    self.path = path
+    self.hasChildren = hasChildren
+  }
+}
+
+/// `GET /api/fs/list?path=` response. The picker only ever needs `parent`
+/// (to disable Up at the MAPLE_ROOTS jail root — a null parent means "at
+/// the root") and `entries` (to drill down). Paths are symlink-resolved
+/// consistently across `path`, `parent` and `entries`, so navigation never
+/// sees a `/var` vs `/private/var` flip.
 public struct ImportsDirListing: Decodable, Sendable, Equatable {
   public let path: String
   public let parent: String?
-  public let dirs: [FsDirEntry]
+  public let entries: [ImportsDirEntry]
 }
 
 // MARK: - Step 2: scan
