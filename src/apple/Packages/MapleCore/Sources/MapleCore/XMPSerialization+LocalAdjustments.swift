@@ -88,17 +88,35 @@ enum LocalAdjustmentXMP {
         ("papp:LocalVibrance", { $0.vibrance }, { $0.vibrance = $1 }),
         ("crs:LocalTemperature", { $0.temperature }, { $0.temperature = $1 }),
         ("crs:LocalTint", { $0.tint }, { $0.tint = $1 }),
-        // Hue (#3269): Maple's slider is ±100, Adobe's `crs:LocalHue` is
-        // ±1 — scaled at the wire boundary, matching raw-core's serializer
-        // (`v / 100`) and parser (`v * 100`). `parseAdjustments`' Amount
-        // dial then applies to the wire value exactly as it does for every
-        // other slider, so the products agree across platforms.
+        // Hue (#3269) and the six spatial controls (#3407): Maple's sliders
+        // are ±100 (0…100 for noise and defringe), Adobe's keys are the ±1
+        // fraction Lightroom writes — scaled at the wire boundary, matching
+        // raw-core's serializer (`v / 100`) and parser (`v * 100`).
+        // `parseAdjustments`' Amount dial then applies to the wire value
+        // exactly as it does for every other slider, so the products agree
+        // across platforms. Emission order matches raw-core's own second
+        // loop: hue first, then the six.
         ("crs:LocalHue", { $0.hue.map { $0 / 100 } }, { $0.hue = $1 * 100 }),
+        ("crs:LocalTexture", { $0.texture.map { $0 / 100 } }, { $0.texture = $1 * 100 }),
+        ("crs:LocalClarity2012", { $0.clarity.map { $0 / 100 } }, { $0.clarity = $1 * 100 }),
+        ("crs:LocalDehaze", { $0.dehaze.map { $0 / 100 } }, { $0.dehaze = $1 * 100 }),
+        ("crs:LocalSharpness", { $0.sharpness.map { $0 / 100 } }, { $0.sharpness = $1 * 100 }),
+        ("crs:LocalLuminanceNoise", { $0.luminanceNoise.map { $0 / 100 } }, { $0.luminanceNoise = $1 * 100 }),
+        ("crs:LocalDefringe", { $0.defringe.map { $0 / 100 } }, { $0.defringe = $1 * 100 }),
     ]
 
-    /// Four-decimal variant of `fmtNum`, trailing zeros trimmed — only for
-    /// `crs:LocalHue` (see the emitter). `-0.425` stays `-0.425`; `-0.2`
-    /// stays `-0.2`.
+    /// The keys whose wire value is Adobe's ±1 fraction rather than Maple's
+    /// ±100 slider — they get `fmtNum4` instead of the canonical two
+    /// decimals, since two would quantise the slider to whole units. Mirror
+    /// of raw-core's second `serialize_adjustments` loop (`fmt4`).
+    static let fractionScaledKeys: Set<String> = [
+        "crs:LocalHue", "crs:LocalTexture", "crs:LocalClarity2012", "crs:LocalDehaze",
+        "crs:LocalSharpness", "crs:LocalLuminanceNoise", "crs:LocalDefringe",
+    ]
+
+    /// Four-decimal variant of `fmtNum`, trailing zeros trimmed — for the
+    /// `fractionScaledKeys` (see the emitter). `-0.425` stays `-0.425`;
+    /// `-0.2` stays `-0.2`.
     static func fmtNum4(_ v: Double) -> String {
         // Explicit POSIX locale: the wire format is "." regardless of the
         // user's region (#3347 review).
@@ -357,10 +375,13 @@ extension XMPSerializer {
                 // Only fields actually set are written; a non-finite value is
                 // not representable in XMP and is skipped like every slider.
                 guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
-                // LocalHue rides Adobe's ±1 scale: the canonical 2-decimal
-                // precision would quantise Maple's ±100 slider to whole units,
-                // so it gets four (#3280 review) — mirrors raw-core's `fmt4`.
-                let text = slider.key == "crs:LocalHue" ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
+                // The fraction-scaled keys ride Adobe's ±1 scale: the
+                // canonical 2-decimal precision would quantise Maple's ±100
+                // slider to whole units, so they get four (#3280 review,
+                // extended to the six spatial controls by #3407) — mirrors
+                // raw-core's `fmt4`.
+                let text = LocalAdjustmentXMP.fractionScaledKeys.contains(slider.key)
+                    ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
                 return "\(i4)\(slider.key)=\"\(text)\""
             } + _localAdjustmentRangeLines(layer.range, indent: i4)
             return [

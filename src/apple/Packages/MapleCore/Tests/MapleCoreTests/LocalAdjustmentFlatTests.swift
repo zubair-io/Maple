@@ -89,7 +89,7 @@ final class LocalAdjustmentFlatTests: XCTestCase {
     func testFixtureLayerStackRoundTripsThroughTheFlatWire() throws {
         let layers = try loadFixtureLayers()
         let flat = LocalAdjustmentFlat.toFlat(layers)
-        XCTAssertEqual(flat.count, layers.count * 32)
+        XCTAssertEqual(flat.count, layers.count * LocalAdjustmentFlat.layerFloatLen)
         // Layer 0 (linear, exposure+shadows) — matches the Rust fixture test.
         XCTAssertEqual(Array(flat[0..<5]), [0.1, 0.2, 0.9, 0.8, 0.4].map(Float.init))
         XCTAssertEqual(flat[12], 0.5)
@@ -134,6 +134,58 @@ final class LocalAdjustmentFlatTests: XCTestCase {
         let flat = LocalAdjustmentFlat.toFlat([layer])
         XCTAssertEqual(flat[22], -42.5)
         XCTAssertEqual(Int(flat[8]), 1 << 10)
+    }
+
+    /// The six spatial controls (#3407) ride slots 32..38 with presence
+    /// bits 11..16, and slots 38/39 stay zero padding — the append-only
+    /// contract that lets an older reader keep every slot it knows.
+    func testSpatialControlsRideSlots32To38WithPresenceBits11To16() {
+        let adjustments = PartialAdjustments(
+            texture: 18, clarity: 35, dehaze: -22.5, sharpness: 66,
+            luminanceNoise: 40, defringe: 75)
+        let flat = LocalAdjustmentFlat.toFlat([
+            LocalAdjustment(mask: .everywhere, range: nil, adjustments: adjustments),
+        ])
+        XCTAssertEqual(flat.count, LocalAdjustmentFlat.layerFloatLen)
+        XCTAssertEqual(Array(flat[32..<38]), [18, 35, -22.5, 66, 40, 75].map(Float.init))
+        XCTAssertEqual(Array(flat[38..<40]), [0, 0])
+        let bits = (11...16).reduce(0) { $0 | (1 << $1) }
+        XCTAssertEqual(Int(flat[8]), bits)
+        XCTAssertEqual(
+            LocalAdjustmentFlat.fromFlat(flat, rasterDigests: [:])[0].adjustments, adjustments)
+    }
+
+    /// Presence, not a sentinel: an unset spatial control reads back `nil`
+    /// even though its slot carries a plain `0`, so the render stage skips
+    /// the whole grouped pass rather than running an identity kernel.
+    func testUnsetSpatialControlsReadBackAsNilNotZero() {
+        let flat = LocalAdjustmentFlat.toFlat([
+            LocalAdjustment(
+                mask: .everywhere, range: nil, adjustments: PartialAdjustments(clarity: 0)),
+        ])
+        XCTAssertEqual(Int(flat[8]), 1 << 12)
+        XCTAssertEqual(Array(flat[32..<40]), [Float](repeating: 0, count: 8))
+        let back = LocalAdjustmentFlat.fromFlat(flat, rasterDigests: [:])[0].adjustments
+        XCTAssertEqual(back.clarity, 0)
+        XCTAssertNil(back.texture)
+        XCTAssertNil(back.defringe)
+        XCTAssertFalse(back.spatialIsEmpty)
+    }
+
+    /// The point slots keep their meaning now that the record is 40 wide —
+    /// the append-only claim, checked at the boundary the spatial block
+    /// starts at.
+    func testPointSlotsAreUnmovedByTheSpatialAppend() {
+        let flat = LocalAdjustmentFlat.toFlat([
+            LocalAdjustment(
+                mask: .everywhere, range: .skinTone,
+                adjustments: PartialAdjustments(exposure: 0.5, tint: -7, hue: -42.5)),
+        ])
+        XCTAssertEqual(flat[12], 0.5)
+        XCTAssertEqual(flat[21], -7)
+        XCTAssertEqual(flat[22], -42.5)
+        XCTAssertEqual(flat[24], 1)
+        XCTAssertEqual(Int(flat[8]), (1 << 0) | (1 << 9) | (1 << 10))
     }
 
     func testAbsentRangeReadsBackAsNil() {
