@@ -96,7 +96,10 @@ import {
   togglePresets,
   toggleScopes,
 } from './editor-shell-panels';
-import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
+// Namespaced like `editor-shell.classes` below: the HUD helper exports both
+// the label formatters and the fade-timer lifecycle, and one alias reads
+// better at the call sites than eight named imports.
+import * as hud from './editor-shell-hud';
 import { EDITOR_SHELL_IMPORTS } from './editor-shell.imports';
 import { type ChromeState, HOST_CLASS } from './editor-shell.classes';
 import * as sc from './editor-shell.classes';
@@ -312,16 +315,16 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // HUD state
   readonly hudVisible = signal<boolean>(false);
   readonly hudEyebrow = computed<string>(() =>
-    hudEyebrowText(this.editorState.armedGroup(), this.editorState.armedTool()),
+    hud.hudEyebrowText(this.editorState.armedGroup(), this.editorState.armedTool()),
   );
   readonly hudValueText = computed<string>(() =>
-    hudValueLabel(this.editorState.armedDisplayValue(), this.editorState.armedTool()),
+    hud.hudValueLabel(this.editorState.armedDisplayValue(), this.editorState.armedTool()),
   );
   readonly hudProgress = computed<number>(() =>
-    hudProgressFraction(this.editorState.armedInternalValue()),
+    hud.hudProgressFraction(this.editorState.armedInternalValue()),
   );
 
-  private _hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly _hud: hud.HudFadeState = hud.newHudFadeState();
 
   ngOnInit(): void {
     this.applyRouteAddress();
@@ -333,7 +336,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     clearRecedeTimer(this._chrome);
-    this._clearHudTimer();
+    hud.hudClearTimer(this._hud);
     cleanupScrub(this, this._scrub);
     undoOnPointerCancel(this._undo);
     cancelCompare(this, this.commandRouter);
@@ -367,22 +370,11 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // Public: called back into from editor-shell-scrub.ts.
 
   showHud(): void {
-    this._clearHudTimer();
-    this.hudVisible.set(true);
+    hud.hudShow(this, this._hud);
   }
 
   scheduleHudFade(): void {
-    this._clearHudTimer();
-    this._hudFadeTimer = setTimeout(() => {
-      this.hudVisible.set(false);
-    }, 600);
-  }
-
-  private _clearHudTimer(): void {
-    if (this._hudFadeTimer !== null) {
-      clearTimeout(this._hudFadeTimer);
-      this._hudFadeTimer = null;
-    }
+    hud.hudScheduleFade(this, this._hud);
   }
 
   // ── Group switching ───────────────────────────────────────────────────
