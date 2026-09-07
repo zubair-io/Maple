@@ -17,6 +17,16 @@
 import Foundation
 
 extension _XMPParserDelegate {
+  func parserDidEndDocument(_ parser: XMLParser) {
+    // Foreign authored pairs are Custom edits. Wait for the whole document:
+    // a later Maple namespace preserves legacy AsShot omission semantics.
+    if !sawPappNamespace, sawExplicitWb, model.whiteBalancePreset == .custom,
+      model.wbSource == .asShot
+    {
+      model.wbSource = .manual
+    }
+  }
+
   func applyAttribute(key: String, value: String, hasCrop: Bool = false) {
     // Strip namespace prefix for matching
     switch key {

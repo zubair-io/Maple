@@ -6,13 +6,58 @@ import {
 } from '../generated/white-balance-presets.generated';
 import { XmpParserService } from './xmp-parser.service';
 
-function sidecar(attributes: string): string {
-  return `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" ${attributes}/></rdf:RDF></x:xmpmeta>`;
+function sidecar(attributes: string, children = ''): string {
+  return `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" ${attributes}>${children}</rdf:Description></rdf:RDF></x:xmpmeta>`;
 }
 
 describe('foreign named WB sidecars', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({});
+  });
+
+  it('infers Manual for an authored foreign Custom pair, including a missing preset name', () => {
+    const parser = TestBed.inject(XmpParserService);
+    for (const preset of ['', 'crs:WhiteBalance="Custom"']) {
+      const model = parser.parseAdjustmentModel(
+        sidecar(`${preset} crs:Temperature="5100" crs:Tint="-7"`),
+      ).model;
+      expect(model).toMatchObject({
+        temperature: 5100,
+        tint: -7,
+        whiteBalancePreset: 'Custom',
+        wbSource: 'Manual',
+      });
+    }
+  });
+
+  it('preserves Maple legacy defaults and explicit provenance', () => {
+    const parser = TestBed.inject(XmpParserService);
+    const attrs = 'crs:WhiteBalance="Custom" crs:Temperature="5100" crs:Tint="-7"';
+    const namespace = 'xmlns:papp="http://ns.justmaple.app/photo/1.0/"';
+    expect(
+      parser.parseAdjustmentModel(sidecar(`${attrs} ${namespace}`)).model.wbSource,
+    ).toBeUndefined();
+    expect(
+      parser.parseAdjustmentModel(sidecar(attrs, `<papp:Private ${namespace}>note</papp:Private>`))
+        .model.wbSource,
+    ).toBeUndefined();
+    for (const source of ['AsShot', 'Auto', 'Sampled', 'Manual', 'Preset']) {
+      expect(
+        parser.parseAdjustmentModel(sidecar(`${attrs} ${namespace} papp:WbSource="${source}"`))
+          .model.wbSource,
+      ).toBe(source);
+    }
+  });
+
+  it('does not invent Manual for As Shot or an unauthored Custom choice', () => {
+    const parser = TestBed.inject(XmpParserService);
+    for (const attrs of [
+      'crs:WhiteBalance="As Shot" crs:Temperature="5100" crs:Tint="-7"',
+      'crs:WhiteBalance="Custom"',
+      '',
+    ]) {
+      expect(parser.parseAdjustmentModel(sidecar(attrs)).model.wbSource).toBeUndefined();
+    }
   });
 
   for (const preset of WHITE_BALANCE_PRESETS.filter((name) => WHITE_BALANCE_PRESET_VALUES[name])) {

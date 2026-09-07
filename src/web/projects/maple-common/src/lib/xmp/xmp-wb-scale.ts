@@ -30,6 +30,7 @@
 // conversion needs the image's calibration frame, so raw-core converts it
 // at develop and the sidecar round-trips as V1.
 
+import type { AdjustmentModel } from '../models/adjustment-model';
 import { xyToTempTint } from './wb-dng-temperature';
 import { attrOf } from './xmp-dom-utils';
 
@@ -288,4 +289,20 @@ export function normalizeParsedWb(
   }
   const inferred = inferredWbPresetForAuthoredPair(model.whiteBalancePreset, appliedModelKeys);
   if (inferred) model.whiteBalancePreset = inferred;
+}
+
+/** Foreign authored pairs are Custom edits; Maple's legacy source omission stays unchanged. */
+export function inferForeignWbSource(
+  model: Partial<AdjustmentModel>,
+  appliedModelKeys: ReadonlySet<string>,
+  sawPappAnywhere: boolean,
+): void {
+  if (
+    !sawPappAnywhere &&
+    model.whiteBalancePreset === 'Custom' &&
+    model.wbSource === undefined &&
+    (appliedModelKeys.has('temperature') || appliedModelKeys.has('tint'))
+  ) {
+    model.wbSource = 'Manual';
+  }
 }
