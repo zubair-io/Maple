@@ -125,9 +125,9 @@ export class TrashService implements TrashCapability {
   readonly resultSummary = this._resultSummary.asReadonly();
 
   /** Resolve a grid selection id to the Mongo id `TrashApiService.deleteAsset`
-   * requires. The grid's `Asset.id` is a `slug:relPath` address (no Mongo id
-   * — `dir-fast` never carries one, see `BunApiBackendService
-   * .getAssetDetailsByAddress`'s doc); `runTrashQueue` below is the only
+   * requires. The grid's `Asset.id` is a `slug:relPath` address rather than
+   * a Mongo id (see `BunApiBackendService.getAssetDetailsByAddress`);
+   * `runTrashQueue` below is the only
    * caller of `deleteAsset` that ever sees one — the Trash panel's own
    * restore/purge flows (`TrashPanelComponent`) already pass genuine Mongo
    * ids straight from the server's trash listing, so those never route

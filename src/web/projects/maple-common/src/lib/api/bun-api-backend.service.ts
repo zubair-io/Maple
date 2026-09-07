@@ -655,8 +655,8 @@ export class BunApiBackendService {
    * Detail DTO for an asset identified by its `slug:relPath` address rather
    * than its Mongo id.
    *
-   * The browse grid lists through `/api/fs/dir-fast`, which carries no Mongo
-   * id, so grid-opened assets can only be addressed this way. 404s when the
+   * Browse-grid assets use `slug:relPath` addresses rather than Mongo ids,
+   * so grid-opened assets are resolved through this endpoint. 404s when the
    * path resolves on disk but isn't indexed.
    */
   getAssetDetailsByAddress(address: string): Observable<ApiAssetDetail> {

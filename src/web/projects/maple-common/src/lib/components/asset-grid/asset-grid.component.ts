@@ -194,8 +194,8 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   // (Thumbnail loading moved to LibraryStateService.ensureThumbnailUrl —
   // asset-grid's `<maple-asset-tile>` and the editor filmstrip's
   // `<maple-asset-thumb>` each fire the loader on mount from their own copy
-  // of the same effect. The state service handles all four paths: FS-walk →
-  // /api/fs/thumb, Mongo asset id → /api/assets/:id/thumb, .maple/ disk
+  // of the same effect. The state service handles the unified address route,
+  // absolute paths resolved to that route, Mongo asset ids, the .maple/ disk
   // cache, and the WASM-decode fallback with write-through.)
 
   // ── Event handlers ────────────────────────────────────────────────────────

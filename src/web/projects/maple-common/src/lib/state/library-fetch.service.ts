@@ -957,14 +957,6 @@ export class LibraryFetch {
   }
 
   /**
-   * Cold-load hydration for `/edit/fs:<absPath>` deep-links on Self-Hosted.
-   *
-   * Synthesizes a single placeholder Asset entry from the id so the editor
-   * can mount immediately and start fetching bytes via `/api/fs/raw`.
-   * Caller should follow up with `openSelfHostedSubfolder(parentDir,
-   * sourceId, id)` to populate the filmstrip with siblings.
-   */
-  /**
    * Cold-load hydration for `/edit/<slug>/<relPath>` deep-links on Self-Hosted.
    *
    * Synthesizes a single placeholder Asset entry from the address so the editor

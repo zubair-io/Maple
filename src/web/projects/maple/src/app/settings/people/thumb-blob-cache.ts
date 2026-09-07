@@ -8,8 +8,8 @@
 // would 401. We fetch via HttpClient (interceptor attaches the bearer) and
 // hand the template a `blob:` URL the browser can render with no extra
 // auth. The absPath path delegates to {@link FilesystemBrowseService} so
-// the URL is shared with /browse's grid (same `/api/fs/thumb?path=…`
-// URL → same in-memory blob, same browser HTTP cache entry).
+// the URL is shared with /browse's grid (same `/api/thumb/:slug/*` route,
+// server cache entry, and singleton-owned in-memory blob).
 //
 // Lifecycle:
 //   * URLs returned from `FilesystemBrowseService.getThumbBlobUrl` are
@@ -94,7 +94,8 @@ export class ThumbBlobCache {
    *   1. `address` (`slug:relPath`) present → `LibrarySource.thumbUrl`
    *      (→ `/api/thumb/:slug/*`, immutable-cached HTTP URL; no blob round-trip).
    *   2. `absPath` present → `FilesystemBrowseService.getThumbBlobUrl`
-   *      (legacy `/api/fs/thumb?path=…` blob, shared with /browse).
+   *      (`/api/thumb/:slug/*` blob after resolving the owning library,
+   *      shared with /browse).
    *   3. `apiAssetId` → `api.getThumb` blob (orphan-cover fallback).
    */
   ensure(
@@ -123,7 +124,8 @@ export class ThumbBlobCache {
         return { url: URL.createObjectURL(blob), owned: true };
       });
     } else if (absPath) {
-      // Legacy path: fetch via /api/fs/thumb + bearer token, cache as blob.
+      // Resolve the absolute path to its library address, fetch via
+      // /api/thumb with the bearer token, and cache the resulting blob URL.
       // One fixed thumb tier server-side (#2220), so the same absPath key
       // necessarily resolves to the same blob entry on every surface.
       promise = this.fsBrowse.getThumbBlobUrl(absPath).then((url) => ({ url, owned: false }));
