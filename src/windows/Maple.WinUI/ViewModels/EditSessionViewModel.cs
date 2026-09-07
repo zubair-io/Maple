@@ -52,6 +52,11 @@ namespace Maple.WinUI.ViewModels
         /// (photo open, undo/redo, sidecar reload) — code-built controls that
         /// don't ride slider VMs (wheels, curve plot) refresh on this.</summary>
         public event Action? ModelSynced;
+
+        /// <summary>Raised on every slider/curve/wheel tick (the live-edit
+        /// path that does NOT resync the view layer) — code-built readouts
+        /// that derive from the model refresh on this (#2434).</summary>
+        public event Action? AdjustmentEdited;
         public RenderScheduler Renderer { get; } = new();
 
         private readonly SidecarWatcher _sidecarWatcher = new();
@@ -252,6 +257,7 @@ namespace Maple.WinUI.ViewModels
             ScheduleSidecarWrite();
             _undoTimer?.Dispose();
             _undoTimer = new Timer(_ => OnUi(CommitUndoBoundary), null, UndoCommitQuietMs, Timeout.Infinite);
+            AdjustmentEdited?.Invoke();
         }
 
         private void CommitUndoBoundary()

@@ -75,6 +75,8 @@ namespace Maple.WinUI
             }
             if (_activeGroup == "Crop" && group != "Crop")
                 ExitCropMode();
+            if (_activeGroup == "Color" && group != "Color")
+                CancelWhiteBalancePick();
             _activeGroup = group;
             RefreshRailArming(group);
             EditPanel.Visibility = Visibility.Visible;
@@ -178,6 +180,7 @@ namespace Maple.WinUI
         {
             if (_activeGroup == "Crop")
                 ExitCropMode();
+            CancelWhiteBalancePick();
             _activeGroup = null;
             EditPanel.Visibility = Visibility.Collapsed;
             RefreshRailArming(null);
@@ -210,6 +213,7 @@ namespace Maple.WinUI
             ColorTabHsl.Selected = tab == "HSL";
             ColorTabBw.Selected = tab == "B&W";
 
+            ShowWhiteBalanceRow(tab == "Basic");
             PanelBwHeader.Visibility = tab == "B&W" ? Visibility.Visible : Visibility.Collapsed;
             PanelHslBands.Visibility = tab == "HSL" ? Visibility.Visible : Visibility.Collapsed;
             PanelHslBands.ItemsSource = tab == "HSL" ? ViewModel.HslBands : null;

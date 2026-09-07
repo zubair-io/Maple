@@ -67,6 +67,7 @@ namespace Maple.WinUI
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
                     break;
+                case VirtualKey.Escape when _wbPickArmed: CancelWhiteBalancePick(); break;
                 case VirtualKey.Escape when _mode == ShellMode.Edit: SetMode(ShellMode.Preview); break;
                 case VirtualKey.Escape when _mode == ShellMode.Preview: SetMode(ShellMode.Browse); break;
                 case VirtualKey.Number0 when ctrl && _mode != ShellMode.Browse:

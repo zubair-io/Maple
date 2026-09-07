@@ -205,6 +205,11 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             whites,
             blacks,
         })),
+        "MapleWbSample" => Some(layout!(crate::white_balance_sample::MapleWbSample {
+            temperature,
+            tint,
+            algorithm_version,
+        })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveParams" => Some(layout!(crate::gpu_live::MapleGpuLiveParams {
             temperature,
@@ -424,6 +429,7 @@ mod tests {
             "MapleToneCurves",
             "MapleSceneLinearBufferF32",
             "MapleAutoAdjustments",
+            "MapleWbSample",
             #[cfg(feature = "gpu")]
             "MapleGpuLiveParams",
             #[cfg(feature = "gpu")]

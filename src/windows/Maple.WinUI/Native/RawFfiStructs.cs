@@ -111,4 +111,18 @@ namespace Maple.WinUI.Native
         public float whites;
         public float blacks;
     }
+
+    /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleWbSample (white_balance_sample.rs,
+    /// #2434): the neutral eyedropper's solved pair plus the derivation
+    /// version the host stamps as `papp:WbAlgorithmVersion`. Filled by
+    /// maple_sample_white_balance_oriented on rc 0 only.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MapleWbSample
+    {
+        public float temperature;
+        public float tint;
+        public uint algorithm_version;
+    }
 }

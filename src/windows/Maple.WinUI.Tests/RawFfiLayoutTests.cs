@@ -65,6 +65,7 @@ namespace Maple.WinUI.Tests
             new object[] { typeof(MapleToneCurves) },
             new object[] { typeof(MapleSceneLinearBufferF32) },
             new object[] { typeof(MapleAutoAdjustments) },
+            new object[] { typeof(MapleWbSample) },
             new object[] { typeof(MapleGpuLiveParams) },
             new object[] { typeof(MapleGpuLiveSession) },
         };
