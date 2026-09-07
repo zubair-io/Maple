@@ -119,7 +119,20 @@ final class SkinToneDemoUITests: XCTestCase {
     /// one (so a subsequent `waitForExistence` still has something to poll
     /// and fail with a meaningful timeout rather than a nil-unwrap).
     private func firstExisting(_ candidates: [XCUIElement]) -> XCUIElement {
-        candidates.first(where: { $0.exists }) ?? candidates[candidates.count - 1]
+        precondition(!candidates.isEmpty, "firstExisting needs at least one candidate")
+        return candidates.first(where: { $0.exists }) ?? candidates[candidates.count - 1]
+    }
+
+    /// A UI step that did not happen. Thrown AFTER `XCTFail` so the test is
+    /// red, not skipped — `XCTSkip` is reserved for the missing-fixture case
+    /// at the top of the test (#3305 review).
+    private struct DemoStepFailed: Error {
+        let description: String
+    }
+
+    private func fail(_ description: String) -> DemoStepFailed {
+        XCTFail(description)
+        return DemoStepFailed(description: description)
     }
 
     private func waitFor(
@@ -129,7 +142,7 @@ final class SkinToneDemoUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
         if result != .completed {
-            throw XCTSkip(description)
+            throw fail(description)
         }
     }
 
@@ -144,7 +157,7 @@ final class SkinToneDemoUITests: XCTestCase {
             }
             usleep(100_000)
         }
-        throw XCTSkip("accessibility value never reported '\(substring)' — got: \((element.value as? String) ?? "nil")")
+        throw fail("accessibility value never reported '\(substring)' — got: \((element.value as? String) ?? "nil")")
     }
 
     private func centroidAngle(from accessibilityValue: String) throws -> Double {
@@ -152,7 +165,7 @@ final class SkinToneDemoUITests: XCTestCase {
               let degreeRange = accessibilityValue.range(of: "°"),
               let angle = Double(accessibilityValue[range.upperBound..<degreeRange.lowerBound])
         else {
-            throw XCTSkip("couldn't parse a centroid angle out of: \(accessibilityValue)")
+            throw fail("couldn't parse a centroid angle out of: \(accessibilityValue)")
         }
         return angle
     }
