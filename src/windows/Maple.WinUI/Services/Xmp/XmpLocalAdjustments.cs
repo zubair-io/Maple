@@ -59,23 +59,43 @@ namespace Maple.WinUI.Services.Xmp
             ("crs:LocalTemperature", p => p.Temperature, (p, v) => p with { Temperature = v }),
             ("crs:LocalTint", p => p.Tint, (p, v) => p with { Tint = v }),
             ("crs:LocalHue", p => p.Hue / 100, (p, v) => p with { Hue = v * 100 }),
+            // The six spatial controls (#3407), emitted after crs:LocalHue and
+            // before the papp:Range* block. Same ±1 fraction scale Lightroom
+            // itself writes — a Clarity of +35 stores as "0.35" — hence the
+            // /100 out and the ×100 back in.
+            ("crs:LocalTexture", p => p.Texture / 100, (p, v) => p with { Texture = v * 100 }),
+            ("crs:LocalClarity2012", p => p.Clarity / 100, (p, v) => p with { Clarity = v * 100 }),
+            ("crs:LocalDehaze", p => p.Dehaze / 100, (p, v) => p with { Dehaze = v * 100 }),
+            ("crs:LocalSharpness", p => p.Sharpness / 100, (p, v) => p with { Sharpness = v * 100 }),
+            ("crs:LocalLuminanceNoise", p => p.LuminanceNoise / 100, (p, v) => p with { LuminanceNoise = v * 100 }),
+            ("crs:LocalDefringe", p => p.Defringe / 100, (p, v) => p with { Defringe = v * 100 }),
         };
 
-        private const string HueKey = "crs:LocalHue";
+        /// <summary>
+        /// The keys that ride Adobe's ±1 fraction scale rather than Maple's
+        /// ±100 slider units: `crs:LocalHue` (#3269) plus the six spatial
+        /// controls (#3407). Their Get/With pairs above carry the /100 and
+        /// ×100; this set is what routes them to the four-decimal formatter.
+        /// </summary>
+        private static readonly HashSet<string> FractionSliders = new()
+        {
+            "crs:LocalHue", "crs:LocalTexture", "crs:LocalClarity2012", "crs:LocalDehaze",
+            "crs:LocalSharpness", "crs:LocalLuminanceNoise", "crs:LocalDefringe",
+        };
 
         /// <summary>
-        /// `crs:LocalHue` rides Adobe's ±1 scale, so the canonical two-decimal
-        /// codec (XmpSchema.FormatNumber) would quantise Maple's ±100 slider
-        /// to whole units and drift a fractional value on every round-trip
+        /// A fraction-scaled key's value. The canonical two-decimal codec
+        /// (XmpSchema.FormatNumber) would quantise Maple's ±100 slider to
+        /// whole units and drift a fractional value on every round-trip
         /// (−42.5 → "-0.43" → −43). Four decimals keep two decimals of the
         /// ±100 value — mirrors raw-core's `fmt4` (round half away from zero)
         /// and Swift's `fmtNum4` so all four writers stay byte-identical (#3400).
         /// </summary>
-        private static string FormatHue(double v) =>
+        private static string FormatFraction(double v) =>
             Math.Round(v, 4, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
 
         private static string FormatSlider(string key, double v) =>
-            key == HueKey ? FormatHue(v) : XmpSchema.FormatNumber(v);
+            FractionSliders.Contains(key) ? FormatFraction(v) : XmpSchema.FormatNumber(v);
 
         /// <summary>The canonical container tag `child` is, or null when it is neither.</summary>
         public static string? ContainerTagFor(XElement child)

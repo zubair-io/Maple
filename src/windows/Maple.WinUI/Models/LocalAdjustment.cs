@@ -38,11 +38,40 @@ namespace Maple.WinUI.Models
         /// <summary>Oklab hue rotation: ±100 maps to ±30°, stored as ±1 in crs:LocalHue.</summary>
         public double? Hue { get; init; }
 
+        // The six SPATIAL controls (#3407). Unlike the eleven point controls
+        // above, every one of them reads a neighbourhood rather than a single
+        // pixel, so raw-core runs them as one grouped pass over the layer's
+        // output and blends the result back by the mask weight. On the wire
+        // they ride Adobe's ±1 fraction scale, like crs:LocalHue.
+
+        /// <summary>Fine-detail local contrast, −100…100; crs:LocalTexture.</summary>
+        public double? Texture { get; init; }
+        /// <summary>Structure-scale local contrast, −100…100; crs:LocalClarity2012.</summary>
+        public double? Clarity { get; init; }
+        /// <summary>Haze removal, −100…100; crs:LocalDehaze.</summary>
+        public double? Dehaze { get; init; }
+        /// <summary>Luminance-only unsharp mask, −100…100; crs:LocalSharpness.</summary>
+        public double? Sharpness { get; init; }
+        /// <summary>Luminance noise reduction, 0…100; crs:LocalLuminanceNoise.</summary>
+        public double? LuminanceNoise { get; init; }
+        /// <summary>Chroma-fringe suppression at high-contrast edges, 0…100; crs:LocalDefringe.</summary>
+        public double? Defringe { get; init; }
+
         /// <summary>True when no field is set — the layer would change nothing.</summary>
         public bool IsEmpty =>
             Exposure is null && Contrast is null && Highlights is null && Shadows is null
             && Whites is null && Blacks is null && Saturation is null && Vibrance is null
-            && Temperature is null && Tint is null && Hue is null;
+            && Temperature is null && Tint is null && Hue is null && SpatialIsEmpty;
+
+        /// <summary>
+        /// True when none of the six spatial controls is set — split out of
+        /// <see cref="IsEmpty"/> for the same reason raw-core splits
+        /// `spatial_is_empty` out of `is_empty`: the point group and the
+        /// spatial group are separate passes, asked about separately.
+        /// </summary>
+        public bool SpatialIsEmpty =>
+            Texture is null && Clarity is null && Dehaze is null
+            && Sharpness is null && LuminanceNoise is null && Defringe is null;
     }
 
     /// <summary>Normalized 2D point: X across the width, Y down from the top edge, both in [0, 1].</summary>
