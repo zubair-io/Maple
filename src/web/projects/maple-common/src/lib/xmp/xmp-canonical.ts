@@ -135,11 +135,9 @@ export function canonicalDocument(
   const head = [...nsLines, ...attrLines].join('\n');
   const body = children.length === 0 ? '/>' : `>\n${children}\n    </rdf:Description>`;
 
-  const indentXml = (xml: string, indent: string): string =>
-    xml
-      .split('\n')
-      .map((line) => `${indent}${line}`)
-      .join('\n');
+  // Only indent the opening line. Interior whitespace belongs to the opaque
+  // subtree; indenting every line grows it again on each read-modify-write.
+  const indentXml = (xml: string, indent: string): string => `${indent}${xml}`;
   const rdfNodes = (preserved?.rdfNodes ?? []).map((node) => indentXml(node, '    '));
   const xmpmetaNodes = (preserved?.xmpmetaNodes ?? []).map((node) => indentXml(node, '  '));
 
