@@ -46,8 +46,8 @@ namespace Maple.WinUI.ViewModels
                 var page = await client.GetTimelineAsync(_timelineCursor, owner.Token);
                 if (_libraryCts != owner || owner.IsCancellationRequested) return;
                 if (page == null) throw new InvalidOperationException("The server could not load the timeline.");
-                var items = page.Results.Select(TimelinePhotoItem)
-                    .Where(p => !AllPhotos.Any(existing => existing.FilePath == p.FilePath)).ToList();
+                var items = page.NewPhotos(AllPhotos.Select(photo => photo.FilePath))
+                    .Select(TimelinePhotoItem).ToList();
                 AllPhotos.AddRange(items);
                 _timelineCursor = page.NextCursor;
                 HasMoreTimeline = !string.IsNullOrEmpty(_timelineCursor);
