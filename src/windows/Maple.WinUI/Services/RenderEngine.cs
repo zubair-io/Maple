@@ -131,16 +131,24 @@ namespace Maple.WinUI.Services
         /// <summary>
         /// Decode a RAW into a scene-linear f32 base, honoring the sidecar's
         /// decode-owned fields (lens corrections, capture sharpening, AE, ...)
-        /// with chain-owned fields stripped. This decode feeds BOTH display
-        /// phases — the refine (settled) pass directly, and the fast
-        /// slider-tick pass via a further software 2× downsample
-        /// (<see cref="DownsampleHalf"/>) — so its own quality is sized as
-        /// the refine phase: <see cref="RefineDecodeQuality"/> escalates to
-        /// AMaZE when <paramref name="maxLongEdge"/> needs more detail than
-        /// Preview's own half-native-resolution cap can deliver (#3417).
+        /// with chain-owned fields stripped. <paramref name="quality"/> is
+        /// the caller's choice — <see cref="Decode"/> does not pick it: the
+        /// cold-open (fast-phase) call always requests
+        /// <see cref="RefineDecodeQuality.Preview"/> so the first paint
+        /// never waits on a full demosaic (CLAUDE.md's 250-1000ms
+        /// uncached-open budget); a later AMaZE upgrade decode is a SEPARATE
+        /// call the view model schedules once Preview has already landed
+        /// (#3417 review — see <c>EditSessionViewModel.RefineUpgrade.cs</c>).
+        /// <paramref name="reuseAutoProfileFrom"/>, when given, copies that
+        /// prior decode's already-fitted Auto Profile tail onto the new
+        /// result instead of re-fitting: the fit is keyed only by
+        /// (path, mtime) and is independent of this buffer's own demosaic
+        /// quality, so an AMaZE upgrade of the same asset+sidecar never
+        /// needs a second fit.
         /// </summary>
         public static DecodedImage Decode(
-            string rawPath, AdjustmentState model, int maxLongEdge, IntPtr cancelFlag)
+            string rawPath, AdjustmentState model, int maxLongEdge, int quality,
+            IntPtr cancelFlag, DecodedImage? reuseAutoProfileFrom = null)
         {
             var stripped = StripChainStages(model);
             var strippedXmp = Xmp.XmpWriter.Serialize(
@@ -150,7 +158,6 @@ namespace Maple.WinUI.Services
             File.WriteAllText(tempXmpPath, strippedXmp);
             try
             {
-                var quality = RefineDecodeQuality.ForTarget(NativeLongEdge(rawPath), maxLongEdge);
                 var buffer = new MapleSceneLinearBufferF32();
                 var rc = RawFfi.maple_render_file_scene_linear_sized_f32(
                     rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &buffer);
@@ -181,7 +188,12 @@ namespace Maple.WinUI.Services
                         CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
                     };
                     if (stripped.Profile == ProfileMode.Auto)
-                        FitAutoProfile(decoded, rawPath, tempXmpPath);
+                    {
+                        if (reuseAutoProfileFrom != null)
+                            ReuseAutoProfile(decoded, reuseAutoProfileFrom);
+                        else
+                            FitAutoProfile(decoded, rawPath, tempXmpPath);
+                    }
                     DiagLog.Write(
                         $"[decode] {System.IO.Path.GetFileName(rawPath)} quality={quality} ae_gain={decoded.AeGain:0.###} " +
                         $"curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
@@ -201,12 +213,27 @@ namespace Maple.WinUI.Services
 
         /// <summary>Sensor long edge (px), read from the file's EXIF/TIFF
         /// IFDs without a decode — <see cref="RefineDecodeQuality"/>'s
-        /// reference for the escalation decision (#3417). 0 when unreadable,
-        /// which keeps the rule at its conservative Preview default.</summary>
-        private static double NativeLongEdge(string rawPath)
+        /// reference for the AMaZE-upgrade decision (#3417). 0 when
+        /// unreadable, which keeps the rule at its conservative Preview
+        /// default.</summary>
+        public static double SensorLongEdge(string rawPath)
         {
             var exif = ExifReader.Read(rawPath);
             return Math.Max(exif?.PixelWidth ?? 0, exif?.PixelHeight ?? 0);
+        }
+
+        /// <summary>Copies an already-fitted Auto Profile tail onto
+        /// <paramref name="decoded"/> instead of re-fitting it (#3417
+        /// review): the fit is keyed by (path, mtime), not by this buffer's
+        /// demosaic quality, so an AMaZE upgrade of the same decode can
+        /// reuse Preview's fit verbatim.</summary>
+        private static void ReuseAutoProfile(DecodedImage decoded, DecodedImage from)
+        {
+            decoded.ProfileCurve = from.ProfileCurve;
+            decoded.ResidualLut = from.ResidualLut;
+            decoded.ResidualLutSize = from.ResidualLutSize;
+            decoded.DisplayLut = from.DisplayLut;
+            decoded.DisplayLutN = from.DisplayLutN;
         }
 
         /// <summary>

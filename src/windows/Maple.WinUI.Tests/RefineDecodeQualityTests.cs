@@ -7,6 +7,15 @@
 // upscaled to fill the canvas. RefineDecodeQuality.ForTarget mirrors
 // Apple's ImageEditPipeline.refineDecodeQuality (#2143): escalate to AMaZE
 // exactly when the target genuinely needs more than half-res detail.
+//
+// #3417 review: escalating the SAME decode that feeds cold open regressed
+// the 250-1000ms uncached-open budget on large sensors (waiting on a full
+// AMaZE demosaic before the first paint). The fix keeps the first decode at
+// Preview always and schedules a second, cancellable AMaZE decode
+// afterward — ShouldScheduleAmazeUpgrade decides whether that follow-up is
+// worth it, and IsStillCurrent decides whether its result should still be
+// applied once it lands (a photo switch or another decode-owned edit must
+// drop a stale result rather than swap it in over a newer base).
 
 using Maple.WinUI.Services;
 using Xunit;
@@ -81,6 +90,56 @@ namespace Maple.WinUI.Tests
             Assert.Equal(
                 RefineDecodeQuality.Preview,
                 RefineDecodeQuality.ForTarget(nativeLongEdge: 4000, targetLongEdge));
+        }
+
+        // --- ShouldScheduleAmazeUpgrade: the cold-open decode is ALWAYS
+        // Preview (never decided by this rule); this only answers whether a
+        // follow-up AMaZE decode is worth scheduling afterward. ---
+
+        [Fact]
+        public void DoesNotScheduleAnUpgradeWhenTargetIsAtMostHalfNative()
+        {
+            // The editor's default 1600px session target on the 100 MP
+            // reference DNG: Preview already delivers exactly that, so no
+            // background upgrade is worth the extra demosaic time.
+            Assert.False(RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
+                nativeLongEdge: 11656, targetLongEdge: 1600));
+        }
+
+        [Fact]
+        public void SchedulesAnUpgradeAtHundredPercentZoomOnTheReferenceDng()
+        {
+            // The ticket's acceptance case: a 100% zoom refine ROI on the
+            // 100 MP reference DNG targets (up to) native resolution — far
+            // past half the sensor's native long edge, so an AMaZE upgrade
+            // is scheduled once Preview has already landed.
+            Assert.True(RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
+                nativeLongEdge: 11656, targetLongEdge: 11656));
+        }
+
+        [Fact]
+        public void DoesNotScheduleAnUpgradeWhenNativeLongEdgeIsUnknown()
+        {
+            Assert.False(RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
+                nativeLongEdge: 0, targetLongEdge: 11656));
+        }
+
+        // --- IsStillCurrent: an in-flight AMaZE upgrade must be dropped,
+        // never applied, once a newer decode has started. ---
+
+        [Fact]
+        public void AcceptsAResultForTheGenerationThatIsStillOpen()
+        {
+            Assert.True(RefineDecodeQuality.IsStillCurrent(startedForGeneration: 3, currentGeneration: 3));
+        }
+
+        [Fact]
+        public void DropsAStaleResultAfterTheAssetChanges()
+        {
+            // A photo switch or another decode-owned edit (profile, AE, lens
+            // corrections) bumps the generation counter before the upgrade
+            // decode that started under the old generation can land.
+            Assert.False(RefineDecodeQuality.IsStillCurrent(startedForGeneration: 3, currentGeneration: 4));
         }
     }
 }

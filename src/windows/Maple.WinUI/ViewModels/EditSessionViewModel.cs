@@ -67,6 +67,11 @@ namespace Maple.WinUI.ViewModels
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
         private IntPtr _decodeCancelFlag = IntPtr.Zero;
+        /// <summary>Cancel flag for a background AMaZE upgrade decode
+        /// (#3417 review) — separate from <see cref="_decodeCancelFlag"/>
+        /// since it can still be in flight after the Preview decode that
+        /// scheduled it has already finished and freed its own flag.</summary>
+        private IntPtr _amazeCancelFlag = IntPtr.Zero;
         private int _decodeGeneration;
         private string? _lastSidecarWriteText;
         /// <summary>The photo whose adjustments are currently loaded — the only
@@ -205,7 +210,9 @@ namespace Maple.WinUI.ViewModels
 
         /// <summary>Re-run the scene-linear decode for the current model without
         /// resetting the undo stack (used at open and when a decode-owned field
-        /// like AutoExposure changes).</summary>
+        /// like AutoExposure changes). Always decodes at Preview first; see
+        /// <see cref="ScheduleAmazeUpgrade"/> for the optional follow-up
+        /// AMaZE decode (#3417 review).</summary>
         private void DecodeCurrent(PhotoItem photo)
         {
             var generation = Interlocked.Increment(ref _decodeGeneration);
@@ -220,12 +227,17 @@ namespace Maple.WinUI.ViewModels
             {
                 try
                 {
+                    // Cold open always decodes at Preview — the first paint
+                    // must never wait on a full AMaZE demosaic (#3417
+                    // review). A worthwhile upgrade is scheduled separately
+                    // once this lands (see ScheduleAmazeUpgrade below).
                     var decoded = RenderEngine.Decode(
-                        photo.EditPath, model, PreviewLongEdge, cancelFlag);
+                        photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.Preview, cancelFlag);
                     if (generation != _decodeGeneration)
                         return;
                     Renderer.SetImage(decoded);
                     OnUi(() => ApplyDecodedState(generation, photo, decoded));
+                    ScheduleAmazeUpgrade(generation, photo, model, decoded);
                 }
                 catch (Exception ex)
                 {
@@ -241,10 +253,16 @@ namespace Maple.WinUI.ViewModels
 
         private void CancelActiveDecode()
         {
-            var flag = _decodeCancelFlag;
-            _decodeCancelFlag = IntPtr.Zero;
-            if (flag != IntPtr.Zero)
-                RawFfi.maple_cancel_flag_set(flag);
+            CancelFlag(ref _decodeCancelFlag);
+            CancelFlag(ref _amazeCancelFlag);
+        }
+
+        private static void CancelFlag(ref IntPtr flag)
+        {
+            var f = flag;
+            flag = IntPtr.Zero;
+            if (f != IntPtr.Zero)
+                RawFfi.maple_cancel_flag_set(f);
         }
 
         // --- Adjustment edits ---
