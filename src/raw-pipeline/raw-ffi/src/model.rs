@@ -174,3 +174,40 @@ pub(crate) fn defringe_triples(purple: [f32; 3], green: [f32; 3]) -> ([f32; 3], 
     };
     (resolve(purple, 30.0, 70.0), resolve(green, 40.0, 60.0))
 }
+
+/// The GPU live chain's resolved defringe sliders for a `MapleGpuLiveParams`
+/// (#3411), or `DefringeInputs::default()` (which omits the pass) when the
+/// stage is inert.
+///
+/// The predicate and the `amount / 20` normalisation both come from
+/// raw-core's own `params_from_values`, so the GPU gate can never disagree
+/// with the CPU chain about whether the stage is engaged, or how hard. A
+/// stale host's zero-filled tail resolves to `None` here, so the pass is
+/// omitted and the output is bit-identical to pre-#3411.
+#[cfg(feature = "gpu")]
+pub(crate) fn gpu_defringe_inputs(
+    p: &crate::gpu_live::MapleGpuLiveParams,
+) -> raw_gpu::DefringeInputs {
+    let (purple, green) = defringe_triples(
+        [
+            p.defringe_purple_amount,
+            p.defringe_purple_hue_lo,
+            p.defringe_purple_hue_hi,
+        ],
+        [
+            p.defringe_green_amount,
+            p.defringe_green_hue_lo,
+            p.defringe_green_hue_hi,
+        ],
+    );
+    raw_core::stages::defringe::params_from_values(purple, green)
+        .map(|d| raw_gpu::DefringeInputs {
+            purple_strength: d.purple_strength,
+            purple_lo: d.purple_lo,
+            purple_hi: d.purple_hi,
+            green_strength: d.green_strength,
+            green_lo: d.green_lo,
+            green_hi: d.green_hi,
+        })
+        .unwrap_or_default()
+}
