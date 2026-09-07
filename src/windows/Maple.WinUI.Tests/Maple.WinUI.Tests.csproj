@@ -307,6 +307,7 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiBatchRenameLogic.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiImageCanvasMath.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiCropOverlayMath.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiMaskOverlayMath.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiStructuredDataEditorLogic.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiMapClusterMath.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiSetupWizardLogic.cs" LinkBase="MapleUI\Organisms" />
