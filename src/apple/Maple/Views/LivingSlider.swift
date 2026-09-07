@@ -209,8 +209,11 @@ public struct LivingSlider: View {
   private func reset() {
     guard isEnabled else { return }
     finish()
+    let resetFeedback = hapticTick + 1
     update(defaultValue)
     finish()
-    hapticTick += 1
+    // update already signals a default crossing; reset emits exactly one
+    // selection trigger, including when the value was already the default.
+    hapticTick = resetFeedback
   }
 }
