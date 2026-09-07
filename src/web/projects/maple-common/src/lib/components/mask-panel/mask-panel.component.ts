@@ -4,8 +4,10 @@
 // Takes the dock-side panel slot while the Mask tool is armed (the same swap
 // the crop toolbar makes): a list of the image's mask layers with add /
 // remove / select, and — for the selected layer — its shape controls
-// (feather, invert), the ten local develop controls a layer can carry, and
-// the colour-range refinement (#362: enable toggle, canvas eyedropper, five
+// (feather, invert), the sixteen local develop controls a layer can carry —
+// the ten tone/colour sliders, then the six spatial ones Lightroom's own
+// local panel groups below them (#3407: Texture … Defringe) — and the
+// colour-range refinement (#362: enable toggle, canvas eyedropper, five
 // coordinate sliders).
 // Composed from the Maple UI primitives (`mui-list-row`, `mui-button`,
 // `mui-living-slider`, `mui-checkbox`, `mui-text`). The canvas half —
@@ -32,16 +34,20 @@ import { MaskSessionService } from '../mask-overlay/mask-session.service';
 import { RANGE_CONTROLS, displayHue, type RangeControl } from '../mask-overlay/mask-range';
 import { CanvasPickService, RANGE_PICK_PROMPT } from '../image-canvas/canvas-pick.service';
 
-/** One of the ten local controls, with the range its global twin uses. */
+/** One of the sixteen local controls, with the range its global twin uses.
+ *  `bipolar` is derived, never authored: a slider draws a centre notch
+ *  exactly when its range mirrors zero, which is false for the two
+ *  one-sided spatial controls (Noise, Defringe — both 0 … 100). */
 interface MaskControl {
   id: keyof PartialAdjustments;
   label: string;
   min: number;
   max: number;
   step: number;
+  bipolar: boolean;
 }
 
-const MASK_CONTROLS: readonly MaskControl[] = [
+const CONTROL_RANGES: ReadonlyArray<Omit<MaskControl, 'bipolar'>> = [
   { id: 'exposure', label: 'Exposure', min: -4, max: 4, step: 0.05 },
   { id: 'contrast', label: 'Contrast', min: -100, max: 100, step: 1 },
   { id: 'highlights', label: 'Highlights', min: -100, max: 100, step: 1 },
@@ -55,7 +61,22 @@ const MASK_CONTROLS: readonly MaskControl[] = [
   // global slider carries.
   { id: 'temperature', label: 'Temp', min: -2000, max: 2000, step: 10 },
   { id: 'tint', label: 'Tint', min: -150, max: 150, step: 1 },
+  // The six SPATIAL controls (#3407), in Lightroom's own panel order. They
+  // run as one neighbourhood pass over the layer's output rather than per
+  // pixel, but the panel plumbing is identical to the ten above — same
+  // slider, same gesture, one undo entry per drag.
+  { id: 'texture', label: 'Texture', min: -100, max: 100, step: 1 },
+  { id: 'clarity', label: 'Clarity', min: -100, max: 100, step: 1 },
+  { id: 'dehaze', label: 'Dehaze', min: -100, max: 100, step: 1 },
+  { id: 'sharpness', label: 'Sharpness', min: -100, max: 100, step: 1 },
+  { id: 'luminanceNoise', label: 'Noise', min: 0, max: 100, step: 1 },
+  { id: 'defringe', label: 'Defringe', min: 0, max: 100, step: 1 },
 ];
+
+const MASK_CONTROLS: readonly MaskControl[] = CONTROL_RANGES.map((control) => ({
+  ...control,
+  bipolar: control.min === -control.max,
+}));
 
 const MASK_KIND_LABEL: Readonly<Record<LocalMask['kind'], string>> = {
   linear: 'Linear',
