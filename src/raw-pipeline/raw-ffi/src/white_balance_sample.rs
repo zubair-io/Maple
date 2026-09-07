@@ -204,7 +204,7 @@ mod tests {
 }
 
 /// Normalised counterpart of `ExifOrientation::display_rect_to_sensor`.
-fn display_point_to_sensor(orientation: ExifOrientation, x: f32, y: f32) -> (f32, f32) {
+pub(crate) fn display_point_to_sensor(orientation: ExifOrientation, x: f32, y: f32) -> (f32, f32) {
     match orientation {
         ExifOrientation::Normal => (x, y),
         ExifOrientation::HorizontalFlip => (1.0 - x, y),
