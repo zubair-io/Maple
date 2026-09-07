@@ -51,8 +51,8 @@ import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { makePausedPoller } from './paused-poller.ts';
+import { registerPausableWorker } from './pause-control.ts';
 import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
 import { emptySummary, type DeDuplicateSummary } from './dedupe.helpers.ts';
 import {
@@ -256,67 +256,30 @@ export interface StartDeDuplicateOptions {
 export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicateHandle {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
 
-  // Paused until the persisted state is read AND paused-by-default on first boot.
-  let paused = true;
   let running = false;
   let stopped = false;
   const throughput = new ThroughputWindow();
 
-  let repoPromise: Promise<WorkerConfigRepo> | null = null;
-  const getRepo = (): Promise<WorkerConfigRepo> => {
-    if (!repoPromise) {
-      repoPromise = (async () => {
-        const { getDb } = await import('../db/client.ts');
-        const db = await getDb();
-        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-      })();
-    }
-    return repoPromise;
-  };
-  const loadPaused = async (): Promise<void> => {
-    try {
-      const cfg = await (await getRepo()).load(DEDUPLICATE_NAME);
-      paused = cfg?.paused ?? true; // default PAUSED on first boot (opt-in)
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : err },
-        'deduplicate: could not load persisted pause state — staying paused',
-      );
-    }
-  };
-  const persistPaused = async (value: boolean): Promise<void> => {
-    try {
-      const r = await getRepo();
-      await r.patch(DEDUPLICATE_NAME, { paused: value });
-    } catch {
-      /* best-effort — in-memory state already applied; next boot re-reads */
-    }
-  };
-
-  stageRegistry.register(DEDUPLICATE_NAME, {
-    targetVersion: 1,
-    dependsOn: [], // not a claim stage
+  // Paused until the persisted state is read AND paused-by-default on first boot.
+  const control = registerPausableWorker({
+    name: DEDUPLICATE_NAME,
+    log,
+    initialPaused: true,
+    defaultPaused: true, // default PAUSED on first boot (opt-in)
     getInFlight: () => (running ? 1 : 0),
     getThroughput: () => throughput.countInWindow(),
-    getPaused: () => paused,
-    reloadConfig: loadPaused,
-    pause: async () => {
-      paused = true;
-      await persistPaused(true);
-      log.info('deduplicate paused');
+    messages: {
+      loadFailed: 'deduplicate: could not load persisted pause state — staying paused',
+      paused: 'deduplicate paused',
+      resumed: 'deduplicate RESUMED — duplicate originals will be moved into _duplicates/',
     },
-    resume: async () => {
-      paused = false;
-      await persistPaused(false);
-      log.warn('deduplicate RESUMED — duplicate originals will be moved into _duplicates/');
-    },
+    resumedLevel: 'warn',
   });
-
-  const ready = loadPaused();
+  const { ready } = control;
 
   // Throttled cross-process pause poller (2s) — a pause written by the API
   // process takes effect on the next tick with no IPC. Same as missing-reaper.
-  const pollPaused = makePausedPoller(DEDUPLICATE_NAME, paused);
+  const pollPaused = makePausedPoller(DEDUPLICATE_NAME, control.paused);
 
   /** One unit of work: re-check pause state, then run a pass if not paused.
    * Returns how long the loop should sleep before the next call — PAUSED_POLL_MS
@@ -325,8 +288,8 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
     if (stopped || running) return PAUSED_POLL_MS;
     running = true;
     try {
-      paused = await pollPaused();
-      if (paused) return PAUSED_POLL_MS; // `finally` still clears `running`
+      control.paused = await pollPaused();
+      if (control.paused) return PAUSED_POLL_MS; // `finally` still clears `running`
       const cfg = await loadDeDuplicateConfig();
       const summary = await runDeDuplicateOnce({
         batchSize: cfg.batch_size,
