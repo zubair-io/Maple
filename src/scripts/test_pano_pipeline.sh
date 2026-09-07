@@ -129,6 +129,10 @@ require_cmd() {
 
 require_cmd python3
 
+# Coherent-source ghosting controls always execute, including on CI without
+# private RAW fixtures. A static, blurred, or doubled subject must not look clean.
+python3 -m unittest discover -s "$SCRIPT_DIR" -p test_pano_ghost_metrics.py
+
 if [[ ! -f "$METRICS_PY" ]]; then
   err "pano_metrics.py not found at $METRICS_PY"
   exit 2

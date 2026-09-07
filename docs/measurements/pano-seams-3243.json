@@ -1,0 +1,270 @@
+{
+  "source_commit": "a8f9feedad77527c155bc1351f487a43973f7cf1",
+  "status": "single real capture; second independent motion-affected rotation capture unavailable",
+  "default_changed": false,
+  "budgets_changed": false,
+  "measurements": {
+    "pano_01-voronoi": {
+      "seam_strategy": "voronoi",
+      "canvas": {
+        "height": 9493,
+        "width": 26966
+      },
+      "motion_affected": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+      "motion_pruned_matches": [
+        104, 442, 4, 3, 137, 544, 179, 61, 19, 184, 237, 42, 49, 19, 8, 4, 6, 9, 3, 4, 3
+      ],
+      "mean_reproj_error_px": 1.1309735447692852,
+      "max_reproj_error_px": 6.0682424739375795,
+      "timings_s": {
+        "composite": 136.984372333,
+        "decode": 9.598145,
+        "features": 17.631196375000002,
+        "match_graph": 147.473641959,
+        "refine": 34.103821667,
+        "solve": 0.457617584,
+        "total": 358.875251625,
+        "write": 12.505666291
+      },
+      "metrics": {
+        "rmse": 0.22829493880271912,
+        "rmse_r": 0.19061559438705444,
+        "rmse_g": 0.22140948474407196,
+        "rmse_b": 0.26667726039886475,
+        "coverage": 0.9276384538509521,
+        "rmse_valid": 0.18363332748413086,
+        "n_ref_valid": 1490930,
+        "seam_energy": 0.0008761552744545043,
+        "seam_excess_percentile": 99.5,
+        "wrap_closure_px": 22.15340205542748,
+        "wrap_closure_ncc": 0.9741278886795044,
+        "candidate_size": [26966, 9493],
+        "reference_size": [18189, 6464],
+        "normalized_size": [2048, 728],
+        "size_mismatch": true,
+        "n_pixels": 1490944,
+        "report": {
+          "available": true,
+          "mean_reproj_px": 1.1309735447692852,
+          "max_reproj_px": 6.0682424739375795,
+          "horizon_tilt_deg": 0.3641079416422407,
+          "dropped_frames": 0
+        }
+      },
+      "budgets": [
+        {
+          "case": "stitch",
+          "key": "dropped_frames",
+          "measured": 0,
+          "limit": 0,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "coverage",
+          "measured": 0.9276384538509521,
+          "limit": 0.92,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "rmse",
+          "measured": 0.22829493880271912,
+          "limit": 0.24,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "seam_energy",
+          "measured": 0.0008761552744545043,
+          "limit": 0.00094,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "mean_reproj_px",
+          "measured": 1.1309735447692852,
+          "limit": 1.2,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "max_reproj_px",
+          "measured": 6.0682424739375795,
+          "limit": 6.4,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "horizon_tilt_deg",
+          "measured": 0.3641079416422407,
+          "limit": 0.4,
+          "passed": true
+        }
+      ],
+      "ghosting": {
+        "version": 1,
+        "photo_rmse": 0.016126498176552092,
+        "gradient_rmse": 0.004294354799761586,
+        "detail_loss_rmse": 0.0021555258896615377,
+        "roi_count": 2,
+        "roi_pixels": 3850000,
+        "rois": [
+          {
+            "name": "west-breaking-waves",
+            "subject": "Breaking-wave band around the western rocks; the complete band includes the moving white-water positions across captures.",
+            "rect": [5150, 5700, 1500, 1100],
+            "source": "source-009",
+            "photo_rmse": 0.02181105159628514,
+            "gradient_rmse": 0.006186890042472278,
+            "detail_loss_rmse": 0.003059416470523011,
+            "source_disagreement_rmse": 0.03735028329618779,
+            "pixels": 1650000
+          },
+          {
+            "name": "foreground-breaking-waves",
+            "subject": "Complete white-water band below the foreground cliff, including the advancing and receding wave front.",
+            "rect": [17000, 7800, 2200, 1000],
+            "source": "source-015",
+            "photo_rmse": 0.009915665495327679,
+            "gradient_rmse": 0.0018879590058261157,
+            "detail_loss_rmse": 0.001054034582768246,
+            "source_disagreement_rmse": 0.024807475244434198,
+            "pixels": 2200000
+          }
+        ]
+      }
+    },
+    "pano_01-graph-cut": {
+      "seam_strategy": "graph-cut",
+      "canvas": {
+        "height": 9493,
+        "width": 26966
+      },
+      "motion_affected": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+      "motion_pruned_matches": [
+        104, 442, 4, 3, 137, 544, 179, 61, 19, 184, 237, 42, 49, 19, 8, 4, 6, 9, 3, 4, 3
+      ],
+      "mean_reproj_error_px": 1.1309735447692852,
+      "max_reproj_error_px": 6.0682424739375795,
+      "timings_s": {
+        "composite": 183.311672917,
+        "decode": 8.368641,
+        "features": 14.896151125,
+        "match_graph": 133.0901935,
+        "refine": 32.334035125,
+        "solve": 0.374012375,
+        "total": 384.083158958,
+        "write": 11.598605125
+      },
+      "metrics": {
+        "rmse": 0.2284407913684845,
+        "rmse_r": 0.19187340140342712,
+        "rmse_g": 0.22164614498615265,
+        "rmse_b": 0.2659192383289337,
+        "coverage": 0.9276163200150241,
+        "rmse_valid": 0.1838301569223404,
+        "n_ref_valid": 1490930,
+        "seam_energy": 0.0008893449557945132,
+        "seam_excess_percentile": 99.5,
+        "wrap_closure_px": 22.15340205542748,
+        "wrap_closure_ncc": 0.9741278886795044,
+        "candidate_size": [26966, 9493],
+        "reference_size": [18189, 6464],
+        "normalized_size": [2048, 728],
+        "size_mismatch": true,
+        "n_pixels": 1490944,
+        "report": {
+          "available": true,
+          "mean_reproj_px": 1.1309735447692852,
+          "max_reproj_px": 6.0682424739375795,
+          "horizon_tilt_deg": 0.3641079416422407,
+          "dropped_frames": 0
+        }
+      },
+      "budgets": [
+        {
+          "case": "stitch",
+          "key": "dropped_frames",
+          "measured": 0,
+          "limit": 0,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "coverage",
+          "measured": 0.9276163200150241,
+          "limit": 0.92,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "rmse",
+          "measured": 0.2284407913684845,
+          "limit": 0.24,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "seam_energy",
+          "measured": 0.0008893449557945132,
+          "limit": 0.00094,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "mean_reproj_px",
+          "measured": 1.1309735447692852,
+          "limit": 1.2,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "max_reproj_px",
+          "measured": 6.0682424739375795,
+          "limit": 6.4,
+          "passed": true
+        },
+        {
+          "case": "stitch",
+          "key": "horizon_tilt_deg",
+          "measured": 0.3641079416422407,
+          "limit": 0.4,
+          "passed": true
+        }
+      ],
+      "ghosting": {
+        "version": 1,
+        "photo_rmse": 0.005858058082990958,
+        "gradient_rmse": 0.0020152103860353334,
+        "detail_loss_rmse": 0.0010191993559547372,
+        "roi_count": 2,
+        "roi_pixels": 3850000,
+        "rois": [
+          {
+            "name": "west-breaking-waves",
+            "subject": "Breaking-wave band around the western rocks; the complete band includes the moving white-water positions across captures.",
+            "rect": [5150, 5700, 1500, 1100],
+            "source": "source-009",
+            "photo_rmse": 0.008849170814717883,
+            "gradient_rmse": 0.003007215715684211,
+            "detail_loss_rmse": 0.001495207994649833,
+            "source_disagreement_rmse": 0.03735028329618779,
+            "pixels": 1650000
+          },
+          {
+            "name": "foreground-breaking-waves",
+            "subject": "Complete white-water band below the foreground cliff, including the advancing and receding wave front.",
+            "rect": [17000, 7800, 2200, 1000],
+            "source": "source-015",
+            "photo_rmse": 0.0011504824207376702,
+            "gradient_rmse": 0.0005695329704939034,
+            "detail_loss_rmse": 0.00037564293167033466,
+            "source_disagreement_rmse": 0.024807475244434198,
+            "pixels": 2200000
+          }
+        ]
+      }
+    }
+  }
+}
