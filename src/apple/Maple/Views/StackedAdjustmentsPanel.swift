@@ -102,6 +102,11 @@ struct StackedAdjustmentsPanel: View {
         // Temp's scroll target includes the WB actions and provenance above
         // its scalar row. That row uses a secondary ID to avoid duplicate IDs.
         if group == .color { ColorAccessoryRow(state: state).id(Tool.temp.rawValue) }
+        // Demosaic kernel override (#3413) — a discrete choice that frames
+        // what the sharpen/noise sliders below operate on, not one more
+        // value to drag, so it sits above the stack rather than taking a
+        // tool of its own. Same position ColorAccessoryRow holds in Color.
+        if group == .detail { DemosaicAccessoryRow(state: state) }
         ForEach(sliderTools, id: \.self) { tool in
           VStack(spacing: 4) {
             if state.armedTool == tool && state.armedSubParams.count > 1 {

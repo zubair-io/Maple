@@ -55,6 +55,13 @@ struct IPhoneControlBar: View {
         ColorAccessoryRow(state: state, compactStyle: true)
           .transition(.opacity)
       }
+      // Demosaic kernel override (#3413) — the compact editor's counterpart
+      // to the inspector's Detail row, mirroring how the Colour accessory
+      // above appears in both.
+      if state.armedGroup == .detail {
+        DemosaicAccessoryRow(state: state)
+          .transition(.opacity)
+      }
 
       SubParamRow(state: state)
 
