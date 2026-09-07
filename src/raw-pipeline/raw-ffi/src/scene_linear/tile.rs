@@ -159,14 +159,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                     // capture-sharpening rejections (#1084, #1105, #1109) and
                     // a repair spot whose footprint this tile does not hold
                     // (#3409).
-                    if msg.contains("dehaze")
-                        || msg.contains("vignette")
-                        || msg.contains("deep denoise")
-                        || msg.contains("local adjustments")
-                        || msg.contains("capture sharpening")
-                        || msg.contains("OpcodeList3")
-                        || msg.contains("retouch spot")
-                    {
+                    if crate::model::is_untileable_model_error(&msg) {
                         return 10;
                     }
                     if msg.contains("upscale") || msg.contains("downscale-only") {
@@ -303,14 +296,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                     // capture-sharpening rejections (#1084, #1105, #1109) and
                     // a repair spot whose footprint this tile does not hold
                     // (#3409).
-                    if msg.contains("dehaze")
-                        || msg.contains("vignette")
-                        || msg.contains("deep denoise")
-                        || msg.contains("local adjustments")
-                        || msg.contains("capture sharpening")
-                        || msg.contains("OpcodeList3")
-                        || msg.contains("retouch spot")
-                    {
+                    if crate::model::is_untileable_model_error(&msg) {
                         return 10;
                     }
                     if msg.contains("upscale") || msg.contains("downscale-only") {

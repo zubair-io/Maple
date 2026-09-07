@@ -17,14 +17,15 @@ import type { EditorShellComponent } from './editor-shell.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 
 /** Tools whose control surface lives in (or replaces) the control card:
- *  Crop replaces it with the crop toolbar, Mask with the mask panel; the
- *  rest render inside it via
+ *  Crop replaces it with the crop toolbar, Mask with the mask panel, Heal
+ *  with the repair panel (#3409); the rest render inside it via
  *  content projection (`cardBodySubParam` / `cardBodyGrade` /
  *  `cardBodyFilm` / `cardBodyLens`). Arming any of them closes the open
  *  panel so the card is visible again. */
 const CARD_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>([
   'crop',
   'mask',
+  'heal',
   'hsl',
   'bwMix',
   'colorGrade',

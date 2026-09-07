@@ -94,6 +94,36 @@ pub(crate) fn deep_denoise_active(model: &xmp::AdjustmentModel) -> bool {
     model.deep_denoise.abs() > 1e-3
 }
 
+/// The substrings a core tile-path error carries when the model, not the
+/// geometry, is what the tile chain cannot reproduce — dehaze's whole-frame
+/// statistics (#1084), BM3D's frame-anchored patch grid (#1105), vignette
+/// and local adjustments (#1109), capture sharpening, a DNG's OpcodeList3
+/// warp (#1932), and a repair spot whose destination-plus-source footprint
+/// the tile does not wholly hold (#3409).
+///
+/// Every tile entry maps these to rc=10, which the Apple caller turns into
+/// a bounded whole-image render. Listed once rather than at each of the four
+/// call sites so a new rejection reason cannot be wired into two of them and
+/// forgotten in the other two.
+const UNTILEABLE_MODEL_ERRORS: &[&str] = &[
+    "dehaze",
+    "vignette",
+    "deep denoise",
+    "local adjustments",
+    "capture sharpening",
+    "OpcodeList3",
+    "retouch spot",
+];
+
+/// True when `msg` is a core tile-path rejection the caller should answer by
+/// falling back to the full-image render (rc=10). See
+/// [`UNTILEABLE_MODEL_ERRORS`].
+pub(crate) fn is_untileable_model_error(msg: &str) -> bool {
+    UNTILEABLE_MODEL_ERRORS
+        .iter()
+        .any(|needle| msg.contains(needle))
+}
+
 /// Force `auto_exposure: Off` when this model will fit an Auto Profile
 /// curve — the scene-linear-decode mirror of the full render path's
 /// `auto_will_fit` guard (`render/mod.rs` § Section 0).
