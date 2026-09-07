@@ -401,6 +401,29 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             out.push_str(&format!(r#" {key}="{rounded}""#));
         }
     }
+    // Manual geometry (#3410) — Adobe's `crs:Perspective*` seven, emitted
+    // only when non-default so a sidecar that never opened the Geometry tool
+    // stays byte-identical. Same wire codec and same rounded omit test as the
+    // split points above; six of the seven default to 0, `PerspectiveScale`
+    // to 100.
+    for (key, value, default) in [
+        ("crs:PerspectiveVertical", model.perspective_vertical, 0.0),
+        (
+            "crs:PerspectiveHorizontal",
+            model.perspective_horizontal,
+            0.0,
+        ),
+        ("crs:PerspectiveRotate", model.perspective_rotate, 0.0),
+        ("crs:PerspectiveScale", model.perspective_scale, 100.0),
+        ("crs:PerspectiveAspect", model.perspective_aspect, 0.0),
+        ("crs:PerspectiveX", model.perspective_x, 0.0),
+        ("crs:PerspectiveY", model.perspective_y, 0.0),
+    ] {
+        let rounded = (value * 100.0).round() / 100.0;
+        if rounded.is_finite() && rounded != default {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
+    }
     // Crop / straighten (#277) — emitted only when non-identity. The rect
     // attributes (`crs:HasCrop` + four edges) are emitted only when the rect
     // itself differs from full-frame. `crs:CropAngle` is independent — it is
@@ -449,6 +472,7 @@ mod tests_metadata;
 mod tests_modes;
 #[cfg(test)]
 mod tests_payloads;
+mod tests_perspective;
 #[cfg(test)]
 mod tests_profile;
 #[cfg(test)]
