@@ -10,23 +10,15 @@
  * gaps via the cursor-too-old 409 path which triggers full re-enumeration.
  */
 
-import { ObjectId, type Db } from "mongodb";
-import {
-  assetChangesCollection,
-  foldersCollection,
-  serverStateCollection,
-} from "./client.ts";
-import type {
-  AssetChangeDoc,
-  AssetChangeKind,
-  AssetChangeWithId,
-} from "./schema.ts";
-import { child as childLogger } from "../log.ts";
-import { getChangeBus } from "../runtime/change-bus.ts";
+import { ObjectId, type Db } from 'mongodb';
+import { assetChangesCollection, foldersCollection, serverStateCollection } from './client.ts';
+import type { AssetChangeDoc, AssetChangeKind, AssetChangeWithId } from './schema.ts';
+import { child as childLogger } from '../log.ts';
+import { getChangeBus } from '../runtime/change-bus.ts';
 
-const log = childLogger("changes-repo");
+const log = childLogger('changes-repo');
 
-const CURSOR_DOC_ID = "asset_changes_cursor";
+const CURSOR_DOC_ID = 'asset_changes_cursor';
 
 // Tiny per-process cache for folder.path lookups. Folders are
 // effectively immutable at the path level (rename is not a supported
@@ -42,15 +34,10 @@ async function lookupFolderPath(
   const key = folderId.toHexString();
   const hit = folderPathCache.get(key);
   if (hit !== undefined) return hit;
-  const coll = dbOverride
-    ? dbOverride.collection("folders")
-    : await foldersCollection();
-  const doc = await coll.findOne(
-    { _id: folderId },
-    { projection: { path: 1 } },
-  );
+  const coll = dbOverride ? dbOverride.collection('folders') : await foldersCollection();
+  const doc = await coll.findOne({ _id: folderId }, { projection: { path: 1 } });
   const p = (doc as unknown as { path?: string } | null)?.path;
-  if (typeof p !== "string") return null;
+  if (typeof p !== 'string') return null;
   folderPathCache.set(key, p);
   return p;
 }
@@ -70,35 +57,28 @@ export function __resetFolderPathCacheForTests(): void {
  * Path separator is forward-slash throughout (the server stores POSIX
  * paths; the apple FP extension consumes them the same way).
  */
-export function computeRelativePath(
-  folderPath: string,
-  absPath: string,
-): string | null {
+export function computeRelativePath(folderPath: string, absPath: string): string | null {
   // Normalise the folder path so a trailing slash on the folder doc
   // doesn't break the prefix-match.
-  const rootNoTrail = folderPath.endsWith("/")
-    ? folderPath.slice(0, -1)
-    : folderPath;
-  if (absPath === rootNoTrail) return "";
-  const prefix = rootNoTrail + "/";
+  const rootNoTrail = folderPath.endsWith('/') ? folderPath.slice(0, -1) : folderPath;
+  if (absPath === rootNoTrail) return '';
+  const prefix = rootNoTrail + '/';
   if (!absPath.startsWith(prefix)) return null;
   return absPath.slice(prefix.length);
 }
 
 export async function allocateCursor(dbOverride?: Db): Promise<number> {
-  const coll = dbOverride
-    ? dbOverride.collection("server_state")
-    : await serverStateCollection();
+  const coll = dbOverride ? dbOverride.collection('server_state') : await serverStateCollection();
   const res = await coll.findOneAndUpdate(
     { _id: CURSOR_DOC_ID },
     { $inc: { seq: 1 } },
-    { upsert: true, returnDocument: "after" }
+    { upsert: true, returnDocument: 'after' },
   );
   // findOneAndUpdate returns the updated doc; `seq` is always present after
   // the first $inc (Mongo creates it set to the increment value on upsert).
   const seq = (res as unknown as { seq?: number } | null)?.seq;
-  if (typeof seq !== "number") {
-    throw new Error("allocateCursor: server_state doc missing seq after $inc");
+  if (typeof seq !== 'number') {
+    throw new Error('allocateCursor: server_state doc missing seq after $inc');
   }
   return seq;
 }
@@ -148,12 +128,18 @@ export interface RecordChangeInput {
  */
 export async function recordAssetChange(
   dbOverride: Db | undefined,
-  input: RecordChangeInput
+  input: RecordChangeInput,
 ): Promise<number> {
+  return (await recordAssetChangeRow(dbOverride, input)).cursor;
+}
+
+/** Persist before returning the exact row for callers that publish durably. */
+export async function recordAssetChangeRow(
+  dbOverride: Db | undefined,
+  input: RecordChangeInput,
+): Promise<AssetChangeWithId> {
   const cursor = await allocateCursor(dbOverride);
-  const coll = dbOverride
-    ? dbOverride.collection("asset_changes")
-    : await assetChangesCollection();
+  const coll = dbOverride ? dbOverride.collection('asset_changes') : await assetChangesCollection();
   const doc: AssetChangeDoc = {
     cursor,
     asset_id: input.asset_id,
@@ -164,12 +150,12 @@ export async function recordAssetChange(
     at: new Date(),
   };
   try {
-    await coll.insertOne(doc);
+    const result = await coll.insertOne(doc);
+    return { ...doc, _id: result.insertedId };
   } catch (err) {
-    log.error({ err, cursor }, "recordAssetChange: insert failed");
+    log.error({ err, cursor }, 'recordAssetChange: insert failed');
     throw err;
   }
-  return cursor;
 }
 
 export interface ListChangesQuery {
@@ -179,10 +165,10 @@ export interface ListChangesQuery {
 
 export async function listChangesSince(
   dbOverride: Db | undefined,
-  q: ListChangesQuery
+  q: ListChangesQuery,
 ): Promise<AssetChangeWithId[]> {
   const coll = dbOverride
-    ? dbOverride.collection<AssetChangeDoc>("asset_changes")
+    ? dbOverride.collection<AssetChangeDoc>('asset_changes')
     : await assetChangesCollection();
   const cursor = coll
     .find({ cursor: { $gt: q.since } })
@@ -227,7 +213,7 @@ export async function recordAndPublishAssetChange(
               folder_path: folderPath,
               abs_path: input.abs_path,
             },
-            "recordAndPublishAssetChange: abs_path is outside folder.path; storing null relative_path"
+            'recordAndPublishAssetChange: abs_path is outside folder.path; storing null relative_path',
           );
         }
       }
@@ -256,7 +242,7 @@ export async function recordAndPublishAssetChange(
   } catch (err) {
     log.warn(
       { err, kind: input.kind, abs_path: input.abs_path },
-      "recordAndPublishAssetChange failed (best-effort, ignoring)"
+      'recordAndPublishAssetChange failed (best-effort, ignoring)',
     );
   }
 }
@@ -264,7 +250,7 @@ export async function recordAndPublishAssetChange(
 /** Returns the highest cursor currently in the collection, or 0 if empty. */
 export async function highestCursor(dbOverride?: Db): Promise<number> {
   const coll = dbOverride
-    ? dbOverride.collection<AssetChangeDoc>("asset_changes")
+    ? dbOverride.collection<AssetChangeDoc>('asset_changes')
     : await assetChangesCollection();
   const top = await coll.find({}).sort({ cursor: -1 }).limit(1).next();
   return top?.cursor ?? 0;
