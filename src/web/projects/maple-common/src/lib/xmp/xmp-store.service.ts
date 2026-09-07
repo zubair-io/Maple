@@ -232,7 +232,10 @@ export class XmpStoreService {
     passthrough?: PassthroughBucket,
   ): Promise<void> {
     this.saveState.saving(assetId, revision);
-    const xml = this.serializer.serialize(model, passthrough, culling, this._metadata.get(assetId));
+    // Source XML retains language alternatives and multiple creators that the
+    // typed cache cannot represent. Use cached metadata only without source XML.
+    const metadata = passthrough ? undefined : this._metadata.get(assetId);
+    const xml = this.serializer.serialize(model, passthrough, culling, metadata);
     const bytes = new TextEncoder().encode(xml);
     const sidecarName = this._sidecarFilename(rawFilename);
     try {
