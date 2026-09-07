@@ -41,9 +41,8 @@ final class ScopeCpuProducerTests: XCTestCase {
         XCTAssertFalse(session.asset.isRaw, "fixture must exercise the non-RAW fallback path")
         XCTAssertNil(session.scopeSample, "no sample before the producer runs")
 
-        // Arm the HUD, which is what gates the producer, then run one compute
-        // directly rather than waiting out the 350 ms debounce.
-        session.scopeEnabled = true
+        // Run one compute directly (the static producer) rather than waiting
+        // out the 350 ms debounce the armed HUD would go through.
         let sample = try await EditSession.renderScopeSample(
             asset: session.asset, model: session.model, layerIndex: session.scopeLayerIndex)
 
