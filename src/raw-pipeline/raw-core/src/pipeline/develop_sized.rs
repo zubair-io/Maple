@@ -149,7 +149,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             });
             stage("sized_demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
-                RenderQuality::Full | RenderQuality::Amaze => {
+                RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
                     demosaic::markesteijn(&mosaic, raw.cfa)
                 }
             })
@@ -175,19 +175,16 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             if demosaic_half {
                 crop_divisor = 2;
             }
-            // Interactive Bayer paths use cancellable kernels; see the
-            // unsized variant for the AMaZE / HA rationale.
+            // Kernel choice via `bayer_kernel` (#3413); see the unsized
+            // variant. The `demosaic_half` short-circuit above outranks it:
+            // once the target is small enough to bin, there is no
+            // full-resolution reconstruction left for a kernel to differ on.
             stage("sized_demosaic", || {
                 if demosaic_half {
                     return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
                 }
-                match quality {
-                    RenderQuality::Preview => {
-                        demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel)
-                    }
-                    RenderQuality::Full => demosaic::rcd_cancellable(&mosaic, raw.cfa, cancel),
-                    RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
-                }
+                let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
             })
         }
     };
@@ -337,7 +334,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     // BM3D deep denoise (#1105) — runs on the downsampled buffer here;
     // same position as the unsized variant. See that variant's comment.
     stage("sized_deep_denoise", || {
-        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::active_progress())
+        bm3d::apply_cancellable(
+            &mut scene,
+            model.deep_denoise,
+            cancel,
+            bm3d::active_progress(),
+        )
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -395,9 +397,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     // clarity, matching `super::develop`. Was silently omitted here (#1931):
     // any non-default HSL adjustment made the sized/preview render diverge
     // from the full-resolution render. Identity short-circuits on all-default.
-    stage("sized_hsl", || {
-        hsl::apply_model(&mut scene, model)
-    });
+    stage("sized_hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
     stage("sized_clarity", || {
         clarity::apply(&mut scene, model.clarity)

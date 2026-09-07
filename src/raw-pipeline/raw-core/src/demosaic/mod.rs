@@ -70,16 +70,29 @@ pub enum DemosaicAlgorithm {
 }
 
 pub fn demosaic(algo: DemosaicAlgorithm, mosaic: &Image, cfa: CfaPattern) -> Image {
+    demosaic_cancellable(algo, mosaic, cfa, crate::cancel::CancelToken::never())
+}
+
+/// Cancellable dispatch. Kernels that have a cancellable entry take
+/// `cancel` and unwind per band or row; the rest ignore it and the develop
+/// chain's post-demosaic bail catches the cancellation immediately after.
+/// With a never-cancel token this is identical to [`demosaic`].
+pub fn demosaic_cancellable(
+    algo: DemosaicAlgorithm,
+    mosaic: &Image,
+    cfa: CfaPattern,
+    cancel: crate::cancel::CancelToken<'_>,
+) -> Image {
     match algo {
-        DemosaicAlgorithm::Bilinear => bilinear(mosaic, cfa),
+        DemosaicAlgorithm::Bilinear => bilinear_cancellable(mosaic, cfa, cancel),
         DemosaicAlgorithm::HamiltonAdams => hamilton_adams(mosaic, cfa),
-        DemosaicAlgorithm::Rcd => rcd(mosaic, cfa),
+        DemosaicAlgorithm::Rcd => rcd_cancellable(mosaic, cfa, cancel),
         DemosaicAlgorithm::Amaze => amaze(mosaic, cfa),
-        DemosaicAlgorithm::Vng4 => vng4(mosaic, cfa),
-        DemosaicAlgorithm::Lmmse => lmmse(mosaic, cfa),
+        DemosaicAlgorithm::Vng4 => vng4_cancellable(mosaic, cfa, cancel),
+        DemosaicAlgorithm::Lmmse => lmmse_cancellable(mosaic, cfa, cancel),
         DemosaicAlgorithm::DualAmazeVng4 => dual_amaze_vng4(mosaic, cfa),
-        DemosaicAlgorithm::DualRcdVng4 => dual_rcd_vng4(mosaic, cfa),
-        DemosaicAlgorithm::HalfRes => half_res(mosaic, cfa),
+        DemosaicAlgorithm::DualRcdVng4 => dual_rcd_vng4_cancellable(mosaic, cfa, cancel),
+        DemosaicAlgorithm::HalfRes => half_res_cancellable(mosaic, cfa, cancel),
         DemosaicAlgorithm::Markesteijn => markesteijn(mosaic, cfa),
     }
 }

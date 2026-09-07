@@ -14,8 +14,7 @@
 
 use crate::{
     error::{Error, Result},
-    film,
-    icc,
+    film, icc,
     image::RawImage,
     pipeline::{
         render_export_from_raw_with_film, ExportDepth, ExportPixels, RawInput, RenderQuality,
@@ -128,9 +127,12 @@ pub fn export_from_raw_with_film(
     let (width, height, pixels) = render_export_from_raw_with_film(
         raw,
         model,
-        // Export is always the best demosaic (#940) — nobody keeps a file
-        // rendered with the interactive fast-phase kernel.
-        RenderQuality::Amaze,
+        // Export always gets the best demosaic available for THIS frame
+        // (#940, #3413) — nobody keeps a file rendered with the interactive
+        // fast-phase kernel, and a noisy frame's "best" is not the same
+        // kernel a clean one's is. `Auto` asks `demosaic::policy`; the
+        // model's `demosaic` field overrides it.
+        RenderQuality::Auto,
         raw_source,
         options.max_long_edge,
         options.target,

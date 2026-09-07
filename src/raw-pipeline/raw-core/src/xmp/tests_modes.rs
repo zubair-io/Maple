@@ -6,6 +6,7 @@
 //!   * `ToneCurveMode` (ticket #436)
 //!   * `AutoExposureMode` (ticket #429)
 //!   * `HotPixelSuppressionMode` (ticket #1106)
+//!   * `DemosaicChoice` (ticket #3413)
 //!
 //! Subjects that moved out again for the same budget reason: the
 //! Detail-panel scalars and `CaptureSharpening` live in `tests_detail.rs`
@@ -269,4 +270,66 @@ fn hot_pixel_suppression_serialize_roundtrip_and_default_omission() {
     );
     let parsed = parse(&xml).unwrap();
     assert_eq!(parsed.hot_pixel_suppression, HotPixelSuppressionMode::On);
+}
+
+/// Every `papp:Demosaic` value parses onto the model, in the canonical
+/// spelling and in the lowercase and all-caps forms a hand-edited sidecar
+/// is likely to carry; an absent attribute is the `Auto` default and an
+/// unrecognised one is a parse error rather than a silent fallback.
+#[test]
+fn demosaic_choice_parses_every_value() {
+    let parse_one = |v: &str| {
+        parse(&format!(
+            r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:Demosaic="{v}"/></x>"#
+        ))
+        .unwrap()
+        .demosaic
+    };
+    assert_eq!(parse_one("Auto"), DemosaicChoice::Auto);
+    assert_eq!(parse_one("Amaze"), DemosaicChoice::Amaze);
+    assert_eq!(parse_one("AMaZE"), DemosaicChoice::Amaze);
+    assert_eq!(parse_one("Rcd"), DemosaicChoice::Rcd);
+    assert_eq!(parse_one("RCD"), DemosaicChoice::Rcd);
+    assert_eq!(parse_one("rcd"), DemosaicChoice::Rcd);
+    assert_eq!(parse_one("DualAmaze"), DemosaicChoice::DualAmaze);
+    assert_eq!(parse_one("DualRcd"), DemosaicChoice::DualRcd);
+    assert_eq!(parse_one("Lmmse"), DemosaicChoice::Lmmse);
+    assert_eq!(parse_one("LMMSE"), DemosaicChoice::Lmmse);
+
+    let absent =
+        parse(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"/></x>"#)
+            .unwrap();
+    assert_eq!(absent.demosaic, DemosaicChoice::Auto);
+
+    assert!(parse(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:Demosaic="Bilinear"/></x>"#
+    )
+    .is_err());
+}
+
+/// The default is the absent attribute — an untouched sidecar carries
+/// nothing and keeps following the policy as it improves — and every
+/// non-default value survives a serialize/parse round trip.
+#[test]
+fn demosaic_choice_serialize_roundtrip_and_default_omission() {
+    let m = AdjustmentModel::default();
+    assert!(
+        !serialize(&m).contains("papp:Demosaic"),
+        "default Auto must not be serialized"
+    );
+    for choice in [
+        DemosaicChoice::Amaze,
+        DemosaicChoice::Rcd,
+        DemosaicChoice::DualAmaze,
+        DemosaicChoice::DualRcd,
+        DemosaicChoice::Lmmse,
+    ] {
+        let mut m = AdjustmentModel::default();
+        m.demosaic = choice;
+        let frag = serialize(&m);
+        let xml = format!(
+            r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{frag}/></x>"#
+        );
+        assert_eq!(parse(&xml).unwrap().demosaic, choice, "got: {frag}");
+    }
 }
