@@ -365,7 +365,11 @@ namespace Maple.WinUI
             }
             if (_activeGroup == "Mask")
             {
-                OnMaskReset(sender, e);
+                // WinUI 3's Microsoft.UI.Xaml.RoutedEventArgs is a WinRT
+                // projection that does NOT derive from System.EventArgs
+                // (unlike WPF/UWP), so `e` here cannot upcast into
+                // OnMaskReset's plain System.EventArgs parameter.
+                OnMaskReset(sender, EventArgs.Empty);
                 return;
             }
             if (_activeGroup == "Effects" && _effectsTab == "Grade")
