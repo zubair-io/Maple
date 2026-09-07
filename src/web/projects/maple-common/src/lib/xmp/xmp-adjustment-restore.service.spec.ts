@@ -75,6 +75,8 @@ const SIDECAR_XML = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
     photoshop:City="Montréal"
     vendor:OpaqueSetting="keep-me">
     <dc:subject><rdf:Bag><rdf:li>existing-keyword</rdf:li></rdf:Bag></dc:subject>
+    <dc:title><rdf:Alt><rdf:li xml:lang="x-default">Title</rdf:li><rdf:li xml:lang="fr">Titre</rdf:li></rdf:Alt></dc:title>
+    <dc:creator><rdf:Seq><rdf:li>Alice</rdf:li><rdf:li>Bob</rdf:li></rdf:Seq></dc:creator>
   </rdf:Description>
  </rdf:RDF>
 </x:xmpmeta>
@@ -320,6 +322,16 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(xml).toContain('crs:Exposure2012="1.05"');
     expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
     expect(xml).toContain('photoshop:City="Montréal"');
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const values = (field: string) =>
+      Array.from(
+        doc
+          .getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', field)[0]
+          .getElementsByTagNameNS('http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'li'),
+        (element) => element.textContent,
+      );
+    expect(values('title')).toEqual(['Title', 'Titre']);
+    expect(values('creator')).toEqual(['Alice', 'Bob']);
     expect(xml).toContain('xmp:Rating="4"');
     expect(xml).toContain('papp:Flag="pick"');
     expect(xml).toContain('papp:ColorLabel="blue"');
