@@ -160,16 +160,16 @@ pub(crate) fn dump_after(_name: &str, _image: &crate::image::Image) {}
 /// Quality knob for the interactive-vs-export split. `Preview` uses the
 /// half-resolution quad demosaic — 4× fewer pixels feed every downstream
 /// stage, memory peak drops from ~6 GB to ~1.5 GB on a 100 MP RAW, and a
-/// cold decode lands in seconds rather than minutes. `Full` is the export
-/// path — same pixel-exact output the parity harness locks down (uses
-/// Hamilton-Adams when compiled with `high-quality-demosaic`, bilinear
-/// otherwise). `Amaze` is a higher-quality export option backed by the
-/// AMaZE demosaic — slower than HA, but resolves finer detail and resists
-/// moiré on Bayer-pattern-prone content (fabric, building façades, etc.);
-/// for X-Trans / `LinearRgb` fixtures the AMaZE path falls through to the
-/// CFA-aware path that doesn't run AMaZE at all (linearraw_to_camera_rgb
-/// or hamilton_adams), so requesting `Amaze` on a non-Bayer source is
-/// safe — it just doesn't do anything different from `Full`.
+/// cold decode lands in seconds rather than minutes. `Full` is the
+/// full-resolution on-screen path and uses the RCD demosaic (#3412) on
+/// every platform — no on-screen render is bilinear. `Amaze` is the export
+/// option backed by the AMaZE demosaic — slower than RCD, but resolves the
+/// last of the fine detail and resists moiré on Bayer-pattern-prone
+/// content (fabric, building façades, etc.); for X-Trans / `LinearRgb`
+/// fixtures both settings fall through to the CFA-aware path that runs
+/// neither kernel (`linearraw_to_camera_rgb` or `markesteijn`), so
+/// requesting `Amaze` on a non-Bayer source is safe — it just doesn't do
+/// anything different from `Full`.
 /// `Preview` returns the buffer at the half-res rendered dimensions —
 /// callers must scale to display dimensions themselves (CIImage transform
 /// on Apple, texture upload on Web).
