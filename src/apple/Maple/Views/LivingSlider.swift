@@ -91,10 +91,7 @@ public struct LivingSlider: View {
         .gesture(drag(width: max(width - 16, 1)))
         .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
         .simultaneousGesture(
-          LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-            enableFineMode()
-            hapticTick += 1
-          })
+          LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
       }
       .frame(height: 28).accessibilityHidden(true)
     }
@@ -195,7 +192,7 @@ public struct LivingSlider: View {
   }
 
   private func enableFineMode() {
-    guard !fineMode else { return }
+    guard isEnabled, !fineMode else { return }
     // The long press permits a little movement before it recognizes.
     // Anchor at that already-displayed value so sensitivity changes
     // affect only subsequent movement, without snapping backward.
@@ -204,6 +201,7 @@ public struct LivingSlider: View {
       dragStartTranslation = lastTranslation
     }
     fineMode = true
+    hapticTick += 1
   }
 
   private func reset() {
