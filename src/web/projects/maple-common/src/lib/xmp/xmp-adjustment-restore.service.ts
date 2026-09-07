@@ -34,11 +34,12 @@ import { LibraryStore } from '../state/library-store.service';
 import { LibrarySelection } from '../state/library-selection.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
-import type { PassthroughBucket, XmpCulling } from './xmp.types';
+import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
 
 export interface HydratedSidecar {
   readonly model: Partial<AdjustmentModel>;
   readonly passthrough: PassthroughBucket;
+  readonly metadata: XmpMetadata;
   readonly culling: XmpCulling;
 }
 
@@ -131,6 +132,7 @@ export class XmpAdjustmentRestoreService {
         culling: this.parser.parseCulling(xml),
       };
       this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
+      this.xmpStore.rememberMetadata(id, sidecar.metadata);
       return sidecar;
     } catch (err) {
       if (err instanceof HttpErrorResponse && err.status === 404) return null;
