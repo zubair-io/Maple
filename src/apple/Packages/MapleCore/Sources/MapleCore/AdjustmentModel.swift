@@ -287,6 +287,18 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// (`XMPSerialization+LocalAdjustments.swift`).
   public var localAdjustments: [LocalAdjustment]  // default []
 
+  /// Clone / heal repair spots (#3409) — a hand-written mirror of
+  /// `raw_core::types::retouch`, outside codegen for the same reason
+  /// `localAdjustments` is (see `RetouchSpot.swift`). A **decode-product**
+  /// edit: it runs after DCP colorimetry and before the chroma pre-filter,
+  /// so placing a spot re-decodes rather than re-running the per-tick chain
+  /// — which is why it is one of `InvalidationScope`'s decode inputs and is
+  /// deliberately NOT stripped by `RawCoreBridge.stripAppleGPUStages`.
+  /// Empty is the default; the XMP writer emits the `crs:RetouchAreas`
+  /// container only for a non-empty list
+  /// (`XMPSerialization+Retouch.swift`).
+  public var retouchSpots: [RetouchSpot]  // default []
+
   /// DNG-embedded lens corrections (#376) — the master switch plus the
   /// per-family strength of the distortion (`WarpRectilinear`), lateral-CA
   /// (each plane's deviation from the green reference plane) and vignetting
@@ -445,6 +457,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     deepDenoise: Double = 0,
     crop: Crop = .identity,
     localAdjustments: [LocalAdjustment] = [],
+    retouchSpots: [RetouchSpot] = [],
     lensProfileEnable: LensProfileEnable = .on,
     lensCorrectionDistortion: Double = 100,
     lensCorrectionCa: Double = 100,
@@ -558,6 +571,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     self.deepDenoise = deepDenoise
     self.crop = crop
     self.localAdjustments = localAdjustments
+    self.retouchSpots = retouchSpots
     self.lensProfileEnable = lensProfileEnable
     self.lensCorrectionDistortion = lensCorrectionDistortion
     self.lensCorrectionCa = lensCorrectionCa

@@ -51,6 +51,9 @@ public struct XMPParser {
     // rather than the flat attribute switch; see
     // `XMPSerialization+LocalAdjustments.swift`.
     m.localAdjustments = delegate.localAdjustments.finish()
+    // Repair spots (#3409) — same nested-element walker shape; see
+    // `XMPSerialization+Retouch.swift`.
+    m.retouchSpots = delegate.retouch.finish()
     // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
     // document level: an explicit `papp:WbScaleVersion` stamp wins;
     // otherwise a document carrying the Maple `papp:` namespace AND an
@@ -176,6 +179,11 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// `XMPSerialization+LocalAdjustments.swift`.
   var localAdjustments = LocalAdjustmentWalker()
 
+  /// Repair spots (#3409) — the `crs:RetouchAreas` container plus the
+  /// legacy `crs:RetouchInfo` string form. Same element-event feed; the
+  /// walk lives in `XMPSerialization+Retouch.swift`.
+  var retouch = RetouchWalker()
+
   init(model: AdjustmentModel, culling: CullingState) {
     self.model = model
     self.culling = culling
@@ -222,6 +230,9 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     // either subtree there are no flat Maple attributes to read, so the
     // whole attribute walk below is skipped for elements a walker claims.
     if localAdjustments.start(qual, attributes: attributeDict) {
+      return
+    }
+    if retouch.start(qual, attributes: attributeDict) {
       return
     }
     if toneCurves.start(qual) {
@@ -290,6 +301,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
 
   func parser(_ parser: XMLParser, foundCharacters string: String) {
     toneCurves.characters(string)
+    retouch.characters(string)
     guard inDCSubject, currentLi != nil else { return }
     currentLi! += string
   }
@@ -302,6 +314,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   ) {
     let qual = qName ?? elementName
     localAdjustments.end(qual)
+    retouch.end(qual)
     toneCurves.end(qual, into: &model)
     if inDCSubject {
       if Self.isLocalName(qual, "li"), let text = currentLi {
@@ -419,12 +432,19 @@ public struct XMPSerializer {
     // TypeScript and C# writers use too.
     let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
       model: model, indent: XMPCanonical.childIndent)
+    // Repair spots (#3409) — the `crs:RetouchAreas` container, after the
+    // mask containers and before the passthrough nodes, the same slot the
+    // TypeScript writer gives it.
+    let retouchBlock = _buildRetouchAreasBlock(
+      model: model, indent: XMPCanonical.childIndent)
     // Unknown nested nodes sit last, the slot the TypeScript serializer
     // gives them, so Maple's own children stay grouped ahead of whatever
     // the source document carried.
     let passthroughBlock = _passthroughNodesBlock(
       passthrough, indent: XMPCanonical.childIndent)
-    let children = [keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, passthroughBlock]
+    let children = [
+      keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, retouchBlock, passthroughBlock,
+    ]
       .filter { !$0.isEmpty }
       .joined(separator: "\n")
 

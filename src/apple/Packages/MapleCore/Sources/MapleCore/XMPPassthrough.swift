@@ -184,11 +184,18 @@ enum XMPKnownFields {
     ]
 
     /// Child elements of `rdf:Description` the serializer emits from the model
-    /// — the keyword bag, the eight point tone curves, the two
-    /// local-adjustment containers (#358), and the metadata lang-alt / seq
-    /// blocks. Leaving any of these in the node bucket would double-emit it.
+    /// — the keyword bag, the eight point tone curves, the three
+    /// local-adjustment containers (#358), the repair-spot container
+    /// (#3409), and the metadata lang-alt / seq blocks. Leaving any of these
+    /// in the node bucket would double-emit it. `crs:RetouchInfo` is the
+    /// legacy string form the walker also READS: it is managed too, because
+    /// a document carrying it is re-saved with the struct container instead
+    /// and keeping the old element would leave two descriptions of the same
+    /// spots in one sidecar.
     static let managedChildElements: Set<String> = Set(
         ToneCurveXMP.elements + LocalAdjustmentXMP.containers + [
+            RetouchXMP.areasContainer,
+            RetouchXMP.legacyContainer,
             "dc:subject",
             "dc:title", "dc:creator", "dc:description", "dc:rights",
             "xmpRights:UsageTerms",

@@ -98,6 +98,11 @@ struct StackedAdjustmentsPanel: View {
     return VStack(spacing: 12) {
       if group == .detail && state.armedTool == .mask {
         MaskPanel(state: state).id(Tool.mask.rawValue)
+      } else if group == .detail && state.armedTool == .heal {
+        // Heal (#3409) replaces the Detail stack the same way Mask does:
+        // none of Detail's other sliders apply to a repair spot, so showing
+        // them alongside the brush would be noise, not signal.
+        RetouchPanel(state: state).id(Tool.heal.rawValue)
       } else {
         // Temp's scroll target includes the WB actions and provenance above
         // its scalar row. That row uses a secondary ID to avoid duplicate IDs.
