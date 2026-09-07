@@ -72,6 +72,34 @@ final class ScopeCpuProducerTests: XCTestCase {
         XCTAssertTrue(centroid.isFinite)
     }
 
+    /// The CPU producer carries the downsampled RGB snapshot beside the bins
+    /// (#3251) — real pixels through `maple_apply_chain_and_encode_display_
+    /// scoped_f32` into the caller-owned `snapshot_ptr` buffer — and the
+    /// panel reduction of it is a real plot, not a flat line.
+    func testCpuProducerCarriesADownsampledSnapshotOfTheSameFrame() async throws {
+        let url = try stagedPortrait()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let session = await EditSession(asset: AssetRef(url: url))
+        let sample = try await EditSession.renderScopeSample(
+            asset: session.asset, model: session.model, layerIndex: -1)
+
+        let snapshot = try XCTUnwrap(sample.snapshot, "the CPU producer must bind a snapshot buffer")
+        XCTAssertGreaterThan(snapshot.width, 0)
+        XCTAssertGreaterThan(snapshot.height, 0)
+        XCTAssertLessThanOrEqual(max(snapshot.width, snapshot.height), ScopeSnapshot.maxDim)
+        XCTAssertEqual(snapshot.rgb.count, snapshot.width * snapshot.height * 3)
+        XCTAssertTrue(snapshot.rgb.contains { $0 > 0 }, "a photograph is not black")
+
+        let panel = ScopePanelSample.reduce(snapshot, frame: sample.frame)
+        XCTAssertEqual(panel.paradeR.count, ScopePanelSample.columns)
+        XCTAssertEqual(panel.histogramR.reduce(0, +), snapshot.width * snapshot.height,
+            "every pixel lands in exactly one histogram bin")
+        XCTAssertGreaterThan(
+            panel.waveformLuma.max()! - panel.waveformLuma.min()!, 0.01,
+            "a real photograph's luma varies across columns")
+    }
+
     /// Scoping to a layer must actually change the histogram (#3355).
     ///
     /// This is the assertion whose absence let the scope ship reading the
@@ -132,8 +160,16 @@ final class ScopeCpuProducerTests: XCTestCase {
         session.scopeEnabled = true
 
         session.scheduleScopeCpuUpdate()
-        // Debounce plus the compute itself.
-        try await Task.sleep(for: .milliseconds(2500))
+        // Poll for the publish rather than sleeping a fixed 2.5 s: the
+        // 350 ms debounce is bounded but the compute behind it is a real
+        // decode + develop + scope, whose wall time swings with the
+        // machine and with whether the linked xcframework was built debug
+        // or release — a fixed sleep just below that cost fails as a
+        // "producer published no sample" that has nothing to do with the
+        // wiring this test is about.
+        for _ in 0..<60 where session.scopeSample == nil {
+            try await Task.sleep(for: .milliseconds(250))
+        }
 
         let published = try XCTUnwrap(session.scopeSample, "producer published no sample")
         let wholeFrame = try await EditSession.renderScopeSample(

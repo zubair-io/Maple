@@ -41,12 +41,18 @@ fn live_render_writes_scope_stats_one_tick_late_when_enabled() {
     let arr = owned_arrays(&model, &curve, &lut);
     let mut params = make_params(&model, WbMethod::Cat16, 9, &arr);
     let mut bins = vec![0u32; 128 * 128];
+    let max = crate::scope_stats::MAPLE_SCOPE_SNAPSHOT_MAX_DIM as usize;
+    let mut snapshot = vec![0u8; max * max * 3];
     let mut stats = MapleScopeStats {
         frame: 0,
         total: 0,
         _pad: 0,
         bins_ptr: bins.as_mut_ptr(),
         bins_len: bins.len() as u32,
+        snapshot_width: 0,
+        snapshot_height: 0,
+        snapshot_len: snapshot.len() as u32,
+        snapshot_ptr: snapshot.as_mut_ptr(),
     };
     params.scope_layer = -1;
     params.scope_enabled = 1;
@@ -58,6 +64,7 @@ fn live_render_writes_scope_stats_one_tick_late_when_enabled() {
         0
     );
     assert_eq!(stats.frame, 0, "no sample after the first tick");
+    assert_eq!(stats.snapshot_width, 0, "no snapshot before a sample lands");
 
     assert_eq!(
         unsafe { maple_gpu_live_render(&handle, &params, out.as_mut_ptr()) },
@@ -67,6 +74,32 @@ fn live_render_writes_scope_stats_one_tick_late_when_enabled() {
     assert!(stats.total > 0);
     let whole: u64 = bins.iter().map(|b| *b as u64).sum();
     assert_eq!(whole, stats.total as u64, "bins must sum to total");
+
+    // The snapshot (#3251) rides on the same sample: inside the clamp it is
+    // the frame itself, and a graded gradient is not black.
+    assert_eq!(
+        (stats.snapshot_width, stats.snapshot_height),
+        (w, h),
+        "a frame inside the clamp is snapshotted at its own dims"
+    );
+    let used = &snapshot[..(w * h * 3) as usize];
+    assert!(
+        used.iter().any(|b| *b > 0),
+        "the snapshot bytes must have been written through the host buffer"
+    );
+    // The snapshot samples the f32 chain buffer BEFORE dither, so it is the
+    // undithered twin of this render's own u8 output: never more than the
+    // ±0.5-LSB dither plus rounding apart.
+    let worst = used
+        .iter()
+        .zip(&out)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap();
+    assert!(
+        worst <= 2,
+        "snapshot vs dithered surface drift {worst} > 2 LSB"
+    );
 
     unsafe { maple_gpu_live_close(&mut handle) };
 }

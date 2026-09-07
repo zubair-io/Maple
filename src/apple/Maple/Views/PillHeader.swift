@@ -25,6 +25,10 @@ struct PillHeader: View {
   let onShare: () -> Void
   let onInfo: () -> Void
   @Binding var showsScope: Bool
+  /// Four-up scopes panel toggle (#3251); the button only renders when
+  /// `scopesPanelAvailable` (regular width — the panel has no compact home).
+  @Binding var showsScopesPanel: Bool
+  let scopesPanelAvailable: Bool
 
   var body: some View {
     FloatingImageHeader(
@@ -113,6 +117,20 @@ struct PillHeader: View {
       .buttonStyle(.plain)
       .accessibilityLabel(showsScope ? "Hide vectorscope" : "Show vectorscope")
       .accessibilityIdentifier("editor-pill-scope")
+
+      // Scopes panel toggle (#3251) — histogram + waveform + parade +
+      // vectorscope, mounted by EditorView beside the filmstrip rail.
+      if scopesPanelAvailable {
+        Button { showsScopesPanel.toggle() } label: {
+          Image(systemName: "waveform.path.ecg.rectangle")
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(showsScopesPanel ? ProTokens.accent : ProTokens.text)
+            .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(showsScopesPanel ? "Hide scopes" : "Show scopes")
+        .accessibilityIdentifier("editor-pill-scopes")
+      }
 
       // Divider between action buttons and status indicators
       Rectangle()

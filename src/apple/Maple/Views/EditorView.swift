@@ -101,6 +101,14 @@ struct EditorView: View {
   /// `session.scopeEnabled` on appear.
   @AppStorage("editor.showsScope") private var showsScope = false
 
+  /// Whether the four-up scopes panel is showing (#3251) — regular width
+  /// only, mounted beside the filmstrip rail. Persisted like `showsScope`.
+  @AppStorage("editor.showsScopesPanel") private var showsScopesPanel = false
+
+  /// The GPU-live present and the CPU fallback both gate their scope work
+  /// on `session.scopeEnabled`: on while either scope surface is showing.
+  private var scopeProducerArmed: Bool { showsScope || (isRegular && showsScopesPanel) }
+
   private var isRegular: Bool { hSizeClass == .regular }
 
   /// The restored S5 control stack is deliberately phone-idiom-only.
@@ -145,6 +153,21 @@ struct EditorView: View {
         .ignoresSafeArea(edges: .bottom)
         .opacity(chromeOpacity)
         .allowsHitTesting(isRegular || chromeVisible)
+      }
+
+      // ── LAYER 2b : scopes panel (regular only, #3251) ──────────────
+      // Top-leading, beside the filmstrip rail and under the pill: the
+      // trailing edge is owned by the tool dock / slider panels under both
+      // control variants, and the rail is vertically centred, so this
+      // corner is the one spot the four-up panel sits without covering a
+      // control. Same chrome fade as the rail.
+      if isRegular && showsScopesPanel {
+        EditorScopesPanel(state: state)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+          .padding(.leading, 12 + FilmstripRail.railWidth + 12)
+          .padding(.top, 60)
+          .opacity(chromeOpacity)
+          .allowsHitTesting(isRegular || chromeVisible)
       }
 
       // ── LAYER 3 : right tool dock / panel (branched by variant) ────
@@ -250,7 +273,9 @@ struct EditorView: View {
             onBack: onDismiss,
             onShare: { showExport = true },
             onInfo: onInfo,
-            showsScope: $showsScope
+            showsScope: $showsScope,
+            showsScopesPanel: $showsScopesPanel,
+            scopesPanelAvailable: isRegular
           )
           Spacer(minLength: 0)
         }
@@ -330,7 +355,7 @@ struct EditorView: View {
         // from the legacy FullImageView when it was retired (#1807).
         EditorFrameTimeHUD(session: state.session)
         // Skin-tone vectorscope HUD (#3277) — toggled by the pill's
-        // "Scope" button, persisted via `showsScope`.
+        // "Scope" button, persisted via `showsScope`; armed above.
         if showsScope {
           VectorscopeHud(state: state)
         }
@@ -347,6 +372,13 @@ struct EditorView: View {
     // (#2683) — see `wheelExclusionFrame`.
     .coordinateSpace(name: "editorCanvas")
     .onPreferenceChange(CanvasWheelExclusionKey.self) { wheelExclusionFrame = $0 }
+    // Scope producer arming (#3277, #3251): one switch for both scope
+    // surfaces, so hiding the HUD while the panel is up (or vice versa)
+    // cannot disarm the producer the other one still reads.
+    .onChange(of: scopeProducerArmed, initial: true) { _, armed in
+      state.session.scopeEnabled = armed
+    }
+    .onDisappear { state.session.scopeEnabled = false }
     // Scope the shell identifier to a CONTAINER element (#1769). A bare
     // `.accessibilityIdentifier` on a multi-element view BROADCASTS the
     // identifier onto every contained accessibility element, overriding

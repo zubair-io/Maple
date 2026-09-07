@@ -437,12 +437,17 @@ fn scoped_fused_entry_histograms_the_encoded_output_weighted_by_the_target_layer
 
     let mut out = vec![0f32; input.len()];
     let mut bins = vec![0u32; 128 * 128];
+    let mut snapshot = vec![0u8; (width * height * 3) as usize];
     let mut stats = MapleScopeStats {
         frame: 0,
         total: 0,
         _pad: 0,
         bins_ptr: bins.as_mut_ptr(),
         bins_len: bins.len() as u32,
+        snapshot_width: 0,
+        snapshot_height: 0,
+        snapshot_len: snapshot.len() as u32,
+        snapshot_ptr: snapshot.as_mut_ptr(),
     };
     let rc = unsafe {
         maple_apply_chain_and_encode_display_scoped_f32(
@@ -464,6 +469,25 @@ fn scoped_fused_entry_histograms_the_encoded_output_weighted_by_the_target_layer
     );
     let whole: u64 = bins.iter().map(|b| *b as u64).sum();
     assert_eq!(whole, stats.total as u64, "bins must sum to total");
+
+    // The snapshot (#3251) is the WHOLE encoded frame — the scope target
+    // weighs only the histogram — and inside the clamp it is that frame's
+    // own `out` bytes quantized pixel for pixel, an oracle independent of
+    // raw-core's downsampler.
+    assert_eq!(
+        (stats.snapshot_width, stats.snapshot_height),
+        (width, height)
+    );
+    for i in 0..(width * height) as usize {
+        for c in 0..3 {
+            let want = (out[i * 4 + c].clamp(0.0, 1.0) * 255.0).round() as u8;
+            assert_eq!(snapshot[i * 3 + c], want, "pixel {i} channel {c}");
+        }
+    }
+    assert!(
+        snapshot.iter().any(|b| *b > 0),
+        "a graded synthetic frame is not black"
+    );
 }
 
 /// A null `scope_out` behaves exactly like the unscoped fused entry: the

@@ -41,7 +41,10 @@ struct FilmstripRail: View {
 
     @State private var collapsed = false
 
-    private let railWidth: CGFloat = 110
+    /// Rail width — `EditorView` also reads it to place the scopes panel
+    /// (#3251) beside the rail.
+    static let railWidth: CGFloat = 110
+    private var railWidth: CGFloat { Self.railWidth }
     private let tabWidth: CGFloat = 20   // width of the collapse-tab button
     private let thumbSpacing: CGFloat = 6
     /// Max height of the thumb-scroll area; beyond this the strip scrolls.

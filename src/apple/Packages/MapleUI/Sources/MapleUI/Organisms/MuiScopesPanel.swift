@@ -37,12 +37,21 @@ public struct MuiScopeSample: Sendable {
     public let waveformLuma: [Double]
     public let parade: MuiScopeParadeSample
     public let vectorscope: [MuiVectorscopeSample]
+    /// Optional density variant for the vectorscope member (#3251): a
+    /// row-major `n × n` bin grid, the shape the GPU/CPU scope pass produces.
+    /// When present it replaces the `vectorscope` dot-scatter, exactly as
+    /// `MuiVectorscope`'s own `bins` parameter does.
+    public let vectorscopeBins: [[UInt32]]?
 
-    public init(histogram: MuiScopeHistogramSample, waveformLuma: [Double], parade: MuiScopeParadeSample, vectorscope: [MuiVectorscopeSample]) {
+    public init(
+        histogram: MuiScopeHistogramSample, waveformLuma: [Double], parade: MuiScopeParadeSample,
+        vectorscope: [MuiVectorscopeSample], vectorscopeBins: [[UInt32]]? = nil
+    ) {
         self.histogram = histogram
         self.waveformLuma = waveformLuma
         self.parade = parade
         self.vectorscope = vectorscope
+        self.vectorscopeBins = vectorscopeBins
     }
 }
 
@@ -69,7 +78,7 @@ public struct MuiScopesPanel: View {
                 MuiParade(r: sample.parade.r, g: sample.parade.g, b: sample.parade.b, width: width, height: height)
             }
             scope("Vectorscope") {
-                MuiVectorscope(samples: sample.vectorscope, size: min(width, height * 2))
+                MuiVectorscope(samples: sample.vectorscope, size: min(width, height * 2), bins: sample.vectorscopeBins)
             }
         }
         .padding(MuiTokens.spacingMd)

@@ -34,6 +34,10 @@ fn run(w: u32, h: u32, gap_ms: u64, ticks: usize) -> Vec<u64> {
         _pad: 0,
         bins_ptr: bins.as_mut_ptr(),
         bins_len: bins.len() as u32,
+        snapshot_width: 0,
+        snapshot_height: 0,
+        snapshot_len: 0,
+        snapshot_ptr: std::ptr::null_mut(),
     };
     params.scope_layer = -1;
     params.scope_enabled = 1;

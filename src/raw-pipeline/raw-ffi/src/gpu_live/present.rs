@@ -141,6 +141,12 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         if p.scope_enabled != 0 {
             if let Some(stats) = inner.session.take_scope_stats(&state.ctx) {
                 crate::scope_stats::write_stats(p.scope_out, stats.frame, stats.total, &stats.bins);
+                crate::scope_stats::write_snapshot(
+                    p.scope_out,
+                    stats.snapshot.width,
+                    stats.snapshot.height,
+                    &stats.snapshot.rgb,
+                );
             }
         }
 
