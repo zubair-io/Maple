@@ -305,9 +305,10 @@ describe('flyout header (FlyoutSliderPanel parity)', () => {
 // real group is Effects (`TOOLS_IN_GROUP.effects`), so a single Colour-only
 // row containing Grade would hide itself the instant it's armed. Colour
 // gets `Basic · HSL · B&W`, Effects gets `Basic · Grade · Film`, Detail
-// gets `Basic · Lens` (#2231), Light gets no row.
+// gets `Basic · Deconv · Lens · Geometry` (#2231 / #3410 / #3414), Light gets
+// no row.
 describe('sub-tool row', () => {
-  it('renders Basic/HSL/B&W for the colour group, Basic/Grade/Film for effects, Basic/Lens/Geometry for detail, and nothing for light', () => {
+  it('renders Basic/HSL/B&W for the colour group, Basic/Grade/Film for effects, Basic/Deconv/Lens/Geometry for detail, and nothing for light', () => {
     const colour = render({ activeGroup: 'color' });
     const colourChips = Array.from(
       (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
@@ -328,8 +329,8 @@ describe('sub-tool row', () => {
       (detail.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
     ).map((n) => n.textContent!.trim());
     // Geometry (#3410) joined the Detail row for the same no-primary-field
-    // reason Lens is there.
-    expect(detailChips).toEqual(['Basic', 'Lens', 'Geometry']);
+    // reason Lens is there; Deconv (#3414) for the commit-on-release reason.
+    expect(detailChips).toEqual(['Basic', 'Deconv', 'Lens', 'Geometry']);
   });
 
   // Restores #276's dock-hiding behaviour in its new home: HSL's 24 sliders

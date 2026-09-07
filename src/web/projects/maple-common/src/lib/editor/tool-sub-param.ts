@@ -386,6 +386,31 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       commitOnRelease: true,
     },
   ],
+  // Capture sharpening (#3414) — Richardson-Lucy deconvolution. BOTH fields
+  // live inside the DECODE PRODUCT (`capture_sharpening` runs at develop's
+  // 04b position, upstream of the GPU chain), so both commit on release for
+  // the same reason Noise's Deep / Prefilter do: a per-tick write would
+  // re-develop the whole prefix on every pointer sample. Amount leads — it is
+  // the tool's primary drag-bar field (`fieldFor('captureSharpen')`) and the
+  // one that gates the stage off at 0.
+  captureSharpen: [
+    {
+      id: 'amount',
+      label: 'Amount',
+      field: 'captureSharpeningAmount',
+      mapping: 'linear',
+      decimals: 0,
+      commitOnRelease: true,
+    },
+    {
+      id: 'sigma',
+      label: 'Sigma',
+      field: 'captureSharpeningSigma',
+      mapping: 'anchored',
+      decimals: 2,
+      commitOnRelease: true,
+    },
+  ],
   sharpen: [
     { id: 'amount', label: 'Amount', field: 'sharpenAmount', mapping: 'anchored', decimals: 0 },
     { id: 'radius', label: 'Radius', field: 'sharpenRadius', mapping: 'anchored', decimals: 1 },
