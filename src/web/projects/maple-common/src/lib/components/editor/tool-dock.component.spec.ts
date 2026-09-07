@@ -204,14 +204,16 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(groupEmitted).toBe(false);
   });
 
-  it('disabled entries (Heal) are non-interactive and show a ticket tooltip', () => {
+  it('Heal arms the heal tool directly (#3409)', () => {
     const fixture = render({});
-    const healBtn = nativeEl(fixture).querySelector(
-      'button[title^="Heal"]',
-    ) as HTMLButtonElement | null;
-    expect(healBtn).not.toBeNull();
-    expect(healBtn!.disabled).toBe(true);
-    expect(healBtn!.title).toBe('Heal — coming in #1472');
+    let armed: ToolId | null = null;
+    fixture.componentInstance.toolChange.subscribe((t) => (armed = t));
+    const healBtn = buttonFor(fixture, 'Heal');
+    expect(healBtn.disabled).toBe(false);
+    expect(healBtn.title).toBe('Heal');
+    expect(healBtn.getAttribute('aria-hidden')).toBeNull();
+    healBtn.click();
+    expect(armed).toBe('heal');
   });
 
   it('Mask arms the mask tool directly (#1541)', () => {
@@ -494,13 +496,12 @@ describe('Apple 11-entry parity', () => {
     expect(dividerIndex).toBe(cropIndex - 1);
   });
 
-  it('keeps disabled placeholders out of the accessibility tree', () => {
+  it('leaves no entry hidden from the accessibility tree', () => {
+    // Every dock entry is live since #3409 shipped Heal (Mask shipped in
+    // #1541). A future placeholder re-arms the aria-hidden path, and this
+    // count is what makes that visible.
     const fixture = render({});
-    const healBtn = buttonFor(fixture, 'Heal');
-    expect(healBtn.getAttribute('aria-hidden')).toBe('true');
-    expect(healBtn.getAttribute('tabindex')).toBe('-1');
-
     const hidden = nativeEl(fixture).querySelectorAll('button[aria-hidden="true"]');
-    expect(hidden.length).toBe(1); // Heal only — Mask is live since #1541
+    expect(hidden.length).toBe(0);
   });
 });

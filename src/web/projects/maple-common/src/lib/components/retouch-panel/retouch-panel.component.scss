@@ -1,0 +1,15 @@
+// retouch-panel.component.scss — the brush controls + spot list (#3409).
+// Layout is Tailwind in the template; this only scopes the panel's
+// scrollable height so a long spot list never pushes the dock off-screen.
+
+:host {
+  display: block;
+  width: 300px;
+  max-height: min(560px, calc(100dvh - 120px));
+  overflow-y: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

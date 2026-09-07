@@ -21,6 +21,7 @@ import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
 import { passthroughForMetadataReplacement } from './xmp-metadata-passthrough';
+import { retouchAreasBlock } from './xmp-retouch';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
   escapeXmpAttr,
@@ -134,6 +135,10 @@ export class XmpSerializerService {
       passthrough?.maskGroups,
     );
 
+    // Repair spots (#3409) — the `crs:RetouchAreas` container, byte-identical
+    // to raw-core's and Swift's emitters. An empty list emits nothing.
+    const retouchBlock = retouchAreasBlock(model, indent);
+
     // Compose nested children in canonical slots — see `xmp-serializer-children.ts`.
     const children = composeNestedChildren({
       metadata,
@@ -141,6 +146,7 @@ export class XmpSerializerService {
       keywordsBlock,
       toneCurvesBlock,
       localAdjustmentsBlock,
+      retouchAreasBlock: retouchBlock,
       indent,
     });
 
@@ -187,7 +193,8 @@ export class XmpSerializerService {
    * Every canonical attribute this writer would emit for `model` that
    * differs from what it emits for the default model — the adjustment,
    * enum, and crop attributes — plus the nested tone-curve block under the
-   * synthetic key `toneCurves` (curves are children, not attributes). The
+   * synthetic keys `toneCurves` and `retouchAreas` (both are children, not
+   * attributes). The
    * edit-transaction sidecar diff (#2432, `editor/edit-transaction.ts`) is
    * computed over this map, so a diff is expressed in the exact bytes the
    * sidecar carries; Apple computes the same map from its own writer
@@ -203,6 +210,12 @@ export class XmpSerializerService {
     }
     const curves = toneCurveBlocks(model, '');
     if (curves) out.set('toneCurves', curves);
+    // Repair spots (#3409) are a nested container too, so they ride a
+    // synthetic key the same way the curves do — without it a spot edit
+    // would produce an EMPTY transaction diff and the history entry would
+    // announce a change nobody could see.
+    const retouch = retouchAreasBlock(model, '');
+    if (retouch) out.set('retouchAreas', retouch);
     return out;
   }
 

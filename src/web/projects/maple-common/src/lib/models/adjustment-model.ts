@@ -40,6 +40,16 @@ export type {
 export { isEmptyPartialAdjustments, isGeometricMask } from './local-adjustment';
 import type { LocalAdjustment } from './local-adjustment';
 
+export type { RetouchKind, RetouchPoint, RetouchSpot } from './retouch-spot';
+export {
+  isEffectiveRetouchSpot,
+  isSameRetouchSpot,
+  makeRetouchSpot,
+  RETOUCH_DEFAULT_FEATHER,
+  RETOUCH_DEFAULT_RADIUS,
+} from './retouch-spot';
+import type { RetouchSpot } from './retouch-spot';
+
 import type { WhiteBalancePreset } from '../generated/white-balance-presets.generated';
 export type { WhiteBalancePreset } from '../generated/white-balance-presets.generated';
 
@@ -142,6 +152,16 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
    */
   localAdjustments: LocalAdjustment[];
   /**
+   * Clone / heal repair spots (#3409) — a hand-written mirror of
+   * `raw_core::types::retouch`, outside codegen for the same reason
+   * `localAdjustments` is (see `retouch-spot.ts`). A **decode-product**
+   * edit: changing the list re-develops rather than re-running the per-tick
+   * chain, so it is a `DECODE_INPUT_KEYS` member in `edit-transaction.ts`.
+   * Empty is the default; the sidecar writer emits the `crs:RetouchAreas`
+   * container only for a non-empty list.
+   */
+  retouchSpots: RetouchSpot[];
+  /**
    * WB slider-scale version of this model's temperature/tint
    * (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
    * 6500 K identity) — raw-core converts on use; `5` = the Robertson
@@ -167,6 +187,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
     localAdjustments: [],
+    retouchSpots: [],
     wbScaleVersion: 5,
   };
 }
@@ -188,6 +209,8 @@ export function isDefaultAdjustment(m: AdjustmentModel): boolean {
     if (k === 'crop') return true;
     // A layer stack is a nested list (#358): default is the empty stack.
     if (k === 'localAdjustments') return m.localAdjustments.length === 0;
+    // Repair spots (#3409) are a nested list too: default is no spots.
+    if (k === 'retouchSpots') return m.retouchSpots.length === 0;
     // Point curves (#366) are nested objects too: strict equality would
     // report every model as edited. Default is the identity (empty) curve.
     if (isToneCurveValue(d[k])) {

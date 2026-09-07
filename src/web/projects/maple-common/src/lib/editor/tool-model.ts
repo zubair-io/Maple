@@ -80,6 +80,7 @@ export type ToolId =
   | 'lensCorrections'
   | 'defringe'
   | 'mask'
+  | 'heal'
   | 'crop'
   | 'geometry'
   | 'presets';
@@ -119,6 +120,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   lensCorrections: 'Lens',
   defringe: 'Defringe',
   mask: 'Mask',
+  heal: 'Heal',
   crop: 'Crop',
   geometry: 'Geometry',
   presets: 'Presets',
@@ -139,7 +141,8 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // defringe (#3411) follows it: the profile-free half of the same story,
   // but per-tick — six sliders driven through the ordinary sub-param row.
   // mask (#1541) joins Detail beside crop: like crop it is edited through
-  // the canvas overlay + its own panel, never the drag bar.
+  // the canvas overlay + its own panel, never the drag bar. heal (#3409)
+  // takes the same shape — a spot list edited on the canvas.
   // geometry (#3410) joins Detail beside crop: the seven `crs:Perspective*`
   // sliders that compose into one homography, applied in the same display
   // tail the crop rect is applied in.
@@ -155,6 +158,7 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
     'lensCorrections',
     'defringe',
     'mask',
+    'heal',
     'crop',
     'geometry',
     'presets',
@@ -201,7 +205,9 @@ export function visibleToolsInGroup(group: ToolGroup, blackWhiteOn: boolean): re
 // Mask (#1541) takes the same shape: `AdjustmentModel.localAdjustments` is a
 // layer stack, not a scalar — the canvas overlay + `MaskSessionService` are
 // its whole value pipe, so the drag bar must reject writes for it.
-const STUB_TOOLS = new Set<ToolId>(['crop', 'mask']);
+// Heal (#3409) is the same again: `AdjustmentModel.retouchSpots` is a spot
+// list driven by the canvas overlay + `RetouchSessionService`.
+const STUB_TOOLS = new Set<ToolId>(['crop', 'mask', 'heal']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -301,7 +307,8 @@ export function internalValueFromDisplay(tool: ToolId, d: number): number {
  *  each tool's primary sub-param. Tools absent here have no single
  *  primary drag-bar field: hsl (24 sub-params via the chip row), bwMix
  *  (#276: toggle + 8 gray-mixer sub-params), crop (a stub, #638), mask (a
- *  layer stack, #1541) and presets (value-less, #1115) — `fieldFor` returns
+ *  layer stack, #1541), heal (a spot list, #3409) and presets (value-less,
+ *  #1115) — `fieldFor` returns
  *  null for them so no single XMP field is written and no modified-dot
  *  fires at this level. */
 const PRIMARY_FIELD: Partial<Record<ToolId, keyof AdjustmentModel>> = {

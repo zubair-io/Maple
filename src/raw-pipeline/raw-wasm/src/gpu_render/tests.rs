@@ -280,6 +280,18 @@ fn stripped_prefix_model_neutralizes_rerun_and_preserves_upstream() {
         capture_sharpening_sigma: 1.2,
         profile: Profile::Neutral,
         auto_exposure: AutoExposureMode::On,
+        // Repair spots (#3409) — a decode-product edit with no GPU pass, so
+        // the prefix must carry them: placing a spot has to re-develop and
+        // re-upload the base, and dropping them here would silently render
+        // the live canvas unrepaired.
+        retouch_spots: vec![raw_core::types::RetouchSpot {
+            kind: raw_core::types::RetouchKind::Heal,
+            center: raw_core::types::Point2::new(0.25, 0.5),
+            source: raw_core::types::Point2::new(0.75, 0.5),
+            radius: 0.05,
+            feather: 0.5,
+            opacity: 1.0,
+        }],
         ..AdjustmentModel::default()
     };
 
@@ -339,6 +351,10 @@ fn stripped_prefix_model_neutralizes_rerun_and_preserves_upstream() {
     assert_eq!(s.capture_sharpening_sigma, 1.2);
     assert_eq!(s.profile, Profile::Neutral, "profile must survive");
     assert_eq!(s.wb_method, full.wb_method, "wb_method must survive");
+    assert_eq!(
+        s.retouch_spots, full.retouch_spots,
+        "repair spots must survive (#3409 — baked in the decode product)"
+    );
 }
 
 /// `auto_will_fit` mirrors `render_bytes`'s probe: false unless `Profile::Auto`,
