@@ -83,6 +83,36 @@ public enum HotPixelSuppressionMode: String, Codable, Sendable, Hashable, CaseIt
     case on  = "On"
 }
 
+// MARK: - DemosaicChoice
+
+/// Bayer demosaic kernel override (#3413). Mirrors
+/// `raw_core::types::adjustment::DemosaicChoice`.
+///
+/// `auto` (the default) hands the decision to `raw_core::demosaic::policy`,
+/// which reads the frame's own noise profile and sensor size: a noisy frame
+/// gets LMMSE, a large clean one the AMaZE + VNG4 dual, and a small clean
+/// one AMaZE alone. Every other case pins one kernel for this image, for
+/// the rare frame where the automatic answer is wrong.
+///
+/// The override applies wherever a full-resolution Bayer kernel runs — the
+/// on-screen full render, the deep-zoom tiles and export — so what the
+/// screen shows is what the file gets. It does not apply to the binned
+/// fit-view path, which halves resolution before demosaicing and has no
+/// kernel choice to make, nor to X-Trans or LinearRaw sources, which never
+/// reach a Bayer kernel.
+///
+/// A decode-product parameter, like `hotPixelSuppression`: changing it
+/// re-runs the Rust decode rather than a per-tick GPU stage. XMP key
+/// `papp:Demosaic`, omitted on write at the `auto` default.
+public enum DemosaicChoice: String, Codable, Sendable, Hashable, CaseIterable {
+    case auto      = "Auto"
+    case amaze     = "Amaze"
+    case rcd       = "Rcd"
+    case dualAmaze = "DualAmaze"
+    case dualRcd   = "DualRcd"
+    case lmmse     = "Lmmse"
+}
+
 // MARK: - LensProfileEnable
 
 /// Master on/off for the lens corrections a DNG embeds in its
