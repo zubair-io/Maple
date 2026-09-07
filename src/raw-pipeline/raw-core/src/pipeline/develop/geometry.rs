@@ -5,8 +5,11 @@
 //! chains keep addressing them as `develop::{crop_to_default, ...}`.
 
 use crate::{
-    image::{CfaPattern, CropRect, Image},
+    cancel::CancelToken,
+    error::{Error, Result},
+    image::{CfaPattern, CropRect, Image, RawImage},
     pipeline::RenderQuality,
+    xmp::AdjustmentModel,
 };
 
 /// Crop the camera-RGB image to the DNG-recommended render rectangle.
@@ -100,4 +103,36 @@ pub(in crate::pipeline) fn effective_quality_divisor(
         CfaPattern::XTrans(_) | CfaPattern::LinearRgb => 1,
         _ => quality_divisor(quality),
     }
+}
+
+/// Profile-free lateral chromatic-aberration correction (#3411), in its
+/// raw-domain slot: after `hot_pixel` (so a defect can never anchor the
+/// registration) and before `demosaic` (so the resample sees real samples
+/// rather than interpolated ones).
+///
+/// Two skips ride here rather than inside the stage. The first is the
+/// default: `auto_lateral_ca == Off` makes `lateral_ca::apply` return
+/// before reading a pixel. The second is provenance — when the RAW's own
+/// `OpcodeList3` carries per-plane `WarpRectilinear` coefficients the
+/// vendor already measured this aberration and `opcode_list3` applies it
+/// downstream, so estimating it a second time would double-correct.
+/// `RawImage::lens_correction_ca_inert()` is exactly that signal (#2231).
+///
+/// Returns `Err(Error::Cancelled)` if the host cancelled during the
+/// estimate; the stage itself leaves the mosaic untouched in that case.
+pub(super) fn lateral_ca(
+    mosaic: &mut Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<()> {
+    if raw.lens_correction_ca_inert() {
+        super::stage("lateral_ca", || {
+            crate::stages::lateral_ca::apply(mosaic, raw.cfa, model.auto_lateral_ca, cancel)
+        });
+    }
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(())
 }

@@ -7,7 +7,7 @@
 //! walker in `mod.rs` still owns document structure and precedence state.
 
 use super::{
-    AdjustmentModel, AutoExposureMode, DemosaicChoice, HighlightRecoveryMode,
+    AdjustmentModel, AutoExposureMode, AutoLateralCa, DemosaicChoice, HighlightRecoveryMode,
     HotPixelSuppressionMode, LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbSource,
 };
 use crate::error::{Error, Result};
@@ -410,6 +410,24 @@ pub(super) fn set_field(
         "crs:LensProfileDistortionScale" => m.lens_correction_distortion = v()?,
         "crs:LensProfileChromaticAberrationScale" => m.lens_correction_ca = v()?,
         "crs:LensProfileVignettingScale" => m.lens_correction_vignetting = v()?,
+        // Profile-free lens corrections (#3411). `crs:AutoLateralCA` is
+        // ACR's "Remove Chromatic Aberration" checkbox, written with the
+        // same "1"/"0" spelling as `crs:LensProfileEnable` above; the six
+        // `crs:Defringe*` keys are ACR's Defringe amounts + hue bands.
+        // Absent attributes → defaults (off, ACR's 30/70 and 40/60 bands).
+        "crs:AutoLateralCA" => {
+            m.auto_lateral_ca = match super::parse_xmp_bool(value) {
+                Some(true) => AutoLateralCa::On,
+                Some(false) => AutoLateralCa::Off,
+                None => return Err(Error::Xmp(format!("unknown AutoLateralCA: {}", value))),
+            };
+        }
+        "crs:DefringePurpleAmount" => m.defringe_purple_amount = v()?,
+        "crs:DefringePurpleHueLo" => m.defringe_purple_hue_lo = v()?,
+        "crs:DefringePurpleHueHi" => m.defringe_purple_hue_hi = v()?,
+        "crs:DefringeGreenAmount" => m.defringe_green_amount = v()?,
+        "crs:DefringeGreenHueLo" => m.defringe_green_hue_lo = v()?,
+        "crs:DefringeGreenHueHi" => m.defringe_green_hue_hi = v()?,
         "crs:HasCrop" => {}             // consumed in the pre-pass
         "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
         "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)
