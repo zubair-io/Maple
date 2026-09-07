@@ -91,6 +91,17 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     // pointing at the replaced, too-small buffer. The per-layer VALUES
     // deliberately do not participate — a mask drag rewrites a same-sized one.
     (inputs.local_adjustments.len() as u64).hash(&mut h);
+    // …and, since #3407, each layer's SHAPE key: which controls are present
+    // and which spatial kernels are engaged. Those decide how many passes
+    // the stage contributes and how many pooled scratch buffers each draws,
+    // so two models with the same layer COUNT can still need different
+    // chains. Values still do not participate — see `layer_shape_key`.
+    for layer in inputs
+        .local_adjustments
+        .chunks_exact(crate::local_adjustments::LAYER_FLAT_LEN)
+    {
+        crate::local_spatial::layer_shape_key(layer).hash(&mut h);
+    }
     // The mask-plane TOTAL FLOAT COUNT (#3271) is the third such buffer: a
     // bitmap mask being added, removed, or resized (a different Vision
     // selection on the same session) changes `LocalAdjustmentsPass::new`'s

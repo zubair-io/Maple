@@ -66,7 +66,11 @@ use crate::film_lut::FilmLutPass;
 use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::grain::GrainPass;
-use crate::local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass};
+use crate::local_adjustments::{
+    local_adjustments_are_active, local_adjustments_need_spatial, LocalAdjustmentsPass,
+    LAYER_FLAT_LEN,
+};
+use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -93,6 +97,49 @@ const _: () = assert!(
      `input_shape` pack in the top 2 bits of u32 (shift 30) would overflow. \
      Widen the encoding or increase the shift before adding a 5th variant."
 );
+
+/// Push the local-adjustments stage (#1698) in whichever of its two shapes
+/// this model needs.
+///
+/// * NO layer sets a spatial control (#3407) — the common case, and every
+///   model that existed before #3407: ONE [`LocalAdjustmentsPass`] running
+///   the whole stack in a single dispatch, unchanged.
+/// * Some layer does: one pass PER LAYER, in order, so a layer's spatial
+///   group can be applied to that layer's own output before the next layer
+///   starts. Splitting the point dispatch per layer is exactly equivalent to
+///   fusing it — the equivalence the fused form is built on — so the only
+///   thing that changes is where the spatial kernels get to run.
+fn push_local_adjustments(suffix: &mut BoxedPasses, inputs: &FullChainInputs<'_>) {
+    let flat = &inputs.local_adjustments;
+    if !local_adjustments_are_active(flat, inputs.scope.layer) {
+        return;
+    }
+    if !local_adjustments_need_spatial(flat) {
+        suffix.push(Box::new(
+            LocalAdjustmentsPass::new(flat, &inputs.mask_rasters)
+                .with_scope_layer(inputs.scope.layer),
+        ));
+        return;
+    }
+    for (index, layer) in flat.chunks_exact(LAYER_FLAT_LEN).enumerate() {
+        let is_scope_target = inputs.scope.layer >= 0 && inputs.scope.layer as usize == index;
+        if layer_needs_spatial(layer) {
+            suffix.push(Box::new(LocalSpatialPass::new(
+                layer,
+                &inputs.mask_rasters,
+                is_scope_target,
+            )));
+            continue;
+        }
+        // A point-only layer still needs its own dispatch so the layers stay
+        // in order; `-1` unless it is the scope target, and `0` when it is
+        // (this pass sees a one-layer stack).
+        let scope = if is_scope_target { 0 } else { -1 };
+        suffix.push(Box::new(
+            LocalAdjustmentsPass::new(layer, &inputs.mask_rasters).with_scope_layer(scope),
+        ));
+    }
+}
 
 mod noop;
 use noop::*;
@@ -237,12 +284,7 @@ pub fn build_live_split<'a>(
     }
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. See the gate-predicate note in the module docs.
-    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
-        suffix.push(Box::new(
-            LocalAdjustmentsPass::new(&inputs.local_adjustments, &inputs.mask_rasters)
-                .with_scope_layer(inputs.scope.layer),
-        ));
-    }
+    push_local_adjustments(&mut suffix, inputs);
     // Vignette (#1109) — develop's 12c position (after local_adjustments,
     // before sharpen). Same `apply` predicate as the raw-core stage's identity
     // short-circuit (`|amount| < 1e-3`); feather alone never engages the stage.

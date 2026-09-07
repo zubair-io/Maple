@@ -242,3 +242,53 @@ fn film_look_default_off_loaded_and_engaged_adds_one_pass() {
         "a different film_lut_key at the same mask/size must land in a fresh bucket"
     );
 }
+
+/// #3407: a model whose layers set only POINT controls keeps the historic
+/// ONE-DISPATCH shape — one `LocalAdjustmentsPass` for the whole stack. A
+/// model where some layer sets a SPATIAL control splits to one pass per
+/// layer, because a spatial kernel has to see that layer's whole output
+/// before the next layer starts.
+#[test]
+fn spatial_controls_split_the_local_adjustments_stage_per_layer() {
+    use raw_core::types::{LocalAdjustment, PartialAdjustments, Point2};
+
+    let layer = |a: PartialAdjustments| {
+        LocalAdjustment::radial(Point2::new(0.5, 0.5), Point2::new(0.25, 0.25), a)
+    };
+    let point_a = layer(PartialAdjustments {
+        exposure: Some(0.5),
+        ..Default::default()
+    });
+    let point_b = layer(PartialAdjustments {
+        shadows: Some(20.0),
+        ..Default::default()
+    });
+    let spatial = layer(PartialAdjustments {
+        clarity: Some(40.0),
+        ..Default::default()
+    });
+
+    let case = neutral_case();
+    let neutral = build_live_chain(&case.gpu_inputs(), AirlightSource::Cpu([0.0; 3])).len();
+
+    let count = |layers: Vec<LocalAdjustment>| {
+        let mut case = neutral_case();
+        case.model.local_adjustments = layers;
+        let inputs = case.gpu_inputs();
+        let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+        let n = passes.len();
+        drop(passes);
+        n
+    };
+
+    assert_eq!(
+        count(vec![point_a.clone(), point_b]),
+        neutral + 1,
+        "a point-only stack must stay ONE fused dispatch"
+    );
+    assert_eq!(
+        count(vec![point_a, spatial]),
+        neutral + 2,
+        "a stack with a spatial layer must split to one pass per layer"
+    );
+}

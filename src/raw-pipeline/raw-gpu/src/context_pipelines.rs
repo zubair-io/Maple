@@ -203,6 +203,35 @@ impl GpuContext {
         })
     }
 
+    /// The cached defringe compute pipeline (#3407).
+    ///
+    /// The kernel rounds each edge pixel through Oklab to scale its chroma,
+    /// so — like `saturation_pipeline` — the generated `color_matrices.wgsl`
+    /// is prepended to `defringe.wgsl` at module creation (WGSL has no
+    /// `#include`). The edge-detector constants are inlined in the kernel,
+    /// not codegen'd.
+    pub fn defringe_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.defringe_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "defringe", include_str!("defringe.wgsl"))
+        })
+    }
+
+    /// The cached per-mask spatial blend pipeline (#3407).
+    ///
+    /// `dst = base + weight * (filtered - base)` over three RGBA inputs; no
+    /// Oklab and no colour matrices, so it compiles standalone. Five
+    /// bindings (params uniform + three read storages + the write storage);
+    /// `layout: None` derives them from the WGSL.
+    pub fn local_spatial_blend_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.local_spatial_blend_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "local-spatial-blend",
+                include_str!("local_spatial_blend.wgsl"),
+            )
+        })
+    }
+
     /// The cached Auto Profile curve compute pipeline (epic #925 P2 / #990).
     ///
     /// The kernel's Oklab correction path uses the generated color-matrix

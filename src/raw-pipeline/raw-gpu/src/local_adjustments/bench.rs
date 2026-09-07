@@ -134,6 +134,9 @@ fn worst_case_layer() -> Vec<LocalAdjustment> {
             temperature: Some(1200.0),
             tint: Some(8.0),
             hue: Some(-40.0),
+            // Point controls only: the spatial group (#3407) is applied by
+            // `local_spatial.rs`, not by this kernel.
+            ..Default::default()
         },
     }]
 }
