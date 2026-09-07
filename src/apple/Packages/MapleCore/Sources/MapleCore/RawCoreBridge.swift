@@ -122,6 +122,11 @@
 //   * `hotPixelSuppression` (#1106) — pre-demosaic defect replacement
 //     inside the Rust decode product; same KEPT/cache-key story as
 //     `chromaPrefilter`. Default `.off` short-circuits the stage.
+//   * `retouchSpots` (#3409)       — the clone / heal spot list, applied
+//     inside the Rust decode product (post-DCP, pre chroma pre-filter); no
+//     per-tick equivalent anywhere, so the decode is the only place it can
+//     run. Same KEPT/cache-key story as `chromaPrefilter`. An empty list
+//     short-circuits the stage.
 //   * `deepDenoise` (#1105)        — BM3D, input-referred inside the Rust
 //     decode product; same KEPT/cache-key story. The #950 baked-model key
 //     carrying it is what makes the seconds-scale run a ONE-TIME cost per
@@ -284,6 +289,11 @@ public enum RawCoreBridge {
     // Stripping it also keeps a mask slider drag from churning the
     // decoded-image cache (keyed on this stripped model) every tick.
     m.localAdjustments = []
+    // Repair spots (#3409) are deliberately NOT stripped: they have no
+    // per-tick counterpart on either path, so the decode is the only place
+    // they can be applied. Keeping them is what makes the #950 baked-model
+    // decode-cache key carry them — placing a spot correctly re-decodes,
+    // and a slider drag afterwards reuses the repaired decode.
     return m
   }
 

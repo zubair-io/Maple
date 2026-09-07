@@ -70,8 +70,13 @@ struct ToolDock: View {
           onPresetsTap: onPresetsTap
         )
 
-        // Heal has no tool-level surface yet; implementation is tracked in #1472.
-        DisabledDockPlaceholder(symbol: "bandage", label: "Heal")
+        // Heal — real Tool case since #3409, same two routes as Mask: this
+        // dock button and the inspector's Detail section.
+        SpecialDockButton(
+          state: state,
+          tool: .heal,
+          onPresetsTap: onPresetsTap
+        )
       }
       .padding(isCompact ? .horizontal : .vertical, 10)
     }
@@ -196,6 +201,8 @@ private struct SpecialDockButton: View {
     if tool == .filmLook { return !state.session.model.filmLook.isEmpty }
     // Mask (#355): a layer stack is the edit, whatever its sliders say.
     if tool == .mask { return !state.session.model.localAdjustments.isEmpty }
+    // Heal (#3409): likewise, a spot list is the edit.
+    if tool == .heal { return !state.session.model.retouchSpots.isEmpty }
     guard tool.isWired else { return false }
     let subs = tool.subParams
     if !subs.isEmpty {
@@ -253,38 +260,5 @@ private struct SpecialDockButton: View {
     .accessibilityLabel(tool.displayName)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
-  }
-}
-
-// MARK: - DisabledDockPlaceholder
-
-/// Non-interactive entry for a tool whose editing surface is still tracked
-/// by a separate implementation issue.
-private struct DisabledDockPlaceholder: View {
-  let symbol: String
-  let label: String
-
-  var body: some View {
-    VStack(spacing: 4) {
-      ZStack {
-        Circle()
-          .fill(ProTokens.panel)
-          .overlay(Circle().stroke(ProTokens.border, lineWidth: 0.5))
-          .frame(width: 36, height: 36)
-
-        Image(systemName: symbol)
-          .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(ProTokens.textDim)
-      }
-      Text(label)
-        .font(.system(size: 9, weight: .regular))
-        .foregroundStyle(ProTokens.textDim)
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
-    }
-    .frame(width: 52)
-    .opacity(0.40)
-    // Not in the a11y tree — disabled tools add no navigable value.
-    .accessibilityHidden(true)
   }
 }

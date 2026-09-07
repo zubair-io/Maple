@@ -132,6 +132,13 @@ struct IPhoneControlBar: View {
       MaskPanel(state: state)
         .padding(.horizontal, 24)
         .padding(.vertical, 7)
+    } else if state.armedTool == .heal {
+      // Brush + spot list replace the drag bar (#3409): Heal writes a spot
+      // list, not a scalar, so this is its whole control surface — the same
+      // swap Mask and Geometry make.
+      RetouchPanel(state: state)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 7)
     } else {
       DragBar(state: state)
         .padding(.vertical, 7)
