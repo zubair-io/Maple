@@ -158,12 +158,11 @@ struct EditorSurface: View {
         }
       }
     }
-    // Full-bleed editor (#4 follow-up): on regular size class (Mac/iPad)
-    // pull the content into the top safe-area inset left over from the
-    // (now-hidden) title bar/toolbar so the canvas + pill reach the very
-    // top edge instead of leaving an empty black strip. Compact (iPhone)
-    // keeps its top inset so the pill clears the notch/status bar.
-    .ignoresSafeArea(edges: isRegular ? .top : [])
+    // Mac extends under its hidden window toolbar. iOS keeps the top
+    // inset so the editor header stays clear of system status/navigation.
+    #if os(macOS)
+      .ignoresSafeArea(edges: isRegular ? .top : [])
+    #endif
     .background(MapleTokens.bg.ignoresSafeArea())
     // Shared coordinate space for wheel-exclusion frame reporting
     // (#2683) — see `wheelExclusionFrame`.
@@ -194,6 +193,10 @@ struct EditorSurface: View {
       // The toolbar reappears automatically when the editor is dismissed
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
+    #elseif os(iOS)
+      // The editor supplies its own header. A retained Browse navigation
+      // bar can intercept these buttons on iPad, especially after rotation.
+      .toolbar(.hidden, for: .navigationBar)
     #endif
     // ── Arrow-key group cycling (regular / iPad & Mac only) ────────────
     // Down = next group (Detail → Light wraps), Up = previous.

@@ -107,7 +107,13 @@ import XCTest
         shot.lifetime = .keepAlways
         add(shot)
       }
-      app.buttons["editor-undo"].tap()
+      let undo = app.buttons["editor-undo"]
+      wait(
+        undo,
+        predicate: NSPredicate { object, _ in
+          (object as? XCUIElement)?.isHittable == true
+        })
+      undo.tap()
       XCTAssertEqual(blackWhite.value as? String, initial)
 
       if phone {
