@@ -17,11 +17,15 @@ extension ScopeSample {
         let n = bins.count
         var sumX = 0.0, sumY = 0.0
         for row in 0..<n {
-            for col in 0..<n where bins[row][col] > 0 {
-                let cb = Double(col) / Double(n) - 0.5
-                let cr = 0.5 - Double(row) / Double(n)
+            // Bounded by the row's own length (never assumes a square grid),
+            // and mapped to bin CENTRES like the renderers (#3292, #3305 review).
+            for col in 0..<min(n, bins[row].count) where bins[row][col] > 0 {
+                let cb = (Double(col) + 0.5) / Double(n) - 0.5
+                let cr = 0.5 - (Double(row) + 0.5) / Double(n)
                 let mag = (cb * cb + cr * cr).squareRoot()
-                guard mag > 1e-9 else { continue }
+                // Within one cell of the origin is achromatic — no hue to
+                // contribute (with bin centres nothing sits exactly at 0).
+                guard mag > 1.0 / Double(n) else { continue }
                 let weight = Double(bins[row][col])
                 sumX += weight * (cb / mag)
                 sumY += weight * (cr / mag)
