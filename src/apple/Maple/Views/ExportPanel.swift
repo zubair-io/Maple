@@ -49,7 +49,7 @@ struct ExportPanel: View {
 
         if vm.isExporting {
           Section {
-            HStack(spacing: MuiTokens.spacingSm) {
+            HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
               MuiSpinner(size: .sm, label: "Exporting")
               MuiText("Rendering at full quality…", color: .muted)
             }
