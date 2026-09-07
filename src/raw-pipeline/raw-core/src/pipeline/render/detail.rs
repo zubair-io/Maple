@@ -111,8 +111,10 @@ pub fn render_detail_tile(
     // The reference keeps its actual (often Preview) quality for global
     // anchors. A native patch must demosaic every source pixel: Preview bins
     // 2x2 and would merely enlarge half-resolution detail. Budget and develop
-    // therefore both use Amaze, matching the full-native quality reference.
-    let quality = RenderQuality::Amaze;
+    // therefore both use the full-native export quality — `Auto` since
+    // #3413, so a native-detail patch of a high-ISO frame gets the same
+    // noise-aware kernel its export would.
+    let quality = RenderQuality::Auto;
     let working =
         super::super::tile::tile_working_pixels(raw, &context.active_model, absolute, quality)?;
     if working > max_working_pixels {
