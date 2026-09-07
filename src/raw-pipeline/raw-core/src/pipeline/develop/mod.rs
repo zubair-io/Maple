@@ -34,8 +34,8 @@ use crate::{
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, wb_camera, white_balance,
+        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
+        vibrance, vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -375,6 +375,15 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
     });
     dump_after("03b_oklab_highlight_recovery", &scene);
+    // Clone / heal repair spots (#3409) — a decode-product edit, applied on
+    // the calibrated sensor signal right after DCP colorimetry so the
+    // repaired pixels are denoised, sharpened, exposed and graded exactly
+    // like their neighbours, and so no slider tick re-runs the patch work.
+    // Empty list (the default) is a bit-identical skip.
+    stage("retouch", || {
+        retouch::apply(&mut scene, &model.retouch_spots)
+    })?;
+    dump_after("03c_retouch", &scene);
     // `raw.profile_gain_table_map` (DNG 1.6 ProfileGainTableMap) is
     // deliberately NOT applied here (#2774). The spec pairs it with the
     // profile's ProfileToneCurve — "if used together, the gain table map

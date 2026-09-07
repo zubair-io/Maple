@@ -31,6 +31,9 @@ pub mod mask_range_sample;
 pub mod nlm;
 pub mod noise_reduction;
 pub mod perspective;
+/// Clone / heal repair spots (#3409) — a decode-product edit, applied
+/// after DCP colorimetry and upstream of the chroma pre-filter.
+pub mod retouch;
 pub mod saturation;
 pub mod scene_tone_controls;
 pub mod sharpen;

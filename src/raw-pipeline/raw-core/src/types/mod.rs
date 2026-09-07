@@ -12,6 +12,7 @@ pub mod adjustment;
 pub use adjustment::{TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS};
 pub mod inpaint;
 pub mod local_adjustment;
+pub mod retouch;
 
 pub use adjustment::{
     transfer_mode, AdjustmentGroup, AdjustmentModel, BlackWhiteMode, Crop, DemosaicChoice,
@@ -24,3 +25,4 @@ pub use local_adjustment::{
     layers_from_flat, layers_to_flat, BitmapRecipe, LocalAdjustment, Mask, MaskRaster,
     PartialAdjustments, Point2, RangeRefinement, LAYER_FLAT_LEN, SKIN_TONE_RANGE,
 };
+pub use retouch::{RetouchKind, RetouchSpot};

@@ -386,6 +386,23 @@ pub struct AdjustmentModel {
     /// the compositor short-circuits.
     pub inpaint_removals: Vec<super::inpaint::Removal>,
 
+    /// Clone / heal repair spots (#3409), applied in list order. Each spot
+    /// is a circular destination disc plus the source disc its pixels come
+    /// from; `Clone` copies the source, `Heal` copies only the source's
+    /// high-frequency detail onto the destination's own colour. See
+    /// [`super::retouch`] for the coordinate and radius conventions and
+    /// `stages::retouch` for the apply.
+    ///
+    /// A **decode-product** edit — it runs after DCP colorimetry and before
+    /// the chroma pre-filter, so a slider tick never re-runs it and changing
+    /// the list invalidates the decoded-image caches exactly as
+    /// `deep_denoise` does (`docs/caching.md`). Round-trips through the
+    /// nested `crs:RetouchAreas` element, so a Lightroom-authored spot
+    /// loads and a Maple-authored one renders in Lightroom. **Not part of
+    /// `ADJUSTMENT_SCHEMA`** (same rationale as `local_adjustments`); an
+    /// empty `Vec` (the default) is a bit-identical skip.
+    pub retouch_spots: Vec<super::retouch::RetouchSpot>,
+
     /// Tone-curve application mode (ticket #436). Controls how the
     /// three per-channel `tone_curve_{red,green,blue}` curves are applied:
     /// `PerChannel` (default) treats them as three independent 1-D LUTs

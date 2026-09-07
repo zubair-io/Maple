@@ -38,7 +38,7 @@ use crate::pipeline::{
     capture_sharpening_helper::capture_sharpening_params_from_model,
     develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
 };
-use crate::stages::{capture_sharpening, local_adjustments, vignette};
+use crate::stages::{capture_sharpening, local_adjustments, retouch, vignette};
 
 /// The per-render values the tile entry threads into the chain besides the
 /// mosaic and the model: the host-measured anchors (WB delta anchor, #1725;
@@ -266,6 +266,15 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     });
     // ProfileGainTableMap is not applied on any path (#2774) — see
     // `pipeline::develop` for the rationale.
+    // Clone / heal repair spots (#3409) — same chain position as the full
+    // develop. A spot is NOT a point op: it reads a whole neighbourhood and
+    // its source can sit anywhere in the frame, so a tile holding only part
+    // of a spot's footprint cannot reproduce it and is refused here rather
+    // than rendered without the repair. A tile no spot reaches renders
+    // normally, which is why this is not a whole-model guard like dehaze's.
+    stage("tile_retouch", || {
+        retouch::apply_windowed(&mut scene, &model.retouch_spots, window.origin, window.full)
+    })?;
     // Decode-time chroma pre-filter (#1104). Translation-invariant with a
     // ±4 px stencil — well inside TILE_OVERLAP_PX (48), so the padded tile
     // renders the same pixels the full-image path does. No-op at default 0.

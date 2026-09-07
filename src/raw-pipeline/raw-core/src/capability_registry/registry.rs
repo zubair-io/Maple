@@ -222,6 +222,25 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         qualification: &[],
     },
     Capability {
+        id: "retouch_repair",
+        title: "Clone / heal brush",
+        owner: OWNER,
+        // Shipped on Apple and Web (#3409); Windows follows its mask tool.
+        surfaces: &[Surface::Apple, Surface::Web],
+        storage_adapters: ALL_ADAPTERS,
+        asset_classes: &[AssetClass::Raw],
+        // A decode-product edit: it is part of the develop chain on both the
+        // CPU reference and whatever the GPU live session uploads as its
+        // base, so both preview paths carry it without a GPU pass of its own.
+        preview_paths: &[PreviewPath::CpuReference, PreviewPath::GpuLive],
+        export_paths: ALL_EXPORTS,
+        groups: &[],
+        // Non-copyable (each spot names a source region in THIS image).
+        fields: &["retouch_spots"],
+        integration: DEVELOP_INTEGRATION,
+        qualification: &[],
+    },
+    Capability {
         id: "inpaint_repair",
         title: "Repair (local AI inpainting)",
         owner: OWNER,

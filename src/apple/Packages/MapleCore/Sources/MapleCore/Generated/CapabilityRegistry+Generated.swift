@@ -457,6 +457,28 @@ public enum CapabilityRegistry {
             releaseState: .core
         ),
         CapabilityRecord(
+            id: "retouch_repair",
+            title: "Clone / heal brush",
+            owner: "zubair-io",
+            surfaces: [.apple, .web],
+            storageAdapters: [
+                .filesystem,
+                .smb,
+                .photokit,
+                .cloud,
+                .apiFilesystem,
+                .fileSystemAccess,
+                .indexedDb,
+            ],
+            assetClasses: [.raw],
+            previewPaths: [.cpuReference, .gpuLive],
+            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+            fields: ["retouch_spots"],
+            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+            qualification: [],
+            releaseState: .core
+        ),
+        CapabilityRecord(
             id: "inpaint_repair",
             title: "Repair (local AI inpainting)",
             owner: "zubair-io",
