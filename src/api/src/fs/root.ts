@@ -4,7 +4,7 @@
  * The server only reads/writes under the registered folder roots.
  * Any attempt to escape via ".." or symlinks outside the root is rejected.
  *
- * Additionally, if MAPLE_ROOTS env is set (colon-separated absolute paths),
+ * Additionally, if MAPLE_ROOTS env is set (platform PATH-separated absolute paths),
  * all file access is restricted to those roots. If unset, the restriction is
  * per-folder (registered roots from the DB are the boundary).
  */
@@ -12,6 +12,7 @@
 import { stat, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
+import { parseRootList } from './root-list.ts';
 
 export interface OpResult<T = undefined> {
   ok: boolean;
@@ -35,16 +36,13 @@ async function normalizedEnvRoots(): Promise<string[]> {
   const value = process.env.MAPLE_ROOTS;
   if (envRootsCache && envRootsCache.value === value) return envRootsCache.roots;
   const roots = Promise.all(
-    (value ?? '')
-      .split(path.delimiter)
-      .filter(Boolean)
-      .map(async (root) => {
-        try {
-          return await realpath(root);
-        } catch {
-          return path.resolve(root);
-        }
-      }),
+    parseRootList(value).map(async (root) => {
+      try {
+        return await realpath(root);
+      } catch {
+        return path.resolve(root);
+      }
+    }),
   );
   // Publish the value and its in-flight normalization atomically. Concurrent
   // authorization checks must await the same promise; exposing an interim
@@ -170,7 +168,9 @@ export async function safeWriteAllowed(filePath: string): Promise<OpResult<strin
   const parent = path.dirname(filePath);
   const check = await checkAllowed(parent);
   if (check.ok) {
-    return { ok: true, data: path.join(check.data!, path.basename(filePath)) };
+    // Authorize the complete destination too: a terminal '..' can escape
+    // the checked parent, and an existing sidecar may itself be a symlink.
+    return checkAllowed(path.join(check.data!, path.basename(filePath)));
   } else {
     // Also try the file path itself (in case dirname escapes).
     const check2 = await checkAllowed(filePath);
