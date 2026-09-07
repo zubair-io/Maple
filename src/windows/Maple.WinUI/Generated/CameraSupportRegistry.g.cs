@@ -25,7 +25,7 @@ namespace Maple.WinUI.Generated
     public static class CameraSupportRegistry
     {
         public const uint SchemaVersion = 1;
-        public const uint PipelineOutputVersion = 2;
+        public const uint PipelineOutputVersion = 3;
         public const uint BundledModelCount = 1406;
         public const string ProfileBundleDigest = "blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a";
 
