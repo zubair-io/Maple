@@ -286,5 +286,16 @@ pub(super) fn make_params(
         scope_layer: -1,
         scope_enabled: 0,
         scope_out: std::ptr::null_mut(),
+        // Manual geometry (#3410) — carried straight off the model, so a test
+        // that authors a keystone gets one on the present without a second
+        // opt-in. All-default is exactly `Perspective::IDENTITY`, which the
+        // present shader skips.
+        perspective_vertical: model.perspective_vertical,
+        perspective_horizontal: model.perspective_horizontal,
+        perspective_rotate: model.perspective_rotate,
+        perspective_scale: model.perspective_scale,
+        perspective_aspect: model.perspective_aspect,
+        perspective_x: model.perspective_x,
+        perspective_y: model.perspective_y,
     }
 }

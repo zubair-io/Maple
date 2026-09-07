@@ -324,4 +324,26 @@ pub struct MapleGpuLiveParams {
     pub scope_layer: i32,
     pub scope_enabled: u8,
     pub scope_out: *mut crate::MapleScopeStats,
+    // --- manual geometry (#3410) — Adobe's `crs:Perspective*` seven, composed
+    //     into ONE homography by `raw_core::stages::perspective` and applied by
+    //     the present shader, so the live canvas frames exactly as the export
+    //     tail does. Appended at the struct tail per the offset-stable ABI
+    //     convention.
+    //
+    //     LIKE `parametric_*_split` and UNLIKE most tail fields, 0.0 is not
+    //     identity for every member: `perspective_scale`'s identity is 100
+    //     (percent), so a stale host's zeroed tail would read as a degenerate
+    //     zero-scale matrix. `present_geometry_from_params` therefore treats
+    //     `perspective_scale == 0.0` as "stale host" and substitutes 100 — a
+    //     scale of exactly 0 is outside the slider's own 50..150 range, so no
+    //     live host can be expressing it deliberately. With that substitution a
+    //     zeroed tail is exactly `Perspective::IDENTITY`, the shader takes its
+    //     un-warped load path, and pre-#3410 output stays byte-identical. ---
+    pub perspective_vertical: f32,
+    pub perspective_horizontal: f32,
+    pub perspective_rotate: f32,
+    pub perspective_scale: f32,
+    pub perspective_aspect: f32,
+    pub perspective_x: f32,
+    pub perspective_y: f32,
 }

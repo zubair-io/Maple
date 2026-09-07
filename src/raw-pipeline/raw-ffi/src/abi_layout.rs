@@ -346,6 +346,13 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             scope_layer,
             scope_enabled,
             scope_out,
+            perspective_vertical,
+            perspective_horizontal,
+            perspective_rotate,
+            perspective_scale,
+            perspective_aspect,
+            perspective_x,
+            perspective_y,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),

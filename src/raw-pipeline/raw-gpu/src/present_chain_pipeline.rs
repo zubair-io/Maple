@@ -19,11 +19,58 @@ use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-/// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, plus
-/// the chain-buffer dims when they differ from the surface (#2587's half-res
-/// fast pass — the shader bilinearly upscales). `src_* = 0` selects the exact
-/// 1:1 load path, byte-identical to the pre-#2587 uniform (these fields were
-/// the 16-byte alignment padding).
+/// The manual-geometry homography the present shader warps by (#3410).
+///
+/// Three `vec4` rows of the DESTINATION → SOURCE matrix in the centred,
+/// half-extent-normalized `[-1, 1]` space `raw-core`'s
+/// `stages::perspective::matrix` defines; `rows[0][3]` is the active flag.
+/// `raw-gpu` does not depend on `raw-core` (the dependency runs the other way,
+/// through raw-core's optional `gpu` feature), so the matrix is *built* by the
+/// core and *carried* here as plain numbers — one implementation of the math,
+/// no second copy to keep in step.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PresentGeometry {
+    rows: [[f32; 4]; 3],
+}
+
+impl PresentGeometry {
+    /// No manual geometry: the present takes its untouched pre-#3410 load
+    /// paths, byte for byte.
+    pub const IDENTITY: Self = Self {
+        rows: [[0.0; 4]; 3],
+    };
+
+    /// Wrap a row-major destination → source homography. Callers pass
+    /// `raw_core::stages::perspective::Perspective::inverse_matrix`'s output.
+    pub fn from_inverse(m: [f32; 9]) -> Self {
+        Self {
+            rows: [
+                [m[0], m[1], m[2], 1.0],
+                [m[3], m[4], m[5], 0.0],
+                [m[6], m[7], m[8], 0.0],
+            ],
+        }
+    }
+
+    /// True when this actually warps — i.e. the shader will take the resample
+    /// arm rather than the direct load.
+    pub fn is_active(&self) -> bool {
+        self.rows[0][3] != 0.0
+    }
+}
+
+impl Default for PresentGeometry {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+/// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, the
+/// chain-buffer dims when they differ from the surface (#2587's half-res
+/// fast pass — the shader bilinearly upscales), and the manual-geometry
+/// homography (#3410). `src_* = 0` selects the exact 1:1 load path and a
+/// zeroed `geometry` selects no warp, so a present that wants neither writes
+/// the same bytes the pre-#2587 uniform did in its first two fields.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct PresentParams {
@@ -31,6 +78,9 @@ pub(crate) struct PresentParams {
     pub height: u32,
     pub src_width: u32,
     pub src_height: u32,
+    /// `PresentGeometry::rows`. A `vec4` per row: the only 16-byte-aligned row
+    /// shape a uniform block accepts without an implicit-stride surprise.
+    pub geometry: [[f32; 4]; 3],
 }
 
 /// Pick the surface format: the first *non-sRGB* BGRA/RGBA 8-bit the surface
@@ -149,8 +199,9 @@ pub(crate) fn build_present_dispatch(
     bind_group_layout: &wgpu::BindGroupLayout,
     chain_buf: &wgpu::Buffer,
     dims: (u32, u32),
+    geometry: PresentGeometry,
 ) -> PresentDispatch {
-    build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0))
+    build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0), geometry)
 }
 
 /// [`build_present_dispatch`] with an explicit chain-buffer size differing
@@ -162,14 +213,9 @@ pub(crate) fn build_present_dispatch_scaled(
     chain_buf: &wgpu::Buffer,
     dims: (u32, u32),
     src_dims: (u32, u32),
+    geometry: PresentGeometry,
 ) -> PresentDispatch {
-    let (width, height) = dims;
-    let params = PresentParams {
-        width,
-        height,
-        src_width: src_dims.0,
-        src_height: src_dims.1,
-    };
+    let params = present_params(dims, src_dims, geometry);
     let uniform = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("present-chain-uniform"),
         size: std::mem::size_of::<PresentParams>() as u64,
@@ -195,6 +241,21 @@ pub(crate) fn build_present_dispatch_scaled(
     PresentDispatch {
         uniform,
         bind_group,
+    }
+}
+
+/// The uniform bytes for one present.
+fn present_params(
+    dims: (u32, u32),
+    src_dims: (u32, u32),
+    geometry: PresentGeometry,
+) -> PresentParams {
+    PresentParams {
+        width: dims.0,
+        height: dims.1,
+        src_width: src_dims.0,
+        src_height: src_dims.1,
+        geometry: geometry.rows,
     }
 }
 
@@ -290,7 +351,14 @@ impl PresentDispatchCache {
         chain_buf: &wgpu::Buffer,
         dims: (u32, u32),
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
-        self.get_or_build_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0))
+        self.get_or_build_scaled(
+            ctx,
+            bind_group_layout,
+            chain_buf,
+            dims,
+            (0, 0),
+            PresentGeometry::IDENTITY,
+        )
     }
 
     /// Scaled sibling for a chain buffer smaller than the surface. Geometry
@@ -302,6 +370,7 @@ impl PresentDispatchCache {
         chain_buf: &wgpu::Buffer,
         dims: (u32, u32),
         src_dims: (u32, u32),
+        geometry: PresentGeometry,
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         chain_buf.hash(&mut hasher);
@@ -312,6 +381,17 @@ impl PresentDispatchCache {
                 && existing.dims == dims
                 && existing.src_dims == src_dims
             {
+                // The geometry matrix is DELIBERATELY not part of the key: a
+                // slider drag changes it every tick, and keying on it would
+                // turn every tick into a cache miss and reintroduce the
+                // per-frame allocation #1930 removed. Rewriting the uniform
+                // instead is what `write_buffer` is for — it stages bytes into
+                // an existing buffer and allocates no GPU resource.
+                ctx.queue.write_buffer(
+                    &existing.uniform,
+                    0,
+                    bytemuck::bytes_of(&present_params(dims, src_dims, geometry)),
+                );
                 return (
                     Arc::clone(&existing.uniform),
                     Arc::clone(&existing.bind_group),
@@ -319,8 +399,14 @@ impl PresentDispatchCache {
             }
         }
         // Miss: build fresh, count it, cache it (replacing any stale entry).
-        let dispatch =
-            build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, src_dims);
+        let dispatch = build_present_dispatch_scaled(
+            ctx,
+            bind_group_layout,
+            chain_buf,
+            dims,
+            src_dims,
+            geometry,
+        );
         self.alloc_count.set(self.alloc_count.get() + 2);
         let uniform = Arc::new(dispatch.uniform);
         let bind_group = Arc::new(dispatch.bind_group);
