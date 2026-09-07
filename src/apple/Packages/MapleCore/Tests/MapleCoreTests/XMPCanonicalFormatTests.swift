@@ -110,6 +110,20 @@ final class XMPCanonicalFormatTests: XCTestCase {
             aspect: -35, x: 8, y: -6)
         m.toneCurveLuma = ToneCurve(points: [(x: 0, y: 0), (x: 0.5, y: 0.55), (x: 1, y: 1)])
         m.toneCurveBlue = ToneCurve(points: [(x: 0, y: 0), (x: 1, y: 0.8)])
+        // Two repair spots (#3409) — one of each kind, so the golden pins
+        // both `crs:SpotType` spellings and the container's indent ladder.
+        m.retouchSpots = [
+            RetouchSpot(
+                kind: .heal,
+                center: RetouchPoint(x: 0.25, y: 0.5),
+                source: RetouchPoint(x: 0.75, y: 0.5),
+                radius: 0.05, feather: 0.5, opacity: 1),
+            RetouchSpot(
+                kind: .clone,
+                center: RetouchPoint(x: 0.8, y: 0.2),
+                source: RetouchPoint(x: 0.6, y: 0.3),
+                radius: 0.0125, feather: 0, opacity: 0.75),
+        ]
         return m
     }
 
@@ -385,6 +399,58 @@ let xmpCanonicalGoldenDocument = """
           <rdf:li>255, 204</rdf:li>
         </rdf:Seq>
       </papp:SceneLinearToneCurveBlue>
+      <crs:RetouchAreas>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:SpotType="heal"
+              crs:SourceState="sourceSetExplicitly"
+              crs:Method="circle"
+              crs:SourceX="0.750000"
+              crs:SourceY="0.500000"
+              crs:Opacity="1.000000"
+              crs:Feather="0.500000"
+              crs:Seed="0">
+              <crs:Masks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/CircularGradient"
+                    crs:MaskValue="1"
+                    crs:X="0.250000"
+                    crs:Y="0.500000"
+                    crs:Radius="0.050000"
+                    crs:Flow="1"
+                    crs:CenterWeight="0"/>
+                </rdf:Seq>
+              </crs:Masks>
+            </rdf:Description>
+          </rdf:li>
+          <rdf:li>
+            <rdf:Description
+              crs:SpotType="clone"
+              crs:SourceState="sourceSetExplicitly"
+              crs:Method="circle"
+              crs:SourceX="0.600000"
+              crs:SourceY="0.300000"
+              crs:Opacity="0.750000"
+              crs:Feather="0.000000"
+              crs:Seed="0">
+              <crs:Masks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/CircularGradient"
+                    crs:MaskValue="1"
+                    crs:X="0.800000"
+                    crs:Y="0.200000"
+                    crs:Radius="0.012500"
+                    crs:Flow="1"
+                    crs:CenterWeight="0"/>
+                </rdf:Seq>
+              </crs:Masks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:RetouchAreas>
     </rdf:Description>
   </rdf:RDF>
 </x:xmpmeta>
