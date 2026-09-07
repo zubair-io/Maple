@@ -243,6 +243,15 @@ namespace Maple.WinUI.ViewModels
                     Sl("Deconv Sigma", 0.5, 2, 0.01,
                         m => m.CaptureSharpeningSigma, (m, v) => m.CaptureSharpeningSigma = v,
                         v => v.ToString("0.00"), commitOnRelease: true),
+                    // Defringe (#3411) — ACR's purple / green fringe controls.
+                    // Per-tick sliders (the stage runs between dehaze and local
+                    // adjustments), unlike the decode-product lens scales.
+                    Sl("Defringe Purple", 0, 20, 1, m => m.DefringePurpleAmount, (m, v) => m.DefringePurpleAmount = v),
+                    Sl("Purple Hue Low", 0, 100, 1, m => m.DefringePurpleHueLo, (m, v) => m.DefringePurpleHueLo = v),
+                    Sl("Purple Hue High", 0, 100, 1, m => m.DefringePurpleHueHi, (m, v) => m.DefringePurpleHueHi = v),
+                    Sl("Defringe Green", 0, 20, 1, m => m.DefringeGreenAmount, (m, v) => m.DefringeGreenAmount = v),
+                    Sl("Green Hue Low", 0, 100, 1, m => m.DefringeGreenHueLo, (m, v) => m.DefringeGreenHueLo = v),
+                    Sl("Green Hue High", 0, 100, 1, m => m.DefringeGreenHueHi, (m, v) => m.DefringeGreenHueHi = v),
                 }, expanded: false),
 
                 new("Tone Curve", new[]

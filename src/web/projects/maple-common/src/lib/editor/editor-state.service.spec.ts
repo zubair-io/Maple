@@ -440,7 +440,7 @@ describe('EditorStateService', () => {
     it('verifies tool registry configuration', () => {
       // 26 + mask (#1541) + geometry (#3410) + captureSharpen (#3414)
       // + defringe (#3411).
-      expect(ALL_TOOLS.length).toBe(29);
+      expect(ALL_TOOLS.length).toBe(30);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(6);
       expect(TOOLS_IN_GROUP.effects.length).toBe(7);

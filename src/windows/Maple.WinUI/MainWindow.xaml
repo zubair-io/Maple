@@ -818,6 +818,11 @@
                                                           IsOn="{Binding BlackWhiteOn, Mode=TwoWay}"
                                                           AutomationProperties.Name="Black and white toggle" />
                                         </StackPanel>
+                                        <StackPanel x:Name="PanelDetailHeader" Visibility="Collapsed" Margin="0,0,0,6">
+                                            <ToggleSwitch OnContent="Remove Chromatic Aberration" OffContent="Remove Chromatic Aberration" FontSize="11"
+                                                          IsOn="{Binding AutoLateralCaOn, Mode=TwoWay}"
+                                                          AutomationProperties.Name="Remove chromatic aberration toggle" />
+                                        </StackPanel>
                                         <ItemsControl x:Name="PanelHslBands" Visibility="Collapsed">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:HslBandViewModel">
