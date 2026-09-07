@@ -88,39 +88,39 @@ Nothing in the policy looks at whether the frame "seems" detailed — that decis
 
 **VNG4** (`demosaic/vng4/`, #3413) is the smooth counterpart, a four-direction variable-number-of-gradients kernel written from Chang, Cheung and Pan's published description (SPIE 3650, 1999). Per site it measures a roughness along each of N/E/S/W as a sum of absolute differences between same-colour sample pairs, keeps every direction scoring at or under `K1·gmin + K2·(gmax − gmin)`, and averages only those directions' gradient-corrected green estimates. In a flat region all four qualify, so green is the mean of four independent estimates and chroma the unweighted mean of four colour differences — the noise reduction a detail-first kernel cannot offer, because committing to one direction is the whole point of those kernels. Chroma completion is shared with LMMSE (`demosaic/chroma_diff.rs`) and is deliberately unweighted for the same reason.
 
-**LMMSE** (`demosaic/lmmse/`, #3413) is the high-ISO kernel, written from Zhang and Wu's published description (IEEE TIP 14(12), 2005). It is the only kernel here with an explicit noise model. Along any single row the Bayer samples alternate between green and *one* chroma colour, so `G − C` is well defined at every site; the same holds down any column, giving two "primary difference signal" planes. Over a 9-tap window along each direction the total variance of that signal is split into signal and noise — the noise part estimated from the mean squared second difference divided by 6, which is exactly its variance for white noise, so no separate filtered plane is needed — and the estimate is the classic shrinkage `μ + var_x/(var_x + var_n)·(d − μ)`. The two directional estimates fuse weighted by the inverse of their own mean-square errors. On clean data the gain is 1 and the signal passes through untouched; as noise takes over the reconstruction relaxes toward the local mean instead of tracking read noise.
+**LMMSE** (`demosaic/lmmse/`, #3413) is the high-ISO kernel, written from Zhang and Wu's published description (IEEE TIP 14(12), 2005). It is the only kernel here with an explicit noise model. Along any single row the Bayer samples alternate between green and _one_ chroma colour, so `G − C` is well defined at every site; the same holds down any column, giving two "primary difference signal" planes. Over a 9-tap window along each direction the total variance of that signal is split into signal and noise — the noise part estimated from the mean squared second difference divided by 6, which is exactly its variance for white noise, so no separate filtered plane is needed — and the estimate is the classic shrinkage `μ + var_x/(var_x + var_n)·(d − μ)`. The two directional estimates fuse weighted by the inverse of their own mean-square errors. On clean data the gain is 1 and the signal passes through untouched; as noise takes over the reconstruction relaxes toward the local mean instead of tracking read noise.
 
-**Dual** (`demosaic/dual/`, #3413) runs a detail-first kernel and VNG4 and cross-fades them per pixel. The mask (`dual/weight.rs`) is the gradient magnitude of the *smooth* kernel's green plane divided by its local mean, smoothstepped between `CONTRAST_THRESHOLD` (0.03) and `EDGE_RATIO`× that. Relative rather than absolute contrast, so one threshold constant holds across every fixture: a bright sky and a dim sky are equally flat, and an absolute threshold would route highlights to the detail kernel and shadows to the smooth one purely on exposure. The smooth kernel's green is what the mask reads because green is sampled on a quincunx — a gradient operator on the raw plane alternates between measured and missing sites and reports a checkerboard. A 3×3 dilation runs before the 3×3 smooth, and is not optional: a gradient operator reports a hard edge on a two-pixel-wide ridge, and smoothing that directly would average a weight of 1 with two zero neighbours and hand a third of the sharpest edge in the frame to the smooth kernel.
+**Dual** (`demosaic/dual/`, #3413) runs a detail-first kernel and VNG4 and cross-fades them per pixel. The mask (`dual/weight.rs`) is the gradient magnitude of the _smooth_ kernel's green plane divided by its local mean, smoothstepped between `CONTRAST_THRESHOLD` (0.03) and `EDGE_RATIO`× that. Relative rather than absolute contrast, so one threshold constant holds across every fixture: a bright sky and a dim sky are equally flat, and an absolute threshold would route highlights to the detail kernel and shadows to the smooth one purely on exposure. The smooth kernel's green is what the mask reads because green is sampled on a quincunx — a gradient operator on the raw plane alternates between measured and missing sites and reports a checkerboard. A 3×3 dilation runs before the 3×3 smooth, and is not optional: a gradient operator reports a hard edge on a two-pixel-wide ridge, and smoothing that directly would average a weight of 1 with two zero neighbours and hand a third of the sharpest edge in the frame to the smooth kernel.
 
-Only the detail-first reconstruction is materialised full-frame — it is also the output buffer. VNG4 is rendered one 64-row band at a time into per-task scratch, reading the shared CFA plane directly, and blended in place. The obvious implementation instead holds two full-frame `[f32; 3]` planes, which on the 100 MP reference is 1.2 GB *twice* on top of everything the develop chain already holds — the same peak that jetsam-killed iOS on large RAWs before #1637.
+Only the detail-first reconstruction is materialised full-frame — it is also the output buffer. VNG4 is rendered one 64-row band at a time into per-task scratch, reading the shared CFA plane directly, and blended in place. The obvious implementation instead holds two full-frame `[f32; 3]` planes, which on the 100 MP reference is 1.2 GB _twice_ on top of everything the develop chain already holds — the same peak that jetsam-killed iOS on large RAWs before #1637.
 
 Measured on the 100 MP reference (`test-fixtures/raws/dji-mavic3pro-100mp.dng`, 12288×8192 RGGB) via `cargo run --release -p raw-core --example demosaic-bench`, 18 rayon threads on an M-series Mac, median of 3:
 
-| kernel          | decode  | vs bilinear | measured in |
-| --------------- | ------- | ----------- | ----------- |
-| bilinear        | 221 ms  | 1.00×       | #3412       |
-| **RCD**         | 590 ms  | 2.68× cost  | #3412       |
-| Hamilton-Adams  | 1728 ms | 7.83× cost  | #3412       |
-| AMaZE           | 4370 ms | 19.8× cost  | #3412       |
+| kernel         | decode  | vs bilinear | measured in |
+| -------------- | ------- | ----------- | ----------- |
+| bilinear       | 221 ms  | 1.00×       | #3412       |
+| **RCD**        | 590 ms  | 2.68× cost  | #3412       |
+| Hamilton-Adams | 1728 ms | 7.83× cost  | #3412       |
+| AMaZE          | 4370 ms | 19.8× cost  | #3412       |
 
 RCD is **7.4× faster than AMaZE**, which is what makes it affordable as the default on-screen kernel where AMaZE is not (AMaZE is why the Apple refine is switchable off via `useAmazeDemosaic` on slower devices). Against the ACR references at `Profile::Neutral`, moving `Full` from bilinear to RCD improves or holds every metric — `test_0000` mean ΔE2000 6.078 → 5.963, p95 10.709 → 10.391, max 33.963 → 32.804; `test_0002` mean 12.313 → 12.324, p95 13.455 → 13.434, max 45.767 → 41.972 — and the `FILTER=baseline` gate (which renders at AMaZE) is unchanged across all 20 fixtures.
 
-#3413's kernels, same fixture and same command, medians of 11 interleaved rounds. This run was taken on a machine with other builds running, so read the ratios rather than the absolutes — bilinear and AMaZE reproduce the #3412 figures above to within 15 %, which is what makes the column comparable at all:
+#3413's kernels, same fixture and same command, medians of 9 interleaved rounds. This run was taken on a machine with other builds running, so read the ratios rather than the absolutes — bilinear and AMaZE reproduce the #3412 figures above to within 15 %, which is what makes the column comparable at all:
 
-| kernel               | decode  | vs bilinear |
-| -------------------- | ------- | ----------- |
-| bilinear             | 225 ms  | 1.00×       |
-| **VNG4**             | 825 ms  | 3.67× cost  |
-| RCD                  | 723 ms  | 3.22× cost  |
-| **LMMSE**            | 1055 ms | 4.70× cost  |
-| Hamilton-Adams       | 2283 ms | 10.2× cost  |
-| **dual RCD + VNG4**  | 1812 ms | 8.06× cost  |
-| AMaZE                | 3763 ms | 16.8× cost  |
-| **dual AMaZE + VNG4**| 4141 ms | 18.4× cost  |
+| kernel                | decode  | vs bilinear |
+| --------------------- | ------- | ----------- |
+| bilinear              | 225 ms  | 1.00×       |
+| **VNG4**              | 825 ms  | 3.67× cost  |
+| RCD                   | 723 ms  | 3.22× cost  |
+| **LMMSE**             | 1055 ms | 4.70× cost  |
+| Hamilton-Adams        | 2283 ms | 10.2× cost  |
+| **dual RCD + VNG4**   | 1812 ms | 8.06× cost  |
+| AMaZE                 | 3763 ms | 16.8× cost  |
+| **dual AMaZE + VNG4** | 4141 ms | 18.4× cost  |
 
 The ticket's budget is export within **1.5× AMaZE**, i.e. the last row against the second-to-last: **1.10×** here, and 1.24× on the 24 MP `test_0017` (where a loaded machine leaves less room for interference, because each run is four times shorter). The dual mode is structurally AMaZE plus VNG4 plus the blend, and VNG4 costs about a fifth of AMaZE, so ~1.2–1.4× is the expected figure. Individual runs on a contended machine ranged as high as 1.66×; re-take this on an idle machine before quoting it as a hard number.
 
-Against the ACR reference for `test_0000` at `Profile::Neutral`, over an ROI of the flattest 12 % of sky blocks (the region the dual mode and LMMSE exist to fix — 7.0 % of the frame, selected from the *reference*, so no kernel picks its own ROI):
+Against the ACR reference for `test_0000` at `Profile::Neutral`, over an ROI of the flattest 12 % of sky blocks (the region the dual mode and LMMSE exist to fix — 7.0 % of the frame, selected from the _reference_, so no kernel picks its own ROI):
 
 | kernel            | ΔE mean | ΔE p95 | ROI ΔE mean | ROI ΔE p95 | ROI Oklab chroma |
 | ----------------- | ------- | ------ | ----------- | ---------- | ---------------- |

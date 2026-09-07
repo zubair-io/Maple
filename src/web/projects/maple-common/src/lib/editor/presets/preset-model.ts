@@ -19,6 +19,7 @@ import {
   defaultGeneratedAdjustmentModel,
   type AutoExposureMode,
   type BlackWhiteMode,
+  type DemosaicChoice,
   type GeneratedAdjustmentModel,
   type HighlightRecoveryMode,
   type HotPixelSuppressionMode,
@@ -137,6 +138,17 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
   black_white: allVariantsOf<BlackWhiteMode>()(['Off', 'On']),
   // DNG lens corrections master switch (#376) — decode-product enum field.
   lens_profile_enable: allVariantsOf<LensProfileEnable>()(['Off', 'On']),
+  // Bayer demosaic kernel override (#3413) — decode-product enum field.
+  // Copyable: a preset that pins a kernel is saying "this look wants that
+  // reconstruction", which is as much part of it as its noise reduction.
+  demosaic: allVariantsOf<DemosaicChoice>()([
+    'Auto',
+    'Amaze',
+    'Rcd',
+    'DualAmaze',
+    'DualRcd',
+    'Lmmse',
+  ]),
 };
 
 /**
