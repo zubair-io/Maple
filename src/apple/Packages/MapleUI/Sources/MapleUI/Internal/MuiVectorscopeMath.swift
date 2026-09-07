@@ -8,6 +8,18 @@ import Foundation
 import CoreGraphics
 
 enum MuiVectorscopeMath {
+
+    /// Chroma-space CENTRE of bin `(row, col)` of an `n × n` grid over the
+    /// [-0.5, 0.5] square `canvasPoint` maps — row 0 is the top (most
+    /// positive cr). Centres, not top-left corners, so a cell drawn
+    /// `cell / 2` either side of the point tiles the square exactly
+    /// instead of bleeding half a cell past its edge (#3292 review).
+    static func binCentre(row: Int, col: Int, n: Int) -> (cb: Double, cr: Double) {
+        let cb = (Double(col) + 0.5) / Double(n) - 0.5
+        let cr = 0.5 - (Double(row) + 0.5) / Double(n)
+        return (cb, cr)
+    }
+
     /// BT.601 luma-independent chroma pair for an RGB sample.
     static func chroma(r: Double, g: Double, b: Double) -> (cb: Double, cr: Double) {
         let cb = -0.168736 * r - 0.331264 * g + 0.5 * b

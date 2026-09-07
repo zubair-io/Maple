@@ -66,6 +66,16 @@ export function targetAngleDeg(target: VectorscopeTarget): number {
 }
 
 /** Rotate a chroma pair by `degrees` counter-clockwise about the origin. */
+/** Chroma-space centre of bin `(row, col)` of an `n x n` grid over the
+ *  [-0.5, 0.5] square. Row 0 is the top (most positive cr). */
+export function binCentre(
+  row: number,
+  col: number,
+  n: number,
+): { readonly cb: number; readonly cr: number } {
+  return { cb: (col + 0.5) / n - 0.5, cr: 0.5 - (row + 0.5) / n };
+}
+
 export function rotated(cb: number, cr: number, degrees: number): { cb: number; cr: number } {
   const rad = (degrees * Math.PI) / 180;
   return {
@@ -232,8 +242,9 @@ export class MuiVectorscopeComponent {
     radius: number,
     rotationDeg: number,
   ): { readonly x: number; readonly y: number } {
-    let cb = col / n - 0.5;
-    let cr = 0.5 - row / n;
+    // Bin CENTRES (not top-left corners): a cell drawn `cell / 2` either
+    // side of the point then tiles the square exactly (#3292 review).
+    let { cb, cr } = binCentre(row, col, n);
     if (rotationDeg !== 0) {
       ({ cb, cr } = rotated(cb, cr, rotationDeg));
     }
@@ -256,8 +267,10 @@ export class MuiVectorscopeComponent {
     const logPeak = Math.log(1 + peak);
     for (let row = 0; row < n; row++) {
       for (let col = 0; col < n; col++) {
-        const count = bins[row][col];
-        if (count <= 0) continue;
+        const count = bins[row]?.[col];
+        // `!(count > 0)` also skips `undefined` from a ragged row, which
+        // `count <= 0` would let through into the log scale as NaN.
+        if (!(count > 0)) continue;
         const t = Math.log(1 + count) / logPeak;
         const { x, y } = MuiVectorscopeComponent.binPoint(row, col, n, cx, cy, radius, rotationDeg);
         ctx.fillStyle = withOpacity(baseColor, 0.15 + 0.85 * t);
