@@ -119,7 +119,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
-            &raw_img,
+            Some(&raw_img),
         );
         0
     })
@@ -218,7 +218,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
-            &raw_img,
+            Some(&raw_img),
         );
         0
     })
@@ -307,7 +307,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
-            &raw_img,
+            Some(&raw_img),
         );
         0
     })
@@ -407,7 +407,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
-            &raw_img,
+            Some(&raw_img),
         );
         0
     })
