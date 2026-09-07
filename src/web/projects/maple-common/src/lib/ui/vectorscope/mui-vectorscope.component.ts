@@ -65,7 +65,6 @@ export function targetAngleDeg(target: VectorscopeTarget): number {
   return (Math.atan2(cr, cb) * 180) / Math.PI;
 }
 
-/** Rotate a chroma pair by `degrees` counter-clockwise about the origin. */
 /** Chroma-space centre of bin `(row, col)` of an `n x n` grid over the
  *  [-0.5, 0.5] square. Row 0 is the top (most positive cr). */
 export function binCentre(
@@ -76,6 +75,7 @@ export function binCentre(
   return { cb: (col + 0.5) / n - 0.5, cr: 0.5 - (row + 0.5) / n };
 }
 
+/** Rotate a chroma pair by `degrees` counter-clockwise about the origin. */
 export function rotated(cb: number, cr: number, degrees: number): { cb: number; cr: number } {
   const rad = (degrees * Math.PI) / 180;
   return {
