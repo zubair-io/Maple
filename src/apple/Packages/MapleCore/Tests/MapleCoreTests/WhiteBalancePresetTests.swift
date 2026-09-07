@@ -16,8 +16,12 @@ final class WhiteBalancePresetTests: XCTestCase {
       live.wbSampleX = 0.3
       live.wbSampleY = 0.8
       live.wbAlgorithmVersion = 3
+      live.localAdjustments = [
+        LocalAdjustment(mask: .everywhere, range: nil, adjustments: PartialAdjustments(exposure: 1))
+      ]
       XCTAssertEqual(RawCoreBridge.stripAppleGPUStages(live), decoded)
       XCTAssertEqual(live.whiteBalancePreset, preset, "Stripping must not alter the live model")
+      XCTAssertEqual(live.localAdjustments.count, 1)
     }
   }
 
@@ -35,6 +39,10 @@ final class WhiteBalancePresetTests: XCTestCase {
       before.wbSampleY = 0.7
       before.wbAlgorithmVersion = 9
       before.wbScaleVersion = 1
+      before.localAdjustments = [
+        LocalAdjustment(
+          mask: .everywhere, range: nil, adjustments: PartialAdjustments(exposure: 0.75))
+      ]
       let session = EditSession(asset: AssetRef(url: raw), model: before)
       let state = EditorState(session: session)
       await state.applyWhiteBalancePreset(preset)
@@ -48,6 +56,7 @@ final class WhiteBalancePresetTests: XCTestCase {
       XCTAssertEqual(applied.wbSampleY, 0)
       XCTAssertEqual(applied.wbAlgorithmVersion, 0)
       XCTAssertEqual(applied.exposure, before.exposure)
+      XCTAssertEqual(applied.localAdjustments, before.localAdjustments)
       let decodeXML = XMPSerializer.serialize(
         model: applied, culling: CullingState(), omitWhiteBalance: true)
       XCTAssertFalse(
@@ -98,6 +107,10 @@ final class WhiteBalancePresetTests: XCTestCase {
     let state = EditorState(session: session)
     session.model.exposure = 2
     session.model.contrast = 13
+    session.model.localAdjustments = [
+      LocalAdjustment(
+        mask: .everywhere, range: nil, adjustments: PartialAdjustments(exposure: 0.75))
+    ]
     let before = session.model
     state.autoProvider = { _ in
       AutoAdjustmentsResult(
@@ -110,6 +123,7 @@ final class WhiteBalancePresetTests: XCTestCase {
     XCTAssertEqual(session.model.exposure, before.exposure)
     XCTAssertEqual(session.model.contrast, before.contrast)
     XCTAssertEqual(session.model.autoExposure, before.autoExposure)
+    XCTAssertEqual(session.model.localAdjustments, before.localAdjustments)
     XCTAssertEqual(session.model.wbSource, .auto)
     XCTAssertEqual(session.model.whiteBalancePreset, .auto)
     XCTAssertEqual(session.model.wbAlgorithmVersion, autoWhiteBalanceAlgorithmVersion)
