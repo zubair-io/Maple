@@ -12,17 +12,6 @@ struct EditorCanvasView: View {
 
   // MARK: - Canvas layer
 
-  /// Fit-mode inset applied around the canvas while the Crop tool is
-  /// armed. Without it, a full-frame crop's fit footprint touches the
-  /// viewport edge on the constraining axis, so a corner/edge handle's
-  /// grab tolerance (`CropOverlay`'s `handleTolerance`, 14pt) is
-  /// half-clipped by the gesture region instead of fully reachable.
-  /// `CanvasZoomHost` and `CropOverlay` each resolve their own fit
-  /// footprint from their own `GeometryReader`, so padding this shared
-  /// wrapper keeps both reading the same (smaller) size and the overlay
-  /// stays 1:1 with the painted image.
-  private static let cropViewportMargin: CGFloat = 32
-
   var body: some View {
     GeometryReader { geometry in
       ZStack(alignment: .top) {
@@ -57,7 +46,11 @@ struct EditorCanvasView: View {
               .id(ObjectIdentifier(state.session))
           }
         }
-        .padding(state.armedTool == .crop ? cropInsets(in: geometry.size) : EdgeInsets())
+        .padding(
+          state.armedTool == .crop
+            ? EditorCropGeometry.insets(
+              size: geometry.size, controlsFrame: wheelExclusionFrame,
+              isRegular: isRegular, hasFilmstrip: hasFilmstrip) : EdgeInsets())
         // Before/after "BEFORE" badge — surfaced while the session is
         // showing the original (the canvas itself falls back to the
         // placeholder).
@@ -83,17 +76,4 @@ struct EditorCanvasView: View {
     }
   }
 
-  /// Keep crop handles in the uncovered canvas while the shared controls
-  /// remain visible. The host and overlay receive these same bounds.
-  private func cropInsets(in size: CGSize) -> EdgeInsets {
-    let margin = Self.cropViewportMargin
-    let coveredWidth = wheelExclusionFrame.map { max(0, size.width - $0.minX) } ?? 0
-    let coveredHeight = wheelExclusionFrame.map { max(0, size.height - $0.minY) } ?? 0
-    return EdgeInsets(
-      top: 76,
-      leading: isRegular && hasFilmstrip ? 112 : margin,
-      bottom: isRegular ? margin : max(margin, coveredHeight + 16),
-      trailing: isRegular ? max(margin, coveredWidth + 16) : margin
-    )
-  }
 }
