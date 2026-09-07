@@ -64,9 +64,8 @@ export interface Asset {
    * Client-synthesised absolute path for Self-Hosted *fs-walk* browse mode
    * (NOT from the wire). The fs-walk path lets the editor mount on a
    * deep-link `/edit/fs:<absPath>` without first navigating via Browse;
-   * `hydrateSelfHostedFsAsset` populates it from the route id, and
-   * `_applyFsListing` sets it from `FsDirListing` entries (also a path,
-   * not a content-addressed location).
+   * `hydrateSelfHostedFsAsset` used to populate it from the route id (also a
+   * path, not a content-addressed location); post-M2 nothing sets it.
    *
    * NOT to be confused with the retired server-side `abs_path` field; the
    * wire contract uses `fileinfo[]` exclusively for content-addressed

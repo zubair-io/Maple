@@ -20,8 +20,10 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   API_BASE_URL,
+  HttpLibrarySource,
+  LIBRARY_SOURCE,
   type ApiFolder,
-  type FsDirListing,
+  type ApiDirListing,
   type ImportScanResult,
 } from '@maple-common';
 import { ImportsComponent } from './imports.component';
@@ -40,11 +42,10 @@ describe('ImportsComponent', () => {
     created_at: '2026-01-01T00:00:00Z',
   };
 
-  const ROOT_LISTING: FsDirListing = {
+  const ROOT_LISTING: ApiDirListing = {
     path: '/',
     parent: null,
-    dirs: [{ name: 'incoming', path: '/incoming', mtime: '2026-08-01T00:00:00Z' }],
-    images: [],
+    entries: [{ name: 'incoming', path: '/incoming', hasChildren: false }],
   };
 
   const RUNNING_IMPORT = {
@@ -71,6 +72,10 @@ describe('ImportsComponent', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         { provide: API_BASE_URL, useValue: '/api' },
+        // The `maple` app is Self Hosted: FilesystemBrowseService resolves
+        // thumbnails through LIBRARY_SOURCE (#1325), which the app-level
+        // providers bind to HttpLibrarySource.
+        { provide: LIBRARY_SOURCE, useExisting: HttpLibrarySource },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -110,7 +115,7 @@ describe('ImportsComponent', () => {
     select.dispatchEvent(new Event('change'));
     fixture.detectChanges();
 
-    http.expectOne('/api/fs/dir-fast?path=/').flush(ROOT_LISTING);
+    http.expectOne('/api/fs/list?path=/').flush(ROOT_LISTING);
     await tick();
     fixture.detectChanges();
   }
@@ -140,14 +145,14 @@ describe('ImportsComponent', () => {
     el().querySelector<HTMLButtonElement>('.row-btn button')!.click();
 
     http
-      .expectOne('/api/fs/dir-fast?path=/incoming')
-      .flush({ path: '/incoming', parent: '/', dirs: [], images: [] });
+      .expectOne('/api/fs/list?path=/incoming')
+      .flush({ path: '/incoming', parent: '/', entries: [] });
     await tick();
     fixture.detectChanges();
     expect(el().querySelector('.path')?.textContent).toBe('/incoming');
 
     el().querySelector<HTMLButtonElement>('.browser-bar mui-button button')!.click();
-    http.expectOne('/api/fs/dir-fast?path=/').flush(ROOT_LISTING);
+    http.expectOne('/api/fs/list?path=/').flush(ROOT_LISTING);
     await tick();
     fixture.detectChanges();
     expect(el().querySelector('.path')?.textContent).toBe('/');

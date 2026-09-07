@@ -42,7 +42,7 @@ import {
   FilesystemBrowseService,
   ImportsApiService,
   type ApiFolder,
-  type FsDirListing,
+  type ApiDirListing,
   type ImportScanBucket,
   type ImportScanResult,
   type ImportSummary,
@@ -106,7 +106,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   // --- Source folder picker (starts at the filesystem root) ----------------
   private readonly roots = signal<string[]>([]);
-  protected readonly listing = signal<FsDirListing | null>(null);
+  protected readonly listing = signal<ApiDirListing | null>(null);
   protected readonly currentPath = computed(() => this.listing()?.path ?? null);
   protected readonly atRoot = computed(() => this.listing()?.parent == null);
   protected readonly selectedSource = signal<string | null>(null);
@@ -177,7 +177,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
     this.busy.set(true);
     this.error.set(null);
     try {
-      this.listing.set(await firstValueFrom(this.fsBrowse.listDir(absPath)));
+      this.listing.set(await firstValueFrom(this.backend.listDir(absPath)));
     } catch (e) {
       this.error.set(this.msg(e));
     } finally {
