@@ -8,16 +8,35 @@
 //! bit-identical to the version before it.
 //!
 //! Usage:
-//!   cargo run --release -p raw-core --example local-adjustments-bench -- <layers> <megapixels> [runs]
+//!   cargo run --release -p raw-core --example local-adjustments-bench -- <layers> <megapixels> [runs] [spatial]
 //!     layers      : number of stacked local-adjustment layers; default 1
 //!     megapixels  : e.g. 2 (a preview) or 100 (the reference RAW); default 100
 //!     runs        : timed iterations, median reported; default 9
+//!     spatial     : 1 to additionally engage the six SPATIAL controls
+//!                   (#3407); default 0
 //!
-//! Layer 0 is a feathered linear gradient carrying every one of the nine
-//! wired controls, so the timed path exercises the whole `apply_pixel` body
-//! (including the per-pixel CAT16 derivation and the Oklab
-//! saturation/vibrance round trips). Additional layers alternate with a
-//! feathered radial so the multi-layer cost is representative.
+//! Every layer carries all eleven POINT controls, so the timed path
+//! exercises the whole `apply_pixel` body (including the per-pixel CAT16
+//! derivation and the Oklab saturation/vibrance round trips). Layer 0 is a
+//! feathered linear gradient; additional layers alternate with a feathered
+//! radial so the multi-layer cost is representative.
+//!
+//! ## Why `spatial` is a flag rather than always on
+//!
+//! The point group's defining property — the one this harness exists to
+//! watch — is that it allocates NOTHING inside the render loop. The six
+//! spatial controls (#3407) cannot honour that: each engaged layer takes a
+//! scratch copy of the buffer to run the global kernel over before blending
+//! it back by the mask weight, so `alloc_bytes` necessarily grows by roughly
+//! one image per engaged layer. Folding them into the default run would
+//! silently retire the zero-allocation invariant AND move the FNV
+//! fingerprint, breaking comparability with every measurement taken before
+//! this ticket.
+//!
+//! So the default run is unchanged — same controls, same allocation claim,
+//! same fingerprint — and `spatial 1` measures the new path deliberately,
+//! where a non-zero `alloc_count` is the expected reading rather than a
+//! regression.
 
 use raw_core::image::{ColorSpace, Image};
 use raw_core::stages::local_adjustments;
@@ -78,8 +97,14 @@ fn make_input(mp: f64) -> Image {
     img
 }
 
-/// Layer 0 carries every wired control; later layers alternate radial/linear.
-fn make_layers(n: usize) -> Vec<LocalAdjustment> {
+/// Every layer carries all eleven point controls; `spatial` additionally
+/// engages the six spatial ones. Layers alternate linear/radial.
+fn make_layers(n: usize, spatial: bool) -> Vec<LocalAdjustment> {
+    // The six spatial controls are `None` unless asked for, which is NOT the
+    // same as `Some(0.0)`: a present-but-zero control still reports on the
+    // flat wire, and `spatial::engaged` is what decides whether the scratch
+    // copy is taken at all.
+    let spatial_value = |v: f32| if spatial { Some(v) } else { None };
     let full = PartialAdjustments {
         exposure: Some(0.6),
         contrast: Some(25.0),
@@ -92,6 +117,14 @@ fn make_layers(n: usize) -> Vec<LocalAdjustment> {
         temperature: Some(1200.0),
         tint: Some(8.0),
         hue: Some(-15.0),
+        // Representative mid-strength values, so each engaged kernel does
+        // real work rather than tripping its own no-op threshold.
+        texture: spatial_value(35.0),
+        clarity: spatial_value(40.0),
+        dehaze: spatial_value(30.0),
+        sharpness: spatial_value(50.0),
+        luminance_noise: spatial_value(35.0),
+        defringe: spatial_value(60.0),
     };
     (0..n)
         .map(|i| {
@@ -140,9 +173,10 @@ fn main() {
     let layer_count: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
     let mp: f64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100.0);
     let runs: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(9);
+    let spatial: bool = args.get(4).is_some_and(|s| s != "0");
 
     let base = make_input(mp);
-    let layers = make_layers(layer_count);
+    let layers = make_layers(layer_count, spatial);
     let px = base.pixels.len();
 
     // --- Warm up FIRST (allocator caches + rayon's one-time global
@@ -181,7 +215,7 @@ fn main() {
     let hash = fnv1a_pixels(&one.pixels);
 
     println!(
-        "layers={layer_count} mp={mp:.1} px={px} w={} h={} runs={runs}",
+        "layers={layer_count} mp={mp:.1} px={px} w={} h={} runs={runs} spatial={spatial}",
         base.width, base.height
     );
     println!(
