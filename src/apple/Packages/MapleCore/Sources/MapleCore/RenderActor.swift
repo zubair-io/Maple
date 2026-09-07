@@ -197,8 +197,9 @@ public actor RenderActor {
   var decodeGeneration: UInt64 = 0
 
   /// (image, noiseProfile, iso, wbFrame, aeGain, hasLensCorrections, lensCorrectionCaInert,
-  /// lensCorrectionDistortionInert) — see `SceneLinearDecodeResult`'s doc for each field
-  /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields (image, nil, 0, nil, 1.0, false, true, true).
+  /// lensCorrectionDistortionInert, cameraSupport) — see `SceneLinearDecodeResult`'s doc for each field
+  /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields
+  /// (image, nil, 0, nil, 1.0, false, true, true, nil).
   var decodeTask:
     Task<
       (CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool, RawCameraSupport?)?,
