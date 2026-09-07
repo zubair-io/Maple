@@ -24,8 +24,13 @@ import type {
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
-import { dispatchSampleWb } from './raw-pipeline.sample-wb-request';
+import type { SampleQueue } from './raw-pipeline.samplers';
+import {
+  sampleMaskRange as runMaskRangeSample,
+  sampleWhiteBalance as runWhiteBalanceSample,
+} from './raw-pipeline.samplers';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
+import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
 import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 import { developNonRaw } from './raw-pipeline.non-raw-develop';
 import {
@@ -459,26 +464,10 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  // ── Neutral white-balance sampler (#2434) ───────────────────────────────────
+  // ── Cold one-shot samplers (#2434 white balance, #362 mask colour range) ────
+  // Bodies live in `raw-pipeline.samplers.ts` (this file is at its size
+  // budget); both run behind `decodeChain` via `sampleQueue` below.
 
-  /**
-   * Sample the neutral at a normalised image-relative point and return the
-   * slider pair that renders that surface neutral, plus the version of the
-   * derivation (`wb_algorithm_version`).
-   *
-   * Rejects with a `WbSampleRejected` carrying the reason the click was not
-   * usable (clipped, too dark, outside the image, outside the slider domain)
-   * so the caller can phrase an actionable message rather than a generic
-   * failure. Shares `decodeChain` with `decode()` and the auto-adjust
-   * one-shot: the sampler decodes and develops the same probe AUTO does, so
-   * two of them must not sit in the WASM heap at once.
-   *
-   * @param bytes RAW file bytes (copied; the caller's view is not consumed).
-   * @param ext   Lowercase file extension, e.g. `"dng"`.
-   * @param xmp   Current XMP sidecar text, or `undefined` for a fresh open.
-   * @param nx    Normalised x, `0` = left edge, `1` = right edge.
-   * @param ny    Normalised y, `0` = top edge, `1` = bottom edge.
-   */
   // fallow-ignore-next-line unused-class-member
   sampleWhiteBalance(
     bytes: Uint8Array,
@@ -487,34 +476,34 @@ export class RawPipelineService implements OnDestroy {
     nx: number,
     ny: number,
   ): Promise<WbSampleResult> {
-    const run = () => this.sampleWhiteBalanceOnce(bytes, ext, xmp, nx, ny);
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
+    return runWhiteBalanceSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
   }
 
-  private sampleWhiteBalanceOnce(
+  // fallow-ignore-next-line unused-class-member
+  sampleMaskRange(
     bytes: Uint8Array,
     ext: string,
     xmp: string | undefined,
     nx: number,
     ny: number,
-  ): Promise<WbSampleResult> {
-    try {
-      return dispatchSampleWb(
-        this.ensureWorker(),
-        this.nextId++,
-        this.pending.set.bind(this.pending),
-        bytes,
-        ext,
-        xmp,
-        nx,
-        ny,
-      );
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
+  ): Promise<MaskRangeSeed> {
+    return runMaskRangeSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
   }
+
+  /** Chains one sampler request after the in-flight decode work: every
+   *  sampler develops its own probe, so two must never sit in the heap. */
+  private readonly sampleQueue: SampleQueue = (run) => {
+    const once = () => {
+      try {
+        return run(this.ensureWorker(), this.nextId++, this.pending.set.bind(this.pending));
+      } catch {
+        return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+      }
+    };
+    const next = this.decodeChain.then(once, once);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  };
 
   /**
    * Render a RAW at export quality and encode it to a deliverable file (#943).

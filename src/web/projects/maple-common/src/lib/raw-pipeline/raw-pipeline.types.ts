@@ -302,6 +302,12 @@ import type {
   SampleWbSuccess,
   SampleWbError,
 } from './raw-pipeline.sample-wb.types';
+// Mask colour-range eyedropper (#362): same sibling-file split.
+import type {
+  SampleRangeRequest,
+  SampleRangeSuccess,
+  SampleRangeError,
+} from './raw-pipeline.sample-range.types';
 // Bitmap-mask raster registry (#3300): same sibling-file split.
 import type {
   RegisterMaskRasterRequest,
@@ -327,6 +333,8 @@ export type WorkerResponse =
   | AutoAdjustError
   | SampleWbSuccess
   | SampleWbError
+  | SampleRangeSuccess
+  | SampleRangeError
   | RegisterMaskRasterSuccess
   | RegisterMaskRasterError
   | ExportSuccess
@@ -477,6 +485,7 @@ export type WorkerRequest =
   | SetFilmLutRequest
   | AutoAdjustRequest
   | SampleWbRequest
+  | SampleRangeRequest
   | RegisterMaskRasterRequest
   | ReleaseMaskRasterRequest
   | ExportRequest;

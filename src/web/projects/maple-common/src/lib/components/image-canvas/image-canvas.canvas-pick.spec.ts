@@ -1,7 +1,7 @@
-// White-balance pick geometry + arm/resolve lifecycle (#2434).
+// Canvas pick geometry + arm/resolve lifecycle (#2434, #362).
 
 import { normalisedImagePoint } from './image-canvas.wb-pick';
-import { WbPickService } from './wb-pick.service';
+import { CanvasPickService, RANGE_PICK_PROMPT, WB_PICK_PROMPT } from './canvas-pick.service';
 
 /** A 400×300 image fitted, unpanned, in an 800×600 viewport. */
 const FITTED = { wrapW: 800, wrapH: 600, canvasW: 400, canvasH: 300, pan: { x: 0, y: 0 } };
@@ -47,9 +47,9 @@ describe('normalisedImagePoint (#2434)', () => {
   });
 });
 
-describe('WbPickService (#2434)', () => {
+describe('CanvasPickService (#2434, #362)', () => {
   it('resolves the armed pick with the clicked point and disarms', async () => {
-    const svc = new WbPickService();
+    const svc = new CanvasPickService();
     const pending = svc.arm();
     expect(svc.active()).toBe(true);
     svc.resolve({ nx: 0.25, ny: 0.75 });
@@ -58,7 +58,7 @@ describe('WbPickService (#2434)', () => {
   });
 
   it('cancel resolves null so the caller is never left waiting', async () => {
-    const svc = new WbPickService();
+    const svc = new CanvasPickService();
     const pending = svc.arm();
     svc.cancel();
     await expect(pending).resolves.toBeNull();
@@ -66,7 +66,7 @@ describe('WbPickService (#2434)', () => {
   });
 
   it('re-arming cancels the previous wait rather than stranding it', async () => {
-    const svc = new WbPickService();
+    const svc = new CanvasPickService();
     const first = svc.arm();
     const second = svc.arm();
     await expect(first).resolves.toBeNull();
@@ -74,8 +74,19 @@ describe('WbPickService (#2434)', () => {
     await expect(second).resolves.toEqual({ nx: 0.1, ny: 0.2 });
   });
 
+  it('carries the arming caller\u2019s prompt, so one overlay serves both eyedroppers', () => {
+    const svc = new CanvasPickService();
+    expect(svc.prompt()).toBe(WB_PICK_PROMPT);
+    void svc.arm(RANGE_PICK_PROMPT);
+    expect(svc.prompt()).toBe(RANGE_PICK_PROMPT);
+    svc.cancel();
+    void svc.arm();
+    expect(svc.prompt()).toBe(WB_PICK_PROMPT);
+    svc.cancel();
+  });
+
   it('resolving when nothing is armed is a no-op', () => {
-    const svc = new WbPickService();
+    const svc = new CanvasPickService();
     expect(() => svc.resolve({ nx: 0.5, ny: 0.5 })).not.toThrow();
     expect(svc.active()).toBe(false);
   });
