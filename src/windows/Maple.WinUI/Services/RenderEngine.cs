@@ -214,12 +214,28 @@ namespace Maple.WinUI.Services
         /// <summary>Sensor long edge (px), read from the file's EXIF/TIFF
         /// IFDs without a decode — <see cref="RefineDecodeQuality"/>'s
         /// reference for the AMaZE-upgrade decision (#3417). 0 when
-        /// unreadable, which keeps the rule at its conservative Preview
-        /// default.</summary>
+        /// unreadable (including a corrupt/unparseable EXIF block), which
+        /// keeps the rule at its conservative Preview default rather than
+        /// letting this optional escalation check fail the decode itself
+        /// (#3417 Jules review — belt-and-suspenders: <see cref="ExifReader.Read"/>
+        /// already documents that it never throws, but this call sits
+        /// directly in <c>ScheduleAmazeUpgrade</c>'s synchronous path,
+        /// inside the SAME try/block <c>DecodeCurrent</c> uses to report
+        /// "Decode failed" for the already-succeeded Preview decode, so it
+        /// must not be the one place that contract is trusted
+        /// unconditionally).</summary>
         public static double SensorLongEdge(string rawPath)
         {
-            var exif = ExifReader.Read(rawPath);
-            return Math.Max(exif?.PixelWidth ?? 0, exif?.PixelHeight ?? 0);
+            try
+            {
+                var exif = ExifReader.Read(rawPath);
+                return Math.Max(exif?.PixelWidth ?? 0, exif?.PixelHeight ?? 0);
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[decode] SensorLongEdge unreadable for {Path.GetFileName(rawPath)}: {ex.Message}");
+                return 0;
+            }
         }
 
         /// <summary>Copies an already-fitted Auto Profile tail onto
