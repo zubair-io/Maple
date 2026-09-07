@@ -35,6 +35,24 @@ export interface PartialAdjustments {
   tint?: number;
   /** Oklab hue rotation: ±100 maps to ±30°, stored as ±1 in crs:LocalHue. */
   hue?: number;
+  // The six SPATIAL controls (#3407). Unlike the eleven point controls
+  // above, none can be evaluated one pixel at a time — every one reads a
+  // neighbourhood — so raw-core runs them as one grouped pass over the
+  // layer's output and lerps the result back by the mask weight
+  // (`stages::local_adjustments::spatial`). Declaration order is the wire
+  // order, and all six ride Adobe's ±1 fraction scale like `hue`.
+  /** Fine-detail local contrast inside the mask, −100 … 100. */
+  texture?: number;
+  /** Structure-scale local contrast inside the mask, −100 … 100. */
+  clarity?: number;
+  /** Haze removal inside the mask, −100 … 100. */
+  dehaze?: number;
+  /** Luminance-only unsharp mask inside the mask, −100 … 100. */
+  sharpness?: number;
+  /** Luminance noise reduction inside the mask, 0 … 100. */
+  luminanceNoise?: number;
+  /** Chroma-fringe suppression at high-contrast edges, 0 … 100. */
+  defringe?: number;
 }
 
 /** Normalized 2D point: `x` across the width, `y` down from the top edge. */

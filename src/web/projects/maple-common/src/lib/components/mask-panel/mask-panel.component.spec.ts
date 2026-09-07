@@ -1,4 +1,5 @@
-// mask-panel.component.spec.ts — the mask panel's per-kind controls (#3300).
+// mask-panel.component.spec.ts — the mask panel's per-kind controls (#3300)
+// and its per-layer control stack (#3407).
 //
 // The feather slider is gated on the selected layer's mask KIND, not on the
 // feather value: a geometric mask keeps its slider at feather 0 (a hard
@@ -124,5 +125,93 @@ describe('MaskPanelComponent colour range (#362)', () => {
     expect(pick.active()).toBe(true);
     expect(pick.prompt()).toBe(RANGE_PICK_PROMPT);
     pick.cancel();
+  });
+});
+
+describe('MaskPanelComponent spatial controls (#3407)', () => {
+  let session: MaskSessionService;
+
+  beforeEach(() => {
+    const lib = Object.assign(makeLibraryStub(), {
+      focusedAsset: signal({ id: 'asset-1', width: 6000, height: 4000 }),
+      focusedAssetId: signal('asset-1'),
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: LibraryStateService, useValue: lib },
+        { provide: RawPipelineService, useValue: {} },
+      ],
+    });
+    TestBed.inject(EditorStateService).imageId.set('asset-1');
+    session = TestBed.inject(MaskSessionService);
+  });
+
+  /** Every rendered slider's accessible name, in DOM order. */
+  const sliderNames = (host: HTMLElement): string[] =>
+    Array.from(host.querySelectorAll('[role="slider"]')).map(
+      (el) => el.getAttribute('aria-label') ?? '',
+    );
+
+  const sliderNamed = (host: HTMLElement, name: string): HTMLElement | undefined =>
+    Array.from(host.querySelectorAll('[role="slider"]')).find(
+      (el) => el.getAttribute('aria-label') === name,
+    ) as HTMLElement | undefined;
+
+  const panelWithLinearLayer = () => {
+    session.addLinear();
+    const fixture = TestBed.createComponent(MaskPanelComponent);
+    fixture.detectChanges();
+    return fixture;
+  };
+
+  it("renders the six spatial sliders after the tone stack, in Lightroom's order", () => {
+    const names = sliderNames(panelWithLinearLayer().nativeElement as HTMLElement);
+    expect(names.slice(-6)).toEqual([
+      'Texture',
+      'Clarity',
+      'Dehaze',
+      'Sharpness',
+      'Noise',
+      'Defringe',
+    ]);
+    expect(names.indexOf('Texture')).toBeGreaterThan(names.indexOf('Tint'));
+  });
+
+  it('gives Noise and Defringe a one-sided 0…100 range and the other four ±100', () => {
+    const host = panelWithLinearLayer().nativeElement as HTMLElement;
+    for (const name of ['Texture', 'Clarity', 'Dehaze', 'Sharpness']) {
+      expect(sliderNamed(host, name)?.getAttribute('aria-valuemin')).toBe('-100');
+      expect(sliderNamed(host, name)?.getAttribute('aria-valuemax')).toBe('100');
+    }
+    for (const name of ['Noise', 'Defringe']) {
+      expect(sliderNamed(host, name)?.getAttribute('aria-valuemin')).toBe('0');
+      expect(sliderNamed(host, name)?.getAttribute('aria-valuemax')).toBe('100');
+    }
+  });
+
+  it('writes a spatial control onto the selected layer and shows it on the slider', () => {
+    const fixture = panelWithLinearLayer();
+    session.setAdjustment('clarity', 35);
+    fixture.detectChanges();
+    expect(session.selected()?.adjustments.clarity).toBe(35);
+    expect(
+      sliderNamed(fixture.nativeElement as HTMLElement, 'Clarity')?.getAttribute('aria-valuenow'),
+    ).toBe('35');
+  });
+
+  it('counts an edited spatial control in the layer row subtitle', () => {
+    const fixture = panelWithLinearLayer();
+    session.setAdjustment('defringe', 40);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('1 edited');
+  });
+
+  it('leaves an untouched spatial control unset, not zero', () => {
+    panelWithLinearLayer();
+    session.setAdjustment('texture', 20);
+    const adjustments = session.selected()?.adjustments ?? {};
+    expect(adjustments.texture).toBe(20);
+    expect('clarity' in adjustments).toBe(false);
+    expect(adjustments.luminanceNoise).toBeUndefined();
   });
 });

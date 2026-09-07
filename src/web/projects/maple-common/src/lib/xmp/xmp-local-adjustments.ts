@@ -56,7 +56,9 @@ const containerKindOf = (mask: LocalMask): LocalAdjustmentContainerKind =>
 /**
  * Slider attribute → model field, in canonical emit order. Every field has a
  * direct Adobe key except `vibrance`: Adobe's local-correction struct has no
- * vibrance control, so it rides Maple's own `papp:LocalVibrance`.
+ * vibrance control, so it rides Maple's own `papp:LocalVibrance`. The tail —
+ * `hue` (#3269) plus the six spatial controls (#3407) — is the group Adobe
+ * stores as a ±1 FRACTION of Maple's ±100 slider; see `FRACTION_SCALED`.
  */
 const SLIDER_KEYS: ReadonlyArray<readonly [string, keyof PartialAdjustments]> = [
   ['crs:LocalExposure2012', 'exposure'],
@@ -70,7 +72,30 @@ const SLIDER_KEYS: ReadonlyArray<readonly [string, keyof PartialAdjustments]> = 
   ['crs:LocalTemperature', 'temperature'],
   ['crs:LocalTint', 'tint'],
   ['crs:LocalHue', 'hue'],
+  ['crs:LocalTexture', 'texture'],
+  ['crs:LocalClarity2012', 'clarity'],
+  ['crs:LocalDehaze', 'dehaze'],
+  ['crs:LocalSharpness', 'sharpness'],
+  ['crs:LocalLuminanceNoise', 'luminanceNoise'],
+  ['crs:LocalDefringe', 'defringe'],
 ];
+
+/**
+ * The controls Adobe stores as a ±1 fraction rather than in Maple's own
+ * units — `crs:LocalClarity2012="0.35"` is a Clarity of +35 in Lightroom's
+ * own panel. They divide by 100 on the way out through `fractionSerializer`
+ * and multiply by 100 on the way back in; the other ten sliders are stored
+ * in Maple's units and ride `numericSerializer` unchanged.
+ */
+const FRACTION_SCALED: ReadonlySet<keyof PartialAdjustments> = new Set([
+  'hue',
+  'texture',
+  'clarity',
+  'dehaze',
+  'sharpness',
+  'luminanceNoise',
+  'defringe',
+]);
 
 /** Canonical order and raw-core's defaults for missing Color range attributes. */
 const RANGE_KEYS: ReadonlyArray<readonly [string, Exclude<keyof RangeRefinement, 'kind'>, number]> =
@@ -224,7 +249,7 @@ export function parseLocalCorrection(
   const adjustments = Object.fromEntries(
     SLIDER_KEYS.flatMap(([key, field]) => {
       const raw = finiteAttr(description, key);
-      const v = raw === undefined ? undefined : field === 'hue' ? raw * 100 : raw;
+      const v = raw === undefined ? undefined : FRACTION_SCALED.has(field) ? raw * 100 : raw;
       return v === undefined ? [] : [[field, amount === 1 ? v : v * amount] as const];
     }),
   ) as PartialAdjustments;
@@ -252,16 +277,16 @@ export function parseLocalAdjustmentsContainer(
 // ── Serialize ──────────────────────────────────────────────────────────────
 
 /**
- * `crs:LocalHue` rides Adobe's ±1 scale, so the canonical two-decimal codec
- * (`numericSerializer`) would quantise Maple's ±100 slider to whole units and
- * drift a fractional value on every round-trip (−42.5 → "-0.43" → −43). Four
- * decimals keep two decimals of the ±100 value — mirrors raw-core's `fmt4`
- * and Swift's `fmtNum4` so all four writers stay byte-identical (#3400).
- * Rounded away from zero like both of those — `Math.round` alone rounds a
- * negative tie toward +∞ (−2.5 → −2), which would split the writers at an
- * exact four-decimal midpoint.
+ * The `FRACTION_SCALED` keys ride Adobe's ±1 scale, so the canonical
+ * two-decimal codec (`numericSerializer`) would quantise Maple's ±100 slider
+ * to whole units and drift a fractional value on every round-trip (−42.5 →
+ * "-0.43" → −43). Four decimals keep two decimals of the ±100 value —
+ * mirrors raw-core's `fmt4` and Swift's `fmtNum4` so all four writers stay
+ * byte-identical (#3400, #3407). Rounded away from zero like both of those —
+ * `Math.round` alone rounds a negative tie toward +∞ (−2.5 → −2), which
+ * would split the writers at an exact four-decimal midpoint.
  */
-const hueSerializer = (v: number): string =>
+const fractionSerializer = (v: number): string =>
   ((Math.sign(v) * Math.round(Math.abs(v) * 10_000)) / 10_000).toString();
 
 /**
@@ -343,7 +368,11 @@ export function localCorrectionBlock(layer: LocalAdjustment, indent: string): st
       // Only fields actually set are written; a non-finite value is not
       // representable in XMP and is skipped like every other slider.
       return typeof v === 'number' && Number.isFinite(v)
-        ? [`${i2}${key}="${field === 'hue' ? hueSerializer(v / 100) : numericSerializer(v)}"`]
+        ? [
+            `${i2}${key}="${
+              FRACTION_SCALED.has(field) ? fractionSerializer(v / 100) : numericSerializer(v)
+            }"`,
+          ]
         : [];
     }),
     ...rangeLines(layer.range, i2),
