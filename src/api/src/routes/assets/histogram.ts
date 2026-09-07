@@ -38,15 +38,12 @@ import { Elysia } from 'elysia';
 import { stat, readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
-import { findCoreInfoById, parseAssetId } from '../../db/assets.repo.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { safeWriteAllowed } from '../../fs/root.ts';
 import { xmpSidecarPath, cachePathForAsset } from '../../fs/xmp.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
 import type { HistogramBins } from '../../thumbs/histogram.ts';
-import { assetsLog } from './_shared.ts';
+import { assetsLog, resolveAssetLocationOrRespond } from './_shared.ts';
 
 const CACHE_CONTROL = 'private, max-age=300';
 
@@ -119,24 +116,9 @@ async function writeCached(jsonPath: string, payload: CachedHistogram): Promise<
 export const histogramRoutes = new Elysia().get(
   '/:id/histogram',
   async ({ params, headers, set }) => {
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
-    }
-
-    const info = await findCoreInfoById(id);
-    if (!info) {
-      set.status = 404;
-      return { error: 'Asset not found' };
-    }
-
-    const libs = await loadLibraryRoots();
-    const rawPath = assetAbsPath(info, libs);
-    if (!rawPath) {
-      set.status = 404;
-      return { error: 'Asset has no resolvable location' };
-    }
+    const resolved = await resolveAssetLocationOrRespond(params.id, set);
+    if ('error' in resolved) return resolved;
+    const { info, absPath: rawPath, libs } = resolved;
 
     let rawStat;
     try {

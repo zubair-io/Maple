@@ -19,39 +19,27 @@
  * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
-import { Elysia, t } from "elysia";
-import { type Place } from "../../db/schema.ts";
-import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
-import {
-  findCoreInfoById,
-  parseAssetId,
-  setDescriptionOverride,
-  setPlaceOverride,
-} from "../../db/assets.repo.ts";
+import { Elysia, t } from 'elysia';
+import { type Place } from '../../db/schema.ts';
+import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
+import { setDescriptionOverride, setPlaceOverride } from '../../db/assets.repo.ts';
+import { resolveAssetInfoOrRespond } from './_shared.ts';
 
 export const overrideRoutes = new Elysia()
   // Manual place override
   .put(
-    "/:id/place",
+    '/:id/place',
     async ({ params, body, set }) => {
-      const id = parseAssetId(params.id);
-      if (!id) {
-        set.status = 400;
-        return { error: "Invalid asset id" };
-      }
-
-      const info = await findCoreInfoById(id);
-      if (!info) {
-        set.status = 404;
-        return { error: "Asset not found" };
-      }
+      const resolved = await resolveAssetInfoOrRespond(params.id, set);
+      if ('error' in resolved) return resolved;
+      const { id, info } = resolved;
 
       const place = (body as { place: Place | null } | null)?.place ?? null;
       await setPlaceOverride(id, place);
 
       set.status = 204;
       await recordAndPublishAssetChange({
-        kind: "update",
+        kind: 'update',
         asset_id: id,
         folder_id: info.folder_id,
         abs_path: info.abs_path,
@@ -60,36 +48,25 @@ export const overrideRoutes = new Elysia()
     },
     {
       body: t.Object({
-        place: t.Union([
-          t.Null(),
-          t.Object({}, { additionalProperties: true }),
-        ]),
+        place: t.Union([t.Null(), t.Object({}, { additionalProperties: true })]),
       }),
-    }
+    },
   )
 
   // Manual description override
   .put(
-    "/:id/description",
+    '/:id/description',
     async ({ params, body, set }) => {
-      const id = parseAssetId(params.id);
-      if (!id) {
-        set.status = 400;
-        return { error: "Invalid asset id" };
-      }
-
-      const info = await findCoreInfoById(id);
-      if (!info) {
-        set.status = 404;
-        return { error: "Asset not found" };
-      }
+      const resolved = await resolveAssetInfoOrRespond(params.id, set);
+      if ('error' in resolved) return resolved;
+      const { id, info } = resolved;
 
       const text = (body as { text: string | null } | null)?.text ?? null;
       await setDescriptionOverride(id, text);
 
       set.status = 204;
       await recordAndPublishAssetChange({
-        kind: "update",
+        kind: 'update',
         asset_id: id,
         folder_id: info.folder_id,
         abs_path: info.abs_path,
@@ -100,5 +77,5 @@ export const overrideRoutes = new Elysia()
       body: t.Object({
         text: t.Union([t.Null(), t.String()]),
       }),
-    }
+    },
   );

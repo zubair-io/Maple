@@ -22,14 +22,13 @@ import { mostSpecificRoot } from '../../fs/root-match.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { buildContentDispositionAttachment } from '../../runtime/http-content-disposition.ts';
 import {
-  findCoreInfoById,
   findDetailByAddress,
   findDetailById,
   findDetailsByIds,
   parseAssetId,
 } from '../../db/assets.repo.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { resolveAssetInfoOrRespond, resolveAssetLocationOrRespond } from './_shared.ts';
 
 /**
  * Resolve an absolute server path to the registered library that contains it.
@@ -180,24 +179,9 @@ export const metadataRoutes = new Elysia()
 
   // Stream raw bytes
   .get('/:id/raw', async ({ params, set }) => {
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
-    }
-
-    const info = await findCoreInfoById(id);
-    if (!info) {
-      set.status = 404;
-      return { error: 'Asset not found' };
-    }
-
-    const libs = await loadLibraryRoots();
-    const absPath = assetAbsPath(info, libs);
-    if (!absPath) {
-      set.status = 404;
-      return { error: 'Asset has no resolvable location' };
-    }
+    const resolved = await resolveAssetLocationOrRespond(params.id, set);
+    if ('error' in resolved) return resolved;
+    const { info, absPath } = resolved;
 
     const result = await safeReadFile(absPath);
     if (!result.ok) {
@@ -216,17 +200,9 @@ export const metadataRoutes = new Elysia()
 
   // Serve thumbnail from .maple/ cache
   .get('/:id/thumb', async ({ params, headers, set }) => {
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
-    }
-
-    const info = await findCoreInfoById(id);
-    if (!info) {
-      set.status = 404;
-      return { error: 'Asset not found' };
-    }
+    const resolved = await resolveAssetInfoOrRespond(params.id, set);
+    if ('error' in resolved) return resolved;
+    const { info } = resolved;
 
     // Single per-file thumb at the one fixed tier — no size dimension in the
     // cache key (see fs/xmp.ts). Path-keyed off the primary location's
