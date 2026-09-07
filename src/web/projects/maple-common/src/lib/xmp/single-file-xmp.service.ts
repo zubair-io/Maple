@@ -49,10 +49,14 @@ export class SingleFileXmpService {
 
     assertValidSingleFileXmp(xmp);
     const culling = this.parser.parseCulling(xmp);
-    const { model, passthrough } = this.parser.parseAdjustmentModel(xmp);
+    const { model, passthrough, metadata } = this.parser.parseAdjustmentModel(xmp);
     this.store.restoreAdjustment(assetId, model);
     this.store.mergePersistedCulling(assetId, culling);
-    this.xmpStore.replacePassthroughs([assetId], new Map([[assetId, passthrough]]));
+    this.xmpStore.replacePassthroughs(
+      [assetId],
+      new Map([[assetId, passthrough]]),
+      new Map([[assetId, metadata]]),
+    );
     this._status.set({ assetId, durability: 'paired', unsaved: false });
   }
 

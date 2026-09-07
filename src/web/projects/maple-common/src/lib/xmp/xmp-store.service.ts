@@ -71,6 +71,7 @@ export class XmpStoreService {
   replacePassthroughs(
     assetIds: Iterable<AssetId>,
     replacements: ReadonlyMap<AssetId, PassthroughBucket>,
+    metadataReplacements: ReadonlyMap<AssetId, XmpMetadata> = new Map(),
   ): void {
     for (const assetId of assetIds) {
       this._passthroughs.delete(assetId);
@@ -78,6 +79,9 @@ export class XmpStoreService {
     }
     for (const [assetId, passthrough] of replacements) {
       this._passthroughs.set(assetId, passthrough);
+    }
+    for (const [assetId, metadata] of metadataReplacements) {
+      this._metadata.set(assetId, metadata);
     }
   }
 
