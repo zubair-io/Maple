@@ -115,6 +115,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       assetsInSelectedFolder: () => folder,
       isSelecting: () => false,
       adjustmentFor: (id: AssetId) => modelFor(id),
+      asShotWbFor: () => null,
       updateAdjustment: (id: AssetId, patch: Partial<AdjustmentModel>) => {
         modelFor(id).update((m) => ({ ...m, ...patch }));
       },

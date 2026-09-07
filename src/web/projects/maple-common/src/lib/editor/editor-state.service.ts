@@ -1,3 +1,4 @@
+import { manualAdjustmentPatch } from './editor-state.wb-sample';
 // editor-state.service.ts — responsive-program S5c (#625).
 //
 // Web mirror of Apple's EditorState. Three differences from the Apple
@@ -25,13 +26,14 @@ import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { type EditTransaction, type EditTransactionKind } from './edit-transaction';
 import { EditTransactionRing, UNDO_STACK_CAP } from './edit-transaction-ring';
 import type { AssetId } from '../models/asset';
-import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
+import { applyAutoInto } from './editor-state.auto';
+import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
+import type { WhiteBalancePreset } from '../generated/white-balance-presets.generated';
 import {
   type AdjustmentModel,
   type BlackWhiteMode,
   defaultAdjustmentModel,
 } from '../models/adjustment-model';
-import { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
 import { sampleWhiteBalanceInto } from './editor-state.wb-sample';
 import {
@@ -348,7 +350,9 @@ export class EditorStateService {
     const sub = this.armedSubParam();
     const field = sub ? sub.field : fieldFor(this.armedTool());
     if (!field) return;
-    this.library.updateAdjustment(id, { [field]: value } as Partial<AdjustmentModel>);
+    const current = this.currentAdjustment();
+    if (!current) return;
+    this.library.updateAdjustment(id, manualAdjustmentPatch({ [field]: value }, current));
   }
 
   /** Apply an internal `[-100, +100]` value to the armed pair. */
@@ -453,76 +457,17 @@ export class EditorStateService {
     return true;
   }
 
-  // Snapshot the current adjustment, fetch auto recommendations from the WASM
-  // pipeline (via the worker), and apply { exposure, contrast, highlights,
-  // shadows, whites, blacks, autoExposure: 'Off' } as ONE undo entry. Per
-  // live review, AUTO applies EXPOSURE + the five calibrated tone sliders
-  // (#1376/#2255) — the WB estimate produced bad casts and is genuinely hard
-  // to guess, so temperature/tint deliberately stay at As-Shot. The WASM
-  // still returns WB in the same 8-field patch; the apply path intentionally
-  // ignores just those two fields.
-
   /** True while an AUTO analysis is in flight (disables the AUTO button). */
   readonly autoInFlight = signal<boolean>(false);
-
   /** Visible completion/error feedback for the most recent AUTO request. */
   readonly autoResult = signal<string | null>(null);
 
-  /**
-   * Analyse the RAW for `id` and apply auto-adjustment sliders as ONE undo entry.
-   */
-  async applyAuto(id: AssetId): Promise<boolean> {
-    if (this.autoInFlight()) return false;
-    if (this.imageId() !== id || this.currentAdjustment() == null) return false;
-    const startId = id;
-    this.autoResult.set(null);
-    this.autoInFlight.set(true);
-    try {
-      let bytes = this.library.bytesFor(id);
-      if (!bytes) {
-        bytes = await this.library.bytesForAsset(id);
-      }
-      const asset = this.library.assets().find((a) => a.id === id);
-      const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
-      const patch = await this.pipeline.computeAutoAdjustments(bytes, ext);
-      return this._applyAutoAdjustments(startId, patch);
-    } catch (err) {
-      console.error('[EditorStateService] applyAuto failed:', err);
-      if (this.imageId() === startId) this.autoResult.set('Auto could not be applied');
-      return false;
-    } finally {
-      this.autoInFlight.set(false);
-    }
+  applyAuto(id: AssetId, whiteBalanceOnly = false): Promise<boolean> {
+    return applyAutoInto(this, id, whiteBalanceOnly);
   }
 
-  /**
-   * Apply the full AUTO recommendation (#2255): exposure + the five
-   * calibrated tone sliders, clamped to each field's canonical range, plus
-   * the AE-Off mode — as ONE undo entry via the SAME `updateAdjustment` path
-   * a user drag uses, so undo, the debounced sidecar write, and render
-   * invalidation all see it identically. White balance is intentionally NOT
-   * written — WB stays at As-Shot (single-image gray-world WB is unreliable
-   * on colour-dominant scenes, a deliberate product call separate from tone).
-   */
-  private _applyAutoAdjustments(id: AssetId, patch: AutoAdjustPatch): boolean {
-    if (this.imageId() !== id) return false;
-    this.commit('auto', 'Auto adjustments');
-    const exposure = clampAdjustment('exposure', patch.exposure);
-    this.library.updateAdjustment(id, {
-      exposure,
-      contrast: clampAdjustment('contrast', patch.contrast),
-      highlights: clampAdjustment('highlights', patch.highlights),
-      shadows: clampAdjustment('shadows', patch.shadows),
-      whites: clampAdjustment('whites', patch.whites),
-      blacks: clampAdjustment('blacks', patch.blacks),
-      autoExposure: 'Off',
-    });
-    this.endEdit();
-    // Report the CLAMPED value — the one actually written — so the feedback
-    // text can never disagree with the edit (#3130 review).
-    const sign = exposure >= 0 ? '+' : '';
-    this.autoResult.set(`Auto applied · Exposure ${sign}${exposure.toFixed(2)} EV`);
-    return true;
+  applyWhiteBalancePreset(id: AssetId, preset: WhiteBalancePreset): Promise<boolean> {
+    return applyWhiteBalancePresetInto(this, id, preset);
   }
 
   // ── Neutral white-balance sample (#2434) ─────────────────────────────────
@@ -532,7 +477,6 @@ export class EditorStateService {
   // state. Body in `editor-state.wb-sample.ts` (this file is at its budget).
 
   /** True while a white-balance sample is in flight. */
-  // fallow-ignore-next-line unused-class-member
   readonly wbSampleInFlight = signal<boolean>(false); // read via WbSampleHost
 
   /**
@@ -543,6 +487,7 @@ export class EditorStateService {
    * model untouched and puts the reason in `autoResult`.
    */
   sampleWhiteBalanceAt(id: AssetId, nx: number, ny: number): Promise<boolean> {
+    if (this.autoInFlight()) return Promise.resolve(false);
     return sampleWhiteBalanceInto(this, id, nx, ny);
   }
 
@@ -560,10 +505,4 @@ function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {
   const field = fieldFor(tool);
   if (!field) return 0;
   return internalValueFromDisplay(tool, adj[field] as number);
-}
-
-/** Clamp an AUTO-recommended value to `field`'s canonical generated range (#2255). */
-function clampAdjustment(field: keyof typeof ADJUSTMENT_RANGES, value: number): number {
-  const [min, max] = ADJUSTMENT_RANGES[field];
-  return Math.min(max, Math.max(min, value));
 }

@@ -14,14 +14,6 @@ import type { WbSampleResult } from '../raw-pipeline/raw-pipeline.sample-wb.type
 import { WbSampleRejected } from '../raw-pipeline/raw-pipeline.sample-wb.types';
 
 /**
- * The patch a committed sample writes: the pair the sampler solved plus the
- * provenance that makes it reproducible — where it was picked and which
- * version of the derivation produced it (`wb_algorithm_version`).
- *
- * `wbSource` moves to `Sampled`, which is what the UI reads back to say the
- * white balance came from a click rather than the camera.
- */
-/**
  * The patch a manual temperature/tint edit writes alongside the new pair:
  * the provenance stops claiming a source that no longer produced the value.
  * The sample point and version are cleared with it — a coordinate that no
@@ -31,6 +23,7 @@ export function manualWbPatch(temperature: number, tint: number): Partial<Adjust
   return {
     temperature,
     tint,
+    whiteBalancePreset: 'Custom',
     wbSource: 'Manual',
     wbSampleX: 0,
     wbSampleY: 0,
@@ -38,6 +31,27 @@ export function manualWbPatch(temperature: number, tint: number): Partial<Adjust
   };
 }
 
+/** A manual slider/reset patch preserves the other WB component and clears stale provenance. */
+export function manualAdjustmentPatch(
+  patch: Partial<AdjustmentModel>,
+  current: AdjustmentModel,
+): Partial<AdjustmentModel> {
+  return patch.temperature !== undefined || patch.tint !== undefined
+    ? {
+        ...patch,
+        ...manualWbPatch(patch.temperature ?? current.temperature, patch.tint ?? current.tint),
+      }
+    : patch;
+}
+
+/**
+ * The patch a committed sample writes: the pair the sampler solved plus the
+ * provenance that makes it reproducible — where it was picked and which
+ * version of the derivation produced it (`wb_algorithm_version`).
+ *
+ * `wbSource` moves to `Sampled`, which is what the UI reads back to say the
+ * white balance came from a click rather than the camera.
+ */
 export function sampledWbPatch(
   sample: WbSampleResult,
   nx: number,

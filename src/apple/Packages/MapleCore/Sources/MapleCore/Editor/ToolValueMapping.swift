@@ -167,6 +167,7 @@ public enum ToolValueMapping {
   /// Mutate the wired `AdjustmentModel` field from a display-range value.
   public static func apply(_ value: Double, to model: inout AdjustmentModel, tool: Tool) {
     if (tool == .temp && value != model.temperature) || (tool == .tint && value != model.tint) {
+      model.whiteBalancePreset = .custom
       model.wbSource = .manual
       model.wbSampleX = 0
       model.wbSampleY = 0

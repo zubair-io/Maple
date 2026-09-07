@@ -4,7 +4,11 @@
 // 2 (legacy-alias application). The per-group parsers themselves live in
 // `xmp-look-profile.ts`, `xmp-enum-attrs.ts`, and `xmp-crop.ts`.
 
-import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
+import {
+  WHITE_BALANCE_PRESETS,
+  WHITE_BALANCE_PRESET_VALUES,
+} from '../generated/white-balance-presets.generated';
+import type { AdjustmentModel } from '../models/adjustment-model';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import {
   applyLookAttribute,
@@ -53,7 +57,8 @@ function applyMiscAdjustmentAttribute(
   ctx: { lookProfileState: LookProfileState; cropAcc: CropAccumulator; hasCrop: boolean },
 ): boolean {
   if (name === WB_PRESET_FIELD.xmpKey) {
-    model.whiteBalancePreset = rawValue as WhiteBalancePreset;
+    const preset = WHITE_BALANCE_PRESETS.find((value) => value === rawValue);
+    if (preset) model.whiteBalancePreset = preset;
     return true;
   }
   if (name === 'papp:Look') {
@@ -113,6 +118,7 @@ export function walkAdjustmentAttributes(
     applyMiscAdjustmentAttribute(model, name, attr.value, miscCtx);
   }
 
+  applyNamedWhiteBalance(model, canonicallyApplied);
   return { model, canonicallyApplied, legacyDeferred, cropAcc: miscCtx.cropAcc };
 }
 
@@ -134,5 +140,21 @@ export function applyLegacyAliases(
     if (!Number.isNaN(parsed)) {
       model[alias.modelKey] = parsed;
     }
+  }
+}
+
+function applyNamedWhiteBalance(
+  model: Partial<AdjustmentModel>,
+  canonicallyApplied: Set<keyof AdjustmentModel>,
+): void {
+  // Explicit numerical fields win in any attribute order. A name-only foreign
+  // sidecar uses the same table as raw-core and the picker.
+  const pair = model.whiteBalancePreset
+    ? WHITE_BALANCE_PRESET_VALUES[model.whiteBalancePreset]
+    : undefined;
+  if (pair) {
+    model.wbSource ??= 'Preset';
+    if (!canonicallyApplied.has('temperature')) model.temperature = pair.temperature;
+    if (!canonicallyApplied.has('tint')) model.tint = pair.tint;
   }
 }

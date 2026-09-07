@@ -45,6 +45,11 @@ use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality}
 use crate::types::adjustment::AutoExposureMode;
 use crate::xmp::AdjustmentModel;
 
+/// Provenance for the clip-aware slider-frame AWB estimator (#2247).
+/// Bump when this derivation changes; persisted pairs are never re-estimated.
+/// Separate from the point sampler's version: `wb_source` identifies the algorithm.
+pub const AUTO_WB_ALGORITHM_VERSION: u32 = 1;
+
 /// Rec.2020 luma weights — match the working color space of the post-WB
 /// scene-linear buffer. Identical to the same constant in `auto_tone`.
 pub(crate) const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];

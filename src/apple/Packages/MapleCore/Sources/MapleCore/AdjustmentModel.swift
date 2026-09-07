@@ -30,538 +30,538 @@ import Foundation
 /// on-wire; we widen to Double here for Swift arithmetic convenience and
 /// narrow before the FFI call path).
 public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
-    // White balance
-    public var temperature: Double  // 2000..12000, default 6500
-    public var tint: Double  // -150..150 (ACR's crs:Tint span, #1870), default 0
-    /// WB slider-scale version of this model's temperature/tint
-    /// (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
-    /// 6500 K identity); `5` = the Robertson (DNG SDK `dng_temperature`)
-    /// mapping ACR's own slider displays natively (current). Legacy `2`/
-    /// `3`/`4` scales never survive a parse — the loader normalizes them to
-    /// `5` via `WbDngTemperature.authoredPairToV5`. Parsed from
-    /// `papp:WbScaleVersion` (absent means `1` for Maple sidecars, `5`
-    /// otherwise), re-stamped on write as {1, 5}.
-    public var wbScaleVersion: Int  // 1 | 5, default 5
+  /// The canonical JSON key matches Web; older models without it decode as Custom.
+  @WhiteBalancePresetValue public var whiteBalancePreset: WhiteBalancePreset = .custom
+  public var temperature: Double  // 2000..12000, default 6500
+  public var tint: Double  // -150..150 (ACR's crs:Tint span, #1870), default 0
+  /// WB slider-scale version of this model's temperature/tint
+  /// (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
+  /// 6500 K identity); `5` = the Robertson (DNG SDK `dng_temperature`)
+  /// mapping ACR's own slider displays natively (current). Legacy `2`/
+  /// `3`/`4` scales never survive a parse — the loader normalizes them to
+  /// `5` via `WbDngTemperature.authoredPairToV5`. Parsed from
+  /// `papp:WbScaleVersion` (absent means `1` for Maple sidecars, `5`
+  /// otherwise), re-stamped on write as {1, 5}.
+  public var wbScaleVersion: Int  // 1 | 5, default 5
 
-    /// User white-balance method (#431; wired into Swift by #2216). Mirrors
-    /// `raw_core::types::adjustment::WbMethod`. `.cat16` (default) omits
-    /// `papp:WbMethod` on write. See `WbMethod`'s doc comment for the two
-    /// variants' math.
-    public var wbMethod: WbMethod  // default .cat16
-    /// White-balance provenance (#2434) — see `WbSource`. Metadata, never a
-    /// render input; `.asShot` omits `papp:WbSource` on write.
-    public var wbSource: WbSource  // default .asShot
-    /// Normalised image-relative point the white balance was sampled at,
-    /// meaningful only while `wbSource == .sampled`. XMP `papp:WbSampleX/Y`.
-    public var wbSampleX: Double  // 0..1, default 0
-    public var wbSampleY: Double  // 0..1, default 0
-    /// Estimator version behind an `.auto` / `.sampled` pair
-    /// (`WB_ALGORITHM_VERSION` in raw-core); 0 when nothing was derived.
-    public var wbAlgorithmVersion: Double  // default 0
+  /// User white-balance method (#431; wired into Swift by #2216). Mirrors
+  /// `raw_core::types::adjustment::WbMethod`. `.cat16` (default) omits
+  /// `papp:WbMethod` on write. See `WbMethod`'s doc comment for the two
+  /// variants' math.
+  public var wbMethod: WbMethod  // default .cat16
+  /// White-balance provenance (#2434) — see `WbSource`. Metadata, never a
+  /// render input; `.asShot` omits `papp:WbSource` on write.
+  public var wbSource: WbSource  // default .asShot
+  /// Normalised image-relative point the white balance was sampled at,
+  /// meaningful only while `wbSource == .sampled`. XMP `papp:WbSampleX/Y`.
+  public var wbSampleX: Double  // 0..1, default 0
+  public var wbSampleY: Double  // 0..1, default 0
+  /// Estimator version behind an `.auto` / `.sampled` pair
+  /// (the source-specific AUTO or point-sampler version in raw-core); 0 when nothing was derived.
+  public var wbAlgorithmVersion: Double  // default 0
 
-    // Basic tone
-    public var exposure: Double  // -4..+4 EV, default 0
-    /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
-    /// § 4.1). Runs inside `scene_tone_controls` after exposure, before
-    /// highlights/shadows/whites/blacks. XMP key `papp:Brightness` (NOT the
-    /// ACR PV2010 `crs:Brightness`, which has different semantics).
-    public var brightness: Double  // -100..100, default 0
-    public var contrast: Double  // -100..100, default 0
-    public var highlights: Double  // -100..100, default 0
-    public var shadows: Double  // -100..100, default 0
-    public var whites: Double  // -100..100, default 0
-    public var blacks: Double  // -100..100, default 0
+  // Basic tone
+  public var exposure: Double  // -4..+4 EV, default 0
+  /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
+  /// § 4.1). Runs inside `scene_tone_controls` after exposure, before
+  /// highlights/shadows/whites/blacks. XMP key `papp:Brightness` (NOT the
+  /// ACR PV2010 `crs:Brightness`, which has different semantics).
+  public var brightness: Double  // -100..100, default 0
+  public var contrast: Double  // -100..100, default 0
+  public var highlights: Double  // -100..100, default 0
+  public var shadows: Double  // -100..100, default 0
+  public var whites: Double  // -100..100, default 0
+  public var blacks: Double  // -100..100, default 0
 
-    // Parametric tone curve — PV2012-style four-region sliders (ticket #273).
-    // Synthesises a piecewise-cubic over the canonical region split points
-    // (¼, ½, ¾) and applies post-`scene_tone_controls`, pre-`vibrance` in
-    // the Rust core. Identity at all-zero. The per-channel POINT curves
-    // (`papp:SceneLinearToneCurve*`) are the `toneCurve*` fields further
-    // down; their sidecar round-trip landed in #365.
-    public var parametricHighlights: Double  // -100..100, default 0
-    public var parametricLights: Double  // -100..100, default 0
-    public var parametricDarks: Double  // -100..100, default 0
-    public var parametricShadows: Double  // -100..100, default 0
+  // Parametric tone curve — PV2012-style four-region sliders (ticket #273).
+  // Synthesises a piecewise-cubic over the canonical region split points
+  // (¼, ½, ¾) and applies post-`scene_tone_controls`, pre-`vibrance` in
+  // the Rust core. Identity at all-zero. The per-channel POINT curves
+  // (`papp:SceneLinearToneCurve*`) are the `toneCurve*` fields further
+  // down; their sidecar round-trip landed in #365.
+  public var parametricHighlights: Double  // -100..100, default 0
+  public var parametricLights: Double  // -100..100, default 0
+  public var parametricDarks: Double  // -100..100, default 0
+  public var parametricShadows: Double  // -100..100, default 0
 
-    // ACR's parametric split points (#2320, round-tripped for sidecar
-    // fidelity; curve builder still uses fixed constants, #3152).
-    public var parametricShadowSplit: Double  // 0..100, default 25
-    public var parametricMidtoneSplit: Double  // 0..100, default 50
-    public var parametricHighlightSplit: Double  // 0..100, default 75
+  // ACR's parametric split points (#2320, round-tripped for sidecar
+  // fidelity; curve builder still uses fixed constants, #3152).
+  public var parametricShadowSplit: Double  // 0..100, default 25
+  public var parametricMidtoneSplit: Double  // 0..100, default 50
+  public var parametricHighlightSplit: Double  // 0..100, default 75
 
-    // Presence
-    public var vibrance: Double  // -100..100, default 0
-    public var saturation: Double  // -100..100, default 0
-    public var clarity: Double  // -100..100, default 0
-    public var texture: Double  // -100..100, default 0
-    public var dehaze: Double  // -100..100, default 0
+  // Presence
+  public var vibrance: Double  // -100..100, default 0
+  public var saturation: Double  // -100..100, default 0
+  public var clarity: Double  // -100..100, default 0
+  public var texture: Double  // -100..100, default 0
+  public var dehaze: Double  // -100..100, default 0
 
-    // Detail — sharpening
-    //
-    // Defaults mirror the reference renderer / Lightroom's import baseline
-    // (Sharpness=40, Radius=1.0, Detail=25, EdgeMasking=0) so first-open of
-    // a sidecar-less RAW looks as sharp as the reference renderer's
-    // default-import, not soft. Aligned with the canonical raw-core defaults
-    // per #326 — Apple no longer carries a sharpening divergence (was
-    // sharpenAmount=45).
-    public var sharpenAmount: Double  // 0..150, default 40 (reference import)
-    public var sharpenRadius: Double  // 0.5..3.0, default 1.0 (reference import)
-    public var sharpenDetail: Double  // 0..100, default 25
-    public var sharpenMasking: Double  // 0..100, default 0
+  // Detail — sharpening
+  //
+  // Defaults mirror the reference renderer / Lightroom's import baseline
+  // (Sharpness=40, Radius=1.0, Detail=25, EdgeMasking=0) so first-open of
+  // a sidecar-less RAW looks as sharp as the reference renderer's
+  // default-import, not soft. Aligned with the canonical raw-core defaults
+  // per #326 — Apple no longer carries a sharpening divergence (was
+  // sharpenAmount=45).
+  public var sharpenAmount: Double  // 0..150, default 40 (reference import)
+  public var sharpenRadius: Double  // 0.5..3.0, default 1.0 (reference import)
+  public var sharpenDetail: Double  // 0..100, default 25
+  public var sharpenMasking: Double  // 0..100, default 0
 
-    // Detail — capture sharpening (Maple-proprietary Richardson-Lucy
-    // deconvolution; distinct from the reference renderer's unsharp-mask
-    // sliders above).
-    // Defaults to 0 (stage skipped) so first-open matches pre-#271 behaviour
-    // bit-identically. Per-camera defaults are a follow-up calibration ticket.
-    public var captureSharpeningAmount: Double  // 0..100, default 0
-    /// Gaussian PSF sigma in pixels (#456). Renamed from
-    /// `captureSharpeningRadius` after PR #452 swapped the integer-radius
-    /// tripled-box-blur for a true Gaussian. The XMP key
-    /// `papp:CaptureSharpeningSigma` is the canonical write key; the legacy
-    /// `papp:CaptureSharpeningRadius` is still accepted on read.
-    public var captureSharpeningSigma: Double  // 0.5..2.0, default 1.0
+  // Detail — capture sharpening (Maple-proprietary Richardson-Lucy
+  // deconvolution; distinct from the reference renderer's unsharp-mask
+  // sliders above).
+  // Defaults to 0 (stage skipped) so first-open matches pre-#271 behaviour
+  // bit-identically. Per-camera defaults are a follow-up calibration ticket.
+  public var captureSharpeningAmount: Double  // 0..100, default 0
+  /// Gaussian PSF sigma in pixels (#456). Renamed from
+  /// `captureSharpeningRadius` after PR #452 swapped the integer-radius
+  /// tripled-box-blur for a true Gaussian. The XMP key
+  /// `papp:CaptureSharpeningSigma` is the canonical write key; the legacy
+  /// `papp:CaptureSharpeningRadius` is still accepted on read.
+  public var captureSharpeningSigma: Double  // 0.5..2.0, default 1.0
 
-    // Detail — noise reduction
-    public var nrLuminance: Double  // 0..100, default 0
-    public var nrColor: Double  // 0..100, default 25
+  // Detail — noise reduction
+  public var nrLuminance: Double  // 0..100, default 0
+  public var nrColor: Double  // 0..100, default 25
 
-    // S5 effects fields (ticket #643) — identity-stub scalars added so the
-    // editor's tool-pill row can wire vignette / grain / split-tone to a
-    // canonical field. No pipeline stage consumes these yet; defaults keep
-    // first-open output bit-identical to the pre-#643 pipeline. Follow-up
-    // tickets track the actual pipeline math.
+  // S5 effects fields (ticket #643) — identity-stub scalars added so the
+  // editor's tool-pill row can wire vignette / grain / split-tone to a
+  // canonical field. No pipeline stage consumes these yet; defaults keep
+  // first-open output bit-identical to the pre-#643 pipeline. Follow-up
+  // tickets track the actual pipeline math.
 
-    // Vignette (§ 3.12). Primary drag-bar field for the Vignette tool is
-    // `vignetteAmount`. `vignetteFeather` is carried for XMP round-trip
-    // and a future dedicated UI affordance.
-    public var vignetteAmount: Double  // -100..100, default 0
-    public var vignetteFeather: Double  // 0..100, default 50
+  // Vignette (§ 3.12). Primary drag-bar field for the Vignette tool is
+  // `vignetteAmount`. `vignetteFeather` is carried for XMP round-trip
+  // and a future dedicated UI affordance.
+  public var vignetteAmount: Double  // -100..100, default 0
+  public var vignetteFeather: Double  // 0..100, default 50
 
-    // Grain (§ 3.13). Primary drag-bar field for the Grain tool is
-    // `grainAmount`; size + roughness are carried for XMP round-trip.
-    public var grainAmount: Double  // 0..100, default 0
-    public var grainSize: Double  // 0..100, default 25
-    public var grainRoughness: Double  // 0..100, default 50
+  // Grain (§ 3.13). Primary drag-bar field for the Grain tool is
+  // `grainAmount`; size + roughness are carried for XMP round-trip.
+  public var grainAmount: Double  // 0..100, default 0
+  public var grainSize: Double  // 0..100, default 25
+  public var grainRoughness: Double  // 0..100, default 50
 
-    // Color Grading (§ 3.14, #275) — supersedes Split Toning exactly as
-    // Lightroom's Color Grading panel superseded Split Toning: these five
-    // `splitTone*` fields ARE the Color Grading panel's shadow/highlight
-    // wheels and balance slider (same fields, same `crs:SplitToning*` XMP
-    // keys — ACR's own layout). Primary drag-bar field for the Color
-    // Grading tool is `splitToneBalance` (the shadow/highlight/midtone
-    // blend point). Hue is in degrees; saturation is `[0, 100]`.
-    public var splitToneShadowHue: Double  // 0..360, default 0
-    public var splitToneShadowSaturation: Double  // 0..100, default 0
-    public var splitToneHighlightHue: Double  // 0..360, default 0
-    public var splitToneHighlightSaturation: Double  // 0..100, default 0
-    public var splitToneBalance: Double  // -100..100, default 0
+  // Color Grading (§ 3.14, #275) — supersedes Split Toning exactly as
+  // Lightroom's Color Grading panel superseded Split Toning: these five
+  // `splitTone*` fields ARE the Color Grading panel's shadow/highlight
+  // wheels and balance slider (same fields, same `crs:SplitToning*` XMP
+  // keys — ACR's own layout). Primary drag-bar field for the Color
+  // Grading tool is `splitToneBalance` (the shadow/highlight/midtone
+  // blend point). Hue is in degrees; saturation is `[0, 100]`.
+  public var splitToneShadowHue: Double  // 0..360, default 0
+  public var splitToneShadowSaturation: Double  // 0..100, default 0
+  public var splitToneHighlightHue: Double  // 0..360, default 0
+  public var splitToneHighlightSaturation: Double  // 0..100, default 0
+  public var splitToneBalance: Double  // -100..100, default 0
 
-    // Color Grading — the rest of the panel beyond the five `splitTone*`
-    // fields above: a midtone wheel, a per-zone luminance offset (shadow /
-    // midtone / highlight), and an unweighted global wheel that tints every
-    // tone. Hue is in degrees; saturation is `[0, 100]`; luminance offsets
-    // are `[-100, 100]`. XMP keys are ACR's `crs:ColorGrade*` namespace.
-    // See raw-core's `stages::color_grade` for the render math.
-    public var colorGradeShadowLuminance: Double  // -100..100, default 0
-    public var colorGradeMidtoneHue: Double  // 0..360, default 0
-    public var colorGradeMidtoneSaturation: Double  // 0..100, default 0
-    public var colorGradeMidtoneLuminance: Double  // -100..100, default 0
-    public var colorGradeHighlightLuminance: Double  // -100..100, default 0
-    public var colorGradeGlobalHue: Double  // 0..360, default 0
-    public var colorGradeGlobalSaturation: Double  // 0..100, default 0
-    public var colorGradeGlobalLuminance: Double  // -100..100, default 0
+  // Color Grading — the rest of the panel beyond the five `splitTone*`
+  // fields above: a midtone wheel, a per-zone luminance offset (shadow /
+  // midtone / highlight), and an unweighted global wheel that tints every
+  // tone. Hue is in degrees; saturation is `[0, 100]`; luminance offsets
+  // are `[-100, 100]`. XMP keys are ACR's `crs:ColorGrade*` namespace.
+  // See raw-core's `stages::color_grade` for the render math.
+  public var colorGradeShadowLuminance: Double  // -100..100, default 0
+  public var colorGradeMidtoneHue: Double  // 0..360, default 0
+  public var colorGradeMidtoneSaturation: Double  // 0..100, default 0
+  public var colorGradeMidtoneLuminance: Double  // -100..100, default 0
+  public var colorGradeHighlightLuminance: Double  // -100..100, default 0
+  public var colorGradeGlobalHue: Double  // 0..360, default 0
+  public var colorGradeGlobalSaturation: Double  // 0..100, default 0
+  public var colorGradeGlobalLuminance: Double  // -100..100, default 0
 
-    // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
-    // Scene-linear Oklab, normalized raised-cosine partition of unity.
-    // All three rows (Hue / Saturation / Luminance) × 8 ACR-aligned bands.
-    // Range -100..+100, default 0. XMP keys: crs:HueAdjustmentRed, etc.
-    // Names match the generated schema (hue_adjustment_red → hueAdjustmentRed).
-    public var hueAdjustmentRed: Double  // -100..100, default 0
-    public var hueAdjustmentOrange: Double  // -100..100, default 0
-    public var hueAdjustmentYellow: Double  // -100..100, default 0
-    public var hueAdjustmentGreen: Double  // -100..100, default 0
-    public var hueAdjustmentAqua: Double  // -100..100, default 0
-    public var hueAdjustmentBlue: Double  // -100..100, default 0
-    public var hueAdjustmentPurple: Double  // -100..100, default 0
-    public var hueAdjustmentMagenta: Double  // -100..100, default 0
-    public var saturationAdjustmentRed: Double  // -100..100, default 0
-    public var saturationAdjustmentOrange: Double  // -100..100, default 0
-    public var saturationAdjustmentYellow: Double  // -100..100, default 0
-    public var saturationAdjustmentGreen: Double  // -100..100, default 0
-    public var saturationAdjustmentAqua: Double  // -100..100, default 0
-    public var saturationAdjustmentBlue: Double  // -100..100, default 0
-    public var saturationAdjustmentPurple: Double  // -100..100, default 0
-    public var saturationAdjustmentMagenta: Double  // -100..100, default 0
-    public var luminanceAdjustmentRed: Double  // -100..100, default 0
-    public var luminanceAdjustmentOrange: Double  // -100..100, default 0
-    public var luminanceAdjustmentYellow: Double  // -100..100, default 0
-    public var luminanceAdjustmentGreen: Double  // -100..100, default 0
-    public var luminanceAdjustmentAqua: Double  // -100..100, default 0
-    public var luminanceAdjustmentBlue: Double  // -100..100, default 0
-    public var luminanceAdjustmentPurple: Double  // -100..100, default 0
-    public var luminanceAdjustmentMagenta: Double  // -100..100, default 0
+  // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
+  // Scene-linear Oklab, normalized raised-cosine partition of unity.
+  // All three rows (Hue / Saturation / Luminance) × 8 ACR-aligned bands.
+  // Range -100..+100, default 0. XMP keys: crs:HueAdjustmentRed, etc.
+  // Names match the generated schema (hue_adjustment_red → hueAdjustmentRed).
+  public var hueAdjustmentRed: Double  // -100..100, default 0
+  public var hueAdjustmentOrange: Double  // -100..100, default 0
+  public var hueAdjustmentYellow: Double  // -100..100, default 0
+  public var hueAdjustmentGreen: Double  // -100..100, default 0
+  public var hueAdjustmentAqua: Double  // -100..100, default 0
+  public var hueAdjustmentBlue: Double  // -100..100, default 0
+  public var hueAdjustmentPurple: Double  // -100..100, default 0
+  public var hueAdjustmentMagenta: Double  // -100..100, default 0
+  public var saturationAdjustmentRed: Double  // -100..100, default 0
+  public var saturationAdjustmentOrange: Double  // -100..100, default 0
+  public var saturationAdjustmentYellow: Double  // -100..100, default 0
+  public var saturationAdjustmentGreen: Double  // -100..100, default 0
+  public var saturationAdjustmentAqua: Double  // -100..100, default 0
+  public var saturationAdjustmentBlue: Double  // -100..100, default 0
+  public var saturationAdjustmentPurple: Double  // -100..100, default 0
+  public var saturationAdjustmentMagenta: Double  // -100..100, default 0
+  public var luminanceAdjustmentRed: Double  // -100..100, default 0
+  public var luminanceAdjustmentOrange: Double  // -100..100, default 0
+  public var luminanceAdjustmentYellow: Double  // -100..100, default 0
+  public var luminanceAdjustmentGreen: Double  // -100..100, default 0
+  public var luminanceAdjustmentAqua: Double  // -100..100, default 0
+  public var luminanceAdjustmentBlue: Double  // -100..100, default 0
+  public var luminanceAdjustmentPurple: Double  // -100..100, default 0
+  public var luminanceAdjustmentMagenta: Double  // -100..100, default 0
 
-    // Black & white mix (#276). `blackWhite` toggles the same 8-band Oklab
-    // stage the HSL sliders above run through into its monochrome path;
-    // the eight `grayMixer*` weights become per-hue-band luminance weights
-    // (chroma forced to zero) while it is `.on`. The 24 HSL sliders are
-    // inert while `blackWhite` is `.on`; `grayMixer*` is inert while it is
-    // `.off`. `BlackWhiteMode` lives in `AdjustmentModel+BlackWhite.swift`
-    // (budget split, matching `HighlightRecoveryMode` / `Look` / `Profile`
-    // pattern). XMP keys: `crs:ConvertToGrayscale`, `crs:GrayMixerRed`, etc.
-    public var blackWhite: BlackWhiteMode
-    public var grayMixerRed: Double  // -100..100, default 0
-    public var grayMixerOrange: Double  // -100..100, default 0
-    public var grayMixerYellow: Double  // -100..100, default 0
-    public var grayMixerGreen: Double  // -100..100, default 0
-    public var grayMixerAqua: Double  // -100..100, default 0
-    public var grayMixerBlue: Double  // -100..100, default 0
-    public var grayMixerPurple: Double  // -100..100, default 0
-    public var grayMixerMagenta: Double  // -100..100, default 0
+  // Black & white mix (#276). `blackWhite` toggles the same 8-band Oklab
+  // stage the HSL sliders above run through into its monochrome path;
+  // the eight `grayMixer*` weights become per-hue-band luminance weights
+  // (chroma forced to zero) while it is `.on`. The 24 HSL sliders are
+  // inert while `blackWhite` is `.on`; `grayMixer*` is inert while it is
+  // `.off`. `BlackWhiteMode` lives in `AdjustmentModel+BlackWhite.swift`
+  // (budget split, matching `HighlightRecoveryMode` / `Look` / `Profile`
+  // pattern). XMP keys: `crs:ConvertToGrayscale`, `crs:GrayMixerRed`, etc.
+  public var blackWhite: BlackWhiteMode
+  public var grayMixerRed: Double  // -100..100, default 0
+  public var grayMixerOrange: Double  // -100..100, default 0
+  public var grayMixerYellow: Double  // -100..100, default 0
+  public var grayMixerGreen: Double  // -100..100, default 0
+  public var grayMixerAqua: Double  // -100..100, default 0
+  public var grayMixerBlue: Double  // -100..100, default 0
+  public var grayMixerPurple: Double  // -100..100, default 0
+  public var grayMixerMagenta: Double  // -100..100, default 0
 
-    // Highlight recovery (Maple-proprietary)
-    public var highlightRecovery: HighlightRecoveryMode
+  // Highlight recovery (Maple-proprietary)
+  public var highlightRecovery: HighlightRecoveryMode
 
-    /// Auto-exposure mode (#1387). Decode-time scalar mid-gray anchor gain,
-    /// baked into the Rust decode product like `highlightRecovery` above —
-    /// no Apple-Metal live re-apply, so `stripAppleGPUStages` keeps it.
-    /// Defaults to `.on` (raw-core's parse default). XMP key
-    /// `papp:AutoExposure`; `.on` (default) omits the attribute on write.
-    public var autoExposure: AutoExposureMode
+  /// Auto-exposure mode (#1387). Decode-time scalar mid-gray anchor gain,
+  /// baked into the Rust decode product like `highlightRecovery` above —
+  /// no Apple-Metal live re-apply, so `stripAppleGPUStages` keeps it.
+  /// Defaults to `.on` (raw-core's parse default). XMP key
+  /// `papp:AutoExposure`; `.on` (default) omits the attribute on write.
+  public var autoExposure: AutoExposureMode
 
-    // DisplayLookCurve (Maple-proprietary, ticket #371). Defaults to
-    // `.default` — new users get the empirical Look.
-    public var look: Look
+  // DisplayLookCurve (Maple-proprietary, ticket #371). Defaults to
+  // `.default` — new users get the empirical Look.
+  public var look: Look
 
-    // Render-shaping profile (Auto Profile Phase 1, ticket #536). Defaults
-    // to `.auto`. Replaces the retired `papp:Look` attribute on the write
-    // path; the XMP parser migrates legacy `papp:Look` values into this
-    // field when `papp:Profile` is absent.
-    public var profile: Profile
+  // Render-shaping profile (Auto Profile Phase 1, ticket #536). Defaults
+  // to `.auto`. Replaces the retired `papp:Look` attribute on the write
+  // path; the XMP parser migrates legacy `papp:Look` values into this
+  // field when `papp:Profile` is absent.
+  public var profile: Profile
 
-    /// Per-channel point tone-curve application mode (#436; wired into
-    /// Swift by #2216). Mirrors `raw_core::types::adjustment::ToneCurveMode`.
-    /// `.perChannel` (default) omits `papp:ToneCurveMode` on write.
-    public var toneCurveMode: ToneCurveMode  // default .perChannel
+  /// Per-channel point tone-curve application mode (#436; wired into
+  /// Swift by #2216). Mirrors `raw_core::types::adjustment::ToneCurveMode`.
+  /// `.perChannel` (default) omits `papp:ToneCurveMode` on write.
+  public var toneCurveMode: ToneCurveMode  // default .perChannel
 
-    // Per-channel point curves (#273 slice 1; schema/codegen in #366).
-    // Each is a `ToneCurve` of `(x, y)` control points in `[0, 1]`
-    // authoring space, identity when empty. `toneCurveLuma` applies
-    // channels-uniformly via Rec.2020 luma; R/G/B apply per
-    // `toneCurveMode`. Sidecar round-trip: #365, nested
-    // `papp:SceneLinearToneCurve*` — `XMPSerialization+ToneCurves.swift`.
-    public var toneCurveLuma: ToneCurve  // default .identity (empty)
-    public var toneCurveRed: ToneCurve  // default .identity (empty)
-    public var toneCurveGreen: ToneCurve  // default .identity (empty)
-    public var toneCurveBlue: ToneCurve  // default .identity (empty)
+  // Per-channel point curves (#273 slice 1; schema/codegen in #366).
+  // Each is a `ToneCurve` of `(x, y)` control points in `[0, 1]`
+  // authoring space, identity when empty. `toneCurveLuma` applies
+  // channels-uniformly via Rec.2020 luma; R/G/B apply per
+  // `toneCurveMode`. Sidecar round-trip: #365, nested
+  // `papp:SceneLinearToneCurve*` — `XMPSerialization+ToneCurves.swift`.
+  public var toneCurveLuma: ToneCurve  // default .identity (empty)
+  public var toneCurveRed: ToneCurve  // default .identity (empty)
+  public var toneCurveGreen: ToneCurve  // default .identity (empty)
+  public var toneCurveBlue: ToneCurve  // default .identity (empty)
 
-    // Display-referred point curves (#2232) — Adobe's `crs:ToneCurvePV2012*`.
-    // Applied POST-AgX in display-linear [0,1], per-channel independently
-    // (NOT luma-coupled, unlike `toneCurveLuma`) — a different quantity
-    // from the scene-linear family above; both may be authored at once.
-    public var displayToneCurveLuma: ToneCurve  // default .identity (empty)
-    public var displayToneCurveRed: ToneCurve  // default .identity (empty)
-    public var displayToneCurveGreen: ToneCurve  // default .identity (empty)
-    public var displayToneCurveBlue: ToneCurve  // default .identity (empty)
+  // Display-referred point curves (#2232) — Adobe's `crs:ToneCurvePV2012*`.
+  // Applied POST-AgX in display-linear [0,1], per-channel independently
+  // (NOT luma-coupled, unlike `toneCurveLuma`) — a different quantity
+  // from the scene-linear family above; both may be authored at once.
+  public var displayToneCurveLuma: ToneCurve  // default .identity (empty)
+  public var displayToneCurveRed: ToneCurve  // default .identity (empty)
+  public var displayToneCurveGreen: ToneCurve  // default .identity (empty)
+  public var displayToneCurveBlue: ToneCurve  // default .identity (empty)
 
-    /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
-    /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
-    /// the Rust decode product (post-DCP, pre auto-exposure) — there is
-    /// no per-tick Apple chain equivalent, so `stripAppleGPUStages` keeps
-    /// it and the decoded-image cache key (the baked model, #950) picks
-    /// it up automatically: changing it re-decodes. XMP key
-    /// `papp:ChromaPrefilter`; 0 (default) = bit-identical stage skip.
-    public var chromaPrefilter: Double  // 0..100, default 0
+  /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
+  /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
+  /// the Rust decode product (post-DCP, pre auto-exposure) — there is
+  /// no per-tick Apple chain equivalent, so `stripAppleGPUStages` keeps
+  /// it and the decoded-image cache key (the baked model, #950) picks
+  /// it up automatically: changing it re-decodes. XMP key
+  /// `papp:ChromaPrefilter`; 0 (default) = bit-identical stage skip.
+  public var chromaPrefilter: Double  // 0..100, default 0
 
-    /// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6).
-    /// Pre-demosaic, baked into the Rust decode product like
-    /// `chromaPrefilter` — kept by `stripAppleGPUStages`, so the #950
-    /// baked-model decode-cache key carries it automatically. XMP key
-    /// `papp:HotPixelSuppression`; `.off` (default) = bit-identical skip.
-    public var hotPixelSuppression: HotPixelSuppressionMode
+  /// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6).
+  /// Pre-demosaic, baked into the Rust decode product like
+  /// `chromaPrefilter` — kept by `stripAppleGPUStages`, so the #950
+  /// baked-model decode-cache key carries it automatically. XMP key
+  /// `papp:HotPixelSuppression`; `.off` (default) = bit-identical skip.
+  public var hotPixelSuppression: HotPixelSuppressionMode
 
-    /// BM3D deep denoise (#1105, tone/zoom design § 3.2). Input-referred,
-    /// baked into the Rust decode product immediately after
-    /// `chromaPrefilter` — same KEPT/strip + #950 baked-model cache-key
-    /// story (changing it re-decodes; the cached decoded buffer is what
-    /// amortises the seconds-scale runtime). XMP key `papp:DeepDenoise`;
-    /// 0 (default) = bit-identical stage skip.
-    public var deepDenoise: Double  // 0..100, default 0
+  /// BM3D deep denoise (#1105, tone/zoom design § 3.2). Input-referred,
+  /// baked into the Rust decode product immediately after
+  /// `chromaPrefilter` — same KEPT/strip + #950 baked-model cache-key
+  /// story (changing it re-decodes; the cached decoded buffer is what
+  /// amortises the seconds-scale runtime). XMP key `papp:DeepDenoise`;
+  /// 0 (default) = bit-identical stage skip.
+  public var deepDenoise: Double  // 0..100, default 0
 
-    /// Geometry — crop rect (normalised to display-oriented dimensions) plus
-    /// straighten angle. Default is `Crop.identity` (full frame, 0°). When
-    /// identity, the crop stage is skipped and the XMP serializer omits the
-    /// whole `crs:Crop*` group. See `Crop` and spec § 3.12.
-    public var crop: Crop  // default .identity
+  /// Geometry — crop rect (normalised to display-oriented dimensions) plus
+  /// straighten angle. Default is `Crop.identity` (full frame, 0°). When
+  /// identity, the crop stage is skipped and the XMP serializer omits the
+  /// whole `crs:Crop*` group. See `Crop` and spec § 3.12.
+  public var crop: Crop  // default .identity
 
-    /// Masked, per-region edits (#280/#358) — a hand-written mirror of
-    /// `raw_core::types::LocalAdjustment`, permanently outside codegen
-    /// because it is a nested list rather than a flat slider (see
-    /// `LocalAdjustment.swift`). Empty is the default; the XMP writer emits
-    /// the `crs:GradientBasedCorrections` /
-    /// `crs:CircularGradientBasedCorrections` / `crs:MaskGroupBasedCorrections`
-    /// containers only for a non-empty stack
-    /// (`XMPSerialization+LocalAdjustments.swift`).
-    public var localAdjustments: [LocalAdjustment]  // default []
+  /// Masked, per-region edits (#280/#358) — a hand-written mirror of
+  /// `raw_core::types::LocalAdjustment`, permanently outside codegen
+  /// because it is a nested list rather than a flat slider (see
+  /// `LocalAdjustment.swift`). Empty is the default; the XMP writer emits
+  /// the `crs:GradientBasedCorrections` /
+  /// `crs:CircularGradientBasedCorrections` / `crs:MaskGroupBasedCorrections`
+  /// containers only for a non-empty stack
+  /// (`XMPSerialization+LocalAdjustments.swift`).
+  public var localAdjustments: [LocalAdjustment]  // default []
 
-    /// DNG-embedded lens corrections (#376). The vendor's distortion /
-    /// lateral-CA / vignetting corrections travel inside the DNG as
-    /// `OpcodeList3` opcodes and are resampled into the demosaiced buffer
-    /// before DCP — inside the Rust decode product, upstream of every
-    /// per-tick Metal stage. Like `chromaPrefilter` these are KEPT by
-    /// `stripAppleGPUStages`, so the #950 baked-model decode-cache key
-    /// carries them automatically: changing one correctly re-decodes.
-    /// XMP key `crs:LensProfileEnable`; `.on` (default) matches ACR.
-    public var lensProfileEnable: LensProfileEnable
-    /// Geometric-distortion strength — the `WarpRectilinear` component
-    /// common to all three planes. XMP `crs:LensProfileDistortionScale`.
-    public var lensCorrectionDistortion: Double  // 0..100, default 100
-    /// Lateral chromatic-aberration strength — each plane's
-    /// `WarpRectilinear` deviation from the green reference plane. XMP
-    /// `crs:LensProfileChromaticAberrationScale`.
-    public var lensCorrectionCa: Double  // 0..100, default 100
-    /// Vignetting / lens-shading strength — the `FixVignetteRadial` and
-    /// `GainMap` gain opcodes. XMP `crs:LensProfileVignettingScale`.
-    public var lensCorrectionVignetting: Double  // 0..100, default 100
+  /// DNG-embedded lens corrections (#376). The vendor's distortion /
+  /// lateral-CA / vignetting corrections travel inside the DNG as
+  /// `OpcodeList3` opcodes and are resampled into the demosaiced buffer
+  /// before DCP — inside the Rust decode product, upstream of every
+  /// per-tick Metal stage. Like `chromaPrefilter` these are KEPT by
+  /// `stripAppleGPUStages`, so the #950 baked-model decode-cache key
+  /// carries them automatically: changing one correctly re-decodes.
+  /// XMP key `crs:LensProfileEnable`; `.on` (default) matches ACR.
+  public var lensProfileEnable: LensProfileEnable
+  /// Geometric-distortion strength — the `WarpRectilinear` component
+  /// common to all three planes. XMP `crs:LensProfileDistortionScale`.
+  public var lensCorrectionDistortion: Double  // 0..100, default 100
+  /// Lateral chromatic-aberration strength — each plane's
+  /// `WarpRectilinear` deviation from the green reference plane. XMP
+  /// `crs:LensProfileChromaticAberrationScale`.
+  public var lensCorrectionCa: Double  // 0..100, default 100
+  /// Vignetting / lens-shading strength — the `FixVignetteRadial` and
+  /// `GainMap` gain opcodes. XMP `crs:LensProfileVignettingScale`.
+  public var lensCorrectionVignetting: Double  // 0..100, default 100
 
-    /// Film-look emulation id (epic #2683) — the `.mlut` catalog id (also its
-    /// filename stem), or `""` for "no look" (the default). Resolved to a
-    /// decoded lattice via `FilmLutStore`; an id with no matching asset
-    /// resolves to `nil` and the render falls back to identity (log + no
-    /// error — see `FilmLutStore`). XMP key `papp:FilmLook`; empty (default)
-    /// omits the attribute on write.
-    public var filmLook: String  // default ""
-    /// Film-look blend strength, 0..100 — lerped against the pre-look value
-    /// in display-linear space (mirrors every other blend-strength field in
-    /// `MapleGpuLiveParams`). XMP key `papp:FilmStrength`; 100 (default,
-    /// full look) omits the attribute on write.
-    public var filmStrength: Double  // 0..100, default 100
+  /// Film-look emulation id (epic #2683) — the `.mlut` catalog id (also its
+  /// filename stem), or `""` for "no look" (the default). Resolved to a
+  /// decoded lattice via `FilmLutStore`; an id with no matching asset
+  /// resolves to `nil` and the render falls back to identity (log + no
+  /// error — see `FilmLutStore`). XMP key `papp:FilmLook`; empty (default)
+  /// omits the attribute on write.
+  public var filmLook: String  // default ""
+  /// Film-look blend strength, 0..100 — lerped against the pre-look value
+  /// in display-linear space (mirrors every other blend-strength field in
+  /// `MapleGpuLiveParams`). XMP key `papp:FilmStrength`; 100 (default,
+  /// full look) omits the attribute on write.
+  public var filmStrength: Double  // 0..100, default 100
 
+  public init(
+    temperature: Double = 6500,
+    tint: Double = 0,
+    wbScaleVersion: Int = 5,
+    wbMethod: WbMethod = .cat16,
+    wbSource: WbSource = .asShot,
+    wbSampleX: Double = 0,
+    wbSampleY: Double = 0,
+    wbAlgorithmVersion: Double = 0,
+    exposure: Double = 0,
+    brightness: Double = 0,
+    contrast: Double = 0,
+    highlights: Double = 0,
+    shadows: Double = 0,
+    whites: Double = 0,
+    blacks: Double = 0,
+    parametricHighlights: Double = 0,
+    parametricLights: Double = 0,
+    parametricDarks: Double = 0,
+    parametricShadows: Double = 0,
+    parametricShadowSplit: Double = 25,
+    parametricMidtoneSplit: Double = 50,
+    parametricHighlightSplit: Double = 75,
+    vibrance: Double = 0,
+    saturation: Double = 0,
+    clarity: Double = 0,
+    texture: Double = 0,
+    dehaze: Double = 0,
+    sharpenAmount: Double = 40,
+    sharpenRadius: Double = 1.0,
+    sharpenDetail: Double = 25,
+    sharpenMasking: Double = 0,
+    captureSharpeningAmount: Double = 0,
+    captureSharpeningSigma: Double = 1.0,
+    nrLuminance: Double = 0,
+    nrColor: Double = 25,
+    vignetteAmount: Double = 0,
+    vignetteFeather: Double = 50,
+    grainAmount: Double = 0,
+    grainSize: Double = 25,
+    grainRoughness: Double = 50,
+    splitToneShadowHue: Double = 0,
+    splitToneShadowSaturation: Double = 0,
+    splitToneHighlightHue: Double = 0,
+    splitToneHighlightSaturation: Double = 0,
+    splitToneBalance: Double = 0,
+    colorGradeShadowLuminance: Double = 0,
+    colorGradeMidtoneHue: Double = 0,
+    colorGradeMidtoneSaturation: Double = 0,
+    colorGradeMidtoneLuminance: Double = 0,
+    colorGradeHighlightLuminance: Double = 0,
+    colorGradeGlobalHue: Double = 0,
+    colorGradeGlobalSaturation: Double = 0,
+    colorGradeGlobalLuminance: Double = 0,
+    hueAdjustmentRed: Double = 0,
+    hueAdjustmentOrange: Double = 0,
+    hueAdjustmentYellow: Double = 0,
+    hueAdjustmentGreen: Double = 0,
+    hueAdjustmentAqua: Double = 0,
+    hueAdjustmentBlue: Double = 0,
+    hueAdjustmentPurple: Double = 0,
+    hueAdjustmentMagenta: Double = 0,
+    saturationAdjustmentRed: Double = 0,
+    saturationAdjustmentOrange: Double = 0,
+    saturationAdjustmentYellow: Double = 0,
+    saturationAdjustmentGreen: Double = 0,
+    saturationAdjustmentAqua: Double = 0,
+    saturationAdjustmentBlue: Double = 0,
+    saturationAdjustmentPurple: Double = 0,
+    saturationAdjustmentMagenta: Double = 0,
+    luminanceAdjustmentRed: Double = 0,
+    luminanceAdjustmentOrange: Double = 0,
+    luminanceAdjustmentYellow: Double = 0,
+    luminanceAdjustmentGreen: Double = 0,
+    luminanceAdjustmentAqua: Double = 0,
+    luminanceAdjustmentBlue: Double = 0,
+    luminanceAdjustmentPurple: Double = 0,
+    luminanceAdjustmentMagenta: Double = 0,
+    blackWhite: BlackWhiteMode = .off,
+    grayMixerRed: Double = 0,
+    grayMixerOrange: Double = 0,
+    grayMixerYellow: Double = 0,
+    grayMixerGreen: Double = 0,
+    grayMixerAqua: Double = 0,
+    grayMixerBlue: Double = 0,
+    grayMixerPurple: Double = 0,
+    grayMixerMagenta: Double = 0,
+    highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
+    autoExposure: AutoExposureMode = .on,
+    look: Look = .default,
+    profile: Profile = .auto,
+    toneCurveMode: ToneCurveMode = .perChannel,
+    toneCurveLuma: ToneCurve = .identity,
+    toneCurveRed: ToneCurve = .identity,
+    toneCurveGreen: ToneCurve = .identity,
+    toneCurveBlue: ToneCurve = .identity,
+    displayToneCurveLuma: ToneCurve = .identity,
+    displayToneCurveRed: ToneCurve = .identity,
+    displayToneCurveGreen: ToneCurve = .identity,
+    displayToneCurveBlue: ToneCurve = .identity,
+    chromaPrefilter: Double = 0,
+    hotPixelSuppression: HotPixelSuppressionMode = .off,
+    deepDenoise: Double = 0,
+    crop: Crop = .identity,
+    localAdjustments: [LocalAdjustment] = [],
+    lensProfileEnable: LensProfileEnable = .on,
+    lensCorrectionDistortion: Double = 100,
+    lensCorrectionCa: Double = 100,
+    lensCorrectionVignetting: Double = 100,
+    filmLook: String = "",
+    filmStrength: Double = 100
+  ) {
+    self.temperature = temperature
+    self.tint = tint
+    self.wbScaleVersion = wbScaleVersion
+    self.wbMethod = wbMethod
+    self.wbSource = wbSource
+    self.wbSampleX = wbSampleX
+    self.wbSampleY = wbSampleY
+    self.wbAlgorithmVersion = wbAlgorithmVersion
+    self.exposure = exposure
+    self.brightness = brightness
+    self.contrast = contrast
+    self.highlights = highlights
+    self.shadows = shadows
+    self.whites = whites
+    self.blacks = blacks
+    self.parametricHighlights = parametricHighlights
+    self.parametricLights = parametricLights
+    self.parametricDarks = parametricDarks
+    self.parametricShadows = parametricShadows
+    self.parametricShadowSplit = parametricShadowSplit
+    self.parametricMidtoneSplit = parametricMidtoneSplit
+    self.parametricHighlightSplit = parametricHighlightSplit
+    self.vibrance = vibrance
+    self.saturation = saturation
+    self.clarity = clarity
+    self.texture = texture
+    self.dehaze = dehaze
+    self.sharpenAmount = sharpenAmount
+    self.sharpenRadius = sharpenRadius
+    self.sharpenDetail = sharpenDetail
+    self.sharpenMasking = sharpenMasking
+    self.captureSharpeningAmount = captureSharpeningAmount
+    self.captureSharpeningSigma = captureSharpeningSigma
+    self.nrLuminance = nrLuminance
+    self.nrColor = nrColor
+    self.vignetteAmount = vignetteAmount
+    self.vignetteFeather = vignetteFeather
+    self.grainAmount = grainAmount
+    self.grainSize = grainSize
+    self.grainRoughness = grainRoughness
+    self.splitToneShadowHue = splitToneShadowHue
+    self.splitToneShadowSaturation = splitToneShadowSaturation
+    self.splitToneHighlightHue = splitToneHighlightHue
+    self.splitToneHighlightSaturation = splitToneHighlightSaturation
+    self.splitToneBalance = splitToneBalance
+    self.colorGradeShadowLuminance = colorGradeShadowLuminance
+    self.colorGradeMidtoneHue = colorGradeMidtoneHue
+    self.colorGradeMidtoneSaturation = colorGradeMidtoneSaturation
+    self.colorGradeMidtoneLuminance = colorGradeMidtoneLuminance
+    self.colorGradeHighlightLuminance = colorGradeHighlightLuminance
+    self.colorGradeGlobalHue = colorGradeGlobalHue
+    self.colorGradeGlobalSaturation = colorGradeGlobalSaturation
+    self.colorGradeGlobalLuminance = colorGradeGlobalLuminance
+    self.hueAdjustmentRed = hueAdjustmentRed
+    self.hueAdjustmentOrange = hueAdjustmentOrange
+    self.hueAdjustmentYellow = hueAdjustmentYellow
+    self.hueAdjustmentGreen = hueAdjustmentGreen
+    self.hueAdjustmentAqua = hueAdjustmentAqua
+    self.hueAdjustmentBlue = hueAdjustmentBlue
+    self.hueAdjustmentPurple = hueAdjustmentPurple
+    self.hueAdjustmentMagenta = hueAdjustmentMagenta
+    self.saturationAdjustmentRed = saturationAdjustmentRed
+    self.saturationAdjustmentOrange = saturationAdjustmentOrange
+    self.saturationAdjustmentYellow = saturationAdjustmentYellow
+    self.saturationAdjustmentGreen = saturationAdjustmentGreen
+    self.saturationAdjustmentAqua = saturationAdjustmentAqua
+    self.saturationAdjustmentBlue = saturationAdjustmentBlue
+    self.saturationAdjustmentPurple = saturationAdjustmentPurple
+    self.saturationAdjustmentMagenta = saturationAdjustmentMagenta
+    self.luminanceAdjustmentRed = luminanceAdjustmentRed
+    self.luminanceAdjustmentOrange = luminanceAdjustmentOrange
+    self.luminanceAdjustmentYellow = luminanceAdjustmentYellow
+    self.luminanceAdjustmentGreen = luminanceAdjustmentGreen
+    self.luminanceAdjustmentAqua = luminanceAdjustmentAqua
+    self.luminanceAdjustmentBlue = luminanceAdjustmentBlue
+    self.luminanceAdjustmentPurple = luminanceAdjustmentPurple
+    self.luminanceAdjustmentMagenta = luminanceAdjustmentMagenta
+    self.blackWhite = blackWhite
+    self.grayMixerRed = grayMixerRed
+    self.grayMixerOrange = grayMixerOrange
+    self.grayMixerYellow = grayMixerYellow
+    self.grayMixerGreen = grayMixerGreen
+    self.grayMixerAqua = grayMixerAqua
+    self.grayMixerBlue = grayMixerBlue
+    self.grayMixerPurple = grayMixerPurple
+    self.grayMixerMagenta = grayMixerMagenta
+    self.highlightRecovery = highlightRecovery
+    self.autoExposure = autoExposure
+    self.look = look
+    self.profile = profile
+    self.toneCurveMode = toneCurveMode
+    self.toneCurveLuma = toneCurveLuma
+    self.toneCurveRed = toneCurveRed
+    self.toneCurveGreen = toneCurveGreen
+    self.toneCurveBlue = toneCurveBlue
+    self.displayToneCurveLuma = displayToneCurveLuma
+    self.displayToneCurveRed = displayToneCurveRed
+    self.displayToneCurveGreen = displayToneCurveGreen
+    self.displayToneCurveBlue = displayToneCurveBlue
+    self.chromaPrefilter = chromaPrefilter
+    self.hotPixelSuppression = hotPixelSuppression
+    self.deepDenoise = deepDenoise
+    self.crop = crop
+    self.localAdjustments = localAdjustments
+    self.lensProfileEnable = lensProfileEnable
+    self.lensCorrectionDistortion = lensCorrectionDistortion
+    self.lensCorrectionCa = lensCorrectionCa
+    self.lensCorrectionVignetting = lensCorrectionVignetting
+    self.filmLook = filmLook
+    self.filmStrength = filmStrength
+  }
 
-    public init(
-        temperature: Double = 6500,
-        tint: Double = 0,
-        wbScaleVersion: Int = 5,
-        wbMethod: WbMethod = .cat16,
-        wbSource: WbSource = .asShot,
-        wbSampleX: Double = 0,
-        wbSampleY: Double = 0,
-        wbAlgorithmVersion: Double = 0,
-        exposure: Double = 0,
-        brightness: Double = 0,
-        contrast: Double = 0,
-        highlights: Double = 0,
-        shadows: Double = 0,
-        whites: Double = 0,
-        blacks: Double = 0,
-        parametricHighlights: Double = 0,
-        parametricLights: Double = 0,
-        parametricDarks: Double = 0,
-        parametricShadows: Double = 0,
-        parametricShadowSplit: Double = 25,
-        parametricMidtoneSplit: Double = 50,
-        parametricHighlightSplit: Double = 75,
-        vibrance: Double = 0,
-        saturation: Double = 0,
-        clarity: Double = 0,
-        texture: Double = 0,
-        dehaze: Double = 0,
-        sharpenAmount: Double = 40,
-        sharpenRadius: Double = 1.0,
-        sharpenDetail: Double = 25,
-        sharpenMasking: Double = 0,
-        captureSharpeningAmount: Double = 0,
-        captureSharpeningSigma: Double = 1.0,
-        nrLuminance: Double = 0,
-        nrColor: Double = 25,
-        vignetteAmount: Double = 0,
-        vignetteFeather: Double = 50,
-        grainAmount: Double = 0,
-        grainSize: Double = 25,
-        grainRoughness: Double = 50,
-        splitToneShadowHue: Double = 0,
-        splitToneShadowSaturation: Double = 0,
-        splitToneHighlightHue: Double = 0,
-        splitToneHighlightSaturation: Double = 0,
-        splitToneBalance: Double = 0,
-        colorGradeShadowLuminance: Double = 0,
-        colorGradeMidtoneHue: Double = 0,
-        colorGradeMidtoneSaturation: Double = 0,
-        colorGradeMidtoneLuminance: Double = 0,
-        colorGradeHighlightLuminance: Double = 0,
-        colorGradeGlobalHue: Double = 0,
-        colorGradeGlobalSaturation: Double = 0,
-        colorGradeGlobalLuminance: Double = 0,
-        hueAdjustmentRed: Double = 0,
-        hueAdjustmentOrange: Double = 0,
-        hueAdjustmentYellow: Double = 0,
-        hueAdjustmentGreen: Double = 0,
-        hueAdjustmentAqua: Double = 0,
-        hueAdjustmentBlue: Double = 0,
-        hueAdjustmentPurple: Double = 0,
-        hueAdjustmentMagenta: Double = 0,
-        saturationAdjustmentRed: Double = 0,
-        saturationAdjustmentOrange: Double = 0,
-        saturationAdjustmentYellow: Double = 0,
-        saturationAdjustmentGreen: Double = 0,
-        saturationAdjustmentAqua: Double = 0,
-        saturationAdjustmentBlue: Double = 0,
-        saturationAdjustmentPurple: Double = 0,
-        saturationAdjustmentMagenta: Double = 0,
-        luminanceAdjustmentRed: Double = 0,
-        luminanceAdjustmentOrange: Double = 0,
-        luminanceAdjustmentYellow: Double = 0,
-        luminanceAdjustmentGreen: Double = 0,
-        luminanceAdjustmentAqua: Double = 0,
-        luminanceAdjustmentBlue: Double = 0,
-        luminanceAdjustmentPurple: Double = 0,
-        luminanceAdjustmentMagenta: Double = 0,
-        blackWhite: BlackWhiteMode = .off,
-        grayMixerRed: Double = 0,
-        grayMixerOrange: Double = 0,
-        grayMixerYellow: Double = 0,
-        grayMixerGreen: Double = 0,
-        grayMixerAqua: Double = 0,
-        grayMixerBlue: Double = 0,
-        grayMixerPurple: Double = 0,
-        grayMixerMagenta: Double = 0,
-        highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
-        autoExposure: AutoExposureMode = .on,
-        look: Look = .default,
-        profile: Profile = .auto,
-        toneCurveMode: ToneCurveMode = .perChannel,
-        toneCurveLuma: ToneCurve = .identity,
-        toneCurveRed: ToneCurve = .identity,
-        toneCurveGreen: ToneCurve = .identity,
-        toneCurveBlue: ToneCurve = .identity,
-        displayToneCurveLuma: ToneCurve = .identity,
-        displayToneCurveRed: ToneCurve = .identity,
-        displayToneCurveGreen: ToneCurve = .identity,
-        displayToneCurveBlue: ToneCurve = .identity,
-        chromaPrefilter: Double = 0,
-        hotPixelSuppression: HotPixelSuppressionMode = .off,
-        deepDenoise: Double = 0,
-        crop: Crop = .identity,
-        localAdjustments: [LocalAdjustment] = [],
-        lensProfileEnable: LensProfileEnable = .on,
-        lensCorrectionDistortion: Double = 100,
-        lensCorrectionCa: Double = 100,
-        lensCorrectionVignetting: Double = 100,
-        filmLook: String = "",
-        filmStrength: Double = 100
-    ) {
-        self.temperature = temperature
-        self.tint = tint
-        self.wbScaleVersion = wbScaleVersion
-        self.wbMethod = wbMethod
-        self.wbSource = wbSource
-        self.wbSampleX = wbSampleX
-        self.wbSampleY = wbSampleY
-        self.wbAlgorithmVersion = wbAlgorithmVersion
-        self.exposure = exposure
-        self.brightness = brightness
-        self.contrast = contrast
-        self.highlights = highlights
-        self.shadows = shadows
-        self.whites = whites
-        self.blacks = blacks
-        self.parametricHighlights = parametricHighlights
-        self.parametricLights = parametricLights
-        self.parametricDarks = parametricDarks
-        self.parametricShadows = parametricShadows
-        self.parametricShadowSplit = parametricShadowSplit
-        self.parametricMidtoneSplit = parametricMidtoneSplit
-        self.parametricHighlightSplit = parametricHighlightSplit
-        self.vibrance = vibrance
-        self.saturation = saturation
-        self.clarity = clarity
-        self.texture = texture
-        self.dehaze = dehaze
-        self.sharpenAmount = sharpenAmount
-        self.sharpenRadius = sharpenRadius
-        self.sharpenDetail = sharpenDetail
-        self.sharpenMasking = sharpenMasking
-        self.captureSharpeningAmount = captureSharpeningAmount
-        self.captureSharpeningSigma = captureSharpeningSigma
-        self.nrLuminance = nrLuminance
-        self.nrColor = nrColor
-        self.vignetteAmount = vignetteAmount
-        self.vignetteFeather = vignetteFeather
-        self.grainAmount = grainAmount
-        self.grainSize = grainSize
-        self.grainRoughness = grainRoughness
-        self.splitToneShadowHue = splitToneShadowHue
-        self.splitToneShadowSaturation = splitToneShadowSaturation
-        self.splitToneHighlightHue = splitToneHighlightHue
-        self.splitToneHighlightSaturation = splitToneHighlightSaturation
-        self.splitToneBalance = splitToneBalance
-        self.colorGradeShadowLuminance = colorGradeShadowLuminance
-        self.colorGradeMidtoneHue = colorGradeMidtoneHue
-        self.colorGradeMidtoneSaturation = colorGradeMidtoneSaturation
-        self.colorGradeMidtoneLuminance = colorGradeMidtoneLuminance
-        self.colorGradeHighlightLuminance = colorGradeHighlightLuminance
-        self.colorGradeGlobalHue = colorGradeGlobalHue
-        self.colorGradeGlobalSaturation = colorGradeGlobalSaturation
-        self.colorGradeGlobalLuminance = colorGradeGlobalLuminance
-        self.hueAdjustmentRed = hueAdjustmentRed
-        self.hueAdjustmentOrange = hueAdjustmentOrange
-        self.hueAdjustmentYellow = hueAdjustmentYellow
-        self.hueAdjustmentGreen = hueAdjustmentGreen
-        self.hueAdjustmentAqua = hueAdjustmentAqua
-        self.hueAdjustmentBlue = hueAdjustmentBlue
-        self.hueAdjustmentPurple = hueAdjustmentPurple
-        self.hueAdjustmentMagenta = hueAdjustmentMagenta
-        self.saturationAdjustmentRed = saturationAdjustmentRed
-        self.saturationAdjustmentOrange = saturationAdjustmentOrange
-        self.saturationAdjustmentYellow = saturationAdjustmentYellow
-        self.saturationAdjustmentGreen = saturationAdjustmentGreen
-        self.saturationAdjustmentAqua = saturationAdjustmentAqua
-        self.saturationAdjustmentBlue = saturationAdjustmentBlue
-        self.saturationAdjustmentPurple = saturationAdjustmentPurple
-        self.saturationAdjustmentMagenta = saturationAdjustmentMagenta
-        self.luminanceAdjustmentRed = luminanceAdjustmentRed
-        self.luminanceAdjustmentOrange = luminanceAdjustmentOrange
-        self.luminanceAdjustmentYellow = luminanceAdjustmentYellow
-        self.luminanceAdjustmentGreen = luminanceAdjustmentGreen
-        self.luminanceAdjustmentAqua = luminanceAdjustmentAqua
-        self.luminanceAdjustmentBlue = luminanceAdjustmentBlue
-        self.luminanceAdjustmentPurple = luminanceAdjustmentPurple
-        self.luminanceAdjustmentMagenta = luminanceAdjustmentMagenta
-        self.blackWhite = blackWhite
-        self.grayMixerRed = grayMixerRed
-        self.grayMixerOrange = grayMixerOrange
-        self.grayMixerYellow = grayMixerYellow
-        self.grayMixerGreen = grayMixerGreen
-        self.grayMixerAqua = grayMixerAqua
-        self.grayMixerBlue = grayMixerBlue
-        self.grayMixerPurple = grayMixerPurple
-        self.grayMixerMagenta = grayMixerMagenta
-        self.highlightRecovery = highlightRecovery
-        self.autoExposure = autoExposure
-        self.look = look
-        self.profile = profile
-        self.toneCurveMode = toneCurveMode
-        self.toneCurveLuma = toneCurveLuma
-        self.toneCurveRed = toneCurveRed
-        self.toneCurveGreen = toneCurveGreen
-        self.toneCurveBlue = toneCurveBlue
-        self.displayToneCurveLuma = displayToneCurveLuma
-        self.displayToneCurveRed = displayToneCurveRed
-        self.displayToneCurveGreen = displayToneCurveGreen
-        self.displayToneCurveBlue = displayToneCurveBlue
-        self.chromaPrefilter = chromaPrefilter
-        self.hotPixelSuppression = hotPixelSuppression
-        self.deepDenoise = deepDenoise
-        self.crop = crop
-        self.localAdjustments = localAdjustments
-        self.lensProfileEnable = lensProfileEnable
-        self.lensCorrectionDistortion = lensCorrectionDistortion
-        self.lensCorrectionCa = lensCorrectionCa
-        self.lensCorrectionVignetting = lensCorrectionVignetting
-        self.filmLook = filmLook
-        self.filmStrength = filmStrength
-    }
-
-    public static let `default` = AdjustmentModel()
+  public static let `default` = AdjustmentModel()
 }

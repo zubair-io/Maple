@@ -118,6 +118,7 @@ pub use crop::Crop;
 // Profile / WhiteBalancePreset / ToneCurveMode split into their own
 // submodule to stay under the 600-LOC hard budget (PR #1730).
 mod render_enums;
+mod white_balance_presets;
 pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WbSource, WhiteBalancePreset};
 
 // LensProfileEnable split into its own submodule to stay under the
@@ -175,7 +176,7 @@ pub struct AdjustmentModel {
     pub wb_sample_x: f32,
     pub wb_sample_y: f32,
     /// Estimator version behind an `Auto` / `Sampled` pair
-    /// (`stages::white_balance_sample::WB_ALGORITHM_VERSION`); 0 otherwise.
+    /// (source-specific AUTO or point-sampler version); 0 otherwise.
     pub wb_algorithm_version: f32,
     pub exposure: f32, // -4..+4 EV, default 0
     /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design

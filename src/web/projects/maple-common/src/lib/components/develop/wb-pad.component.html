@@ -1,5 +1,13 @@
 <!-- WbPadComponent — 2-D white balance pad (#1540) -->
 <div class="flex flex-col gap-1.5 px-2.5 pt-2 pb-2.5">
+  <mui-select
+    ariaLabel="White balance"
+    [value]="selectedPreset()"
+    [options]="presetOptions()"
+    [disabled]="presetDisabled()"
+    (valueChange)="selectPreset($event)"
+    data-testid="wb-preset"
+  />
   <!-- Readout row: K label + eyedropper -->
   <div class="flex items-center gap-1.5">
     <span
@@ -14,10 +22,11 @@
     >
     <div class="flex-1"></div>
     <button
-      class="flex h-[26px] w-[26px] shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-[0.5px] outline-none transition-[background,border-color,color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+      class="flex h-11 w-11 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-[0.5px] outline-none transition-[background,border-color,color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
       [class]="eyedropBtnClass(eyedropperActive())"
       title="Sample neutral grey point from canvas"
       aria-label="Eyedropper: set neutral white balance from canvas"
+      [disabled]="presetDisabled()"
       (click)="onEyedropperClick()"
     >
       <maple-icon name="wb-eyedrop" [size]="14" aria-hidden="true" />
@@ -38,30 +47,32 @@
        pointer-capture drag; the WB-specific Kelvin/tint domain (and the
        #2412 clamped arrow-key stepping, still `onPadKeyDown` below) stays
        owned by this wrapper via `[stepKeyboard]="false"` + `(arrowKey)`. -->
-  <mui-pad-2d
-    ariaLabel="White balance — drag to set temperature and tint"
-    [valueText]="'Temp ' + tempLabel() + ', Tint ' + tintLabel()"
-    [fill]="true"
-    [aspectRatio]="2"
-    [crosshair]="true"
-    [value]="padValue()"
-    (valueChange)="onPadValueChange($event)"
-    [stepKeyboard]="false"
-    (arrowKey)="onPadKeyDown($event)"
-  >
-    <!-- Gradient layers (WB-specific fill; mui-pad-2d's own `gradient` input
+  @if (showPad()) {
+    <mui-pad-2d
+      ariaLabel="White balance — drag to set temperature and tint"
+      [valueText]="'Temp ' + tempLabel() + ', Tint ' + tintLabel()"
+      [fill]="true"
+      [aspectRatio]="2"
+      [crosshair]="true"
+      [value]="padValue()"
+      (valueChange)="onPadValueChange($event)"
+      [stepKeyboard]="false"
+      (arrowKey)="onPadKeyDown($event)"
+    >
+      <!-- Gradient layers (WB-specific fill; mui-pad-2d's own `gradient` input
          paints a single flat background, so the two-axis composited fill
          stays a projected overlay rather than one CSS string). -->
-    <div class="pad-grad-temp absolute inset-0"></div>
-    <div class="pad-grad-tint absolute inset-0"></div>
-  </mui-pad-2d>
+      <div class="pad-grad-temp absolute inset-0"></div>
+      <div class="pad-grad-tint absolute inset-0"></div>
+    </mui-pad-2d>
 
-  <!-- Axis labels -->
-  <div
-    class="flex justify-between text-[9px] text-[color:var(--pro-text-dim)] select-none"
-    aria-hidden="true"
-  >
-    <span>2000 K</span>
-    <span>12000 K</span>
-  </div>
+    <!-- Axis labels -->
+    <div
+      class="flex justify-between text-[9px] text-[color:var(--pro-text-dim)] select-none"
+      aria-hidden="true"
+    >
+      <span>2000 K</span>
+      <span>12000 K</span>
+    </div>
+  }
 </div>

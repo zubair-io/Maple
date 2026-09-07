@@ -192,7 +192,14 @@ mod tests {
 
         // (temperature, tint): warm/cool/extreme, all clear of the identity
         // short-circuit. Both WB methods.
-        let cases = [(3000.0_f32, 0.0_f32), (10000.0, 50.0), (2000.0, -50.0)];
+        let cases: Vec<_> = [(3000.0_f32, 0.0_f32), (10000.0, 50.0), (2000.0, -50.0)]
+            .into_iter()
+            .chain(
+                raw_core::types::adjustment::WhiteBalancePreset::ALL
+                    .into_iter()
+                    .filter_map(|preset| preset.pair()),
+            )
+            .collect();
         for method in [WbMethod::Cat16, WbMethod::DiagonalRec2020] {
             for &(temp, tint) in &cases {
                 let reference = raw_core_white_balance(&input, temp, tint, method);

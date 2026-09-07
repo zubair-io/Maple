@@ -63,6 +63,12 @@ pub(super) fn stripped_prefix_model(
         // WB method is inert at the neutral short-circuit; pin it so toggling the
         // method doesn't spuriously change the prefix (the GPU chain owns WB).
         wb_method: WbMethod::Cat16,
+        // WB provenance is sidecar metadata; choosing a mode must not
+        // invalidate the developed buffer behind the live GPU controls.
+        wb_source: raw_core::types::adjustment::WbSource::AsShot,
+        wb_sample_x: 0.0,
+        wb_sample_y: 0.0,
+        wb_algorithm_version: 0.0,
         // Effective AE mode from the probe (Off when Auto Profile will fit).
         auto_exposure: ae_mode,
         // Every stage the GPU chain re-runs → no-op default so develop skips it.

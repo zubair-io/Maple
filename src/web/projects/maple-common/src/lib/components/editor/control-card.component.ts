@@ -45,6 +45,7 @@ import {
   isWired,
 } from '../../editor/tool-model';
 import { toolMetadata } from '../../editor/tool-metadata';
+import { manualAdjustmentPatch } from '../../editor/editor-state.wb-sample';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
@@ -300,6 +301,8 @@ export class ControlCardComponent {
   }
 
   onSliderChange(tool: ToolId, value: number): void {
+    const current = this.currentAdj();
+    if (!current) return;
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;
     if (this.dragAssetId !== null && this.dragAssetId !== id) return;
@@ -310,23 +313,28 @@ export class ControlCardComponent {
     // On web this is also what makes a multi-param tool's extra tiers
     // reachable — the Noise pill's Deep / Prefilter (#1153).
     if (this.editorState.armedTool() !== tool) this.editorState.armTool(tool);
-    this.libraryState.updateAdjustment(id, { [field]: value } as Partial<AdjustmentModel>);
+    this.libraryState.updateAdjustment(id, manualAdjustmentPatch({ [field]: value }, current));
   }
 
   onSliderReset(tool: ToolId): void {
+    const current = this.currentAdj();
+    if (!current) return;
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;
     const field = fieldFor(tool);
     if (!field) return;
     this.editorState.commit();
-    this.libraryState.updateAdjustment(id, {
-      [field]: defaultDisplayValue(tool),
-    } as Partial<AdjustmentModel>);
+    this.libraryState.updateAdjustment(
+      id,
+      manualAdjustmentPatch({ [field]: defaultDisplayValue(tool) }, current),
+    );
     this.editorState.haptic('reset');
   }
 
   /** Reset all sliders in the active group. */
   resetGroup(): void {
+    const current = this.currentAdj();
+    if (!current) return;
     const id = this.libraryState.focusedAssetId();
     if (!id) return;
     const tools = this.slidersFor(this.activeGroup());
@@ -339,7 +347,7 @@ export class ControlCardComponent {
         (patch as Record<string, number>)[field] = defaultDisplayValue(tool);
       }
     }
-    this.libraryState.updateAdjustment(id, patch);
+    this.libraryState.updateAdjustment(id, manualAdjustmentPatch(patch, current));
     this.editorState.haptic('reset');
   }
 }
