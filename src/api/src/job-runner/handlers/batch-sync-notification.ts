@@ -13,8 +13,8 @@ function contains(root: string, path: string): boolean {
 }
 
 async function selectedLibrary(id: string, path: string) {
-  const slug = id.slice(0, id.indexOf(':'));
-  const named = await getLibraryBySlug(slug);
+  const delimiter = id.indexOf(':');
+  const named = delimiter > 0 ? await getLibraryBySlug(id.slice(0, delimiter)) : null;
   if (named && contains(named.root, path)) return named;
   const matching = [...(await loadLibraryRoots())]
     .filter(([, root]) => contains(root, path))

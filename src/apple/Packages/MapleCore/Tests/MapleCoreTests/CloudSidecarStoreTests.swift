@@ -108,6 +108,38 @@ final class CloudSidecarStoreTests: XCTestCase {
     XCTAssertEqual(try XMPParser.parse(data: body).0.exposure, 1.75)
   }
 
+  func testConfirmedWriteDoesNotRestoreForeignFieldsAfterRemoteDeletion() async throws {
+    let server = URL(string: "https://batch-remote-delete")!
+    let document = DeletedRemoteDocument(XMPPassthroughTests.lightroomSidecar)
+    let session = URLSession.stubbedSequence { request in
+      if request.httpMethod == "GET" {
+        let value = document.read()
+        return (
+          Data((value ?? "").utf8),
+          HTTPURLResponse(
+            url: request.url!, statusCode: value == nil ? 404 : 200,
+            httpVersion: nil, headerFields: nil)!
+        )
+      }
+      return (
+        Data(),
+        HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+      )
+    }
+    let store = CloudSidecarStore(
+      server: server, assetID: "asset",
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    _ = try await store.load()
+    document.delete()
+
+    try await store.writeConfirmed(model: .default, culling: CullingState())
+
+    let body = try XCTUnwrap(
+      URLProtocolStub.capturedBodies["https://batch-remote-delete/api/assets/asset/xmp"])
+    XCTAssertEqual(XMPParser.parseMetadata(String(decoding: body, as: UTF8.self)), XmpMetadata())
+    XCTAssertEqual(XMPParser.parsePassthrough(data: body), .empty)
+  }
+
 }
 
 private final class TransferRemoteDocument: @unchecked Sendable {
@@ -116,4 +148,12 @@ private final class TransferRemoteDocument: @unchecked Sendable {
   init(_ xml: String) { self.xml = xml }
   func read() -> String { lock.withLock { xml } }
   func write(_ value: String) { lock.withLock { xml = value } }
+}
+
+private final class DeletedRemoteDocument: @unchecked Sendable {
+  private let lock = NSLock()
+  private var xml: String?
+  init(_ xml: String) { self.xml = xml }
+  func read() -> String? { lock.withLock { xml } }
+  func delete() { lock.withLock { xml = nil } }
 }
