@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Maple.WinUI.Generated;
-using System.Collections.Generic;
 
 namespace Maple.WinUI.Services
 {
