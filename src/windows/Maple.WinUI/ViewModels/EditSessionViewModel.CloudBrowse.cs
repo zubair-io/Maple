@@ -14,14 +14,18 @@ namespace Maple.WinUI.ViewModels
     /// sidecars, download-to-edit) for the file-size budget.
     ///
     /// This is a Finder / File Explorer view of the server, and it walks the
-    /// same endpoints every other platform walks: registered libraries from
+    /// same endpoints the Apple cloud source walks: registered libraries from
     /// GET /api/folders are the roots, and each level below comes from
     /// GET /api/fs/dir — immediate children only, subdirectories listed
     /// separately from the images so the sidebar renders a tree while the grid
     /// shows one directory. Apple's CloudSource (MapleCore/Cloud/
-    /// CloudSource.swift) and the web's FilesystemBrowseService are the same
-    /// walk against the same routes (the web uses the /dir-fast variant, which
-    /// drops the EXIF and asset ids this grid does want).
+    /// CloudSource.swift) is the same walk against the same route; the web
+    /// grid lists via the unified /api/folder/:slug/* instead, which carries
+    /// none of the size, mtime or EXIF this grid renders (see
+    /// CloudClient.ListDirAsync for why the listing stays path-addressed).
+    /// Thumbnails and previews, by contrast, are fetched by `slug:relPath`
+    /// address (GET /api/thumb, /api/preview) — the same routes and server
+    /// cache entries the web reads (#1325).
     ///
     /// It deliberately does NOT go through /api/search: that returns a
     /// capture-sorted feed of a whole library with no directory structure at
@@ -305,9 +309,12 @@ namespace Maple.WinUI.ViewModels
                 ? dt.ToUniversalTime()
                 : DateTime.UnixEpoch;
 
-        /// <summary>Fill the grid's thumbnails from GET /api/fs/thumb, keyed
-        /// by server path so files the indexer hasn't reached yet still get a
-        /// picture (an address-keyed thumb needs an indexed asset).</summary>
+        /// <summary>Fill the grid's thumbnails from GET /api/thumb/:slug/*,
+        /// keyed by the item's `slug:relPath` address — the unified route the
+        /// web grid reads, which renders a file the indexer hasn't reached
+        /// yet on the fly. An item with no address (a library the server
+        /// reported without a slug) has nothing to ask for and keeps the
+        /// placeholder.</summary>
         private async Task HydrateCloudThumbnailsAsync(List<PhotoItem> items, CancellationToken ct)
         {
             // Disposed only after WhenAll: every task that took the gate has
@@ -316,12 +323,12 @@ namespace Maple.WinUI.ViewModels
             // picked another folder — so it is swallowed rather than left to
             // fault an unawaited task.
             using var gate = new SemaphoreSlim(4);
-            var tasks = items.Select(async item =>
+            var tasks = items.Where(item => item.CloudAddress != null).Select(async item =>
             {
                 await gate.WaitAsync(ct);
                 try
                 {
-                    var path = await _cloud!.FetchFsImageAsync("thumb", item.FilePath, ct);
+                    var path = await _cloud!.FetchImageAsync("thumb", item.CloudAddress!, ct);
                     if (path != null)
                         App.MainDispatcherQueue?.TryEnqueue(() =>
                             item.ThumbnailPath = new Uri(path).AbsoluteUri);

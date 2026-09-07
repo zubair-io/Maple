@@ -7,16 +7,28 @@
 //   FETCH_PLACEHOLDERS — on-demand directory population. The sync root
 //     lists one directory per registered cloud library
 //     (GET /api/folders); every level below comes from GET /api/fs/dir —
-//     the same walk the in-app browser, web, and the Apple File Provider
-//     use. Each placeholder's FileIdentity is the entry's absolute server
+//     the same walk the in-app browser and the Apple File Provider use.
+//     Each placeholder's FileIdentity is the entry's absolute server
 //     path, so a callback can address the server without any local state.
 //
 //   FETCH_DATA — on-demand hydration. Opening a placeholder streams the
 //     original through GET /api/fs/raw straight into CfExecute
-//     TRANSFER_DATA chunks; nothing spools to disk first. Explorer's
-//     pin-for-offline ("Always keep on this device") rides the same
-//     callback — the platform requests full hydration, which the FULL
-//     hydration policy already makes the only mode.
+//     TRANSFER_DATA chunks (CloudFilesHydration.cs); nothing spools to
+//     disk first. Explorer's pin-for-offline ("Always keep on this
+//     device") rides the same callback — the platform requests full
+//     hydration, which the FULL hydration policy already makes the only
+//     mode.
+//
+// Both callbacks stay on the path-addressed /api/fs/* routes after the
+// #1325 cutover, for the same reasons the Apple File Provider does: the
+// unified /api/folder/:slug/* listing carries no size or mtime, and a
+// placeholder's FileSize must be right for hydration to complete; and
+// only /api/fs/raw carries the #926 mirror read-failover, so a library
+// whose primary volume is unmounted still hydrates from its mirror.
+// Neither /api/fs/raw nor /api/image/:slug/* honours a Range header —
+// hydration relies on the FULL policy asking for the whole file from
+// offset 0, and refuses anything else (CloudFilesHydration.IsSupportedRequest).
+// Moving these two calls is a route swap once the server closes both gaps.
 //
 // v1 is browse/hydrate/pin only: Explorer-initiated deletes, renames and
 // writes are not propagated to the server (no NOTIFY_* callbacks are
@@ -278,7 +290,8 @@ namespace Maple.WinUI.Services.CloudFiles
         /// <summary>Directory listing behind a placeholder identity: the sync
         /// root itself (empty identity) lists the registered libraries; any
         /// other identity is an absolute server directory path listed via
-        /// /api/fs/dir, cursor-paged to completion.</summary>
+        /// /api/fs/dir, cursor-paged to completion (the only listing that
+        /// reports the size and mtime a placeholder is stamped with).</summary>
         private async Task<List<Entry>> ListEntriesAsync(string identity)
         {
             var entries = new List<Entry>();
@@ -356,8 +369,8 @@ namespace Maple.WinUI.Services.CloudFiles
         /// TRANSFER_DATA chunks. The FULL hydration policy makes the
         /// required range the whole file, so a plain sequential body read
         /// covers it; every delivered chunk is 4096-aligned except the last
-        /// (which ends at EOF, where the platform accepts a short
-        /// tail).</summary>
+        /// (which ends at EOF, where the platform accepts a short tail) —
+        /// the loop itself is <see cref="CloudFilesHydration.StreamAlignedAsync"/>.</summary>
         private async Task HydrateAsync(
             CfApi.CF_CALLBACK_INFO info, CfApi.CF_CALLBACK_PARAMETERS_FETCH_DATA fetch, CancellationToken ct)
         {
@@ -370,13 +383,7 @@ namespace Maple.WinUI.Services.CloudFiles
                 return;
             }
 
-            // The FULL hydration policy makes every request start at 0, and
-            // the sequential streaming below depends on that. Guard the
-            // assumption: a non-zero required offset (e.g. a future policy
-            // change, or a restarted partial hydration) must fail cleanly
-            // rather than deliver bytes at wrong offsets and corrupt the
-            // read.
-            if (fetch.RequiredFileOffset != 0)
+            if (!CloudFilesHydration.IsSupportedRequest(fetch.RequiredFileOffset))
             {
                 DiagLog.Write(
                     $"[cloudfiles] unsupported partial hydration request at offset {fetch.RequiredFileOffset}");
@@ -394,35 +401,10 @@ namespace Maple.WinUI.Services.CloudFiles
             }
 
             await using var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            var buffer = new byte[1 << 20];
-            long delivered = 0;
-            var filled = 0;
-            while (true)
-            {
-                var read = await body.ReadAsync(
-                    buffer.AsMemory(filled, buffer.Length - filled), ct).ConfigureAwait(false);
-                if (read > 0)
-                {
-                    filled += read;
-                    if (filled < buffer.Length)
-                        continue;
-                }
-
-                // Flush the aligned prefix; at end of stream flush everything
-                // (a short tail is legal only when it reaches EOF).
-                var flush = read > 0
-                    ? filled - filled % CfApi.HydrationChunkAlignment
-                    : filled;
-                if (flush > 0)
-                {
-                    DeliverChunk(info, buffer, flush, delivered);
-                    delivered += flush;
-                    Buffer.BlockCopy(buffer, flush, buffer, 0, filled - flush);
-                    filled -= flush;
-                }
-                if (read <= 0)
-                    break;
-            }
+            var delivered = await CloudFilesHydration.StreamAlignedAsync(
+                body, CfApi.HydrationChunkAlignment,
+                (buffer, length, offset) => DeliverChunk(info, buffer, length, offset), ct)
+                .ConfigureAwait(false);
             DiagLog.Write($"[cloudfiles] hydrated {Path.GetFileName(identity.Replace('\\', '/'))} ({delivered} bytes)");
         }
 

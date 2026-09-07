@@ -41,20 +41,33 @@ namespace Maple.WinUI.Services.Cloud
         public bool IsAuthenticated => _accessToken != null;
 
         public CloudClient(string serverUrl)
+            : this(
+                serverUrl,
+                new HttpClientHandler
+                {
+                    CookieContainer = new CookieContainer(),
+                    UseCookies = true,
+                },
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Maple", "cloud"))
+        {
+        }
+
+        /// <summary>Transport seam: the tests hand in a fake
+        /// <see cref="HttpMessageHandler"/> that records every request and
+        /// a throwaway cache directory, so the routes each method builds
+        /// are pinned without a server. The app always goes through the
+        /// public constructor above.</summary>
+        internal CloudClient(string serverUrl, HttpMessageHandler handler, string cacheDir)
         {
             ServerUrl = serverUrl.TrimEnd('/');
-            _http = new HttpClient(new HttpClientHandler
-            {
-                CookieContainer = new CookieContainer(),
-                UseCookies = true,
-            })
+            _http = new HttpClient(handler)
             {
                 BaseAddress = new Uri(ServerUrl + "/"),
                 Timeout = TimeSpan.FromSeconds(30),
             };
-            _cacheDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Maple", "cloud");
+            _cacheDir = cacheDir;
             Directory.CreateDirectory(_cacheDir);
         }
 

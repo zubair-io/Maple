@@ -35,10 +35,11 @@ namespace Maple.WinUI.Services.Cloud
     }
 
     /// <summary>One directory level from GET /api/fs/dir — the endpoint the
-    /// Apple cloud source and the File Provider browse with, and the web's
-    /// /api/fs/dir-fast sibling. Immediate children only: subdirectories and
-    /// this level's images are separate lists, so the client renders a tree
-    /// plus a grid rather than a flattened feed.</summary>
+    /// Apple cloud source and the File Provider browse with (the web grid
+    /// lists via the unified /api/folder/:slug/* instead). Immediate children
+    /// only: subdirectories and this level's images are separate lists, so
+    /// the client renders a tree plus a grid rather than a flattened
+    /// feed.</summary>
     public sealed class CloudDirListing
     {
         [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;

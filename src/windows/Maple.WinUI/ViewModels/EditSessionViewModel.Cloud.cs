@@ -284,15 +284,19 @@ namespace Maple.WinUI.ViewModels
         }
 
         /// <summary>Preview-screen image for a cloud asset: the server's
-        /// 1280px AVIF preview, cached locally. Addressed by server path
-        /// (GET /api/fs/preview), the same way the browse listing named the
-        /// file and the same way the Apple cloud source asks for it.</summary>
+        /// 1280px AVIF preview, cached locally. Addressed by `slug:relPath`
+        /// (GET /api/preview/:slug/*), the unified route the web preview
+        /// reads (#1325). A photo with no address (a library reported
+        /// without a slug) has no preview to ask for.</summary>
         private void RequestCloudPreview(PhotoItem photo)
         {
+            var address = photo.CloudAddress;
+            if (address == null)
+                return;
             _ = Task.Run(async () =>
             {
-                var path = await _cloud!.FetchFsImageAsync(
-                    "preview", photo.FilePath, CancellationToken.None);
+                var path = await _cloud!.FetchImageAsync(
+                    "preview", address, CancellationToken.None);
                 if (path != null)
                     OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
             });
