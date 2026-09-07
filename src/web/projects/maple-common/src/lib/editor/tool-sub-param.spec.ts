@@ -251,23 +251,35 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('bwMix')).toBe('bwRed');
   });
 
-  it('every other tool is single-param (crop pending its own spec)', () => {
-    for (const tool of ALL_TOOLS) {
-      if (
-        tool === 'noise' ||
-        tool === 'sharpen' ||
-        tool === 'vignette' ||
-        tool === 'grain' ||
-        tool === 'colorGrade' ||
-        tool === 'hsl' || // HSL wired at #1112: 24 sub-params
-        tool === 'bwMix' || // bwMix wired at #276: 8 gray-mixer sub-params
-        tool === 'captureSharpen' // Deconv wired at #3414: Amount + Sigma
-      )
-        continue;
-      expect(subParamsFor(tool as ToolId)).toEqual([]);
-      expect(isMultiParam(tool as ToolId)).toBe(false);
-      expect(defaultSubParamId(tool as ToolId)).toBeNull();
-    }
+  // The tools that DO declare a sub-param catalog, each pinned by its own
+  // test above. Held as DATA rather than a chain of `||` guards inside the
+  // loop below: one row per tool keeps the check one branch wide (fallow's
+  // cyclomatic gate) and makes adding a multi-param tool an entry, not
+  // another condition.
+  const MULTI_PARAM_TOOLS: readonly ToolId[] = [
+    'noise',
+    'sharpen',
+    'vignette',
+    'grain',
+    'colorGrade',
+    'hsl', // HSL wired at #1112: 24 sub-params
+    'bwMix', // bwMix wired at #276: 8 gray-mixer sub-params
+    'captureSharpen', // Deconv wired at #3414: Amount + Sigma
+  ];
+
+  const SINGLE_PARAM_TOOLS = ALL_TOOLS.filter((tool) => !MULTI_PARAM_TOOLS.includes(tool));
+
+  // Guards the table itself: a typo in MULTI_PARAM_TOOLS that excluded every
+  // tool would leave `it.each` with an empty table and no failing case.
+  it('leaves a non-empty single-param set to check', () => {
+    expect(SINGLE_PARAM_TOOLS.length).toBeGreaterThan(0);
+    expect(MULTI_PARAM_TOOLS.every((tool) => ALL_TOOLS.includes(tool))).toBe(true);
+  });
+
+  it.each(SINGLE_PARAM_TOOLS)('%s is single-param (crop pending its own spec)', (tool) => {
+    expect(subParamsFor(tool)).toEqual([]);
+    expect(isMultiParam(tool)).toBe(false);
+    expect(defaultSubParamId(tool)).toBeNull();
   });
 
   it('subParamById resolves only declared ids', () => {
