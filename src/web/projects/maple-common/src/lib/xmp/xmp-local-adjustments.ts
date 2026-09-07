@@ -23,6 +23,7 @@ import type {
   LocalMask,
   MaskPoint,
   PartialAdjustments,
+  RangeRefinement,
 } from '../models/local-adjustment';
 import { numericSerializer } from './xmp-fields';
 import { attrOf, managedXmpName } from './xmp-dom-utils';
@@ -58,7 +59,19 @@ const SLIDER_KEYS: ReadonlyArray<readonly [string, keyof PartialAdjustments]> = 
   ['papp:LocalVibrance', 'vibrance'],
   ['crs:LocalTemperature', 'temperature'],
   ['crs:LocalTint', 'tint'],
+  ['crs:LocalHue', 'hue'],
 ];
+
+/** Canonical order and raw-core's defaults for missing Color range attributes. */
+const RANGE_KEYS: ReadonlyArray<readonly [string, Exclude<keyof RangeRefinement, 'kind'>, number]> =
+  [
+    ['papp:RangeHue', 'hueDeg', 55],
+    ['papp:RangeHueWidth', 'hueHalfWidthDeg', 25],
+    ['papp:RangeChromaMin', 'chromaMin', 0.02],
+    ['papp:RangeLMin', 'lMin', 0.15],
+    ['papp:RangeLMax', 'lMax', 0.95],
+    ['papp:RangeFeather', 'feather', 0.3],
+  ];
 
 /** Which container `child` is, or undefined when it is not one. */
 export function localAdjustmentContainerKind(
@@ -91,6 +104,17 @@ const xmpBool = (raw: string | null): boolean | undefined => {
 };
 
 const point = (x: number, y: number): MaskPoint => ({ x, y });
+
+function parseRange(description: Element): RangeRefinement | undefined {
+  if (attrOf(description, ['papp:RangeKind']) !== 'Color') return undefined;
+  const values = RANGE_KEYS.map(([key, field, fallback]) => {
+    const value = attrOf(description, [key]) === null ? fallback : finiteAttr(description, key);
+    return [field, value] as const;
+  });
+  // A corrupt range is absent; a missing numeric attribute uses raw-core's default.
+  if (values.some(([, value]) => value === undefined)) return undefined;
+  return { kind: 'color', ...Object.fromEntries(values) } as RangeRefinement;
+}
 
 function parseLinearLeaf(leaf: Element): LocalMask | undefined {
   const zx = finiteAttr(leaf, 'crs:ZeroX');
@@ -155,11 +179,13 @@ function parseCorrection(
   const amount = finiteAttr(description, 'crs:CorrectionAmount') ?? 1;
   const adjustments = Object.fromEntries(
     SLIDER_KEYS.flatMap(([key, field]) => {
-      const v = finiteAttr(description, key);
+      const raw = finiteAttr(description, key);
+      const v = raw === undefined ? undefined : field === 'hue' ? raw * 100 : raw;
       return v === undefined ? [] : [[field, amount === 1 ? v : v * amount] as const];
     }),
   ) as PartialAdjustments;
-  return { mask, adjustments };
+  const range = parseRange(description);
+  return range ? { mask, adjustments, range } : { mask, adjustments };
 }
 
 /**
@@ -180,6 +206,14 @@ export function parseLocalAdjustmentsContainer(
 }
 
 // ── Serialize ──────────────────────────────────────────────────────────────
+
+function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
+  if (!range || RANGE_KEYS.some(([, field]) => !Number.isFinite(range[field]))) return [];
+  return [
+    `${indent}papp:RangeKind="Color"`,
+    ...RANGE_KEYS.map(([key, field]) => `${indent}${key}="${numericSerializer(range[field])}"`),
+  ];
+}
 
 function maskLines(mask: LocalMask, indent: string): string[] {
   const n = numericSerializer;
@@ -219,9 +253,10 @@ function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent:
         // Only fields actually set are written; a non-finite value is not
         // representable in XMP and is skipped like every other slider.
         return typeof v === 'number' && Number.isFinite(v)
-          ? [`${i4}${key}="${numericSerializer(v)}"`]
+          ? [`${i4}${key}="${numericSerializer(field === 'hue' ? v / 100 : v)}"`]
           : [];
       }),
+      ...rangeLines(layer.range, i4),
     ];
     return [
       `${i2}<rdf:li>`,

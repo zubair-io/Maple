@@ -19,7 +19,8 @@ private let canonicalIndent = "      "
 /// The linear half of the shared fixture (`linear_layer()` in Rust).
 private let linearLayer = LocalAdjustment(
     mask: .linear(start: MaskPoint(x: 0.2, y: 0.3), end: MaskPoint(x: 0.8, y: 0.7), feather: 0.4),
-    adjustments: PartialAdjustments(exposure: 0.5, shadows: -20))
+    range: .skinTone,
+    adjustments: PartialAdjustments(exposure: 0.5, shadows: -20, hue: -35))
 
 /// The radial half (`radial_layer()` in Rust). Binary-exact fractions so the
 /// wire form's `center ± radii` bounding box round-trips to bit-identical
@@ -28,7 +29,8 @@ private let radialLayer = LocalAdjustment(
     mask: .radial(
         center: MaskPoint(x: 0.5, y: 0.375), radii: MaskPoint(x: 0.25, y: 0.125),
         angle: LocalAdjustmentXMP.degreesToRadians(45), feather: 0.6, invert: true),
-    adjustments: PartialAdjustments(contrast: 15, vibrance: -10, temperature: 200))
+    range: .color(hueDeg: 210, hueHalfWidthDeg: 40, chromaMin: 0.1, lMin: 0, lMax: 1, feather: 0),
+    adjustments: PartialAdjustments(contrast: 15, vibrance: -10, temperature: 200, hue: 0))
 
 /// Cross-language byte-parity fixture — see the file header.
 private let canonicalBlock = """
@@ -40,7 +42,15 @@ private let canonicalBlock = """
               crs:CorrectionAmount="1"
               crs:CorrectionActive="True"
               crs:LocalExposure2012="0.5"
-              crs:LocalShadows2012="-20">
+              crs:LocalShadows2012="-20"
+              crs:LocalHue="-0.35"
+              papp:RangeKind="Color"
+              papp:RangeHue="55"
+              papp:RangeHueWidth="25"
+              papp:RangeChromaMin="0.02"
+              papp:RangeLMin="0.15"
+              papp:RangeLMax="0.95"
+              papp:RangeFeather="0.3">
               <crs:CorrectionMasks>
                 <rdf:Seq>
                   <rdf:li
@@ -64,7 +74,15 @@ private let canonicalBlock = """
               crs:CorrectionActive="True"
               crs:LocalContrast2012="15"
               papp:LocalVibrance="-10"
-              crs:LocalTemperature="200">
+              crs:LocalTemperature="200"
+              crs:LocalHue="0"
+              papp:RangeKind="Color"
+              papp:RangeHue="210"
+              papp:RangeHueWidth="40"
+              papp:RangeChromaMin="0.1"
+              papp:RangeLMin="0"
+              papp:RangeLMax="1"
+              papp:RangeFeather="0">
               <crs:CorrectionMasks>
                 <rdf:Seq>
                   <rdf:li
