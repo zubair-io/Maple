@@ -397,6 +397,59 @@ The three writers that model it pin one shared bitmap + everywhere literal byte-
 
 Implementation: `raw-core/src/xmp/local_adjustments/` — `mod.rs` (`LocalAdjustmentsWalker`, the document-structure state machine), `parse.rs` (attribute-level parsing), `serialize.rs` (`serialize_local_adjustments`, the fragment emitter); `xmp-local-adjustments.ts` (Web), `XMPSerialization+LocalAdjustments.swift` (Apple), `XmpLocalAdjustments.cs` (Windows).
 
+## Repair spots
+
+The clone / heal brush (#3409) stores an ordered list of circular spots in Adobe's own `crs:RetouchAreas` container, so a spot authored in Maple renders in Lightroom and a Lightroom-authored spot loads here. Each entry is an `rdf:li` → `rdf:Description` naming the spot type and the source point, with the destination disc carried by a nested `crs:Masks` circular leaf:
+
+```xml
+<crs:RetouchAreas>
+  <rdf:Seq>
+    <rdf:li>
+      <rdf:Description
+        crs:SpotType="heal"
+        crs:SourceState="sourceSetExplicitly"
+        crs:Method="circle"
+        crs:SourceX="0.750000"
+        crs:SourceY="0.500000"
+        crs:Opacity="1.000000"
+        crs:Feather="0.500000"
+        crs:Seed="0">
+        <crs:Masks>
+          <rdf:Seq>
+            <rdf:li
+              crs:What="Mask/CircularGradient"
+              crs:MaskValue="1"
+              crs:X="0.250000"
+              crs:Y="0.500000"
+              crs:Radius="0.050000"
+              crs:Flow="1"
+              crs:CenterWeight="0"/>
+          </rdf:Seq>
+        </crs:Masks>
+      </rdf:Description>
+    </rdf:li>
+  </rdf:Seq>
+</crs:RetouchAreas>
+```
+
+**Coordinates and radius.** `crs:X`/`crs:Y` (destination) and `crs:SourceX`/`crs:SourceY` are normalized `[0, 1]` full-frame coordinates, origin top-left — the same convention masks use. `crs:Radius` is deliberately NOT: it is a fraction of the image **width**, applied to both axes, so the disc is a circle in pixels. A mask's "circular" radial shape is an ellipse on a non-square frame and that is fine for a gradient; a clone patch copied through an elliptical stencil would not be the shape the user drew.
+
+**Number formatting.** Six decimals, like `crs:Crop*` and like Adobe's own retouch output — not the two-decimal precision the local-adjustment sliders use, which would quantize a spot centre to 1 % of the frame, coarser than the dust spots this tool exists for.
+
+**Fixed attributes.** `crs:SourceState="sourceSetExplicitly"`, `crs:Method="circle"`, `crs:MaskValue="1"`, `crs:Flow="1"`, `crs:CenterWeight="0"` and `crs:Seed="0"` are written as constants: Maple always stores the source the user placed (never a re-derived one) and only models the circular brush, so emitting Adobe's own values keeps the document readable in Lightroom without claiming behaviour Maple does not have. On read they are accepted and ignored.
+
+**Source as an offset.** Adobe also writes the source as a delta — `crs:OffsetX`/`crs:OffsetY` from the destination. Every reader accepts either spelling and resolves both to the same stored point; `crs:SourceX`/`crs:SourceY` win when both are present.
+
+**Legacy form.** Older Lightroom versions wrote `crs:RetouchInfo`: an `rdf:Seq` of `centerX = …, centerY = …, radius = …, sourceState = …, sourceX = …, sourceY = …, spotType = …` strings. That form is READ so an old sidecar's spots survive an import, and never written. A document carrying both resolves to the struct container — the same precedence rule local adjustments apply to their own legacy attribute.
+
+**Tolerant reader.** A correction whose `crs:SpotType` this build does not model, or whose mask leaf is not `Mask/CircularGradient` (a Lightroom brush stroke is `Mask/Paint`), is dropped: that loses one spot rather than failing the document. In `raw-core` a _recognized_ leaf carrying a malformed number is a hard parse error, matching the strictness rule the rest of the schema follows; the TypeScript and Swift readers drop that spot instead, matching their own posture everywhere else.
+
+**Render meaning.** The list is a decode-product edit: `stages::retouch` applies it in scene-linear Rec.2020 after DCP colorimetry and before the chroma pre-filter, spots in list order, so a later spot may source from an earlier spot's result. Changing the list invalidates the decoded-image caches exactly as `papp:DeepDenoise` does (see `docs/caching.md`), and no per-tick chain re-runs it.
+
+Windows does not model the container: it rides the generic unknown-child-element passthrough byte-for-byte, so a Windows read-modify-write cannot drop a spot. `XmpRetouchTests.cs` pins that.
+
+Implementation: `raw-core/src/xmp/retouch/` — `mod.rs` (`RetouchWalker`), `parse.rs`, `serialize.rs` (`serialize_retouch_areas`); `xmp-retouch.ts` (Web), `XMPSerialization+Retouch.swift` (Apple).
+
 ## Crop fields
 
 The crop rect is normalized `[0, 1]` edges, origin top-left, with `crs:CropAngle` in degrees (positive = clockwise). The group is emitted only when non-identity, at six decimals:
