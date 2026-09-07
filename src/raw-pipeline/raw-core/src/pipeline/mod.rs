@@ -210,19 +210,81 @@ pub fn bayer_kernel(
     model: &crate::types::AdjustmentModel,
     raw: &crate::image::RawImage,
 ) -> crate::demosaic::DemosaicAlgorithm {
-    use crate::demosaic::DemosaicAlgorithm;
-    if quality == RenderQuality::Preview {
-        return DemosaicAlgorithm::HalfRes;
-    }
-    let fallback = match quality {
-        RenderQuality::Full => DemosaicAlgorithm::Rcd,
-        RenderQuality::Amaze => DemosaicAlgorithm::Amaze,
-        RenderQuality::Auto => crate::demosaic::auto_algorithm(
+    let fallback = fixed_quality_kernel(quality).unwrap_or_else(|| {
+        crate::demosaic::auto_algorithm(
             raw.iso,
             raw.noise_profile.as_deref(),
             crate::demosaic::sensor_pixels(raw),
-        ),
-        RenderQuality::Preview => unreachable!("returned above"),
-    };
+        )
+    });
+    if quality == RenderQuality::Preview {
+        return fallback;
+    }
     crate::demosaic::resolve_algorithm(model.demosaic, fallback)
+}
+
+/// The kernel a quality level ran *before* #3413, i.e. the fallback a
+/// `demosaic` override of `Auto` resolves to. `None` for `Auto`, the one
+/// level whose answer depends on the frame.
+///
+/// Split out of [`bayer_kernel`] so the invariant that matters most about
+/// #3413 — that it moved no existing render path, including the one the
+/// colour-parity budgets are measured on — is unit-testable without a
+/// decoded frame to hand.
+pub fn fixed_quality_kernel(quality: RenderQuality) -> Option<crate::demosaic::DemosaicAlgorithm> {
+    use crate::demosaic::DemosaicAlgorithm;
+    match quality {
+        RenderQuality::Preview => Some(DemosaicAlgorithm::HalfRes),
+        RenderQuality::Full => Some(DemosaicAlgorithm::Rcd),
+        RenderQuality::Amaze => Some(DemosaicAlgorithm::Amaze),
+        RenderQuality::Auto => None,
+    }
+}
+
+#[cfg(test)]
+mod bayer_kernel_tests {
+    use super::*;
+    use crate::demosaic::{resolve_algorithm, DemosaicAlgorithm};
+    use crate::types::DemosaicChoice;
+
+    /// #3413 changed which kernel `Auto` picks; it must not have changed
+    /// what any pre-existing level runs. `Amaze` in particular is what
+    /// `maple-cli batch` defaults to, so it is the path every entry in
+    /// `test-fixtures/budgets.json` was measured on — a change here would
+    /// silently move every budget.
+    #[test]
+    fn the_pre_existing_quality_levels_keep_their_kernels() {
+        assert_eq!(
+            fixed_quality_kernel(RenderQuality::Preview),
+            Some(DemosaicAlgorithm::HalfRes)
+        );
+        assert_eq!(
+            fixed_quality_kernel(RenderQuality::Full),
+            Some(DemosaicAlgorithm::Rcd)
+        );
+        assert_eq!(
+            fixed_quality_kernel(RenderQuality::Amaze),
+            Some(DemosaicAlgorithm::Amaze)
+        );
+    }
+
+    /// `Auto` is the only level with no fixed answer — it asks the frame.
+    #[test]
+    fn auto_has_no_fixed_kernel() {
+        assert_eq!(fixed_quality_kernel(RenderQuality::Auto), None);
+    }
+
+    /// A default model leaves every level exactly where it was: the
+    /// override only bites when the user has set it.
+    #[test]
+    fn a_default_model_never_overrides_a_levels_kernel() {
+        for quality in [
+            RenderQuality::Preview,
+            RenderQuality::Full,
+            RenderQuality::Amaze,
+        ] {
+            let fixed = fixed_quality_kernel(quality).unwrap();
+            assert_eq!(resolve_algorithm(DemosaicChoice::Auto, fixed), fixed);
+        }
+    }
 }
