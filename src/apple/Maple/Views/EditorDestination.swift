@@ -48,7 +48,6 @@ struct EditorDestination: View {
                 EditorView(
                     state: state,
                     onDismiss: { dismiss() },
-                    onShare: {},
                     onInfo: { showInfo.toggle() }
                 )
                 .sheet(isPresented: $showInfo) {

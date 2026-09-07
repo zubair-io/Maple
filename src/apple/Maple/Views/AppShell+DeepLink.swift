@@ -207,7 +207,7 @@ extension AppShell {
   /// Dismiss any open drawer/sheet so the deep-link destination
   /// renders cleanly. Delegates to `AppShell.dismissAllTransientUI()`
   /// (defined in `AppShell.swift`) — the canonical helper can touch
-  /// the `private` state vars (`showSettings`, `showExport`,
+  /// the `private` state vars (`showSettings`,
   /// `isDrawerOpen`) that this extension can't see. Per spec §2
   /// warm-launch behavior.
   @MainActor

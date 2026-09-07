@@ -35,7 +35,6 @@ struct EditorSessionHost: View {
     /// libraries; filesystem assets load with `nil`). #875 item 4a.
     var filmstripSource: (any ImageSource)? = nil
     let onDismiss: () -> Void
-    let onShare: () -> Void
     /// Reveals the DetailPanel inspector column. On the pane shell the
     /// info/develop surface IS that persistent third column (not the
     /// iPhone-only Info sheet), so the editor's Info button just ensures
@@ -68,7 +67,6 @@ struct EditorSessionHost: View {
                 EditorView(
                     state: state,
                     onDismiss: onDismiss,
-                    onShare: onShare,
                     onInfo: onInfo,
                     filmstripAssets: filmstripAssets,
                     onSelectAsset: onSelectAsset,
