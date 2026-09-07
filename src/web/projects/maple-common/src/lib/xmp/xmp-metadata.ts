@@ -297,7 +297,7 @@ export const METADATA_ATTR_KEYS: readonly string[] = [
   'xmpRights:Marked',
 ];
 
-/** Managed nested elements `{ ns, local, tag }` — excluded from passthrough. */
+/** Managed nested elements `{ ns, local, tag }` — replaced only by explicit metadata writes. */
 export const METADATA_NESTED_ELEMENTS: ReadonlyArray<{ ns: string; local: string; tag: string }> = [
   { ns: METADATA_NAMESPACES['dc'], local: 'title', tag: 'dc:title' },
   { ns: METADATA_NAMESPACES['dc'], local: 'creator', tag: 'dc:creator' },
