@@ -101,6 +101,51 @@ final class XMPSerializationStageKnobTests: XCTestCase {
                        "stripAppleGPUStages must keep the decode-baked hotPixelSuppression")
     }
 
+    // MARK: - Bayer demosaic override (#3413)
+
+    /// Every `papp:Demosaic` value parses onto the model, in the canonical
+    /// spelling and the lowercase form a hand-edited sidecar may carry;
+    /// an unknown kernel name keeps the `.auto` default rather than
+    /// erroring the whole sidecar (Apple parser convention).
+    func testParseDemosaic() throws {
+        for choice in DemosaicChoice.allCases {
+            let (m, _) = try XMPParser.parse(xmp(attrs: #"papp:Demosaic="\#(choice.rawValue)""#))
+            XCTAssertEqual(m.demosaic, choice, "canonical spelling \(choice.rawValue)")
+            let lower = choice.rawValue.lowercased()
+            let (m2, _) = try XMPParser.parse(xmp(attrs: #"papp:Demosaic="\#(lower)""#))
+            XCTAssertEqual(m2.demosaic, choice, "lowercase spelling \(lower)")
+        }
+        let (m3, _) = try XMPParser.parse(xmp(attrs: #"papp:Demosaic="Bilinear""#))
+        XCTAssertEqual(m3.demosaic, .auto, "unknown kernel name keeps the default")
+    }
+
+    /// Every pinned kernel round-trips through serialize → parse, and the
+    /// `.auto` default emits no attribute — an untouched sidecar keeps
+    /// following the policy as it improves.
+    func testDemosaicRoundTripAndDefaultOmission() throws {
+        for choice in DemosaicChoice.allCases where choice != .auto {
+            var m = AdjustmentModel()
+            m.demosaic = choice
+            let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+            XCTAssertTrue(xml.contains(#"papp:Demosaic="\#(choice.rawValue)""#), xml)
+            let (m2, _) = try XMPParser.parse(xml)
+            XCTAssertEqual(m2.demosaic, choice)
+        }
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("papp:Demosaic"),
+                       "default .auto must not be serialized")
+    }
+
+    /// The kernel choice is a decode-product parameter, so it must survive
+    /// `stripAppleGPUStages` — same cache-key contract as
+    /// `hotPixelSuppression`. If it were stripped, two kernels would share
+    /// one decoded-image cache entry and switching would show stale pixels.
+    func testStripKeepsDemosaic() {
+        var m = AdjustmentModel()
+        m.demosaic = .lmmse
+        XCTAssertEqual(RawCoreBridge.stripAppleGPUStages(m).demosaic, .lmmse)
+    }
+
     // MARK: - DNG lens corrections (#376)
 
     /// A fresh model applies the DNG's embedded corrections in full,
