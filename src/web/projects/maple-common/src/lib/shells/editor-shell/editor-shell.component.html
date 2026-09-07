@@ -343,6 +343,15 @@
           </div>
         }
 
+        <!-- Heal panel (#3409) — same anchor as the mask panel; the discs
+             and the source link are `editor-retouch-overlay`, mounted inside
+             `editor-image-canvas`. -->
+        @if (healArmed()) {
+          <div class="mask-panel-anchor">
+            <editor-retouch-panel />
+          </div>
+        }
+
         <!-- Presets panel (#1815) — glass card hosting the shared
              `app-presets-panel` (list/save/apply/delete). Applying a preset
              routes through the identical `PresetsService`/
@@ -402,6 +411,7 @@
       @if (
         !cropArmed() &&
         !maskArmed() &&
+        !healArmed() &&
         !curveOpen() &&
         !presetsOpen() &&
         !scopesOpen() &&
@@ -502,6 +512,7 @@
       @if (
         !cropArmed() &&
         !maskArmed() &&
+        !healArmed() &&
         !curveOpen() &&
         !presetsOpen() &&
         !scopesOpen() &&
@@ -602,6 +613,14 @@
       @if (maskArmed()) {
         <div class="phone-mask-panel">
           <editor-mask-panel />
+        </div>
+      }
+
+      <!-- Heal panel (#3409) — same shared panel as tablet/desktop, floats
+           above the dock like the phone mask panel. -->
+      @if (healArmed()) {
+        <div class="phone-mask-panel">
+          <editor-retouch-panel />
         </div>
       }
 

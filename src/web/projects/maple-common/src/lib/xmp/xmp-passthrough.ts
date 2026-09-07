@@ -10,6 +10,12 @@ import {
   localAdjustmentContainerKind,
   parseLocalAdjustmentsContainer,
 } from './xmp-local-adjustments';
+import {
+  parseRetouchAreasContainer,
+  parseRetouchInfoContainer,
+  retouchContainerKind,
+} from './xmp-retouch';
+import type { RetouchSpot } from '../models/retouch-spot';
 import { CRS_NAMESPACE, managedXmpName, RDF_NAMESPACE, XMP_NAMESPACE } from './xmp-dom-utils';
 
 /** Attributes fully owned by Maple and therefore excluded from passthrough. */
@@ -102,7 +108,12 @@ const withoutModeledFields = (source: Element, primary: Element): Element => {
   Array.from(source.children).forEach((child, index) => {
     if (localAdjustmentContainerKind(child) === 'group' && !sharesMaskGroupContext(source, primary))
       return;
-    if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
+    if (
+      toneCurveElementKey(child) ||
+      localAdjustmentContainerKind(child) ||
+      retouchContainerKind(child) ||
+      isManagedChild(child)
+    )
       clonedChildren[index]?.remove();
   });
   return clone;
@@ -162,6 +173,8 @@ export function collectXmpPassthrough(
     });
   const unknownNodes: string[] = [];
   const passthroughPrefixes = new Set<string>();
+  const areaSpots: RetouchSpot[] = [];
+  const legacySpots: RetouchSpot[] = [];
 
   for (const child of Array.from(description.children)) {
     const curveKey = toneCurveElementKey(child);
@@ -181,9 +194,26 @@ export function collectXmpPassthrough(
       ];
       continue;
     }
+    // Repair spots (#3409): the struct container hydrates the model and the
+    // legacy string form is a read-only fallback — neither may also reach the
+    // passthrough bucket, or the writer would emit the block twice.
+    const retouchKind = retouchContainerKind(child);
+    if (retouchKind === 'areas') {
+      areaSpots.push(...parseRetouchAreasContainer(child));
+      continue;
+    }
+    if (retouchKind === 'legacy') {
+      legacySpots.push(...parseRetouchInfoContainer(child));
+      continue;
+    }
     if (isManagedChild(child)) continue;
     unknownNodes.push(selfContainedXml(child));
   }
+
+  // The struct form wins whenever it produced a spot; the legacy strings
+  // are the fallback for a document that only carries them.
+  const spots = areaSpots.length > 0 ? areaSpots : legacySpots;
+  if (spots.length > 0) model.retouchSpots = spots;
 
   const maskGroups = collectMaskGroups(description, model);
 

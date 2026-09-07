@@ -439,20 +439,22 @@ describe('EditorStateService', () => {
   describe('tool catalog', () => {
     it('verifies tool registry configuration', () => {
       // 26 + mask (#1541) + geometry (#3410) + captureSharpen (#3414)
-      // + defringe (#3411).
-      expect(ALL_TOOLS.length).toBe(30);
+      // + defringe (#3411) + heal (#3409).
+      expect(ALL_TOOLS.length).toBe(31);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(6);
       expect(TOOLS_IN_GROUP.effects.length).toBe(7);
-      // Detail gained lensCorrections (#2231): 5 → 6, then geometry (#3410)
-      // captureSharpen (#3414) and defringe (#3411).
-      expect(TOOLS_IN_GROUP.detail.length).toBe(10);
+      // Detail gained lensCorrections (#2231): 5 → 6, then geometry (#3410),
+      // captureSharpen (#3414), defringe (#3411) and heal (#3409).
+      expect(TOOLS_IN_GROUP.detail.length).toBe(11);
 
       const wired = ALL_TOOLS.filter(isWired);
       // Geometry (#3410) and Defringe (#3411) are wired: their sliders write
-      // real model fields, even though the drag bar has no primary among them.
+      // real model fields, even though the drag bar has no primary among
+      // them. Heal (#3409), like crop and mask, has no drag-bar field at all.
       expect(wired.length).toBe(28);
       expect(isWired('captureSharpen')).toBe(true);
+      expect(isWired('heal')).toBe(false);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
       expect(isWired('colorGrade')).toBe(true);
