@@ -245,6 +245,76 @@ final class ExportPanelVMTests: XCTestCase {
     XCTAssertFalse(vm.isExporting)
   }
 
+  /// Jules review of PR #3455: the blocking encode must not sit on Swift's
+  /// cooperative pool either. That pool is sized to the core count, so
+  /// parking more encodes than it has threads would leave nothing to run
+  /// unrelated async work on — the same starvation this PR fixed on the
+  /// main actor, one layer down. `Task.detached` would fail this; the
+  /// Dispatch-queue bridge (`BlockingWork.run`) passes.
+  func testParkedEncodesDoNotStarveUnrelatedAsyncWork() async throws {
+    let count = max(4, ProcessInfo.processInfo.activeProcessorCount * 2)
+    let gates = (0..<count).map { _ in EncodeGate() }
+    let image = stubImage
+    // Held in a local: `beginStagingForSharing` captures the view-model
+    // weakly (the panel owns it), so an inline `ExportPanelVM(...)` would
+    // deallocate before its own task ran.
+    let vms = gates.map { gate in
+      ExportPanelVM(
+        render: { _ in image },
+        encode: { _, _ in
+          gate.enterAndWait()
+          return Data([0x01])
+        })
+    }
+    let tasks = vms.enumerated().map { index, vm in
+      vm.beginStagingForSharing(
+        session: EditSession.preview(displayName: "IMG_\(index).dng"), in: directory)
+    }
+    for gate in gates { await gate.awaitEntry() }
+
+    // Every encode is parked. A detached task runs on the cooperative pool,
+    // so it can only complete if none of them took a thread from it.
+    let unrelated = Task.detached { 42 }
+    let value = await unrelated.value
+    XCTAssertEqual(value, 42, "unrelated async work must still be schedulable")
+
+    gates.forEach { $0.release() }
+    for task in tasks { await task.value }
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).count, count)
+    XCTAssertTrue(vms.allSatisfy { !$0.isExporting })
+  }
+
+  /// Jules review of PR #3455: a Cancel landing in the window between the
+  /// write and the publish left the rendered file on disk with nothing
+  /// holding a reference to it — up to a gigabyte for a 16-bit TIFF.
+  func testCancelBetweenTheWriteAndThePublishRemovesTheOrphanedFile() async throws {
+    let gate = EncodeGate()
+    let image = stubImage
+    let vm = ExportPanelVM(
+      render: { _ in image },
+      encode: { _, _ in Data([0x01]) },
+      write: { data, url in
+        try data.write(to: url, options: .atomic)
+        gate.enterAndWait()
+      })
+
+    let task = vm.beginStagingForSharing(session: EditSession.preview(), in: directory)
+    await gate.awaitEntry()
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: directory.path).count, 1,
+      "the bytes are on disk before the publish guard runs")
+
+    vm.cancelExport()
+    gate.release()
+    await task.value
+
+    XCTAssertNil(vm.stagedFile)
+    XCTAssertNil(vm.exportError)
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: directory.path), [],
+      "a cancelled attempt must not leave its rendered file behind")
+  }
+
   // MARK: - Formats
 
   func testOutputFileNameAndQualityControlFollowTheFormat() {

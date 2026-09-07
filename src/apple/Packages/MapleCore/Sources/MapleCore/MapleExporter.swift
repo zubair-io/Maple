@@ -114,8 +114,8 @@ public struct MapleExporter: Sendable {
         return try await encodeOffMainActor(ci, options: options)
     }
 
-    /// Scale + encode a rendered graph on the cooperative pool, never on the
-    /// caller's actor (#3450).
+    /// Scale + encode a rendered graph off the caller's actor — and off the
+    /// cooperative pool (#3450).
     ///
     /// `renderForExport()` hands back a *lazy* CIImage graph — none of the
     /// decode or develop cost has been paid yet when it returns. The whole
@@ -126,27 +126,21 @@ public struct MapleExporter: Sendable {
     /// of a 100MP bake (tens of seconds — long enough that XCUITest's
     /// accessibility snapshot gave up with "main thread busy for 30.0s").
     ///
-    /// `Task.detached(priority: .userInitiated)` is the same hop
-    /// `RenderActor.renderForExport` already uses for `processSceneLinear`:
-    /// it does not inherit the caller's actor, so the guarantee holds no
-    /// matter which actor called in. A detached child inherits no
-    /// cancellation either, so that is bridged back explicitly. Cancelling
-    /// only helps *before* `CIContext` enters the encode — a single
-    /// `jpegRepresentation` call has no interruption point — so a late
-    /// cancel still costs the bake; what it buys is that the caller stops
-    /// waiting, and `ExportPanelVM` throws the bytes away.
+    /// The hop is `BlockingWork.run` — a Dispatch global queue, NOT
+    /// `Task.detached`. A detached task still runs on Swift's cooperative
+    /// pool, which is sized to the core count, so parking one there for the
+    /// length of a bake starves every other async task in the app; repeated
+    /// start/cancel cycles exhaust it outright (PR #3455 review). Dispatch
+    /// is the pool that is allowed to block.
+    ///
+    /// Cancelling only helps *before* `CIContext` enters the encode — a
+    /// single `jpegRepresentation` call has no interruption point — so a
+    /// late cancel still costs the bake; what it buys is that the caller
+    /// stops waiting, and `ExportPanelVM` throws the bytes away.
     public static func encodeOffMainActor(
         _ image: CIImage, options: ExportOptions
     ) async throws -> Data {
-        let work = Task.detached(priority: .userInitiated) { () throws -> Data in
-            try Task.checkCancellation()
-            return try MapleExporter.encode(image, options: options)
-        }
-        return try await withTaskCancellationHandler {
-            try await work.value
-        } onCancel: {
-            work.cancel()
-        }
+        try await BlockingWork.run { try MapleExporter.encode(image, options: options) }
     }
 
     /// Scale-then-encode, synchronously, on whatever thread calls it. Public
