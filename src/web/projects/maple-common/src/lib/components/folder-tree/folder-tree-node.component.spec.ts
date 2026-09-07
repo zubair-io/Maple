@@ -103,6 +103,19 @@ describe('FolderTreeNodeComponent', () => {
   });
 
   describe('parent-derived open/selected (#2847)', () => {
+    it('does not read shared row state when an expanded folder has no children', async () => {
+      const { fixture, state } = await setup(LEAF, { open: false });
+      const openRead = vi.spyOn(state, 'folderOpen');
+      const selectionRead = vi.spyOn(state, 'selectedSourceId');
+
+      fixture.componentRef.setInput('open', true);
+      fixture.detectChanges();
+
+      expect(openRead).not.toHaveBeenCalled();
+      expect(selectionRead).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelectorAll('app-folder-tree-node')).toHaveLength(0);
+    });
+
     // The row's own state comes from its inputs — never from the shared
     // `folderOpen` map / `selectedSourceId` (the #2520 fan-out shape this
     // component reintroduced before #2847). The stub state is set to
