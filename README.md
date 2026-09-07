@@ -94,6 +94,10 @@ Further subcommands cover panorama stitching, tile rendering, embedded-preview e
 
 The colour gate that CI runs is `src/scripts/test_color_pipeline.sh`; per-case ceilings live in `test-fixtures/budgets.json` and only ratchet downward. See [docs/testing.md](docs/testing.md).
 
+## Performance
+
+On an Apple M5 Max Mac (Mac17,6), the GPU-live editor's exposure slider ticks at p50 5.3 ms / p95 18.9 ms and its contrast slider at p50 4.1 ms / p95 10.4 ms, both against the 100 MP DJI Mavic 3 Pro reference RAW. The committed, reproducible per-device table — every number sourced to a harness run, with method caveats and a regression ratchet — is [docs/performance.md](docs/performance.md).
+
 ## Documentation
 
 | Read this                                                                                                                  | When you need to…                                                |
@@ -106,6 +110,7 @@ The colour gate that CI runs is `src/scripts/test_color_pipeline.sh`; per-case c
 | [docs/apple.md](docs/apple.md), [docs/web.md](docs/web.md), [docs/api.md](docs/api.md), [docs/windows.md](docs/windows.md) | Work inside one platform                                         |
 | [docs/indexer-enrichment.md](docs/indexer-enrichment.md)                                                                   | Add or change a worker stage                                     |
 | [docs/caching.md](docs/caching.md)                                                                                         | Add or invalidate a cache                                        |
+| [docs/performance.md](docs/performance.md)                                                                                 | Check or record a per-device slider-tick/cold-open/export number |
 | [docs/testing.md](docs/testing.md)                                                                                         | Run or add a gate                                                |
 | [docs/best-practices.md](docs/best-practices.md)                                                                           | Match house style in Rust, Swift, Angular, or the API            |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                                         | Commit rules, file-size budgets, tooling, PR flow                |
