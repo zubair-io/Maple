@@ -140,6 +140,13 @@ fn all_struct_field_names() -> Vec<&'static str> {
         perspective_x: _,
         perspective_y: _,
         demosaic: _,
+        auto_lateral_ca: _,
+        defringe_purple_amount: _,
+        defringe_purple_hue_lo: _,
+        defringe_purple_hue_hi: _,
+        defringe_green_amount: _,
+        defringe_green_hue_lo: _,
+        defringe_green_hue_hi: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -266,6 +273,13 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "perspective_x",
         "perspective_y",
         "demosaic",
+        "auto_lateral_ca",
+        "defringe_purple_amount",
+        "defringe_purple_hue_lo",
+        "defringe_purple_hue_hi",
+        "defringe_green_amount",
+        "defringe_green_hue_lo",
+        "defringe_green_hue_hi",
     ]
 }
 

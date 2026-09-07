@@ -148,6 +148,13 @@ fn schema_matches_struct() {
         perspective_x,
         perspective_y,
         demosaic,
+        auto_lateral_ca,
+        defringe_purple_amount,
+        defringe_purple_hue_lo,
+        defringe_purple_hue_hi,
+        defringe_green_amount,
+        defringe_green_hue_lo,
+        defringe_green_hue_hi,
     } = m;
     let expected_order = [
         "temperature",
@@ -266,6 +273,13 @@ fn schema_matches_struct() {
         "perspective_x",
         "perspective_y",
         "demosaic",
+        "auto_lateral_ca",
+        "defringe_purple_amount",
+        "defringe_purple_hue_lo",
+        "defringe_purple_hue_hi",
+        "defringe_green_amount",
+        "defringe_green_hue_lo",
+        "defringe_green_hue_hi",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),

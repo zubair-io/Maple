@@ -9,8 +9,8 @@
 //!
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
-//! `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
-//! `nr_luminance` → `nr_color` → `agx` → `display_tone_curve` →
+//! `texture` → `dehaze` → `defringe` → `local_adjustments` → `vignette` →
+//! `sharpen` → `nr_luminance` → `nr_color` → `agx` → `display_tone_curve` →
 //! `split_tone` → `grain`. `agx` (and the P3 display-primary conversion
 //! after it) run only when `skip_agx == false`; `display_tone_curve`
 //! (#2232), `split_tone` (`color_grade`) and `grain` run either way, gated
@@ -43,7 +43,7 @@ use crate::{
 ///
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 /// → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
-/// `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
+/// `texture` → `dehaze` → `defringe` → `local_adjustments` → `vignette` → `sharpen` →
 /// `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain`. Only `agx`
 /// is skipped on the non-RAW path (see [`ChainOptions::skip_agx`]);
 /// `split_tone` (`color_grade`) and `grain` run either way — #2478.
@@ -108,7 +108,7 @@ pub fn apply_scene_linear_chain(
         mask_long_edge,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
+        clarity, color_grade, defringe, dehaze, display_tone_curve, grain, hsl, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
         vignette, white_balance,
     };
@@ -199,6 +199,11 @@ pub fn apply_scene_linear_chain(
         texture::apply(&mut img, model.texture)
     });
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    // Defringe (#3411) — develop's 12a position, between dehaze and local
+    // adjustments. Both amounts at 0 (the default) is a bit-identical
+    // no-op; the GPU live chain's `DefringePass` is gated on the same
+    // `defringe::params_from_model` predicate.
+    stage("ffi_chain_defringe", || defringe::apply_model(&mut img, model));
     // Local adjustments (ticket #280). Empty Vec is a bit-identical no-op.
     stage("ffi_chain_local_adjustments", || {
         local_adjustments::apply(&mut img, &model.local_adjustments, &model.mask_rasters)
