@@ -133,6 +133,7 @@ extension AdjustmentModel {
         case perspectiveAspect = "perspective_aspect"
         case perspectiveX = "perspective_x"
         case perspectiveY = "perspective_y"
+        case demosaic = "demosaic"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -486,6 +487,7 @@ extension AdjustmentGroup {
                 "lens_correction_distortion",
                 "lens_correction_ca",
                 "lens_correction_vignetting",
+                "demosaic",
             ]
         case .effects:
             return [

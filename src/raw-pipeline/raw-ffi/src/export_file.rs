@@ -29,8 +29,10 @@ use std::ffi::{c_char, CStr};
 /// - `max_long_edge` — long-edge cap in pixels; 0 renders native resolution.
 ///   Never upscales.
 ///
-/// Always `RenderQuality::Amaze` (inside `export_from_raw`) — export favours
-/// quality over latency. Returns 0 on success; non-zero on error (call
+/// Always `RenderQuality::Auto` (inside `export_from_raw`, #3413) — export
+/// favours quality over latency, and the best kernel for a noisy frame is not
+/// the best kernel for a clean one. The sidecar's `papp:Demosaic` overrides
+/// it. Returns 0 on success; non-zero on error (call
 /// `maple_last_error`). The parent dir of `out_path` must exist.
 ///
 /// # Safety

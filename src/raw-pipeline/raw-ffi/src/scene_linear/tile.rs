@@ -118,6 +118,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
         let quality = match quality_preview {
             1 => raw_core::pipeline::RenderQuality::Preview,
             2 => raw_core::pipeline::RenderQuality::Amaze,
+            3 => raw_core::pipeline::RenderQuality::Auto,
             _ => raw_core::pipeline::RenderQuality::Full,
         };
         if dehaze_active(&model) {
@@ -258,6 +259,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
         let quality = match quality_preview {
             1 => raw_core::pipeline::RenderQuality::Preview,
             2 => raw_core::pipeline::RenderQuality::Amaze,
+            3 => raw_core::pipeline::RenderQuality::Auto,
             _ => raw_core::pipeline::RenderQuality::Full,
         };
         if dehaze_active(&model) {

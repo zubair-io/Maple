@@ -58,6 +58,7 @@ pub(crate) fn render_file_body(
     let quality = match quality_preview {
         1 => RenderQuality::Preview,
         2 => RenderQuality::Amaze,
+        3 => RenderQuality::Auto,
         _ => RenderQuality::Full,
     };
     let (w, h, bytes) = match render_from_raw_with_quality_source_and_film(

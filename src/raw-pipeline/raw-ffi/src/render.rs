@@ -38,6 +38,16 @@ use std::ffi::{c_char, CStr};
 ///                                  export/refine path — highest quality on
 ///                                  Bayer sensors; same cost as Full on X-Trans
 ///                                  (maps to markesteijn))
+///   3 → `RenderQuality::Auto`    (#3413: full resolution, kernel chosen from
+///                                  the frame's noise profile and size — LMMSE
+///                                  when noisy, the AMaZE+VNG4 dual on a large
+///                                  clean frame, AMaZE alone on a small one.
+///                                  Appended rather than renumbering, so every
+///                                  existing caller's integer keeps its old
+///                                  meaning)
+///
+/// Every value honours the model's `papp:Demosaic` override except `1`,
+/// which bins before any reconstruction runs and so has no kernel to pick.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file(
     raw_path: *const c_char,
@@ -155,6 +165,7 @@ pub unsafe extern "C" fn maple_render_bytes(
         let quality = match quality_preview {
             1 => RenderQuality::Preview,
             2 => RenderQuality::Amaze,
+            3 => RenderQuality::Auto,
             _ => RenderQuality::Full,
         };
         let (w, h, out_bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
@@ -428,6 +439,7 @@ pub unsafe extern "C" fn maple_histogram_bytes(
         let quality = match quality_preview {
             1 => RenderQuality::Preview,
             2 => RenderQuality::Amaze,
+            3 => RenderQuality::Auto,
             _ => RenderQuality::Full,
         };
         let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
