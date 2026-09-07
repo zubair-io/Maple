@@ -4,7 +4,7 @@ import type { AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket } from './xmp.types';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import { DC_NAMESPACE } from './xmp-culling';
-import { METADATA_ATTR_KEYS, METADATA_NAMESPACES, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
+import { METADATA_NAMESPACES } from './xmp-metadata';
 import { parseToneCurveElement, toneCurveElementKey } from './xmp-tone-curves';
 import {
   localAdjustmentContainerKind,
@@ -53,7 +53,6 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'crs:Version',
   'crs:ProcessVersion',
   'crs:HasSettings',
-  ...METADATA_ATTR_KEYS,
 ]);
 
 const CANONICAL_NAMESPACE_URIS: Readonly<Record<string, string>> = {
@@ -64,14 +63,10 @@ const CANONICAL_NAMESPACE_URIS: Readonly<Record<string, string>> = {
   ...METADATA_NAMESPACES,
 };
 
-const isManagedChild = (child: Element): boolean => {
-  if (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') {
-    return true;
-  }
-  return METADATA_NESTED_ELEMENTS.some(
-    (element) => child.namespaceURI === element.ns && child.localName === element.local,
-  );
-};
+// Ordinary adjustment saves do not replace metadata. Preserve its source XML,
+// including language alternatives and multiple creators the metadata form cannot model.
+const isManagedChild = (child: Element): boolean =>
+  child.namespaceURI === DC_NAMESPACE && child.localName === 'subject';
 
 const visibleNamespaceUris = (description: Element): Map<string, string> => {
   const namespaces = new Map<string, string>();
