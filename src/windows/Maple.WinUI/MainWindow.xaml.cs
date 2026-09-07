@@ -147,6 +147,7 @@ namespace Maple.WinUI
             BuildGradePanel();
             BuildProfilePanel();
             BuildCropPanel();
+            BuildMaskPanel();
             MaybeStartQualifyRun();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
@@ -156,6 +157,7 @@ namespace Maple.WinUI
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();
                 SyncCropFromModel();
+                SyncMaskFromModel();
             };
             HookViewerPan();
             HookFilmstripRail();   // #3402 — MainWindow.Filmstrip.cs

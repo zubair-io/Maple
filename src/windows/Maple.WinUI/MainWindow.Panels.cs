@@ -44,6 +44,7 @@ namespace Maple.WinUI
             ("Tone Curve", "tool-contrast", null),
             ("Crop", "tool-crop", null),
             ("Geometry", "tool-crop", null),
+            ("Mask", "tool-dehaze", null),
         };
 
         private void BuildEditRail()
@@ -78,6 +79,8 @@ namespace Maple.WinUI
                 ExitCropMode();
             if (_activeGroup == "Color" && group != "Color")
                 CancelWhiteBalancePick();
+            if (_activeGroup == "Mask" && group != "Mask")
+                ExitMaskMode();
             _activeGroup = group;
             RefreshRailArming(group);
             EditPanel.Visibility = Visibility.Visible;
@@ -89,6 +92,7 @@ namespace Maple.WinUI
             PanelProfileHost.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
             PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
             PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
+            PanelMaskHost.Visibility = group == "Mask" ? Visibility.Visible : Visibility.Collapsed;
 
             if (group == "Color")
             {
@@ -108,6 +112,16 @@ namespace Maple.WinUI
                 PanelSliders.Visibility = Visibility.Collapsed;
                 PanelSliders.ItemsSource = null;
                 EnterCropMode();
+                return;
+            }
+            if (group == "Mask")
+            {
+                PanelBwHeader.Visibility = Visibility.Collapsed;
+                PanelHslBands.ItemsSource = null;
+                PanelHslBands.Visibility = Visibility.Collapsed;
+                PanelSliders.Visibility = Visibility.Collapsed;
+                PanelSliders.ItemsSource = null;
+                EnterMaskMode();
                 return;
             }
 
@@ -182,6 +196,8 @@ namespace Maple.WinUI
             if (_activeGroup == "Crop")
                 ExitCropMode();
             CancelWhiteBalancePick();
+            if (_activeGroup == "Mask")
+                ExitMaskMode();
             _activeGroup = null;
             EditPanel.Visibility = Visibility.Collapsed;
             RefreshRailArming(null);
@@ -345,6 +361,11 @@ namespace Maple.WinUI
             if (_activeGroup == "Crop")
             {
                 OnCropReset(sender, e);
+                return;
+            }
+            if (_activeGroup == "Mask")
+            {
+                OnMaskReset(sender, e);
                 return;
             }
             if (_activeGroup == "Effects" && _effectsTab == "Grade")

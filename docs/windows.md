@@ -55,6 +55,7 @@ Feature work is split across `MainWindow.*.cs` partials, each paired with a WinU
 | `MainWindow.Trash.cs`, `MainWindow.TrashRestore.cs` | Delete → Trash, and the in-app restore list for Maple's own trash.                         |
 | `MainWindow.Reveal.cs`                              | "Show in Explorer" (`explorer.exe /select,"<path>"`).                                      |
 | `MainWindow.Crop.cs`                                | Crop tool: live rotate preview, client-side display crop, sidecar `crs:Crop*` for develop. |
+| `MainWindow.Mask.cs`                                | Mask tool (#3406): linear/radial local-adjustment layers, add/select/delete, feather/invert/eleven controls, canvas drag handles. |
 | `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, docked Preview inspector, histogram.      |
 | `MainWindow.Pano.cs`                                | Panorama stitching over a grid multi-selection.                                            |
 | `MainWindow.Dialogs.cs`                             | Folder picker, export dialogs, Settings window.                                            |
@@ -87,7 +88,7 @@ The entries the app uses, grouped:
 
 ### Render loop
 
-`Services/RenderEngine.cs` decodes once to a scene-linear f32 base, then re-runs the Rust chain per adjustment change. `StripChainStages` zeroes every field the per-tick chain re-applies (white balance, tone, colour, curves, crop) so nothing bakes into the base and double-applies — the mirror of Apple's `stripAppleGPUStages`. `DecodedImage` carries the decode-exported state the chain needs: WB frame block, noise profile, ISO, AE gain, and the Auto Profile tail (fitted curve + residual LUT for the GPU path, a composed display LUT for CPU).
+`Services/RenderEngine.cs` decodes once to a scene-linear f32 base, then re-runs the Rust chain per adjustment change. `StripChainStages` zeroes every field the per-tick chain re-applies (white balance, tone, colour, curves, crop) so nothing bakes into the base and double-applies — the mirror of Apple's `stripAppleGPUStages`. `DecodedImage` carries the decode-exported state the chain needs: WB frame block, noise profile, ISO, AE gain, and the Auto Profile tail (fitted curve + residual LUT for the GPU path, a composed display LUT for CPU). Mask layers (#3406) ride the same variable-length-pointer convention as the tone curves: `Native/LocalAdjustmentFlat.cs` flattens `AdjustmentState.LocalAdjustments` into the `local_adjustments_ptr`/`_len` pair on both `MapleAdjustmentParams` and `MapleGpuLiveParams` every tick, pinned inside the same `fixed` scope as the noise profile — the mirrors themselves already carried these fields (`RawFfiLayoutTests`), only the per-tick population was missing before #3406.
 
 `Services/RenderScheduler.cs` is a latest-wins background loop: a slider tick overwrites the pending snapshot, so a fast drag never queues more than one frame. Two display paths:
 

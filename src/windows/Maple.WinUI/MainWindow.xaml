@@ -607,6 +607,16 @@
                                     <Image x:Name="ClipOverlayImage" Stretch="Uniform" Visibility="Collapsed"
                                            IsHitTestVisible="False"
                                            AutomationProperties.Name="Clipping overlay" />
+                                    <!-- Mask tool (#3406): lives INSIDE CropRotateHost (unlike
+                                         CropOverlay below, which deliberately stays outside it)
+                                         so the straighten rotation and the committed crop's
+                                         translate/scale/clip on ZoomHost carry the mask handles
+                                         along with the image for free — see MainWindow.Mask.cs
+                                         UpdateMaskDisplay. Margin/Bounds set from code, the same
+                                         footprint contract MuiCropOverlay uses. -->
+                                    <muim:MuiMaskOverlay x:Name="MaskOverlay" Visibility="Collapsed"
+                                                         HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                         AutomationProperties.Name="Mask overlay" />
                                 </Grid>
                                 <!-- Positioned onto the image footprint from code
                                      (Margin = fit-rect origin, Bounds = fit-rect
@@ -853,6 +863,12 @@
                                             <mui:MuiButton Label="Done" Variant="Ghost" ButtonSize="Sm"
                                                     Click="OnCropDone"
                                                     AutomationProperties.Name="Crop done" />
+                                        </StackPanel>
+                                        <!-- Mask tool (#3406): add/select/delete layers and the
+                                             selected layer's controls; the canvas half is
+                                             MaskOverlay above. Event wiring in BuildMaskPanel. -->
+                                        <StackPanel x:Name="PanelMaskHost" Visibility="Collapsed">
+                                            <muim:MuiMaskPanel x:Name="MaskPanel" />
                                         </StackPanel>
                                         <TextBlock x:Name="PanelFootnote" FontSize="10" TextWrapping="Wrap"
                                                    Foreground="{StaticResource MapleTextMuted}" Visibility="Collapsed" />

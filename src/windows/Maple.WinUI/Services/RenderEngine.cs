@@ -225,6 +225,11 @@ namespace Maple.WinUI.Services
             var displayCurveRed = FlattenCurve(model.DisplayToneCurveRed);
             var displayCurveGreen = FlattenCurve(model.DisplayToneCurveGreen);
             var displayCurveBlue = FlattenCurve(model.DisplayToneCurveBlue);
+            // Local adjustments (#3406): flat f32 layer stack, the variable-
+            // length sibling of every other pointer field below. Empty when
+            // the model has no layers, which both FFI chains read as "no
+            // local adjustments" (raw-core's bit-identical short-circuit).
+            var localFlat = LocalAdjustmentFlat.ToFlat(model.LocalAdjustments);
 
             fixed (float* inPtr = image.Pixels)
             fixed (float* outPtr = chainScratch)
@@ -237,11 +242,17 @@ namespace Maple.WinUI.Services
             fixed (float* displayRedPtr = displayCurveRed)
             fixed (float* displayGreenPtr = displayCurveGreen)
             fixed (float* displayBluePtr = displayCurveBlue)
+            fixed (float* localPtr = localFlat)
             {
                 if (image.NoiseProfile.Length > 0)
                 {
                     p.noise_profile_ptr = noisePtr;
                     p.noise_profile_len = (uint)image.NoiseProfile.Length;
+                }
+                if (localFlat.Length > 0)
+                {
+                    p.local_adjustments_ptr = localPtr;
+                    p.local_adjustments_len = (nuint)localFlat.Length;
                 }
                 var curves = new MapleToneCurves
                 {
