@@ -16,9 +16,10 @@ import type { XmpSerializerService } from '../xmp/xmp-serializer.service';
  * `EditTransaction.serializationVersion`. */
 export const EDIT_TRANSACTION_VERSION = 1;
 
-/** The action classes the contract covers. `mask` / `repair` / `variant`
- * are declared so the surfaces that ship them route through the same
- * object; nothing constructs them on Web today. */
+/** The action classes the contract covers. `mask` and `variant` are
+ * declared so the surfaces that ship them route through the same object;
+ * nothing constructs those two on Web today. `repair` is what the clone /
+ * heal brush commits (#3409). */
 export type EditTransactionKind =
   | 'adjustment'
   | 'auto'
@@ -69,6 +70,10 @@ const DECODE_INPUT_KEYS = [
   'autoLateralCa',
   'captureSharpeningAmount',
   'captureSharpeningSigma',
+  // Repair spots (#3409) — applied inside the decode product, after DCP
+  // colorimetry and before the chroma pre-filter, so placing or moving a
+  // spot re-develops rather than re-running the per-tick chain.
+  'retouchSpots',
 ] as const satisfies readonly (keyof AdjustmentModel)[];
 
 /** JSON with recursively sorted object keys — a canonical, comparable form

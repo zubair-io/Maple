@@ -198,6 +198,11 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
   }
 
   describe('stable regions', () => {
+    // 20 s, not the 5 s default: this is the first render in
+    // the file, so it pays the whole editor shell's one-time TestBed
+    // compile — every dock panel, overlay and control card. That budget
+    // grew again when Heal joined the shell (#3409); a compile-bound
+    // first render is not a signal worth failing the suite on.
     it('desktop exposes every primary region in task order, plus the filmstrip', () => {
       setup(1440);
       const found = regions();
@@ -210,7 +215,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
         fixture.nativeElement.querySelector('[role="toolbar"][aria-label="Editor top bar"]'),
       ).not.toBeNull();
       expect(fixture.nativeElement.querySelector('nav[aria-label="Editor tools"]')).not.toBeNull();
-    });
+    }, 20000);
 
     it('phone exposes the same regions in the same order, with the bottom dock and no filmstrip', () => {
       setup(390);

@@ -326,6 +326,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
                         || msg.contains("local adjustments")
                         || msg.contains("capture sharpening")
                         || msg.contains("OpcodeList3")
+                        || msg.contains("retouch spot")
                     {
                         return 10;
                     }
@@ -523,6 +524,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
                     || msg.contains("local adjustments")
                     || msg.contains("capture sharpening")
                     || msg.contains("OpcodeList3")
+                    || msg.contains("retouch spot")
                 {
                     return 10;
                 }

@@ -24,10 +24,13 @@ use std::ffi::{c_char, CStr};
 ///   - 10: model not tile-compatible — dehaze (whole-frame statistics +
 ///          a radius-60 transmission refine; needs a full-frame proxy
 ///          plane), BM3D deep denoise (frame-anchored patch grid, #1105),
-///          or a DNG carrying OpcodeList3 (#1932). Vignette, local
-///          adjustments and capture sharpening tile since #1157 (windowed
-///          point ops + computed overlap). Caller should fall back to
-///          fit-zoom rendering.
+///          a DNG carrying OpcodeList3 (#1932), or a repair spot whose
+///          destination-plus-source footprint this tile does not wholly
+///          hold (#3409 — a spot is not a point op, so a partial footprint
+///          cannot be reproduced; a tile no spot reaches renders normally).
+///          Vignette, local adjustments and capture sharpening tile since
+///          #1157 (windowed point ops + computed overlap). Caller should
+///          fall back to fit-zoom rendering.
 ///   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
 ///   - 12: `(out_w, out_h)` aspect does not match `(src_w, src_h)` —
 ///          tile path requires matching aspect.
@@ -153,13 +156,16 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                     // rc=10 — model not tile-compatible; caller should fall
                     // back to the full-image render. Covers the core entry's
                     // dehaze / vignette / deep-denoise / local-adjustments /
-                    // capture-sharpening rejections (#1084, #1105, #1109).
+                    // capture-sharpening rejections (#1084, #1105, #1109) and
+                    // a repair spot whose footprint this tile does not hold
+                    // (#3409).
                     if msg.contains("dehaze")
                         || msg.contains("vignette")
                         || msg.contains("deep denoise")
                         || msg.contains("local adjustments")
                         || msg.contains("capture sharpening")
                         || msg.contains("OpcodeList3")
+                        || msg.contains("retouch spot")
                     {
                         return 10;
                     }
@@ -294,13 +300,16 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                     // rc=10 — model not tile-compatible; caller should fall
                     // back to the full-image render. Covers the core entry's
                     // dehaze / vignette / deep-denoise / local-adjustments /
-                    // capture-sharpening rejections (#1084, #1105, #1109).
+                    // capture-sharpening rejections (#1084, #1105, #1109) and
+                    // a repair spot whose footprint this tile does not hold
+                    // (#3409).
                     if msg.contains("dehaze")
                         || msg.contains("vignette")
                         || msg.contains("deep denoise")
                         || msg.contains("local adjustments")
                         || msg.contains("capture sharpening")
                         || msg.contains("OpcodeList3")
+                        || msg.contains("retouch spot")
                     {
                         return 10;
                     }

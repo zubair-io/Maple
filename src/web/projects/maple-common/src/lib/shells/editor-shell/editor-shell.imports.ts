@@ -4,7 +4,7 @@
 // Split out of `editor-shell.component.ts` in #3413 to keep that file under
 // CONTRIBUTING.md's 570-line headroom budget — the same reason the chrome,
 // keyboard, scrub, undo, wheel, hud, panels and route helpers already live
-// in siblings here. Twenty-four of the twenty-five entries are referenced
+// in siblings here. Every entry but one is referenced
 // only by the template, so their import statements and the array itself
 // carry no information the component body needs.
 //
@@ -29,6 +29,7 @@ import { GeometryPanelComponent } from '../../components/editor/geometry-panel.c
 import { DemosaicPanelComponent } from '../../components/editor/demosaic-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { MaskPanelComponent } from '../../components/mask-panel/mask-panel.component';
+import { RetouchPanelComponent } from '../../components/retouch-panel/retouch-panel.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
 import { SubParamRowComponent } from '../../editor/sub-param-row.component';
 import { DragBarComponent } from '../../editor/drag-bar.component';
@@ -57,6 +58,7 @@ export const EDITOR_SHELL_IMPORTS = [
   DemosaicPanelComponent,
   CropToolbarComponent,
   MaskPanelComponent,
+  RetouchPanelComponent,
   PresetsPanelComponent,
   SubParamRowComponent,
   DragBarComponent,

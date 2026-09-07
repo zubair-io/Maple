@@ -1,0 +1,44 @@
+<!-- Clone / heal brush overlay (#3409). Fills the canvas wrap; the image
+     behind renders the repaired result live. All geometry is CSS px in the
+     wrap's coordinate space. -->
+<svg
+  class="retouch-svg block h-full w-full"
+  [style.cursor]="cursor()"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  data-testid="retouch-overlay"
+  role="group"
+  aria-label="Heal overlay"
+  [attr.aria-description]="description()"
+>
+  @if (session.active()) {
+    @if (linkPath()) {
+      <path class="retouch-link" [attr.d]="linkPath()" />
+    }
+    @for (disc of discs(); track disc.index) {
+      <circle
+        class="retouch-disc"
+        [class.retouch-disc--selected]="disc.selected"
+        [attr.cx]="disc.x"
+        [attr.cy]="disc.y"
+        [attr.r]="disc.r"
+        role="img"
+        [attr.aria-label]="'Heal handle: ' + disc.label"
+        [attr.data-testid]="'retouch-spot-' + disc.index"
+      />
+    }
+    @if (sourceDisc(); as source) {
+      <circle
+        class="retouch-disc retouch-disc--source"
+        [attr.cx]="source.x"
+        [attr.cy]="source.y"
+        [attr.r]="source.r"
+        role="img"
+        [attr.aria-label]="'Heal handle: ' + source.label"
+        data-testid="retouch-source"
+      />
+    }
+  }
+</svg>

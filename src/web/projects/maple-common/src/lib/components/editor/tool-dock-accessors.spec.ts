@@ -50,11 +50,11 @@ describe('ToolDockComponent — dockEntries() view-model', () => {
     fixture.detectChanges();
   }
 
-  it('title: plain label enabled, label + ticket disabled', () => {
+  it('title: plain label for every live entry', () => {
     renderFor('light', null);
     expect(itemFor(fixture, 'light').title).toBe('Light');
     expect(itemFor(fixture, 'mask').title).toBe('Mask');
-    expect(itemFor(fixture, 'heal').title).toBe('Heal — coming in #1472');
+    expect(itemFor(fixture, 'heal').title).toBe('Heal');
   });
 
   it('enabled entries stay in the accessibility tree (not hidden, labeled)', () => {
@@ -65,11 +65,13 @@ describe('ToolDockComponent — dockEntries() view-model', () => {
     expect(item.label).toBe('Light');
   });
 
-  it('disabled entries are hidden from the a11y tree', () => {
+  it('every entry is in the a11y tree — no disabled placeholders remain', () => {
+    // Mask shipped in #1541 and Heal in #3409, so the dock has no dimmed,
+    // aria-hidden entry left. A future placeholder re-arms that path.
     renderFor('light', null);
     const item = itemFor(fixture, 'heal');
-    expect(item.ariaHidden).toBe(true);
-    expect(item.disabled).toBe(true);
+    expect(item.ariaHidden).toBe(false);
+    expect(item.disabled).toBeFalsy();
   });
 
   it('a group entry is selected only while its group is active and no dock tool is armed', () => {

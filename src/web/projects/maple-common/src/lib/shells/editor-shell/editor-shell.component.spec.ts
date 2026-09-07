@@ -337,12 +337,17 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     return btn!;
   }
 
+  // 20 s, not the 5 s default: this is the first render in
+  // the file, so it pays the whole editor shell's one-time TestBed
+  // compile — every dock panel, overlay and control card. That budget
+  // grew again when Heal joined the shell (#3409); a compile-bound
+  // first render is not a signal worth failing the suite on.
   it('shows the phone slider panel without requiring a dock tap', () => {
     const fixture = renderShell({ layout: 'phone' });
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.phone-card-anchor pro-control-card .card')).toBeTruthy();
     expect(el.querySelector('.close-btn')).toBeNull();
-  });
+  }, 20000);
 
   // Review round 1 (Critical): the always-visible card and the Curve/
   // Presets/Noise panels float in the SAME anchor slot on phone (unlike

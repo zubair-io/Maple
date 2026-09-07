@@ -59,6 +59,7 @@ const FAST_PATH_OR_SPECIAL_KEYS = new Set<keyof AdjustmentModel>([
   'whiteBalancePreset',
   'crop',
   'localAdjustments',
+  'retouchSpots',
   'wbScaleVersion',
   'wbSource',
   'wbSampleX',
@@ -107,6 +108,15 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   // params can't carry; a non-empty stack routes to the full `render(xmp)`
   // path, where raw-core parses the masks straight from the sidecar text.
   if (model.localAdjustments.length !== 0) return false;
+  // Repair spots (#3409) are baked into the DECODE product, so the resident
+  // session's already-developed base carries them — but the params path
+  // reuses the session's STORED prefix without re-comparing it, so a spot
+  // the user just placed would not appear until some other tick re-parsed
+  // the sidecar. A non-empty list therefore routes to the full
+  // `render(xmp)` path, where the prefix comparison re-develops when (and
+  // only when) the spot list actually moved. Same rule, same reason, as the
+  // local-adjustment stack above.
+  if (model.retouchSpots.length !== 0) return false;
   // Point curves (#366) are nested too. An identity (empty) curve is not an edit;
   // an authored one is a prefix field the fast path would freeze, so it routes to
   // the full path.

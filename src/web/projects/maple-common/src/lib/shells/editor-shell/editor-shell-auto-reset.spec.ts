@@ -195,11 +195,16 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
   // ── Reachability ───────────────────────────────────────────────────────
 
   describe('both controls are mounted by the live editor route component', () => {
+    // 20 s, not the 5 s default: this is the first render in
+    // the file, so it pays the whole editor shell's one-time TestBed
+    // compile — every dock panel, overlay and control card. That budget
+    // grew again when Heal joined the shell (#3409); a compile-bound
+    // first render is not a signal worth failing the suite on.
     it('renders an enabled, labelled AUTO button on desktop', () => {
       setup(1280);
       expect(autoButton().getAttribute('aria-label')).toBe('Auto adjust');
       expect(autoButton().disabled).toBe(false);
-    });
+    }, 20000);
 
     it('renders an enabled, labelled RESET button on desktop', () => {
       setup(1280);

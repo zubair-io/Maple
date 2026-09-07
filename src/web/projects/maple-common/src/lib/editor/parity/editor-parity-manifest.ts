@@ -185,36 +185,6 @@ const SHELL: readonly ParityCapability[] = [
     exception: null,
   },
   {
-    id: 'shell.placeholder-heal',
-    name: 'Heal',
-    group: 'shell',
-    order: 80,
-    reachability: { apple: 'absent', web: 'absent' },
-    presentation: SAME(
-      'Dimmed dock entry, aria-hidden, tooltip names the ticket — label and ticket read from this row by tool-dock.component.ts',
-    ),
-    interaction: {
-      keyboard: 'none — out of the tab order',
-      pointer: 'none',
-      touch: 'none',
-      focus: 'Never receives focus',
-    },
-    accessibility: {
-      role: 'none (aria-hidden)',
-      name: 'Heal — coming in #1472 (tooltip only)',
-      value: 'none',
-      state: 'disabled',
-      actions: ['none'],
-    },
-    participation: NONE,
-    disabled: true,
-    exception: {
-      platform: 'both',
-      rationale: 'Local AI inpainting epic; no UI on either platform yet.',
-      ticket: '#1472',
-    },
-  },
-  {
     id: 'shell.auto',
     name: 'AUTO (exposure + tone, one undo entry)',
     group: 'shell',

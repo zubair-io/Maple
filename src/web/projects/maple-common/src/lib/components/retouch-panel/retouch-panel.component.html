@@ -1,0 +1,80 @@
+<div class="retouch-panel flex flex-col gap-2 p-3" data-testid="retouch-panel">
+  <mui-segmented-toggle
+    [options]="kindOptions"
+    [value]="session.brushKind()"
+    ariaLabel="Repair mode"
+    (valueChange)="onKindChange($event)"
+  />
+
+  <mui-living-slider
+    label="Size"
+    [value]="session.brushRadius()"
+    [min]="radiusMin"
+    [max]="radiusMax"
+    [step]="0.001"
+    (valueChange)="session.setRadius($event)"
+    (dragStart)="onDragStart()"
+    (dragEnd)="onDragEnd()"
+  />
+  <mui-living-slider
+    label="Feather"
+    [value]="session.brushFeather()"
+    [min]="0"
+    [max]="1"
+    [step]="0.01"
+    (valueChange)="session.setFeather($event)"
+    (dragStart)="onDragStart()"
+    (dragEnd)="onDragEnd()"
+  />
+  <mui-living-slider
+    label="Opacity"
+    [value]="session.brushOpacity()"
+    [min]="0"
+    [max]="1"
+    [step]="0.01"
+    (valueChange)="session.setOpacity($event)"
+    (dragStart)="onDragStart()"
+    (dragEnd)="onDragEnd()"
+  />
+
+  @if (rows().length === 0) {
+    <mui-text variant="body" color="muted" data-testid="retouch-empty">
+      No repair spots yet — click the image to cover a blemish with pixels from somewhere else.
+    </mui-text>
+  } @else {
+    <div class="retouch-list flex flex-col" role="list" data-testid="retouch-list">
+      @for (row of rows(); track row.index) {
+        <mui-list-row
+          icon="tool-texture"
+          [label]="row.title"
+          [subtitle]="row.subtitle"
+          [active]="row.active"
+          [testId]="'retouch-row-' + row.index"
+          (pressed)="session.select(row.index)"
+        >
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            iconLeading="trash"
+            [iconOnly]="true"
+            [ariaLabel]="'Delete ' + row.title"
+            [testId]="'retouch-delete-' + row.index"
+            (pressed)="session.remove(row.index)"
+          />
+        </mui-list-row>
+      }
+    </div>
+    <div class="flex justify-end">
+      <mui-button
+        variant="ghost"
+        size="sm"
+        iconLeading="undo-uturn"
+        ariaLabel="Remove every repair spot"
+        testId="retouch-reset"
+        (pressed)="session.resetAll()"
+        >Reset</mui-button
+      >
+    </div>
+  }
+</div>

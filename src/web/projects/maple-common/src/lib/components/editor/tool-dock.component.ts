@@ -16,21 +16,18 @@
 // editor, #638).
 // Presets opens the presets panel (#1815 — canvas-first presets port; reuses
 // PresetsPanelComponent/PresetsService verbatim from the S5 editor, #1115).
-// Optics is dropped entirely: Apple has no such button, and Mask/Heal already
-// signal that more tools are coming.
+// Optics is dropped entirely: Apple has no such button either.
 // Film arms the Film tool directly (#2449 — Apple's dock carries a Film
 // entry since #2683 because its slider grid filters field-less tools out;
 // the Effects sub-tool chip reaches the same panel, so both routes exist).
 // Mask arms the Mask tool directly (#1541 — canvas-first masking; the
 // overlay is `MaskOverlayComponent`, the panel `MaskPanelComponent`).
-// Heal is the parity manifest's disabled placeholder
-// (`parityPlaceholders()`, editor/parity/editor-parity.ts — #2448): the
-// label and the milestone ticket come from the manifest, so "Heal is
-// disabled, see #1472" is said once for every platform. It renders
-// visibly disabled with a tooltip — NOT a fake panel (CLAUDE.md #6) — and
-// stays out of the accessibility tree entirely via `mui-tool-dock`'s
-// `ariaHidden` entry field (`aria-hidden` + `tabindex="-1"`, no accessible
-// name), mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`.
+// Heal arms the Heal tool directly (#3409 — the deterministic clone / heal
+// brush; the overlay is `RetouchOverlayComponent`, the panel
+// `RetouchPanelComponent`). No dock entry is a disabled placeholder any
+// more; the `parityPlaceholders()` path below stays because it is the
+// manifest-driven mechanism a FUTURE placeholder would use, and it renders
+// nothing while the manifest lists none.
 //
 // The circle+label+dot glass chrome itself (#3046) now lives in
 // `mui-tool-dock`/`mui-action-button` — this wrapper's own job is building
@@ -100,11 +97,10 @@ export interface DockEntry {
 }
 
 /** Icons are presentation, so they stay here; everything else about a
- *  placeholder (label, disabled, ticket) is read from the parity manifest. */
-const PLACEHOLDER_ICONS: Readonly<Record<string, MapleIconName>> = {
-  'shell.placeholder-mask': 'tool-dehaze',
-  'shell.placeholder-heal': 'tool-texture',
-};
+ *  placeholder (label, disabled, ticket) is read from the parity manifest.
+ *  Empty today — Mask shipped in #1541 and Heal in #3409 — so the map is
+ *  the slot the next placeholder's icon goes in, not stale data. */
+const PLACEHOLDER_ICONS: Readonly<Record<string, MapleIconName>> = {};
 
 const PLACEHOLDER_ENTRIES: readonly DockEntry[] = parityPlaceholders().map((row) => ({
   id: row.id.replace(/^shell\.placeholder-/, ''),
@@ -141,10 +137,12 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
   // HSL, B&W and Grade are reached from the Colour/Effects sub-tool row
   // inside the control card (see control-card.component.ts), not from the
   // dock — Apple's dock carries no button for them either. Optics is
-  // dropped: Apple has no such button and Heal already signals that more
-  // tools are coming.
+  // dropped: Apple has no such button.
   // Mask (#1541) — arms the mask overlay + panel directly, like Crop.
   { id: 'mask', icon: 'tool-dehaze', label: 'Mask', tool: 'mask' },
+  // Heal (#3409) — the clone / heal brush, same shape as Mask: the dock
+  // entry arms the canvas overlay + its own panel.
+  { id: 'heal', icon: 'tool-texture', label: 'Heal', tool: 'heal' },
   ...PLACEHOLDER_ENTRIES,
 ];
 
@@ -161,12 +159,14 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
  *  - Geometry (#3410) has seven fields and declares no sub-params (its panel
  *    is bespoke, like Lens's), so the generic sub-param sweep below would find
  *    nothing to compare — the dot lights when ANY of the seven left its
- *    default. */
+ *    default.
+ *  - Heal (#3409) is a spot list: modified once any spot exists. */
 const NON_SCALAR_MODIFIED: Partial<Record<ToolId, (adj: AdjustmentModel) => boolean>> = {
   crop: (adj) => !isIdentityCrop(adj.crop),
   filmLook: (adj) => adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength,
   mask: (adj) => adj.localAdjustments.length > 0,
   geometry: (adj) => GEOMETRY_SLIDERS.some((s) => adj[s.field] !== GENERATED_DEFAULTS[s.field]),
+  heal: (adj) => adj.retouchSpots.length > 0,
 };
 
 /** Tools whose dock entry REPLACES the group's control surface (Crop) — a

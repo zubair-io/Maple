@@ -1,0 +1,32 @@
+// retouch-overlay.component.scss — the spot discs and the source link
+// (#3409). The destination disc is a plain dashed ring; the selected spot's
+// ring is solid and its source ring is drawn in the accent so the pair reads
+// as "these pixels came from there" at a glance.
+
+.retouch-disc {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.retouch-disc--selected {
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+}
+
+.retouch-disc--source {
+  stroke: var(--pro-accent, #c4493a);
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+}
+
+.retouch-link {
+  fill: none;
+  stroke: var(--pro-accent, #c4493a);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}

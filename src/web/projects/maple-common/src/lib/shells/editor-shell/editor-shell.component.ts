@@ -201,6 +201,8 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  is mounted inside `editor-image-canvas`, gated on the same
    *  `MaskSessionService.active` this mirrors. */
   readonly maskArmed = computed<boolean>(() => this.editorState.armedTool() === 'mask');
+  /** Heal (#3409) takes the same panel anchor as Mask. */
+  readonly healArmed = computed<boolean>(() => this.editorState.armedTool() === 'heal');
 
   /** True while the Noise tool is armed (#1153) — mounts the SAME shared
    *  multi-param panel HSL uses, so the Noise pill's four tiers (Luminance,

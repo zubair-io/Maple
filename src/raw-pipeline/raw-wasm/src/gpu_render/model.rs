@@ -147,7 +147,10 @@ pub(super) fn stripped_prefix_model(
         sharpen_masking: 0.0,
         nr_luminance: 0.0,
         nr_color: 0.0,
-        // KEEP: highlight_recovery, capture_sharpening_*, profile, and every
+        // KEEP: highlight_recovery, capture_sharpening_*, profile,
+        // `retouch_spots` (#3409 — a decode-product edit with no GPU pass of
+        // its own, so it must stay in the prefix; placing a spot correctly
+        // re-develops and re-uploads the base), and every other
         // decode-upstream field — they shape the post-AE buffer the GPU chain
         // consumes (so a change to any of them legitimately re-develops).
         ..full.clone()
