@@ -25,7 +25,8 @@ namespace Maple.WinUI.Tests
         /// <summary>The linear half of the shared fixture (`linear_layer()` in Rust).</summary>
         internal static readonly LocalAdjustment LinearLayer = new(
             new LinearMask(new MaskPoint(0.2, 0.3), new MaskPoint(0.8, 0.7), 0.4),
-            new PartialAdjustments { Exposure = 0.5, Shadows = -20 });
+            new PartialAdjustments { Exposure = 0.5, Shadows = -20, Hue = -35 },
+            new ColorRangeRefinement(55, 25, 0.02, 0.15, 0.95, 0.3));
 
         /// <summary>
         /// The radial half (`radial_layer()` in Rust). Binary-exact fractions
@@ -34,7 +35,8 @@ namespace Maple.WinUI.Tests
         /// </summary>
         internal static readonly LocalAdjustment RadialLayer = new(
             new RadialMask(new MaskPoint(0.5, 0.375), new MaskPoint(0.25, 0.125), 45 * Math.PI / 180, 0.6, true),
-            new PartialAdjustments { Contrast = 15, Vibrance = -10, Temperature = 200 });
+            new PartialAdjustments { Contrast = 15, Vibrance = -10, Temperature = 200, Hue = 0 },
+            new ColorRangeRefinement(210, 40, 0.1, 0, 1, 0));
 
         internal static readonly string CanonicalBlock = string.Join("\n", new[]
         {
@@ -46,7 +48,15 @@ namespace Maple.WinUI.Tests
             "              crs:CorrectionAmount=\"1\"",
             "              crs:CorrectionActive=\"True\"",
             "              crs:LocalExposure2012=\"0.5\"",
-            "              crs:LocalShadows2012=\"-20\">",
+            "              crs:LocalShadows2012=\"-20\"",
+            "              crs:LocalHue=\"-0.35\"",
+            "              papp:RangeKind=\"Color\"",
+            "              papp:RangeHue=\"55\"",
+            "              papp:RangeHueWidth=\"25\"",
+            "              papp:RangeChromaMin=\"0.02\"",
+            "              papp:RangeLMin=\"0.15\"",
+            "              papp:RangeLMax=\"0.95\"",
+            "              papp:RangeFeather=\"0.3\">",
             "              <crs:CorrectionMasks>",
             "                <rdf:Seq>",
             "                  <rdf:li",
@@ -70,7 +80,15 @@ namespace Maple.WinUI.Tests
             "              crs:CorrectionActive=\"True\"",
             "              crs:LocalContrast2012=\"15\"",
             "              papp:LocalVibrance=\"-10\"",
-            "              crs:LocalTemperature=\"200\">",
+            "              crs:LocalTemperature=\"200\"",
+            "              crs:LocalHue=\"0\"",
+            "              papp:RangeKind=\"Color\"",
+            "              papp:RangeHue=\"210\"",
+            "              papp:RangeHueWidth=\"40\"",
+            "              papp:RangeChromaMin=\"0.1\"",
+            "              papp:RangeLMin=\"0\"",
+            "              papp:RangeLMax=\"1\"",
+            "              papp:RangeFeather=\"0\">",
             "              <crs:CorrectionMasks>",
             "                <rdf:Seq>",
             "                  <rdf:li",
@@ -288,6 +306,56 @@ namespace Maple.WinUI.Tests
                 FullFrameGradient)));
             var layer = Assert.Single(doc!.Adjustments.LocalAdjustments);
             Assert.Equal(new PartialAdjustments { Exposure = 1, Contrast = -20 }, layer.Adjustments);
+        }
+
+        [Fact]
+        public void CorrectionAmountScalesHueWithoutChangingColorSelection()
+        {
+            var doc = XmpParser.Parse(Sidecar(CanonicalBlock.Replace(
+                "crs:CorrectionAmount=\"1\"", "crs:CorrectionAmount=\"0.5\"")))!;
+            Assert.Equal(-17.5, doc.Adjustments.LocalAdjustments[0].Adjustments.Hue);
+            Assert.Equal(0, doc.Adjustments.LocalAdjustments[1].Adjustments.Hue);
+            Assert.Equal(LinearLayer.Range, doc.Adjustments.LocalAdjustments[0].Range);
+            Assert.Equal(RadialLayer.Range, doc.Adjustments.LocalAdjustments[1].Range);
+        }
+
+        [Theory]
+        [InlineData("http://ns.justmaple.app/photo/1.0/")]
+        [InlineData("http://ns.justmaple.app/1.0/")]
+        public void AcceptsRemappedAndLegacyNamespaces(string uri)
+        {
+            var xml = Sidecar(CanonicalBlock).Replace("http://ns.justmaple.app/photo/1.0/", uri)
+                .Replace("crs:", "camera:").Replace("xmlns:crs=", "xmlns:camera=")
+                .Replace("papp:", "maple:").Replace("xmlns:papp=", "xmlns:maple=");
+            Assert.Equal(new[] { LinearLayer, RadialLayer }, XmpParser.Parse(xml)!.Adjustments.LocalAdjustments);
+        }
+
+        [Fact]
+        public void MissingColorCoordinatesUseCoreDefaultsAndExplicitZeroSurvives()
+        {
+            var doc = XmpParser.Parse(Sidecar(GradientCorrection(
+                "crs:LocalHue=\"0\" papp:RangeKind=\"Color\" papp:RangeHue=\"0\" papp:RangeFeather=\"0\"",
+                FullFrameGradient)))!;
+            var layer = Assert.Single(doc.Adjustments.LocalAdjustments);
+            Assert.Equal(new ColorRangeRefinement(0, 25, 0.02, 0.15, 0.95, 0), layer.Range);
+            Assert.Equal(new PartialAdjustments { Hue = 0 }, layer.Adjustments);
+            Assert.False(layer.Adjustments.IsEmpty);
+            Assert.Equal(layer, Assert.Single(doc.Adjustments.Clone().LocalAdjustments));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("papp:RangeKind=\"Future\"")]
+        [InlineData("papp:RangeKind=\"Color\" papp:RangeHue=\"NaN\"")]
+        public void AbsentUnknownAndCorruptRangesStayAbsent(string attrs)
+        {
+            var doc = XmpParser.Parse(Sidecar(GradientCorrection($"crs:LocalHue=\"NaN\" {attrs}", FullFrameGradient)))!;
+            var layer = Assert.Single(doc.Adjustments.LocalAdjustments);
+            Assert.Null(layer.Range);
+            Assert.True(layer.Adjustments.IsEmpty);
+            var xml = XmpWriter.Serialize(doc);
+            Assert.DoesNotContain("RangeKind", xml);
+            Assert.DoesNotContain("LocalHue", xml);
         }
 
         [Fact]

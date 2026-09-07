@@ -33,6 +33,8 @@ export interface PartialAdjustments {
   vibrance?: number;
   temperature?: number;
   tint?: number;
+  /** Oklab hue rotation: ±100 maps to ±30°, stored as ±1 in crs:LocalHue. */
+  hue?: number;
 }
 
 /** Normalized 2D point: `x` across the width, `y` down from the top edge. */
@@ -68,6 +70,18 @@ export type LocalMask =
 export interface LocalAdjustment {
   mask: LocalMask;
   adjustments: PartialAdjustments;
+  range?: RangeRefinement;
+}
+
+/** Color selection multiplied into the primary mask; mirrors raw-core's Color variant. */
+export interface RangeRefinement {
+  kind: 'color';
+  hueDeg: number;
+  hueHalfWidthDeg: number;
+  chromaMin: number;
+  lMin: number;
+  lMax: number;
+  feather: number;
 }
 
 /** True when no field of `a` is set — the layer would change nothing. */
