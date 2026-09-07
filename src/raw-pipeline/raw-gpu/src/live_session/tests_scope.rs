@@ -6,7 +6,7 @@
 use super::*;
 use crate::full_chain::oracle::{identity_curve, identity_lut, scene_linear_rgba, Case};
 use crate::{CancelToken, GpuContext, ScopeRequest};
-use raw_core::scope::vectorscope_histogram_rgba;
+use raw_core::scope::{snapshot_rgba_f32, vectorscope_histogram_rgba};
 use raw_core::types::adjustment::AutoExposureMode;
 use raw_core::types::WbMethod;
 use raw_core::xmp::AdjustmentModel;
@@ -105,6 +105,20 @@ fn scope_stats_arrive_one_tick_late_and_match_the_cpu_histogram_of_the_presented
         (l1 as f32 / want.total.max(1) as f32) < 0.005,
         "bins drift beyond boundary-rounding tolerance"
     );
+
+    // The snapshot (#3251) describes the SAME frame as the bins, and inside
+    // the clamp it is that frame quantized pixel for pixel.
+    let want_snap = snapshot_rgba_f32(&frame1, w, h);
+    assert_eq!((stats.snapshot.width, stats.snapshot.height), (w, h));
+    let worst = stats
+        .snapshot
+        .rgb
+        .iter()
+        .zip(&want_snap.rgb)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap();
+    assert!(worst <= 1, "snapshot byte drift {worst} > 1 LSB");
 }
 
 /// `render_to_buffer` (the u8-readback family `maple_gpu_live_render` calls,

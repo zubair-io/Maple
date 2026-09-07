@@ -115,10 +115,13 @@ public actor GpuLiveSession {
   /// as large as 128×128 at all (#3277; caught only by an actual `swift
   /// build`, not by cbindgen or `cargo test`). `scopeBins` is that
   /// caller-owned buffer, rebound by pointer into `scopeStats.bins_ptr`
-  /// every tick by `withScopeBound`.
-  private var scopeStats = MapleScopeStats()
-  private var scopeBins = [UInt32](repeating: 0, count: 16384)
-  private var lastScopeFrame: UInt64 = 0
+  /// every tick by `withScopeBound` (`GpuLiveSession+Scope.swift`);
+  /// `scopeSnapshot` is the same shape for the downsampled RGB8 snapshot
+  /// (#3251). Internal, not `private`, so that sibling file can reach them.
+  var scopeStats = MapleScopeStats()
+  var scopeBins = [UInt32](repeating: 0, count: 16384)
+  var scopeSnapshot = [UInt8](repeating: 0, count: ScopeSnapshot.bufferByteCount)
+  var lastScopeFrame: UInt64 = 0
 
   /// Cache (or clear, via `data: nil`) the film-look lattice this session
   /// binds on every subsequent `present`/`renderToBuffer` tick. Cheap — an
@@ -319,17 +322,8 @@ public actor GpuLiveSession {
 
     switch rc {
     case 0:
-      // One-tick-late by design (`live_session/scope.rs`'s own
-      // contract): only report a sample when `scopeStats.frame`
-      // actually moved since the last call — an unchanged frame means
-      // the FFI polled and found nothing new yet, not that this tick
-      // has no scope data at all.
-      var scope: ScopeSample? = nil
-      if scopeEnabled, scopeStats.frame != lastScopeFrame {
-        lastScopeFrame = scopeStats.frame
-        scope = ScopeSample.unpack(
-          bins: scopeBins, total: scopeStats.total, frame: scopeStats.frame)
-      }
+      // One-tick-late by design — see `takeScopeSample`.
+      let scope = takeScopeSample(enabled: scopeEnabled)
       // submitted to the surface; completion is asynchronous
       return (elapsedMs, scope)
     case 4:
@@ -475,27 +469,8 @@ public actor GpuLiveSession {
   // `flattened(_:)` + `bind(_:to:len:)` live in `GpuLiveSession+Flatten.swift`
   // (file-size budget, #3277).
 
-  /// Bind `scope_out` to the session's own reused `MapleScopeStats` staging
-  /// struct for the duration of `body` — but only when the caller actually
-  /// asked for scope output (`params.scope_enabled`, set by
-  /// `makeGpuLiveParams` before this runs). A null `scope_out` is the "the
-  /// host didn't ask for scope stats on this call" case raw-ffi's own
-  /// `write_stats` already treats as a silent no-op.
-  private func withScopeBound<R>(
-    _ params: MapleGpuLiveParams,
-    _ body: (MapleGpuLiveParams) -> R
-  ) -> R {
-    var p = params
-    guard p.scope_enabled != 0 else { return body(p) }
-    return scopeBins.withUnsafeMutableBufferPointer { binsBuf in
-      scopeStats.bins_ptr = binsBuf.baseAddress
-      scopeStats.bins_len = UInt32(binsBuf.count)
-      return withUnsafeMutablePointer(to: &scopeStats) { sp in
-        p.scope_out = sp
-        return body(p)
-      }
-    }
-  }
+  // `withScopeBound` / `takeScopeSample` live in `GpuLiveSession+Scope.swift`
+  // (file-size budget, #3251).
 
   /// Bind the session's cached film-look lattice (if any, epic #2683,
   /// Task 10) into a copy of `params` and yield the VALUE (not a pointer —
