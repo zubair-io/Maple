@@ -247,8 +247,10 @@ pub(crate) fn emit_swift(registry: &SupportRegistry, evidence: &Evidence) -> Str
     );
     s.push_str("        let resolved = tier(for: resolution)\n");
     s.push_str("        guard let body = fixturedBodies.first(where: { $0.key == key }),\n");
-    s.push_str("              resolved >= tier(for: body.resolution) else { return resolved }\n");
-    s.push_str("        return body.tier\n");
+    s.push_str(
+        "            resolved >= tier(for: body.resolution)\n        else { return resolved }\n",
+    );
+    s.push_str("        return max(body.tier, resolved)\n");
     s.push_str("    }\n}\n\n");
     s.push_str("extension CameraTier: Comparable {\n");
     s.push_str("    /// Worst to best, matching `raw_core::support_tiers::CameraTier`.\n");
@@ -258,7 +260,23 @@ pub(crate) fn emit_swift(registry: &SupportRegistry, evidence: &Evidence) -> Str
          { lhs.rank < rhs.rank }\n",
     );
     s.push_str("}\n");
-    s
+    // Match the repository's strict swift-format gate without requiring Xcode
+    // on the Linux codegen-drift runner.
+    s.lines()
+        .map(|line| {
+            let text = line.trim_start();
+            let indent = (line.len() - text.len()) / 2;
+            let pad = " ".repeat(indent);
+            if text.starts_with("return \"") && indent + text.len() > 100 {
+                format!("{pad}return\n{pad}  {}\n", &text[7..])
+            } else if text.starts_with("public static let profileBundleDigest:") {
+                let (binding, value) = text.split_once(" = ").expect("digest declaration");
+                format!("{pad}{binding} =\n{pad}  {value}\n")
+            } else {
+                format!("{pad}{text}\n")
+            }
+        })
+        .collect()
 }
 
 // -------------------------------------------------------------------------

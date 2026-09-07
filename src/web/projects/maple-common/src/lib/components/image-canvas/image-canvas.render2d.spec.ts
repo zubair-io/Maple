@@ -15,6 +15,8 @@ import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AssetId } from '../../models/asset';
+import { cameraSupportFromJson } from '../../state/camera-support';
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { Render2dHost } from './image-canvas.render2d';
 import { runRender2d, coldOpen2d } from './image-canvas.render2d';
@@ -33,6 +35,9 @@ const decoded: DecodedImage = {
 };
 
 const SIZING: RenderSizing = { maxLongEdge: 512, qualityPreview: true };
+const ASSESSED_SUPPORT = cameraSupportFromJson(
+  '{"cameraKey":"Unknown camera","resolution":"embedded_cm_only","lens":"no_correction_data"}',
+)!;
 
 describe('runRender2d — film-look LUT threading (#3171)', () => {
   beforeEach(() => {
@@ -116,37 +121,59 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     );
   });
 
-  it('coldOpen2d never reads filmSync — the cold-open decode carries no film LUT', async () => {
-    const filmLut = new TextEncoder().encode('slide_fuji_velvia_50').buffer;
-    const { host, decode } = harness(filmLut);
-    (host as unknown as { state: unknown }).state = {
-      updateAssetDimensions: vi.fn(),
-      seedAsShotWhiteBalance: vi.fn(),
-      seedLensCorrections: vi.fn(),
-      adjustmentFor: () => () => ({}),
-    };
-    (host as unknown as { serializeForRender: () => string }).serializeForRender = () => '<xmp />';
-    (host as unknown as { fastTargetPx: () => number }).fastTargetPx = () => 512;
-    (host as unknown as { markColdOpenDone: () => void }).markColdOpenDone = vi.fn();
-    (host as unknown as { hasProvisionalPreview: () => boolean }).hasProvisionalPreview = () =>
-      false;
-    (host as unknown as { clearProvisionalPreview: () => void }).clearProvisionalPreview = vi.fn();
-    (host as unknown as { recordNativeDims: () => void }).recordNativeDims = vi.fn();
-    (host as unknown as { scheduleRefine: () => void }).scheduleRefine = vi.fn();
+  it.each([
+    { label: 'omitted', reply: decoded, expected: null },
+    { label: 'undefined', reply: { ...decoded, cameraSupport: undefined }, expected: null },
+    {
+      label: 'assessed',
+      reply: { ...decoded, cameraSupport: ASSESSED_SUPPORT },
+      expected: ASSESSED_SUPPORT,
+    },
+  ])(
+    'coldOpen2d records $label support without applying a film LUT',
+    async ({ label, reply, expected }) => {
+      expect(ASSESSED_SUPPORT).toBeDefined();
+      expect(Object.hasOwn(reply, 'cameraSupport')).toBe(label !== 'omitted');
+      const filmLut = new TextEncoder().encode('slide_fuji_velvia_50').buffer;
+      const { host, decode } = harness(filmLut);
+      decode.mockResolvedValue(reply);
+      const capabilities = new LensCorrectionCapabilities();
+      capabilities.seed(ASSET_ID, true, false, ASSESSED_SUPPORT);
+      const seedLensCorrections = vi.fn(capabilities.seed.bind(capabilities));
+      (host as unknown as { state: unknown }).state = {
+        updateAssetDimensions: vi.fn(),
+        seedAsShotWhiteBalance: vi.fn(),
+        seedLensCorrections,
+        adjustmentFor: () => () => ({}),
+      };
+      (host as unknown as { serializeForRender: () => string }).serializeForRender = () =>
+        '<xmp />';
+      (host as unknown as { fastTargetPx: () => number }).fastTargetPx = () => 512;
+      (host as unknown as { markColdOpenDone: () => void }).markColdOpenDone = vi.fn();
+      (host as unknown as { hasProvisionalPreview: () => boolean }).hasProvisionalPreview = () =>
+        false;
+      (host as unknown as { clearProvisionalPreview: () => void }).clearProvisionalPreview =
+        vi.fn();
+      (host as unknown as { recordNativeDims: () => void }).recordNativeDims = vi.fn();
+      (host as unknown as { scheduleRefine: () => void }).scheduleRefine = vi.fn();
 
-    await coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1, 2, 3]));
+      await coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1, 2, 3]));
 
-    // `decode()`'s call signature at the cold open has only 4 args (no
-    // sizing/filmLut trailing params beyond maxLongEdge/qualityPreview) —
-    // asserting the call length rather than a specific arg count guards
-    // against a future accidental filmLut leak into the cold-open path.
-    expect(decode.mock.calls[0]!.length).toBe(5);
-    expect(decode.mock.calls[0]![4]).toBe(true); // qualityPreview, not filmLut
-    expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
-      assetId: ASSET_ID,
-      generation: 1,
-      displayXmp: '<xmp />',
-      sizing: SIZING,
-    });
-  });
+      expect(host.state.seedLensCorrections).toHaveBeenCalledWith(ASSET_ID, false, true, expected);
+      expect(capabilities.for(ASSET_ID).cameraSupport).toEqual(expected ?? undefined);
+
+      // `decode()`'s call signature at the cold open has only 4 args (no
+      // sizing/filmLut trailing params beyond maxLongEdge/qualityPreview) —
+      // asserting the call length rather than a specific arg count guards
+      // against a future accidental filmLut leak into the cold-open path.
+      expect(decode.mock.calls[0]!.length).toBe(5);
+      expect(decode.mock.calls[0]![4]).toBe(true); // qualityPreview, not filmLut
+      expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
+        assetId: ASSET_ID,
+        generation: 1,
+        displayXmp: '<xmp />',
+        sizing: SIZING,
+      });
+    },
+  );
 });

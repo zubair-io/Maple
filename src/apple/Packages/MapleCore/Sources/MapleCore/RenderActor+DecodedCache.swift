@@ -90,7 +90,7 @@ extension RenderActor {
       // or flip a cancel flag here — same-asset slider ticks during a cold
       // open share this one decode and its flag; nobody cancels until a
       // genuinely different decode supersedes it (the replace path below).
-      guard let (decoded, _, _, _, _, _, _, _) = await existing.value else { return nil }
+      guard let (decoded, _, _, _, _, _, _, _, _) = await existing.value else { return nil }
       return await normalize(decoded, asset)
     }
     // #951: a DIFFERENT-identity decode is superseding the in-flight one
@@ -119,135 +119,141 @@ extension RenderActor {
     // cancelAll can flip it to abandon this decode.
     let cancelFlag = CancelFlag()
     decodeCancelFlag = cancelFlag
-    let task: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool)?, Never> =
-      Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
-        var dispatchAsset = asset
-        var dispatchIsRaw = extensionIsRaw
-        if needsSniff, let provider = asset.bytesProvider {
-          if let bytes = try? await provider() {
-            if let detected = AssetRef.detectIsRaw(bytes: bytes) {
-              dispatchIsRaw = detected
-              // Surface the AUTHORITATIVE content sniff so the GPU
-              // live path tags `inputShape` from the same signal the
-              // decode uses, not the RAW-defaulting `AssetRef.isRaw`
-              // (#1553). Only a definitive sniff is recorded — an
-              // unrecognised signature leaves `resolvedIsRaw` nil so
-              // callers fall back to `AssetRef.isRaw`.
-              await self.recordResolvedIsRaw(asset.id, detected)
-            }
-            let cachedBytes = bytes
-            let displayName = asset.displayName
-            let hint: String? = {
-              if dispatchIsRaw { return asset.hintExtension }
-              if bytes.count >= 4 {
-                if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
-                if bytes[0] == 0x89, bytes[1] == 0x50 { return "png" }
-                if bytes.count >= 8 {
-                  if bytes[4] == 0x66, bytes[5] == 0x74,
-                    bytes[6] == 0x79, bytes[7] == 0x70
-                  {
-                    return "heic"
+    let task:
+      Task<
+        (CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool, RawCameraSupport?)?,
+        Never
+      > =
+        Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
+          var dispatchAsset = asset
+          var dispatchIsRaw = extensionIsRaw
+          if needsSniff, let provider = asset.bytesProvider {
+            if let bytes = try? await provider() {
+              if let detected = AssetRef.detectIsRaw(bytes: bytes) {
+                dispatchIsRaw = detected
+                // Surface the AUTHORITATIVE content sniff so the GPU
+                // live path tags `inputShape` from the same signal the
+                // decode uses, not the RAW-defaulting `AssetRef.isRaw`
+                // (#1553). Only a definitive sniff is recorded — an
+                // unrecognised signature leaves `resolvedIsRaw` nil so
+                // callers fall back to `AssetRef.isRaw`.
+                await self.recordResolvedIsRaw(asset.id, detected)
+              }
+              let cachedBytes = bytes
+              let displayName = asset.displayName
+              let hint: String? = {
+                if dispatchIsRaw { return asset.hintExtension }
+                if bytes.count >= 4 {
+                  if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
+                  if bytes[0] == 0x89, bytes[1] == 0x50 { return "png" }
+                  if bytes.count >= 8 {
+                    if bytes[4] == 0x66, bytes[5] == 0x74,
+                      bytes[6] == 0x79, bytes[7] == 0x70
+                    {
+                      return "heic"
+                    }
                   }
                 }
-              }
-              return asset.hintExtension
-            }()
-            dispatchAsset = AssetRef(
-              displayName: displayName,
-              hintExtension: hint,
-              stableID: asset.stableID,
-              explicitIsRaw: dispatchIsRaw,
-              bytesProvider: { cachedBytes }
-            )
+                return asset.hintExtension
+              }()
+              dispatchAsset = AssetRef(
+                displayName: displayName,
+                hintExtension: hint,
+                stableID: asset.stableID,
+                explicitIsRaw: dispatchIsRaw,
+                bytesProvider: { cachedBytes }
+              )
+            }
           }
-        }
 
-        if !dispatchIsRaw {
-          // Fast phase passes a viewport `target` so ImageIO decodes
-          // a downsampled thumbnail; refine passes `nil` for the
-          // full-res decode (#785). Non-RAW has no noise profile.
-          let nonRawImage = await mapleStageAsync("ImageIO non-RAW decode") {
-            await pipeline.decodeSceneLinearNonRaw(
-              asset: dispatchAsset, targetSize: decodeTarget
+          if !dispatchIsRaw {
+            // Fast phase passes a viewport `target` so ImageIO decodes
+            // a downsampled thumbnail; refine passes `nil` for the
+            // full-res decode (#785). Non-RAW has no noise profile.
+            let nonRawImage = await mapleStageAsync("ImageIO non-RAW decode") {
+              await pipeline.decodeSceneLinearNonRaw(
+                asset: dispatchAsset, targetSize: decodeTarget
+              )
+            }
+            guard let nonRawImage else { return nil }
+            return (
+              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0),
+              false, true, true, nil
             )
           }
-          guard let nonRawImage else { return nil }
-          return (
-            nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0),
-            false, true, true
-          )
-        }
-        let asset = dispatchAsset
-        let sidecar: URL? = {
-          guard let url = asset.sidecarURL,
-            FileManager.default.fileExists(atPath: url.path)
-          else { return nil }
-          return url
-        }()
-        // The session's staged file is also Auto Profile's source. A
-        // bytes-FFI decode would use a different native cache key (Bytes
-        // vs Path), demuxing the same RAW again for fitting. Only this
-        // decode input changes shape; cache/normalization identity and
-        // sidecar ownership still use the original asset below.
-        let decodeAsset: AssetRef
-        if asset.primaryURL == nil {
-          do {
-            let url = try await rawRenderSource.url(for: asset)
-            try Task.checkCancellation()
-            decodeAsset = AssetRef(url: url)
-          } catch is CancellationError {
-            return nil
-          } catch {
-            editSessionLogger.error(
-              "RAW source staging failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+          let asset = dispatchAsset
+          let sidecar: URL? = {
+            guard let url = asset.sidecarURL,
+              FileManager.default.fileExists(atPath: url.path)
+            else { return nil }
+            return url
+          }()
+          // The session's staged file is also Auto Profile's source. A
+          // bytes-FFI decode would use a different native cache key (Bytes
+          // vs Path), demuxing the same RAW again for fitting. Only this
+          // decode input changes shape; cache/normalization identity and
+          // sidecar ownership still use the original asset below.
+          let decodeAsset: AssetRef
+          if asset.primaryURL == nil {
+            do {
+              let url = try await rawRenderSource.url(for: asset)
+              try Task.checkCancellation()
+              decodeAsset = AssetRef(url: url)
+            } catch is CancellationError {
+              return nil
+            } catch {
+              editSessionLogger.error(
+                "RAW source staging failed: \(error.localizedDescription, privacy: .public)")
+              return nil
+            }
+          } else {
+            decodeAsset = asset
           }
-        } else {
-          decodeAsset = asset
-        }
-        // RAW fast phase AND refine both route through the sized scene-
-        // linear FFI (`maxLongEdge`) so the Rust decoder never allocates
-        // a full-sensor-resolution buffer just because the viewport
-        // asked for one (#785/#1637) — every caller passes a sized
-        // target since #1637, so `quality` (not a `nil` target) is what
-        // now distinguishes refine from fast. See `ImageEditPipeline.
-        // refineDecodeQuality` for the escalation rule and its rationale.
-        if let decodeTarget {
-          let sizedResult = await mapleStageAsync("rust FFI scene-linear sized decode") {
-            await pipeline.decodeSceneLinearSized(
-              asset: decodeAsset, targetSize: decodeTarget, xmpPath: sidecar,
-              quality: decodeQuality,
+          // RAW fast phase AND refine both route through the sized scene-
+          // linear FFI (`maxLongEdge`) so the Rust decoder never allocates
+          // a full-sensor-resolution buffer just because the viewport
+          // asked for one (#785/#1637) — every caller passes a sized
+          // target since #1637, so `quality` (not a `nil` target) is what
+          // now distinguishes refine from fast. See `ImageEditPipeline.
+          // refineDecodeQuality` for the escalation rule and its rationale.
+          if let decodeTarget {
+            let sizedResult = await mapleStageAsync("rust FFI scene-linear sized decode") {
+              await pipeline.decodeSceneLinearSized(
+                asset: decodeAsset, targetSize: decodeTarget, xmpPath: sidecar,
+                quality: decodeQuality,
+                profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
+                cancel: cancelFlag
+              )
+            }
+            guard let sizedResult else { return nil }
+            return (
+              sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
+              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.hasLensCorrections,
+              sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
+              sizedResult.cameraSupport
+            )
+          }
+          // #940 — legacy full-resolution branch: `target == nil` no
+          // longer occurs from any production call site (see above), but
+          // stays as the correct behaviour for a hypothetical future nil-
+          // target caller (e.g. a `renderFull()`-style path) — AMaZE when
+          // AmazeFlag is enabled, otherwise bilinear Full.
+          let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
+          let refineResult = await mapleStageAsync("rust FFI scene-linear decode") {
+            await pipeline.decodeSceneLinear(
+              asset: decodeAsset, quality: refineQuality, xmpPath: sidecar,
               profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
               cancel: cancelFlag
             )
           }
-          guard let sizedResult else { return nil }
+          guard let refineResult else { return nil }
           return (
-            sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-            sizedResult.wbFrame, sizedResult.aeGain, sizedResult.hasLensCorrections,
-            sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert
+            refineResult.image, refineResult.noiseProfile, refineResult.iso,
+            refineResult.wbFrame, refineResult.aeGain, refineResult.hasLensCorrections,
+            refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
+            refineResult.cameraSupport
           )
         }
-        // #940 — legacy full-resolution branch: `target == nil` no
-        // longer occurs from any production call site (see above), but
-        // stays as the correct behaviour for a hypothetical future nil-
-        // target caller (e.g. a `renderFull()`-style path) — AMaZE when
-        // AmazeFlag is enabled, otherwise bilinear Full.
-        let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
-        let refineResult = await mapleStageAsync("rust FFI scene-linear decode") {
-          await pipeline.decodeSceneLinear(
-            asset: decodeAsset, quality: refineQuality, xmpPath: sidecar,
-            profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
-            cancel: cancelFlag
-          )
-        }
-        guard let refineResult else { return nil }
-        return (
-          refineResult.image, refineResult.noiseProfile, refineResult.iso,
-          refineResult.wbFrame, refineResult.aeGain, refineResult.hasLensCorrections,
-          refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert
-        )
-      }
     decodeTask = task
     decodeTaskAssetID = asset.id
     decodeTaskIsFull = wantsFull
@@ -264,7 +270,8 @@ extension RenderActor {
     guard
       let (
         decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain,
-        decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert
+        decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
+        decodeCameraSupport
       ) = decodeResult
     else {
       decodeTask = nil
@@ -352,10 +359,11 @@ extension RenderActor {
       // `NativeDetailRenderer` needs the gain of the buffer actually
       // on screen, not a stale one from a superseded decode.
       decodedAeGain = decodeAeGain
-      // #2231/#3189: lens-correction signal rides the same write gate (describes the decoded buffer).
+      // Camera/lens support rides the same write gate (describes this decoded buffer).
       decodedHasLensCorrections = decodeHasLensCorrections
       decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
       decodedLensCorrectionDistortionInert = decodeLensCorrectionDistortionInert
+      decodedCameraSupport = decodeCameraSupport
       // #2049: identity bump — any real write means the uploaded GPU
       // buffer (if any) is now potentially stale even at unchanged dims.
       decodeGeneration &+= 1
@@ -422,6 +430,7 @@ extension RenderActor {
     decodedHasLensCorrections = false
     decodedLensCorrectionCaInert = true
     decodedLensCorrectionDistortionInert = true
+    decodedCameraSupport = nil
   }
 
   public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
@@ -457,7 +466,8 @@ extension RenderActor {
       decodeGeneration: decodeGeneration,
       hasLensCorrections: decodedHasLensCorrections,
       lensCorrectionCaInert: decodedLensCorrectionCaInert,
-      lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert
+      lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert,
+      cameraSupport: assetMatches ? decodedCameraSupport : nil
     )
   }
 
@@ -477,71 +487,4 @@ extension RenderActor {
     return m
   }
 
-  public func seed(
-    asset: AssetRef,
-    decoded: CIImage,
-    rawResolution: CGSize,
-    decodedAtModel: AdjustmentModel? = nil
-  ) {
-    self.decodedImage = decoded
-    self.decodedRawResolution = rawResolution
-    self.decodedForAssetID = asset.id
-    self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
-    self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
-    self.decodedAtModel = decodedAtModel
-    // Seeded buffers (cached rendered preview / embedded JPEG) are
-    // low-resolution display previews, never a full decode — refine
-    // must upgrade them (#785).
-    self.decodedIsFull = false
-    // Seeded buffers carry no Auto/Neutral develop distinction; mark
-    // the profile unknown so the first real render re-decodes for RAW
-    // Auto rather than reusing an AE-On preview under the Auto cube.
-    self.decodedProfile = nil
-    // Seeded buffers likewise carry no known auto-exposure state
-    // (#1387) — same reasoning as `decodedProfile` above.
-    self.decodedAutoExposure = nil
-    // Seeded preview buffers carry no slider-frame export (#1781); a
-    // stale frame from a previous decode must not describe them.
-    self.decodedWbFrame = nil
-    // Seeded preview buffers carry no AE-gain export (#1167/#2070); 1.0
-    // is the correct no-op gain for a buffer with no explicit export
-    // (matches `MapleSceneLinearImageData.aeGain`'s default).
-    self.decodedAeGain = 1.0
-    // Seeded preview buffers carry no lens-correction export (#2231) —
-    // same reasoning as `decodedWbFrame` above; a stale value from a
-    // previous asset must not describe this one.
-    self.decodedHasLensCorrections = false
-    self.decodedLensCorrectionCaInert = true
-    self.decodedLensCorrectionDistortionInert = true
-    // #2049: a seed is a cache WRITE — bump identity so a GPU-live
-    // session uploaded from the previous buffer knows to re-upload.
-    self.decodeGeneration &+= 1
-  }
-
-  public func seedIfUnpopulated(
-    asset: AssetRef,
-    decoded: CIImage,
-    rawResolution: CGSize,
-    decodedAtModel: AdjustmentModel? = nil
-  ) -> Bool {
-    if decodedImage != nil && decodedForAssetID == asset.id {
-      return false
-    }
-    self.decodedImage = decoded
-    self.decodedRawResolution = rawResolution
-    self.decodedForAssetID = asset.id
-    self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
-    self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
-    self.decodedAtModel = decodedAtModel
-    self.decodedIsFull = false
-    self.decodedProfile = nil  // #871 — see `seed(...)`
-    self.decodedAutoExposure = nil  // #1387 — see `seed(...)`
-    self.decodedWbFrame = nil  // #1781 — see `seed(...)`
-    self.decodedAeGain = 1.0  // #1167/#2070 — see `seed(...)`
-    self.decodedHasLensCorrections = false  // #2231/#3189 — see `seed(...)`
-    self.decodedLensCorrectionCaInert = true
-    self.decodedLensCorrectionDistortionInert = true
-    self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
-    return true
-  }
 }

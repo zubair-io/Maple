@@ -12,6 +12,14 @@ function wire(
 }
 
 describe('decode-derived camera support', () => {
+  it('does not downgrade a successful file because another fixture for its body was unsupported', () => {
+    for (const body of FIXTURED_CAMERAS) {
+      expect(['profiled', 'qualified']).toContain(
+        cameraSupportFromJson(wire('bundle_confident', body.key))?.tier,
+      );
+    }
+  });
+
   it('cannot inherit a profiled camera name when this file actually used fallback calibration', () => {
     const body = FIXTURED_CAMERAS.find((camera) => camera.tier === 'profiled')!;
     expect(cameraSupportFromJson(wire('rawler_fallback', body.key))?.tier).toBe('decode_only');
@@ -54,7 +62,7 @@ describe('decode-derived camera support', () => {
     store.seed('b', false, true, cameraSupportFromJson(wire('rawler_fallback', 'b')));
     expect(store.for('a').cameraSupport?.tier).toBe('profiled');
     expect(store.for('b').cameraSupport?.tier).toBe('decode_only');
-    store.seed('a', false, true);
+    store.seed('a', false, true, null);
     expect(store.for('a').cameraSupport).toBeUndefined();
     expect(store.for('b').cameraSupport?.tier).toBe('decode_only');
   });

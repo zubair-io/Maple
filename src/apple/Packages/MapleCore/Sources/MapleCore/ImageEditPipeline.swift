@@ -406,6 +406,7 @@ public actor ImageEditPipeline {
     public let hasLensCorrections: Bool
     public let lensCorrectionCaInert: Bool
     public let lensCorrectionDistortionInert: Bool
+    public let cameraSupport: RawCameraSupport?
   }
 
   nonisolated public func decodeSceneLinear(
@@ -483,7 +484,8 @@ public actor ImageEditPipeline {
       aeGain: imageData.aeGain,
       hasLensCorrections: imageData.hasLensCorrections,
       lensCorrectionCaInert: imageData.lensCorrectionCaInert,
-      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert
+      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
+      cameraSupport: imageData.cameraSupport
     )
   }
 
@@ -600,7 +602,8 @@ public actor ImageEditPipeline {
       aeGain: imageData.aeGain,
       hasLensCorrections: imageData.hasLensCorrections,
       lensCorrectionCaInert: imageData.lensCorrectionCaInert,
-      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert
+      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
+      cameraSupport: imageData.cameraSupport
     )
   }
 

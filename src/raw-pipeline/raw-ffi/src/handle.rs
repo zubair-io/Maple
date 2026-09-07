@@ -547,6 +547,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
+            None,
         );
         0
     })

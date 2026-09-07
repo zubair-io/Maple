@@ -112,6 +112,7 @@ mod scene_linear_chain_curves;
 mod export_file;
 mod export_recipe;
 mod scene_linear_f32;
+mod scene_linear_f32_buffer;
 mod thumbnail;
 // The flat `wb_frame_*` FFI-tail ↔ `SliderFrameExport` bridge (#1781/#1967),
 // shared by the fp16 chain, the f32 chain, and the GPU-live params — split

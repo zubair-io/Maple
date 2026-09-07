@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Maple.WinUI.Generated;
 using Maple.WinUI.Services;
 using Xunit;
@@ -15,6 +16,13 @@ namespace Maple.WinUI.Tests
             Assert.Equal(CameraTier.DecodeOnly, CameraSupportRegistry.TierFor(body.Key, ProfileResolution.RawlerFallback));
             Assert.Equal(CameraTier.MatrixOnly, CameraSupportRegistry.TierFor(body.Key, ProfileResolution.EmbeddedCmOnly));
             Assert.Equal(CameraTier.Unsupported, CameraSupportRegistry.TierFor(body.Key, ProfileResolution.DecodeFailed));
+        }
+
+        [Fact]
+        public void ActualProfileIsNotDowngradedByAnUnsupportedHistoricalFixture()
+        {
+            foreach (var body in CameraSupportRegistry.FixturedCameras)
+                Assert.True((int)CameraSupportRegistry.TierFor(body.Key, ProfileResolution.BundleConfident) >= (int)CameraTier.Profiled);
         }
 
         [Fact]
@@ -35,6 +43,18 @@ namespace Maple.WinUI.Tests
             Assert.Equal(tiers.Length, tiers.Select(CameraSupportRegistry.Explanation).Distinct().Count());
             Assert.True(CameraSupportRegistry.SchemaVersion > 0);
             Assert.True(CameraSupportRegistry.BundledModelCount > 1000);
+        }
+
+        [Theory]
+        [InlineData("not JSON")]
+        [InlineData("{}")]
+        [InlineData("{\"cameraKey\":5}")]
+        public void UnassessedBufferMetadataCannotAbortPixelDecode(string json)
+        {
+            Assert.Null(CameraSupportMetadata.ReadBuffer(IntPtr.Zero));
+            var pointer = Marshal.StringToCoTaskMemUTF8(json);
+            try { Assert.Null(CameraSupportMetadata.ReadBuffer(pointer)); }
+            finally { Marshal.FreeCoTaskMem(pointer); }
         }
 
         [Fact]
