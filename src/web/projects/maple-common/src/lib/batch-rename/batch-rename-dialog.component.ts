@@ -75,9 +75,8 @@ export class BatchRenameDialogComponent implements OnInit {
 
   readonly dismiss = output<void>();
   /** Emits once, after a successful apply, so the host can refresh its
-   * grid/tree state. Carries nothing beyond "something changed" — the
-   * per-file detail already rendered in the 'done' phase is this
-   * component's business, not the host's. */
+   * grid/tree state. Carries the per-file results so the host can repoint
+   * renamed selections before refetching the folder. */
   readonly applied = output<BatchRenameApplyResult>();
 
   readonly tokenHelp = BATCH_RENAME_TOKEN_HELP;

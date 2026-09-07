@@ -56,7 +56,7 @@ interface ServiceStubOverrides {
     <app-batch-rename-dialog
       [selections]="selections()"
       (dismiss)="onDismiss()"
-      (applied)="onApplied()"
+      (applied)="onApplied($event)"
     />
   }`,
 })
@@ -65,12 +65,14 @@ class HostComponent {
   mounted = signal(true);
   dismissCount = 0;
   appliedCount = 0;
+  appliedResult: BatchRenameApplyResult | null = null;
   onDismiss(): void {
     this.dismissCount++;
     this.mounted.set(false);
   }
-  onApplied(): void {
+  onApplied(result: BatchRenameApplyResult): void {
     this.appliedCount++;
+    this.appliedResult = result;
   }
 }
 
@@ -198,6 +200,12 @@ describe('BatchRenameDialogComponent (#2640)', () => {
     );
     const rows = fixture.nativeElement.querySelectorAll('.brn-preview-row');
     expect(rows.length).toBe(2);
+    expect(fixture.componentInstance.appliedCount).toBe(1);
+    expect(fixture.componentInstance.appliedResult).toBe(dialog(fixture).applyResult());
+    expect(fixture.componentInstance.appliedResult?.results.map((item) => item.address)).toEqual([
+      'lib1:a.dng',
+      'lib1:b.dng',
+    ]);
   });
 
   it('summarizes a partial failure with a uniform skip reason, matching the design doc example', () => {
