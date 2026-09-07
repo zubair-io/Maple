@@ -105,6 +105,13 @@ fn schema_f32_defaults_match_struct_default() {
             "lens_correction_distortion" => m.lens_correction_distortion,
             "lens_correction_ca" => m.lens_correction_ca,
             "lens_correction_vignetting" => m.lens_correction_vignetting,
+            "perspective_vertical" => m.perspective_vertical,
+            "perspective_horizontal" => m.perspective_horizontal,
+            "perspective_rotate" => m.perspective_rotate,
+            "perspective_scale" => m.perspective_scale,
+            "perspective_aspect" => m.perspective_aspect,
+            "perspective_x" => m.perspective_x,
+            "perspective_y" => m.perspective_y,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(

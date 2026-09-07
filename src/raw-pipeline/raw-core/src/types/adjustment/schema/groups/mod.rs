@@ -283,9 +283,24 @@ const EFFECTS_FIELDS: &[&str] = &[
     "film_strength",
 ];
 
-/// Crop rect + straighten angle. The rect is normalized to display-oriented
-/// dimensions, so it maps proportionally onto a differently-sized target.
-const GEOMETRY_FIELDS: &[&str] = &["crop"];
+/// Crop rect + straighten angle, plus the seven manual-geometry scalars
+/// (#3410). The rect is normalized to display-oriented dimensions, so it maps
+/// proportionally onto a differently-sized target; the perspective scalars are
+/// normalized to the frame's half-extents for the same reason, so a keystone
+/// authored on a 100 MP frame lands the same correction on a 12 MP one. They
+/// join crop rather than forming a group of their own because they are one
+/// tool to the user, and a "Geometry" paste that carried the crop rect but
+/// dropped the keystone would land a framing the user never saw.
+const GEOMETRY_FIELDS: &[&str] = &[
+    "crop",
+    "perspective_vertical",
+    "perspective_horizontal",
+    "perspective_rotate",
+    "perspective_scale",
+    "perspective_aspect",
+    "perspective_x",
+    "perspective_y",
+];
 
 /// `AdjustmentModel` fields deliberately excluded from every group, i.e.
 /// never moved by paste / sync. Every entry needs a reason; the coverage test

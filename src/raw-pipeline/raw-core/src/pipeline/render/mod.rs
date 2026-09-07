@@ -187,6 +187,7 @@ fn render_display_from_raw(
         w,
         h,
         raw.orientation,
+        &crate::stages::perspective::Perspective::from_model(model),
         &model.crop,
     ))
 }
