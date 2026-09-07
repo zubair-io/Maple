@@ -130,25 +130,41 @@ namespace Maple.WinUI.Services
                 : throw new WhiteBalanceSampleException(WhiteBalanceSampleFailure.OutOfDomain);
         }
 
+        /// <summary>The notice the picker shows when the Auto choice's
+        /// analysis did not produce a pair, whatever the cause.</summary>
+        public const string AutoFailureMessage = "Auto white balance could not analyse this photo.";
+
         /// <summary>
         /// The picker's Auto choice: raw-core's AUTO analysis (the same
         /// estimator the AUTO button runs) developed against
         /// <paramref name="model"/>, of which only the white-balance pair is
         /// returned — tone and AE stay the user's. Blocking; call off the UI
-        /// thread. Null when the analysis fails (the message is logged).
+        /// thread. Total: null for every failure — a non-zero return code, a
+        /// non-finite pair, or an exception on the way (the probe sidecar
+        /// could not be written, the native library is missing) — with the
+        /// cause logged, so a caller never faults silently with its busy
+        /// flag left set (#3443 review).
         /// </summary>
         public static (double Temperature, double Tint)? EstimateAuto(string rawPath, AdjustmentState model)
         {
-            using var probe = new ProbeSidecar(model);
-            var rc = RawFfi.maple_compute_auto_adjustments(rawPath, probe.Path, 1, out var auto);
-            if (rc != 0)
+            try
             {
-                DiagLog.Write($"[wb] auto white balance rc={rc}: {RawFfi.LastError()}");
+                using var probe = new ProbeSidecar(model);
+                var rc = RawFfi.maple_compute_auto_adjustments(rawPath, probe.Path, 1, out var auto);
+                if (rc != 0)
+                {
+                    DiagLog.Write($"[wb] auto white balance rc={rc}: {RawFfi.LastError()}");
+                    return null;
+                }
+                return double.IsFinite(auto.temperature) && double.IsFinite(auto.tint)
+                    ? (Math.Clamp(auto.temperature, MinTemperature, MaxTemperature), Math.Clamp(auto.tint, MinTint, MaxTint))
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[wb] auto white balance failed: {ex}");
                 return null;
             }
-            return double.IsFinite(auto.temperature) && double.IsFinite(auto.tint)
-                ? (Math.Clamp(auto.temperature, MinTemperature, MaxTemperature), Math.Clamp(auto.tint, MinTint, MaxTint))
-                : null;
         }
 
         /// <summary>The current model serialised to a private temp sidecar

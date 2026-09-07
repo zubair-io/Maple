@@ -132,25 +132,40 @@ namespace Maple.WinUI.ViewModels
             IsWhiteBalanceSampling = true;
             _ = Task.Run(() =>
             {
-                var pair = WhiteBalanceSampler.EstimateAuto(photo.EditPath, before);
-                OnUi(() =>
+                // EstimateAuto is total, but the same shape as
+                // SampleWhiteBalance: nothing thrown here may leave the
+                // busy flag set and the picker locked (#3443 review).
+                (double Temperature, double Tint)? pair = null;
+                try
                 {
-                    if (pair is not { } p)
+                    pair = WhiteBalanceSampler.EstimateAuto(photo.EditPath, before);
+                }
+                catch (Exception ex)
+                {
+                    DiagLog.Write($"[wb] auto white balance faulted: {ex}");
+                }
+                finally
+                {
+                    var landed = pair;
+                    OnUi(() =>
                     {
-                        FailWhiteBalanceResult(generation, "Auto white balance could not analyse this photo.");
-                        return;
-                    }
-                    LandWhiteBalanceResult(
-                        generation, photo, beforeText,
-                        state =>
+                        if (landed is not { } p)
                         {
-                            state.Temperature = p.Temperature;
-                            state.Tint = p.Tint;
-                            WhiteBalanceProvenance.MarkAuto(state);
-                        },
-                        "The photo changed during analysis. Choose Auto again.",
-                        sampled: false);
-                });
+                            FailWhiteBalanceResult(generation, WhiteBalanceSampler.AutoFailureMessage);
+                            return;
+                        }
+                        LandWhiteBalanceResult(
+                            generation, photo, beforeText,
+                            state =>
+                            {
+                                state.Temperature = p.Temperature;
+                                state.Tint = p.Tint;
+                                WhiteBalanceProvenance.MarkAuto(state);
+                            },
+                            "The photo changed during analysis. Choose Auto again.",
+                            sampled: false);
+                    });
+                }
             });
         }
 
