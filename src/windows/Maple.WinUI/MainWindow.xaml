@@ -39,8 +39,8 @@
                             StepFrequency="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
                             AutomationProperties.Name="{Binding Label}"
-                            PointerCaptureLost="OnSliderPointerReleased"
-                            KeyUp="OnSliderKeyReleased"
+                            PointerCaptureLost="OnSliderPointerCaptureLost"
+                            KeyUp="OnSliderKeyUp"
                             Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
             </DataTemplate>
