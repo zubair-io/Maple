@@ -266,6 +266,9 @@ const DETAIL_FIELDS: &[&str] = &[
     "lens_correction_distortion",
     "lens_correction_ca",
     "lens_correction_vignetting",
+    // Bayer demosaic kernel override (#3413) — another decode-product
+    // parameter, and the one the Detail panel's own picker drives.
+    "demosaic",
 ];
 
 /// Vignette (#1109), grain (#1110), and film emulation (#2683) — the
