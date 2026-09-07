@@ -10,7 +10,7 @@
 // platform to `released` without deleting the exception fails the checker,
 // which is how a closed gap can't quietly keep being tracked as open.
 
-import type { ParityCapability, ParityException } from './editor-parity-types';
+import type { ParityCapability } from './editor-parity-types';
 import { TOOL_CAPABILITIES } from './editor-parity-manifest.tools';
 import { EDITOR_INPUT_CAPABILITIES } from './editor-parity-manifest.input';
 import type { EditorParityManifest } from './editor-parity-types';
@@ -24,13 +24,6 @@ const NONE = {
 } as const;
 const BOTH = { apple: 'released', web: 'released' } as const;
 const SAME = (text: string) => ({ compact: text, regular: text, wide: text });
-
-const APPLE_LAYOUT_EXCEPTION: ParityException = {
-  platform: 'apple',
-  rationale:
-    'Apple ships two control layouts behind a temporary @AppStorage exploration flag (Variant A dock + flyout, Variant B stacked panel) and a third de facto iPhone path (IPhoneLegacyControlBar); web has one adaptive tree.',
-  ticket: '#3252',
-};
 
 const SHELL: readonly ParityCapability[] = [
   {
@@ -67,11 +60,12 @@ const SHELL: readonly ParityCapability[] = [
     name: 'One converged control layout',
     group: 'shell',
     order: 20,
-    reachability: { apple: 'partial', web: 'released' },
+    reachability: BOTH,
     presentation: {
-      compact: 'Web: always-visible slider card stacked above a horizontal bottom dock',
+      compact:
+        'iPhone: selected tool control above group tabs and tool pills. Compact iPad/Mac: stacked adjustments inspector above the horizontal ToolDock. Web: slider card above the horizontal bottom dock',
       regular:
-        'Web: vertical dock + 300px control card, dock-side panels for Curve / Crop / Presets / Noise',
+        'iPad/Mac: stacked adjustments inspector next to the vertical ToolDock. iPhone keeps its compact selected-tool controls at every width. Web: vertical dock + control card and dock-side tool panels',
       wide: 'Same as regular; no chrome auto-recede',
     },
     interaction: {
@@ -88,17 +82,19 @@ const SHELL: readonly ParityCapability[] = [
       actions: ['switch group', 'arm tool', 'toggle panel'],
     },
     participation: NONE,
-    exception: APPLE_LAYOUT_EXCEPTION,
+    exception: null,
   },
   {
     id: 'shell.adaptive-dock',
     name: 'Same-component compact / regular / wide dock',
     group: 'shell',
     order: 30,
-    reachability: { apple: 'partial', web: 'released' },
+    reachability: BOTH,
     presentation: {
-      compact: 'Web: pro-tool-dock orientation="horizontal" at the bottom edge',
-      regular: 'Web: the same pro-tool-dock, vertical, right edge',
+      compact:
+        'iPad/Mac ToolDock and web pro-tool-dock are horizontal at the bottom edge; iPhone uses group tabs and a selected-group tool row',
+      regular:
+        'The same dock component is vertical at the trailing edge on iPad/Mac and Web; iPhone retains its compact controls',
       wide: 'Same as regular',
     },
     interaction: {
@@ -115,11 +111,7 @@ const SHELL: readonly ParityCapability[] = [
       actions: ['press an entry'],
     },
     participation: NONE,
-    exception: {
-      ...APPLE_LAYOUT_EXCEPTION,
-      rationale:
-        "Apple's ToolDock.swift is a regular-size-class-only view and MobileControlBar a separate phone view; web's dock takes an orientation input.",
-    },
+    exception: null,
   },
   {
     id: 'shell.tool-dock',
@@ -128,7 +120,7 @@ const SHELL: readonly ParityCapability[] = [
     order: 40,
     reachability: BOTH,
     presentation: SAME(
-      'Light · Color · Effects · Detail, a divider, then Crop · Tone Curve · Film · Presets · Mask · Heal — the same ten entries in the same order as ToolDock.swift',
+      'iPad/Mac and Web: Light · Color · Effects · Detail, then Crop · Tone Curve · Film · Presets · Mask · Heal. iPhone: the same four groups with pills for the selected group, showing only the selected tool control',
     ),
     interaction: {
       keyboard: '1–4 switch group; Tab + Enter on any entry',

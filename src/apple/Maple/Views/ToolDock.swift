@@ -1,20 +1,6 @@
-// ToolDock.swift — Pro Editor Canvas-first (A2, #1555).
-//
-// Vertical glass column on the trailing edge of the canvas-first editor
-// (regular size class only).
-//
-// Control-variant A (.compact) layout:
-//   • Top section: GROUP buttons — Light / Color / Effects / Detail.
-//     Tapping arms the group and switches the ControlCard to that group's sliders.
-//   • Divider.
-//   • Bottom section: SPECIAL TOOL buttons — Crop, Curve, Film, Mask and
-//     Presets: the Tool cases that aren't plain sliders, so the group slider
-//     stack can't surface them.  Heal is called out in the spec but has no
-//     `Tool` surface yet (#1472); it is rendered as a disabled placeholder.
-//
-// The old behaviour (listing tools in the armed group) is replaced by this
-// group-switcher layout so the ControlCard can be simplified to show ONLY the
-// sliders of the active group (without embedding the group selector).
+// ToolDock.swift — the same tools at every MapleLayout (#3252).
+// Compact: horizontal bottom rail. Tablet/desktop: vertical trailing rail.
+// The entry order, selection, actions and accessibility identifiers agree.
 
 import MapleCore
 import SwiftUI
@@ -22,19 +8,26 @@ import SwiftUI
 struct ToolDock: View {
   @Bindable var state: EditorState
   var onPresetsTap: () -> Void = {}
+  var onGroupTap: (ToolGroup) -> Void = { _ in }
+  @Environment(\.mapleLayout) private var layout
+
+  private var isCompact: Bool { layout == .phone }
+  private var arrangement: AnyLayout {
+    isCompact ? AnyLayout(HStackLayout(spacing: 4)) : AnyLayout(VStackLayout(spacing: 4))
+  }
 
   var body: some View {
-    ScrollView(.vertical, showsIndicators: false) {
-      VStack(spacing: 4) {
+    ScrollView(isCompact ? .horizontal : .vertical, showsIndicators: false) {
+      arrangement {
         // ── Group buttons ────────────────────────────────────────────
         ForEach(ToolGroup.allCases, id: \.self) { group in
-          GroupDockButton(state: state, group: group)
+          GroupDockButton(state: state, group: group, onSelect: { onGroupTap(group) })
         }
 
-        Divider()
-          .background(ProTokens.border)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 4)
+        Rectangle()
+          .fill(ProTokens.border)
+          .frame(width: isCompact ? 1 : 40, height: isCompact ? 40 : 1)
+          .padding(4)
 
         // ── Special tool buttons ──────────────────────────────────────
         // Crop — real Tool case.
@@ -43,22 +36,11 @@ struct ToolDock: View {
           tool: .crop,
           onPresetsTap: onPresetsTap
         )
-        // Curve — real Tool case since #367. It belongs to the Light
-        // GROUP but cannot be reached through that group's slider
-        // stack: it has no primary field, so `displayRange` is nil and
-        // `LivingSliderGrid` filters it out. The dock is therefore its
-        // only route in this variant, which is exactly what the
-        // "Curve" placeholder this file's header anticipated.
         SpecialDockButton(
           state: state,
           tool: .toneCurve,
           onPresetsTap: onPresetsTap
         )
-        // Film — real Tool case since #2683. It belongs to the
-        // Effects GROUP but, like Curve, has no primary field (the
-        // catalog pick is a string id, not a drag-bar value), so
-        // `LivingSliderGrid` filters it out of that group's slider
-        // stack. The dock is therefore its only route here too.
         SpecialDockButton(
           state: state,
           tool: .filmLook,
@@ -66,17 +48,16 @@ struct ToolDock: View {
         )
         // Geometry — real Tool case since #3410. Belongs to the Detail
         // GROUP but, like Curve and Film, has no primary field (seven
-        // sliders and no "main" one), so `LivingSliderGrid` filters it out
-        // of that group's stack and the dock is its only route.
+        // sliders and no "main" one), so the group's living-slider stack
+        // filters it out and the dock is its only route.
         SpecialDockButton(
           state: state,
           tool: .geometry,
           onPresetsTap: onPresetsTap
         )
         // Mask — real Tool case since #3274 (#355). Edited through its
-        // own panel, not a slider, so like Curve and Film the dock is its
-        // only route in this variant — the same button the `.panel`
-        // variant's `StackedAdjustmentsPanel` offers.
+        // own panel, not a slider, so like Curve and Film the dock is one
+        // of its two routes; the other is the inspector's Detail section.
         SpecialDockButton(
           state: state,
           tool: .mask,
@@ -89,17 +70,17 @@ struct ToolDock: View {
           onPresetsTap: onPresetsTap
         )
 
-        // Heal — disabled placeholder; no Tool-level surface yet (#1472).
+        // Heal has no tool-level surface yet; implementation is tracked in #1472.
         DisabledDockPlaceholder(symbol: "bandage", label: "Heal")
       }
-      .padding(.vertical, 10)
+      .padding(isCompact ? .horizontal : .vertical, 10)
     }
-    // Width is 64pt (same as before); height grows to fit the content
-    // (4 groups + divider + 4 real special + 1 disabled ≈ 9 rows × 54pt + padding).
-    .frame(width: 64, height: min(CGFloat(ToolGroup.allCases.count + 5) * 54 + 40, 520))
+    .frame(width: isCompact ? nil : 64, height: isCompact ? 72 : nil)
+    .frame(maxWidth: isCompact ? .infinity : nil, maxHeight: isCompact ? nil : 520)
     .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
     .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
     .accessibilityElement(children: .contain)
+    .accessibilityLabel("Editor tools")
     .accessibilityIdentifier("editor-tool-dock")
   }
 }
@@ -111,6 +92,7 @@ struct ToolDock: View {
 private struct GroupDockButton: View {
   @Bindable var state: EditorState
   let group: ToolGroup
+  let onSelect: () -> Void
 
   private var isSelected: Bool { state.armedGroup == group }
 
@@ -151,6 +133,7 @@ private struct GroupDockButton: View {
   var body: some View {
     Button {
       withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: group) }
+      onSelect()
     } label: {
       VStack(spacing: 4) {
         ZStack {
@@ -275,9 +258,8 @@ private struct SpecialDockButton: View {
 
 // MARK: - DisabledDockPlaceholder
 
-/// Non-interactive placeholder for a dock button whose `Tool` case has not
-/// been added to the enum yet.  Shown at reduced opacity so it reads as
-/// "coming later" rather than "broken".
+/// Non-interactive entry for a tool whose editing surface is still tracked
+/// by a separate implementation issue.
 private struct DisabledDockPlaceholder: View {
   let symbol: String
   let label: String
