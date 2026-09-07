@@ -288,10 +288,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
         });
     }
-    // highlight_recovery (ticket #325) sees per-channel ceilings = 1/AsShotNeutral
-    // post-pre-gain, identity (1,1,1) when pre-gain was skipped (8-bit lossy
-    // LinearRaw) — without the identity branch the detector misses R/B clips
-    // and trips incorrectly on G.
+    // After WB pre-gain, highlight ceilings are 2^BE / AsShotNeutral.
+    // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
+    // LinearRaw); otherwise the detector misses R/B clips and trips on G.
     let hr_neutral = if skip_pre_gain {
         [1.0; 3]
     } else {
