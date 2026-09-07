@@ -22,7 +22,10 @@ public enum MaskRasterRegistry {
         guard digest.utf8.count == 16, width > 0, height > 0, bytes.count == width * height else {
             return nil
         }
-        let digestBytes = Array(digest.utf8)
+        // `maple_mask_raster_register` reads exactly 16 bytes (never a C
+        // string), but the buffer is NUL-terminated anyway so the boundary
+        // is safe under either reading (#3291 review).
+        let digestBytes = Array(digest.utf8) + [0]
         let rc = bytes.withUnsafeBufferPointer { dataBuf -> Int32 in
             digestBytes.withUnsafeBufferPointer { digestBuf in
                 maple_mask_raster_register(
