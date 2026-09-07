@@ -6,15 +6,15 @@ There are two distinct tile consumers on Apple, and only one of them is live. `N
 
 ## The zoom model
 
-| Concept           | Apple                                                      | Web                                          |
-| ----------------- | ---------------------------------------------------------- | -------------------------------------------- |
-| Zoom state        | `CanvasZoomModel.pixelScale`                               | `ImageCanvasService.pixelScale` signal       |
-| Fit sentinel      | `0`, resolved by `CanvasMath.effectivePixelScale`          | `0`, resolved by `fitPixelScale()`           |
-| Maximum           | `CanvasZoomModel.maxPixelScale = 8.0`                      | `MAX_PIXEL_SCALE = 8`                        |
-| Snap back to fit  | at or below `fit × 1.02` (`snapToFitTolerance`)            | at or below `fit × 1.02` (`FIT_SNAP_FACTOR`) |
-| Mid-gesture floor | pinch anchors on a start-captured scale                    | `fit × 0.5` rubber band (`FIT_UNDERSHOOT`)   |
-| Keyboard commands | F / ⌘0 fit, Z / ⌘1 100%, ⌘= / ⌘- step                      | ⌘/Ctrl+0 = fit, ⌘/Ctrl+1 = 100%              |
-| Wheel zoom        | `exp2(deltaY × wheelZoomSensitivity)`, sensitivity `0.015` | Cmd+wheel / ctrl-wheel trackpad pinch        |
+| Concept           | Apple                                                      | Web                                                           |
+| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------- |
+| Zoom state        | `CanvasZoomModel.pixelScale`                               | `ImageCanvasService.pixelScale` signal                        |
+| Fit sentinel      | `0`, resolved by `CanvasMath.effectivePixelScale`          | `0`, resolved by `fitPixelScale()`                            |
+| Maximum           | `CanvasZoomModel.maxPixelScale = 8.0`                      | `MAX_PIXEL_SCALE = 8`                                         |
+| Snap back to fit  | at or below `fit × 1.02` (`snapToFitTolerance`)            | at or below `fit × 1.02` (`FIT_SNAP_FACTOR`)                  |
+| Mid-gesture floor | pinch anchors on a start-captured scale                    | `fit × 0.5` rubber band (`FIT_UNDERSHOOT`)                    |
+| Keyboard commands | F / ⌘0 fit, Z / ⌘1 100%, ⌘= / ⌘- step                      | F / ⌘/Ctrl+0 fit, Z / ⌘/Ctrl+1 100%, ⌘/Ctrl+= / ⌘/Ctrl+- step |
+| Wheel zoom        | `exp2(deltaY × wheelZoomSensitivity)`, sensitivity `0.015` | Cmd+wheel / ctrl-wheel trackpad pinch                         |
 
 Apple's state machine is `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/CanvasZoomModel.swift` — a pure, testable value type holding scale, pan, and the pinch-start captures. It exists because `MagnifyGesture.magnification` is _cumulative_: multiplying it into the live scale every frame compounds exponentially, so each frame re-derives scale and pan from the values captured at pinch start rather than from the previous frame. The same model exposes gesture arbitration as intents rather than leaving each host to re-derive the rules: `dragIntent` is `.editing` at fit and `.pan` when zoomed; `wheelIntent(commandHeld:)` is `.zoom` with Cmd, otherwise `.pan` when zoomed and `.editing` at fit. Double-tap behaviour is per-surface — the editor toggles fit ↔ 100%, because pixel-perfect is what you need to judge noise reduction and sharpening.
 
