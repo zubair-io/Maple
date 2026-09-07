@@ -60,6 +60,26 @@ describe('foreign named WB sidecars', () => {
     }
   });
 
+  it('preserves provenance for late Maple namespace aliases and default bindings', () => {
+    const parser = TestBed.inject(XmpParserService);
+    const attrs = 'crs:WhiteBalance="Custom" crs:Temperature="5100" crs:Tint="-7"';
+    for (const uri of ['http://ns.justmaple.app/photo/1.0/', 'http://ns.justmaple.app/1.0/']) {
+      for (const marker of [
+        `<m:Private xmlns:m="${uri}">note</m:Private>`,
+        `<Private xmlns="${uri}">note</Private>`,
+      ]) {
+        const model = parser.parseAdjustmentModel(sidecar(attrs, marker)).model;
+        expect(model.wbSource).toBeUndefined();
+        expect(model).toMatchObject({ temperature: 5100, tint: -7 });
+      }
+    }
+    expect(
+      parser.parseAdjustmentModel(
+        sidecar(attrs, '<m:Private xmlns:m="https://example.org/metadata/">note</m:Private>'),
+      ).model.wbSource,
+    ).toBe('Manual');
+  });
+
   for (const preset of WHITE_BALANCE_PRESETS.filter((name) => WHITE_BALANCE_PRESET_VALUES[name])) {
     it(`${preset} resolves on read and explicit numbers take precedence in either order`, () => {
       const parser = TestBed.inject(XmpParserService);

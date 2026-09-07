@@ -33,81 +33,81 @@ import Foundation
 /// Pure-Swift XMP parser for `crs:` attributes. Reads the same attribute names as the Rust
 /// `raw_core::xmp::parse()` function. Unknown attributes are silently ignored.
 public struct XMPParser {
-    private init() {}
+  private init() {}
 
-    public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
-        var m = AdjustmentModel()
-        var c = CullingState()
-        let parser = XMLParser(data: Data(xml.utf8))
-        let delegate = _XMPParserDelegate(model: m, culling: c)
-        parser.delegate = delegate
-        guard parser.parse() else {
-            let err = parser.parserError?.localizedDescription ?? "unknown XML error"
-            throw XMPError.parseError(err)
-        }
-        m = delegate.model
-        c = delegate.culling
-        // Local adjustments (#358) — collected by the nested-element walker
-        // rather than the flat attribute switch; see
-        // `XMPSerialization+LocalAdjustments.swift`.
-        m.localAdjustments = delegate.localAdjustments.finish()
-        // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
-        // document level: an explicit `papp:WbScaleVersion` stamp wins;
-        // otherwise a document carrying the Maple `papp:` namespace AND an
-        // explicit authored `crs:Temperature`/`crs:Tint` predates the
-        // versioning (pre-#1756 scale, 1). Everything else — no `papp:`
-        // namespace (ACR/Lightroom-authored, expressed in ACR's own
-        // Robertson convention, which V5 matches exactly) or no authored WB
-        // (nothing to convert) — is 5. Mirrors raw-core's `xmp::parse`.
-        let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
-        let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 5)
-        // V2/V3/V4 → V5 load-normalization (#1894 Robertson mapping): the
-        // legacy scales (Hernández-Andrés daylight locus, at either the
-        // legacy 1e-4 uv-per-unit magnitude for V1/V2/V3 or ACR's kTintScale
-        // magnitude for V4) evaluate a different locus than V5's Robertson
-        // isotherms — so re-expressing an authored pair means converting
-        // the PAIR jointly through physical chromaticity
-        // (`WbDngTemperature.authoredPairToV5`), not a tint-only magnitude
-        // rescale. Even a temperature-only authored value moves slightly in
-        // both components (the two loci diverge), so this is gated on
-        // `sawExplicitWb` (temperature OR tint authored), not tint alone.
-        // Converting at load keeps the in-memory model (slider display, FFI
-        // live params, autosave) uniformly V5 while preserving the
-        // authored look. V1 deliberately does NOT load-normalize: its
-        // conversion needs the image's calibration frame, so raw-core
-        // converts it at develop and the sidecar round-trips as V1.
-        if version == 2 || version == 3 || version == 4 {
-            if delegate.sawExplicitWb {
-                let (t, ti) = WbDngTemperature.authoredPairToV5(
-                    temperature: m.temperature, tint: m.tint, version: version)
-                m.temperature = t
-                m.tint = ti
-            }
-            m.wbScaleVersion = 5
-        } else {
-            m.wbScaleVersion = version
-        }
-        return (m, c)
+  public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
+    var m = AdjustmentModel()
+    var c = CullingState()
+    let parser = XMLParser(data: Data(xml.utf8))
+    let delegate = _XMPParserDelegate(model: m, culling: c)
+    parser.delegate = delegate
+    guard parser.parse() else {
+      let err = parser.parserError?.localizedDescription ?? "unknown XML error"
+      throw XMPError.parseError(err)
     }
+    m = delegate.model
+    c = delegate.culling
+    // Local adjustments (#358) — collected by the nested-element walker
+    // rather than the flat attribute switch; see
+    // `XMPSerialization+LocalAdjustments.swift`.
+    m.localAdjustments = delegate.localAdjustments.finish()
+    // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
+    // document level: an explicit `papp:WbScaleVersion` stamp wins;
+    // otherwise a document carrying the Maple `papp:` namespace AND an
+    // explicit authored `crs:Temperature`/`crs:Tint` predates the
+    // versioning (pre-#1756 scale, 1). Everything else — no `papp:`
+    // namespace (ACR/Lightroom-authored, expressed in ACR's own
+    // Robertson convention, which V5 matches exactly) or no authored WB
+    // (nothing to convert) — is 5. Mirrors raw-core's `xmp::parse`.
+    let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
+    let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 5)
+    // V2/V3/V4 → V5 load-normalization (#1894 Robertson mapping): the
+    // legacy scales (Hernández-Andrés daylight locus, at either the
+    // legacy 1e-4 uv-per-unit magnitude for V1/V2/V3 or ACR's kTintScale
+    // magnitude for V4) evaluate a different locus than V5's Robertson
+    // isotherms — so re-expressing an authored pair means converting
+    // the PAIR jointly through physical chromaticity
+    // (`WbDngTemperature.authoredPairToV5`), not a tint-only magnitude
+    // rescale. Even a temperature-only authored value moves slightly in
+    // both components (the two loci diverge), so this is gated on
+    // `sawExplicitWb` (temperature OR tint authored), not tint alone.
+    // Converting at load keeps the in-memory model (slider display, FFI
+    // live params, autosave) uniformly V5 while preserving the
+    // authored look. V1 deliberately does NOT load-normalize: its
+    // conversion needs the image's calibration frame, so raw-core
+    // converts it at develop and the sidecar round-trips as V1.
+    if version == 2 || version == 3 || version == 4 {
+      if delegate.sawExplicitWb {
+        let (t, ti) = WbDngTemperature.authoredPairToV5(
+          temperature: m.temperature, tint: m.tint, version: version)
+        m.temperature = t
+        m.tint = ti
+      }
+      m.wbScaleVersion = 5
+    } else {
+      m.wbScaleVersion = version
+    }
+    return (m, c)
+  }
 
-    public static func parse(data: Data) throws -> (AdjustmentModel, CullingState) {
-        guard let xml = String(data: data, encoding: .utf8) else {
-            throw XMPError.notUTF8
-        }
-        return try parse(xml)
+  public static func parse(data: Data) throws -> (AdjustmentModel, CullingState) {
+    guard let xml = String(data: data, encoding: .utf8) else {
+      throw XMPError.notUTF8
     }
+    return try parse(xml)
+  }
 }
 
 public enum XMPError: Error, LocalizedError {
-    case parseError(String)
-    case notUTF8
+  case parseError(String)
+  case notUTF8
 
-    public var errorDescription: String? {
-        switch self {
-        case .parseError(let msg): return "XMP parse error: \(msg)"
-        case .notUTF8: return "XMP sidecar is not valid UTF-8"
-        }
+  public var errorDescription: String? {
+    switch self {
+    case .parseError(let msg): return "XMP parse error: \(msg)"
+    case .notUTF8: return "XMP sidecar is not valid UTF-8"
     }
+  }
 }
 
 // MARK: - XMLParser delegate (module-internal)
@@ -117,207 +117,221 @@ public enum XMPError: Error, LocalizedError {
 /// file-budget split, not a widening of the API. The leading underscore
 /// marks it as an implementation detail of the XMP layer.
 final class _XMPParserDelegate: NSObject, XMLParserDelegate {
-    var model: AdjustmentModel
-    var culling: CullingState
-    /// Tracks whether the canonical `papp:CaptureSharpeningSigma` attribute
-    /// has been applied during this element so the legacy
-    /// `papp:CaptureSharpeningRadius` alias never overrides it. Swift
-    /// dictionary iteration order is undefined; matches the Rust parser's
-    /// `sigma_seen` precedence (PR #463).
-    var captureSharpeningSigmaSeen: Bool = false
-    /// Tracks whether the canonical `papp:Profile` attribute has been
-    /// applied during this element so the legacy `papp:Look` migration
-    /// never clobbers it. Mirrors raw-core's `profile_seen` precedence
-    /// (ticket #536).
-    var profileSeen: Bool = false
-    /// Tracks whether the canonical `papp:Flag` attribute has been applied
-    /// so the legacy `xmp:Label` cull-flag alias never overrides it (#2221).
-    /// Same precedence shape as the two flags above.
-    var cullFlagSeen: Bool = false
-    /// Document-level WB-scale authorship state (#1780): whether ANY
-    /// element carried the Maple `papp:` namespace (declaration or
-    /// attribute), and the explicit `papp:WbScaleVersion` stamp when one
-    /// is present. Resolved into `model.wbScaleVersion` by
-    /// `XMPParser.parse` after the walk; mirrors raw-core's `xmp::parse`.
-    var sawPappNamespace: Bool = false
-    var sawExplicitWb: Bool = false
-    var wbScaleStamp: Int? = nil
+  var model: AdjustmentModel
+  var culling: CullingState
+  /// Tracks whether the canonical `papp:CaptureSharpeningSigma` attribute
+  /// has been applied during this element so the legacy
+  /// `papp:CaptureSharpeningRadius` alias never overrides it. Swift
+  /// dictionary iteration order is undefined; matches the Rust parser's
+  /// `sigma_seen` precedence (PR #463).
+  var captureSharpeningSigmaSeen: Bool = false
+  /// Tracks whether the canonical `papp:Profile` attribute has been
+  /// applied during this element so the legacy `papp:Look` migration
+  /// never clobbers it. Mirrors raw-core's `profile_seen` precedence
+  /// (ticket #536).
+  var profileSeen: Bool = false
+  /// Tracks whether the canonical `papp:Flag` attribute has been applied
+  /// so the legacy `xmp:Label` cull-flag alias never overrides it (#2221).
+  /// Same precedence shape as the two flags above.
+  var cullFlagSeen: Bool = false
+  /// Document-level WB-scale authorship state (#1780): whether ANY
+  /// element carried the Maple `papp:` namespace (declaration or
+  /// attribute), and the explicit `papp:WbScaleVersion` stamp when one
+  /// is present. Resolved into `model.wbScaleVersion` by
+  /// `XMPParser.parse` after the walk; mirrors raw-core's `xmp::parse`.
+  var sawPappNamespace: Bool = false
+  var sawExplicitWb: Bool = false
+  var wbScaleStamp: Int? = nil
+  /// Namespace aliases identify Maple provenance without changing the
+  /// historical prefix-based WB-scale migration above.
+  var sawMapleNamespaceURI: Bool = false
 
-    /// `dc:subject` is the only XMP element that isn't an attribute on
-    /// `rdf:Description` — it's a nested bag of `rdf:li` children:
-    ///
-    ///   <dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>
-    ///
-    /// `inDCSubject` flips on while the parser is inside that subtree;
-    /// `currentLi` accumulates the running text content of the active
-    /// `rdf:li` element (XMLParser may deliver characters in multiple
-    /// chunks for long text, so we concatenate until `didEndElement`).
-    /// Duplicates are dropped during accumulation so the parse output
-    /// matches `EditSession.setKeywords`'s "unique, first-occurrence wins"
-    /// invariant — necessary because callers (e.g. `KeywordChipsRow`)
-    /// iterate `culling.keywords` with `ForEach(id: \.self)`.
-    var inDCSubject: Bool = false
-    var currentLi: String?
-    var parsedKeywords: [String] = []
+  /// `dc:subject` is the only XMP element that isn't an attribute on
+  /// `rdf:Description` — it's a nested bag of `rdf:li` children:
+  ///
+  ///   <dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>
+  ///
+  /// `inDCSubject` flips on while the parser is inside that subtree;
+  /// `currentLi` accumulates the running text content of the active
+  /// `rdf:li` element (XMLParser may deliver characters in multiple
+  /// chunks for long text, so we concatenate until `didEndElement`).
+  /// Duplicates are dropped during accumulation so the parse output
+  /// matches `EditSession.setKeywords`'s "unique, first-occurrence wins"
+  /// invariant — necessary because callers (e.g. `KeywordChipsRow`)
+  /// iterate `culling.keywords` with `ForEach(id: \.self)`.
+  var inDCSubject: Bool = false
+  var currentLi: String?
+  var parsedKeywords: [String] = []
 
-    /// Point tone curves (#365) — the other nested construct in the schema.
-    /// Four `papp:SceneLinearToneCurve*` parents, each wrapping an `rdf:Seq`
-    /// of `"x, y"` `rdf:li` leaves. The walk lives in
-    /// `XMPSerialization+ToneCurves.swift`; this delegate just feeds it the
-    /// element / character events.
-    var toneCurves = ToneCurveWalker()
+  /// Point tone curves (#365) — the other nested construct in the schema.
+  /// Four `papp:SceneLinearToneCurve*` parents, each wrapping an `rdf:Seq`
+  /// of `"x, y"` `rdf:li` leaves. The walk lives in
+  /// `XMPSerialization+ToneCurves.swift`; this delegate just feeds it the
+  /// element / character events.
+  var toneCurves = ToneCurveWalker()
 
-    /// Local adjustments (#358) — the canonical `crs:GradientBasedCorrections`
-    /// / `crs:CircularGradientBasedCorrections` containers. Same
-    /// element-event feed as the tone curves; the walk lives in
-    /// `XMPSerialization+LocalAdjustments.swift`.
-    var localAdjustments = LocalAdjustmentWalker()
+  /// Local adjustments (#358) — the canonical `crs:GradientBasedCorrections`
+  /// / `crs:CircularGradientBasedCorrections` containers. Same
+  /// element-event feed as the tone curves; the walk lives in
+  /// `XMPSerialization+LocalAdjustments.swift`.
+  var localAdjustments = LocalAdjustmentWalker()
 
-    init(model: AdjustmentModel, culling: CullingState) {
-        self.model = model
-        self.culling = culling
+  init(model: AdjustmentModel, culling: CullingState) {
+    self.model = model
+    self.culling = culling
+  }
+
+  func parser(
+    _ parser: XMLParser,
+    didStartElement elementName: String,
+    namespaceURI: String?,
+    qualifiedName qName: String?,
+    attributes attributeDict: [String: String]
+  ) {
+    // dc:subject — nested keyword bag. Enter the subtree on the opening
+    // `<dc:subject>` tag; track `<rdf:li>` children inside it. The XML
+    // namespace *prefix* the sidecar binds to Dublin Core / RDF isn't
+    // stable (any sidecar may rebind `dc` / `rdf` to a different prefix
+    // and still be valid), so match on the qName's local-name suffix
+    // — `:subject` / `:li` or the bare local name. Namespace processing
+    // stays OFF on `XMLParser` because the rest of this delegate keys
+    // every attribute lookup on prefixed names (`crs:Temperature` etc.).
+    // WB-scale authorship scan (#1780) — runs for EVERY element,
+    // before any early return, so nested passthrough elements
+    // carrying `papp:` attributes still mark the document as
+    // Maple-authored. The stamp itself is also consumed here.
+    for key in attributeDict.keys where key == "xmlns:papp" || key.hasPrefix("papp:") {
+      sawPappNamespace = true
+    }
+    for (key, uri) in attributeDict where key == "xmlns" || key.hasPrefix("xmlns:") {
+      if uri == XMPCanonical.pappNamespaceURI || uri == "http://ns.justmaple.app/1.0/" {
+        sawMapleNamespaceURI = true
+      }
+    }
+    if attributeDict["crs:Temperature"] != nil || attributeDict["crs:Tint"] != nil {
+      sawExplicitWb = true
+    }
+    if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
+      (1...5).contains(v)
+    {
+      wbScaleStamp = v
     }
 
-    func parser(_ parser: XMLParser,
-                didStartElement elementName: String,
-                namespaceURI: String?,
-                qualifiedName qName: String?,
-                attributes attributeDict: [String: String]) {
-        // dc:subject — nested keyword bag. Enter the subtree on the opening
-        // `<dc:subject>` tag; track `<rdf:li>` children inside it. The XML
-        // namespace *prefix* the sidecar binds to Dublin Core / RDF isn't
-        // stable (any sidecar may rebind `dc` / `rdf` to a different prefix
-        // and still be valid), so match on the qName's local-name suffix
-        // — `:subject` / `:li` or the bare local name. Namespace processing
-        // stays OFF on `XMLParser` because the rest of this delegate keys
-        // every attribute lookup on prefixed names (`crs:Temperature` etc.).
-        // WB-scale authorship scan (#1780) — runs for EVERY element,
-        // before any early return, so nested passthrough elements
-        // carrying `papp:` attributes still mark the document as
-        // Maple-authored. The stamp itself is also consumed here.
-        for key in attributeDict.keys where key == "xmlns:papp" || key.hasPrefix("papp:") {
-            sawPappNamespace = true
-        }
-        if attributeDict["crs:Temperature"] != nil || attributeDict["crs:Tint"] != nil {
-            sawExplicitWb = true
-        }
-        if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
-           (1...5).contains(v) {
-            wbScaleStamp = v
-        }
-
-        let qual = qName ?? elementName
-        // Local adjustments (#358) and point tone curves (#365): inside
-        // either subtree there are no flat Maple attributes to read, so the
-        // whole attribute walk below is skipped for elements a walker claims.
-        if localAdjustments.start(qual, attributes: attributeDict) {
-            return
-        }
-        if toneCurves.start(qual) {
-            return
-        }
-        if Self.isLocalName(qual, "subject") {
-            inDCSubject = true
-            parsedKeywords.removeAll(keepingCapacity: true)
-            return
-        }
-        if inDCSubject {
-            if Self.isLocalName(qual, "li") {
-                currentLi = ""
-            }
-            // `rdf:Bag` / `rdf:Seq` / `rdf:Alt` wrappers carry no value of
-            // their own — only their `rdf:li` children do.
-            return
-        }
-
-        // Process WhiteBalance preset first so explicit Temperature/Tint can override it.
-        if let wb = attributeDict["crs:WhiteBalance"] {
-            applyAttribute(key: "crs:WhiteBalance", value: wb)
-        }
-        // Pre-pass: if the canonical capture-sharpening Sigma attribute is
-        // present, apply it before the legacy Radius alias so attribute
-        // iteration order can't flip precedence. Mirrors raw-core's
-        // `sigma_seen` flag.
-        if let sigma = attributeDict["papp:CaptureSharpeningSigma"] {
-            applyAttribute(key: "papp:CaptureSharpeningSigma", value: sigma)
-        }
-        // Pre-pass: if the canonical `papp:Profile` attribute is present,
-        // apply it before the `papp:Look` legacy-migration arm so Swift's
-        // unordered attribute iteration can't let `Look` overwrite the
-        // explicit Profile choice. Mirrors raw-core's `profile_seen` flag.
-        if let profile = attributeDict["papp:Profile"] {
-            applyAttribute(key: "papp:Profile", value: profile)
-        }
-        // Pre-pass: the canonical `papp:Flag` cull flag wins over the legacy
-        // `xmp:Label` alias regardless of attribute iteration order, so a
-        // sidecar carrying both resolves to the canonical value (#2221).
-        if let flag = attributeDict["papp:Flag"] {
-            applyAttribute(key: "papp:Flag", value: flag)
-        }
-        // Pre-pass: discover `crs:HasCrop` before applying the rect fields —
-        // mirrors raw-core's two-pass crop gate. `crs:CropAngle` is always
-        // applied regardless of HasCrop (pure straighten; spec § 01 inv 3).
-        let hasCrop: Bool = {
-            guard let v = attributeDict["crs:HasCrop"] else { return false }
-            return v == "True" || v == "true"
-        }()
-        for (rawKey, value) in attributeDict
-            where rawKey != "crs:WhiteBalance"
-                && rawKey != "papp:CaptureSharpeningSigma"
-                && rawKey != "papp:Profile"
-                && rawKey != "papp:Flag" {
-            applyAttribute(key: rawKey, value: value, hasCrop: hasCrop)
-        }
-        // Reset for the next rdf:Description (defensive — XMP normally
-        // carries a single description element, but the parser must remain
-        // idempotent across calls).
-        captureSharpeningSigmaSeen = false
-        profileSeen = false
-        cullFlagSeen = false
+    let qual = qName ?? elementName
+    // Local adjustments (#358) and point tone curves (#365): inside
+    // either subtree there are no flat Maple attributes to read, so the
+    // whole attribute walk below is skipped for elements a walker claims.
+    if localAdjustments.start(qual, attributes: attributeDict) {
+      return
+    }
+    if toneCurves.start(qual) {
+      return
+    }
+    if Self.isLocalName(qual, "subject") {
+      inDCSubject = true
+      parsedKeywords.removeAll(keepingCapacity: true)
+      return
+    }
+    if inDCSubject {
+      if Self.isLocalName(qual, "li") {
+        currentLi = ""
+      }
+      // `rdf:Bag` / `rdf:Seq` / `rdf:Alt` wrappers carry no value of
+      // their own — only their `rdf:li` children do.
+      return
     }
 
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        toneCurves.characters(string)
-        guard inDCSubject, currentLi != nil else { return }
-        currentLi! += string
+    // Process WhiteBalance preset first so explicit Temperature/Tint can override it.
+    if let wb = attributeDict["crs:WhiteBalance"] {
+      applyAttribute(key: "crs:WhiteBalance", value: wb)
     }
+    // Pre-pass: if the canonical capture-sharpening Sigma attribute is
+    // present, apply it before the legacy Radius alias so attribute
+    // iteration order can't flip precedence. Mirrors raw-core's
+    // `sigma_seen` flag.
+    if let sigma = attributeDict["papp:CaptureSharpeningSigma"] {
+      applyAttribute(key: "papp:CaptureSharpeningSigma", value: sigma)
+    }
+    // Pre-pass: if the canonical `papp:Profile` attribute is present,
+    // apply it before the `papp:Look` legacy-migration arm so Swift's
+    // unordered attribute iteration can't let `Look` overwrite the
+    // explicit Profile choice. Mirrors raw-core's `profile_seen` flag.
+    if let profile = attributeDict["papp:Profile"] {
+      applyAttribute(key: "papp:Profile", value: profile)
+    }
+    // Pre-pass: the canonical `papp:Flag` cull flag wins over the legacy
+    // `xmp:Label` alias regardless of attribute iteration order, so a
+    // sidecar carrying both resolves to the canonical value (#2221).
+    if let flag = attributeDict["papp:Flag"] {
+      applyAttribute(key: "papp:Flag", value: flag)
+    }
+    // Pre-pass: discover `crs:HasCrop` before applying the rect fields —
+    // mirrors raw-core's two-pass crop gate. `crs:CropAngle` is always
+    // applied regardless of HasCrop (pure straighten; spec § 01 inv 3).
+    let hasCrop: Bool = {
+      guard let v = attributeDict["crs:HasCrop"] else { return false }
+      return v == "True" || v == "true"
+    }()
+    for (rawKey, value) in attributeDict
+    where rawKey != "crs:WhiteBalance"
+      && rawKey != "papp:CaptureSharpeningSigma"
+      && rawKey != "papp:Profile"
+      && rawKey != "papp:Flag"
+    {
+      applyAttribute(key: rawKey, value: value, hasCrop: hasCrop)
+    }
+    // Reset for the next rdf:Description (defensive — XMP normally
+    // carries a single description element, but the parser must remain
+    // idempotent across calls).
+    captureSharpeningSigmaSeen = false
+    profileSeen = false
+    cullFlagSeen = false
+  }
 
-    func parser(_ parser: XMLParser,
-                didEndElement elementName: String,
-                namespaceURI: String?,
-                qualifiedName qName: String?) {
-        let qual = qName ?? elementName
-        localAdjustments.end(qual)
-        toneCurves.end(qual, into: &model)
-        if inDCSubject {
-            if Self.isLocalName(qual, "li"), let text = currentLi {
-                // Per IPTC convention keywords are non-empty; drop blanks.
-                // Dedupe at parse time so the model/UI invariant of unique
-                // keywords (also enforced on the write path by
-                // `EditSession.setKeywords`) holds even for hand-edited or
-                // foreign sidecars. First occurrence wins so source order
-                // is preserved.
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty, !parsedKeywords.contains(trimmed) {
-                    parsedKeywords.append(trimmed)
-                }
-                currentLi = nil
-            } else if Self.isLocalName(qual, "subject") {
-                culling.keywords = parsedKeywords
-                parsedKeywords = []
-                inDCSubject = false
-            }
+  func parser(_ parser: XMLParser, foundCharacters string: String) {
+    toneCurves.characters(string)
+    guard inDCSubject, currentLi != nil else { return }
+    currentLi! += string
+  }
+
+  func parser(
+    _ parser: XMLParser,
+    didEndElement elementName: String,
+    namespaceURI: String?,
+    qualifiedName qName: String?
+  ) {
+    let qual = qName ?? elementName
+    localAdjustments.end(qual)
+    toneCurves.end(qual, into: &model)
+    if inDCSubject {
+      if Self.isLocalName(qual, "li"), let text = currentLi {
+        // Per IPTC convention keywords are non-empty; drop blanks.
+        // Dedupe at parse time so the model/UI invariant of unique
+        // keywords (also enforced on the write path by
+        // `EditSession.setKeywords`) holds even for hand-edited or
+        // foreign sidecars. First occurrence wins so source order
+        // is preserved.
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, !parsedKeywords.contains(trimmed) {
+          parsedKeywords.append(trimmed)
         }
+        currentLi = nil
+      } else if Self.isLocalName(qual, "subject") {
+        culling.keywords = parsedKeywords
+        parsedKeywords = []
+        inDCSubject = false
+      }
     }
+  }
 
-    /// True if `qual` matches the namespaced element `local` regardless of
-    /// the bound prefix — i.e. either the bare local name or any `*:local`
-    /// form. Used so the parser doesn't silently ignore `dc:subject` /
-    /// `rdf:li` content when a sidecar binds the namespaces to non-default
-    /// prefixes.
-    private static func isLocalName(_ qual: String, _ local: String) -> Bool {
-        qual == local || qual.hasSuffix(":" + local)
-    }
+  /// True if `qual` matches the namespaced element `local` regardless of
+  /// the bound prefix — i.e. either the bare local name or any `*:local`
+  /// form. Used so the parser doesn't silently ignore `dc:subject` /
+  /// `rdf:li` content when a sidecar binds the namespaces to non-default
+  /// prefixes.
+  private static func isLocalName(_ qual: String, _ local: String) -> Bool {
+    qual == local || qual.hasSuffix(":" + local)
+  }
 }
 
 // MARK: - XMP Serializer
@@ -327,103 +341,104 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
 /// same value semantics) and, since #1577, byte-canonical with the TypeScript writer for
 /// a model both emit the same field set for — see `docs/xmp-canonical-format.md`.
 public struct XMPSerializer {
-    private init() {}
+  private init() {}
 
-    // MARK: - Internal builders (used by both serialize overloads)
+  // MARK: - Internal builders (used by both serialize overloads)
 
-
-    /// Build the `dc:subject` keyword-bag block at the canonical child
-    /// indent, or the empty string when there are no keywords. The `dc`
-    /// namespace declaration it needs is contributed separately by the
-    /// callers' `extraNamespaces` list.
-    static func _buildKeywordsBlock(culling: CullingState) -> String {
-        guard !culling.keywords.isEmpty else { return "" }
-        let indent = XMPCanonical.childIndent
-        let liItems = culling.keywords.map {
-            "\(indent)    <rdf:li>\(escapeXMLText($0))</rdf:li>"
-        }
-        return ([
-            "\(indent)<dc:subject>",
-            "\(indent)  <rdf:Bag>",
-        ] + liItems + [
-            "\(indent)  </rdf:Bag>",
-            "\(indent)</dc:subject>",
-        ]).joined(separator: "\n")
+  /// Build the `dc:subject` keyword-bag block at the canonical child
+  /// indent, or the empty string when there are no keywords. The `dc`
+  /// namespace declaration it needs is contributed separately by the
+  /// callers' `extraNamespaces` list.
+  static func _buildKeywordsBlock(culling: CullingState) -> String {
+    guard !culling.keywords.isEmpty else { return "" }
+    let indent = XMPCanonical.childIndent
+    let liItems = culling.keywords.map {
+      "\(indent)    <rdf:li>\(escapeXMLText($0))</rdf:li>"
     }
+    return
+      ([
+        "\(indent)<dc:subject>",
+        "\(indent)  <rdf:Bag>",
+      ] + liItems + [
+        "\(indent)  </rdf:Bag>",
+        "\(indent)</dc:subject>",
+      ]).joined(separator: "\n")
+  }
 
-    /// The `dc` namespace declaration, needed whenever the keyword bag is
-    /// emitted (and by the metadata overload's `dc:` blocks).
-    static let dcNamespace = (prefix: "dc", uri: "http://purl.org/dc/elements/1.1/")
+  /// The `dc` namespace declaration, needed whenever the keyword bag is
+  /// emitted (and by the metadata overload's `dc:` blocks).
+  static let dcNamespace = (prefix: "dc", uri: "http://purl.org/dc/elements/1.1/")
 
-    // MARK: - Public serializer
+  // MARK: - Public serializer
 
-    /// Serialize a full adjustment sidecar. This is the persisted-save entry
-    /// point — it always authors white balance. The decode-XMP path that
-    /// needs As-Shot omission uses the internal `omitWhiteBalance` overload
-    /// below, kept off this public surface so a sidecar-save call site can
-    /// never accidentally drop authored WB (#1883, Copilot).
-    ///
-    /// `passthrough` (#2233) carries the fields the source sidecar had and
-    /// Maple does not model — Lightroom mask groups, history, snapshots,
-    /// `crs:ToneCurvePV2012*`. It defaults to empty because the transient
-    /// documents (the decode temp-XMP, the histogram probe) genuinely have
-    /// nothing to preserve; every persisted save must supply the bucket
-    /// `XMPParser.parsePassthrough` read off the document being replaced.
-    public static func serialize(
-        model: AdjustmentModel,
-        culling: CullingState,
-        passthrough: XMPPassthrough = .empty
-    ) -> String {
-        serialize(
-            model: model, culling: culling, omitWhiteBalance: false, passthrough: passthrough)
-    }
+  /// Serialize a full adjustment sidecar. This is the persisted-save entry
+  /// point — it always authors white balance. The decode-XMP path that
+  /// needs As-Shot omission uses the internal `omitWhiteBalance` overload
+  /// below, kept off this public surface so a sidecar-save call site can
+  /// never accidentally drop authored WB (#1883, Copilot).
+  ///
+  /// `passthrough` (#2233) carries the fields the source sidecar had and
+  /// Maple does not model — Lightroom mask groups, history, snapshots,
+  /// `crs:ToneCurvePV2012*`. It defaults to empty because the transient
+  /// documents (the decode temp-XMP, the histogram probe) genuinely have
+  /// nothing to preserve; every persisted save must supply the bucket
+  /// `XMPParser.parsePassthrough` read off the document being replaced.
+  public static func serialize(
+    model: AdjustmentModel,
+    culling: CullingState,
+    passthrough: XMPPassthrough = .empty
+  ) -> String {
+    serialize(
+      model: model, culling: culling, omitWhiteBalance: false, passthrough: passthrough)
+  }
 
-    /// `omitWhiteBalance` (#1883): decode-XMP-only mode — see `_buildAttrs`.
-    /// `internal` (no default) so only in-module callers — `RawCoreBridge`'s
-    /// decode temp-XMP and the parity test — can request WB omission
-    /// intentionally; every persisted save routes through the public two-arg
-    /// form above, which always authors WB.
-    static func serialize(
-        model: AdjustmentModel,
-        culling: CullingState,
-        omitWhiteBalance: Bool,
-        passthrough: XMPPassthrough = .empty
-    ) -> String {
-        let attrs = _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
-            + _passthroughAttrs(passthrough)
-        let keywordsBlock = _buildKeywordsBlock(culling: culling)
-        // Point tone curves (#365) — the second nested child block. Children
-        // of `rdf:Description` sit at six spaces in this document shape (see
-        // `docs/xmp-canonical-format.md` § "Indentation"). Identity curves
-        // emit nothing, so a model with no authored curve keeps the
-        // pre-#365 bytes exactly.
-        let toneCurvesBlock = _buildToneCurvesBlock(
-            model: model, indent: XMPCanonical.childIndent)
-        // Local adjustments (#358) — the canonical mask containers, after
-        // the curves and before the passthrough nodes, the slot the
-        // TypeScript and C# writers use too.
-        let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
-            model: model, indent: XMPCanonical.childIndent)
-        // Unknown nested nodes sit last, the slot the TypeScript serializer
-        // gives them, so Maple's own children stay grouped ahead of whatever
-        // the source document carried.
-        let passthroughBlock = _passthroughNodesBlock(
-            passthrough, indent: XMPCanonical.childIndent)
-        let children = [keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, passthroughBlock]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+  /// `omitWhiteBalance` (#1883): decode-XMP-only mode — see `_buildAttrs`.
+  /// `internal` (no default) so only in-module callers — `RawCoreBridge`'s
+  /// decode temp-XMP and the parity test — can request WB omission
+  /// intentionally; every persisted save routes through the public two-arg
+  /// form above, which always authors WB.
+  static func serialize(
+    model: AdjustmentModel,
+    culling: CullingState,
+    omitWhiteBalance: Bool,
+    passthrough: XMPPassthrough = .empty
+  ) -> String {
+    let attrs =
+      _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
+      + _passthroughAttrs(passthrough)
+    let keywordsBlock = _buildKeywordsBlock(culling: culling)
+    // Point tone curves (#365) — the second nested child block. Children
+    // of `rdf:Description` sit at six spaces in this document shape (see
+    // `docs/xmp-canonical-format.md` § "Indentation"). Identity curves
+    // emit nothing, so a model with no authored curve keeps the
+    // pre-#365 bytes exactly.
+    let toneCurvesBlock = _buildToneCurvesBlock(
+      model: model, indent: XMPCanonical.childIndent)
+    // Local adjustments (#358) — the canonical mask containers, after
+    // the curves and before the passthrough nodes, the slot the
+    // TypeScript and C# writers use too.
+    let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
+      model: model, indent: XMPCanonical.childIndent)
+    // Unknown nested nodes sit last, the slot the TypeScript serializer
+    // gives them, so Maple's own children stay grouped ahead of whatever
+    // the source document carried.
+    let passthroughBlock = _passthroughNodesBlock(
+      passthrough, indent: XMPCanonical.childIndent)
+    let children = [keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, passthroughBlock]
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n")
 
-        return XMPCanonical.document(
-            extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],
-            attributes: attrs,
-            children: children)
-    }
+    return XMPCanonical.document(
+      extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],
+      attributes: attrs,
+      children: children)
+  }
 
-    // serialize(model:culling:metadata:) + escapeXMLAttr live in
-    // XMPSerialization+MetadataWrite.swift (split out for the 600-LOC budget).
-    //
-    // fmtF and escapeXMLText are defined in XMPSerialization+Helpers.swift
-    // (split out to stay under the 600-LOC hard budget, #1181).
-    //
-    // serializeMetadataOnly lives in XMPSerialization+VideoWrite.swift (#1638).
+  // serialize(model:culling:metadata:) + escapeXMLAttr live in
+  // XMPSerialization+MetadataWrite.swift (split out for the 600-LOC budget).
+  //
+  // fmtF and escapeXMLText are defined in XMPSerialization+Helpers.swift
+  // (split out to stay under the 600-LOC hard budget, #1181).
+  //
+  // serializeMetadataOnly lives in XMPSerialization+VideoWrite.swift (#1638).
 }
