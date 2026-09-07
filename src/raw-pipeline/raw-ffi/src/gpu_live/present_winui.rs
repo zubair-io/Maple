@@ -149,6 +149,9 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
             }
         };
 
+        let (session_w, session_h) = inner.session.dims();
+        let geometry = params::present_geometry_from_params(p, session_w, session_h);
+
         // SAFETY: `panel_native` is non-null per the entry check and valid per
         // this fn's contract; the process-wide cache is keyed on
         // `(surface_generation, panel, dims)` so a recycled COM address can
@@ -163,6 +166,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
             surface_generation,
             target_w,
             target_h,
+            geometry,
         ) {
             Ok(()) => 0,
             Err(msg) => {

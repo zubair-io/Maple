@@ -67,7 +67,7 @@ use crate::live_session::LiveSession;
 // `OffscreenCanvas` + the host offscreen parity gate.
 use crate::present_chain_pipeline::{
     build_present_dispatch, build_present_pipeline, encode_present_pass, pick_surface_format,
-    PresentDispatchCache,
+    PresentDispatchCache, PresentGeometry,
 };
 use std::ffi::c_void;
 
@@ -217,6 +217,7 @@ impl PersistentPresentSurface {
         ctx: &GpuContext,
         session: &LiveSession,
         final_idx: usize,
+        geometry: PresentGeometry,
         frame: wgpu::SurfaceTexture,
     ) {
         // A closed session's resource wrapper may eventually reuse an address.
@@ -228,11 +229,13 @@ impl PersistentPresentSurface {
         // Get-or-build the present dispatch for THIS chain buffer identity
         // Both persistent ping-pong directions stay cached, so crossing a
         // slider's no-op threshold does not rebuild the present dispatch.
-        let (_uniform, bind_group) = self.present_cache.get_or_build(
+        let (_uniform, bind_group) = self.present_cache.get_or_build_scaled(
             ctx,
             &self.bind_group_layout,
             chain_buf,
             (self.width, self.height),
+            (0, 0),
+            geometry,
         );
         let view = frame
             .texture
@@ -290,6 +293,7 @@ pub unsafe fn present_chain_to_surface(
     layer: *mut c_void,
     cache: &mut Option<PersistentPresentSurface>,
     generation: u64,
+    geometry: PresentGeometry,
     cancel: &crate::CancelToken,
 ) -> Result<bool, String> {
     if layer.is_null() {
@@ -356,12 +360,12 @@ pub unsafe fn present_chain_to_surface(
         };
         // Compute has submitted. Finish presentation of the reserved drawable
         // even if cancellation raced submission; no abandoned GPU-only backlog.
-        surface.present_reserved_frame(ctx, session, final_idx, frame);
+        surface.present_reserved_frame(ctx, session, final_idx, geometry, frame);
         if just_configured {
             // Finish the established double-present settle after configure.
             // This is the same rendered buffer, never a second compute chain.
             let frame = acquire()?;
-            surface.present_reserved_frame(ctx, session, final_idx, frame);
+            surface.present_reserved_frame(ctx, session, final_idx, geometry, frame);
         }
         Ok(!cancel.is_cancelled())
     });
@@ -405,6 +409,7 @@ pub fn present_chain_to_offscreen(
     ctx: &GpuContext,
     session: &LiveSession,
     final_idx: usize,
+    geometry: PresentGeometry,
 ) -> Result<Vec<u8>, String> {
     let (width, height) = session.dims();
     let max_dim = ctx.device.limits().max_texture_dimension_2d;
@@ -436,7 +441,7 @@ pub fn present_chain_to_offscreen(
     // One-shot host oracle call, not a render-loop tick — build fresh directly
     // (no cache needed; #1930's zero-alloc invariant is about the PER-TICK
     // present path, which this parity harness isn't).
-    let dispatch = build_present_dispatch(ctx, &bgl, chain_buf, (width, height));
+    let dispatch = build_present_dispatch(ctx, &bgl, chain_buf, (width, height), geometry);
 
     let mut encoder = ctx
         .device
