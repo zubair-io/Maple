@@ -1,21 +1,24 @@
 // xmp-local-adjustments.ts — nested-element XMP I/O for local adjustments
-// (#358): the canonical Adobe Camera Raw `crs:GradientBasedCorrections`
-// (linear masks) / `crs:CircularGradientBasedCorrections` (radial masks)
-// containers, each an `rdf:Seq` of `rdf:li` → `rdf:Description` corrections
-// carrying the `crs:Local*2012` sliders and one nested `crs:CorrectionMasks`
-// mask leaf. `docs/xmp-canonical-format.md` § "Local adjustments" is the
-// contract; `raw-core/src/xmp/local_adjustments/` is the reference
-// implementation this mirrors byte-for-byte on the write side and
-// semantically on the read side.
+// (#358, #3300): the canonical Adobe Camera Raw `crs:GradientBasedCorrections`
+// (linear masks) / `crs:CircularGradientBasedCorrections` (radial masks) /
+// `crs:MaskGroupBasedCorrections` (bitmap + everywhere masks, Lightroom 11+'s
+// own container for its AI masks) containers, each an `rdf:Seq` of `rdf:li`
+// → `rdf:Description` corrections carrying the `crs:Local*2012` sliders and
+// one nested `crs:CorrectionMasks` mask leaf. `docs/xmp-canonical-format.md`
+// § "Local adjustments" is the contract; `raw-core/src/xmp/local_adjustments/`
+// is the reference implementation this mirrors byte-for-byte on the write
+// side and semantically on the read side.
 //
 // Read-side tolerance matches every other TypeScript reader in this
 // directory rather than raw-core's hard-error posture: a correction whose
-// mask isn't a shape Maple models, that is inactive (`CorrectionActive=
-// "False"`), or whose required geometry is missing or non-numeric is
-// DROPPED — never silently placed at an invented `0`/`1` — and the rest of
-// the document still loads. A corrupt slider value on an otherwise valid
-// correction reads as "not set", the same `NaN`-means-absent rule
-// `xmp-adjustment-walk.ts` applies to the flat sliders.
+// mask isn't a shape Maple models (a brush, or a Lightroom AI `Mask/Image`
+// with no `papp:` recipe), that is inactive (`CorrectionActive="False"`), or
+// whose required geometry (or, for a person/skin mask, its `papp:MaskDigest`)
+// is missing or non-numeric is DROPPED — never silently placed at an
+// invented `0`/`1` — and the rest of the document still loads. A corrupt
+// slider value on an otherwise valid correction reads as "not set", the same
+// `NaN`-means-absent rule `xmp-adjustment-walk.ts` applies to the flat
+// sliders.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type {
@@ -28,12 +31,13 @@ import type {
 import { numericSerializer } from './xmp-fields';
 import { attrOf, managedXmpName } from './xmp-dom-utils';
 
-export type LocalAdjustmentContainerKind = 'linear' | 'radial';
+export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'group';
 
 /** Container element per mask kind, in canonical emit order. */
 const CONTAINERS: ReadonlyArray<{ tag: string; kind: LocalAdjustmentContainerKind }> = [
   { tag: 'crs:GradientBasedCorrections', kind: 'linear' },
   { tag: 'crs:CircularGradientBasedCorrections', kind: 'radial' },
+  { tag: 'crs:MaskGroupBasedCorrections', kind: 'group' },
 ];
 
 const MASKS_ELEMENT = 'crs:CorrectionMasks';
@@ -41,7 +45,12 @@ const MASKS_ELEMENT = 'crs:CorrectionMasks';
 const MASK_WHAT: Readonly<Record<LocalAdjustmentContainerKind, string>> = {
   linear: 'Mask/Gradient',
   radial: 'Mask/CircularGradient',
+  group: 'Mask/Image',
 };
+
+/** Which container a mask rides: bitmap and everywhere share the group container. */
+const containerKindOf = (mask: LocalMask): LocalAdjustmentContainerKind =>
+  mask.kind === 'linear' || mask.kind === 'radial' ? mask.kind : 'group';
 
 /**
  * Slider attribute → model field, in canonical emit order. Every field has a
@@ -151,6 +160,40 @@ function parseRadialLeaf(leaf: Element): LocalMask | undefined {
   };
 }
 
+/**
+ * A `Mask/Image` leaf is recognized by its Maple-private `papp:MaskSource`
+ * (#3271): Lightroom's own AI masks carry the same `crs:What` with a
+ * `crs:MaskDigest` but no `papp:` recipe, and Maple can't regenerate pixels it
+ * never computed, so those drop like any other unmodeled mask. A person/skin
+ * mask without `papp:MaskDigest` can never resolve to a raster, so it drops
+ * too (raw-core hard-errors there; this reader is tolerant like its siblings).
+ * The recipe's other fields default the way raw-core's parser defaults them.
+ */
+function parseGroupLeaf(leaf: Element): LocalMask | undefined {
+  const source = attrOf(leaf, ['papp:MaskSource']);
+  if (source === 'Everywhere') return { kind: 'everywhere' };
+  if (source !== 'PersonSkin') return undefined;
+  const digest = attrOf(leaf, ['papp:MaskDigest']);
+  if (digest === null || digest.length === 0) return undefined;
+  return {
+    kind: 'bitmap',
+    recipe: {
+      person: Math.max(0, Math.trunc(finiteAttr(leaf, 'papp:MaskPerson') ?? 0)),
+      facialSkin: xmpBool(attrOf(leaf, ['papp:MaskFacialSkin'])) ?? true,
+      bodySkin: xmpBool(attrOf(leaf, ['papp:MaskBodySkin'])) ?? true,
+      model: attrOf(leaf, ['papp:MaskModel']) ?? '',
+      digest,
+    },
+    // The sidecar never carries a raster id — the render worker's registry
+    // resolves the digest at render time (`docs/xmp-canonical-format.md`).
+    rasterId: 0,
+  };
+}
+
+const LEAF_PARSERS: Readonly<
+  Record<LocalAdjustmentContainerKind, (leaf: Element) => LocalMask | undefined>
+> = { linear: parseLinearLeaf, radial: parseRadialLeaf, group: parseGroupLeaf };
+
 /** The first `crs:CorrectionMasks` leaf whose `crs:What` this container models. */
 function parseMask(
   description: Element,
@@ -161,7 +204,7 @@ function parseMask(
   const leaves = seq ? childrenNamed(seq, 'li') : [];
   return leaves
     .filter((leaf) => attrOf(leaf, ['crs:What']) === MASK_WHAT[kind])
-    .map((leaf) => (kind === 'linear' ? parseLinearLeaf(leaf) : parseRadialLeaf(leaf)))
+    .map((leaf) => LEAF_PARSERS[kind](leaf))
     .find((mask) => mask !== undefined);
 }
 
@@ -220,6 +263,14 @@ export function parseLocalAdjustmentsContainer(
 const hueSerializer = (v: number): string =>
   ((Math.sign(v) * Math.round(Math.abs(v) * 10_000)) / 10_000).toString();
 
+/**
+ * Exactly raw-core's `escape_attr` (`&`, `<`, `"` — and nothing else, so the
+ * bytes stay identical): the two free-text recipe fields are the only place
+ * a `crs:`/`papp:` attribute value here could legally carry one of those.
+ */
+const escapeRecipeAttr = (s: string): string =>
+  s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+
 function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
   if (!range || RANGE_KEYS.some(([, field]) => !Number.isFinite(range[field]))) return [];
   return [
@@ -238,6 +289,31 @@ function maskLines(mask: LocalMask, indent: string): string[] {
       `${indent}  crs:ZeroX="${n(mask.start.x)}" crs:ZeroY="${n(mask.start.y)}"`,
       `${indent}  crs:FullX="${n(mask.end.x)}" crs:FullY="${n(mask.end.y)}"`,
       `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
+    ];
+  }
+  if (mask.kind === 'bitmap') {
+    // `rasterId` is deliberately NOT written — it is an in-process handle,
+    // resolved from `papp:MaskDigest` on load, so the sidecar stays portable.
+    const { recipe } = mask;
+    return [
+      `${indent}<rdf:li`,
+      `${indent}  crs:What="${MASK_WHAT.group}"`,
+      `${indent}  crs:MaskSubType="1"`,
+      `${indent}  crs:MaskValue="1"`,
+      `${indent}  papp:MaskSource="PersonSkin"`,
+      `${indent}  papp:MaskPerson="${recipe.person}"`,
+      `${indent}  papp:MaskFacialSkin="${recipe.facialSkin ? 'True' : 'False'}"`,
+      `${indent}  papp:MaskBodySkin="${recipe.bodySkin ? 'True' : 'False'}"`,
+      `${indent}  papp:MaskModel="${escapeRecipeAttr(recipe.model)}"`,
+      `${indent}  papp:MaskDigest="${escapeRecipeAttr(recipe.digest)}"/>`,
+    ];
+  }
+  if (mask.kind === 'everywhere') {
+    return [
+      `${indent}<rdf:li`,
+      `${indent}  crs:What="${MASK_WHAT.group}"`,
+      `${indent}  crs:MaskValue="1"`,
+      `${indent}  papp:MaskSource="Everywhere"/>`,
     ];
   }
   const top = n(mask.center.y - mask.radii.y);
@@ -298,17 +374,18 @@ function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent:
  * line prefixed so the container sits at `indent`. Byte-identical to
  * raw-core's `serialize_local_adjustments` and Swift's
  * `_buildLocalAdjustmentsBlock` for the same layers — the cross-language
- * parity fixture in `local-adjustments.spec.ts` pins that.
+ * parity fixtures in `local-adjustments.spec.ts` (linear + radial) and
+ * `local-adjustments-bitmap.spec.ts` (bitmap + everywhere) pin that.
  *
- * Adobe keeps linear and radial corrections in two separate arrays, so an
- * interleaved model stack round-trips as two contiguous runs (all linear,
- * then all radial). Returns the empty string when there are no layers, so
- * an unedited model adds nothing to the document.
+ * Adobe keeps each mask kind in its own array, so an interleaved model
+ * stack round-trips as up to three contiguous runs (all linear, then all
+ * radial, then all bitmap/everywhere). Returns the empty string when there
+ * are no layers, so an unedited model adds nothing to the document.
  */
 export function localAdjustmentBlocks(model: Partial<AdjustmentModel>, indent: string): string {
   const layers = model.localAdjustments ?? [];
   return CONTAINERS.map(({ tag, kind }) => {
-    const ofKind = layers.filter((l) => l.mask.kind === kind);
+    const ofKind = layers.filter((l) => containerKindOf(l.mask) === kind);
     return ofKind.length === 0 ? '' : containerBlock(tag, ofKind, indent);
   })
     .filter((b) => b.length > 0)

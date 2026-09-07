@@ -105,6 +105,12 @@ export type PendingHandler =
       reject: (err: Error) => void;
     }
   | {
+      kind: 'register-mask-raster';
+      /** Resolves with the raster id (>= 1) a `bitmap` mask's `rasterId` names (#3300). */
+      resolve: (rasterId: number) => void;
+      reject: (err: Error) => void;
+    }
+  | {
       kind: 'export';
       resolve: (file: ExportedFile) => void;
       reject: (err: Error) => void;

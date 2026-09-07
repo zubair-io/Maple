@@ -18,7 +18,7 @@
 
 import type { Crop } from '../../models/adjustment-model';
 import { isCropRectValid, isIdentityCrop } from '../../models/adjustment-model';
-import type { LocalMask, MaskPoint } from '../../models/local-adjustment';
+import { isGeometricMask, type LocalMask, type MaskPoint } from '../../models/local-adjustment';
 import type { Footprint } from '../crop-overlay/crop-geometry';
 
 // ── Weight ────────────────────────────────────────────────────────────────
@@ -30,8 +30,15 @@ const smoothstep = (t: number): number => {
 
 const EPSILON = 1.1920929e-7;
 
-/** The mask weight `w ∈ [0, 1]` at full-frame normalized (`x`, `y`). */
+/** The mask weight `w ∈ [0, 1]` at full-frame normalized (`x`, `y`).
+ *
+ *  A `bitmap` mask's raster lives in the render worker's registry, not on
+ *  the main thread, so the overlay tint treats it as unresolved — weight 0,
+ *  the same "never a silent global correction" rule raw-core applies to an
+ *  unresolved raster id (#3300). `everywhere` is weight 1 by definition. */
 export function evaluateMaskWeight(mask: LocalMask, x: number, y: number): number {
+  if (mask.kind === 'everywhere') return 1;
+  if (mask.kind === 'bitmap') return 0;
   if (mask.kind === 'linear') {
     const dx = mask.end.x - mask.start.x;
     const dy = mask.end.y - mask.start.y;
@@ -208,10 +215,12 @@ export function defaultRadialMask(imageAspect: number): LocalMask {
   };
 }
 
-/** Every handle of `mask` with its full-frame normalized position. */
+/** Every handle of `mask` with its full-frame normalized position — none
+ *  for a bitmap or everywhere mask, which has no on-canvas geometry. */
 export function maskHandles(
   mask: LocalMask,
 ): ReadonlyArray<{ handle: MaskHandle; point: MaskPoint }> {
+  if (!isGeometricMask(mask)) return [];
   if (mask.kind === 'linear') {
     return [
       { handle: 'linearStart', point: mask.start },
@@ -295,6 +304,7 @@ export function dragMaskHandle(
   point: MaskPoint,
   anchor: MaskPoint,
 ): LocalMask {
+  if (!isGeometricMask(startMask)) return startMask;
   if (startMask.kind === 'linear') {
     switch (handle) {
       case 'linearStart':
@@ -350,6 +360,7 @@ function clampDelta(delta: number, lo: number, hi: number): number {
   return Math.min(1 - hi, Math.max(-lo, delta));
 }
 
+/** `mask` at `feather` (clamped); a bitmap or everywhere mask has no feather. */
 export function withMaskFeather(mask: LocalMask, feather: number): LocalMask {
-  return { ...mask, feather: Math.min(1, Math.max(0, feather)) };
+  return isGeometricMask(mask) ? { ...mask, feather: Math.min(1, Math.max(0, feather)) } : mask;
 }

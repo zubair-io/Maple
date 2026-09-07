@@ -31,7 +31,7 @@ import {
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { MaskSessionService } from './mask-session.service';
-import type { LocalMask, MaskPoint } from '../../models/local-adjustment';
+import { isGeometricMask, type LocalMask, type MaskPoint } from '../../models/local-adjustment';
 import { defaultCrop } from '../../models/adjustment-model';
 import { fitFootprint, type Footprint } from '../crop-overlay/crop-geometry';
 import { focusedImageDims, hostLocalPoint, observeHostSize } from '../crop-overlay/overlay-host';
@@ -129,7 +129,8 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
    *  its rotation lead. */
   protected readonly shapePath = computed<string>(() => {
     const mask = this.mask();
-    if (!mask) return '';
+    // A bitmap or everywhere mask has no parametric outline to draw (#3300).
+    if (!mask || !isGeometricMask(mask)) return '';
     const map = this.map();
     if (mask.kind === 'linear') {
       const s = maskToScreen(map, mask.start);
@@ -164,6 +165,8 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     const mask = this.mask();
     if (!mask) return 'No mask selected';
     if (mask.kind === 'linear') return 'Linear gradient mask';
+    if (mask.kind === 'bitmap') return 'Person skin mask';
+    if (mask.kind === 'everywhere') return 'Whole-image mask';
     return mask.invert ? 'Inverted radial mask' : 'Radial mask';
   });
 

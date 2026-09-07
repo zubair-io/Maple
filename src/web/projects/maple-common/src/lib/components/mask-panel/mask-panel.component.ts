@@ -20,7 +20,12 @@ import { MuiListRowComponent } from '../../ui/list-row/mui-list-row.component';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { MuiTextComponent } from '../../ui/text/mui-text.component';
 import type { MapleIconName } from '../../icons/maple-icon.component';
-import type { LocalAdjustment, LocalMask, PartialAdjustments } from '../../models/local-adjustment';
+import {
+  isGeometricMask,
+  type LocalAdjustment,
+  type LocalMask,
+  type PartialAdjustments,
+} from '../../models/local-adjustment';
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
 
 /** One of the ten local controls, with the range its global twin uses. */
@@ -48,8 +53,22 @@ const MASK_CONTROLS: readonly MaskControl[] = [
   { id: 'tint', label: 'Tint', min: -150, max: 150, step: 1 },
 ];
 
+const MASK_KIND_LABEL: Readonly<Record<LocalMask['kind'], string>> = {
+  linear: 'Linear',
+  radial: 'Radial',
+  bitmap: 'Person',
+  everywhere: 'Everywhere',
+};
+
+const MASK_KIND_ICON: Readonly<Record<LocalMask['kind'], MapleIconName>> = {
+  linear: 'tool-dehaze',
+  radial: 'tool-vignette',
+  bitmap: 'person-circle',
+  everywhere: 'photos',
+};
+
 function maskLayerTitle(mask: LocalMask, index: number): string {
-  return `${mask.kind === 'linear' ? 'Linear' : 'Radial'} ${index + 1}`;
+  return `${MASK_KIND_LABEL[mask.kind]} ${index + 1}`;
 }
 
 function maskLayerSubtitle(layer: LocalAdjustment): string | null {
@@ -82,7 +101,7 @@ export class MaskPanelComponent {
   protected readonly rows = computed(() =>
     this.session.layers().map((layer, index) => ({
       index,
-      icon: (layer.mask.kind === 'linear' ? 'tool-dehaze' : 'tool-vignette') as MapleIconName,
+      icon: MASK_KIND_ICON[layer.mask.kind],
       title: maskLayerTitle(layer.mask, index),
       subtitle: maskLayerSubtitle(layer),
       active: this.session.selectedIndex() === index,
@@ -95,7 +114,12 @@ export class MaskPanelComponent {
     const mask = this.selected()?.mask;
     return mask?.kind === 'radial' ? mask.invert : false;
   });
-  protected readonly feather = computed(() => this.selected()?.mask.feather ?? 0.5);
+  /** The selected layer's feather, or null for a bitmap/everywhere mask
+   *  (no parametric edge to feather — the slider is hidden, #3300). */
+  protected readonly feather = computed<number | null>(() => {
+    const mask = this.selected()?.mask;
+    return mask && isGeometricMask(mask) ? mask.feather : null;
+  });
 
   protected valueOf(control: MaskControl): number {
     return this.session.adjustment(control.id);

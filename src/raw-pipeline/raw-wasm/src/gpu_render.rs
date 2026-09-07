@@ -511,10 +511,8 @@ pub async fn render_bytes_gpu(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = match &xmp {
-        Some(x) => raw_core::xmp::parse(x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
         .await
@@ -564,3 +562,9 @@ mod tests_sizing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_film.rs"]
 mod tests_film;
+// Bitmap-mask raster plumbing gate (#3300) — same host-side split as
+// `tests_film`: proves a raster registered via `mask_registry` reaches the
+// `FullChainInputs` the live chain binds.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "gpu_render/tests_mask_raster.rs"]
+mod tests_mask_raster;

@@ -139,10 +139,9 @@ pub struct WebLiveSession {
 /// buffer unshifted. Shared by `open` + `render` so a session behaves
 /// identically to the one-shot path at every tick.
 fn parse_model(xmp: &Option<String>) -> Result<AdjustmentModel, String> {
-    match xmp {
-        Some(x) => raw_core::xmp::parse(x).map_err(|e| e.to_string()),
-        None => Ok(AdjustmentModel::default()),
-    }
+    // Bitmap masks resolve against the instance-wide raster registry here
+    // (#3300), so a raster the host registered applies on the next tick.
+    crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())
 }
 
 #[wasm_bindgen]

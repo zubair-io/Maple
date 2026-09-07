@@ -302,6 +302,13 @@ import type {
   SampleWbSuccess,
   SampleWbError,
 } from './raw-pipeline.sample-wb.types';
+// Bitmap-mask raster registry (#3300): same sibling-file split.
+import type {
+  RegisterMaskRasterRequest,
+  RegisterMaskRasterSuccess,
+  RegisterMaskRasterError,
+  ReleaseMaskRasterRequest,
+} from './raw-pipeline.mask-raster.types';
 
 export type WorkerResponse =
   | import('./raw-pipeline.native-detail.types').NativeDetailResponse
@@ -320,6 +327,8 @@ export type WorkerResponse =
   | AutoAdjustError
   | SampleWbSuccess
   | SampleWbError
+  | RegisterMaskRasterSuccess
+  | RegisterMaskRasterError
   | ExportSuccess
   | ExportError;
 
@@ -468,6 +477,8 @@ export type WorkerRequest =
   | SetFilmLutRequest
   | AutoAdjustRequest
   | SampleWbRequest
+  | RegisterMaskRasterRequest
+  | ReleaseMaskRasterRequest
   | ExportRequest;
 
 export interface DecodedImage {

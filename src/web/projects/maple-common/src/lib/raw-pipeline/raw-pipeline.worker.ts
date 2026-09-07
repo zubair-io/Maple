@@ -31,6 +31,10 @@ import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
+import {
+  handleRegisterMaskRaster,
+  handleReleaseMaskRaster,
+} from './raw-pipeline.mask-raster-handler';
 import { handleNativeDetail, closeNativeDetail } from './raw-pipeline.native-detail-handler';
 import {
   handleOpenSession,
@@ -119,6 +123,16 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
     case 'sample-wb':
       await ensureReady();
       handleSampleWb(req);
+      return;
+    // Bitmap-mask raster registry (#3300): synchronous on the wasm side and
+    // independent of the live session's `&mut self` borrow, so neither needs
+    // the session queue — the next render (queued behind this message) sees
+    // the registered raster.
+    case 'register-mask-raster':
+      await handleRegisterMaskRaster(req);
+      return;
+    case 'release-mask-raster':
+      await handleReleaseMaskRaster(req);
       return;
     case 'export':
       await handleExport(req);

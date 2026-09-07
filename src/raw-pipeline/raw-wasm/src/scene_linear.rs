@@ -122,10 +122,8 @@ pub fn render_bytes_scene_linear(
     // fresh open renders at the As-Shot sentinel, never at a pushed pair.
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -209,10 +207,8 @@ pub fn render_bytes_scene_linear_sized(
     // `render_bytes_scene_linear` (#1892: display-only, no model push).
     let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview

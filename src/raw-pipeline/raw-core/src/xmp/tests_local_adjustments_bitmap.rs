@@ -267,3 +267,83 @@ fn everywhere_mask_combines_with_a_range_refinement() {
     let parsed = parse(&sidecar(&children)).expect("parse");
     assert_eq!(parsed.local_adjustments, vec![layer]);
 }
+
+/// Cross-language byte-parity fixture for the third container (#3300): the
+/// same literal appears in the Swift suite (`XMPLocalAdjustmentsTests.swift`)
+/// and the TypeScript suite (`local-adjustments.spec.ts`), and every writer
+/// that models bitmap/everywhere masks must produce it byte-for-byte from
+/// `[bitmap_layer(), everywhere_layer()]` at the same indent — the group-
+/// container twin of `tests_local_adjustments_canonical.rs`'s
+/// `CANONICAL_BLOCK`. (The C# writer still passes this container through
+/// untouched, so it has no copy.)
+const CANONICAL_GROUP_BLOCK: &str = r#"      <crs:MaskGroupBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              crs:LocalHue="0.12"
+              papp:RangeKind="Color"
+              papp:RangeHue="55"
+              papp:RangeHueWidth="25"
+              papp:RangeChromaMin="0.02"
+              papp:RangeLMin="0.15"
+              papp:RangeLMax="0.95"
+              papp:RangeFeather="0.3">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Image"
+                    crs:MaskSubType="1"
+                    crs:MaskValue="1"
+                    papp:MaskSource="PersonSkin"
+                    papp:MaskPerson="0"
+                    papp:MaskFacialSkin="True"
+                    papp:MaskBodySkin="True"
+                    papp:MaskModel="apple-vision-person-instance/1"
+                    papp:MaskDigest="a1b2c3d4e5f60718"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              crs:LocalExposure2012="0.3">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Image"
+                    crs:MaskValue="1"
+                    papp:MaskSource="Everywhere"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:MaskGroupBasedCorrections>"#;
+
+/// The serializer reproduces `CANONICAL_GROUP_BLOCK` byte-for-byte from the
+/// shared bitmap + everywhere fixture — the Rust half of the parity claim.
+#[test]
+fn serializes_the_cross_language_canonical_group_block() {
+    let mut model = AdjustmentModel::default();
+    model.local_adjustments = vec![bitmap_layer(), everywhere_layer()];
+    assert_eq!(
+        serialize_local_adjustments(&model, INDENT),
+        CANONICAL_GROUP_BLOCK
+    );
+}
+
+/// …and parses it back into the identical fixture layers.
+#[test]
+fn parses_the_cross_language_canonical_group_block() {
+    let parsed = parse(&sidecar(CANONICAL_GROUP_BLOCK)).expect("parse");
+    assert_eq!(
+        parsed.local_adjustments,
+        vec![bitmap_layer(), everywhere_layer()]
+    );
+}

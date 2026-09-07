@@ -252,9 +252,14 @@ describe('XMP display-referred point tone curves (#2232)', () => {
     // Flat attributes on the same element still parse alongside the nested
     // curve.
     expect(model.exposure).toBeCloseTo(0.35, 9);
-    // The mask group / snapshot / history subtrees stay genuinely unknown —
-    // only the curve moved off this bucket.
-    expect(passthrough.unknownNodes.length).toBe(3);
+    // The snapshot / history subtrees stay genuinely unknown. The mask group
+    // is MODELED since #3300 (like raw-core and Swift), so it leaves this
+    // bucket too — and because its Lightroom-shaped correction carries no
+    // `papp:` recipe Maple could regenerate, it is dropped rather than
+    // re-emitted (the documented cost of modeling over passing through).
+    expect(passthrough.unknownNodes.length).toBe(2);
     expect(passthrough.unknownNodes.join('')).not.toContain('ToneCurvePV2012');
+    expect(passthrough.unknownNodes.join('')).not.toContain('MaskGroupBasedCorrections');
+    expect(model.localAdjustments ?? []).toEqual([]);
   });
 });

@@ -222,10 +222,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let has_lens_corrections = raw_img.has_lens_corrections();
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     // Export/display path: AMaZE by default (#940) — cost-equivalent to
     // bilinear since the tiled kernel (#1887) and matches the Apple
@@ -314,10 +312,8 @@ pub fn render_bytes_sized(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -404,10 +400,8 @@ pub fn develop_non_raw(
     height: u32,
     xmp: Option<String>,
 ) -> Result<MapleRender, JsError> {
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
     let opts = raw_core::pipeline::ChainOptions {
         skip_agx: true,
         ..Default::default()

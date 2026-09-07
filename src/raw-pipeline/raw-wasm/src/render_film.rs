@@ -39,10 +39,8 @@ pub fn render_bytes_with_film(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     let film_lut = if film_lut_bytes.is_empty() {
         None
@@ -153,10 +151,8 @@ pub fn render_bytes_sized_with_film(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref())
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     let film_lut = if film_lut_bytes.is_empty() {
         None
