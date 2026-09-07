@@ -43,7 +43,7 @@ extension EditSession {
         guard scopeEnabled else { return }
         guard asset.primaryURL != nil || asset.bytesProvider != nil else { return }
         let asset = self.asset
-        let m = model
+        let m = renderModel
         // Captured on the MainActor before the hop — `scopeLayerIndex`
         // reads actor state the detached render cannot touch.
         let layer = scopeLayerIndex
