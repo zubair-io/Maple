@@ -46,9 +46,7 @@ fn mean_abs_diff(a: &Image, b: &Image) -> f64 {
         .pixels
         .iter()
         .zip(&b.pixels)
-        .map(|(p, q)| {
-            ((p[0] - q[0]).abs() + (p[1] - q[1]).abs() + (p[2] - q[2]).abs()) as f64
-        })
+        .map(|(p, q)| ((p[0] - q[0]).abs() + (p[1] - q[1]).abs() + (p[2] - q[2]).abs()) as f64)
         .sum();
     total / (a.pixels.len() as f64 * 3.0)
 }
