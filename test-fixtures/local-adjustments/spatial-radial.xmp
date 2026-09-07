@@ -1,0 +1,39 @@
+<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:papp="http://ns.justmaple.app/1.0/"
+      crs:Version="11.0">
+      <crs:CircularGradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              crs:LocalExposure2012="0.35"
+              crs:LocalTexture="0.4"
+              crs:LocalClarity2012="0.35"
+              crs:LocalDehaze="0.3"
+              crs:LocalSharpness="0.55"
+              crs:LocalLuminanceNoise="0.45"
+              crs:LocalDefringe="0.7">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/CircularGradient"
+                    crs:MaskValue="1"
+                    crs:Top="0.25" crs:Left="0.2" crs:Bottom="0.75" crs:Right="0.8"
+                    crs:Angle="0" crs:Midpoint="50" crs:Roundness="0"
+                    crs:Feather="50" crs:Flipped="False"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:CircularGradientBasedCorrections>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>

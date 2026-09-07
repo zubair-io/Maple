@@ -426,3 +426,7 @@ mod tests;
 // Hue (#3269) / range-refinement (#3270) tests — sibling file, 600-line budget.
 #[cfg(test)]
 mod tests_hue_range;
+// The spatial group's committed-golden regression gate (#3407), likewise a
+// sibling file.
+#[cfg(test)]
+mod tests_spatial_golden;
