@@ -9,10 +9,13 @@ use quick_xml::reader::Reader;
 
 mod fields;
 mod local_adjustments;
+mod retouch;
 mod tone_curves;
 use fields::set_field;
 pub use local_adjustments::serialize_local_adjustments;
 use local_adjustments::LocalAdjustmentsWalker;
+pub use retouch::serialize_retouch_areas;
+use retouch::RetouchWalker;
 pub use tone_curves::serialize_tone_curves;
 use tone_curves::CurveWalker;
 
@@ -63,6 +66,10 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // see `local_adjustments/` for the canonical `crs:GradientBasedCorrections`
     // / `crs:CircularGradientBasedCorrections` shape this walks.
     let mut local_adj = LocalAdjustmentsWalker::default();
+    // Repair spots (#3409) — the third non-flat part of the schema. See
+    // `retouch/` for the `crs:RetouchAreas` shape it walks and the legacy
+    // `crs:RetouchInfo` string form it also accepts.
+    let mut retouch = RetouchWalker::default();
 
     loop {
         match reader.read_event() {
@@ -71,7 +78,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 // Inside a tone-curve or local-adjustments subtree there are
                 // no flat Maple attributes to read, so the attribute walk is
                 // skipped entirely for elements either walker claims.
-                if local_adj.start(&name, &e)? {
+                if local_adj.start(&name, &e)? || retouch.start(&name, &e)? {
                     // handled
                 } else if !curves.start(&name) {
                     apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
@@ -79,19 +86,21 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
             }
             Ok(Event::Empty(e)) => {
                 let name = element_name(&e)?.to_string();
-                if !local_adj.empty(&name, &e)? {
+                if !local_adj.empty(&name, &e)? && !retouch.empty(&name, &e)? {
                     apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
                 }
             }
             Ok(Event::Text(t)) => {
                 let text = t.unescape().map_err(|e| Error::Xmp(e.to_string()))?;
                 curves.text(&text);
+                retouch.text(&text);
             }
             Ok(Event::End(e)) => {
                 let name = std::str::from_utf8(e.name().as_ref())
                     .map_err(|e| Error::Xmp(e.to_string()))?
                     .to_string();
                 local_adj.end(&name);
+                retouch.end(&name);
                 curves.end(&name, &mut model);
             }
             Ok(Event::Eof) => break,
@@ -108,6 +117,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     if !canonical_layers.is_empty() {
         model.local_adjustments = canonical_layers;
     }
+    retouch.finish(&mut model);
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
     // Unstamped, non-Maple (or WB-less) documents are V5 (#1894): an
     // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention,
@@ -530,6 +540,8 @@ mod tests_payloads;
 mod tests_perspective;
 #[cfg(test)]
 mod tests_profile;
+#[cfg(test)]
+mod tests_retouch;
 #[cfg(test)]
 mod tests_tone_curves;
 #[cfg(test)]

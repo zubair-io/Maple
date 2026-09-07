@@ -21,8 +21,8 @@ use crate::{
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, wb_camera, white_balance,
+        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
+        vibrance, vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -324,6 +324,14 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     dump_after("03b_oklab_highlight_recovery", &scene);
     // ProfileGainTableMap is not applied on any path (#2774) — see
     // `super::develop` for the rationale.
+    // Clone / heal repair spots (#3409) — same position as the unsized
+    // variant. Spot coordinates are normalised, so they land on the same
+    // scene features at this reduced resolution; the disc is simply smaller
+    // in pixels, which is what a sized render wants.
+    stage("sized_retouch", || {
+        retouch::apply(&mut scene, &model.retouch_spots)
+    })?;
+    dump_after("03c_retouch", &scene);
     // Decode-time chroma pre-filter (#1104) — runs on the downsampled
     // buffer here; same position as the unsized variant (post-DCP, pre
     // capture-sharpening). No-op at the default 0.
