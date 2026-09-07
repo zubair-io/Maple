@@ -120,7 +120,8 @@ import XCTest
         let maskPanel = app.descendants(matching: .any)
           .matching(identifier: "editor-mask-panel").firstMatch
         XCTAssertTrue(maskPanel.waitForExistence(timeout: 5))
-        let addMask = app.buttons["editor-mask-add-menu"]
+        let addMask = app.descendants(matching: .any)
+          .matching(identifier: "editor-mask-add-menu").firstMatch
         XCTAssertTrue(addMask.waitForExistence(timeout: 5))
         let reachable = XCTNSPredicateExpectation(
           predicate: NSPredicate { _, _ in addMask.isHittable }, object: addMask)
