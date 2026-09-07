@@ -87,6 +87,9 @@ enum MaskSlider: String, CaseIterable, Identifiable {
         case .hue: return -100...100
         case .temperature: return -1000...1000
         case .tint: return -150...150
+        // EV, like the global tool (`ToolValueMapping`) — the stage applies
+        // it as `exp2(ev)`, so a ±100 range would be nonsense (#3291 review).
+        case .exposure: return -4...4
         default: return -100...100
         }
     }
@@ -158,14 +161,19 @@ private struct MaskSliderRow: View {
                     if editing { state.session.beginEdit() }
                 }
             )
-            Text(String(format: "%.0f", value))
+            Text(String(format: slider == .exposure ? "%.2f" : "%.0f", value))
                 .font(.system(size: 11).monospacedDigit())
                 .frame(width: 36, alignment: .trailing)
         }
         .accessibilityIdentifier("editor-mask-slider-\(slider.rawValue)")
     }
 
-    private func setKeyPath(_ a: inout PartialAdjustments, _ v: Double) {
+    /// `nil`, not `0`, is the wire no-op: `PartialAdjustments.isEmpty` (and
+    /// raw-core's `is_empty`) skip the whole mask evaluation for a layer
+    /// with nothing set, so a slider dragged back to zero must clear the
+    /// field rather than store a zero (#3291 review).
+    private func setKeyPath(_ a: inout PartialAdjustments, _ raw: Double) {
+        let v: Double? = raw == 0 ? nil : raw
         switch slider {
         case .hue: a.hue = v
         case .temperature: a.temperature = v

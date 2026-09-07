@@ -54,6 +54,7 @@ struct MaskOverlay: View {
         .task(id: state.session.selectedMaskId) { await loadRasterPreview() }
     }
 
+    @MainActor
     private func loadRasterPreview() async {
         guard let layer = selectedLayer, case .bitmap(let recipe, _) = layer.mask else {
             previewImage = nil
