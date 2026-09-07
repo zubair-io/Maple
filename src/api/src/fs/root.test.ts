@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
-import { getRegisteredRoots, safeWriteAllowed } from './root.ts';
+import { registerRoot, safeWriteAllowed, unregisterRoot } from './root.ts';
 
 const originalRoots = process.env.MAPLE_ROOTS;
 const temporaryRoots: string[] = [];
@@ -11,6 +11,7 @@ const temporaryRoots: string[] = [];
 afterEach(async () => {
   if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
   else process.env.MAPLE_ROOTS = originalRoots;
+  for (const root of temporaryRoots) unregisterRoot(root);
   await Promise.all(
     temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
@@ -20,8 +21,39 @@ describe('safeWriteAllowed', () => {
   test('handles MAPLE_ROOTS unset before the cache is initialized', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'maple-root-unconfigured-'));
     temporaryRoots.push(fixture);
+    const target = join(fixture, 'photo.xmp');
+    const env = { ...process.env };
+    delete env.MAPLE_ROOTS;
+    // A new process guarantees a cold cache and no roots registered by other
+    // suites. Clearing MAPLE_ROOTS alone cannot reset those module singletons.
+    const script = `
+      import { getRegisteredRoots, safeWriteAllowed } from ${JSON.stringify(new URL('./root.ts', import.meta.url).href)};
+      console.log(JSON.stringify({ roots: getRegisteredRoots(), result: await safeWriteAllowed(${JSON.stringify(target)}) }));
+    `;
+    const child = Bun.spawn([process.execPath, '--eval', script], {
+      env,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(stderr).toBe('');
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      roots: [],
+      result: { ok: true, data: join(await realpath(fixture), 'photo.xmp') },
+    });
+  });
+
+  test('honors a registered root with MAPLE_ROOTS unset', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'maple-root-registered-'));
+    temporaryRoots.push(fixture);
     delete process.env.MAPLE_ROOTS;
-    const target = join(getRegisteredRoots()[0] ?? fixture, 'photo.xmp');
+    registerRoot(fixture);
+    const target = join(fixture, 'photo.xmp');
 
     expect(await safeWriteAllowed(target)).toEqual({
       ok: true,
