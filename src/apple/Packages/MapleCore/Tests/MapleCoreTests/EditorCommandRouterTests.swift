@@ -54,6 +54,21 @@ final class EditorCommandRouterTests: XCTestCase {
     XCTAssertEqual(session.undoHistory.count, 2)
   }
 
+  func testUnownedArrowReleaseIsIgnoredBeforeAndAfterAHeldNudge() {
+    let router = makeRouter()
+    let assetID = router.state.session.asset.id
+    XCTAssertFalse(router.perform(.nudgeRelease, assetID: assetID))
+    XCTAssertTrue(router.state.session.undoHistory.isEmpty)
+    run(.nudge(1), router)
+    run(.nudgeRelease, router)
+    XCTAssertFalse(router.perform(.nudgeRelease, assetID: assetID))
+    XCTAssertEqual(router.state.session.undoHistory.count, 1)
+    run(.nudge(1), router)
+    router.finishNudge()
+    XCTAssertFalse(router.perform(.nudgeRelease, assetID: assetID))
+    XCTAssertEqual(router.state.session.undoHistory.count, 2)
+  }
+
   func testHeldGlobalNudgeDefersDecodeProductUntilRelease() {
     let router = makeRouter()
     let state = router.state
@@ -80,7 +95,7 @@ final class EditorCommandRouterTests: XCTestCase {
     run(.undo, router)
     let count = router.state.session.undoHistory.count
     run(.nudge(-1), router)
-    run(.nudgeRelease, router)
+    XCTAssertFalse(router.perform(.nudgeRelease, assetID: router.state.session.asset.id))
     XCTAssertTrue(router.state.canRedo)
     XCTAssertEqual(router.state.session.undoHistory.count, count)
   }

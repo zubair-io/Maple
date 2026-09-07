@@ -68,6 +68,7 @@ public final class EditorCommandRouter {
       }
       state.setArmedInternalValue(next)
     case .nudgeRelease:
+      guard nudgeTransactionID != nil else { return false }
       finishNudge()
     case .group(let direction):
       state.endGesture()

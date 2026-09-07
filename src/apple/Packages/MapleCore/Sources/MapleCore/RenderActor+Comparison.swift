@@ -13,14 +13,14 @@ extension RenderActor {
     let source = rawRenderSource
     let cancel = CancelFlag()
     let work = Task.detached(priority: .userInitiated) {
-      let sidecar = FileManager.default.temporaryDirectory
-        .appendingPathComponent("maple-comparison-\(UUID().uuidString).xmp")
-      let xml = XMPSerializer.serialize(model: model, culling: CullingState())
-      try xml.write(to: sidecar, atomically: true, encoding: .utf8)
-      defer { try? FileManager.default.removeItem(at: sidecar) }
       let raw: ImageEditPipeline.SceneLinearDecodeResult?
       let decoded: CIImage
       if asset.isRaw {
+        let sidecar = FileManager.default.temporaryDirectory
+          .appendingPathComponent("maple-comparison-\(UUID().uuidString).xmp")
+        let xml = XMPSerializer.serialize(model: model, culling: CullingState())
+        try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sidecar) }
         let url = try await source.url(for: asset)
         let fileAsset = AssetRef(url: url, scopeParentURL: asset.scopeParentURL)
         raw = await pipeline.decodeSceneLinearSized(
