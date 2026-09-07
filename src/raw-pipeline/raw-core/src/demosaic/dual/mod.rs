@@ -39,6 +39,12 @@
 //! Each band renders [`weight::HALO`] extra rows on each side so the mask's
 //! box filters see real data rather than a band edge; those rows are
 //! computed and discarded, which is under 10 % of the band's work.
+//!
+//! The scratch itself is allocated **once per rayon worker**, not per band
+//! (`for_each_init`). A 100 MP frame is over a hundred bands, and each band
+//! wants the VNG4 reconstruction, its green plane and two mask planes —
+//! allocating those fresh every time is enough page-fault and zeroing
+//! traffic to cost more than the second kernel does.
 
 mod weight;
 
@@ -111,17 +117,29 @@ fn blend_vng4_into(
         .pixels
         .par_chunks_mut(w * BAND)
         .enumerate()
-        .for_each(|(band_idx, band)| {
+        .for_each_init(Scratch::default, |scratch, (band_idx, band)| {
             if cancel.is_cancelled() {
                 return;
             }
-            blend_band(band, band_idx * BAND, mosaic, &cfa_flat, cfa, w, h);
+            blend_band(band, band_idx * BAND, mosaic, &cfa_flat, cfa, w, h, scratch);
         });
     detailed
 }
 
+/// One rayon worker's reusable band buffers — the VNG4 reconstruction over
+/// the band plus its halo, that reconstruction's green plane, and the two
+/// planes the mask ping-pongs between.
+#[derive(Default)]
+struct Scratch {
+    smooth: Vec<[f32; 3]>,
+    green: Vec<f32>,
+    weights: Vec<f32>,
+    mask_tmp: Vec<f32>,
+}
+
 /// Render VNG4 over one band plus its mask halo, derive the weights, and
 /// cross-fade the band's own rows of `band` toward the smooth result.
+#[allow(clippy::too_many_arguments)]
 fn blend_band(
     band: &mut [[f32; 3]],
     y0: usize,
@@ -130,23 +148,34 @@ fn blend_band(
     cfa: CfaPattern,
     w: usize,
     h: usize,
+    scratch: &mut Scratch,
 ) {
     let rows = band.len() / w;
     let sy0 = y0.saturating_sub(weight::HALO);
     let sy1 = (y0 + rows + weight::HALO).min(h);
     let scratch_rows = sy1 - sy0;
 
-    let mut smooth = vec![[0.0f32; 3]; scratch_rows * w];
-    vng4::render_band(&mut smooth, sy0, mosaic, cfa_flat, cfa, w, h);
+    // `render_band` writes every pixel of the slice it is handed, so the
+    // resize value is never observed; it exists only to size the buffer.
+    scratch.smooth.clear();
+    scratch.smooth.resize(scratch_rows * w, [0.0; 3]);
+    vng4::render_band(&mut scratch.smooth, sy0, mosaic, cfa_flat, cfa, w, h);
 
-    let green: Vec<f32> = smooth.iter().map(|p| p[1]).collect();
-    let weights = weight::contrast_weights(&green, w, scratch_rows);
+    scratch.green.clear();
+    scratch.green.extend(scratch.smooth.iter().map(|p| p[1]));
+    weight::contrast_weights_into(
+        &scratch.green,
+        w,
+        scratch_rows,
+        &mut scratch.weights,
+        &mut scratch.mask_tmp,
+    );
 
     for r in 0..rows {
         let sr = y0 + r - sy0;
         for x in 0..w {
-            let t = weights[sr * w + x];
-            let s = smooth[sr * w + x];
+            let t = scratch.weights[sr * w + x];
+            let s = scratch.smooth[sr * w + x];
             let out = &mut band[r * w + x];
             for ch in 0..3 {
                 out[ch] = s[ch] + t * (out[ch] - s[ch]);

@@ -87,73 +87,100 @@ fn smoothstep(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Separable box maximum of `src` with the given radius, edges clamped.
-fn box_max(src: &[f32], w: usize, h: usize, radius: usize) -> Vec<f32> {
-    let mut horizontal = vec![0.0f32; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let mut best = f32::NEG_INFINITY;
-            for k in 0..=(2 * radius) {
-                let sx = (x + k).saturating_sub(radius).min(w - 1);
-                best = best.max(src[y * w + sx]);
-            }
-            horizontal[y * w + x] = best;
-        }
-    }
-    let mut out = vec![0.0f32; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let mut best = f32::NEG_INFINITY;
-            for k in 0..=(2 * radius) {
-                let sy = (y + k).saturating_sub(radius).min(h - 1);
-                best = best.max(horizontal[sy * w + x]);
-            }
-            out[y * w + x] = best;
-        }
-    }
-    out
+/// One clamped index along an axis of length `n`, for a filter of the given
+/// radius at tap `k` around `i`.
+#[inline]
+fn tap(i: usize, k: usize, radius: usize, n: usize) -> usize {
+    (i + k).saturating_sub(radius).min(n - 1)
 }
 
-/// Separable box mean of `src` with the given radius, edges clamped.
-fn box_mean(src: &[f32], w: usize, h: usize, radius: usize) -> Vec<f32> {
+/// Horizontal pass of a box mean.
+fn h_mean(src: &[f32], dst: &mut [f32], w: usize, h: usize, radius: usize) {
     let taps = (2 * radius + 1) as f32;
-    let mut horizontal = vec![0.0f32; w * h];
     for y in 0..h {
         for x in 0..w {
             let mut sum = 0.0f32;
             for k in 0..=(2 * radius) {
-                let sx = (x + k).saturating_sub(radius).min(w - 1);
-                sum += src[y * w + sx];
+                sum += src[y * w + tap(x, k, radius, w)];
             }
-            horizontal[y * w + x] = sum / taps;
+            dst[y * w + x] = sum / taps;
         }
     }
-    let mut out = vec![0.0f32; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let mut sum = 0.0f32;
-            for k in 0..=(2 * radius) {
-                let sy = (y + k).saturating_sub(radius).min(h - 1);
-                sum += horizontal[sy * w + x];
-            }
-            out[y * w + x] = sum / taps;
-        }
-    }
-    out
 }
 
-/// Per-pixel blend weights for a `w × h` green plane: 0 = all smooth kernel,
-/// 1 = all detail-first kernel.
+/// Vertical pass of a box mean.
+fn v_mean(src: &[f32], dst: &mut [f32], w: usize, h: usize, radius: usize) {
+    let taps = (2 * radius + 1) as f32;
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = 0.0f32;
+            for k in 0..=(2 * radius) {
+                sum += src[tap(y, k, radius, h) * w + x];
+            }
+            dst[y * w + x] = sum / taps;
+        }
+    }
+}
+
+/// Horizontal pass of a box maximum.
+fn h_max(src: &[f32], dst: &mut [f32], w: usize, h: usize, radius: usize) {
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = f32::NEG_INFINITY;
+            for k in 0..=(2 * radius) {
+                acc = acc.max(src[y * w + tap(x, k, radius, w)]);
+            }
+            dst[y * w + x] = acc;
+        }
+    }
+}
+
+/// Vertical pass of a box maximum.
+fn v_max(src: &[f32], dst: &mut [f32], w: usize, h: usize, radius: usize) {
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = f32::NEG_INFINITY;
+            for k in 0..=(2 * radius) {
+                acc = acc.max(src[tap(y, k, radius, h) * w + x]);
+            }
+            dst[y * w + x] = acc;
+        }
+    }
+}
+
+/// Per-pixel blend weights for a `w × h` green plane, left in `out`:
+/// 0 = all smooth kernel, 1 = all detail-first kernel.
+///
+/// `out` and `tmp` are caller-owned scratch, resized here and reused across
+/// bands. Every pass below runs between those two buffers rather than
+/// allocating its own — the blend visits a hundred-plus bands on a 100 MP
+/// sensor, and a handful of fresh multi-megabyte planes per band is enough
+/// page-fault and zeroing traffic to cost more than the kernels the mask
+/// exists to choose between.
 ///
 /// Edges clamp rather than wrap, so the caller may hand in a band plus a
 /// [`HALO`] of real rows and read back only the interior it cares about.
-pub fn contrast_weights(green: &[f32], w: usize, h: usize) -> Vec<f32> {
+pub(super) fn contrast_weights_into(
+    green: &[f32],
+    w: usize,
+    h: usize,
+    out: &mut Vec<f32>,
+    tmp: &mut Vec<f32>,
+) {
+    out.clear();
+    tmp.clear();
     if w == 0 || h == 0 {
-        return Vec::new();
+        return;
     }
-    let level = box_mean(green, w, h, MEAN_RADIUS);
+    out.resize(w * h, 0.0);
+    tmp.resize(w * h, 0.0);
+
+    // Local mean level -> `out`.
+    h_mean(green, tmp, w, h, MEAN_RADIUS);
+    v_mean(tmp, out, w, h, MEAN_RADIUS);
+
+    // Raw relative-contrast response -> `tmp`, reading the level in `out`.
     let span = CONTRAST_THRESHOLD * (EDGE_RATIO - 1.0);
-    let mut raw = vec![0.0f32; w * h];
     for y in 0..h {
         for x in 0..w {
             let at = |dx: isize, dy: isize| -> f32 {
@@ -166,9 +193,24 @@ pub fn contrast_weights(green: &[f32], w: usize, h: usize) -> Vec<f32> {
             let gy = (at(-1, 1) + 2.0 * at(0, 1) + at(1, 1))
                 - (at(-1, -1) + 2.0 * at(0, -1) + at(1, -1));
             let magnitude = (gx * gx + gy * gy).sqrt() * 0.125;
-            let contrast = magnitude / (level[y * w + x].max(0.0) + LEVEL_FLOOR);
-            raw[y * w + x] = smoothstep((contrast - CONTRAST_THRESHOLD) / span);
+            let contrast = magnitude / (out[y * w + x].max(0.0) + LEVEL_FLOOR);
+            tmp[y * w + x] = smoothstep((contrast - CONTRAST_THRESHOLD) / span);
         }
     }
-    box_mean(&box_max(&raw, w, h, DILATE_RADIUS), w, h, SMOOTH_RADIUS)
+
+    // Dilate, then smooth — each a two-pass ping-pong between the buffers,
+    // so the level in `out` is overwritten only once it is no longer read.
+    h_max(tmp, out, w, h, DILATE_RADIUS);
+    v_max(out, tmp, w, h, DILATE_RADIUS);
+    h_mean(tmp, out, w, h, SMOOTH_RADIUS);
+    v_mean(out, tmp, w, h, SMOOTH_RADIUS);
+    std::mem::swap(out, tmp);
+}
+
+/// Allocating wrapper over [`contrast_weights_into`], for callers with no
+/// scratch to hand — the tests, and any single-shot use.
+pub fn contrast_weights(green: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let (mut out, mut tmp) = (Vec::new(), Vec::new());
+    contrast_weights_into(green, w, h, &mut out, &mut tmp);
+    out
 }
