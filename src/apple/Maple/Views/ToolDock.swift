@@ -46,6 +46,11 @@ struct ToolDock: View {
           tool: .filmLook,
           onPresetsTap: onPresetsTap
         )
+        SpecialDockButton(
+          state: state,
+          tool: .mask,
+          onPresetsTap: onPresetsTap
+        )
         // Presets — real Tool case; tapping also fires the presets sheet.
         SpecialDockButton(
           state: state,
