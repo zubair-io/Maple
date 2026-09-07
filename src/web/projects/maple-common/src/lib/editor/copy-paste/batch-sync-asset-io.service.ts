@@ -241,9 +241,8 @@ export class BatchSyncAssetIO {
     this.xmpStore.replacePassthroughs(
       [currentId],
       parsed ? new Map([[currentId, parsed.passthrough]]) : new Map(),
+      parsed ? new Map([[currentId, parsed.metadata]]) : new Map(),
     );
-    if (xml !== undefined)
-      this.xmpStore.rememberMetadata(currentId, this.parser.parseMetadata(xml));
     this.library.updateAdjustment(currentId, prepared.patch);
     await this.library.flushSidecarWrite(currentId);
   }

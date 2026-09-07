@@ -159,6 +159,39 @@ describe('XmpStoreService persistence contract', () => {
     expect(reloaded.passthrough.unknownNodes.join('\n')).toContain('exif:PrivateData');
   });
 
+  it('preserves modeled metadata loaded with ordinary passthrough state', async () => {
+    const parser = TestBed.inject(XmpParserService);
+    const source = `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+          xmlns:dc="http://purl.org/dc/elements/1.1/" photoshop:City="Montréal">
+          <dc:title><rdf:Alt><rdf:li xml:lang="x-default">Night portrait</rdf:li></rdf:Alt></dc:title>
+        </rdf:Description>
+      </rdf:RDF>
+    </x:xmpmeta>`;
+    const loaded = parser.parseAdjustmentModel(source);
+    const metadata = loaded.metadata;
+    store.replacePassthroughs(
+      ['asset-1'],
+      new Map([['asset-1', loaded.passthrough]]),
+      new Map([['asset-1', metadata]]),
+    );
+
+    store.scheduleWrite(
+      'asset-1',
+      FOLDER,
+      'IMG_0001.dng',
+      { ...defaultAdjustmentModel(), exposure: 0.5 },
+      CULLING,
+    );
+    await store.flushAll();
+
+    const savedXml = new TextDecoder().decode(writeFile.mock.calls[0]![2]);
+    expect(parser.parseMetadata(savedXml)).toEqual(metadata);
+    expect(savedXml).toContain('photoshop:City="Montréal"');
+    expect(savedXml).toContain('Night portrait');
+  });
+
   it('recovers from permission loss after a later sibling write succeeds', async () => {
     writeFile.mockRejectedValueOnce(new Error('Permission revoked'));
     store.scheduleWrite('asset-1', FOLDER, 'IMG_0001.dng', defaultAdjustmentModel(), CULLING);
