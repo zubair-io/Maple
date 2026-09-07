@@ -141,9 +141,8 @@ export class InfoEnrichmentComponent implements OnDestroy {
    * How the focused asset's detail is addressed.
    *
    * Timeline / search assets carry a real Mongo id in `apiAssetIds`. Browse-grid
-   * assets do NOT: the grid lists through `/api/fs/dir-fast`, a pure-filesystem
-   * walk with no Mongo join, so their `Asset.id` is the `slug:relPath` address
-   * and the detail must be fetched by address instead.
+   * assets use a `slug:relPath` address as `Asset.id`, so their detail must be
+   * fetched by address instead.
    *
    * Before this fallback existed the id lookup simply missed and the whole
    * enrichment pane silently rendered nothing for every grid asset.
