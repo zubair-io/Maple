@@ -27,7 +27,9 @@ struct PeoplePickerSheet: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Create") { Task { await create() } }
-                            .disabled(isCreating || isLoading || (!people.isEmpty && selected == nil))
+                            .disabled(
+                                !PeoplePickerVM.canCreate(
+                                    isLoading: isLoading, isCreating: isCreating, people: people, selected: selected))
                     }
                 }
         }
@@ -62,29 +64,33 @@ struct PeoplePickerSheet: View {
         }
     }
 
+    @MainActor
     private func load() async {
+        let result: Result<[PersonCandidate], Error>
         do {
-            people = try await state.session.detectMaskPersons()
-            selected = people.first?.id
-        } catch PersonSkinMaskError.noPersonDetected {
-            people = []
+            result = .success(try await state.session.detectMaskPersons())
         } catch {
-            errorMessage = "Couldn't detect people: \(error.localizedDescription)"
+            result = .failure(error)
         }
+        let loaded = PeoplePickerVM.loaded(result)
+        people = loaded.people
+        selected = loaded.selected
+        errorMessage = loaded.errorMessage
         isLoading = false
     }
 
+    @MainActor
     private func create() async {
         isCreating = true
         do {
-            if let selected, let person = people.first(where: { $0.id == selected }) {
+            if let person = PeoplePickerVM.creationTarget(people: people, selected: selected) {
                 try await state.session.createPersonSkinMask(person: person, facialSkin: facialSkin, bodySkin: bodySkin)
             } else {
                 state.session.createWholeImageSkinMask()
             }
             dismiss()
         } catch {
-            errorMessage = "Couldn't create the mask: \(error.localizedDescription)"
+            errorMessage = PeoplePickerVM.creationErrorMessage(error)
             isCreating = false
         }
     }
