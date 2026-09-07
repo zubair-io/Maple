@@ -51,4 +51,23 @@ describe('selective paste preview', () => {
     expect(emitted).toBe(false);
     expect(fixture.nativeElement.textContent).toContain('Could not read current settings');
   });
+
+  it('clears a relative white balance failure when the option is disabled', async () => {
+    TestBed.configureTestingModule({ imports: [PasteSettingsDialogComponent] });
+    const fixture = TestBed.createComponent(PasteSettingsDialogComponent);
+    fixture.componentRef.setInput('visible', true);
+    fixture.componentRef.setInput('sourceModel', defaultAdjustmentModel());
+    fixture.componentRef.setInput('readSourceBaseline', async () => {
+      throw new Error('Camera baseline unavailable');
+    });
+    fixture.detectChanges();
+
+    await fixture.componentInstance.setRelative(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Camera baseline unavailable');
+
+    await fixture.componentInstance.setRelative(false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Camera baseline unavailable');
+  });
 });

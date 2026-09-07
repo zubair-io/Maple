@@ -1,7 +1,7 @@
 /** Real temporary sidecars plus real Mongo. Set MAPLE_MONGO_URI to run integration cases. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from '../fs/mirrored.ts';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Elysia } from 'elysia';
 import { type MongoClient, ObjectId } from 'mongodb';
@@ -111,6 +111,29 @@ describe('persisted batch adjustment sync', () => {
     const again = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
     expect(again.result.applied).toEqual([photo.id]);
     expect((await db.collection('assets').findOne({ _id: assetId }))?.sidecar_ver).toBe(8);
+  });
+
+  it('resolves an id without a slug delimiter from the longest matching library root', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const db = await getDb();
+    const library = await db.collection('folders').findOne({ slug: 'batch' });
+    expect(library).not.toBeNull();
+    const misleading = await db
+      .collection('folders')
+      .insertOne({ path: dirname(root), slug: 'plain-photo.jp' });
+    invalidateLibraryRoots();
+    try {
+      const photo = await target('plain-photo');
+      photo.id = 'plain-photo.jpg';
+      const job = await claimed([photo]);
+      await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
+      const row = await db.collection('asset_changes').findOne({ abs_path: photo.path });
+      expect(row?.folder_id).toEqual(library!._id);
+      expect(row?.folder_id).not.toEqual(misleading.insertedId);
+    } finally {
+      await db.collection('folders').deleteOne({ _id: misleading.insertedId });
+      invalidateLibraryRoots();
+    }
   });
 
   it('recovers a real change-feed failure without rewriting an already committed sidecar', async () => {

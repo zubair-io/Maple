@@ -24,16 +24,14 @@ pub unsafe extern "C" fn maple_as_shot_white_balance_file(
             return 2;
         }
     };
-    let output = out as usize;
-    with_large_stack(move || {
+    let decoded = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let worker_decoded = decoded.clone();
+    let rc = with_large_stack(move || {
         let result = raw_core::decode::decode(std::path::Path::new(&path))
             .and_then(|raw| raw_core::color::dcp::estimate_as_shot_cct_tint(&raw));
         match result {
             Ok((temperature, tint)) if temperature.is_finite() && tint.is_finite() => {
-                unsafe {
-                    (output as *mut f32).write(temperature);
-                    (output as *mut f32).add(1).write(tint);
-                }
+                *worker_decoded.lock().expect("As Shot result lock") = Some([temperature, tint]);
                 0
             }
             Ok(_) => {
@@ -45,7 +43,18 @@ pub unsafe extern "C" fn maple_as_shot_white_balance_file(
                 3
             }
         }
-    })
+    });
+    if rc == 0 {
+        let pair = decoded
+            .lock()
+            .expect("As Shot result lock")
+            .expect("worker result");
+        unsafe {
+            out.write(pair[0]);
+            out.add(1).write(pair[1]);
+        }
+    }
+    rc
 }
 
 #[cfg(test)]

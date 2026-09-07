@@ -134,6 +134,10 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     let (bytes, response) = try await httpClient.data(for: URLRequest(url: sidecarURL))
     let absent = (response as? HTTPURLResponse)?.statusCode == 404
     if !absent { try Self.checkOK(response, data: bytes) }
+    if absent {
+      cachedMetadata = XmpMetadata()
+      cachedPassthrough = .empty
+    }
     let existing: Data? = absent ? nil : bytes
     if let existing {
       _ = try XMPParser.parse(data: existing)
