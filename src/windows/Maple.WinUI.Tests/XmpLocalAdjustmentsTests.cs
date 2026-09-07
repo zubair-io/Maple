@@ -25,7 +25,9 @@ namespace Maple.WinUI.Tests
         /// <summary>The linear half of the shared fixture (`linear_layer()` in Rust).</summary>
         internal static readonly LocalAdjustment LinearLayer = new(
             new LinearMask(new MaskPoint(0.2, 0.3), new MaskPoint(0.8, 0.7), 0.4),
-            new PartialAdjustments { Exposure = 0.5, Shadows = -20, Hue = -35 },
+            // Fractional hue on purpose: pins the four-decimal `crs:LocalHue`
+            // wire precision across all four writers (two decimals would drift it).
+            new PartialAdjustments { Exposure = 0.5, Shadows = -20, Hue = -42.5 },
             new ColorRangeRefinement(55, 25, 0.02, 0.15, 0.95, 0.3));
 
         /// <summary>
@@ -49,7 +51,7 @@ namespace Maple.WinUI.Tests
             "              crs:CorrectionActive=\"True\"",
             "              crs:LocalExposure2012=\"0.5\"",
             "              crs:LocalShadows2012=\"-20\"",
-            "              crs:LocalHue=\"-0.35\"",
+            "              crs:LocalHue=\"-0.425\"",
             "              papp:RangeKind=\"Color\"",
             "              papp:RangeHue=\"55\"",
             "              papp:RangeHueWidth=\"25\"",
@@ -313,7 +315,7 @@ namespace Maple.WinUI.Tests
         {
             var doc = XmpParser.Parse(Sidecar(CanonicalBlock.Replace(
                 "crs:CorrectionAmount=\"1\"", "crs:CorrectionAmount=\"0.5\"")))!;
-            Assert.Equal(-17.5, doc.Adjustments.LocalAdjustments[0].Adjustments.Hue);
+            Assert.Equal(-21.25, doc.Adjustments.LocalAdjustments[0].Adjustments.Hue);
             Assert.Equal(0, doc.Adjustments.LocalAdjustments[1].Adjustments.Hue);
             Assert.Equal(LinearLayer.Range, doc.Adjustments.LocalAdjustments[0].Range);
             Assert.Equal(RadialLayer.Range, doc.Adjustments.LocalAdjustments[1].Range);
@@ -410,6 +412,20 @@ namespace Maple.WinUI.Tests
                     new RadialMask(new MaskPoint(0.5, 0.375), new MaskPoint(0.25, 0.125), 0, 0.5, false),
                     new PartialAdjustments { Saturation = -15, Temperature = -50 }),
             }, doc!.Adjustments.LocalAdjustments);
+        }
+
+        /// <summary>
+        /// −42.5 on the ±100 slider is −0.425 on Adobe's ±1 wire scale; the
+        /// canonical two-decimal codec would persist "-0.43" and read back −43.
+        /// </summary>
+        [Fact]
+        public void WritesLocalHueAtFourDecimalsSoAFractionalHueSurvivesTheRoundTrip()
+        {
+            var layer = LinearLayer with { Adjustments = new PartialAdjustments { Hue = -42.5 } };
+            var block = XmpLocalAdjustments.Serialize(new[] { layer }, CanonicalIndent);
+            Assert.Contains("crs:LocalHue=\"-0.425\"", block);
+            var doc = XmpParser.Parse(Sidecar(block));
+            Assert.Equal(new PartialAdjustments { Hue = -42.5 }, Assert.Single(doc!.Adjustments.LocalAdjustments).Adjustments);
         }
     }
 }

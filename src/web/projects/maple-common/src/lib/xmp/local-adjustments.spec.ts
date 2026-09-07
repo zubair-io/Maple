@@ -27,7 +27,9 @@ const CANONICAL_INDENT = '      ';
 /** The linear half of the shared fixture (`linear_layer()` in Rust). */
 const LINEAR_LAYER: LocalAdjustment = {
   mask: { kind: 'linear', start: { x: 0.2, y: 0.3 }, end: { x: 0.8, y: 0.7 }, feather: 0.4 },
-  adjustments: { exposure: 0.5, shadows: -20, hue: -35 },
+  // Fractional hue on purpose: pins the four-decimal `crs:LocalHue` wire
+  // precision across all four writers (two decimals would drift it).
+  adjustments: { exposure: 0.5, shadows: -20, hue: -42.5 },
   range: {
     kind: 'color',
     hueDeg: 55,
@@ -76,7 +78,7 @@ const CANONICAL_BLOCK = [
   '              crs:CorrectionActive="True"',
   '              crs:LocalExposure2012="0.5"',
   '              crs:LocalShadows2012="-20"',
-  '              crs:LocalHue="-0.35"',
+  '              crs:LocalHue="-0.425"',
   '              papp:RangeKind="Color"',
   '              papp:RangeHue="55"',
   '              papp:RangeHueWidth="25"',
@@ -299,7 +301,7 @@ describe('XMP local adjustments (#358)', () => {
     const { model } = parser.parseAdjustmentModel(
       sidecar(CANONICAL_BLOCK.replaceAll('crs:CorrectionAmount="1"', 'crs:CorrectionAmount="0.5"')),
     );
-    expect(model.localAdjustments?.[0].adjustments.hue).toBe(-17.5);
+    expect(model.localAdjustments?.[0].adjustments.hue).toBe(-21.25);
     expect(model.localAdjustments?.[1].adjustments.hue).toBe(0);
     expect(model.localAdjustments?.map((layer) => layer.range)).toEqual([
       LINEAR_LAYER.range,
@@ -418,5 +420,15 @@ describe('XMP local adjustments (#358)', () => {
         adjustments: { saturation: -15, temperature: -50 },
       },
     ]);
+  });
+
+  it('writes crs:LocalHue at four decimals so a fractional hue survives the Adobe-scale round trip', () => {
+    // −42.5 on the ±100 slider is −0.425 on Adobe's ±1 wire scale; the
+    // canonical two-decimal codec would persist "-0.43" and read back −43.
+    const layer: LocalAdjustment = { ...LINEAR_LAYER, adjustments: { hue: -42.5 } };
+    const block = localAdjustmentBlocks(withLayers([layer]), CANONICAL_INDENT);
+    expect(block).toContain('crs:LocalHue="-0.425"');
+    const { model } = parser.parseAdjustmentModel(sidecar(block));
+    expect(model.localAdjustments?.[0].adjustments).toEqual({ hue: -42.5 });
   });
 });

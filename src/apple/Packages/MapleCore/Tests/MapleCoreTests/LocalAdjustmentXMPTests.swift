@@ -20,7 +20,9 @@ private let canonicalIndent = "      "
 private let linearLayer = LocalAdjustment(
     mask: .linear(start: MaskPoint(x: 0.2, y: 0.3), end: MaskPoint(x: 0.8, y: 0.7), feather: 0.4),
     range: .skinTone,
-    adjustments: PartialAdjustments(exposure: 0.5, shadows: -20, hue: -35))
+    // Fractional hue on purpose: pins the four-decimal `crs:LocalHue` wire
+    // precision across all four writers (two decimals would drift it).
+    adjustments: PartialAdjustments(exposure: 0.5, shadows: -20, hue: -42.5))
 
 /// The radial half (`radial_layer()` in Rust). Binary-exact fractions so the
 /// wire form's `center ± radii` bounding box round-trips to bit-identical
@@ -43,7 +45,7 @@ private let canonicalBlock = """
               crs:CorrectionActive="True"
               crs:LocalExposure2012="0.5"
               crs:LocalShadows2012="-20"
-              crs:LocalHue="-0.35"
+              crs:LocalHue="-0.425"
               papp:RangeKind="Color"
               papp:RangeHue="55"
               papp:RangeHueWidth="25"
