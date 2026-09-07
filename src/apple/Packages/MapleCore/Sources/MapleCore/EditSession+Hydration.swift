@@ -83,14 +83,13 @@ extension EditSession {
 
     // An edit or another completed load owns the current state. In particular,
     // a confirmed batch paste must not be overwritten by a late browse hydrate.
-    // Mark this attempt resolved before the snapshot guard: when the guard
-    // rejects stale I/O, a later call must not replay that persisted snapshot
-    // over the edit that won the race.
     guard !hasLoadedSidecar else { return }
-    hasLoadedSidecar = true
     guard model == startingModel, culling == startingCulling,
       transactions.nextID == startingTransaction
-    else { return }
+    else {
+      hasLoadedSidecar = true
+      return
+    }
 
     // (3/4) Build the initial model. As-shot seeding only applies when
     // no sidecar was loaded — once the user has saved edits, their
@@ -105,6 +104,17 @@ extension EditSession {
     // `model` agree (#3366). Awaited outside the hydration window on
     // purpose: this can run Vision on a cache miss.
     let base = await rehydratedMaskRasters(in: seeded)
+    guard !Task.isCancelled, !hasLoadedSidecar else { return }
+    guard model == startingModel, culling == startingCulling,
+      transactions.nextID == startingTransaction
+    else {
+      hasLoadedSidecar = true
+      return
+    }
+    // Publish completion only once the fully restored model is ready. Batch
+    // transfers that arrive during raster restoration must still be able to
+    // hydrate the persisted fields they are not replacing.
+    hasLoadedSidecar = true
 
     let previousModel = model
     isHydratingInitialState = true
