@@ -38,6 +38,7 @@ import {
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
 import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
+import { RetouchOverlayComponent } from '../retouch-overlay/retouch-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, renderModelForCrop } from './image-canvas.crop';
@@ -58,7 +59,12 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
 @Component({
   selector: 'editor-image-canvas',
   standalone: true,
-  imports: [CropOverlayComponent, MaskOverlayComponent, CanvasPickOverlayComponent],
+  imports: [
+    CropOverlayComponent,
+    MaskOverlayComponent,
+    RetouchOverlayComponent,
+    CanvasPickOverlayComponent,
+  ],
   templateUrl: './image-canvas.component.html',
   styleUrl: './image-canvas.component.scss',
   host: { class: HOST_CLASS },

@@ -83,9 +83,11 @@ describe('editor parity manifest — web tool coverage', () => {
 });
 
 describe('editor parity manifest — placeholders and exceptions', () => {
-  it('keeps the Heal placeholder disabled with a ticket, never released (Mask shipped in #1541)', () => {
+  it('carries no dock placeholders (Mask shipped in #1541, Heal in #3409)', () => {
     const placeholders = parityPlaceholders();
-    expect(placeholders.map((row) => row.id).sort()).toEqual(['shell.placeholder-heal']);
+    expect(placeholders.map((row) => row.id).sort()).toEqual([]);
+    // The invariant the checker enforces, asserted here too so a future
+    // placeholder cannot be added released or without a ticket.
     for (const row of placeholders) {
       expect(row.reachability.web).not.toBe('released');
       expect(row.reachability.apple).not.toBe('released');

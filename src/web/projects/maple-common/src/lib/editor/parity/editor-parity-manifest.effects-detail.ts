@@ -315,45 +315,51 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     reachability: { apple: 'released', web: 'released' },
     exception: null,
   },
-  {
-    id: 'tool.heal',
+  // Heal (#3409) — the deterministic clone / heal brush. Shipped on Apple
+  // and Web together; Windows follows its own mask tool. #1472's
+  // model-driven eraser is a separate, later tool that layers on top of
+  // this one, not a gate on it.
+  panelTool({
+    id: 'heal',
     name: 'Heal',
     group: 'detail',
     order: 66,
-    tool: { web: null, apple: 'heal' },
-    field: null,
-    reachability: { apple: 'partial', web: 'absent' },
+    // Repair spots name a source region in THIS image, so they are outside
+    // the copy/paste field groups (`NON_COPYABLE_FIELDS` in raw-core).
+    copyPaste: null,
+    preview: 'live',
     presentation: {
-      compact: 'Apple: a Detail dock entry that arms nothing',
-      regular: 'Same as compact',
-      wide: 'Same as compact',
+      compact:
+        'Heal dock entry arms the tool: canvas overlay (destination and source discs joined by a link line) + heal panel (Heal/Clone toggle, size, feather, opacity, spot list) above the bottom dock',
+      regular: 'Heal dock entry arms the tool: canvas overlay + 300px heal panel beside the dock',
+      wide: 'Same as regular',
     },
     interaction: {
-      keyboard: 'Tab-reachable; arms nothing',
-      pointer: 'Click arms the case; no panel',
-      touch: 'Same as pointer',
-      focus: 'No canvas overlay',
+      keyboard:
+        'Spot rows and delete/reset via Tab + Enter; the size, feather and opacity sliders take arrow keys',
+      pointer:
+        'Click the canvas to place a spot; drag the destination or the source handle to move either',
+      touch: 'Same drags; sliders take long-press fine mode',
+      focus:
+        'The overlay owns the canvas pointer stream while armed; the drag bar refuses value edits',
     },
     accessibility: {
-      role: 'button',
-      name: 'Heal',
-      value: 'none',
-      state: 'none',
-      actions: ['arm it (inert until #1472)'],
+      role: 'group (overlay, one img per handle) + list (spots, button rows) + slider (size, feather, opacity) + radio group (Heal / Clone)',
+      name: 'Heal overlay; Heal handle: <handle>; Heal N / Clone N; Size; Feather; Opacity',
+      value: 'aria-valuenow per slider; aria-current on the selected spot row',
+      state:
+        'one undo entry per drag; place / delete / mode change / reset commit their own, all of class `repair`',
+      actions: [
+        'place a spot',
+        'select / delete a spot',
+        'drag the destination or source handle',
+        'switch Heal / Clone',
+        'adjust size, feather or opacity',
+        'reset every spot',
+      ],
     },
-    participation: {
-      undo: false,
-      copyPaste: null,
-      history: false,
-      preview: 'none',
-      export: false,
-    },
-    exception: {
-      platform: 'both',
-      rationale: 'Apple: a #1472 mount point only; web has no heal tool.',
-      ticket: '#1472',
-    },
-  },
+    featuresRow: 'Clone / heal brush',
+  }),
   panelTool({
     id: 'crop',
     name: 'Crop',
