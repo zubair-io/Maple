@@ -51,18 +51,14 @@ pub use crate::view::look::Look;
 mod highlight_recovery;
 pub use highlight_recovery::HighlightRecoveryMode;
 
-// WbMethod split into its own submodule to stay under the 600-LOC hard
-// budget (#772).
-mod wb_method;
-pub use wb_method::WbMethod;
-
-// HotPixelSuppressionMode split into its own submodule to stay under the
-// 600-LOC hard budget (#1181).
-mod hot_pixel_suppression;
-pub use hot_pixel_suppression::HotPixelSuppressionMode;
-
-// AutoExposureMode split into its own submodule to stay under the
-// 600-LOC hard budget (#772).
+// Every companion type below lives in its own submodule for one reason:
+// keeping THIS file, which owns the `AdjustmentModel` struct itself, under
+// the 600-LOC hard budget. The struct's stored fields cannot be split out,
+// so each schema addition has to buy its space from something that can —
+// `WbMethod` (#772), `HotPixelSuppressionMode` (#1181), `AutoExposureMode`
+// (#772), `BlackWhiteMode` (#276), `Crop` (#772), the `render_enums` /
+// `white_balance_presets` group (#1730), `LensProfileEnable` (#1181) and
+// `AutoLateralCa` (#3411).
 mod auto_exposure;
 pub use auto_exposure::AutoExposureMode;
 
@@ -93,7 +89,21 @@ pub use demosaic_choice::DemosaicChoice;
 // AutoLateralCa split into its own submodule to stay under the 600-LOC
 // hard budget (#1181), same shape as `hot_pixel_suppression`.
 mod auto_lateral_ca;
+mod black_white;
+mod crop;
+mod hot_pixel_suppression;
+mod lens_correction;
+mod render_enums;
+mod wb_method;
+mod white_balance_presets;
+pub use auto_exposure::AutoExposureMode;
 pub use auto_lateral_ca::AutoLateralCa;
+pub use black_white::BlackWhiteMode;
+pub use crop::Crop;
+pub use hot_pixel_suppression::HotPixelSuppressionMode;
+pub use lens_correction::LensProfileEnable;
+pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WbSource, WhiteBalancePreset};
+pub use wb_method::WbMethod;
 
 /// Per-image develop settings.
 ///
