@@ -1,13 +1,20 @@
 // LocalAdjustmentFlat.swift — byte-for-byte Swift mirror of
-// raw_core::types::local_adjustment::flat (#3274). 32 Float32 per layer;
-// the slot map is documented on that Rust file's header and MUST be kept in
-// lockstep with it — a divergence here is a live-vs-fallback rendering bug,
-// not a compile error.
+// raw_core::types::local_adjustment::flat (#3274, extended by #3407).
+// 40 Float32 per layer; the slot map is documented on that Rust file's
+// header and MUST be kept in lockstep with it — a divergence here is a
+// live-vs-fallback rendering bug, not a compile error.
+//
+// The map is APPEND-ONLY. The six spatial controls (#3407) took a new
+// `vec4` pair at the tail (slots 32..38, presence bits 11..16, slots 38/39
+// padding) rather than any interior padding slot, so every slot an earlier
+// reader knows keeps its meaning. The stride is 40 rather than a tight 38
+// because raw-gpu binds this array as ten WGSL `vec4<f32>` members, and a
+// `vec4<f32>` has 16-byte alignment.
 
 import Foundation
 
 public enum LocalAdjustmentFlat {
-    public static let layerFloatLen = 32
+    public static let layerFloatLen = 40
 
     private static let kindLinear: Float = 0
     private static let kindRadial: Float = 1
@@ -26,6 +33,15 @@ public enum LocalAdjustmentFlat {
     private static let presentTemperature: Int = 1 << 8
     private static let presentTint: Int = 1 << 9
     private static let presentHue: Int = 1 << 10
+    private static let presentTexture: Int = 1 << 11
+    private static let presentClarity: Int = 1 << 12
+    private static let presentDehaze: Int = 1 << 13
+    private static let presentSharpness: Int = 1 << 14
+    private static let presentLuminanceNoise: Int = 1 << 15
+    private static let presentDefringe: Int = 1 << 16
+
+    /// Slot index of the first spatial control (`texture`).
+    private static let spatialBase = 32
 
     public static func toFlat(_ layers: [LocalAdjustment]) -> [Float] {
         var out = [Float](repeating: 0, count: layers.count * layerFloatLen)
@@ -64,19 +80,36 @@ public enum LocalAdjustmentFlat {
         }
     }
 
-    private static func writeAdjustments(_ a: PartialAdjustments, into out: inout [Float], base: Int) {
-        let fields: [(Double?, Int)] = [
+    /// The ten point controls on the contiguous `12..22` block, paired with
+    /// their presence bits — one list so the writer and the reader below
+    /// cannot disagree about which slot holds which control.
+    private static func pointFields(_ a: PartialAdjustments) -> [(Double?, Int)] {
+        [
             (a.exposure, presentExposure), (a.contrast, presentContrast), (a.highlights, presentHighlights),
             (a.shadows, presentShadows), (a.whites, presentWhites), (a.blacks, presentBlacks),
             (a.saturation, presentSaturation), (a.vibrance, presentVibrance),
             (a.temperature, presentTemperature), (a.tint, presentTint),
         ]
-        var present = 0
-        for (value, bit) in fields where value != nil { present |= bit }
-        if a.hue != nil { present |= presentHue }
+    }
+
+    /// The six spatial controls (#3407) on the `32..38` block, same convention.
+    private static func spatialFields(_ a: PartialAdjustments) -> [(Double?, Int)] {
+        [
+            (a.texture, presentTexture), (a.clarity, presentClarity), (a.dehaze, presentDehaze),
+            (a.sharpness, presentSharpness), (a.luminanceNoise, presentLuminanceNoise),
+            (a.defringe, presentDefringe),
+        ]
+    }
+
+    private static func writeAdjustments(_ a: PartialAdjustments, into out: inout [Float], base: Int) {
+        let point = pointFields(a)
+        let spatial = spatialFields(a)
+        let bits = { (acc: Int, entry: (Double?, Int)) in entry.0 == nil ? acc : acc | entry.1 }
+        let present = spatial.reduce(point.reduce(a.hue == nil ? 0 : presentHue, bits), bits)
         out[base + 8] = Float(present)
-        for (i, (value, _)) in fields.enumerated() { out[base + 12 + i] = Float(value ?? 0) }
+        for (i, (value, _)) in point.enumerated() { out[base + 12 + i] = Float(value ?? 0) }
         out[base + 22] = Float(a.hue ?? 0)
+        for (i, (value, _)) in spatial.enumerated() { out[base + spatialBase + i] = Float(value ?? 0) }
     }
 
     private static func writeRange(_ range: RangeRefinement?, into out: inout [Float], base: Int) {
@@ -130,13 +163,19 @@ public enum LocalAdjustmentFlat {
     private static func readAdjustments(_ flat: [Float], base: Int) -> PartialAdjustments {
         let present = Int(flat[base + 8])
         func field(_ i: Int, _ bit: Int) -> Double? { present & bit != 0 ? Double(flat[base + 12 + i]) : nil }
+        func spatial(_ i: Int, _ bit: Int) -> Double? {
+            present & bit != 0 ? Double(flat[base + spatialBase + i]) : nil
+        }
         return PartialAdjustments(
             exposure: field(0, presentExposure), contrast: field(1, presentContrast),
             highlights: field(2, presentHighlights),
             shadows: field(3, presentShadows), whites: field(4, presentWhites), blacks: field(5, presentBlacks),
             saturation: field(6, presentSaturation), vibrance: field(7, presentVibrance),
             temperature: field(8, presentTemperature), tint: field(9, presentTint),
-            hue: present & presentHue != 0 ? Double(flat[base + 22]) : nil
+            hue: present & presentHue != 0 ? Double(flat[base + 22]) : nil,
+            texture: spatial(0, presentTexture), clarity: spatial(1, presentClarity),
+            dehaze: spatial(2, presentDehaze), sharpness: spatial(3, presentSharpness),
+            luminanceNoise: spatial(4, presentLuminanceNoise), defringe: spatial(5, presentDefringe)
         )
     }
 

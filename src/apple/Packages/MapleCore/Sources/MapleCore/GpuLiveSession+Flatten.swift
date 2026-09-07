@@ -50,7 +50,7 @@ extension GpuLiveSession {
   }
 
   /// Bind the mask stack into `local_adjustments_ptr`/`_len` for the
-  /// duration of `body`, encoded with the same 32-float record
+  /// duration of `body`, encoded with the same 40-float record
   /// `raw_core::types::layers_to_flat` reads (`LocalAdjustmentFlat`).
   ///
   /// Per-call rather than session-owned like `filmLut`/`autoProfile`: the
