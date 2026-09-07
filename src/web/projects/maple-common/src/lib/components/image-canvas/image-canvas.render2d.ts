@@ -13,6 +13,7 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
+import type { CameraSupport } from '../../state/camera-support';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
@@ -63,14 +64,21 @@ export interface Render2dHost {
  * lens-correction fields (older worker builds, minimal test fakes): no known
  * corrections ⇒ the panel reads as disabled, CA reads as inert. Shared by the
  * 2D cold open below and the GPU live-session open (`image-canvas.gpu-present.ts`).
+ * A decode without camera metadata explicitly clears any prior assessment.
  */
-export function lensCorrectionCapabilityFrom(reply: {
+export function decodeSupportFrom(reply: {
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
-}): { hasLensCorrections: boolean; lensCorrectionCaInert: boolean } {
+  cameraSupport?: CameraSupport;
+}): {
+  hasLensCorrections: boolean;
+  lensCorrectionCaInert: boolean;
+  cameraSupport: CameraSupport | null;
+} {
   return {
     hasLensCorrections: reply.hasLensCorrections ?? false,
     lensCorrectionCaInert: reply.lensCorrectionCaInert ?? true,
+    cameraSupport: reply.cameraSupport ?? null,
   };
 }
 
@@ -112,13 +120,13 @@ export async function coldOpen2d(
     host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
     // #3182: record the decode-time lens-correction signal for the Lens
     // Corrections panel. Absent (older stubs / non-updated fakes) reads as
-    // the fail-closed default (see `lensCorrectionCapabilityFrom` above).
-    const lensCorrections = lensCorrectionCapabilityFrom(decoded);
+    // the fail-closed default (see `decodeSupportFrom` above).
+    const support = decodeSupportFrom(decoded);
     host.state.seedLensCorrections(
       assetId,
-      lensCorrections.hasLensCorrections,
-      lensCorrections.lensCorrectionCaInert,
-      decoded.cameraSupport ?? null,
+      support.hasLensCorrections,
+      support.lensCorrectionCaInert,
+      support.cameraSupport,
     );
 
     // Open the gate + record what this no-XMP render reflects (the seed's effect

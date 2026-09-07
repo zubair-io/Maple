@@ -38,11 +38,7 @@ import type {
   GpuFallbackNoticeService,
   GpuFallbackReason,
 } from '../gpu-fallback-notice/gpu-fallback-notice.service';
-import {
-  coldOpen2d,
-  lensCorrectionCapabilityFrom,
-  type Render2dHost,
-} from './image-canvas.render2d';
+import { coldOpen2d, decodeSupportFrom, type Render2dHost } from './image-canvas.render2d';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -358,13 +354,13 @@ export class ImageCanvasGpuPresent {
       this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
       this.host.recordNativeDims(nativeW, nativeH);
       this.host.state.seedAsShotWhiteBalance(assetId, info.asShotTemperature, info.asShotTint);
-      // #3182 — see `lensCorrectionCapabilityFrom` in `image-canvas.render2d.ts`.
-      const lensCorrections = lensCorrectionCapabilityFrom(info);
+      // #3182 — see `decodeSupportFrom` in `image-canvas.render2d.ts`.
+      const support = decodeSupportFrom(info);
       this.host.state.seedLensCorrections(
         assetId,
-        lensCorrections.hasLensCorrections,
-        lensCorrections.lensCorrectionCaInert,
-        info.cameraSupport ?? null,
+        support.hasLensCorrections,
+        support.lensCorrectionCaInert,
+        support.cameraSupport,
       );
       this.host.markColdOpenDone();
       const liveXmp = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());
