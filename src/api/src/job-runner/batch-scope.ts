@@ -37,11 +37,12 @@ export async function batchScopes(payload: Record<string, unknown>): Promise<str
     const sidecar = await safeWriteAllowed(xmpSidecarPath(path.data));
     if (!sidecar.ok || !sidecar.data)
       throw new BatchScopeError(sidecar.error ?? 'Photo is outside registered libraries');
-    if (sidecars.has(sidecar.data))
+    const sidecarPath = sidecar.data;
+    if (sidecars.has(sidecarPath))
       throw new BatchScopeError('Photos in this batch share a sidecar');
-    sidecars.add(sidecar.data);
+    sidecars.add(sidecarPath);
     const matches = roots.filter(
-      (root) => sidecar.data === root || sidecar.data.startsWith(root + sep),
+      (root) => sidecarPath === root || sidecarPath.startsWith(root + sep),
     );
     if (!matches.length) throw new BatchScopeError('Photo is outside registered libraries');
     // The broadest matching root makes nested registrations share one fence.
