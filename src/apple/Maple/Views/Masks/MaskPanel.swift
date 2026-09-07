@@ -1,5 +1,6 @@
 // MaskPanel.swift — the Mask tool's control surface (#3275, spec §3.2): a
-// layer list plus, for the selected layer, its eleven sliders. Mounted as a
+// layer list plus, for the selected layer, its eleven sliders and its
+// colour-range controls (`MaskRangeSection`, #362). Mounted as a
 // full-surface swap in both control layouts (StackedAdjustmentsPanel,
 // MobileControlBar) the way ColorGrade/HSL already are, since Mask has no
 // single primary field for the generic slider grid to key off.
@@ -65,6 +66,11 @@ struct MaskPanel: View {
                 MaskSliderRow(state: state, layerId: layer.id, slider: slider)
                     .padding(.horizontal, 14)
             }
+            // Colour range (#362): the refinement's enable toggle,
+            // eyedropper and five sliders, under the adjustment sliders.
+            MaskRangeSection(state: state, layerId: layer.id)
+                .padding(.horizontal, 14)
+                .padding(.top, 4)
         }
         .padding(.vertical, 6)
         // A disabled mask is present-but-inert (`setMaskEnabled`): its

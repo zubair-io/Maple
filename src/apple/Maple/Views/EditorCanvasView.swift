@@ -55,6 +55,12 @@ struct EditorCanvasView: View {
           WhiteBalancePickOverlay(state: state)
             .id(ObjectIdentifier(state.session))
         }
+        // Colour-range eyedropper (#362): the mask panel's pick target,
+        // same lifetime rule as the WB overlay above.
+        if state.maskRangePicker.isArmed {
+          MaskRangePickOverlay(state: state)
+            .id(ObjectIdentifier(state.session))
+        }
       }
       .padding(state.armedTool == .crop ? Self.cropViewportMargin : 0)
       // The comparison leaf and badge share the same latched/held state.
