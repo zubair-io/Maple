@@ -33,6 +33,8 @@ mod hsl;
 mod color_grade;
 // The four display-referred point-curve entries (#2232); same split reason.
 mod display_curves;
+// The decode-product detail entries (#3413); same split reason.
+mod detail;
 // The seven manual-geometry entries (#3410); same split reason.
 mod perspective;
 // White balance: the slider pair, method, and the #2434 provenance fields.
@@ -490,66 +492,19 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     display_curves::DISPLAY_TONE_CURVE_RED,
     display_curves::DISPLAY_TONE_CURVE_GREEN,
     display_curves::DISPLAY_TONE_CURVE_BLUE,
-    FieldSpec {
-        name: "chroma_prefilter",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.",
-    },
-    FieldSpec {
-        name: "hot_pixel_suppression",
-        kind: FieldKind::Enum,
-        range: (0.0, 0.0),
-        default_f32: 0.0,
-        enum_name: "HotPixelSuppressionMode",
-        doc: "Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key.",
-    },
-    FieldSpec {
-        name: "deep_denoise",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.",
-    },
+    // Decode-product detail stages (#1104 / #1105 / #1106) and the DNG
+    // lens corrections (#376) — see `detail.rs`.
+    detail::CHROMA_PREFILTER,
+    detail::HOT_PIXEL_SUPPRESSION,
+    detail::DEEP_DENOISE,
     // DNG-embedded lens corrections (#376). Decode-product parameters —
     // the OpcodeList3 opcodes are baked into the demosaiced camera-RGB
     // buffer before DCP, so these belong to the same cache-key family as
     // `chroma_prefilter` / `deep_denoise` / `hot_pixel_suppression`.
-    FieldSpec {
-        name: "lens_profile_enable",
-        kind: FieldKind::Enum,
-        range: (0.0, 0.0),
-        default_f32: 0.0,
-        enum_name: "LensProfileEnable",
-        doc: "Master on/off for the lens corrections a DNG embeds in its OpcodeList3 (#376). 'On' (default) applies each family at its own scale, matching ACR's behaviour when a profile is present; 'Off' overrides all three scales. XMP key `crs:LensProfileEnable`.",
-    },
-    FieldSpec {
-        name: "lens_correction_distortion",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 100.0,
-        enum_name: "",
-        doc: "Geometric-distortion correction strength (#376) — the DNG `WarpRectilinear` component common to all three planes. 100 (default) applies the vendor's authored warp in full; 0 leaves the frame undistorted-as-shot. XMP key `crs:LensProfileDistortionScale`. Part of the decoded-image cache key.",
-    },
-    FieldSpec {
-        name: "lens_correction_ca",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 100.0,
-        enum_name: "",
-        doc: "Lateral chromatic-aberration correction strength (#376) — each plane's DNG `WarpRectilinear` deviation from the green reference plane. Has no effect on a DNG carrying a single coefficient set (no CA encoded). XMP key `crs:LensProfileChromaticAberrationScale`. Part of the decoded-image cache key.",
-    },
-    FieldSpec {
-        name: "lens_correction_vignetting",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 100.0,
-        enum_name: "",
-        doc: "Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.",
-    },
+    detail::LENS_PROFILE_ENABLE,
+    detail::LENS_CORRECTION_DISTORTION,
+    detail::LENS_CORRECTION_CA,
+    detail::LENS_CORRECTION_VIGNETTING,
     // Manual geometry (#3410) — see `perspective.rs`.
     perspective::PERSPECTIVE_VERTICAL,
     perspective::PERSPECTIVE_HORIZONTAL,
@@ -558,14 +513,8 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     perspective::PERSPECTIVE_ASPECT,
     perspective::PERSPECTIVE_X,
     perspective::PERSPECTIVE_Y,
-    FieldSpec {
-        name: "demosaic",
-        kind: FieldKind::Enum,
-        range: (0.0, 0.0),
-        default_f32: 0.0,
-        enum_name: "DemosaicChoice",
-        doc: "Bayer demosaic kernel override (#3413). 'Auto' (default) picks from the frame's noise profile and size — LMMSE when noisy, the AMaZE+VNG4 dual on a large clean frame, AMaZE alone on a small one; every other value pins one kernel. Inert on the binned fit-view path and on non-Bayer sources. XMP key `papp:Demosaic`. Part of the decoded-image cache key.",
-    },
+    // Bayer demosaic override (#3413) — see `detail.rs`.
+    detail::DEMOSAIC,
 ];
 
 #[cfg(test)]
