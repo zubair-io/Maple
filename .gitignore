@@ -37,6 +37,12 @@ test-fixtures/*
 # one small JSON layer stack, cross-checked byte-for-byte by both raw-core's
 # and MapleCore's flat-record writer tests ("one fixture, two writers").
 !test-fixtures/local-adjustments/
+# Exception: the committed per-device perf-table rows (#3421) ARE committed —
+# small hand-reviewed JSON, one file per device under test-fixtures/perf/,
+# rendered into docs/performance.md by tools/perf-table.py and gated locally
+# by tools/check-perf-ratchet.py. No RAWs involved.
+!test-fixtures/perf/
+!test-fixtures/perf/**
 # Exception: the film-look self-consistency goldens (epic #2683,
 # src/scripts/test_film_looks.sh) ARE committed — six 1024px-long-edge PNGs
 # (~1MB each), downscaled from the full-res candidate before being written
