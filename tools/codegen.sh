@@ -106,6 +106,7 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 
 "$BIN" --schema white-balance-presets --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/WhiteBalancePresets+Generated.swift"
 "$BIN" --schema white-balance-presets --target ts --out "src/web/projects/maple-common/src/lib/generated/white-balance-presets.generated.ts"
+"$BIN" --schema white-balance-presets --target cs --out "src/windows/Maple.WinUI/Generated/WhiteBalancePresets.g.cs"
 
 "$BIN" --schema export-recipe --target ts --out "src/api/src/generated/export-recipe.generated.ts"
 "$BIN" --schema export-recipe --target ts --out "src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts"

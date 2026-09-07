@@ -9,6 +9,12 @@ namespace Maple.WinUI.Models
     public enum ToneCurveMode { PerChannel, RatioPreserving }
     public enum ToggleMode { Off, On }
 
+    /// <summary>Where the white balance came from (#2434) — raw-core's
+    /// `WbSource`, Swift's `WbSource`, TS's `WbSource` union. The member
+    /// names are the `papp:WbSource` wire spellings. Provenance only: nothing
+    /// in the render chain reads it.</summary>
+    public enum WbSource { AsShot, Auto, Preset, Sampled, Manual }
+
     /// <summary>One control point of a point tone curve, (x, y) in
     /// [0, 1] × [0, 1] — the same model domain raw-core's `ToneCurve`,
     /// Swift's `ToneCurvePoint` and the TypeScript model use, and the domain
@@ -44,6 +50,20 @@ namespace Maple.WinUI.Models
         public double Temperature = 6500.0;          // [2000, 12000]
         public double Tint = 0.0;                    // [-150, 150]
         public WbMethod WbMethod = WbMethod.Cat16;
+        // White-balance name + provenance (#2434), mirroring
+        // `whiteBalancePreset` / `wbSource` / `wbSampleX` / `wbSampleY` /
+        // `wbAlgorithmVersion` on the Swift and TS models. The name is one
+        // of `Generated.WhiteBalancePresets.Names` (`crs:WhiteBalance`,
+        // omitted at Custom); the point is normalised image-relative and
+        // meaningful only while the source is Sampled; the version is the
+        // estimator behind an Auto/Sampled pair, 0 when nothing was derived.
+        // Metadata, never render inputs — `WhiteBalanceProvenance` is the
+        // one place an edit rewrites them.
+        public string WhiteBalancePreset = "Custom";
+        public WbSource WbSource = WbSource.AsShot;
+        public double WbSampleX = 0.0;               // [0, 1]
+        public double WbSampleY = 0.0;               // [0, 1]
+        public double WbAlgorithmVersion = 0.0;
 
         // --- Tone ---
         public double Exposure = 0.0;                // [-4, 4] EV

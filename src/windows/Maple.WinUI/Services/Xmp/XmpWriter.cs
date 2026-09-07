@@ -37,6 +37,7 @@ namespace Maple.WinUI.Services.Xmp
             }
 
             AppendEnumFields(parts, doc.Adjustments);
+            XmpWhiteBalance.AppendAttributes(parts, doc.Adjustments);
             AppendCropFields(parts, doc.Adjustments);
             AppendCullingFields(parts, doc);
 

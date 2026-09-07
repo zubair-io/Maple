@@ -118,8 +118,10 @@ namespace Maple.WinUI.ViewModels
 
                 new("Color", new[]
                 {
-                    Sl("Temp", 2000, 12000, 50, m => m.Temperature, (m, v) => m.Temperature = v, kelvin),
-                    Sl("Tint", -150, 150, 1, m => m.Tint, (m, v) => m.Tint = v, plain),
+                    // A slider write to the pair is a manual edit: it clears
+                    // any sampled/preset/auto provenance with it (#2434).
+                    Sl("Temp", 2000, 12000, 50, m => m.Temperature, WhiteBalanceProvenance.SetManualTemperature, kelvin),
+                    Sl("Tint", -150, 150, 1, m => m.Tint, WhiteBalanceProvenance.SetManualTint, plain),
                     Sl("Vibrance", -100, 100, 1, m => m.Vibrance, (m, v) => m.Vibrance = v, plain),
                     Sl("Saturation", -100, 100, 1, m => m.Saturation, (m, v) => m.Saturation = v, plain),
                 }, expanded: true),

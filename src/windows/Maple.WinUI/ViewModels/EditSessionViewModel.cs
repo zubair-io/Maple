@@ -318,7 +318,9 @@ namespace Maple.WinUI.ViewModels
         }
 
         /// <summary>AUTO (WB preset row): the recommendation's exposure REPLACES
-        /// the AE anchor, so AutoExposure must be set Off with it.</summary>
+        /// the AE anchor, so AutoExposure must be set Off with it. The pair
+        /// is stamped Auto provenance (#2434) — never left carrying a sample
+        /// point another host wrote.</summary>
         public void ApplyAuto()
         {
             var photo = SelectedPhoto;
@@ -341,6 +343,7 @@ namespace Maple.WinUI.ViewModels
                     Adjustments.AutoExposure = ToggleMode.Off;
                     Adjustments.Temperature = auto.temperature;
                     Adjustments.Tint = auto.tint;
+                    WhiteBalanceProvenance.MarkAuto(Adjustments);
                     Adjustments.Contrast = auto.contrast;
                     Adjustments.Highlights = auto.highlights;
                     Adjustments.Shadows = auto.shadows;
