@@ -15,6 +15,7 @@ import type { JobHandlerContext } from './handlers/index.ts';
 import * as jobs from './jobs.repo.ts';
 import { jobsRoutes } from '../routes/jobs.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { getChangeBus } from '../runtime/change-bus.ts';
 
 const dbName = withTestDb(`maple_test_batch_sync_${process.pid}`);
 let mongo: MongoClient | null = null;
@@ -121,6 +122,8 @@ describe('persisted batch adjustment sync', () => {
     expect(rows[0].abs_path).toBe(photo.path);
     expect(rows[0].relative_path).toBe('copies/selected.jpg');
     expect(rows[0].folder_id).toEqual(library!._id);
+    // Publish the exact durable row, including its real Mongo ID and time.
+    expect(getChangeBus().snapshot()).toContainEqual(rows[0]);
     const again = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
     expect(again.result.applied).toEqual([photo.id]);
     expect((await db.collection('assets').findOne({ _id: assetId }))?.sidecar_ver).toBe(8);
