@@ -255,6 +255,12 @@ fn adjustments_from_json(v: &Value) -> Result<PartialAdjustments, String> {
         temperature: g("temperature")?,
         tint: g("tint")?,
         hue: g("hue")?,
+        // Frozen at eleven controls. This format is migration-only — it is
+        // parsed to recover pre-#358 sidecars and never written — so a
+        // document in it cannot carry the spatial controls (#3407), which
+        // did not exist when anything wrote it. `adjustments_to_json` omits
+        // them for the same reason, keeping the two sides symmetric.
+        ..Default::default()
     })
 }
 

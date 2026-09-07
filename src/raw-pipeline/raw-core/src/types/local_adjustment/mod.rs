@@ -46,14 +46,20 @@ pub use wire::{decode_local_adjustments, encode_local_adjustments};
 /// with strength v, scaled by mask weight." Combining strategy is per-field
 /// and lives in `stages::local_adjustments::apply`.
 ///
-/// Every field is wired in `stages::local_adjustments::apply`, applied
-/// in this order: `exposure` → `temperature`/`tint` → `contrast` →
-/// `highlights` → `shadows` → `whites` → `blacks` → `hue` → `saturation` →
-/// `vibrance`. See that module's docs for the operator behind each control
-/// (e.g. `contrast` is a scene-linear, luma-ratio-preserving power curve
-/// pivoted at 0.18 grey — global contrast routes to the AgX sigmoid slope
-/// instead, since AgX runs after this stage and a local mask can't share
-/// that path).
+/// Every field is wired in `stages::local_adjustments::apply`. The eleven
+/// POINT controls run first, per pixel, in this order: `exposure` →
+/// `temperature`/`tint` → `contrast` → `highlights` → `shadows` → `whites` →
+/// `blacks` → `hue` → `saturation` → `vibrance`. See that module's docs for
+/// the operator behind each control (e.g. `contrast` is a scene-linear,
+/// luma-ratio-preserving power curve pivoted at 0.18 grey — global contrast
+/// routes to the AgX sigmoid slope instead, since AgX runs after this stage
+/// and a local mask can't share that path).
+///
+/// The six SPATIAL controls (#3407) — `texture`, `clarity`, `dehaze`,
+/// `sharpness`, `luminance_noise`, `defringe` — cannot be evaluated one
+/// pixel at a time, so they run after the point group as a single grouped
+/// pass over the layer's whole output and are blended back by the mask
+/// weight (`stages::local_adjustments::spatial`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PartialAdjustments {
     pub exposure: Option<f32>,
@@ -71,6 +77,28 @@ pub struct PartialAdjustments {
     /// chroma are preserved; the same soft-knee gamut handling as saturation.
     /// The control the skin-tone workflow drags (#3269).
     pub hue: Option<f32>,
+    /// Fine-detail local contrast inside the mask, −100 … 100 (#3407).
+    /// Runs `stages::texture`'s guided-filter kernel at this strength on the
+    /// layer's output and blends the result back by the mask weight.
+    pub texture: Option<f32>,
+    /// Structure-scale local contrast inside the mask, −100 … 100 (#3407).
+    /// `stages::clarity`, blended by the mask weight.
+    pub clarity: Option<f32>,
+    /// Haze removal inside the mask, −100 … 100 (#3407). `stages::dehaze`,
+    /// blended by the mask weight. Its dark-channel and atmospheric-light
+    /// statistics are whole-buffer, which is why a layer that engages it
+    /// makes the tile path refuse exactly as the global slider does.
+    pub dehaze: Option<f32>,
+    /// Luminance-only unsharp mask inside the mask, −100 … 100 (#3407).
+    /// `stages::sharpen` at the model-default radius / detail / masking,
+    /// blended by the mask weight.
+    pub sharpness: Option<f32>,
+    /// Luminance noise reduction inside the mask, 0 … 100 (#3407).
+    /// `stages::noise_reduction::apply_luminance`, blended by the mask weight.
+    pub luminance_noise: Option<f32>,
+    /// Chroma-fringe suppression at high-contrast edges inside the mask,
+    /// 0 … 100 (#3407). `stages::defringe`, blended by the mask weight.
+    pub defringe: Option<f32>,
 }
 
 impl PartialAdjustments {
@@ -89,6 +117,20 @@ impl PartialAdjustments {
             && self.temperature.is_none()
             && self.tint.is_none()
             && self.hue.is_none()
+            && self.spatial_is_empty()
+    }
+
+    /// `true` iff none of the six SPATIAL controls (#3407) is set. Split out
+    /// of [`Self::is_empty`] because the apply stage asks the two questions
+    /// separately: the point group runs per pixel, the spatial group runs
+    /// once over the layer's whole output.
+    pub fn spatial_is_empty(&self) -> bool {
+        self.texture.is_none()
+            && self.clarity.is_none()
+            && self.dehaze.is_none()
+            && self.sharpness.is_none()
+            && self.luminance_noise.is_none()
+            && self.defringe.is_none()
     }
 }
 
@@ -284,6 +326,50 @@ mod tests {
             ..Default::default()
         };
         assert!(!p.is_empty());
+    }
+
+    #[test]
+    fn partial_adjustments_with_only_a_spatial_control_is_not_empty() {
+        for p in [
+            PartialAdjustments {
+                texture: Some(20.0),
+                ..Default::default()
+            },
+            PartialAdjustments {
+                clarity: Some(-15.0),
+                ..Default::default()
+            },
+            PartialAdjustments {
+                dehaze: Some(30.0),
+                ..Default::default()
+            },
+            PartialAdjustments {
+                sharpness: Some(40.0),
+                ..Default::default()
+            },
+            PartialAdjustments {
+                luminance_noise: Some(25.0),
+                ..Default::default()
+            },
+            PartialAdjustments {
+                defringe: Some(60.0),
+                ..Default::default()
+            },
+        ] {
+            assert!(!p.is_empty());
+            assert!(!p.spatial_is_empty());
+        }
+    }
+
+    #[test]
+    fn point_only_adjustments_report_an_empty_spatial_group() {
+        let p = PartialAdjustments {
+            exposure: Some(0.5),
+            hue: Some(3.0),
+            ..Default::default()
+        };
+        assert!(!p.is_empty());
+        assert!(p.spatial_is_empty());
     }
 
     #[test]

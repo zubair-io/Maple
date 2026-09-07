@@ -117,11 +117,22 @@ fn serialize_adjustments(a: &PartialAdjustments, indent: &str) -> String {
             out.push_str(&format!("\n{indent}{key}=\"{}\"", fmt2(v)));
         }
     }
-    // Hue (#3269): Maple's slider is ±100, Adobe's crs:LocalHue is ±1 — the
-    // same scale convention every other `crs:Local*` key uses, so it can't
-    // ride the plain loop above.
-    if let Some(h) = a.hue {
-        out.push_str(&format!("\n{indent}crs:LocalHue=\"{}\"", fmt4(h / 100.0)));
+    // Hue (#3269) and the six spatial controls (#3407): Maple's sliders are
+    // ±100 (0…100 for noise and defringe), Adobe's keys are the ±1 fraction
+    // Lightroom writes, so these can't ride the plain loop above. Four
+    // decimals keep two decimals of the ±100 value through the round trip.
+    for (key, value) in [
+        ("crs:LocalHue", a.hue),
+        ("crs:LocalTexture", a.texture),
+        ("crs:LocalClarity2012", a.clarity),
+        ("crs:LocalDehaze", a.dehaze),
+        ("crs:LocalSharpness", a.sharpness),
+        ("crs:LocalLuminanceNoise", a.luminance_noise),
+        ("crs:LocalDefringe", a.defringe),
+    ] {
+        if let Some(v) = value {
+            out.push_str(&format!("\n{indent}{key}=\"{}\"", fmt4(v / 100.0)));
+        }
     }
     out
 }

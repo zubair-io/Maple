@@ -48,6 +48,15 @@ pub(super) fn reject_untileable(
             "tile path is not supported when dehaze != 0 (global statistics + radius-60 transmission refine need a full-frame proxy plane)",
         );
     }
+    // The same rejection for the PER-MASK dehaze control (#3407): a layer's
+    // dehaze runs the identical global kernel on that layer's scratch copy,
+    // so it inherits the identical whole-frame dependency. The threshold
+    // matches `stages::local_adjustments::spatial`'s own engage check.
+    if crate::stages::local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {
+        return reject(
+            "tile path is not supported when a local-adjustment layer sets dehaze != 0 (global statistics + radius-60 transmission refine need a full-frame proxy plane). See #3407.",
+        );
+    }
     // BM3D deep denoise (#1105): the reference-patch grid is anchored at the
     // buffer origin, so a tile-relative grid aggregates different groups
     // than the full-frame render and seams at tile borders. The threshold

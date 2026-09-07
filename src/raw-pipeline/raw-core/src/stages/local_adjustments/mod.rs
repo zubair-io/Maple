@@ -24,6 +24,14 @@
 //! 7. `vibrance` — low-chroma-weighted Oklab boost with skin-tone protection
 //!    (`vibrance::apply_pixel`).
 //!
+//! **Spatial controls** (#3407) — `texture`, `clarity`, `dehaze`,
+//! `sharpness`, `luminance_noise`, `defringe` — run AFTER the point group,
+//! once per layer over that layer's whole output rather than per pixel,
+//! because each of them reads a neighbourhood no per-pixel weight can
+//! confine. Each calls the SAME global stage kernel and the result is
+//! lerped back by the mask weight; see [`spatial`] for the delta form and
+//! for the guard that keeps an unengaged layer free.
+//!
 //! All operators are hue-preserving (uniform RGB scalars, or chroma-only
 //! Oklab moves) and none clips: scene values pass through unbounded so the
 //! single downstream view transform owns the scene→display compression.
@@ -46,6 +54,7 @@ use crate::types::{LocalAdjustment, Mask, MaskRaster, PartialAdjustments, RangeR
 pub mod hue;
 pub mod mask;
 pub mod range;
+pub mod spatial;
 
 /// Apply every `LocalAdjustment` in `layers` to `img`. Layers are applied
 /// in order, each compositing on top of the previous result — there is no
@@ -197,6 +206,11 @@ fn apply_core(
     // pool is process-global and already warm. The one allocation this
     // function can make is the weights buffer itself, made ONCE above, not
     // per layer or per pixel.
+    // Scratch for the spatial group's own weights (#3407), allocated at most
+    // ONCE for the whole stack and only when some layer actually engages a
+    // spatial control — a point-only model never pays for it.
+    let mut spatial_weights: Option<Vec<f32>> = None;
+
     for (li, layer) in layers.iter().enumerate() {
         let is_scope_target = Some(li) == scope_layer;
         if layer.adjustments.is_empty() && !is_scope_target {
@@ -206,43 +220,75 @@ fn apply_core(
         // is a linear scan of `rasters`, and every pixel in this layer's
         // pass wants the SAME raster.
         let raster = mask::resolve(&layer.mask, rasters);
-        if is_scope_target {
-            let weight_buf = weights
-                .as_mut()
-                .expect("scope_layer in range implies weights was allocated above");
-            img.pixels
-                .par_chunks_mut(w)
-                .zip(weight_buf.par_chunks_mut(w))
-                .enumerate()
-                .for_each(|(y, (row, weight_row))| {
-                    let ny = (origin.1 + y as i32) as f32 * inv_h;
-                    for (x, p) in row.iter_mut().enumerate() {
-                        let nx = (origin.0 + x as i32) as f32 * inv_w;
-                        let weight =
-                            combined_weight(&layer.mask, raster, layer.range.as_ref(), nx, ny, p);
-                        weight_row[x] = weight;
-                        if weight <= 0.0 || layer.adjustments.is_empty() {
-                            continue;
-                        }
-                        apply_pixel(p, &layer.adjustments, weight);
-                    }
-                });
+        // The spatial group needs this layer's per-pixel weight to blend by,
+        // and the scope pass already records exactly that buffer — so a
+        // scope-target layer reuses it rather than evaluating the mask twice.
+        let spatial_on = spatial::engaged(&layer.adjustments);
+        let record = if is_scope_target {
+            weights.as_mut()
+        } else if spatial_on {
+            Some(spatial_weights.get_or_insert_with(|| vec![0.0f32; w * h]))
         } else {
-            img.pixels
-                .par_chunks_mut(w)
-                .enumerate()
-                .for_each(|(y, row)| {
-                    let ny = (origin.1 + y as i32) as f32 * inv_h;
-                    for (x, p) in row.iter_mut().enumerate() {
-                        let nx = (origin.0 + x as i32) as f32 * inv_w;
-                        let weight =
-                            combined_weight(&layer.mask, raster, layer.range.as_ref(), nx, ny, p);
-                        if weight <= 0.0 {
-                            continue;
+            None
+        };
+        match record {
+            Some(weight_buf) => {
+                img.pixels
+                    .par_chunks_mut(w)
+                    .zip(weight_buf.par_chunks_mut(w))
+                    .enumerate()
+                    .for_each(|(y, (row, weight_row))| {
+                        let ny = (origin.1 + y as i32) as f32 * inv_h;
+                        for (x, p) in row.iter_mut().enumerate() {
+                            let nx = (origin.0 + x as i32) as f32 * inv_w;
+                            let weight = combined_weight(
+                                &layer.mask,
+                                raster,
+                                layer.range.as_ref(),
+                                nx,
+                                ny,
+                                p,
+                            );
+                            weight_row[x] = weight;
+                            if weight <= 0.0 || layer.adjustments.is_empty() {
+                                continue;
+                            }
+                            apply_pixel(p, &layer.adjustments, weight);
                         }
-                        apply_pixel(p, &layer.adjustments, weight);
-                    }
-                });
+                    });
+            }
+            None => {
+                img.pixels
+                    .par_chunks_mut(w)
+                    .enumerate()
+                    .for_each(|(y, row)| {
+                        let ny = (origin.1 + y as i32) as f32 * inv_h;
+                        for (x, p) in row.iter_mut().enumerate() {
+                            let nx = (origin.0 + x as i32) as f32 * inv_w;
+                            let weight = combined_weight(
+                                &layer.mask,
+                                raster,
+                                layer.range.as_ref(),
+                                nx,
+                                ny,
+                                p,
+                            );
+                            if weight <= 0.0 {
+                                continue;
+                            }
+                            apply_pixel(p, &layer.adjustments, weight);
+                        }
+                    });
+            }
+        }
+        if spatial_on {
+            let filled = if is_scope_target {
+                weights.as_deref()
+            } else {
+                spatial_weights.as_deref()
+            }
+            .expect("an engaged spatial layer always records its weights above");
+            spatial::apply_group(img, &layer.adjustments, filled);
         }
     }
     weights
