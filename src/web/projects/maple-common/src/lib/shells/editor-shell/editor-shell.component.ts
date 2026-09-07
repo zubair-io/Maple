@@ -34,37 +34,13 @@ import {
   untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LayoutService } from '../../layout-service';
 import type { AssetId } from '../../models/asset';
-import { MapleIconComponent } from '../../icons/maple-icon.component';
-import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
-import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas.component';
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
-import { HistogramComponent } from '../../components/scopes/histogram.component';
-import { ScopesPanelComponent } from '../../components/scopes/scopes-panel.component';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { ControlCardComponent } from '../../components/editor/control-card.component';
-import { ToolDockComponent } from '../../components/editor/tool-dock.component';
-import { ValueHudComponent } from '../../components/editor/value-hud.component';
-import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
-import { WbPadComponent } from '../../components/develop/wb-pad.component';
-import { ColorGradingPanelComponent } from '../../components/develop/color-grading-panel.component';
-import { FilmPanelComponent } from '../../components/editor/film-panel.component';
-import { LensCorrectionsPanelComponent } from '../../components/editor/lens-corrections-panel.component';
-import { GeometryPanelComponent } from '../../components/editor/geometry-panel.component';
-import { DemosaicPanelComponent } from '../../components/editor/demosaic-panel.component';
-import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
-import { MaskPanelComponent } from '../../components/mask-panel/mask-panel.component';
-import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
-import { SubParamRowComponent } from '../../editor/sub-param-row.component';
-import { DragBarComponent } from '../../editor/drag-bar.component';
-import { ValueChipComponent } from '../../editor/value-chip.component';
-import { InfoPanelComponent } from '../../info/info-panel.component';
-import { MuiSheetShellComponent } from '../../ui/sheet-shell/mui-sheet-shell.component';
-import { ExportDialogComponent } from '../../export/export-dialog.component';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { basenameOf } from '../shell-helpers';
@@ -89,7 +65,6 @@ import {
   onCanvasWheel,
 } from './editor-shell-wheel';
 import type { MuiCommandItem } from '../../ui/command-menu/mui-command-menu.component';
-import { MuiCommandMenuComponent } from '../../ui/command-menu/mui-command-menu.component';
 import {
   type ChromeRecedeState,
   newChromeRecedeState,
@@ -122,40 +97,14 @@ import {
   toggleScopes,
 } from './editor-shell-panels';
 import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
+import { EDITOR_SHELL_IMPORTS } from './editor-shell.imports';
 import { type ChromeState, HOST_CLASS } from './editor-shell.classes';
 import * as sc from './editor-shell.classes';
 
 @Component({
   selector: 'editor-shell',
   standalone: true,
-  imports: [
-    MaskPanelComponent,
-    NgTemplateOutlet,
-    MapleIconComponent,
-    FilmstripComponent,
-    ImageCanvasComponent,
-    HistogramComponent,
-    ScopesPanelComponent,
-    ControlCardComponent,
-    ToolDockComponent,
-    ValueHudComponent,
-    ToneCurveComponent,
-    WbPadComponent,
-    ColorGradingPanelComponent,
-    FilmPanelComponent,
-    LensCorrectionsPanelComponent,
-    GeometryPanelComponent,
-    DemosaicPanelComponent,
-    CropToolbarComponent,
-    PresetsPanelComponent,
-    SubParamRowComponent,
-    DragBarComponent,
-    ValueChipComponent,
-    InfoPanelComponent,
-    MuiSheetShellComponent,
-    ExportDialogComponent,
-    MuiCommandMenuComponent,
-  ],
+  imports: [ControlCardComponent, ...EDITOR_SHELL_IMPORTS],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
