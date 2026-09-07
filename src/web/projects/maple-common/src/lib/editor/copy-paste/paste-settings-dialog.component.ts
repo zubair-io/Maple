@@ -149,6 +149,8 @@ export class PasteSettingsDialogComponent {
     const generation = ++this.baselineGeneration;
     if (!enabled) {
       this.readingBaseline.set(false);
+      this.baseline.set(undefined);
+      this.baselineError.set(null);
       return;
     }
     this.readingBaseline.set(true);
