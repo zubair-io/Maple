@@ -69,8 +69,12 @@
        value chip) in here instead. Colour Grading projects its four-wheel
        panel. Film (#2683) projects the catalog picker + strength slider.
        Lens Corrections (#2231) projects its toggle + three sliders.
+       Capture sharpening (#3414) reuses the SAME sub-param surface as HSL and
+       B&W — its Amount and Sigma are both decode-product fields, so they have
+       to ride the drag bar's commit-on-release path rather than this card's
+       per-tick slider grid.
        Anything else falls back to the plain slider grid. -->
-  @if (activeTool() === 'hsl' || activeTool() === 'bwMix') {
+  @if (activeTool() === 'hsl' || activeTool() === 'bwMix' || activeTool() === 'captureSharpen') {
     <ng-content select="[cardBodySubParam]" />
   } @else if (activeTool() === 'colorGrade') {
     <ng-content select="[cardBodyGrade]" />
