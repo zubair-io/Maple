@@ -80,7 +80,6 @@ import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
 import {
   BREAKER_FRACTION,
@@ -95,6 +94,7 @@ import {
 } from './missing-reaper.helpers.ts';
 import { reapRow, reconcileSurvivor } from './missing-reaper.reconcile.ts';
 import { makePausedPoller } from './paused-poller.ts';
+import { registerPausableWorker } from './pause-control.ts';
 
 const log = childLogger('missing-reaper');
 
@@ -396,75 +396,33 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
 
-  // Paused only until the persisted control state is read — a config-store blip
-  // on boot must not run a destructive sweep against an operator's prior pause.
-  let paused = true;
   let running = false;
   let stopped = false;
   const throughput = new ThroughputWindow();
 
-  // Persisted pause/resume, the same surface every other worker uses.
-  let repoPromise: Promise<WorkerConfigRepo> | null = null;
-  const getRepo = (): Promise<WorkerConfigRepo> => {
-    if (!repoPromise) {
-      repoPromise = (async () => {
-        const { getDb } = await import('../db/client.ts');
-        const db = await getDb();
-        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-      })();
-    }
-    return repoPromise;
-  };
-  const loadPaused = async (): Promise<void> => {
-    try {
-      const cfg = await (await getRepo()).load(MISSING_REAPER_NAME);
-      paused = cfg?.paused ?? false; // default running on first boot
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : err },
-        'missing-reaper: could not load persisted pause state — staying paused',
-      );
-    }
-  };
-  const persistPaused = async (value: boolean): Promise<void> => {
-    try {
-      const r = await getRepo();
-      await r.patch(MISSING_REAPER_NAME, { paused: value });
-    } catch {
-      /* best-effort — in-memory state already applied; next boot re-reads */
-    }
-  };
-
-  stageRegistry.register(MISSING_REAPER_NAME, {
-    targetVersion: 1,
-    // Not a claim stage — no upstream dependencies. The /status ready/blocked
-    // split (and its buildClaimQuery) is gated to real claim stages anyway.
-    dependsOn: [],
+  // Persisted pause/resume, the same surface every other worker uses. Paused
+  // only until the persisted control state is read — a config-store blip on
+  // boot must not run a destructive sweep against an operator's prior pause.
+  const control = registerPausableWorker({
+    name: MISSING_REAPER_NAME,
+    log,
+    initialPaused: true,
+    defaultPaused: false, // default running on first boot
     getInFlight: () => (running ? 1 : 0),
     getThroughput: () => throughput.countInWindow(),
-    getPaused: () => paused,
-    reloadConfig: async () => {
-      await loadPaused();
-    },
-    pause: async () => {
-      paused = true;
-      await persistPaused(true);
-      log.info('missing-reaper paused');
-    },
-    resume: async () => {
-      paused = false;
-      await persistPaused(false);
-      log.warn(
+    messages: {
+      loadFailed: 'missing-reaper: could not load persisted pause state — staying paused',
+      paused: 'missing-reaper paused',
+      resumed:
         'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (recoverable until the trash retention window expires)',
-      );
     },
+    resumedLevel: 'warn',
   });
-
-  // Adopt the persisted control state shortly after boot.
-  const ready = loadPaused();
+  // Resolves once the persisted control state has been adopted after boot.
+  const { ready } = control;
 
   // Throttled cross-process pause poller (2s interval). See paused-poller.ts.
-  const pollPaused = makePausedPoller(MISSING_REAPER_NAME, paused);
+  const pollPaused = makePausedPoller(MISSING_REAPER_NAME, control.paused);
 
   const tick = async (): Promise<void> => {
     // Runs even when paused — recovery/prune (re-found files) must keep working;
@@ -472,13 +430,13 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     if (stopped || running) return;
     running = true;
     try {
-      paused = await pollPaused();
+      control.paused = await pollPaused();
       const pruneWindowHours = await loadPruneWindowHours();
       const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
       const summary = await runMissingReaperOnce({
         batchSize,
         deleteBeforeIso,
-        allowDelete: !paused,
+        allowDelete: !control.paused,
       });
       for (let i = 0; i < summary.reaped; i++) throughput.record(new Date());
       if (summary.breakerTripped) {

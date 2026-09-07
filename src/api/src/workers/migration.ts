@@ -18,8 +18,8 @@
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { makePausedPoller } from './paused-poller.ts';
+import { registerPausableWorker } from './pause-control.ts';
 import { MIGRATIONS } from './migration/index.ts';
 import {
   MigrationBlockedError,
@@ -168,62 +168,25 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
 
-  let paused = false;
   let running = false;
   let stopped = false;
   const throughput = new ThroughputWindow();
 
-  let repoPromise: Promise<WorkerConfigRepo> | null = null;
-  const getRepo = (): Promise<WorkerConfigRepo> => {
-    if (!repoPromise) {
-      repoPromise = (async () => {
-        const { getDb } = await import('../db/client.ts');
-        const db = await getDb();
-        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-      })();
-    }
-    return repoPromise;
-  };
-  const loadPaused = async (): Promise<void> => {
-    try {
-      const cfg = await (await getRepo()).load(MIGRATION_WORKER_NAME);
-      paused = cfg?.paused ?? false;
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : err },
-        'migration: could not load persisted pause state — defaulting to running',
-      );
-    }
-  };
-  const persistPaused = async (value: boolean): Promise<void> => {
-    try {
-      const r = await getRepo();
-      await r.patch(MIGRATION_WORKER_NAME, { paused: value });
-    } catch {
-      /* best-effort — in-memory state already applied; next boot re-reads */
-    }
-  };
-
-  stageRegistry.register(MIGRATION_WORKER_NAME, {
-    targetVersion: 1,
-    dependsOn: [], // not a claim stage
+  const control = registerPausableWorker({
+    name: MIGRATION_WORKER_NAME,
+    log,
+    initialPaused: false,
+    defaultPaused: false,
     getInFlight: () => (running ? 1 : 0),
     getThroughput: () => throughput.countInWindow(),
-    getPaused: () => paused,
-    reloadConfig: loadPaused,
-    pause: async () => {
-      paused = true;
-      await persistPaused(true);
-      log.info('migration worker paused');
+    messages: {
+      loadFailed: 'migration: could not load persisted pause state — defaulting to running',
+      paused: 'migration worker paused',
+      resumed: 'migration worker resumed',
     },
-    resume: async () => {
-      paused = false;
-      await persistPaused(false);
-      log.info('migration worker resumed');
-    },
+    resumedLevel: 'info',
   });
-
-  const ready = loadPaused();
+  const { ready } = control;
 
   // One-time hygiene: drop persisted state for any migration no longer in the
   // registry (e.g. the restructure-backup-* migrations this worker replaced) so
@@ -234,7 +197,7 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
   // Throttled cross-process pause poller: re-reads worker_config.paused from
   // Mongo at most once per 2s so a pause written by the API process takes
   // effect without IPC. Shares the same mechanism as missing-reaper.
-  const pollPaused = makePausedPoller(MIGRATION_WORKER_NAME, paused);
+  const pollPaused = makePausedPoller(MIGRATION_WORKER_NAME, control.paused);
 
   const tick = async (): Promise<void> => {
     if (stopped || running) return;
@@ -242,10 +205,10 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
     try {
       // Re-read the paused flag from Mongo each tick (throttled) so a
       // cross-process pause written by the API process takes effect without IPC.
-      paused = await pollPaused();
+      control.paused = await pollPaused();
       // `return` here still runs the `finally` block below, so `running` is
       // cleared correctly even when we skip a paused tick.
-      if (paused) return;
+      if (control.paused) return;
       const processed = await runMigrationTickOnce(batchSize, new Date().toISOString());
       for (let i = 0; i < processed; i++) throughput.record(new Date());
       stageRegistry.clearError(MIGRATION_WORKER_NAME);
