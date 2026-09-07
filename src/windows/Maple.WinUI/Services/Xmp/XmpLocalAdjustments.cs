@@ -61,6 +61,22 @@ namespace Maple.WinUI.Services.Xmp
             ("crs:LocalHue", p => p.Hue / 100, (p, v) => p with { Hue = v * 100 }),
         };
 
+        private const string HueKey = "crs:LocalHue";
+
+        /// <summary>
+        /// `crs:LocalHue` rides Adobe's ±1 scale, so the canonical two-decimal
+        /// codec (XmpSchema.FormatNumber) would quantise Maple's ±100 slider
+        /// to whole units and drift a fractional value on every round-trip
+        /// (−42.5 → "-0.43" → −43). Four decimals keep two decimals of the
+        /// ±100 value — mirrors raw-core's `fmt4` (round half away from zero)
+        /// and Swift's `fmtNum4` so all four writers stay byte-identical (#3400).
+        /// </summary>
+        private static string FormatHue(double v) =>
+            (Math.Round(v * 10_000, MidpointRounding.AwayFromZero) / 10_000).ToString(CultureInfo.InvariantCulture);
+
+        private static string FormatSlider(string key, double v) =>
+            key == HueKey ? FormatHue(v) : XmpSchema.FormatNumber(v);
+
         /// <summary>The canonical container tag `child` is, or null when it is neither.</summary>
         public static string? ContainerTagFor(XElement child)
         {
@@ -267,7 +283,7 @@ namespace Maple.WinUI.Services.Xmp
                         // value is not representable in XMP and is skipped.
                         .Select(s => (s.Key, Value: s.Get(layer.Adjustments)))
                         .Where(s => s.Value is not null && double.IsFinite(s.Value.Value))
-                        .Select(s => $"{i4}{s.Key}=\"{XmpSchema.FormatNumber(s.Value!.Value)}\""))
+                        .Select(s => $"{i4}{s.Key}=\"{FormatSlider(s.Key, s.Value!.Value)}\""))
                     .Concat(RangeLines(layer.Range, i4));
                 return new[]
                     {
