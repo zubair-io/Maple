@@ -32,9 +32,9 @@ extension RenderActor {
     // is the correct no-op gain for a buffer with no explicit export
     // (matches `MapleSceneLinearImageData.aeGain`'s default).
     self.decodedAeGain = 1.0
-    // Seeded preview buffers carry no lens-correction export (#2231) —
-    // same reasoning as `decodedWbFrame` above; a stale value from a
-    // previous asset must not describe this one.
+    // Seeded previews carry no camera-support metadata or lens-correction
+    // export (#2231). Clear both, like `decodedWbFrame` above, so stale
+    // values from a previous asset cannot describe this one.
     self.decodedCameraSupport = nil
     self.decodedHasLensCorrections = false
     self.decodedLensCorrectionCaInert = true
