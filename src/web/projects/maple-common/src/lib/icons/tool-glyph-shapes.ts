@@ -48,6 +48,7 @@ export type ToolIconName =
   | 'tool-color-nr'
   | 'tool-lens'
   | 'tool-crop'
+  | 'tool-geometry'
   | 'tool-presets';
 
 /** Stroke weight every tool glyph is drawn to (#640). */
@@ -218,6 +219,10 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
   // ── Standalone ──────────────────────────────────────────────────────────
   // Two crop rails crossing — the classic corner-bracket pair.
   'tool-crop': [p('M4.6 2.6v8.8h8.8'), p('M2.6 4.6h8.8v8.8')],
+  // A trapezoid inside a frame — the keystone the tool corrects, drawn as
+  // the shape a tilted camera gives a rectangular building. Mirrored verbatim
+  // to Apple's `ToolGlyphShapes.swift` (`case .geometry`, #3410).
+  'tool-geometry': [p('M2.6 2.6h10.8v10.8H2.6z'), p('M5.4 4.4h5.2l1.4 7.2H4z')],
   // Two offset cards — a stack of saved looks.
   'tool-presets': [r(5.2, 2.8, 8, 8, 2), r(2.8, 5.2, 8, 8, 2)],
 };

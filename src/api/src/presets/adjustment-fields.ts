@@ -140,6 +140,16 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   lens_correction_distortion: [0.0, 100.0],
   lens_correction_ca: [0.0, 100.0],
   lens_correction_vignetting: [0.0, 100.0],
+  // Manual geometry (#3410) — the seven `crs:Perspective*` scalars. Note
+  // `perspective_scale`'s range is 50..150 with a default of 100, not the
+  // 0-based shape most entries above take.
+  perspective_vertical: [-100.0, 100.0],
+  perspective_horizontal: [-100.0, 100.0],
+  perspective_rotate: [-10.0, 10.0],
+  perspective_scale: [50.0, 150.0],
+  perspective_aspect: [-100.0, 100.0],
+  perspective_x: [-100.0, 100.0],
+  perspective_y: [-100.0, 100.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */

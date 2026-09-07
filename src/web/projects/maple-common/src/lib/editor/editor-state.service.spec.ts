@@ -438,16 +438,18 @@ describe('EditorStateService', () => {
 
   describe('tool catalog', () => {
     it('verifies tool registry configuration', () => {
-      // 26 + mask (#1541).
-      expect(ALL_TOOLS.length).toBe(27);
+      // 26 + mask (#1541) + geometry (#3410).
+      expect(ALL_TOOLS.length).toBe(28);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(6);
       expect(TOOLS_IN_GROUP.effects.length).toBe(7);
-      // Detail gained lensCorrections (#2231): 5 → 6.
-      expect(TOOLS_IN_GROUP.detail.length).toBe(7);
+      // Detail gained lensCorrections (#2231): 5 → 6, then geometry (#3410).
+      expect(TOOLS_IN_GROUP.detail.length).toBe(8);
 
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(25);
+      // Geometry (#3410) is wired: its sliders write real model fields, even
+      // though the drag bar has no primary among them.
+      expect(wired.length).toBe(26);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
       expect(isWired('colorGrade')).toBe(true);

@@ -327,6 +327,41 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     },
     featuresRow: 'Crop + straighten',
   }),
+  // Manual geometry (#3410) — the seven `crs:Perspective*` sliders. A panel
+  // tool, not a slider tool: seven fields and no single primary one, so
+  // `field` stays null the way Crop's does and the copy/paste group carries
+  // the participation contract instead. Order 75 sits it between Crop (70)
+  // and Presets (80), which is where both docks show it.
+  panelTool({
+    id: 'geometry',
+    name: 'Geometry',
+    group: 'detail',
+    order: 75,
+    copyPaste: 'geometry',
+    preview: 'live',
+    presentation: {
+      compact:
+        'Geometry dock entry or the Detail sub-tool chip swaps the phone control card body for the seven-slider panel',
+      regular:
+        'Geometry dock entry or the Detail sub-tool chip swaps the control card body for the seven-slider panel',
+      wide: 'Same as regular',
+    },
+    interaction: {
+      keyboard: 'Tab to a slider (role=slider); arrow keys nudge; the gesture is one undo entry',
+      pointer: 'Drag a track; double-click a track resets that slider to its own default',
+      touch: 'Same drags',
+      focus: 'Each focused slider consumes its own value keys; the drag bar is inert for this tool',
+    },
+    accessibility: {
+      role: 'slider ×7',
+      name: 'Vertical; Horizontal; Rotate; Scale; Aspect; X Offset; Y Offset',
+      value:
+        'aria-valuenow per slider — keystone/aspect/offset −100…100, Rotate ±10°, Scale 50…150%',
+      state: 'none',
+      actions: ['correct vertical / horizontal keystone', 'rotate', 'scale', 'stretch', 'reframe'],
+    },
+    featuresRow: 'Manual geometry',
+  }),
   panelTool({
     id: 'presets',
     name: 'Presets',

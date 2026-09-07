@@ -78,6 +78,8 @@
     <ng-content select="[cardBodyFilm]" />
   } @else if (activeTool() === 'lensCorrections') {
     <ng-content select="[cardBodyLens]" />
+  } @else if (activeTool() === 'geometry') {
+    <ng-content select="[cardBodyGeometry]" />
   } @else {
     @if (activeGroup() === 'color') {
       <ng-content select="[cardBodyWhiteBalance]" />

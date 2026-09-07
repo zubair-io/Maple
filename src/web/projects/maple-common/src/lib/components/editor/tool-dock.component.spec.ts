@@ -450,8 +450,8 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
   });
 });
 
-describe('Apple 10-entry parity', () => {
-  it('renders exactly the ten Apple entries in order, both orientations', () => {
+describe('Apple 11-entry parity', () => {
+  it('renders exactly the eleven Apple entries in order, both orientations', () => {
     const expected = [
       'Light',
       'Color',
@@ -460,6 +460,8 @@ describe('Apple 10-entry parity', () => {
       'Crop',
       'Tone Curve',
       'Film',
+      // Geometry (#3410) sits between Film and Presets in ToolDock.swift too.
+      'Geometry',
       'Presets',
       'Mask',
       'Heal',

@@ -184,6 +184,16 @@ namespace Maple.WinUI.Tests.Support
             LensCorrectionDistortion = 85,
             LensCorrectionCa = 70,
             LensCorrectionVignetting = 60,
+            // Manual geometry (#3410) — the same seven values the Swift and
+            // TypeScript canonical goldens carry, so the three suites stay
+            // eyeball-comparable where the field exists on all of them.
+            PerspectiveVertical = -20,
+            PerspectiveHorizontal = 12.5,
+            PerspectiveRotate = -3.5,
+            PerspectiveScale = 110,
+            PerspectiveAspect = -35,
+            PerspectiveX = 8,
+            PerspectiveY = -6,
             // The shared cross-language local-adjustment fixture (#358):
             // one linear and one radial layer, the same values every
             // platform's canonical-block literal pins.
