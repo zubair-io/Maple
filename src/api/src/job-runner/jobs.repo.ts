@@ -350,24 +350,25 @@ function checkpointFields(checkpoint: Record<string, unknown>, entryIndex?: numb
 /** Resume only unfinished entries of an interrupted batch; the saved ledger is retained. */
 export async function resumeBatchJob(id: ObjectId): Promise<boolean> {
   const c = await jobsCollection();
-  const result = await c.updateOne(
-    {
-      _id: id,
-      kind: { $in: ['batch_adjustment_sync', 'batch_recipe_export', 'batch_jpeg_export'] },
-      status: { $in: ['failed', 'cancelled'] },
-    },
-    {
-      $set: {
-        status: 'queued',
-        locked_by: null,
-        lease_expires_at: null,
-        cancel_requested: false,
-        error: null,
-        result: null,
-        updated_at: new Date().toISOString(),
+  const result = await c
+    .updateOne(
+      {
+        _id: id,
+        kind: { $in: ['batch_adjustment_sync', 'batch_recipe_export', 'batch_jpeg_export'] },
+        status: { $in: ['failed', 'cancelled'] },
       },
-    },
-  )
+      {
+        $set: {
+          status: 'queued',
+          locked_by: null,
+          lease_expires_at: null,
+          cancel_requested: false,
+          error: null,
+          result: null,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    )
     .catch((error: unknown) => {
       if (jobConflictMessage(error)) return null;
       throw error;
