@@ -185,10 +185,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
                     RenderQuality::Preview => {
                         demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel)
                     }
-                    #[cfg(feature = "high-quality-demosaic")]
-                    RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
-                    #[cfg(not(feature = "high-quality-demosaic"))]
-                    RenderQuality::Full => demosaic::bilinear_cancellable(&mosaic, raw.cfa, cancel),
+                    RenderQuality::Full => demosaic::rcd_cancellable(&mosaic, raw.cfa, cancel),
                     RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
                 }
             })

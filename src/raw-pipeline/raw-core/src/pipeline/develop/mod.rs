@@ -177,18 +177,15 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             stage("hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
-            // The interactive Bayer paths (Preview `half_res`, Full
-            // `bilinear`) take cancellable kernels so a cancel mid-demosaic
-            // unwinds per-row. The export-only AMaZE / Hamilton-Adams kernels
-            // are not instrumented inline — they're not on the cold-open
-            // interactive path — but the post-demosaic check below still bails
-            // before any downstream stage runs.
+            // The interactive Bayer paths (Preview `half_res`, Full `rcd`)
+            // take cancellable kernels so a cancel mid-demosaic unwinds per
+            // band/row. The export-only AMaZE kernel is not instrumented
+            // inline — it's not on the cold-open interactive path — but the
+            // post-demosaic check below still bails before any downstream
+            // stage runs.
             stage("demosaic", || match quality {
                 RenderQuality::Preview => demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel),
-                #[cfg(feature = "high-quality-demosaic")]
-                RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
-                #[cfg(not(feature = "high-quality-demosaic"))]
-                RenderQuality::Full => demosaic::bilinear_cancellable(&mosaic, raw.cfa, cancel),
+                RenderQuality::Full => demosaic::rcd_cancellable(&mosaic, raw.cfa, cancel),
                 RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }

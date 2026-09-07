@@ -252,15 +252,12 @@ fn develop_scene_linear_for_pano(
         _ => {
             let mosaic = stage("pano_linearize", || linearize::sensor_linearize(raw));
             // hot_pixel: default Off is a bit-identical no-op — skipped.
+            // `quality` above is `RenderQuality::Full`, so this must be the
+            // same kernel `pipeline::develop` runs at Full — RCD since
+            // #3412. `matches_develop_with_display_stages_zeroed` is the
+            // gate that keeps this mirror honest.
             stage("pano_demosaic", || {
-                #[cfg(feature = "high-quality-demosaic")]
-                {
-                    demosaic::hamilton_adams(&mosaic, raw.cfa)
-                }
-                #[cfg(not(feature = "high-quality-demosaic"))]
-                {
-                    demosaic::bilinear_cancellable(&mosaic, raw.cfa, never)
-                }
+                demosaic::rcd_cancellable(&mosaic, raw.cfa, never)
             })
         }
     };

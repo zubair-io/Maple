@@ -142,12 +142,14 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         ));
     }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
+    // Full uses RCD like every other on-screen path (#3412). Its 5-px
+    // stencil sits far inside `TILE_OVERLAP_PX` (48), so the padded crop's
+    // interior — the part `trim_image_to_inner` keeps — is reconstructed
+    // from real neighbours and a tile matches the same region of the
+    // full-image render.
     let mut camera_rgb = stage("tile_demosaic", || match quality {
         RenderQuality::Preview => demosaic::half_res(mosaic, raw.cfa),
-        #[cfg(feature = "high-quality-demosaic")]
-        RenderQuality::Full => demosaic::hamilton_adams(mosaic, raw.cfa),
-        #[cfg(not(feature = "high-quality-demosaic"))]
-        RenderQuality::Full => demosaic::bilinear(mosaic, raw.cfa),
+        RenderQuality::Full => demosaic::rcd(mosaic, raw.cfa),
         RenderQuality::Amaze => demosaic::amaze(mosaic, raw.cfa),
     });
     if raw.baseline_exposure.abs() > 1e-4 {
