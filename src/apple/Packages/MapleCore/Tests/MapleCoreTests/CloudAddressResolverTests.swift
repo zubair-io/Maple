@@ -77,10 +77,50 @@ final class CloudAddressResolverTests: XCTestCase {
   func test_url_keepsServerPathPrefixAndDecodesBackToTheSameSegments() throws {
     let prefixed = URL(string: "https://x:3000/maple/")!
     let addr = MapleAddress(slug: "2024", relPath: "Sub dir/a#b.dng")
-    let url = addr.url(server: prefixed, route: "preview")
+    let url = try XCTUnwrap(addr.url(server: prefixed, route: "preview"))
     XCTAssertEqual(url.absoluteString, "https://x:3000/maple/api/preview/2024/Sub%20dir/a%23b.dng")
     // What Elysia's per-segment decodeURIComponent will see on the server.
     XCTAssertEqual(url.pathComponents.suffix(3).joined(separator: "/"), "2024/Sub dir/a#b.dng")
+  }
+
+  /// Slugs are server-minted and normally already URL-safe, but a slug
+  /// carrying a space (or any other character Foundation rejects in a
+  /// path) must be encoded like any other segment — an unencoded one makes
+  /// `URLComponents.url` nil, which used to be force-unwrapped.
+  func test_url_percentEncodesTheSlugAndStillRoundTrips() throws {
+    let spaced = MapleAddress(slug: "my library", relPath: "a.dng")
+    let spacedURL = try XCTUnwrap(spaced.url(server: server, route: "thumb"))
+    XCTAssertEqual(spacedURL.absoluteString, "https://x/api/thumb/my%20library/a.dng")
+    XCTAssertEqual(spacedURL.pathComponents.suffix(2).joined(separator: "/"), "my library/a.dng")
+
+    // `#` would otherwise start a fragment and silently truncate the path;
+    // `ü` is non-ASCII, which `URLComponents` rejects outright.
+    let awkward = MapleAddress(slug: "café#1", relPath: "Sub dir/a.dng")
+    let awkwardURL = try XCTUnwrap(awkward.url(server: server, route: "folder"))
+    XCTAssertEqual(
+      awkwardURL.absoluteString, "https://x/api/folder/caf%C3%A9%231/Sub%20dir/a.dng")
+    XCTAssertNil(awkwardURL.fragment)
+    XCTAssertEqual(
+      awkwardURL.pathComponents.suffix(3).joined(separator: "/"), "café#1/Sub dir/a.dng")
+  }
+
+  func test_url_resolverSurfacesAnAwkwardSlugAsAWorkingRequest() async throws {
+    final class Box: @unchecked Sendable { var urls: [URL] = [] }
+    let box = Box()
+    let json = foldersJSON([(slug: "my library", path: "/srv/photos")])
+    let session = URLSession.stubbedSequence { req in
+      box.urls.append(req.url!)
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
+      return (Data(json.utf8), resp)
+    }
+    let resolver = CloudAddressResolver(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    let url = try await resolver.url(route: "thumb", absPath: "/srv/photos/a.dng")
+    XCTAssertEqual(url.absoluteString, "https://x/api/thumb/my%20library/a.dng")
   }
 
   // MARK: - Actor: one shared /api/folders load
@@ -166,7 +206,7 @@ final class CloudAddressResolverTests: XCTestCase {
     let resolver = CloudAddressResolver(
       server: server,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session),
-      refreshAfter: 0)
+      refreshAfter: .zero)
 
     _ = try await resolver.address(forAbsPath: "/srv/photos/a.dng")
     let late = try await resolver.address(forAbsPath: "/mnt/nas/b.dng")
