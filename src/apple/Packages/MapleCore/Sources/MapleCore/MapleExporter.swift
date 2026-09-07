@@ -111,8 +111,50 @@ public struct MapleExporter: Sendable {
         // Full-quality bake. Bypasses the editor's preview-quality decoded
         // cache so the exported pixels go through the parity-gated path.
         let ci = try await session.renderForExport()
-        let scaled = scaledImage(ci, maxSide: options.maxSidePixels)
-        return try encodeImage(scaled, options: options)
+        return try await encodeOffMainActor(ci, options: options)
+    }
+
+    /// Scale + encode a rendered graph on the cooperative pool, never on the
+    /// caller's actor (#3450).
+    ///
+    /// `renderForExport()` hands back a *lazy* CIImage graph — none of the
+    /// decode or develop cost has been paid yet when it returns. The whole
+    /// bill comes due inside `encodeImage`, where `CIContext` finally
+    /// evaluates the graph at full sensor resolution. `EditSession` is
+    /// `@MainActor`, so every caller of this reaches it from the main actor;
+    /// running the evaluation inline froze the iPhone editor for the length
+    /// of a 100MP bake (tens of seconds — long enough that XCUITest's
+    /// accessibility snapshot gave up with "main thread busy for 30.0s").
+    ///
+    /// `Task.detached(priority: .userInitiated)` is the same hop
+    /// `RenderActor.renderForExport` already uses for `processSceneLinear`:
+    /// it does not inherit the caller's actor, so the guarantee holds no
+    /// matter which actor called in. A detached child inherits no
+    /// cancellation either, so that is bridged back explicitly. Cancelling
+    /// only helps *before* `CIContext` enters the encode — a single
+    /// `jpegRepresentation` call has no interruption point — so a late
+    /// cancel still costs the bake; what it buys is that the caller stops
+    /// waiting, and `ExportPanelVM` throws the bytes away.
+    public static func encodeOffMainActor(
+        _ image: CIImage, options: ExportOptions
+    ) async throws -> Data {
+        let work = Task.detached(priority: .userInitiated) { () throws -> Data in
+            try Task.checkCancellation()
+            return try MapleExporter.encode(image, options: options)
+        }
+        return try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: {
+            work.cancel()
+        }
+    }
+
+    /// Scale-then-encode, synchronously, on whatever thread calls it. Public
+    /// so the app's `ExportPanelVM` can own the hop off the main actor
+    /// itself (its unit tests substitute this seam and assert where it ran);
+    /// `encodeOffMainActor` above is the same work with the hop built in.
+    public static func encode(_ image: CIImage, options: ExportOptions) throws -> Data {
+        try encodeImage(scaledImage(image, maxSide: options.maxSidePixels), options: options)
     }
 
     // MARK: - macOS: NSSavePanel

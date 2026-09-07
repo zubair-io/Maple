@@ -4,8 +4,14 @@
 // staged as a file and handed to the system share sheet so it can land in
 // Files, Photos, AirDrop, etc. (#3403). State + the staging logic live in
 // `ExportPanel+VM.swift`.
+//
+// #3450: a full-quality bake is seconds of work, so the panel says so — a
+// Maple UI Spinner row while it runs (spinner.md § inline-next-to-a-label,
+// the same treatment the folder-move sheet uses) and a Cancel that cancels
+// the task rather than only closing the sheet.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct ExportPanel: View {
@@ -41,6 +47,17 @@ struct ExportPanel: View {
             .foregroundStyle(.secondary)
         }
 
+        if vm.isExporting {
+          Section {
+            HStack(spacing: MuiTokens.spacingSm) {
+              MuiSpinner(size: .sm, label: "Exporting")
+              MuiText("Rendering at full quality…", color: .muted)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("export-progress")
+          }
+        }
+
         if let err = vm.exportError {
           Section {
             Text(err).foregroundStyle(.red).font(.caption)
@@ -53,14 +70,22 @@ struct ExportPanel: View {
       #endif
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }
+          // While a bake is running the same slot stops it instead of
+          // closing the sheet — a sheet dismissed mid-export would leave
+          // the render burning CPU for a file nobody will receive.
+          Button("Cancel") {
+            if vm.isExporting {
+              vm.cancelExport()
+            } else {
+              dismiss()
+            }
+          }
+          .accessibilityIdentifier("export-cancel")
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button(vm.isExporting ? "Exporting…" : "Export") {
-            Task { await export() }
-          }
-          .disabled(vm.isExporting)
-          .accessibilityIdentifier("export-confirm")
+          Button(vm.isExporting ? "Exporting…" : "Export") { export() }
+            .disabled(vm.isExporting)
+            .accessibilityIdentifier("export-confirm")
         }
       }
     }
@@ -79,14 +104,19 @@ struct ExportPanel: View {
     #endif
   }
 
-  private func export() async {
+  private func export() {
     #if os(macOS)
-      await vm.perform {
-        try await MapleExporter.exportWithSavePanel(session: session, options: vm.options)
+      // The save panel is modal and owns its own destination, so the Mac
+      // keeps its one-shot shape; the render + encode behind it now hop
+      // off the main actor too (`MapleExporter.encodeOffMainActor`).
+      Task { @MainActor in
+        await vm.begin {
+          try await MapleExporter.exportWithSavePanel(session: session, options: vm.options)
+        }.value
+        if vm.exportError == nil { dismiss() }
       }
-      if vm.exportError == nil { dismiss() }
     #else
-      await vm.stageForSharing(session: session)
+      vm.beginStagingForSharing(session: session)
     #endif
   }
 }
