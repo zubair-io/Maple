@@ -20,6 +20,7 @@ import { type Db, type UpdateResult, type DeleteResult, type Collection } from '
 import { assetsCollection } from './client.ts';
 import { type AssetDoc } from './schema.ts';
 import { MEILI_REARM_SET } from '../people/people-search-reindex.ts';
+import { relocateCacheStageResetSet } from './relocate-cache-reset.ts';
 
 async function coll(dbOverride?: Db): Promise<Collection<AssetDoc>> {
   if (dbOverride) return dbOverride.collection<AssetDoc>('assets');
@@ -84,6 +85,16 @@ function sourceEntryArrayFilters(source: {
  * when the trash route's inline best-effort tombstone failed against a
  * transient Meilisearch outage (#2354). The inline call is a fast path;
  * this re-arm is the correctness mechanism.
+ *
+ * Also resets the path-keyed raster-cache stages (`thumb` / `preview`, via
+ * `relocateCacheStageResetSet`) in that same update (#2847). Trash is a
+ * relocate — the bytes move under `.maple/trash/` — and every other
+ * relocate (`library/relocate-asset.ts`, `workers/discover/rename-
+ * reconcile.ts`) bumps those two stages so the workers regenerate at the
+ * new path; without it the trashed row's stage bookkeeping keeps claiming
+ * "done" for a thumb keyed on a path the file no longer lives at. The
+ * expensive per-image stages (describe / face / geocode) are deliberately
+ * NOT touched — the pixels didn't change.
  */
 export async function markSoftDeleted(args: {
   id: ObjectId;
@@ -127,6 +138,7 @@ export async function markSoftDeleted(args: {
           deleted_at: new Date().toISOString(),
           original_path: args.originalAbsPath,
           ...MEILI_REARM_SET,
+          ...relocateCacheStageResetSet(),
         },
       },
       {
@@ -145,6 +157,7 @@ export async function markSoftDeleted(args: {
         deleted_at: new Date().toISOString(),
         original_path: args.originalAbsPath,
         ...MEILI_REARM_SET,
+        ...relocateCacheStageResetSet(),
       },
     },
   );
@@ -177,6 +190,16 @@ export async function hardDelete(id: ObjectId, dbOverride?: Db): Promise<DeleteR
  * row reclaimable so the stage's own handler (`workers/stages/meili.ts`)
  * rebuilds the FULL document on its next poll tick — the inline call is a
  * fast-path convenience, this reset is the correctness guarantee.
+ *
+ * Also resets the `thumb` / `preview` stages (`relocateCacheStageResetSet`,
+ * #2847) — a restore moves the bytes back out of `.maple/trash/`, and the
+ * thumb the row last claimed "done" for was keyed on the trash path (and
+ * the original-path thumb has typically been swept by `cache-gc` as an
+ * orphan while the asset sat in Trash). Without this reset no background
+ * stage ever re-claims the restored asset: the grid shows a missing thumb
+ * until something else happens to bump the row, and the Settings → Workers
+ * completeness counters over-report. Same trash-is-a-relocate rationale as
+ * `markSoftDeleted`; the expensive stages stay untouched here too.
  */
 export async function restoreFromTrash(args: {
   id: ObjectId;
@@ -240,6 +263,7 @@ export async function restoreFromTrash(args: {
           deleted_at: null,
           original_path: null,
           ...MEILI_REARM_SET,
+          ...relocateCacheStageResetSet(),
         },
       },
       {
@@ -257,6 +281,7 @@ export async function restoreFromTrash(args: {
         deleted_at: null,
         original_path: null,
         ...MEILI_REARM_SET,
+        ...relocateCacheStageResetSet(),
       },
     },
   );

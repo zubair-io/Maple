@@ -15,14 +15,14 @@
 
 @if (state.sectionOpen()[section().id]) {
   <div class="mt-1">
-    @for (child of section().children || []; track child.id) {
-      @if (child.kind === 'folder') {
-        <app-folder-tree-node
-          [node]="child"
-          [level]="1"
-          (crudRequested)="crudRequested.emit($event)"
-        />
-      }
+    @for (row of childRows(); track row.node.id) {
+      <app-folder-tree-node
+        [node]="row.node"
+        [open]="row.open"
+        [selected]="row.selected"
+        [level]="1"
+        (crudRequested)="crudRequested.emit($event)"
+      />
     }
   </div>
 }

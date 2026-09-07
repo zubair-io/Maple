@@ -6,7 +6,7 @@
   <app-batch-rename-dialog
     [selections]="controller.batchRenameSelections()"
     (dismiss)="controller.dismissBatchRename()"
-    (applied)="controller.onBatchRenameApplied()"
+    (applied)="controller.onBatchRenameApplied($event)"
   />
 }
 

@@ -1,15 +1,15 @@
 <mui-tree-row
   [label]="node().label"
-  [icon]="isOpen() && hasLoadedChildren() ? 'folder-open' : 'folder'"
+  [icon]="open() && hasLoadedChildren() ? 'folder-open' : 'folder'"
   [expandable]="canExpand()"
-  [expanded]="isOpen()"
+  [expanded]="open()"
   (expandedChange)="onChevronClick()"
   [expandBusy]="isLoading()"
   [expandError]="hasError()"
   [errorTitle]="node().childrenError"
   [depth]="level()"
   [count]="node().count"
-  [active]="isSelected()"
+  [active]="selected()"
   [ariaHasPopup]="node().kind === 'folder' ? 'menu' : null"
   (pressed)="onFolderClick()"
   (contextmenu)="onContextMenu($event)"
@@ -25,11 +25,14 @@
   (cdkDropListDropped)="onAssetsDropped($event)"
 />
 
-<!-- Children (next nesting level) -->
-@if (isOpen()) {
-  @for (child of folderChildren(); track child.id) {
+<!-- Children (next nesting level) — each child's open/selected derived once
+     by this row (`childRows`), never recomputed per child (#2847). -->
+@if (open()) {
+  @for (row of childRows(); track row.node.id) {
     <app-folder-tree-node
-      [node]="child"
+      [node]="row.node"
+      [open]="row.open"
+      [selected]="row.selected"
       [level]="level() + 1"
       (crudRequested)="crudRequested.emit($event)"
     />

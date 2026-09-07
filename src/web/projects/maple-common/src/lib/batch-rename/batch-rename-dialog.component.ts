@@ -78,7 +78,7 @@ export class BatchRenameDialogComponent implements OnInit {
    * grid/tree state. Carries nothing beyond "something changed" — the
    * per-file detail already rendered in the 'done' phase is this
    * component's business, not the host's. */
-  readonly applied = output<void>();
+  readonly applied = output<BatchRenameApplyResult>();
 
   readonly tokenHelp = BATCH_RENAME_TOKEN_HELP;
   readonly collisionOptions = COLLISION_OPTIONS;
@@ -212,7 +212,7 @@ export class BatchRenameDialogComponent implements OnInit {
           this.applyBusy.set(false);
           this.applyResult.set(result);
           this.phase.set('done');
-          this.applied.emit();
+          this.applied.emit(result);
         },
         error: (err) => {
           this.applyBusy.set(false);

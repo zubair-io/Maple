@@ -8,10 +8,11 @@
 // threading `libraryIdForTrashRow`/`trashBadgeFor` down from
 // `FolderTreeComponent` as inputs.
 
-import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { SidebarEntry } from '../../models/folder';
 import { FolderTreeNodeComponent, type FolderCrudRequestEvent } from './folder-tree-node.component';
+import { resolveFolderOpen } from './folder-tree-row';
 import { TRASH_CAPABILITY } from '../../trash/trash-capability';
 import { libraryIdForRootNode, trashCountLabel } from '../../trash/trash-node';
 import { TrashNodeRowComponent } from '../../trash/trash-node-row.component';
@@ -30,6 +31,15 @@ export class FolderTreeLibraryRootComponent {
   readonly section = input.required<SidebarEntry>();
 
   readonly crudRequested = output<FolderCrudRequestEvent>();
+
+  /** The root row's own `open` / `selected`, derived here rather than
+   * inside the node (#2847, see `folder-tree-row.ts`). */
+  protected readonly rootOpen = computed(() =>
+    resolveFolderOpen(this.state.folderOpen(), this.section()),
+  );
+  protected readonly rootSelected = computed(
+    () => this.state.selectedSourceId() === this.section().id,
+  );
 
   /** `null` on Hosted, and for anything that isn't a real library root —
    * see `trash-node.ts`'s module doc. */
