@@ -51,6 +51,7 @@ namespace Maple.WinUI
             ViewportSwapChainPanel.Height = dims.Height;
             SizeZoomHost();
             UpdateCropDisplay();
+            UpdateMaskDisplay();
         }
 
         private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
@@ -58,6 +59,7 @@ namespace Maple.WinUI
             UpdatePanelFit();
             SizeZoomHost();
             UpdateCropDisplay();
+            UpdateMaskDisplay();
         }
 
         // --- Zoom / pan (#2572): factor 1 = fit; drag pans when zoomed ---
