@@ -55,13 +55,20 @@ export interface XmpMetadata {
   source?: string | null;
 }
 
+/** XML strings alternate with modeled group-layer indices; null is the append slot. */
+export interface MaskGroupTemplate {
+  parts: Array<string | number | null>;
+}
+
 /**
  * Unknown attributes and nested elements from a source sidecar that Maple
  * does not model (`crs:PaintBasedCorrections`, `xmpMM:History`, etc. —
- * every local-adjustment container is modeled, #358/#3300).
+ * with opaque group corrections kept separately, #3423).
  * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
  */
 export interface PassthroughBucket {
+  /** Opaque AI correction XML with replaceable slots for Maple-owned layers. */
+  maskGroups?: { templates: MaskGroupTemplate[] };
   /** Namespace declarations needed by passthrough attributes/nodes. */
   unknownNamespaces?: Array<{ prefix: string; uri: string }>;
   /** Attributes on rdf:Description that are not in Maple's known set. */

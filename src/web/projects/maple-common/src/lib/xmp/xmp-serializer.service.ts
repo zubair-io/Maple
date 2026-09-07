@@ -19,7 +19,7 @@ import type { PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 import { toneCurveBlocks } from './xmp-tone-curves';
-import { localAdjustmentBlocks } from './xmp-local-adjustments';
+import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
   escapeXmpAttr,
@@ -126,7 +126,11 @@ export class XmpSerializerService {
     // Local adjustments (#358) — the canonical `crs:GradientBasedCorrections`
     // / `crs:CircularGradientBasedCorrections` containers, byte-identical to
     // raw-core's and Swift's emitters. An empty stack emits nothing.
-    const localAdjustmentsBlock = localAdjustmentBlocks(model, indent);
+    const localAdjustmentsBlock = localAdjustmentBlocksWithPassthrough(
+      model,
+      indent,
+      passthrough?.maskGroups,
+    );
 
     // Compose nested children in canonical slots — see `xmp-serializer-children.ts`.
     const children = composeNestedChildren({

@@ -259,7 +259,7 @@ describe('XMP local adjustments — bitmap + everywhere masks (#3300)', () => {
 
   // ── Tolerant reader ──────────────────────────────────────────────────────
 
-  it("drops Lightroom's own AI mask (Mask/Image with no papp: recipe) without erroring", () => {
+  it("keeps Lightroom's own AI mask outside the model without losing its XML", () => {
     const doc = sidecar(
       groupCorrection(
         `${ACTIVE} crs:LocalExposure2012="1"`,
@@ -269,6 +269,10 @@ describe('XMP local adjustments — bitmap + everywhere masks (#3300)', () => {
     const { model, passthrough } = parser.parseAdjustmentModel(doc);
     expect(model.localAdjustments).toEqual([]);
     expect(passthrough.unknownNodes).toEqual([]);
+    expect(passthrough.maskGroups).toBeDefined();
+    expect(serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough)).toContain(
+      'crs:MaskDigest="lightroomownsubjectmaskdigest"',
+    );
   });
 
   it('drops a person/skin mask missing its digest rather than inventing one', () => {

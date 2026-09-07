@@ -124,6 +124,9 @@ export function isGeometricMask(mask: LocalMask): mask is GeometricMask {
 
 /** One local-adjustment layer: a mask and the controls it scales. */
 export interface LocalAdjustment {
+  /** Host-only slot in an imported mixed AI group; never written to XMP or
+   * interpreted by Rust. Keeps foreign pins in place when neighbors are deleted. */
+  xmpGroupSlot?: number;
   mask: LocalMask;
   adjustments: PartialAdjustments;
   range?: RangeRefinement;

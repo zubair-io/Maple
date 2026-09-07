@@ -18,7 +18,8 @@
 // invented `0`/`1` — and the rest of the document still loads. A corrupt
 // slider value on an otherwise valid correction reads as "not set", the same
 // `NaN`-means-absent rule `xmp-adjustment-walk.ts` applies to the flat
-// sliders.
+// sliders. Group-container corrections omitted from the model survive in
+// xmp-mask-group-passthrough.ts, including foreign/composite AI masks.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type {
@@ -164,7 +165,7 @@ function parseRadialLeaf(leaf: Element): LocalMask | undefined {
  * A `Mask/Image` leaf is recognized by its Maple-private `papp:MaskSource`
  * (#3271): Lightroom's own AI masks carry the same `crs:What` with a
  * `crs:MaskDigest` but no `papp:` recipe, and Maple can't regenerate pixels it
- * never computed, so those drop like any other unmodeled mask. A person/skin
+ * never computed, so those remain opaque in group passthrough. A person/skin
  * mask without `papp:MaskDigest` can never resolve to a raster, so it drops
  * too (raw-core hard-errors there; this reader is tolerant like its siblings).
  * The recipe's other fields default the way raw-core's parser defaults them.
@@ -208,7 +209,7 @@ function parseMask(
     .find((mask) => mask !== undefined);
 }
 
-function parseCorrection(
+export function parseLocalCorrection(
   description: Element,
   kind: LocalAdjustmentContainerKind,
 ): LocalAdjustment | undefined {
@@ -243,7 +244,7 @@ export function parseLocalAdjustmentsContainer(
   if (!seq) return [];
   return childrenNamed(seq, 'li').flatMap((li) => {
     const description = childrenNamed(li, 'Description')[0];
-    const layer = description ? parseCorrection(description, kind) : undefined;
+    const layer = description ? parseLocalCorrection(description, kind) : undefined;
     return layer ? [layer] : [];
   });
 }
@@ -330,36 +331,40 @@ function maskLines(mask: LocalMask, indent: string): string[] {
   ];
 }
 
+/** One correction, shared by canonical emission and opaque group slot replacement. */
+export function localCorrectionBlock(layer: LocalAdjustment, indent: string): string {
+  const [i1, i2, i3, i4] = [2, 4, 6, 8].map((n) => indent + ' '.repeat(n));
+  const attrs = [
+    `${i2}crs:What="Correction"`,
+    `${i2}crs:CorrectionAmount="1"`,
+    `${i2}crs:CorrectionActive="True"`,
+    ...SLIDER_KEYS.flatMap(([key, field]) => {
+      const v = layer.adjustments[field];
+      // Only fields actually set are written; a non-finite value is not
+      // representable in XMP and is skipped like every other slider.
+      return typeof v === 'number' && Number.isFinite(v)
+        ? [`${i2}${key}="${field === 'hue' ? hueSerializer(v / 100) : numericSerializer(v)}"`]
+        : [];
+    }),
+    ...rangeLines(layer.range, i2),
+  ];
+  return [
+    `${indent}<rdf:li>`,
+    `${i1}<rdf:Description`,
+    `${attrs.join('\n')}>`,
+    `${i2}<crs:CorrectionMasks>`,
+    `${i3}<rdf:Seq>`,
+    ...maskLines(layer.mask, i4),
+    `${i3}</rdf:Seq>`,
+    `${i2}</crs:CorrectionMasks>`,
+    `${i1}</rdf:Description>`,
+    `${indent}</rdf:li>`,
+  ].join('\n');
+}
+
 function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent: string): string {
-  const [i1, i2, i3, i4, i5, i6] = [2, 4, 6, 8, 10, 12].map((n) => indent + ' '.repeat(n));
-  const layerLines = layers.flatMap((layer) => {
-    const attrs = [
-      `${i4}crs:What="Correction"`,
-      `${i4}crs:CorrectionAmount="1"`,
-      `${i4}crs:CorrectionActive="True"`,
-      ...SLIDER_KEYS.flatMap(([key, field]) => {
-        const v = layer.adjustments[field];
-        // Only fields actually set are written; a non-finite value is not
-        // representable in XMP and is skipped like every other slider.
-        return typeof v === 'number' && Number.isFinite(v)
-          ? [`${i4}${key}="${field === 'hue' ? hueSerializer(v / 100) : numericSerializer(v)}"`]
-          : [];
-      }),
-      ...rangeLines(layer.range, i4),
-    ];
-    return [
-      `${i2}<rdf:li>`,
-      `${i3}<rdf:Description`,
-      `${attrs.join('\n')}>`,
-      `${i4}<crs:CorrectionMasks>`,
-      `${i5}<rdf:Seq>`,
-      ...maskLines(layer.mask, i6),
-      `${i5}</rdf:Seq>`,
-      `${i4}</crs:CorrectionMasks>`,
-      `${i3}</rdf:Description>`,
-      `${i2}</rdf:li>`,
-    ];
-  });
+  const [i1, i2] = [2, 4].map((n) => indent + ' '.repeat(n));
+  const layerLines = layers.map((layer) => localCorrectionBlock(layer, i2));
   return [
     `${indent}<${tag}>`,
     `${i1}<rdf:Seq>`,
