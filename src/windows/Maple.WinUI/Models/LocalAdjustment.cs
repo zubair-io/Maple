@@ -35,12 +35,14 @@ namespace Maple.WinUI.Models
         public double? Vibrance { get; init; }
         public double? Temperature { get; init; }
         public double? Tint { get; init; }
+        /// <summary>Oklab hue rotation: ±100 maps to ±30°, stored as ±1 in crs:LocalHue.</summary>
+        public double? Hue { get; init; }
 
         /// <summary>True when no field is set — the layer would change nothing.</summary>
         public bool IsEmpty =>
             Exposure is null && Contrast is null && Highlights is null && Shadows is null
             && Whites is null && Blacks is null && Saturation is null && Vibrance is null
-            && Temperature is null && Tint is null;
+            && Temperature is null && Tint is null && Hue is null;
     }
 
     /// <summary>Normalized 2D point: X across the width, Y down from the top edge, both in [0, 1].</summary>
@@ -68,5 +70,10 @@ namespace Maple.WinUI.Models
         MaskPoint Center, MaskPoint Radii, double Angle, double Feather, bool Invert) : LocalMask;
 
     /// <summary>One local-adjustment layer: a mask and the controls it scales.</summary>
-    public sealed record LocalAdjustment(LocalMask Mask, PartialAdjustments Adjustments);
+    public sealed record LocalAdjustment(
+        LocalMask Mask, PartialAdjustments Adjustments, ColorRangeRefinement? Range = null);
+
+    /// <summary>Color selection multiplied into the primary mask; raw-core's Color range variant.</summary>
+    public sealed record ColorRangeRefinement(
+        double HueDeg, double HueHalfWidthDeg, double ChromaMin, double LMin, double LMax, double Feather);
 }
