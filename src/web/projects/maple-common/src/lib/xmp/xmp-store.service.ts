@@ -7,6 +7,10 @@
 //                       atomic on Chromium; fallback backend writes to IndexedDB).
 // - rememberPassthrough stores the passthrough bucket from the last load so that
 //                       subsequent writes can reproduce unknown content verbatim.
+// - rememberVariants    does the same for the variants / snapshots / history
+//                       blocks (#2437). They are modeled, so they no longer
+//                       ride the passthrough pipe; without this cache a save
+//                       would silently drop a photographer's whole history.
 // - flushAll()          cancels all pending timers (call on beforeunload).
 
 import { Injectable, inject } from '@angular/core';
@@ -16,6 +20,7 @@ import type { AssetId } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { XmpSerializerService } from './xmp-serializer.service';
+import type { SidecarVariants } from './xmp-variants';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 
 @Injectable({ providedIn: 'root' })
@@ -45,6 +50,9 @@ export class XmpStoreService {
 
   /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
+
+  /** Per-asset variants / snapshots / history loaded from the source sidecar. */
+  private _variants = new Map<AssetId, SidecarVariants>();
 
   // ── Passthrough cache ───────────────────────────────────────────────────────
 
@@ -82,6 +90,28 @@ export class XmpStoreService {
     return this._passthroughs.get(assetId);
   }
 
+  // ── Variants / snapshots / history cache (#2437) ────────────────────────────
+
+  /** Store the branching blocks for an asset loaded outside `loadSidecar`. */
+  rememberVariants(assetId: AssetId, variants: SidecarVariants): void {
+    this._variants.set(assetId, variants);
+  }
+
+  /** Replace branching state for a freshly enumerated asset scope, the same
+   * commit-step contract `replacePassthroughs` follows. */
+  replaceVariants(
+    assetIds: Iterable<AssetId>,
+    replacements: ReadonlyMap<AssetId, SidecarVariants>,
+  ): void {
+    for (const assetId of assetIds) this._variants.delete(assetId);
+    for (const [assetId, variants] of replacements) this._variants.set(assetId, variants);
+  }
+
+  /** The branching blocks previously stored for an asset, if any. */
+  variantsFor(assetId: AssetId): SidecarVariants | undefined {
+    return this._variants.get(assetId);
+  }
+
   // ── Write ───────────────────────────────────────────────────────────────────
 
   /**
@@ -112,6 +142,7 @@ export class XmpStoreService {
         culling,
         revision,
         this._passthroughs.get(assetId),
+        this._variants.get(assetId),
       ).catch(() => undefined);
     }, this.DEBOUNCE_MS);
 
@@ -148,6 +179,7 @@ export class XmpStoreService {
           pending.culling,
           pending.revision,
           this._passthroughs.get(id),
+          this._variants.get(id),
         ),
       );
     }
@@ -165,6 +197,7 @@ export class XmpStoreService {
     culling: XmpCulling,
     revision: number,
     passthrough?: PassthroughBucket,
+    variants?: SidecarVariants,
   ): Promise<void> {
     // File System Access writes are asynchronous. Serialize writes for the
     // same asset so an older, slower write can never overwrite a newer edit.
@@ -172,7 +205,16 @@ export class XmpStoreService {
     const write = prior
       .catch(() => undefined)
       .then(() =>
-        this._flushWrite(assetId, folder, rawFilename, model, culling, revision, passthrough),
+        this._flushWrite(
+          assetId,
+          folder,
+          rawFilename,
+          model,
+          culling,
+          revision,
+          passthrough,
+          variants,
+        ),
       )
       .finally(() => {
         if (this._inFlightWrites.get(assetId) === write) {
@@ -191,9 +233,10 @@ export class XmpStoreService {
     culling: XmpCulling,
     revision: number,
     passthrough?: PassthroughBucket,
+    variants?: SidecarVariants,
   ): Promise<void> {
     this.saveState.saving(assetId, revision);
-    const xml = this.serializer.serialize(model, passthrough, culling);
+    const xml = this.serializer.serialize(model, passthrough, culling, undefined, variants);
     const bytes = new TextEncoder().encode(xml);
     const sidecarName = this._sidecarFilename(rawFilename);
     try {

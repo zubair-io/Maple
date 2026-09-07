@@ -20,6 +20,7 @@ import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
+import { variantBlocks, type SidecarVariants } from './xmp-variants';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
   escapeXmpAttr,
@@ -83,6 +84,9 @@ export class XmpSerializerService {
       keywords?: readonly string[];
     },
     metadata?: XmpMetadata,
+    /** Variants / snapshots / history (#2437). Omitted or empty writes
+     * nothing, so a sidecar that never branched keeps the bytes it had. */
+    variants?: SidecarVariants,
   ): string {
     const parts: string[] = [];
 
@@ -105,6 +109,15 @@ export class XmpSerializerService {
     // Inserted before passthrough so the fixed metadata order is stable.
     parts.push(...metadataAttrPartsOrEmpty(metadata));
     // Passthrough: unknown attributes from the source sidecar.
+    // This sidecar's own branch identity (#2437) — written only by a
+    // non-primary variant's sidecar; the primary keeps the attribute set an
+    // older Maple build produced.
+    if (variants?.variantId) {
+      parts.push(`papp:VariantId="${escapeXmpAttr(variants.variantId)}"`);
+      if (variants.variantName) {
+        parts.push(`papp:VariantName="${escapeXmpAttr(variants.variantName)}"`);
+      }
+    }
     parts.push(...passthroughAttrParts(passthrough));
 
     const indent = DESCRIPTION_CHILD_INDENT;
@@ -132,6 +145,15 @@ export class XmpSerializerService {
       passthrough?.maskGroups,
     );
 
+    // Variants / snapshots / history (#2437) — an entry's state is spelled
+    // with this writer's own field emitters, so it reads back exactly the
+    // way the document body does.
+    const variantsBlock = variantBlocks(variants, indent, (m) => [
+      ...this._adjustmentParts(m),
+      ...enumFieldParts(m),
+      ...cropParts(m.crop),
+    ]);
+
     // Compose nested children in canonical slots — see `xmp-serializer-children.ts`.
     const children = composeNestedChildren({
       metadata,
@@ -139,6 +161,7 @@ export class XmpSerializerService {
       keywordsBlock,
       toneCurvesBlock,
       localAdjustmentsBlock,
+      variantsBlock,
       indent,
     });
 

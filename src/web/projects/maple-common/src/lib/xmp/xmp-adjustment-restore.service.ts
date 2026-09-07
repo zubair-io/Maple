@@ -35,11 +35,15 @@ import { LibrarySelection } from '../state/library-selection.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
 import type { PassthroughBucket, XmpCulling } from './xmp.types';
+import type { SidecarVariants } from './xmp-variants';
 
 export interface HydratedSidecar {
   readonly model: Partial<AdjustmentModel>;
   readonly passthrough: PassthroughBucket;
   readonly culling: XmpCulling;
+  /** Variants / snapshots / history (#2437) — carried so a write-back
+   * reproduces them instead of dropping the photographer's history. */
+  readonly variants: SidecarVariants;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -131,6 +135,7 @@ export class XmpAdjustmentRestoreService {
         culling: this.parser.parseCulling(xml),
       };
       this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
+      this.xmpStore.rememberVariants(id, sidecar.variants);
       return sidecar;
     } catch (err) {
       if (err instanceof HttpErrorResponse && err.status === 404) return null;

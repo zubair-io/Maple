@@ -98,6 +98,8 @@ export * from './lib/xmp/xmp-parser.service';
 // P6: Full AdjustmentModel XMP read/write + debounced sidecar writes
 export * from './lib/xmp/xmp-fields';
 export * from './lib/xmp/xmp-serializer.service';
+// #2437: variants, snapshots and persisted semantic history.
+export * from './lib/xmp/xmp-variants';
 export * from './lib/xmp/xmp-store.service';
 
 // #193 slice 1: canonical Store<T> shape + SidecarStore proof.

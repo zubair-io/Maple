@@ -17,6 +17,7 @@ import { parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
 import { finalizeCrop } from './xmp-crop';
 import { walkAdjustmentAttributes, applyLegacyAliases } from './xmp-adjustment-walk';
+import { emptySidecarVariants, parseVariantBlocks, type SidecarVariants } from './xmp-variants';
 import {
   attrOf,
   hasXmlParseError,
@@ -92,10 +93,14 @@ export class XmpParserService {
   parseAdjustmentModel(xml: string): {
     model: Partial<AdjustmentModel>;
     passthrough: PassthroughBucket;
+    /** Variants / snapshots / history (#2437) — empty for a sidecar that
+     * carries none of the three blocks. */
+    variants: SidecarVariants;
   } {
     const emptyResult = {
       model: {} as Partial<AdjustmentModel>,
       passthrough: { unknownAttributes: [], unknownNodes: [] } as PassthroughBucket,
+      variants: emptySidecarVariants(),
     };
 
     const parsed = this._parseAdjustmentDocument(xml);
@@ -135,6 +140,7 @@ export class XmpParserService {
     return {
       model,
       passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document),
+      variants: parseVariantBlocks(desc, wbScale.modelVersion),
     };
   }
 

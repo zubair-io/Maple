@@ -11,6 +11,7 @@ import {
   parseLocalAdjustmentsContainer,
 } from './xmp-local-adjustments';
 import { CRS_NAMESPACE, managedXmpName, RDF_NAMESPACE, XMP_NAMESPACE } from './xmp-dom-utils';
+import { variantContainerKind } from './xmp-variants';
 
 /** Attributes fully owned by Maple and therefore excluded from passthrough. */
 const KNOWN_ATTRIBUTES = new Set<string>([
@@ -53,6 +54,10 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'crs:Version',
   'crs:ProcessVersion',
   'crs:HasSettings',
+  // This sidecar's own branch identity (#2437) — modeled, so it must not
+  // also ride the passthrough pipe, which would emit it twice.
+  'papp:VariantId',
+  'papp:VariantName',
   ...METADATA_ATTR_KEYS,
 ]);
 
@@ -106,7 +111,12 @@ const withoutModeledFields = (source: Element, primary: Element): Element => {
   Array.from(source.children).forEach((child, index) => {
     if (localAdjustmentContainerKind(child) === 'group' && !sharesMaskGroupContext(source, primary))
       return;
-    if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
+    if (
+      toneCurveElementKey(child) ||
+      localAdjustmentContainerKind(child) ||
+      variantContainerKind(child) ||
+      isManagedChild(child)
+    )
       clonedChildren[index]?.remove();
   });
   return clone;
@@ -185,6 +195,10 @@ export function collectXmpPassthrough(
       ];
       continue;
     }
+    // Variants / snapshots / history (#2437) are modeled by
+    // `parseVariantBlocks`, so they must not also ride this pipe — the
+    // writer would then emit every block twice.
+    if (variantContainerKind(child)) continue;
     if (isManagedChild(child)) continue;
     unknownNodes.push(selfContainedXml(child));
   }

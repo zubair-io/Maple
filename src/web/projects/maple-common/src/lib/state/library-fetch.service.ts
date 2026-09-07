@@ -28,6 +28,7 @@ import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
 import { PassthroughBucket, XmpCulling } from '../xmp/xmp.types';
+import type { SidecarVariants } from '../xmp/xmp-variants';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -186,6 +187,7 @@ export class LibraryFetch {
     const folderId = `f-${folderSlug}`;
     const newAdjustments = new Map<AssetId, AdjustmentModel>();
     const newPassthroughs = new Map<AssetId, PassthroughBucket>();
+    const newVariants = new Map<AssetId, SidecarVariants>();
     const previousAssetIds = this.store
       .assets()
       .filter((asset) => asset.folderId === folderId)
@@ -230,10 +232,11 @@ export class LibraryFetch {
         keywords = [...(culling.keywords ?? [])];
 
         // Full AdjustmentModel (P6).
-        const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xmpText);
+        const { model, passthrough, variants } = this.xmpParser.parseAdjustmentModel(xmpText);
         const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
         newAdjustments.set(id, fullModel);
         newPassthroughs.set(id, passthrough);
+        newVariants.set(id, variants);
 
         edited = true;
       } catch {
@@ -272,10 +275,9 @@ export class LibraryFetch {
       for (const [id, adjustment] of newAdjustments) next.set(id, adjustment);
       return next;
     });
-    this.xmpStore.replacePassthroughs(
-      new Set([...previousAssetIds, ...newAdjustments.keys()]),
-      newPassthroughs,
-    );
+    const touchedAssetIds = new Set([...previousAssetIds, ...newAdjustments.keys()]);
+    this.xmpStore.replacePassthroughs(touchedAssetIds, newPassthroughs);
+    this.xmpStore.replaceVariants(touchedAssetIds, newVariants);
 
     // The handle becomes the active persistence target only after its assets
     // and sidecars have finished loading. Until this point the previous view
@@ -1102,6 +1104,7 @@ export class LibraryFetch {
     if (importedIds.size > 0) {
       for (const id of importedIds) this.cache_.evictImportedAsset(id);
       this.xmpStore.replacePassthroughs(importedIds, new Map());
+      this.xmpStore.replaceVariants(importedIds, new Map());
       this.store.adjustmentModels.update((models) => {
         const next = new Map(models);
         for (const id of importedIds) next.delete(id);
@@ -1220,6 +1223,8 @@ export class LibraryFetch {
           model,
           persisted?.passthrough ?? this.xmpStore.passthroughFor(id),
           culling,
+          undefined,
+          persisted?.variants ?? this.xmpStore.variantsFor(id),
         );
         return this.sidecarStore.write(absPath, xml);
       })

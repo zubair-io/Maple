@@ -43,16 +43,18 @@ export class SingleFileXmpService {
   open(assetId: AssetId, xmp?: string): void {
     if (xmp === undefined) {
       this.xmpStore.replacePassthroughs([assetId], new Map());
+      this.xmpStore.replaceVariants([assetId], new Map());
       this._status.set({ assetId, durability: 'none', unsaved: false });
       return;
     }
 
     assertValidSingleFileXmp(xmp);
     const culling = this.parser.parseCulling(xmp);
-    const { model, passthrough } = this.parser.parseAdjustmentModel(xmp);
+    const { model, passthrough, variants } = this.parser.parseAdjustmentModel(xmp);
     this.store.restoreAdjustment(assetId, model);
     this.store.mergePersistedCulling(assetId, culling);
     this.xmpStore.replacePassthroughs([assetId], new Map([[assetId, passthrough]]));
+    this.xmpStore.replaceVariants([assetId], new Map([[assetId, variants]]));
     this._status.set({ assetId, durability: 'paired', unsaved: false });
   }
 
