@@ -100,6 +100,25 @@ export class LensCorrectionsPanelComponent {
     () => this.liveVignetting() ?? this.adj()?.lensCorrectionVignetting ?? this.vignettingMax,
   );
 
+  /** Profile-free lateral CA (#3411). Enabled ONLY when the RAW's own
+   *  opcodes carry no CA data: where they do, the vendor's coefficients are
+   *  authoritative and the raw-domain stage self-skips, so offering the
+   *  switch would promise a correction that can never run. Deliberately NOT
+   *  gated on `panelDisabled()` — this correction exists for the bodies
+   *  that ship no `OpcodeList3` at all. */
+  readonly autoLateralCa = computed<boolean>(() => this.adj()?.autoLateralCa === 'On');
+  readonly autoLateralCaDisabled = computed<boolean>(
+    () => !this.capabilities().lensCorrectionCaInert,
+  );
+
+  toggleAutoLateralCa(): void {
+    if (this.autoLateralCaDisabled()) return;
+    const id = this.library.focusedAssetId();
+    if (!id) return;
+    this.editorState.commit();
+    this.library.updateAdjustment(id, { autoLateralCa: this.autoLateralCa() ? 'Off' : 'On' });
+  }
+
   toggleEnabled(): void {
     if (this.panelDisabled()) return; // #3182 — defense-in-depth past the `disabled` attribute
     const id = this.library.focusedAssetId();

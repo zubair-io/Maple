@@ -265,6 +265,7 @@ describe('sub-param catalog', () => {
     'hsl', // HSL wired at #1112: 24 sub-params
     'bwMix', // bwMix wired at #276: 8 gray-mixer sub-params
     'captureSharpen', // Deconv wired at #3414: Amount + Sigma
+    'defringe', // defringe wired at #3411: two amounts + two hue bands
   ];
 
   const SINGLE_PARAM_TOOLS = ALL_TOOLS.filter((tool) => !MULTI_PARAM_TOOLS.includes(tool));
