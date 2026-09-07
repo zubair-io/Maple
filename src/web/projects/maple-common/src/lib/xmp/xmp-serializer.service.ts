@@ -20,6 +20,7 @@ import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
+import { passthroughForMetadataReplacement } from './xmp-metadata-passthrough';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
   escapeXmpAttr,
@@ -84,6 +85,7 @@ export class XmpSerializerService {
     },
     metadata?: XmpMetadata,
   ): string {
+    passthrough = passthroughForMetadataReplacement(passthrough, metadata);
     const parts: string[] = [];
 
     // Always-present bookkeeping attributes.
