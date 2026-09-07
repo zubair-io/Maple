@@ -359,7 +359,7 @@ extension RenderActor {
       // `NativeDetailRenderer` needs the gain of the buffer actually
       // on screen, not a stale one from a superseded decode.
       decodedAeGain = decodeAeGain
-      // #2231/#3189: lens-correction signal rides the same write gate (describes the decoded buffer).
+      // Camera/lens support rides the same write gate (describes this decoded buffer).
       decodedHasLensCorrections = decodeHasLensCorrections
       decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
       decodedLensCorrectionDistortionInert = decodeLensCorrectionDistortionInert
