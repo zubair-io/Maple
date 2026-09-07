@@ -169,10 +169,12 @@ export async function safeWriteAllowed(filePath: string): Promise<OpResult<strin
   // For writes, the file may not exist yet; check parent dir.
   const parent = path.dirname(filePath);
   const check = await checkAllowed(parent);
-  if (!check.ok) {
+  if (check.ok) {
+    return { ok: true, data: path.join(check.data!, path.basename(filePath)) };
+  } else {
     // Also try the file path itself (in case dirname escapes).
     const check2 = await checkAllowed(filePath);
     if (!check2.ok) return { ok: false, error: check.error };
+    return { ok: true, data: check2.data };
   }
-  return { ok: true, data: path.resolve(filePath) };
 }

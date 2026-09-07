@@ -69,19 +69,6 @@ export async function createJob(
   const c = await jobsCollection();
   const scopes =
     input.kind === 'batch_adjustment_sync' ? await batchScopes(input.payload) : undefined;
-  if (scopes)
-    await c.createIndex(
-      { batch_scopes: 1 },
-      {
-        name: 'batch_active_library',
-        unique: true,
-        partialFilterExpression: {
-          kind: 'batch_adjustment_sync',
-          status: { $in: ['queued', 'running'] },
-          batch_scopes: { $exists: true },
-        },
-      },
-    );
   const nowIso = now().toISOString();
   const doc: JobDoc = {
     kind: input.kind,

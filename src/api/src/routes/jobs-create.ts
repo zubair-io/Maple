@@ -9,6 +9,7 @@ import {
   jobConflictMessage,
 } from '../job-runner/jobs.repo.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
+import { BatchScopeError } from '../job-runner/batch-scope.ts';
 
 export async function createdJobResponse(
   create: () => Promise<JobWithId>,
@@ -19,6 +20,10 @@ export async function createdJobResponse(
     set.status = 201;
     return { id: job._id.toHexString() };
   } catch (error) {
+    if (error instanceof BatchScopeError) {
+      set.status = 400;
+      return { error: error.message };
+    }
     const message = jobConflictMessage(error);
     if (!message) throw error;
     set.status = 409;
@@ -33,6 +38,7 @@ export async function createJobResponse(input: CreateJobInput) {
     const job = await createJob(input);
     return { status: 201, body: { id: job._id.toHexString() } };
   } catch (error) {
+    if (error instanceof BatchScopeError) return { status: 400, body: { error: error.message } };
     const message = jobConflictMessage(error);
     if (!message) throw error;
     return { status: 409, body: { error: message } };

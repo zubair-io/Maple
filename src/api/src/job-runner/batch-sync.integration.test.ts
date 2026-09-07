@@ -32,7 +32,20 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'maple-batch-sync-'));
   registerRoot(root);
   await closeDb();
-  await (await getDb()).collection('folders').insertOne({ path: root, slug: 'batch' });
+  const db = await getDb();
+  await db.collection('folders').insertOne({ path: root, slug: 'batch' });
+  await db.collection('jobs').createIndex(
+    { batch_scopes: 1 },
+    {
+      name: 'batch_active_library',
+      unique: true,
+      partialFilterExpression: {
+        kind: 'batch_adjustment_sync',
+        status: { $in: ['queued', 'running'] },
+        batch_scopes: { $exists: true },
+      },
+    },
+  );
   invalidateLibraryRoots();
 });
 beforeEach(async () => {

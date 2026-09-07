@@ -1,6 +1,6 @@
 /** Real Mongo indexes exercise HTTP conflict handling for creation and failed-only retries. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from '../fs/mirrored.ts';
+import { mkdir, mkdtemp, rm, symlink } from '../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Elysia } from 'elysia';
@@ -24,7 +24,20 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'maple-job-conflicts-'));
   registerRoot(root);
   await closeDb();
-  await (await getDb()).collection('folders').insertOne({ path: root, slug: 'conflicts' });
+  const db = await getDb();
+  await db.collection('folders').insertOne({ path: root, slug: 'conflicts' });
+  await db.collection('jobs').createIndex(
+    { batch_scopes: 1 },
+    {
+      name: 'batch_active_library',
+      unique: true,
+      partialFilterExpression: {
+        kind: 'batch_adjustment_sync',
+        status: { $in: ['queued', 'running'] },
+        batch_scopes: { $exists: true },
+      },
+    },
+  );
   invalidateLibraryRoots();
 });
 beforeEach(async () => {
@@ -77,6 +90,34 @@ async function failedBatch() {
 }
 
 describe('job creation conflicts', () => {
+  it('rejects a malformed batch target before path authorization', async () => {
+    const response = await post('', {
+      kind: 'batch_adjustment_sync',
+      payload: { targets: [null], patch },
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('Every photo needs an id and an absolute path');
+  });
+
+  it('rejects targets whose aliased paths resolve to one sidecar', async () => {
+    const real = join(root, 'real');
+    const alias = join(root, 'alias');
+    await mkdir(real);
+    await symlink(real, alias);
+    const response = await post('', {
+      kind: 'batch_adjustment_sync',
+      payload: {
+        targets: [
+          { id: 'conflicts:real/photo.jpg', path: join(real, 'photo.jpg') },
+          { id: 'conflicts:alias/photo.jpg', path: join(alias, 'photo.jpg') },
+        ],
+        patch,
+      },
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('share a sidecar');
+  });
+
   it('reports a typed conflict when an identity belongs to a different payload', async () => {
     const requestId = new ObjectId().toHexString();
     await createJob({ kind: 'batch_jpeg_export', payload: { quality: 90 }, requestId });
