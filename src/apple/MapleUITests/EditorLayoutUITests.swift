@@ -120,8 +120,16 @@ import XCTest
         let maskPanel = app.descendants(matching: .any)
           .matching(identifier: "editor-mask-panel").firstMatch
         XCTAssertTrue(maskPanel.waitForExistence(timeout: 5))
+        let addMask = app.buttons["editor-mask-add-menu"]
+        XCTAssertTrue(addMask.waitForExistence(timeout: 5))
+        let reachable = XCTNSPredicateExpectation(
+          predicate: NSPredicate { _, _ in addMask.isHittable }, object: addMask)
+        XCTAssertEqual(
+          XCTWaiter.wait(for: [reachable], timeout: 5), .completed,
+          "The armed Mask panel must reveal its Add Mask action")
         let panel = app.descendants(matching: .any)
           .matching(identifier: "editor-adjustments-panel").firstMatch
+        XCTAssertTrue(panel.exists)
         let editor = app.descendants(matching: .any)
           .matching(identifier: "editor-view").firstMatch
         if editor.frame.width < 768 {
