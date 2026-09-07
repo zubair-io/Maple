@@ -23,6 +23,12 @@ const workerFile = readdirSync(dist).find(
     readFileSync(resolve(dist, file), 'utf8').includes('"export-success"'),
 );
 assert.ok(workerFile, 'Production RAW worker must exist');
+const artifactHash = (file: string) =>
+  createHash('sha256')
+    .update(readFileSync(resolve(dist, file)))
+    .digest('hex');
+const workerSha256 = artifactHash(workerFile);
+const wasmSha256 = artifactHash('raw_wasm_bg.wasm');
 
 const originalHash = await hashFixture(fixture);
 const headers = {
@@ -452,6 +458,12 @@ try {
     { colorSpace },
   );
   assert.equal(await hashFixture(fixture), originalHash, 'Original RAW must remain unchanged');
+  assert.equal(
+    artifactHash(workerFile),
+    workerSha256,
+    'Worker artifact changed during measurement',
+  );
+  assert.equal(artifactHash('raw_wasm_bg.wasm'), wasmSha256, 'WASM changed during measurement');
   assert.deepEqual(errors, [], 'Browser must not raise an unhandled error');
   console.log(
     JSON.stringify(
@@ -460,9 +472,8 @@ try {
         browserVersion: browser.version(),
         fixtureSha256: originalHash,
         workerFile,
-        workerSha256: createHash('sha256')
-          .update(readFileSync(resolve(dist, workerFile)))
-          .digest('hex'),
+        workerSha256,
+        wasmSha256,
         ...result,
       },
       null,
