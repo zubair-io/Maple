@@ -12,7 +12,12 @@
 
 import { ObjectId, type Db } from 'mongodb';
 import { assetChangesCollection, foldersCollection, serverStateCollection } from './client.ts';
-import type { AssetChangeDoc, AssetChangeKind, AssetChangeWithId } from './schema.ts';
+import type {
+  AssetChangeDoc,
+  AssetChangeKind,
+  AssetChangeWithId,
+  ServerStateDoc,
+} from './schema.ts';
 import { child as childLogger } from '../log.ts';
 import { getChangeBus } from '../runtime/change-bus.ts';
 
@@ -68,7 +73,9 @@ export function computeRelativePath(folderPath: string, absPath: string): string
 }
 
 export async function allocateCursor(dbOverride?: Db): Promise<number> {
-  const coll = dbOverride ? dbOverride.collection('server_state') : await serverStateCollection();
+  const coll = dbOverride
+    ? dbOverride.collection<ServerStateDoc>('server_state')
+    : await serverStateCollection();
   const res = await coll.findOneAndUpdate(
     { _id: CURSOR_DOC_ID },
     { $inc: { seq: 1 } },
