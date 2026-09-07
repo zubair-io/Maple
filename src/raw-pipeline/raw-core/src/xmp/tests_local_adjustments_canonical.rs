@@ -20,7 +20,8 @@ const CANONICAL_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
               crs:CorrectionAmount="1"
               crs:CorrectionActive="True"
               crs:LocalExposure2012="0.5"
-              crs:LocalShadows2012="-20">
+              crs:LocalShadows2012="-20"
+              crs:LocalHue="-0.425">
               <crs:CorrectionMasks>
                 <rdf:Seq>
                   <rdf:li
@@ -44,7 +45,14 @@ const CANONICAL_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
               crs:CorrectionActive="True"
               crs:LocalContrast2012="15"
               papp:LocalVibrance="-10"
-              crs:LocalTemperature="200">
+              crs:LocalTemperature="200"
+              papp:RangeKind="Color"
+              papp:RangeHue="55"
+              papp:RangeHueWidth="25"
+              papp:RangeChromaMin="0.02"
+              papp:RangeLMin="0.15"
+              papp:RangeLMax="0.95"
+              papp:RangeFeather="0.3">
               <crs:CorrectionMasks>
                 <rdf:Seq>
                   <rdf:li

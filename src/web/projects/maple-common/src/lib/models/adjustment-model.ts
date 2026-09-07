@@ -25,8 +25,14 @@ export { defaultGeneratedAdjustmentModel } from '../generated/adjustment-model.g
 // Ranges live in the sibling generated file (#2683 — split out to keep both
 // generated files well under the file-size budget as the schema grows).
 export { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
-export type { LocalAdjustment, LocalMask, MaskPoint, PartialAdjustments } from './local-adjustment';
-export { isEmptyPartialAdjustments } from './local-adjustment';
+export type {
+  LocalAdjustment,
+  LocalMask,
+  MaskPoint,
+  PartialAdjustments,
+  RangeRefinement,
+} from './local-adjustment';
+export { isEmptyPartialAdjustments, SKIN_TONE_RANGE } from './local-adjustment';
 import type { LocalAdjustment } from './local-adjustment';
 
 /**

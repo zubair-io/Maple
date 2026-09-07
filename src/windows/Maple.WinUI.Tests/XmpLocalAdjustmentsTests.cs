@@ -22,19 +22,26 @@ namespace Maple.WinUI.Tests
     {
         private const string CanonicalIndent = "      ";
 
-        /// <summary>The linear half of the shared fixture (`linear_layer()` in Rust).</summary>
+        /// <summary>
+        /// The linear half of the shared fixture (`linear_layer()` in Rust).
+        /// The fractional hue pins the four-decimal `crs:LocalHue` wire
+        /// precision across all four writers (#3335).
+        /// </summary>
         internal static readonly LocalAdjustment LinearLayer = new(
             new LinearMask(new MaskPoint(0.2, 0.3), new MaskPoint(0.8, 0.7), 0.4),
-            new PartialAdjustments { Exposure = 0.5, Shadows = -20 });
+            new PartialAdjustments { Exposure = 0.5, Shadows = -20, Hue = -42.5 });
 
         /// <summary>
         /// The radial half (`radial_layer()` in Rust). Binary-exact fractions
         /// so the wire form's center ± radii bounding box round-trips to
         /// bit-identical doubles; the angle uses the parser's own conversion.
+        /// The skin preset's `papp:Range*` attributes ride the shared fixture
+        /// so every writer is pinned to emit them (#3335).
         /// </summary>
         internal static readonly LocalAdjustment RadialLayer = new(
             new RadialMask(new MaskPoint(0.5, 0.375), new MaskPoint(0.25, 0.125), 45 * Math.PI / 180, 0.6, true),
-            new PartialAdjustments { Contrast = 15, Vibrance = -10, Temperature = 200 });
+            new PartialAdjustments { Contrast = 15, Vibrance = -10, Temperature = 200 },
+            ColorRangeRefinement.SkinTone);
 
         internal static readonly string CanonicalBlock = string.Join("\n", new[]
         {
@@ -46,7 +53,8 @@ namespace Maple.WinUI.Tests
             "              crs:CorrectionAmount=\"1\"",
             "              crs:CorrectionActive=\"True\"",
             "              crs:LocalExposure2012=\"0.5\"",
-            "              crs:LocalShadows2012=\"-20\">",
+            "              crs:LocalShadows2012=\"-20\"",
+            "              crs:LocalHue=\"-0.425\">",
             "              <crs:CorrectionMasks>",
             "                <rdf:Seq>",
             "                  <rdf:li",
@@ -70,7 +78,14 @@ namespace Maple.WinUI.Tests
             "              crs:CorrectionActive=\"True\"",
             "              crs:LocalContrast2012=\"15\"",
             "              papp:LocalVibrance=\"-10\"",
-            "              crs:LocalTemperature=\"200\">",
+            "              crs:LocalTemperature=\"200\"",
+            "              papp:RangeKind=\"Color\"",
+            "              papp:RangeHue=\"55\"",
+            "              papp:RangeHueWidth=\"25\"",
+            "              papp:RangeChromaMin=\"0.02\"",
+            "              papp:RangeLMin=\"0.15\"",
+            "              papp:RangeLMax=\"0.95\"",
+            "              papp:RangeFeather=\"0.3\">",
             "              <crs:CorrectionMasks>",
             "                <rdf:Seq>",
             "                  <rdf:li",
@@ -342,6 +357,58 @@ namespace Maple.WinUI.Tests
                     new RadialMask(new MaskPoint(0.5, 0.375), new MaskPoint(0.25, 0.125), 0, 0.5, false),
                     new PartialAdjustments { Saturation = -15, Temperature = -50 }),
             }, doc!.Adjustments.LocalAdjustments);
+        }
+        // ── Apple-authored hue + range (#3335) ───────────────────────────────
+
+        private const string AppleHueRangeAttrs =
+            "crs:What=\"Correction\" crs:CorrectionAmount=\"1\" crs:CorrectionActive=\"True\" crs:LocalHue=\"-0.2\" "
+            + "papp:RangeKind=\"Color\" papp:RangeHue=\"40\" papp:RangeHueWidth=\"20\" papp:RangeChromaMin=\"0.03\" "
+            + "papp:RangeLMin=\"0.1\" papp:RangeLMax=\"0.9\" papp:RangeFeather=\"0.25\"";
+
+        [Fact]
+        public void ResavesAppleAuthoredLocalHueAndRangeInsteadOfDroppingThem()
+        {
+            var doc = XmpParser.Parse(Sidecar(GradientCorrection(AppleHueRangeAttrs, FullFrameGradient)));
+            Assert.NotNull(doc);
+            var layer = Assert.Single(doc!.Adjustments.LocalAdjustments);
+            Assert.Equal(new LocalAdjustment(
+                new LinearMask(new MaskPoint(0, 0), new MaskPoint(1, 0), 0.5),
+                new PartialAdjustments { Hue = -20 },
+                new ColorRangeRefinement(40, 20, 0.03, 0.1, 0.9, 0.25)), layer);
+
+            var resaved = XmpWriter.Serialize(doc);
+            foreach (var attr in new[]
+            {
+                "crs:LocalHue=\"-0.2\"", "papp:RangeKind=\"Color\"", "papp:RangeHue=\"40\"",
+                "papp:RangeHueWidth=\"20\"", "papp:RangeChromaMin=\"0.03\"", "papp:RangeLMin=\"0.1\"",
+                "papp:RangeLMax=\"0.9\"", "papp:RangeFeather=\"0.25\"",
+            })
+            {
+                Assert.Contains(attr, resaved);
+            }
+        }
+
+        [Fact]
+        public void CorrectionAmountScalesLocalHueLikeEveryOtherSlider()
+        {
+            var doc = XmpParser.Parse(Sidecar(GradientCorrection(
+                "crs:What=\"Correction\" crs:CorrectionAmount=\"0.5\" crs:LocalHue=\"-0.2\"",
+                FullFrameGradient)));
+            var layer = Assert.Single(doc!.Adjustments.LocalAdjustments);
+            Assert.Equal(new PartialAdjustments { Hue = -10 }, layer.Adjustments);
+        }
+
+        [Fact]
+        public void MissingRangeNumericsFallBackToTheSkinPresetAndUnknownRangeKindIsIgnored()
+        {
+            var partial = XmpParser.Parse(Sidecar(GradientCorrection(
+                "crs:What=\"Correction\" papp:RangeKind=\"Color\" papp:RangeHue=\"40\"", FullFrameGradient)));
+            Assert.Equal(ColorRangeRefinement.SkinTone with { HueDeg = 40 },
+                Assert.Single(partial!.Adjustments.LocalAdjustments).Range);
+
+            var unknown = XmpParser.Parse(Sidecar(GradientCorrection(
+                "crs:What=\"Correction\" papp:RangeKind=\"Luminance\" papp:RangeHue=\"40\"", FullFrameGradient)));
+            Assert.Null(Assert.Single(unknown!.Adjustments.LocalAdjustments).Range);
         }
     }
 }
