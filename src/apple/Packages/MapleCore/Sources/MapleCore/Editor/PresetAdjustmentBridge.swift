@@ -179,6 +179,16 @@ extension AdjustmentModel.FieldName {
     case .displayToneCurveLuma, .displayToneCurveRed, .displayToneCurveGreen,
       .displayToneCurveBlue:
       return nil
+    // Manual geometry (#3410). The canonical field names stay flat; Swift
+    // groups the seven under one nested value type (see `Perspective.swift`),
+    // so the key paths reach through it.
+    case .perspectiveVertical: return \.perspective.vertical
+    case .perspectiveHorizontal: return \.perspective.horizontal
+    case .perspectiveRotate: return \.perspective.rotate
+    case .perspectiveScale: return \.perspective.scale
+    case .perspectiveAspect: return \.perspective.aspect
+    case .perspectiveX: return \.perspective.x
+    case .perspectiveY: return \.perspective.y
     }
   }
 
@@ -274,6 +284,16 @@ extension AdjustmentModel.FieldName {
     case .lensCorrectionCa: return AdjustmentModel.lensCorrectionCaRange
     case .lensCorrectionVignetting: return AdjustmentModel.lensCorrectionVignettingRange
     case .filmStrength: return AdjustmentModel.filmStrengthRange
+    // Manual geometry (#3410) — declared explicitly rather than left to the
+    // catch-all so a pasted preset is CLAMPED to the canonical range; the
+    // catch-all's `nil` would apply an out-of-range keystone unchecked.
+    case .perspectiveVertical: return AdjustmentModel.perspectiveVerticalRange
+    case .perspectiveHorizontal: return AdjustmentModel.perspectiveHorizontalRange
+    case .perspectiveRotate: return AdjustmentModel.perspectiveRotateRange
+    case .perspectiveScale: return AdjustmentModel.perspectiveScaleRange
+    case .perspectiveAspect: return AdjustmentModel.perspectiveAspectRange
+    case .perspectiveX: return AdjustmentModel.perspectiveXRange
+    case .perspectiveY: return AdjustmentModel.perspectiveYRange
     default: return nil
     }
   }

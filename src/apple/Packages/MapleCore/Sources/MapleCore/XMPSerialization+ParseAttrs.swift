@@ -60,6 +60,22 @@ extension _XMPParserDelegate {
       model.parametricMidtoneSplit = d(value) ?? model.parametricMidtoneSplit
     case "crs:ParametricHighlightSplit":
       model.parametricHighlightSplit = d(value) ?? model.parametricHighlightSplit
+    // Manual geometry (#3410) — read unrescaled, so a Lightroom-authored
+    // keystone lands on the slider at the number Lightroom wrote.
+    case "crs:PerspectiveVertical":
+      model.perspective.vertical = d(value) ?? model.perspective.vertical
+    case "crs:PerspectiveHorizontal":
+      model.perspective.horizontal = d(value) ?? model.perspective.horizontal
+    case "crs:PerspectiveRotate":
+      model.perspective.rotate = d(value) ?? model.perspective.rotate
+    case "crs:PerspectiveScale":
+      model.perspective.scale = d(value) ?? model.perspective.scale
+    case "crs:PerspectiveAspect":
+      model.perspective.aspect = d(value) ?? model.perspective.aspect
+    case "crs:PerspectiveX":
+      model.perspective.x = d(value) ?? model.perspective.x
+    case "crs:PerspectiveY":
+      model.perspective.y = d(value) ?? model.perspective.y
     case "crs:Vibrance": model.vibrance = d(value) ?? model.vibrance
     case "crs:Saturation": model.saturation = d(value) ?? model.saturation
     case "crs:Clarity2012": model.clarity = d(value) ?? model.clarity

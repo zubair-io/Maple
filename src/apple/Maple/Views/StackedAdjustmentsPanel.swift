@@ -375,6 +375,15 @@ struct StackedAdjustmentsPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
+
+            // Manual geometry (#3410) is pinned into the Detail section for
+            // the same structural reason: seven sliders and no single
+            // primary field, so the living-slider stack above filters it out.
+            if group == .detail {
+                GeometrySection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
         }
     }
 

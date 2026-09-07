@@ -61,6 +61,12 @@ struct ControlCard: View {
                 FilmSection(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
+            } else if state.armedTool == .geometry {
+                // Seven manual-geometry sliders replace the slider grid
+                // (#3410) — same no-primary-field shape as Lens / Film.
+                GeometrySection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
             } else if state.armedTool == .lensCorrections {
                 // Master toggle + three DNG-correction sliders replace the
                 // slider grid (#2231) — same no-primary-field shape as

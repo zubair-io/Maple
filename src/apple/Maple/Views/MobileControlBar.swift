@@ -69,6 +69,10 @@ struct MobileControlBar: View {
                 // the group slider stack (#2683) — same no-primary-field
                 // shape as Tone Curve.
                 FilmSection(state: state)
+            } else if state.armedTool == .geometry {
+                // Seven manual-geometry sliders replace the group slider
+                // stack (#3410) — same no-primary-field shape as Lens.
+                GeometrySection(state: state)
             } else if state.armedTool == .lensCorrections {
                 // Master toggle + three DNG-correction sliders replace the
                 // group slider stack (#2231) — same no-primary-field shape

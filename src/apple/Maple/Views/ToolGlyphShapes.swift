@@ -195,6 +195,14 @@ enum ToolGlyphShapes {
         // Two crop rails crossing.
         case .crop:
             return [.path("M4.6 2.6v8.8h8.8"), .path("M2.6 4.6h8.8v8.8")]
+        // Manual geometry (#3410) — a trapezoid inside a frame: the keystone
+        // the tool corrects, drawn as the shape a tilted camera gives a
+        // rectangular building.
+        case .geometry:
+            return [
+                .path("M2.6 2.6h10.8v10.8H2.6z"),
+                .path("M5.4 4.4h5.2l1.4 7.2H4z"),
+            ]
         // Two offset cards — a stack of saved looks.
         case .presets:
             return [

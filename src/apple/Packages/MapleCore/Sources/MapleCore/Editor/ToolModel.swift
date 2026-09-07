@@ -54,6 +54,9 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
     // Detail
     case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections, crop, presets
+    // Manual geometry (#3410) — seven `crs:Perspective*` sliders, no primary
+    // field; see `isWired` and `ToolSubParam`.
+    case geometry
     // Mask (#3274) — a full-surface swap, not a primary-field drag bar; see
     // `isWired` below. Heal is gated behind #1472 with no Tool-level surface
     // yet, per CLAUDE.md #6's deliberate-staging exception.
@@ -69,7 +72,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
             return .effects
         case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
-             .crop, .presets, .mask, .heal:
+             .crop, .geometry, .presets, .mask, .heal:
             return .detail
         }
     }
@@ -104,6 +107,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .captureSigma:   return "Deconv σ"
         case .lensCorrections: return "Lens"
         case .crop:           return "Crop"
+        case .geometry:       return "Geometry"
         case .presets:        return "Presets"
         case .mask:           return "Mask"
         case .heal:           return "Heal"
@@ -145,6 +149,11 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// is declared as this tool's single sub-param so its slider rides
     /// the ordinary sub-param value pipe (HUD, undo). `displayRange`
     /// stays nil and `FilmSection` is the whole control surface.
+    ///
+    /// Geometry (#3410) takes that same no-primary-field shape once more:
+    /// seven `crs:Perspective*` sliders that compose into ONE homography, no
+    /// single "main" one among them, so `displayRange` stays nil and
+    /// `GeometrySection` is the whole control surface.
     ///
     /// Lens Corrections (#2231) is wired and takes the same no-primary-
     /// field shape: it has no single "main" scale, and the panel needs a

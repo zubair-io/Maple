@@ -1,25 +1,13 @@
 // AdjustmentModel.swift — Swift mirror of raw_core::xmp::AdjustmentModel.
+// Fields, defaults and ranges match the Rust source exactly.
 //
-// Fields, defaults, and ranges match spec § 01 and the Rust source in
-// src/raw-pipeline/raw-core/src/xmp.rs exactly.
-//
-// This file owns `AdjustmentModel` itself — the per-image develop knobs,
-// their defaults, and the memberwise `init`. That `init` is the one member
-// that cannot be lifted into an extension: the compiler re-synthesises a
-// colliding internal memberwise init as soon as the explicit one leaves the
-// struct body, so every split of this file moves other members instead.
-// (#2320 tried relying on that synthesised init instead, since inline
-// `= default` property values make it seem redundant — reverted on review:
-// Swift's synthesised memberwise init for a `public` struct is only ever
-// `internal`, so `Maple`, a separate module, could no longer construct
-// `AdjustmentModel` at all. The explicit `public init` is load-bearing.)
-//
-// Everything else has already been split out for the same budget reason:
-// the pipeline-shaping enums into `AdjustmentModel+Enums.swift` (#376);
-// culling + IPTC keywords into `CullingState.swift` (#1656);
-// `BlackWhiteMode` into `AdjustmentModel+BlackWhite.swift` (#276); the
-// nested value types `Crop` and `ToneCurve` into their own files (#366);
-// and the XMP read/write surface into `XMPSerialization.swift` (#632).
+// The explicit `public init` is load-bearing and CANNOT move to an extension:
+// the compiler then re-synthesises a colliding memberwise init, and #2320
+// showed the synthesised one is only ever `internal`, leaving the `Maple`
+// module unable to construct the type at all. Every split of this file
+// therefore moves other members — the enums (#376), culling + keywords
+// (#1656), `BlackWhiteMode` (#276), the nested `Crop` / `ToneCurve` / and
+// (#3410) `Perspective` value types, and the XMP surface (#632).
 
 import Foundation
 
@@ -339,6 +327,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// full look) omits the attribute on write.
   public var filmStrength: Double  // 0..100, default 100
 
+  /// Manual geometry (#3410) — the seven `crs:Perspective*` scalars, grouped
+  /// into one nested value type the way `crop` is. See `Perspective.swift`
+  /// for why Swift groups what raw-core declares flat.
+  public var perspective: Perspective
+
   public init(
     temperature: Double = 6500,
     tint: Double = 0,
@@ -448,6 +441,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     lensCorrectionDistortion: Double = 100,
     lensCorrectionCa: Double = 100,
     lensCorrectionVignetting: Double = 100,
+    perspective: Perspective = .identity,
     filmLook: String = "",
     filmStrength: Double = 100
   ) {
@@ -559,6 +553,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     self.lensCorrectionDistortion = lensCorrectionDistortion
     self.lensCorrectionCa = lensCorrectionCa
     self.lensCorrectionVignetting = lensCorrectionVignetting
+    self.perspective = perspective
     self.filmLook = filmLook
     self.filmStrength = filmStrength
   }

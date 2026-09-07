@@ -64,6 +64,15 @@ struct ToolDock: View {
           tool: .filmLook,
           onPresetsTap: onPresetsTap
         )
+        // Geometry — real Tool case since #3410. Belongs to the Detail
+        // GROUP but, like Curve and Film, has no primary field (seven
+        // sliders and no "main" one), so `LivingSliderGrid` filters it out
+        // of that group's stack and the dock is its only route.
+        SpecialDockButton(
+          state: state,
+          tool: .geometry,
+          onPresetsTap: onPresetsTap
+        )
         // Presets — real Tool case; tapping also fires the presets sheet.
         SpecialDockButton(
           state: state,

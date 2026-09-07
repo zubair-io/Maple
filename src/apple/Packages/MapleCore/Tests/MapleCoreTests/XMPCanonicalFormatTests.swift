@@ -101,6 +101,13 @@ final class XMPCanonicalFormatTests: XCTestCase {
         m.hotPixelSuppression = .on
         m.profile = .neutral
         m.crop = Crop(top: 0.1, left: 0.05, bottom: 0.9, right: 0.95, angle: 2.5)
+        // Manual geometry (#3410). Values deliberately avoid an exact
+        // two-decimal midpoint: Rust/Swift round a negative tie away from
+        // zero and TS/C# round it toward +∞, so a midpoint here would split
+        // the two golden copies (the #3400/#3401 class of bug).
+        m.perspective = Perspective(
+            vertical: -20, horizontal: 12.5, rotate: -3.5, scale: 110,
+            aspect: -35, x: 8, y: -6)
         m.toneCurveLuma = ToneCurve(points: [(x: 0, y: 0), (x: 0.5, y: 0.55), (x: 1, y: 1)])
         m.toneCurveBlue = ToneCurve(points: [(x: 0, y: 0), (x: 1, y: 0.8)])
         return m
@@ -316,6 +323,13 @@ let xmpCanonicalGoldenDocument = """
       crs:ParametricMidtoneSplit="55.5"
       crs:ParametricShadowSplit="30"
       crs:ParametricShadows="-1"
+      crs:PerspectiveAspect="-35"
+      crs:PerspectiveHorizontal="12.5"
+      crs:PerspectiveRotate="-3.5"
+      crs:PerspectiveScale="110"
+      crs:PerspectiveVertical="-20"
+      crs:PerspectiveX="8"
+      crs:PerspectiveY="-6"
       crs:PostCropVignetteAmount="-20"
       crs:PostCropVignetteFeather="40"
       crs:ProcessVersion="11.0"
