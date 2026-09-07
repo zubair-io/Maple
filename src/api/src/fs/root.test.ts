@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 // Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { getRegisteredRoots, safeWriteAllowed } from './root.ts';
@@ -25,7 +25,7 @@ describe('safeWriteAllowed', () => {
 
     expect(await safeWriteAllowed(target)).toEqual({
       ok: true,
-      data: target,
+      data: join(await realpath(fixture), 'photo.xmp'),
     });
   });
 
@@ -40,7 +40,11 @@ describe('safeWriteAllowed', () => {
 
     expect(await safeWriteAllowed(join(realRoot, 'photo.xmp'))).toEqual({
       ok: true,
-      data: join(realRoot, 'photo.xmp'),
+      data: join(await realpath(realRoot), 'photo.xmp'),
+    });
+    expect(await safeWriteAllowed(join(configuredRoot, 'photo.xmp'))).toEqual({
+      ok: true,
+      data: join(await realpath(realRoot), 'photo.xmp'),
     });
   });
 
@@ -51,7 +55,7 @@ describe('safeWriteAllowed', () => {
 
     expect(await safeWriteAllowed(join(fixture, 'photo.xmp'))).toEqual({
       ok: true,
-      data: join(fixture, 'photo.xmp'),
+      data: join(await realpath(fixture), 'photo.xmp'),
     });
   });
 
