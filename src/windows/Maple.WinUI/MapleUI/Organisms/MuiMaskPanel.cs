@@ -64,11 +64,11 @@ namespace Maple.UI
 
         public static readonly DependencyProperty FeatherProperty =
             DependencyProperty.Register(nameof(Feather), typeof(double), typeof(MuiMaskPanel),
-                new PropertyMetadata(50.0, (d, e) => ((MuiMaskPanel)d)._featherBar.Value = (double)e.NewValue));
+                new PropertyMetadata(50.0, (d, e) => ((MuiMaskPanel)d).SetFeatherSilently((double)e.NewValue)));
 
         public static readonly DependencyProperty InvertProperty =
             DependencyProperty.Register(nameof(Invert), typeof(bool), typeof(MuiMaskPanel),
-                new PropertyMetadata(false, (d, e) => ((MuiMaskPanel)d)._invertCheckbox.IsChecked = (bool)e.NewValue));
+                new PropertyMetadata(false, (d, e) => ((MuiMaskPanel)d).SetInvertSilently((bool)e.NewValue)));
 
         public static readonly DependencyProperty AdjustmentsProperty =
             DependencyProperty.Register(nameof(Adjustments), typeof(MuiPartialAdjustments), typeof(MuiMaskPanel),
@@ -111,6 +111,14 @@ namespace Maple.UI
         private readonly MuiCheckbox _invertCheckbox = new() { Label = "Invert" };
         private readonly Dictionary<string, MuiDragBar> _controlBars = new();
         private readonly MuiButton _resetButton = new() { Label = "Reset", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm };
+        // Re-entrancy guard (#3435 review): a model->UI push (SyncControlValues,
+        // SetFeatherSilently, SetInvertSilently) must never round-trip back out
+        // through *Changed/AdjustmentChanged — MuiCheckbox's underlying
+        // ToggleButton raises Checked/Unchecked on ANY IsChecked change,
+        // programmatic sets included, so without this guard every layer
+        // selection would write the just-synced value straight back into the
+        // model and spam an undo boundary + sidecar write for no real edit.
+        private readonly MuiSyncGate _syncGate = new();
 
         public MuiMaskPanel()
         {
@@ -126,7 +134,7 @@ namespace Maple.UI
             foreach (var (field, label, min, max, step, _) in ControlDescriptors)
             {
                 var bar = new MuiDragBar { Label = label, Minimum = min, Maximum = max, Step = step };
-                bar.ValueChanged += (_, v) => AdjustmentChanged?.Invoke(this, (field, v));
+                bar.ValueChanged += (_, v) => { if (!_syncGate.IsSyncing) AdjustmentChanged?.Invoke(this, (field, v)); };
                 _controlBars[field] = bar;
                 _selectedHost.Children.Add(bar);
             }
@@ -136,9 +144,9 @@ namespace Maple.UI
 
             _addLinear.Click += (_, _) => AddLinearRequested?.Invoke(this, EventArgs.Empty);
             _addRadial.Click += (_, _) => AddRadialRequested?.Invoke(this, EventArgs.Empty);
-            _featherBar.ValueChanged += (_, v) => FeatherChanged?.Invoke(this, v);
-            _invertCheckbox.Checked += (_, _) => InvertChanged?.Invoke(this, true);
-            _invertCheckbox.Unchecked += (_, _) => InvertChanged?.Invoke(this, false);
+            _featherBar.ValueChanged += (_, v) => { if (!_syncGate.IsSyncing) FeatherChanged?.Invoke(this, v); };
+            _invertCheckbox.Checked += (_, _) => { if (!_syncGate.IsSyncing) InvertChanged?.Invoke(this, true); };
+            _invertCheckbox.Unchecked += (_, _) => { if (!_syncGate.IsSyncing) InvertChanged?.Invoke(this, false); };
             _resetButton.Click += (_, _) => ResetRequested?.Invoke(this, EventArgs.Empty);
             AutomationProperties.SetName(_addLinear, "Add linear mask");
             AutomationProperties.SetName(_addRadial, "Add radial mask");
@@ -148,12 +156,16 @@ namespace Maple.UI
             RebuildLayerList();
         }
 
-        private void SyncControlValues()
+        private void SyncControlValues() => _syncGate.RunSynced(() =>
         {
             var a = Adjustments;
             foreach (var (field, _, _, _, _, get) in ControlDescriptors)
                 _controlBars[field].Value = get(a) ?? 0;
-        }
+        });
+
+        private void SetFeatherSilently(double value) => _syncGate.RunSynced(() => _featherBar.Value = value);
+
+        private void SetInvertSilently(bool value) => _syncGate.RunSynced(() => _invertCheckbox.IsChecked = value);
 
         private void RebuildLayerList()
         {
