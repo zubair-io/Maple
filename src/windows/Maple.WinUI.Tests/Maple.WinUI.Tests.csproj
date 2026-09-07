@@ -330,6 +330,18 @@
     <Compile Include="..\Maple.WinUI\ViewModels\PhotoItem.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\ViewModels\CloudFolderNode.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\ViewModels\FolderNavigation.cs" LinkBase="ViewModels" />
-    <Compile Include="..\Maple.WinUI\Services\Cloud\CloudTimelineModels.cs" LinkBase="Services\Cloud" />
+    <!-- The whole Maple Cloud client (#1325 cutover audit): CloudClient's
+         partials, its wire models and the PKCE helper are plain
+         System.Net.Http / System.Text.Json / System.Security.Cryptography
+         with no WinUI dependency (the passkey ceremony hands its URL to
+         the shell; the client itself never touches a Window). Linked so
+         the routes each method builds are pinned against a fake
+         HttpMessageHandler through the internal transport constructor.
+         CloudFilesHydration.cs is the cldapi-free half of the Cloud Files
+         FETCH_DATA callback — the offset-0 rule and the aligned-chunk
+         streaming loop — split out of CloudFilesSyncRoot.cs (which stays
+         unlinked: it is P/Invoke into cldapi.dll end to end). -->
+    <Compile Include="..\Maple.WinUI\Services\Cloud\*.cs" LinkBase="Services\Cloud" />
+    <Compile Include="..\Maple.WinUI\Services\CloudFiles\CloudFilesHydration.cs" LinkBase="Services\CloudFiles" />
   </ItemGroup>
 </Project>
