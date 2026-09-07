@@ -226,28 +226,34 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
       preview: 'live',
       presentation: {
         compact:
-          'Mask dock entry arms the tool: canvas overlay (selected layer handles + weight tint) + mask panel (layer list, add linear/radial, feather, invert, ten local sliders) above the bottom dock',
+          'Mask dock entry arms the tool: canvas overlay (selected layer handles + weight tint) + mask panel (layer list, add linear/radial, feather, invert, ten local sliders, colour range) above the bottom dock',
         regular: 'Mask dock entry arms the tool: canvas overlay + 300px mask panel beside the dock',
         wide: 'Same as regular',
       },
       interaction: {
         keyboard:
-          'Layer rows and add/delete/reset via Tab + Enter; the feather and local sliders take arrow keys',
-        pointer: 'Drag a gradient endpoint / body, or an ellipse center / radius / rotation pin',
+          'Layer rows and add/delete/reset via Tab + Enter; the feather, local and colour-range sliders take arrow keys',
+        pointer:
+          'Drag a gradient endpoint / body, or an ellipse center / radius / rotation pin; the colour-range eyedropper arms the canvas pick overlay and the next click seeds the band',
         touch: 'Same drags; sliders take long-press fine mode',
         focus:
           'The overlay owns the canvas pointer stream while armed; the drag bar refuses value edits',
       },
       accessibility: {
-        role: 'group (overlay, one img per handle) + list (layers, button rows) + slider (feather + ten controls) + checkbox (invert)',
-        name: 'Mask overlay; Mask handle: <handle>; Linear N / Radial N; Feather; Invert; the ten local control names',
-        value: 'aria-valuenow per slider; aria-current on the selected layer row',
-        state: 'one undo entry per drag; add / remove / invert / reset commit their own',
+        role: 'group (overlay, one img per handle) + list (layers, button rows) + slider (feather + ten controls + five colour-range controls) + checkbox (invert, colour range) + button (eyedropper)',
+        name: 'Mask overlay; Mask handle: <handle>; Linear N / Radial N; Feather; Invert; the ten local control names; Colour range; Sample a colour for the range; Hue width / Chroma min / L min / L max / Feather',
+        value:
+          'aria-valuenow per slider; aria-current on the selected layer row; the band centre is read out in degrees next to the eyedropper',
+        state:
+          'one undo entry per drag; add / remove / invert / reset / colour-range enable / an eyedropper seed commit their own',
         actions: [
           'add a linear or radial mask',
           'select / delete a layer',
           'drag a handle',
           'adjust a local control',
+          'enable the colour range',
+          'sample a colour with the eyedropper',
+          'adjust a colour-range control',
           'reset the layer',
         ],
       },
