@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace Maple.UI
 {
     /// <summary>
@@ -14,7 +12,8 @@ namespace Maple.UI
     /// Filmstrip Rail vertically, but "keep the active cell fully inside
     /// the viewport, scrolling the minimum distance to do it" is the same
     /// one-dimensional problem either way — both controls pass their own
-    /// axis's extent/offset into the same <see cref="FollowOffset"/>.
+    /// axis's measured cell bounds and viewport extent/offset into the same
+    /// <see cref="FollowBounds"/>.
     /// </summary>
     public static class MuiFilmstripFollowLogic
     {
@@ -23,40 +22,18 @@ namespace Maple.UI
         /// full Media Cell including its padding and metadata.</summary>
         public const double CellSpacing = 8;
 
-        /// <summary>Index of <paramref name="activeId"/> within
-        /// <paramref name="ids"/>, or -1 when absent/null (no active item
-        /// yet, or an id that isn't in the current list).</summary>
-        public static int IndexOf(IReadOnlyList<string> ids, string? activeId)
-        {
-            if (activeId is null) return -1;
-            for (var i = 0; i < ids.Count; i++)
-                if (ids[i] == activeId) return i;
-            return -1;
-        }
-
-        /// <summary>The new scroll offset that brings the cell at
-        /// <paramref name="index"/> (each <paramref name="itemExtent"/>
-        /// wide/tall, <paramref name="spacing"/> apart, uniform strip) into
-        /// full view within a <paramref name="viewportExtent"/>-sized
-        /// window currently scrolled to <paramref name="currentOffset"/> —
-        /// the minimum-distance scroll: already-visible stays put; a cell
-        /// off the leading edge snaps its start to the viewport's leading
-        /// edge; a cell off the trailing edge snaps its end to the
-        /// viewport's trailing edge. A negative <paramref name="index"/>
-        /// (no active item) is a no-op, same as an unchanged offset.</summary>
-        public static double FollowOffset(
-            int index, double itemExtent, double spacing, double viewportExtent, double currentOffset)
-        {
-            if (index < 0) return currentOffset;
-
-            var itemStart = index * (itemExtent + spacing);
-            return FollowBounds(itemStart, itemExtent, viewportExtent, currentOffset);
-        }
-
-        /// <summary>Follow a cell's actual laid-out bounds, including its
-        /// chrome and any metadata, rather than assuming uniform thumbnail
-        /// dimensions. A cell taller/wider than the viewport aligns its
-        /// leading edge so repeated layout does not bounce between edges.</summary>
+        /// <summary>The new scroll offset that brings a cell laid out at
+        /// <paramref name="itemStart"/> with the measured
+        /// <paramref name="itemExtent"/> (chrome and metadata included —
+        /// never an assumed uniform thumbnail size) into full view within a
+        /// <paramref name="viewportExtent"/>-sized window currently scrolled
+        /// to <paramref name="currentOffset"/> — the minimum-distance
+        /// scroll: already-visible stays put; a cell off the leading edge
+        /// snaps its start to the viewport's leading edge; a cell off the
+        /// trailing edge snaps its end to the viewport's trailing edge. A
+        /// cell taller/wider than the viewport aligns its leading edge so
+        /// repeated layout does not bounce between edges, and an unmeasured
+        /// cell or viewport (extent 0) is a no-op.</summary>
         public static double FollowBounds(
             double itemStart, double itemExtent, double viewportExtent, double currentOffset)
         {
