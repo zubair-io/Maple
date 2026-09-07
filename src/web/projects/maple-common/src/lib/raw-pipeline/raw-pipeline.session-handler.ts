@@ -172,7 +172,7 @@ async function renderLiveSessionFrame(
   return req.params ? session.render_with_params(req.params) : session.render(req.xmp ?? null);
 }
 
-/** Release the edit scheduler before any asynchronous scope map completes. */
+/** Release the scheduler after GPU completion; scope result delivery is separate. */
 function postRenderSessionSuccess(req: RenderSessionRequest, colorSpace: string): void {
   const response: WorkerResponse = {
     id: req.id,

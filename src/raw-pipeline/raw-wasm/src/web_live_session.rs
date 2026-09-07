@@ -26,6 +26,9 @@
 //!   pipelines (the CLAUDE.md render-loop invariant; the zero-alloc re-render is
 //!   proven on the shared `raw_gpu::LiveSession` substrate in
 //!   `raw-gpu/src/live_session/tests.rs`).
+//! - Open/render resolve after their GPU presentation work completes (#3397).
+//!   The host coalesces edits behind this Promise, bounding GPU frames in flight.
+//!   Scope samples arrive separately; completion does not measure display scanout.
 //! - Drop releases the GPU context + session.
 //!
 //! ## Re-develop boundary (correct by construction)
@@ -63,6 +66,8 @@ use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
+#[path = "web_live_session/completion.rs"]
+mod completion;
 #[path = "web_live_session/scope.rs"]
 mod scope;
 
@@ -89,10 +94,12 @@ pub struct WebLiveSession {
     /// the compiled present pipeline; created ONCE in `open`, so a per-tick present
     /// recompiles nothing and reconfigures no swapchain (#1038).
     present: WebPresentSurface,
+    /// The configured browser queue, cached once for GPU admission backpressure.
+    completion: completion::QueueCompletion,
     /// The upload-once image + persistent ping-pong / dither buffers. Recreated
     /// only on a prefix-affecting edit (re-develop) — never per hot-path tick.
     session: LiveSession,
-    /// Independent, bounded scope readback; never awaited by a render.
+    /// Bounded scope readback; its owned result Promise is not awaited by render.
     scope_sampler: raw_gpu::ScopeSampler,
     last_presented: std::cell::Cell<Option<usize>>,
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
@@ -240,6 +247,7 @@ impl WebLiveSession {
         let present =
             WebPresentSurface::create(&ctx, &canvas, width, height, requested_color_space)
                 .map_err(|e| JsError::new(&e))?;
+        let completion = completion::QueueCompletion::new(&canvas).map_err(|e| JsError::new(&e))?;
 
         let scope_sampler = raw_gpu::ScopeSampler::new(&ctx, &session);
         let handle = WebLiveSession {
@@ -248,6 +256,7 @@ impl WebLiveSession {
             raw,
             ext,
             present,
+            completion,
             session,
             scope_sampler,
             last_presented: std::cell::Cell::new(None),
@@ -279,7 +288,8 @@ impl WebLiveSession {
     /// GPU chain to its f32 buffer, and presents with NO readback.
     ///
     /// Returns the achieved canvas colour-space tag (`"display-p3"` / `"srgb"` /
-    /// `"unknown"`) so the worker can self-report it. `xmp` is the serialized model
+    /// `"unknown"`) after GPU presentation work completes, so the worker can
+    /// acknowledge this frame before admitting the next. `xmp` is the serialized model
     /// (always present after `open`; `None` is treated as a fresh As-Shot import).
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
@@ -468,7 +478,8 @@ impl WebLiveSession {
 impl WebLiveSession {
     /// Build the chain inputs for `model`, run the resident chain to its f32
     /// buffer, and present to the held canvas surface. The shared tail of `open` +
-    /// `render`. Returns the achieved colour-space tag (from the one-time retag).
+    /// `render`. After GPU completion, returns the achieved colour-space tag
+    /// (from the one-time retag).
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
         let mut inputs = chain_inputs_for_model(
             &self.raw_img,
@@ -501,6 +512,10 @@ impl WebLiveSession {
         // it only fetches the next surface texture, encodes the dither/quantize pass,
         // and presents — zero readback.
         self.present.present(&self.ctx, &self.session, final_idx)?;
+        // Keep the existing render Promise pending until the GPU catches up, so
+        // obsolete edits cannot accumulate in its queue. Scope result delivery
+        // remains independent; native GPU work shares the same ordered queue.
+        self.completion.wait().await?;
         self.last_presented.set(Some(final_idx));
         Ok(self.present.color_space().to_string())
     }
