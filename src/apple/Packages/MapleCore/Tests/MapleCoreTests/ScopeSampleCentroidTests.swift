@@ -14,9 +14,9 @@ final class ScopeSampleCentroidTests: XCTestCase {
     }
 
     func testACentreBinHasNoCentroidHueIsUndefinedAtZeroChroma() {
-        // Bin (64, 64) is the origin (cb=cr=0) — atan2(0,0) is conventionally
-        // 0, but a mass concentrated exactly at zero chroma has no meaningful
-        // hue; the API still returns SOME angle (0), callers gate on `total`.
+        // Bin (64, 64)'s centre sits within one cell of the origin — the
+        // achromatic dead zone — so it contributes no hue; a mass with no
+        // chromatic bins yields the conventional 0, callers gate on `total`.
         let sample = singleBinSample(row: 64, col: 64, weight: 100)
         XCTAssertEqual(sample.centroidAngleDeg ?? -999, 0, accuracy: 1.0)
     }
