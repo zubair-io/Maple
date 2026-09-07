@@ -68,10 +68,13 @@ MAPLE_PERF=1 MAPLE_PERF_RECORD="$PWD/../../../../test-fixtures/perf/apple-macos/
 `Mac17-6`) — `PerfRecordWriter.deviceIdSlug` computes the same string, so
 matching the filename to the row's own `deviceId` field is a good sanity
 check. Run it twice, keep the better run's file, then regenerate this
-document:
+document and reformat it (the generator does not match prettier's
+markdown table column padding, so this second step is required — CI's
+format-check gate will otherwise flag the regenerated file):
 
 ```bash
 python3 tools/perf-table.py
+cd src/web && bun run format && cd -
 ```
 
 ## Regression gate (local only)
@@ -97,15 +100,15 @@ That in-run ratio gate is unrelated to this file and is untouched by it.
 
 Chip **Apple M5 Max** · GPU **Apple M5 Max** · Version 26.6.2 (Build 25G83) · 60 Hz display · thermal state at record time: **fair**. Viewport 1920×1280 px. Cache methodology: `uncachedOpen+cachedReopen`. Harness `EditorWorkflowPerfTests.testRAWOpenAndContinuousDevelopAt60Hz` at commit `10181c865a84`, recorded 2026-09-07T14:47:25Z. Source row: [`test-fixtures/perf/apple-macos/Mac17-6.json`](../test-fixtures/perf/apple-macos/Mac17-6.json).
 
-| Measurement | This device | Spec target |
-| --- | --- | --- |
-| Cold open, uncached | 2,992.4 ms | 250–1000 ms |
-| Cold open, cached reopen | 967.5 ms | ~35 ms |
-| Exposure tick p50 / p95 / max | 5.3 ms / 18.9 ms / 21.5 ms | 16 ms / 50 ms (hard) |
-| Exposure ticks over 16 ms | 3 of 51 published | 0 |
-| Contrast tick p50 / p95 / max | 4.1 ms / 10.4 ms / 16.4 ms | 16 ms / 50 ms (hard) |
-| Contrast ticks over 16 ms | 1 of 58 published | 0 |
-| Full-resolution export (jpeg_srgb) | 64,589.3 ms | no fixed target — tracked for regression |
+| Measurement                        | This device                | Spec target                              |
+| ---------------------------------- | -------------------------- | ---------------------------------------- |
+| Cold open, uncached                | 2,992.4 ms                 | 250–1000 ms                              |
+| Cold open, cached reopen           | 967.5 ms                   | ~35 ms                                   |
+| Exposure tick p50 / p95 / max      | 5.3 ms / 18.9 ms / 21.5 ms | 16 ms / 50 ms (hard)                     |
+| Exposure ticks over 16 ms          | 3 of 51 published          | 0                                        |
+| Contrast tick p50 / p95 / max      | 4.1 ms / 10.4 ms / 16.4 ms | 16 ms / 50 ms (hard)                     |
+| Contrast ticks over 16 ms          | 1 of 58 published          | 0                                        |
+| Full-resolution export (jpeg_srgb) | 64,589.3 ms                | no fixed target — tracked for regression |
 
 > **Recording conditions:** Recorded 2026-09-07 while three sibling agent sessions were compiling Rust and a fourth was compiling MapleCore concurrently on this Mac (#3421). This is the better of two consecutive runs; the discarded second run (cold open uncached 9475 ms, contrast tick p95 31.7 ms) is quoted in the tools/check-perf-ratchet.py header as the contention upper bound. Re-record on a quiet machine when convenient.
 
@@ -115,7 +118,7 @@ Chip **Apple M5 Max** · GPU **Apple M5 Max** · Version 26.6.2 (Build 25G83) ·
   rows above. `EditorWorkflowPerfTests` runs unmodified against an iOS
   Simulator or device destination the same way it runs on macOS — see
   `docs/apple.md` § "Build and test" for the `-destination 'platform=iOS
-  Simulator,name=...'` invocation — recording a row is a matter of running it
+Simulator,name=...'` invocation — recording a row is a matter of running it
   there and committing the resulting `test-fixtures/perf/apple-ios/<device-id>.json`.
 - **Windows.** No WinUI tick-qualification harness (#2587) writes this JSON
   row shape yet. `docs/windows.md` documents the existing Windows test setup;
