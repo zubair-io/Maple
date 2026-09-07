@@ -7,7 +7,7 @@ final class CloudFoldersClientTests: XCTestCase {
     let server = URL(string: "https://example.test")!
     let json = """
     [
-      {"id":"f1","path":"/photos/2024","label":"2024",
+      {"id":"f1","slug":"2024","path":"/photos/2024","label":"2024",
        "last_scan":null,"file_count":42,"created_at":"2026-01-01T00:00:00Z"},
       {"id":"f2","path":"/photos/2023","label":"",
        "last_scan":"2026-04-01T00:00:00Z","file_count":7,"created_at":"2025-12-01T00:00:00Z"}
@@ -24,6 +24,10 @@ final class CloudFoldersClientTests: XCTestCase {
     XCTAssertEqual(folders[0].id, "f1")
     XCTAssertEqual(folders[0].displayName, "2024")
     XCTAssertEqual(folders[1].displayName, "2023")
+    // `slug` is the unified-addressing identifier (#1325); a pre-slug
+    // server payload simply decodes to nil rather than failing the list.
+    XCTAssertEqual(folders[0].slug, "2024")
+    XCTAssertNil(folders[1].slug)
     // Pre-#2898 payload carries no `connected` key — treated as connected,
     // so pre-upgrade servers never hide anything.
     XCTAssertNil(folders[0].connected)
