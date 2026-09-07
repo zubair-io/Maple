@@ -58,9 +58,7 @@ struct ToolDock: View {
           onPresetsTap: onPresetsTap
         )
 
-        // Mask — disabled placeholder; Tool.mask does not exist yet.
-        DisabledDockPlaceholder(symbol: "lasso", label: "Mask")
-        // Heal — disabled placeholder; Tool.heal does not exist yet.
+        // Heal has no tool-level surface yet; implementation is tracked in #1472.
         DisabledDockPlaceholder(symbol: "bandage", label: "Heal")
       }
       .padding(isCompact ? .horizontal : .vertical, 10)
@@ -246,9 +244,8 @@ private struct SpecialDockButton: View {
 
 // MARK: - DisabledDockPlaceholder
 
-/// Non-interactive placeholder for a dock button whose `Tool` case has not
-/// been added to the enum yet.  Shown at reduced opacity so it reads as
-/// "coming later" rather than "broken".
+/// Non-interactive entry for a tool whose editing surface is still tracked
+/// by a separate implementation issue.
 private struct DisabledDockPlaceholder: View {
   let symbol: String
   let label: String
