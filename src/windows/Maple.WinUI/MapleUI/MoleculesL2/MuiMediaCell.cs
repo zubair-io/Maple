@@ -58,6 +58,10 @@ namespace Maple.UI
             DependencyProperty.Register(nameof(CellSize), typeof(MuiMediaCellSize), typeof(MuiMediaCell),
                 new PropertyMetadata(MuiMediaCellSize.Md, (d, _) => ((MuiMediaCell)d).Rebuild()));
 
+        public static readonly DependencyProperty ShowMetadataProperty =
+            DependencyProperty.Register(nameof(ShowMetadata), typeof(bool), typeof(MuiMediaCell),
+                new PropertyMetadata(true, (d, _) => ((MuiMediaCell)d).Rebuild()));
+
         public static readonly DependencyProperty RatingProperty =
             DependencyProperty.Register(nameof(Rating), typeof(int), typeof(MuiMediaCell),
                 new PropertyMetadata(0, (d, e) => ((MuiMediaCell)d)._ratingFlags.Rating = (int)e.NewValue));
@@ -102,6 +106,14 @@ namespace Maple.UI
         {
             get => (MuiMediaCellSize)GetValue(CellSizeProperty);
             set => SetValue(CellSizeProperty, value);
+        }
+
+        /// <summary>Navigation strips show thumbnails and passive badges;
+        /// only hosts that wire metadata editing expose the editable row.</summary>
+        public bool ShowMetadata
+        {
+            get => (bool)GetValue(ShowMetadataProperty);
+            set => SetValue(ShowMetadataProperty, value);
         }
 
         public int Rating
@@ -191,6 +203,7 @@ namespace Maple.UI
             _thumbHost.Height = side;
             _image.Source = Source;
             _image.AccessibleLabel = Alt;
+            _metaRow.Visibility = ShowMetadata ? Visibility.Visible : Visibility.Collapsed;
 
             _renameField.Value = Filename;
             _renameField.AccessibleLabel = $"Rename {Filename}";

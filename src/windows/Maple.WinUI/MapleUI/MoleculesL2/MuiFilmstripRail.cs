@@ -72,6 +72,7 @@ namespace Maple.UI
         };
         private readonly StackPanel _column = new() { Orientation = Orientation.Vertical, Spacing = MuiFilmstripFollowLogic.CellSpacing };
         private readonly List<MuiMediaCell> _cells = new();
+        private bool _followAfterLayout;
 
         public MuiFilmstripRail()
         {
@@ -86,10 +87,16 @@ namespace Maple.UI
             _root.Children.Add(_scroll);
             Content = _root;
             IsTabStop = false;
+            HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            VerticalContentAlignment = VerticalAlignment.Stretch;
             // ActiveId is often set before the rail has a viewport (it mounts
             // collapsed, or its list arrives first); re-follow once it does,
             // and again whenever the viewport changes size.
-            _scroll.SizeChanged += (_, _) => FollowActive();
+            _scroll.SizeChanged += (_, _) => RequestFollow();
+            _column.LayoutUpdated += (_, _) =>
+            {
+                if (_followAfterLayout) _followAfterLayout = !FollowActive();
+            };
 
             RebuildCells();
             Rebuild();
@@ -113,12 +120,15 @@ namespace Maple.UI
                     CellSize = MuiMediaCellSize.Sm,
                     Source = item.Source,
                     Alt = item.Alt,
+                    Badges = item.Badges,
+                    ShowMetadata = false,
                     Selected = item.Id == ActiveId,
                 };
                 cell.Pressed += (_, _) => Select(item.Id);
                 _cells.Add(cell);
                 _column.Children.Add(cell);
             }
+            RequestFollow();
         }
 
         private void OnActiveIdChanged()
@@ -127,20 +137,26 @@ namespace Maple.UI
             for (var i = 0; i < _cells.Count && i < items.Count; i++)
                 _cells[i].Selected = items[i].Id == ActiveId;
 
-            FollowActive();
+            RequestFollow();
         }
 
-        private void FollowActive()
+        private void RequestFollow() => _followAfterLayout = !FollowActive();
+
+        private bool FollowActive()
         {
             var items = Items ?? Array.Empty<MuiFilmstripItem>();
             var index = MuiFilmstripFollowLogic.IndexOf(items.Select(item => item.Id).ToList(), ActiveId);
-            if (index < 0 || _scroll.ViewportHeight <= 0) return;
+            if (index < 0) return true;
+            if (_scroll.ViewportHeight <= 0 || _cells[index].ActualHeight <= 0) return false;
 
-            var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index, MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+            var cell = _cells[index];
+            var start = cell.TransformToVisual(_column).TransformPoint(new Windows.Foundation.Point()).Y;
+            var offset = MuiFilmstripFollowLogic.FollowBounds(
+                start, cell.ActualHeight,
                 _scroll.ViewportHeight, _scroll.VerticalOffset);
             if (offset != _scroll.VerticalOffset)
-                _scroll.ChangeView(null, offset, null);
+                return _scroll.ChangeView(null, offset, null, disableAnimation: true);
+            return true;
         }
 
         private void Rebuild()

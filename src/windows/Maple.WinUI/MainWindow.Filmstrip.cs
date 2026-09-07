@@ -64,7 +64,9 @@ namespace Maple.WinUI
             _railBitmaps = bitmaps;
             _railDirty = false;
             FilmstripRail.Items = photos
-                .Select((photo, i) => new MuiFilmstripItem(ViewerFilmstripLogic.IdAt(i), bitmaps[i], photo.FileName))
+                .Select((photo, i) => new MuiFilmstripItem(
+                    ViewerFilmstripLogic.IdAt(i), bitmaps[i], photo.FileName,
+                    ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus)))
                 .ToList();
             SyncFilmstripRailActive();
         }
@@ -86,9 +88,10 @@ namespace Maple.WinUI
         private void OnRailPhotoPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (sender is not PhotoItem photo) return;
-            if (e.PropertyName == nameof(PhotoItem.FileName))
+            if (e.PropertyName is nameof(PhotoItem.FileName) or nameof(PhotoItem.Rating) or nameof(PhotoItem.FlagStatus))
             {
-                // The cell's accessible name is baked into its item record.
+                // Accessible names and passive culling badges live in the
+                // item record; thumbnail changes still reuse their bitmap.
                 InvalidateFilmstripRail();
                 return;
             }

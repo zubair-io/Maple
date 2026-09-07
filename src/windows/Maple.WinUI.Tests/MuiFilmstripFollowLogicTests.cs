@@ -76,53 +76,61 @@ namespace Maple.WinUI.Tests
         }
 
         // --- Filmstrip Rail (#3402): the same math on the vertical axis, fed
-        // the shared cell geometry the Row and Rail controls both draw with.
+        // actual laid-out bounds, including chrome and the metadata row.
 
         [Fact]
-        public void CellGeometry_IsTheSharedSmMediaCellStrip()
+        public void CellSpacing_IsSharedByBothStrips()
         {
-            Assert.Equal(72, MuiFilmstripFollowLogic.CellExtent);
             Assert.Equal(8, MuiFilmstripFollowLogic.CellSpacing);
         }
 
         [Fact]
         public void RailFollow_CellBelowViewport_ScrollsItsBottomToTheViewportBottom()
         {
-            // Cell 10 spans [800, 872) vertically; a 400-tall rail scrolled to
-            // the top ends at 400, so the rail scrolls down until 872 is its
-            // bottom edge.
-            var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index: 10,
-                MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+            // 72px thumbnails have additional cell chrome and metadata. The
+            // measured cell spans [1260, 1378), not the guessed [800, 872).
+            var offset = MuiFilmstripFollowLogic.FollowBounds(
+                itemStart: 1260, itemExtent: 118,
                 viewportExtent: 400, currentOffset: 0);
 
-            Assert.Equal(472, offset); // 872 - 400
+            Assert.Equal(978, offset);
         }
 
         [Fact]
         public void RailFollow_CellAboveViewport_ScrollsItsTopToTheViewportTop()
         {
-            // Cell 2 starts at 160; the rail is scrolled well past it (500),
-            // so it scrolls back up until 160 is its top edge.
-            var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index: 2,
-                MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+            var offset = MuiFilmstripFollowLogic.FollowBounds(
+                itemStart: 252, itemExtent: 118,
                 viewportExtent: 400, currentOffset: 500);
 
-            Assert.Equal(160, offset);
+            Assert.Equal(252, offset);
         }
 
         [Fact]
         public void RailFollow_CellInsideViewport_DoesNotScroll()
         {
-            // Cell 7 spans [560, 632); a 400-tall rail at offset 300 shows
-            // [300, 700), which already contains it.
-            var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index: 7,
-                MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+            var offset = MuiFilmstripFollowLogic.FollowBounds(
+                itemStart: 560, itemExtent: 118,
                 viewportExtent: 400, currentOffset: 300);
 
             Assert.Equal(300, offset);
+        }
+
+        [Fact]
+        public void FollowBounds_ViewportShorterThanCell_DoesNotBounceBetweenEdges()
+        {
+            var first = MuiFilmstripFollowLogic.FollowBounds(252, 118, 80, 0);
+            var next = MuiFilmstripFollowLogic.FollowBounds(252, 118, 80, first);
+            Assert.Equal(252, first);
+            Assert.Equal(first, next);
+        }
+
+        [Theory]
+        [InlineData(0, 400)]
+        [InlineData(118, 0)]
+        public void FollowBounds_NotLaidOut_PreservesOffset(double itemExtent, double viewportExtent)
+        {
+            Assert.Equal(40, MuiFilmstripFollowLogic.FollowBounds(252, itemExtent, viewportExtent, 40));
         }
     }
 }

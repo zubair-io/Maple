@@ -581,6 +581,7 @@
                              double-click toggle / Ctrl+0/1/=/- ; drag pans when
                              zoomed. Zoom resets on navigation per the spec. -->
                         <ScrollViewer x:Name="ViewerScroll" Grid.Column="1" Margin="16,64,16,16"
+                                      SizeChanged="OnCanvasHostSizeChanged"
                                       ZoomMode="Enabled" MinZoomFactor="0.4" MaxZoomFactor="8"
                                       HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollBarVisibility="Hidden"

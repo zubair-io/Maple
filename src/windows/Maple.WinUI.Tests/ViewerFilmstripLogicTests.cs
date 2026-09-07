@@ -15,6 +15,22 @@ namespace Maple.WinUI.Tests
         private static readonly string[] Photos = { "a", "b", "c" };
 
         [Theory]
+        [InlineData(3, "pick", "★★★ ✓")]
+        [InlineData(2, "reject", "★★ ×")]
+        [InlineData(4, "none", "★★★★")]
+        [InlineData(0, "pick", "✓")]
+        public void CullingBadgesFor_ReflectsPersistedPhotoStatus(int rating, string flag, string expected)
+        {
+            Assert.Equal(new[] { expected }, ViewerFilmstripLogic.CullingBadgesFor(rating, flag));
+        }
+
+        [Fact]
+        public void CullingBadgesFor_UnratedUnflagged_HasNoBadge()
+        {
+            Assert.Empty(ViewerFilmstripLogic.CullingBadgesFor(0, "none"));
+        }
+
+        [Theory]
         [InlineData(ShellMode.Preview)]
         [InlineData(ShellMode.Edit)]
         public void IsRailVisible_InBothViewerModes(ShellMode mode)
