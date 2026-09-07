@@ -23,7 +23,7 @@ import { MuiPad2dComponent } from '../../ui/pad-2d/mui-pad-2d.component';
 import type { MuiPad2dValue } from '../../ui/pad-2d/mui-pad-2d.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { xToTemp, tempToX, yToTint, tintToY } from './wb-pad-math';
-import { WbPickService } from '../image-canvas/wb-pick.service';
+import { CanvasPickService } from '../image-canvas/canvas-pick.service';
 import { manualWbPatch } from '../../editor/editor-state.wb-sample';
 import { EditorStateService } from '../../editor/editor-state.service';
 import type { AdjustmentModel } from '../../models/adjustment-model';
@@ -52,7 +52,7 @@ function clamp(value: number, min: number, max: number): number {
 export class WbPadComponent {
   readonly showPad = input(true);
   private library = inject(LibraryStateService);
-  private pick = inject(WbPickService);
+  private pick = inject(CanvasPickService);
   private editor = inject(EditorStateService);
 
   /** Eyedropper active (sampling mode). */

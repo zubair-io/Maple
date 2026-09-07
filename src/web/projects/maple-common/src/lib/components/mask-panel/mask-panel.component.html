@@ -84,6 +84,57 @@
           (resetRequest)="onControlReset(control)"
         />
       }
+      <!-- Colour range (#362): the refinement that narrows the primary mask
+           to one colour band. The eyedropper seeds hue, chroma floor and the
+           lightness window from a clicked pixel; width and feather stay the
+           user's own. -->
+      <div class="mask-range flex flex-col gap-2 pt-1" data-testid="mask-range">
+        <div class="flex items-center justify-between gap-2">
+          <mui-checkbox
+            label="Colour range"
+            [checked]="session.range() !== null"
+            inputId="mask-range-enabled"
+            (checkedChange)="onRangeEnabledChange($event)"
+          />
+          @if (session.range()) {
+            <div class="flex items-center gap-2">
+              <mui-text variant="value-chip" color="muted" data-testid="mask-range-hue">
+                Hue {{ rangeHue() }}&deg;
+              </mui-text>
+              <mui-button
+                variant="ghost"
+                size="sm"
+                iconLeading="wb-eyedrop"
+                [iconOnly]="true"
+                [loading]="session.rangeSampleInFlight()"
+                ariaLabel="Sample a colour for the range"
+                testId="mask-range-eyedropper"
+                (pressed)="onEyedropper()"
+              />
+            </div>
+          }
+        </div>
+        @if (session.rangeMessage(); as message) {
+          <mui-text variant="body" color="muted" data-testid="mask-range-message">
+            {{ message }}
+          </mui-text>
+        }
+        @if (session.range()) {
+          @for (control of rangeControls; track control.id) {
+            <mui-living-slider
+              [label]="control.label"
+              [value]="rangeValueOf(control)"
+              [min]="control.min"
+              [max]="control.max"
+              [step]="control.step"
+              (valueChange)="onRangeValueChange(control, $event)"
+              (dragStart)="onDragStart()"
+              (dragEnd)="onDragEnd()"
+            />
+          }
+        }
+      </div>
+
       <div class="flex justify-end">
         <mui-button
           variant="ghost"
