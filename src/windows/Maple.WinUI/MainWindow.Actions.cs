@@ -19,6 +19,25 @@ namespace Maple.WinUI
                 slider.Reset();
         }
 
+        // --- Commit-on-release rows (#3414) ---
+        // Capture sharpening's two fields are baked into the decoded base, so
+        // their rows park the drag and write once at the gesture's end. A
+        // Slider captures the pointer for the whole thumb drag and releases it
+        // on pointer-up; KeyUp covers arrow-key adjustment. Two shims because
+        // the two XAML events carry different delegate types.
+
+        private void OnSliderPointerReleased(object sender, PointerRoutedEventArgs e) =>
+            CommitSliderGesture(sender);
+
+        private void OnSliderKeyReleased(object sender, KeyRoutedEventArgs e) =>
+            CommitSliderGesture(sender);
+
+        private static void CommitSliderGesture(object sender)
+        {
+            if (sender is FrameworkElement { DataContext: AdjustmentSliderViewModel slider })
+                slider.CommitDeferred();
+        }
+
         private void OnApplyAuto(object sender, RoutedEventArgs e) => ViewModel.ApplyAuto();
         private void OnResetAll(object sender, RoutedEventArgs e) => ViewModel.ResetToDefaults();
         private void OnRevert(object sender, RoutedEventArgs e) => ViewModel.RevertToOriginal();
