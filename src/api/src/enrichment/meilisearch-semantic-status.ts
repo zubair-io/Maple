@@ -3,7 +3,10 @@ import {
   meilisearchHttp,
   type MeilisearchTransportConfig,
 } from './meilisearch-transport.ts';
-import { explainEmbeddingPolicyError } from './meilisearch-embedding-policy.ts';
+import {
+  explainEmbeddingPolicyError,
+  isEmbeddingPolicyRejection,
+} from './meilisearch-embedding-policy.ts';
 
 export interface SemanticStatusConfig extends MeilisearchTransportConfig {
   semantic: boolean;
@@ -24,6 +27,11 @@ export interface MeilisearchSemanticStatus {
   vectorizedDocumentCount: number | null;
   isIndexing: boolean | null;
   error: string | null;
+  /** True when `error` is Meilisearch's address-policy rejection of the
+   * embedding server (#3315). The `meili` stage and the vector backfill read
+   * this before every document write and pause the stage instead of
+   * submitting a batch that cannot succeed. */
+  embedderPolicyRejected: boolean;
 }
 
 interface SearchResponse {
@@ -46,6 +54,7 @@ const failedStatus = (
   vectorizedDocumentCount: null,
   isIndexing: null,
   error: 'meilisearch_not_configured',
+  embedderPolicyRejected: false,
 });
 
 function resultError(result: {
@@ -115,5 +124,6 @@ export async function readMeilisearchSemanticStatus(
     vectorizedDocumentCount: stats.body?.numberOfEmbeddedDocuments ?? null,
     isIndexing: stats.body?.isIndexing ?? null,
     error,
+    embedderPolicyRejected: isEmbeddingPolicyRejection(error),
   };
 }

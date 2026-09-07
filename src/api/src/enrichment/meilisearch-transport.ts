@@ -1,4 +1,7 @@
-import { explainEmbeddingPolicyError } from './meilisearch-embedding-policy.ts';
+import {
+  explainEmbeddingPolicyError,
+  isEmbeddingPolicyRejection,
+} from './meilisearch-embedding-policy.ts';
 
 export interface MeilisearchTransportConfig {
   url: string | undefined;
@@ -36,12 +39,20 @@ function taskErrorCode(error: unknown): string | null {
 }
 
 export class MeilisearchTaskError extends Error {
+  /** The task failed because Meilisearch's address policy rejected the
+   * embedding server (#3315). `waitForMeilisearchTask` surfaces this on the
+   * first poll that reports the failure — it never waits out `taskTimeoutMs`
+   * for a task Meilisearch has already given up on — and callers use the
+   * flag to pause the `meili` stage rather than retry into the same wall. */
+  readonly policyRejected: boolean;
+
   constructor(
     message: string,
     readonly code: string | null,
   ) {
     super(message);
     this.name = 'MeilisearchTaskError';
+    this.policyRejected = isEmbeddingPolicyRejection(message);
   }
 }
 
