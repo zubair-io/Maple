@@ -230,6 +230,19 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:LensProfileDistortionScale', 'lensCorrectionDistortion'),
   numericField('crs:LensProfileChromaticAberrationScale', 'lensCorrectionCa'),
   numericField('crs:LensProfileVignettingScale', 'lensCorrectionVignetting'),
+  // Manual geometry (#3410) — Adobe's own `crs:Perspective*` keys, read and
+  // written unrescaled so a Lightroom-authored keystone survives a Maple
+  // round-trip. The omit-on-default sentinel comes from the generated model
+  // defaults like every other entry here, which is what lets
+  // `perspectiveScale`'s non-zero 100 be omitted correctly without a
+  // hand-typed literal (the #953 class of bug).
+  numericField('crs:PerspectiveVertical', 'perspectiveVertical'),
+  numericField('crs:PerspectiveHorizontal', 'perspectiveHorizontal'),
+  numericField('crs:PerspectiveRotate', 'perspectiveRotate'),
+  numericField('crs:PerspectiveScale', 'perspectiveScale'),
+  numericField('crs:PerspectiveAspect', 'perspectiveAspect'),
+  numericField('crs:PerspectiveX', 'perspectiveX'),
+  numericField('crs:PerspectiveY', 'perspectiveY'),
   // ---- Film emulation (epic #2683) ----
   // Strength is a plain 0..100 numeric field, default 100 (full strength),
   // so it rides the shared numeric-field table like any other slider — omit-

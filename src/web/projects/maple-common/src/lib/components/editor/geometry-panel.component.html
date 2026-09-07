@@ -1,0 +1,22 @@
+<!-- GeometryPanelComponent — the seven manual-geometry sliders (#3410).
+     Structural twin of Apple's GeometrySection. Live-preview, not
+     commit-on-release: each tick writes the model and the present shader
+     re-warps, while one EditTransaction spans the whole gesture. -->
+<div class="flex min-h-0 flex-col gap-2.5 p-2.5" data-testid="geometry-panel">
+  @for (s of sliders; track s.field) {
+    <mui-living-slider
+      [label]="s.label"
+      [value]="valueOf(s.field)"
+      [min]="s.min"
+      [max]="s.max"
+      [step]="s.step"
+      [bipolar]="s.bipolar"
+      [unit]="s.unit"
+      [disabled]="panelDisabled()"
+      (valueChange)="onValueChange(s.field, $event)"
+      (dragStart)="onDragStart()"
+      (dragEnd)="onDragEnd()"
+      (resetRequest)="onReset(s.field)"
+    />
+  }
+</div>

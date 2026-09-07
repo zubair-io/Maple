@@ -3,9 +3,8 @@ import { isSupportedRaw } from '../../state/raw-extensions';
 //
 // Full-bleed <image-canvas> at the back; all chrome floats above.
 // Responsive breakpoints (LayoutService — #2279):
-//   <768px (phone):      top glass bar + always-visible slider card stacked
-//                        above the bottom horizontal tool dock, Apple's
-//                        MobileControlBar two-card layout (#1807 Task 5)
+//   <768px (phone):      top glass bar + always-visible slider card above the
+//                        bottom tool dock (Apple's MobileControlBar, #1807 T5)
 //   768–1024px (tablet): top bar + right vertical tool dock + control card
 //   >1024px (desktop):  same as tablet + hover affordances, no auto-recede
 //
@@ -13,11 +12,10 @@ import { isSupportedRaw } from '../../state/raw-extensions';
 // previous 3-column shell — only the layout / chrome layer changed.
 //
 // Panels (Curve / Crop / Presets / Scopes / Noise) and their mutual
-// exclusion: editor-shell-panels.ts. HSL / B&W / Grade / Film / Lens render
-// inside the control card via content projection (#1807 Task 4, #276).
+// exclusion: editor-shell-panels.ts. HSL / B&W / Grade / Film / Lens / Geometry
+// render in the control card via projection (#1807 Task 4, #276, #3410).
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
-// Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
-// Desktop opts out of auto-recede.
+// Chrome recede: 30% after 3s idle, restored on pointer move (180ms); desktop opts out.
 
 import {
   AfterViewInit,
@@ -56,6 +54,7 @@ import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { ColorGradingPanelComponent } from '../../components/develop/color-grading-panel.component';
 import { FilmPanelComponent } from '../../components/editor/film-panel.component';
 import { LensCorrectionsPanelComponent } from '../../components/editor/lens-corrections-panel.component';
+import { GeometryPanelComponent } from '../../components/editor/geometry-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { MaskPanelComponent } from '../../components/mask-panel/mask-panel.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
@@ -144,6 +143,7 @@ import * as sc from './editor-shell.classes';
     ColorGradingPanelComponent,
     FilmPanelComponent,
     LensCorrectionsPanelComponent,
+    GeometryPanelComponent,
     CropToolbarComponent,
     PresetsPanelComponent,
     SubParamRowComponent,

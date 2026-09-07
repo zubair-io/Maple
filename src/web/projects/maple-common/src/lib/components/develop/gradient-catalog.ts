@@ -68,6 +68,9 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   crop: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
   // Mask (#1541) is value-less like crop: no drag-bar track to colour.
   mask: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
+  // Geometry (#3410) — field-less tool (seven sliders, no single drag-bar
+  // field), same shape as lensCorrections above.
+  geometry: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
   presets: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
 };
 

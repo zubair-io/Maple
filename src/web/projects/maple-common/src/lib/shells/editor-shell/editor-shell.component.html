@@ -61,6 +61,10 @@
   <lens-corrections-panel />
 </ng-template>
 
+<ng-template #cardBodyGeometryTpl>
+  <geometry-panel />
+</ng-template>
+
 <div
   class="relative h-full w-full touch-none bg-[color:var(--pro-canvas)]"
   [class.shell--desktop]="isDesktop()"
@@ -451,6 +455,15 @@
             <div cardBodyLens>
               <ng-container *ngTemplateOutlet="cardBodyLensTpl" />
             </div>
+
+            <!-- Manual geometry body (#3410) — the seven `crs:Perspective*`
+                 sliders. Projected into the control card's `cardBodyGeometry`
+                 slot, shown whenever `activeTool()` is 'geometry'. Body
+                 authored once in `cardBodyGeometryTpl` above (shared with the
+                 phone card). -->
+            <div cardBodyGeometry>
+              <ng-container *ngTemplateOutlet="cardBodyGeometryTpl" />
+            </div>
           </pro-control-card>
         </div>
       }
@@ -522,6 +535,13 @@
                  `cardBodyLensTpl` above. -->
             <div cardBodyLens>
               <ng-container *ngTemplateOutlet="cardBodyLensTpl" />
+            </div>
+
+            <!-- Manual geometry body (#3410) — same content as tablet/desktop's
+                 `cardBodyGeometry` slot, authored once in
+                 `cardBodyGeometryTpl` above. -->
+            <div cardBodyGeometry>
+              <ng-container *ngTemplateOutlet="cardBodyGeometryTpl" />
             </div>
           </pro-control-card>
         </div>
