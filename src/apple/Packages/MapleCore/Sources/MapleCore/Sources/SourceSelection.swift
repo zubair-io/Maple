@@ -19,7 +19,8 @@ public enum SourceSelection: Sendable, Equatable, Codable {
     /// Maple Cloud library — server URL + folder ObjectId from /api/folders +
     /// the library's absolute filesystem path on the server (used by
     /// CloudSource to call `/api/fs/dir?path=…`). Persisted so cold-start
-    /// can restore without round-tripping `/api/folders` first.
+    /// can restore the listing without round-tripping `/api/folders` first
+    /// (thumbs/previews still load it lazily — see `CloudAddressResolver`).
     case cloudLibrary(serverID: URL, folderID: String, libraryPath: String)
 }
 
