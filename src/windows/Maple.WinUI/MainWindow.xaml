@@ -30,10 +30,13 @@
                             <mui:MuiText Text="{Binding FormattedValue}" Variant="ValueChip" />
                         </StackPanel>
                     </Grid>
-                    <!-- PointerCaptureLost / KeyUp are the gesture-end signal a
-                         commit-on-release row needs (#3414): the Slider captures
-                         the pointer for the whole thumb drag and releases it on
-                         pointer-up, and KeyUp covers arrow-key adjustment. Both
+                    <!-- Gesture-end signals a commit-on-release row needs
+                         (#3414). The Slider captures the pointer for the whole
+                         thumb drag and releases it on pointer-up; KeyUp covers
+                         arrow-key adjustment. A WHEEL change raises neither, so
+                         it is handled separately and commits on an idle
+                         debounce instead — without that a wheel-adjusted value
+                         stays parked forever and is lost on navigate. All three
                          are no-ops for the per-tick rows. -->
                     <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
                             StepFrequency="{Binding StepFrequency}"
@@ -41,6 +44,7 @@
                             AutomationProperties.Name="{Binding Label}"
                             PointerCaptureLost="OnSliderPointerCaptureLost"
                             KeyUp="OnSliderKeyUp"
+                            PointerWheelChanged="OnSliderPointerWheelChanged"
                             Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
             </DataTemplate>
