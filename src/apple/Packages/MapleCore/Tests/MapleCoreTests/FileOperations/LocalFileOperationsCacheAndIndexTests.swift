@@ -69,6 +69,27 @@ final class LocalFileOperationsCacheAndIndexTests: XCTestCase {
         XCTAssertEqual(entry.flag, "pick")
     }
 
+    /// #2847: a case-only rename (`IMG_1.dng` → `img_1.dng`) bypasses
+    /// `finalizeRelocate` entirely (`performCaseOnlyRename` is atomic and
+    /// has no finalize step), and used to skip the `LibraryIndex` repoint
+    /// that every other move gets — leaving the old casing in the index so
+    /// the next scan reconciled the user's own rename as an external one.
+    func testCaseOnlyRenameRepointsTheFolderIndexEntry() async throws {
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
+        let store = LibraryIndexStore(folderURL: root)
+        try await store.updateEntry(name: "IMG_1.dng", culling: CullingState(stars: 4, flag: .pick))
+
+        let outcome = try await LocalFileOperations.relocate(source, to: root, newBasename: "img_1.dng", mode: .move)
+
+        XCTAssertEqual(URL(fileURLWithPath: outcome.primaryPath).lastPathComponent, "img_1.dng")
+        // Fresh store — read from disk, not `store`'s own in-memory copy.
+        let index = try await LibraryIndexStore(folderURL: root).load()
+        XCTAssertNil(index?.entries["IMG_1.dng"], "the old casing must be gone from the index")
+        let entry = try XCTUnwrap(index?.entries["img_1.dng"], "the new casing must be indexed")
+        XCTAssertEqual(entry.stars, 4)
+        XCTAssertEqual(entry.flag, "pick")
+    }
+
     // MARK: - #2659: RenderedPreviewCache (docs/caching.md § 3) is a SEPARATE
     // cache from the plain thumbURL/previewURL files above — its own
     // {urlHash}_{variantHash}.jpg naming, plus a 20-entry in-memory front.

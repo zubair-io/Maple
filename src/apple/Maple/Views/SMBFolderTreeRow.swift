@@ -66,6 +66,9 @@ struct SMBFolderTreeRow: View {
   var onRenameFolder: ((SMBCredentialStore.SavedShare, String, String) -> Void)? = nil
   /// (share, path). Subfolder rows only (depth > 0), same reasoning.
   var onTrashFolder: ((SMBCredentialStore.SavedShare, String) -> Void)? = nil
+  /// (share, path). "Move Folder to…" (#2847) — subfolder rows only
+  /// (depth > 0), same reasoning as Rename.
+  var onMoveFolder: ((SMBCredentialStore.SavedShare, String) -> Void)? = nil
   /// "Show Trash…" — share root only (depth == 0), matching the old
   /// `SMBShareRow`'s placement (SMB always uses one `.maple/trash` per
   /// share, not a per-folder trash).
@@ -176,6 +179,15 @@ struct SMBFolderTreeRow: View {
           }
           .accessibilityIdentifier("smbFolderTree.rename.\(path)")
         }
+        if let onMoveFolder, depth > 0 {
+          Button {
+            onMoveFolder(share, path)
+          } label: {
+            Label("Move Folder to…", systemImage: "folder.badge.gearshape")
+          }
+          .accessibilityIdentifier("smbFolderTree.moveTo.\(path)")
+          .accessibilityLabel("Move Folder to…")
+        }
         if onTrashFolder != nil, depth > 0 {
           Button(role: .destructive) {
             showTrashConfirm = true
@@ -263,6 +275,7 @@ struct SMBFolderTreeRow: View {
               onCreateFolder: onCreateFolder,
               onRenameFolder: onRenameFolder,
               onTrashFolder: onTrashFolder,
+              onMoveFolder: onMoveFolder,
               selectedAssetCount: selectedAssetCount
             )
           }

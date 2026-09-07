@@ -48,6 +48,9 @@ struct LibrarySidebar: View {
     let onCreateFolder: (URL, Data, String) -> Void
     let onRenameFolder: (URL, Data, String) -> Void
     let onTrashFolder: (URL, Data) -> Void
+    /// "Move Folder to…" (#2847) on a local descendant row — `(url,
+    /// rootBookmark)`; the shell presents the destination picker.
+    var onMoveFolder: ((URL, Data) -> Void)? = nil
     /// Drag-onto-source-tree (#2646), local folder rows. `ids == nil` means
     /// "use the current grid selection" — the "Move/Copy Selected Here"
     /// context-menu item's path; non-nil is the literal drag payload.
@@ -84,6 +87,8 @@ struct LibrarySidebar: View {
     /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
     /// Subfolder rows only, same reasoning as Rename.
     var onTrashSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void = { _, _ in }
+    /// "Move Folder to…" (#2847) on an SMB subfolder row — `(share, path)`.
+    var onMoveSMBFolder: ((SMBCredentialStore.SavedShare, String) -> Void)? = nil
     /// Lazy-fetch a non-recursive subfolder listing for the SMB sidebar
     /// tree drill-down (#2697). Returns nil on auth/network failure.
     var onListSMBDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]? = { _, _ in nil }
@@ -122,10 +127,7 @@ struct LibrarySidebar: View {
     /// library or subfolder. `libraryRootPath` is the owning library's
     /// server-absolute path (`CloudFolder.path`), needed to derive the
     /// relative path `RemoteCatalog.makeDir`/`moveFolder` expect. Move to
-    /// Trash is NOT wired for Cloud folders — the API has no folder-level
-    /// trash route yet (see the design doc's "Delete → Trash → Restore"
-    /// section); `CloudFolderTreeRow` surfaces this as a disabled item
-    /// with an explanation rather than a silent omission.
+    /// Trash for Cloud folders is `onTrashCloudFolder` below (#2696).
     let onCreateCloudFolder: (URL, String, String, String, String) -> Void
     let onRenameCloudFolder: (URL, String, String, String, String) -> Void
     /// Source-tree context menu — recursive Move to Trash for a Cloud
@@ -315,6 +317,7 @@ struct LibrarySidebar: View {
                         onCreateFolder: onCreateFolder,
                         onRenameFolder: onRenameFolder,
                         onTrashFolder: onTrashFolder,
+                        onMoveFolder: onMoveFolder,
                         onShowTrash: onShowLocalTrash,
                         onDropAssets: onDropAssets,
                         onDropURLs: onDropURLs,
@@ -450,6 +453,7 @@ struct LibrarySidebar: View {
                             onCreateFolder: { path, name in onCreateSMBFolder(share, path, name) },
                             onRenameFolder: { path, newName in onRenameSMBFolder(share, path, newName) },
                             onTrashFolder: { path in onTrashSMBFolder(share, path) },
+                            onMoveFolder: onMoveSMBFolder.map { callback in { path in callback(share, path) } },
                             onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
                             onDropURLs: onDropURLs,
                             selectedAssetCount: selectedAssetCount,
@@ -826,6 +830,8 @@ private struct SMBShareSection: View {
     let onCreateFolder: (String, String) -> Void
     let onRenameFolder: (String, String) -> Void
     let onTrashFolder: (String) -> Void
+    /// "Move Folder to…" (#2847), subfolder rows only.
+    var onMoveFolder: ((String) -> Void)? = nil
     /// Drag-onto-source-tree (#2646), onto the share ROOT — SMB has no
     /// per-subfolder drop target yet (`AssetDropDestination.smb` carries
     /// only a `SavedShare`, no path; see `AssetDropTypes.swift`).
@@ -856,6 +862,7 @@ private struct SMBShareSection: View {
             onCreateFolder: { _, path, name in onCreateFolder(path, name) },
             onRenameFolder: { _, path, newName in onRenameFolder(path, newName) },
             onTrashFolder: { _, path in onTrashFolder(path) },
+            onMoveFolder: onMoveFolder.map { callback in { _, path in callback(path) } },
             onShowTrash: onShowTrash.map { callback in { _ in callback() } },
             onDropAssets: { _, ids, isCopy in onDropAssets(ids, isCopy) },
             onDropURLs: onDropURLs,

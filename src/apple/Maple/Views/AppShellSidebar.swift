@@ -30,6 +30,9 @@ struct AppShellSidebar: View {
     let onCreateFolder: (URL, Data, String) -> Void
     let onRenameFolder: (URL, Data, String) -> Void
     let onTrashFolder: (URL, Data) -> Void
+    /// "Move Folder to…" (#2847) — forwarded to `LibrarySidebar`.
+    var onMoveFolder: ((URL, Data) -> Void)? = nil
+    var onMoveSMBFolder: ((SMBCredentialStore.SavedShare, String) -> Void)? = nil
     /// Drag-onto-source-tree (#2646) — forwarded to `LibrarySidebar`; see
     /// its declarations for the full `ids == nil` ⇒ "use current
     /// selection" contract.
@@ -86,6 +89,7 @@ struct AppShellSidebar: View {
             onCreateFolder: onCreateFolder,
             onRenameFolder: onRenameFolder,
             onTrashFolder: onTrashFolder,
+            onMoveFolder: onMoveFolder,
             onDropAssets: onDropAssets,
             selectedAssetCount: selectedAssetCount,
             folderRefreshGeneration: folderRefreshGeneration,
@@ -97,6 +101,7 @@ struct AppShellSidebar: View {
             onCreateSMBFolder: onCreateSMBFolder,
             onRenameSMBFolder: onRenameSMBFolder,
             onTrashSMBFolder: onTrashSMBFolder,
+            onMoveSMBFolder: onMoveSMBFolder,
             onListSMBDir: onListSMBDir,
             onDropAssetsSMB: onDropAssetsSMB,
             onAddCloudServer: onAddCloudServer,
