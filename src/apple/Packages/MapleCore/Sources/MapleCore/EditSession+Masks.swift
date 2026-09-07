@@ -8,6 +8,10 @@ import CoreGraphics
 import CoreImage
 import Foundation
 
+// Explicit even though `EditSession` itself is `@MainActor` (extensions
+// inherit the class's isolation) — matches `EditSession+Derived.swift` and
+// keeps the invariant visible at the declaration (#3291 review).
+@MainActor
 extension EditSession {
     /// Detect people in a fresh, uncropped reduced-resolution develop of the
     /// current asset. The people picker calls this once when it opens.
