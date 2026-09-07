@@ -126,6 +126,13 @@ extension AdjustmentModel {
         case lensCorrectionDistortion = "lens_correction_distortion"
         case lensCorrectionCa = "lens_correction_ca"
         case lensCorrectionVignetting = "lens_correction_vignetting"
+        case perspectiveVertical = "perspective_vertical"
+        case perspectiveHorizontal = "perspective_horizontal"
+        case perspectiveRotate = "perspective_rotate"
+        case perspectiveScale = "perspective_scale"
+        case perspectiveAspect = "perspective_aspect"
+        case perspectiveX = "perspective_x"
+        case perspectiveY = "perspective_y"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -308,6 +315,20 @@ extension AdjustmentModel {
     public static let lensCorrectionCaRange: ClosedRange<Double> = 0.0...100.0
     /// Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.
     public static let lensCorrectionVignettingRange: ClosedRange<Double> = 0.0...100.0
+    /// Vertical keystone correction (#3410, `crs:PerspectiveVertical`). Projective coefficient about the image centre: positive converges the bottom edge (the correction for a camera tilted up at a building). 0 (default) contributes an identity row to the homography.
+    public static let perspectiveVerticalRange: ClosedRange<Double> = -100.0...100.0
+    /// Horizontal keystone correction (#3410, `crs:PerspectiveHorizontal`). Projective coefficient about the image centre: positive converges the right edge. 0 (default) is identity.
+    public static let perspectiveHorizontalRange: ClosedRange<Double> = -100.0...100.0
+    /// Geometry rotation in degrees, positive = clockwise (#3410, `crs:PerspectiveRotate`). Adobe's ±10° fine level, independent of `crop.angle`'s ±45° straighten: this one rotates INSIDE the frame the crop then samples, so the two compose rather than replace one another. 0 (default) is identity.
+    public static let perspectiveRotateRange: ClosedRange<Double> = -10.0...10.0
+    /// Uniform scale about the image centre, in percent (#3410, `crs:PerspectiveScale`). Below 100 shrinks the frame's content inward (exposing the transparent surround a keystone leaves behind); above 100 magnifies it to push that surround off-frame. 100 (default) is identity.
+    public static let perspectiveScaleRange: ClosedRange<Double> = 50.0...150.0
+    /// Aspect stretch (#3410, `crs:PerspectiveAspect`). Positive stretches horizontally and compresses vertically by the reciprocal factor, so frame area is preserved; negative does the opposite. 0 (default) is identity.
+    public static let perspectiveAspectRange: ClosedRange<Double> = -100.0...100.0
+    /// Horizontal offset of the transformed frame (#3410, `crs:PerspectiveX`). ±100 shifts by one half-extent — half the frame width. 0 (default) is identity.
+    public static let perspectiveXRange: ClosedRange<Double> = -100.0...100.0
+    /// Vertical offset of the transformed frame (#3410, `crs:PerspectiveY`). ±100 shifts by one half-extent — half the frame height. 0 (default) is identity.
+    public static let perspectiveYRange: ClosedRange<Double> = -100.0...100.0
 
     // MARK: - Pipeline-output version (canonical, generated)
 
@@ -479,6 +500,13 @@ extension AdjustmentGroup {
         case .geometry:
             return [
                 "crop",
+                "perspective_vertical",
+                "perspective_horizontal",
+                "perspective_rotate",
+                "perspective_scale",
+                "perspective_aspect",
+                "perspective_x",
+                "perspective_y",
             ]
         }
     }
