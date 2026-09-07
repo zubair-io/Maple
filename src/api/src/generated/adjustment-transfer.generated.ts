@@ -104,6 +104,7 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   lens_correction_distortion: 'Absolute',
   lens_correction_ca: 'Absolute',
   lens_correction_vignetting: 'Absolute',
+  demosaic: 'Absolute',
   vignette_amount: 'Absolute',
   vignette_feather: 'Absolute',
   grain_amount: 'Absolute',
@@ -236,6 +237,7 @@ export const TRANSFER_XMP_ATTRIBUTES: Readonly<Record<string, readonly string[]>
   lens_profile_enable: ['crs:LensProfileEnable'],
   black_white: ['crs:ConvertToGrayscale'],
   tone_curve_mode: ['papp:ToneCurveMode'],
+  demosaic: ['papp:Demosaic'],
   crop: [
     'crs:HasCrop',
     'crs:CropTop',

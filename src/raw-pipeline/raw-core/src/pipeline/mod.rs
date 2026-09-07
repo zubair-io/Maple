@@ -170,6 +170,13 @@ pub(crate) fn dump_after(_name: &str, _image: &crate::image::Image) {}
 /// neither kernel (`linearraw_to_camera_rgb` or `markesteijn`), so
 /// requesting `Amaze` on a non-Bayer source is safe — it just doesn't do
 /// anything different from `Full`.
+/// `Auto` (#3413) is the noise-adaptive export / native-detail level: it
+/// runs the full-resolution path like `Amaze`, but asks
+/// `demosaic::policy` which kernel the frame actually wants — LMMSE when
+/// the noise profile or the reported ISO says the frame is noisy, the
+/// AMaZE + VNG4 dual on a large clean frame, AMaZE alone on a small one.
+/// It is the level export and native-detail renders request; every other
+/// caller's meaning is unchanged.
 /// `Preview` returns the buffer at the half-res rendered dimensions —
 /// callers must scale to display dimensions themselves (CIImage transform
 /// on Apple, texture upload on Web).
@@ -182,4 +189,40 @@ pub enum RenderQuality {
     Preview,
     Full,
     Amaze,
+    Auto,
+}
+
+/// Which Bayer kernel a render at `quality` should actually run on `raw`,
+/// honouring the user's `demosaic` override (#3413).
+///
+/// One helper for all four Bayer dispatch sites — the full-image develop,
+/// the sized develop, the deep-zoom tile chain and the pano decode mirror —
+/// so they cannot drift apart. `Preview` returns `HalfRes` unconditionally:
+/// that path bins 2×2 before any reconstruction runs, so there is no kernel
+/// choice to make and the override is deliberately inert there. Every other
+/// level runs a full-resolution kernel and honours the override, which is
+/// what makes the screen and the exported file agree.
+///
+/// Non-Bayer sources never reach this function: the X-Trans and LinearRaw
+/// arms at each call site branch first.
+pub fn bayer_kernel(
+    quality: RenderQuality,
+    model: &crate::types::AdjustmentModel,
+    raw: &crate::image::RawImage,
+) -> crate::demosaic::DemosaicAlgorithm {
+    use crate::demosaic::DemosaicAlgorithm;
+    if quality == RenderQuality::Preview {
+        return DemosaicAlgorithm::HalfRes;
+    }
+    let fallback = match quality {
+        RenderQuality::Full => DemosaicAlgorithm::Rcd,
+        RenderQuality::Amaze => DemosaicAlgorithm::Amaze,
+        RenderQuality::Auto => crate::demosaic::auto_algorithm(
+            raw.iso,
+            raw.noise_profile.as_deref(),
+            crate::demosaic::sensor_pixels(raw),
+        ),
+        RenderQuality::Preview => unreachable!("returned above"),
+    };
+    crate::demosaic::resolve_algorithm(model.demosaic, fallback)
 }

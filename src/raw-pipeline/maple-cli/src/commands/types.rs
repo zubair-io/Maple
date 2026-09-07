@@ -18,14 +18,21 @@ pub enum OutputFormat {
 /// default since #940 (the tiled kernel from #1887 made it as fast as
 /// bilinear), matching the refine/export selection on all platforms; the
 /// parity budgets are baselined against it. `Full` is the on-screen
-/// full-resolution path, which is the RCD kernel since #3412. `Preview`
+/// full-resolution path, which is the RCD kernel since #3412. `Auto` is the
+/// noise-adaptive export selection (#3413) — LMMSE, the AMaZE+VNG4 dual, or
+/// AMaZE alone, decided from the frame's noise profile and size. `Preview`
 /// exists for symmetry with the FFI/tile path so a user can generate a
 /// half-res candidate from the CLI.
+///
+/// A specific kernel is selected through the sidecar's `papp:Demosaic`
+/// rather than a CLI flag, so a harness case pins the kernel the same way a
+/// user does.
 #[derive(ValueEnum, Clone, Copy, Debug)]
 pub enum DemosaicChoice {
     Preview,
     Full,
     Amaze,
+    Auto,
 }
 
 /// Synthetic-input kind exposed by `maple-cli synthetic`. Each kind picks
@@ -48,6 +55,7 @@ impl From<DemosaicChoice> for RenderQuality {
             DemosaicChoice::Preview => RenderQuality::Preview,
             DemosaicChoice::Full => RenderQuality::Full,
             DemosaicChoice::Amaze => RenderQuality::Amaze,
+            DemosaicChoice::Auto => RenderQuality::Auto,
         }
     }
 }

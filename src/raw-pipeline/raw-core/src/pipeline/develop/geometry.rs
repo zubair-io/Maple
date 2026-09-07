@@ -78,7 +78,7 @@ pub(in crate::pipeline) fn crop_to_default(
 pub(in crate::pipeline) fn quality_divisor(quality: RenderQuality) -> u32 {
     match quality {
         RenderQuality::Preview => 2,
-        RenderQuality::Full | RenderQuality::Amaze => 1,
+        RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => 1,
     }
 }
 

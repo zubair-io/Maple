@@ -252,12 +252,18 @@ fn develop_scene_linear_for_pano(
         _ => {
             let mosaic = stage("pano_linearize", || linearize::sensor_linearize(raw));
             // hot_pixel: default Off is a bit-identical no-op — skipped.
-            // `quality` above is `RenderQuality::Full`, so this must be the
-            // same kernel `pipeline::develop` runs at Full — RCD since
-            // #3412. `matches_develop_with_display_stages_zeroed` is the
-            // gate that keeps this mirror honest.
+            // Routed through the same selector the canonical chain uses
+            // (#3413) with the default model, so this mirror follows any
+            // future change to what `Full` means rather than pinning a
+            // kernel name. `matches_develop_with_display_stages_zeroed` is
+            // the gate that keeps it honest.
             stage("pano_demosaic", || {
-                demosaic::rcd_cancellable(&mosaic, raw.cfa, never)
+                let algo = crate::pipeline::bayer_kernel(
+                    quality,
+                    &crate::types::AdjustmentModel::default(),
+                    raw,
+                );
+                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, never)
             })
         }
     };

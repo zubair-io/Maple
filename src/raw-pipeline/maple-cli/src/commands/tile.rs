@@ -33,6 +33,7 @@ pub fn run(
         "preview" => RenderQuality::Preview,
         "full" => RenderQuality::Full,
         "amaze" => RenderQuality::Amaze,
+        "auto" => RenderQuality::Auto,
         other => {
             return Err(format!(
                 "invalid quality '{}': use 'preview', 'full', or 'amaze'",

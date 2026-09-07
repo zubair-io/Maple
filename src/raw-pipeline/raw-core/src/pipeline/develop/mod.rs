@@ -165,7 +165,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             });
             stage("demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
-                RenderQuality::Full | RenderQuality::Amaze => {
+                RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
                     demosaic::markesteijn(&mosaic, raw.cfa)
                 }
             })
@@ -177,16 +177,15 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             stage("hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
-            // The interactive Bayer paths (Preview `half_res`, Full `rcd`)
-            // take cancellable kernels so a cancel mid-demosaic unwinds per
-            // band/row. The export-only AMaZE kernel is not instrumented
-            // inline — it's not on the cold-open interactive path — but the
-            // post-demosaic check below still bails before any downstream
-            // stage runs.
-            stage("demosaic", || match quality {
-                RenderQuality::Preview => demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel),
-                RenderQuality::Full => demosaic::rcd_cancellable(&mosaic, raw.cfa, cancel),
-                RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
+            // Which kernel is `bayer_kernel`'s call (#3413): the quality
+            // level's own default, overridden by the model's `demosaic`
+            // field, and noise-adaptive at `Auto`. Kernels with a
+            // cancellable entry unwind per band/row; the rest are not on
+            // the cold-open interactive path, and the post-demosaic check
+            // below bails before any downstream stage runs either way.
+            stage("demosaic", || {
+                let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
             })
         }
     };
@@ -401,7 +400,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // dispatch — the MAPLE_PROFILE log plus whichever host sink is
     // registered (the editor's determinate indicator, #1153).
     stage("deep_denoise", || {
-        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::active_progress())
+        bm3d::apply_cancellable(
+            &mut scene,
+            model.deep_denoise,
+            cancel,
+            bm3d::active_progress(),
+        )
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -477,9 +481,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     dump_after("09_saturation", &scene);
     // HSL 8-band (#1112, tone/zoom design § 10.4) — scene-linear Oklab,
     // after saturation, before clarity. Identity short-circuit on all-default.
-    stage("hsl", || {
-        hsl::apply_model(&mut scene, model)
-    });
+    stage("hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
     dump_after("10_clarity", &scene);

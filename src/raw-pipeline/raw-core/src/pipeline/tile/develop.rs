@@ -147,10 +147,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // interior — the part `trim_image_to_inner` keeps — is reconstructed
     // from real neighbours and a tile matches the same region of the
     // full-image render.
-    let mut camera_rgb = stage("tile_demosaic", || match quality {
-        RenderQuality::Preview => demosaic::half_res(mosaic, raw.cfa),
-        RenderQuality::Full => demosaic::rcd(mosaic, raw.cfa),
-        RenderQuality::Amaze => demosaic::amaze(mosaic, raw.cfa),
+    let mut camera_rgb = stage("tile_demosaic", || {
+        let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+        demosaic::demosaic(algo, mosaic, raw.cfa)
     });
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {

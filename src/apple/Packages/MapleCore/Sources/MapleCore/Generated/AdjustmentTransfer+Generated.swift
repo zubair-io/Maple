@@ -109,6 +109,7 @@ public let adjustmentTransferModes: [String: AdjustmentTransferMode] = [
   "lens_correction_distortion": .absolute,
   "lens_correction_ca": .absolute,
   "lens_correction_vignetting": .absolute,
+  "demosaic": .absolute,
   "vignette_amount": .absolute,
   "vignette_feather": .absolute,
   "grain_amount": .absolute,

@@ -7,8 +7,8 @@
 //! walker in `mod.rs` still owns document structure and precedence state.
 
 use super::{
-    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode,
-    LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbSource,
+    AdjustmentModel, AutoExposureMode, DemosaicChoice, HighlightRecoveryMode,
+    HotPixelSuppressionMode, LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbSource,
 };
 use crate::error::{Error, Result};
 
@@ -358,6 +358,20 @@ pub(super) fn set_field(
                         other
                     )))
                 }
+            };
+        }
+        // Bayer demosaic kernel override (#3413). Absent attribute ->
+        // default (`Auto`, the noise-adaptive selection). Adobe has no
+        // equivalent key, so this lives in the `papp:` namespace.
+        "papp:Demosaic" => {
+            m.demosaic = match value {
+                "auto" | "Auto" => DemosaicChoice::Auto,
+                "amaze" | "Amaze" | "AMaZE" => DemosaicChoice::Amaze,
+                "rcd" | "Rcd" | "RCD" => DemosaicChoice::Rcd,
+                "dualamaze" | "DualAmaze" => DemosaicChoice::DualAmaze,
+                "dualrcd" | "DualRcd" => DemosaicChoice::DualRcd,
+                "lmmse" | "Lmmse" | "LMMSE" => DemosaicChoice::Lmmse,
+                other => return Err(Error::Xmp(format!("unknown Demosaic: {}", other))),
             };
         }
         // Tone-curve application mode (ticket #436). Absent attribute ->

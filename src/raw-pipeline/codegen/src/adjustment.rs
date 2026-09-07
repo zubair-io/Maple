@@ -257,6 +257,14 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
     // is forced to zero — and makes the 24 HSL sliders inert.
     s.push_str("export type BlackWhiteMode = 'Off' | 'On';\n\n");
 
+    // Bayer demosaic kernel override (#3413). `Auto` (default) picks from
+    // the frame's noise profile and size; the rest pin one kernel. See
+    // raw-core::types::adjustment::DemosaicChoice and
+    // raw-core::demosaic::policy.
+    s.push_str(
+        "export type DemosaicChoice = 'Auto' | 'Amaze' | 'Rcd' | 'DualAmaze' | 'DualRcd' | 'Lmmse';\n\n",
+    );
+
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
@@ -333,6 +341,10 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                     "HotPixelSuppressionMode" => "Off",
                     // Black & white mix (#276). Colour render by default.
                     "BlackWhiteMode" => "Off",
+                    // Bayer demosaic override (#3413). The noise-adaptive
+                    // selection is the default; a pinned kernel is the
+                    // exception.
+                    "DemosaicChoice" => "Auto",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",
@@ -502,7 +514,12 @@ mod tests {
         // ADJUSTMENT_RANGES itself moved to `emit_ts_tables` (#2683); a
         // curve field must not appear there either — pinned in
         // `ts_tables_emits_ranges_and_groups_disjoint_from_model_file`.
-        for camel in ["toneCurveLuma", "toneCurveRed", "toneCurveGreen", "toneCurveBlue"] {
+        for camel in [
+            "toneCurveLuma",
+            "toneCurveRed",
+            "toneCurveGreen",
+            "toneCurveBlue",
+        ] {
             assert!(
                 !tables_out.contains(&format!("  {}: [", camel)),
                 "curve fields must not appear in ADJUSTMENT_RANGES ({})",

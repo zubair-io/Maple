@@ -20,8 +20,9 @@ use tone_curves::CurveWalker;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, AutoExposureMode, Crop, HighlightRecoveryMode, HotPixelSuppressionMode,
-    LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbScaleVersion, WbSource,
+    AdjustmentModel, AutoExposureMode, Crop, DemosaicChoice, HighlightRecoveryMode,
+    HotPixelSuppressionMode, LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod,
+    WbScaleVersion, WbSource,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -244,7 +245,8 @@ fn apply_attributes(
 /// `docs/architecture.md`. Only the Maple-proprietary `papp:` keys with no
 /// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`,
 /// `papp:ChromaPrefilter`, `papp:HotPixelSuppression`, `papp:DeepDenoise`,
-/// `papp:FilmLook`, `papp:FilmStrength`); the legacy `papp:Look` is
+/// `papp:Demosaic`, `papp:FilmLook`, `papp:FilmStrength`); the legacy
+/// `papp:Look` is
 /// deliberately NOT serialized — newly-written sidecars carry the new
 /// attribute name only, and old sidecars still round-trip via the
 /// `papp:Look` migration in [`set_field`].
@@ -277,6 +279,21 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // BM3D deep denoise (#1105) — emitted only when non-default (0).
     if model.deep_denoise != 0.0 {
         out.push_str(&format!(r#" papp:DeepDenoise="{}""#, model.deep_denoise));
+    }
+    // Bayer demosaic override (#3413) — emitted only when the user has
+    // pinned a kernel; the default `Auto` is the absent attribute, so an
+    // untouched sidecar carries nothing and keeps following the policy as
+    // it improves.
+    if model.demosaic != DemosaicChoice::default() {
+        let v = match model.demosaic {
+            DemosaicChoice::Auto => unreachable!("guarded above"),
+            DemosaicChoice::Amaze => "Amaze",
+            DemosaicChoice::Rcd => "Rcd",
+            DemosaicChoice::DualAmaze => "DualAmaze",
+            DemosaicChoice::DualRcd => "DualRcd",
+            DemosaicChoice::Lmmse => "Lmmse",
+        };
+        out.push_str(&format!(r#" papp:Demosaic="{v}""#));
     }
     // Film emulation look (epic #2683, film design 2026-08-06) — emitted
     // only when non-empty. Unlike every other field in this group, the

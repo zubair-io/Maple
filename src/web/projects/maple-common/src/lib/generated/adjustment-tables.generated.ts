@@ -258,6 +258,7 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
       'lens_correction_distortion',
       'lens_correction_ca',
       'lens_correction_vignetting',
+      'demosaic',
     ],
   },
   {

@@ -36,6 +36,8 @@ export type HotPixelSuppressionMode = 'Off' | 'On';
 
 export type BlackWhiteMode = 'Off' | 'On';
 
+export type DemosaicChoice = 'Auto' | 'Amaze' | 'Rcd' | 'DualAmaze' | 'DualRcd' | 'Lmmse';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
@@ -267,6 +269,8 @@ export interface GeneratedAdjustmentModel {
   perspectiveX: number;
   /** Vertical offset of the transformed frame (#3410, `crs:PerspectiveY`). ±100 shifts by one half-extent — half the frame height. 0 (default) is identity. Range: [-100.0, 100.0]. */
   perspectiveY: number;
+  /** Bayer demosaic kernel override (#3413). 'Auto' (default) picks from the frame's noise profile and size — LMMSE when noisy, the AMaZE+VNG4 dual on a large clean frame, AMaZE alone on a small one; every other value pins one kernel. Inert on the binned fit-view path and on non-Bayer sources. XMP key `papp:Demosaic`. Part of the decoded-image cache key. */
+  demosaic: DemosaicChoice;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -387,6 +391,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     perspectiveAspect: 0.0,
     perspectiveX: 0.0,
     perspectiveY: 0.0,
+    demosaic: 'Auto',
   };
 }
 
