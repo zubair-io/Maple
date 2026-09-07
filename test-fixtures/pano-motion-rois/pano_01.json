@@ -1,0 +1,12 @@
+[
+  {
+    "name": "west-breaking-waves",
+    "subject": "Breaking-wave band around the western rocks; the complete band includes the moving white-water positions across captures.",
+    "rect": [5150, 5700, 1500, 1100]
+  },
+  {
+    "name": "foreground-breaking-waves",
+    "subject": "Complete white-water band below the foreground cliff, including the advancing and receding wave front.",
+    "rect": [17000, 7800, 2200, 1000]
+  }
+]
