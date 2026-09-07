@@ -377,4 +377,4 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
  * Fold it into every rendered-output cache key so a single bump invalidates
  * stale entries across all platforms.
  */
-export const PIPELINE_OUTPUT_VERSION = 2;
+export const PIPELINE_OUTPUT_VERSION = 3;

@@ -107,7 +107,8 @@ impl Default for AutoAdjustments {
 /// Develops ONE scene-linear Rec.2020 probe buffer with `auto_exposure: Off`
 /// and white balance pinned to D65 (temperature 6500 / tint 0), then derives
 /// ALL eight output fields from that single buffer. `model` is used read-only
-/// for non-WB/non-exposure fields (e.g. profile, highlight recovery); it is
+/// for non-WB/non-exposure fields (e.g. profile); highlight recovery is
+/// disabled so reconstructed pixels cannot masquerade as sensor evidence. It is
 /// never mutated.
 ///
 /// # AE-Off probe / exposure-replaces-anchor contract
@@ -122,13 +123,17 @@ impl Default for AutoAdjustments {
 /// Returns `Err` only when the underlying RAW develop fails (e.g. an
 /// unsupported RAW format). On success all fields are finite.
 /// The AE-Off / WB-pinned probe model AUTO analyses: the caller's model so
-/// settings like highlight recovery and profile carry through, with the
+/// settings like profile carry through, with highlight recovery disabled, the
 /// three inputs being estimated pinned and every tone slider at rest so the
 /// probe sees the raw scene. Shared with the neutral sampler (#2434), which
 /// must judge pixels in exactly the state AUTO's estimator does.
 pub(crate) fn probe_model(model: &AdjustmentModel) -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
+        // #3267: recovery can move sensor-clipped channels below the ceilings
+        // used by AWB and the neutral sampler. Meter unreconstructed pixels
+        // so invented highlight chromaticity cannot vote as a real neutral.
+        highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
         temperature: 6500.0,
         tint: 0.0,
         exposure: 0.0,

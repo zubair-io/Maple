@@ -1,7 +1,7 @@
 {
   "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
   "build": {
-    "pipeline_output_version": 2,
+    "pipeline_output_version": 3,
     "schema_version": 5
   },
   "capabilities": [
@@ -38,8 +38,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -80,8 +80,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "apple_canvas_golden",
@@ -137,8 +137,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -179,8 +179,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "apple_canvas_golden",
@@ -263,8 +263,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -305,8 +305,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "apple_canvas_golden",
@@ -357,8 +357,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -399,8 +399,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "apple_canvas_golden",
@@ -439,8 +439,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -461,8 +461,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "apple_canvas_golden",
@@ -493,8 +493,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -624,8 +624,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -636,8 +636,8 @@
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v2, current is v3"
         },
         {
           "source": "sidecar_contract_api",
@@ -684,15 +684,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 2,
+        "pipeline_version": 3,
         "schema_version": 5,
         "corpus_hash": "blake3:fc275d707aca0f4b687a796e9528d92240dd2d94db65eaa46aad7e2f1255871b",
         "expected_cases": 40,
         "executed_cases": 40,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
-        "recorded_at": "2026-09-03T03:53:44Z",
+        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
+        "recorded_at": "2026-09-07T01:56:53Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
@@ -707,15 +707,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 2,
+        "pipeline_version": 3,
         "schema_version": 5,
         "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
         "expected_cases": 6,
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
-        "recorded_at": "2026-09-03T03:53:50Z",
+        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
+        "recorded_at": "2026-09-07T01:55:37Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -730,15 +730,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 2,
+        "pipeline_version": 3,
         "schema_version": 5,
         "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
         "expected_cases": 5,
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "fc9b994df96840b11cff25d9b513874ad81fa3a2",
-        "recorded_at": "2026-09-03T15:39:55Z",
+        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
+        "recorded_at": "2026-09-07T01:57:18Z",
         "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
@@ -753,15 +753,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 2,
+        "pipeline_version": 3,
         "schema_version": 5,
         "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
         "expected_cases": 7,
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6dd110674a0f5a8a18450dd06e7ba5df29527af4",
-        "recorded_at": "2026-09-03T03:54:06Z",
+        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
+        "recorded_at": "2026-09-07T01:55:58Z",
         "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
@@ -790,7 +790,7 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift"
       ],
       "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "xctest-macos",
         "pipeline_version": 2,
@@ -816,16 +816,16 @@
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "pipeline_version": 2,
+        "pipeline_version": 3,
         "schema_version": 5,
         "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
         "expected_cases": 3,
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "8c5383fec833882e07e43e91ae2413195601c6f8",
-        "recorded_at": "2026-09-03T20:49:12Z",
-        "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts"
+        "git_sha": "710247debc80171a3675094f24c87649c9658127",
+        "recorded_at": "2026-09-06T14:17:14Z",
+        "command": "CI job 101500999521: bash -c \"cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000\""
       }
     },
     {
@@ -855,7 +855,7 @@
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
       "corpus_hash": "blake3:b9b29268f93752b911320994b74b7652ed28b02a29e940f017606a618a315110",
-      "status": "stale_corpus",
+      "status": "stale_pipeline",
       "record": {
         "backend": "metal",
         "pipeline_version": 2,
