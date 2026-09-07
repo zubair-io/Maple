@@ -58,9 +58,8 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // field; see `isWired` and `ToolSubParam`. Defringe (#3411) is the
     // profile-free, per-tick sibling of Lens, with six of its own.
     case geometry, defringe, crop, presets
-    // Mask (#3274) — a full-surface swap, not a primary-field drag bar; see
-    // `isWired` below. Heal is gated behind #1472 with no Tool-level surface
-    // yet, per CLAUDE.md #6's deliberate-staging exception.
+    // Mask (#3274) and Heal (#3409) — full-surface swaps, not primary-field
+    // drag bars; see `isWired` below.
     case mask, heal
 
     public var group: ToolGroup {
@@ -172,11 +171,10 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         switch self {
         case .crop:
             return false
-        // Mask (#3274) is wired via LocalAdjustment, not a single scalar
-        // field — its own panel (not this pipe) writes
-        // model.localAdjustments; Heal is gated behind #1472 with no
-        // Tool-level surface yet, per CLAUDE.md #6's deliberate-staging
-        // exception.
+        // Mask (#3274) writes `model.localAdjustments` and Heal (#3409)
+        // writes `model.retouchSpots` — nested lists, not single scalar
+        // fields, so each tool's own panel (not this pipe) is its value
+        // surface and the drag bar must refuse value edits for both.
         case .mask, .heal:
             return false
         default:
