@@ -25,7 +25,7 @@ struct EditorControls: View {
             state: state, collapsed: $collapsed, showsHeader: !shortCrop
           )
           .frame(width: isCompact ? nil : 320)
-          // Keep a usable crop canvas in landscape phone windows. The
+          // Keep a usable crop canvas in short compact windows. The
           // crop toolbar includes its own Reset and Done actions.
           .frame(
             height: isCompact

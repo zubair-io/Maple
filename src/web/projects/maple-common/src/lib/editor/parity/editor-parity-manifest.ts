@@ -63,9 +63,9 @@ const SHELL: readonly ParityCapability[] = [
     reachability: BOTH,
     presentation: {
       compact:
-        'Apple: stacked adjustments inspector above the horizontal ToolDock. Web: slider card above the horizontal bottom dock',
+        'iPhone: selected tool control above group tabs and tool pills. Compact iPad/Mac: stacked adjustments inspector above the horizontal ToolDock. Web: slider card above the horizontal bottom dock',
       regular:
-        'Apple: stacked adjustments inspector next to the vertical ToolDock. Web: vertical dock + control card and dock-side tool panels',
+        'iPad/Mac: stacked adjustments inspector next to the vertical ToolDock. iPhone keeps its compact selected-tool controls at every width. Web: vertical dock + control card and dock-side tool panels',
       wide: 'Same as regular; no chrome auto-recede',
     },
     interaction: {
@@ -91,8 +91,10 @@ const SHELL: readonly ParityCapability[] = [
     order: 30,
     reachability: BOTH,
     presentation: {
-      compact: 'Apple ToolDock and web pro-tool-dock are horizontal at the bottom edge',
-      regular: 'The same dock component is vertical at the trailing edge on both platforms',
+      compact:
+        'iPad/Mac ToolDock and web pro-tool-dock are horizontal at the bottom edge; iPhone uses group tabs and a selected-group tool row',
+      regular:
+        'The same dock component is vertical at the trailing edge on iPad/Mac and Web; iPhone retains its compact controls',
       wide: 'Same as regular',
     },
     interaction: {
@@ -118,7 +120,7 @@ const SHELL: readonly ParityCapability[] = [
     order: 40,
     reachability: BOTH,
     presentation: SAME(
-      'Light · Color · Effects · Detail, a divider, then Crop · Tone Curve · Film · Presets · Mask · Heal — the same ten entries in the same order as ToolDock.swift',
+      'iPad/Mac and Web: Light · Color · Effects · Detail, then Crop · Tone Curve · Film · Presets · Mask · Heal. iPhone: the same four groups with pills for the selected group, showing only the selected tool control',
     ),
     interaction: {
       keyboard: '1–4 switch group; Tab + Enter on any entry',

@@ -1,14 +1,12 @@
-// EditorView.swift — one canvas-first editor on every Apple width (#3252).
-// The same adjustments panel and tool dock move from the trailing edge to
-// the bottom through MapleLayout. State belongs to EditorSessionHost or
-// EditorDestination and is never recreated by a layout transition.
+// EditorView.swift — shared iPad/Mac inspector and compact iPhone controls.
+// State belongs to EditorSessionHost or EditorDestination and is never
+// recreated by a resize or rotation.
 
 import MapleCore
 import SwiftUI
 
-/// The editor measures its own offered width, including Split View or an
-/// open Info inspector. The outer phone shell's idiom stays unrelated to
-/// this width-based layout, so rotating a wide phone uses the same rules.
+/// iPad/Mac measure the offered width, including Split View or an Info
+/// inspector. iPhone keeps its compact control family in both orientations.
 struct EditorView: View {
   @Bindable var state: EditorState
   let onDismiss: () -> Void
@@ -20,12 +18,14 @@ struct EditorView: View {
 
   var body: some View {
     GeometryReader { geometry in
+      let layout = EditorLayout(
+        width: geometry.size.width, idiom: MapleShellKind.currentIdiom)
       EditorSurface(
         state: state, onDismiss: onDismiss, onShare: onShare, onInfo: onInfo,
         filmstripAssets: filmstripAssets, onSelectAsset: onSelectAsset,
-        filmstripSource: filmstripSource
+        filmstripSource: filmstripSource, usesPhoneControls: layout.usesPhoneControls
       )
-      .environment(\.mapleLayout, MapleLayout.from(width: geometry.size.width))
+      .environment(\.mapleLayout, layout.density)
     }
   }
 }
@@ -41,6 +41,8 @@ struct EditorSurface: View {
   var onSelectAsset: (AssetRef) -> Void = { _ in }
   /// Source the filmstrip assets came from, forwarded to ThumbnailLoader.
   var filmstripSource: (any ImageSource)? = nil
+
+  let usesPhoneControls: Bool
 
   @Environment(\.mapleLayout) private var layout
 
@@ -94,14 +96,32 @@ struct EditorSurface: View {
         .ignoresSafeArea(edges: .bottom)
       }
 
-      // The same panel and dock reflow without replacing their view identity.
-      EditorControls(state: state, onPresetsTap: { presetsOpen = true })
-        .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
-          presetsPanel.frame(width: 340, height: 460)
+      // Device identity selects the control family once. Width only reflows
+      // the shared iPad/Mac inspector; it never replaces the phone controls.
+      Group {
+        if usesPhoneControls {
+          GeometryReader { geometry in
+            VStack {
+              Spacer(minLength: 0)
+              IPhoneControlBar(
+                state: state, onPresetsTap: { presetsOpen = true },
+                maximumPanelHeight: min(300, geometry.size.height * 0.4)
+              )
+              .reportsWheelExclusion(in: "editorCanvas", active: true)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(edges: .bottom)
+          }
+        } else {
+          EditorControls(state: state, onPresetsTap: { presetsOpen = true })
         }
-        #if os(iOS)
-          .mapleBottomSheet(isPresented: presetsPresented(asSheet: true)) { presetsPanel }
-        #endif
+      }
+      .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
+        presetsPanel.frame(width: 340, height: 460)
+      }
+      #if os(iOS)
+        .mapleBottomSheet(isPresented: presetsPresented(asSheet: true)) { presetsPanel }
+      #endif
 
       // Navigation and actions remain visible while adjusting the photo.
       VStack(spacing: 0) {

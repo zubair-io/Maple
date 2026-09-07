@@ -6,6 +6,7 @@ import SwiftUI
 
 struct ColorAccessoryRow: View {
   @Bindable var state: EditorState
+  var compactStyle = false
 
   private var session: EditSession { state.session }
 
@@ -34,26 +35,42 @@ struct ColorAccessoryRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 6) {
-        Text("Profile")
-          .font(.caption)
-          .foregroundStyle(MapleTokens.textMuted)
-        ProfilePicker(selection: profileBinding)
-          .frame(maxWidth: 160)
+      if compactStyle {
+        HStack(spacing: 12) {
+          if state.armedTool == .bwMix {
+            blackWhiteToggle.toggleStyle(.switch).fixedSize()
+          }
+          profilePicker
+        }
+      } else {
+        profilePicker
+        blackWhiteToggle.toggleStyle(.button).frame(minHeight: 44)
       }
-      Toggle(isOn: blackWhiteBinding) { Text("Black & White").font(.caption) }
-        .toggleStyle(.button)
-        .frame(minHeight: 44)
-        .accessibilityValue(session.model.blackWhite == .on ? "On" : "Off")
-        .accessibilityIdentifier("editor-bw-toggle")
-        .accessibilityLabel("Convert to black and white")
       WhiteBalanceControls(state: state)
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 8)
+    .padding(.horizontal, compactStyle ? 24 : 14)
+    .padding(.vertical, compactStyle ? 6 : 8)
     .frame(maxWidth: .infinity)
     .background(MapleTokens.bg)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-color-accessory")
   }
+
+  private var profilePicker: some View {
+    HStack(spacing: 6) {
+      Text("Profile")
+        .font(.caption)
+        .foregroundStyle(MapleTokens.textMuted)
+      ProfilePicker(selection: profileBinding)
+        .frame(maxWidth: 160)
+    }
+  }
+
+  private var blackWhiteToggle: some View {
+    Toggle(isOn: blackWhiteBinding) { Text("Black & White").font(.caption) }
+      .accessibilityValue(session.model.blackWhite == .on ? "On" : "Off")
+      .accessibilityIdentifier("editor-bw-toggle")
+      .accessibilityLabel("Convert to black and white")
+  }
+
 }

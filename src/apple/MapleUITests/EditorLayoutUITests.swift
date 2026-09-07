@@ -65,7 +65,7 @@ import XCTest
         XCTAssertTrue(color.isSelected, "The active group survives a breakpoint change")
         XCTAssertEqual(blackWhite.value as? String, edited)
         XCTAssertEqual(zoom.value as? String, zoomValue)
-        XCTAssertFalse(app.otherElements["editor-iphone-legacy-controls"].exists)
+        XCTAssertFalse(app.otherElements["editor-iphone-controls"].exists)
         let editor = app.descendants(matching: .any)
           .matching(identifier: "editor-view").firstMatch
         XCTAssertTrue(editor.exists)
