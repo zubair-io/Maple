@@ -26,7 +26,6 @@
 // Keyboard shortcuts per spec § 09:
 //   Stars 1-5, P/X/U flags — handled in BrowseGrid
 //   Arrow navigation       — handled in BrowseGrid
-//   ⌘E export              — triggers ExportPanel
 //   ⌘O open folder         — fileImporter
 //   ⌘\ sidebar toggle      — NavigationSplitView column visibility
 
@@ -77,7 +76,6 @@ struct AppShell: View {
   /// mid-present can come back torn with nothing scheduled to repaint it.
   /// On `.active` we ask the active editor session for one re-present.
   @Environment(\.scenePhase) private var scenePhase
-  @State private var showExport = false
   @State private var showSettings = false
   // Held in @State (not constructed inside the .sheet content closure) so a
   // re-render of AppShell while the sheet is open cannot rebuild the view model
@@ -652,11 +650,6 @@ struct AppShell: View {
         resolveDropConfirmation(nil)
       }
     }
-    .sheet(isPresented: $showExport) {
-      if let session = selectedSession {
-        ExportPanel(session: session)
-      }
-    }
     .sheet(isPresented: $showSMBSheet) {
       SMBPickerSheet(
         onConnect: { creds in
@@ -898,8 +891,8 @@ struct AppShell: View {
       onPrimeSession: { asset in ensureSession(for: asset) },
       onFullImageFallback: { mode = .browse },
       // S5 EditorView callbacks (#815). Dismiss returns to the browse
-      // grid. Share reuses the existing ⌘E ExportPanel the desktop
-      // already has.
+      // grid. Share (the export panel) is owned by `EditorView` itself
+      // (#3403), so no host has to wire it.
       // Info reveals the DetailPanel third column — on the pane shell
       // the info/develop inspector is that column, not a sheet (the
       // iPhone-only Info sheet), so the button's job is to make sure
@@ -919,7 +912,6 @@ struct AppShell: View {
         }
         mode = .preview
       },
-      onEditorShare: { showExport = true },
       // Toggle the editor's Info inspector (#875 item 2). On the pane
       // shell the info surface is the right-hand inspector, shown via
       // `.inspector(isPresented:)` — toggling preserves the editor's
@@ -1425,7 +1417,7 @@ struct AppShell: View {
   /// Reset every transient piece of UI (sheets + iPhone drawer)
   /// so a deep-link destination renders cleanly. Lives here, not
   /// in `AppShell+DeepLink.swift`, because several of the state
-  /// vars below (`showSettings`, `showExport`, `isDrawerOpen`) are
+  /// vars below (`showSettings`, `isDrawerOpen`) are
   /// `private` to this file — keeping the helper internal-but-
   /// file-local lets the extension delegate without widening their
   /// access. Per spec §2 warm-launch behavior.
@@ -1435,7 +1427,6 @@ struct AppShell: View {
     addCloudSheetTarget = nil
     showSettings = false
     settingsInitialTab = nil
-    showExport = false
     #if os(iOS)
       isDrawerOpen = false
     #endif

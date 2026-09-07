@@ -52,7 +52,6 @@ import SwiftUI
 struct EditorView: View {
   @Bindable var state: EditorState
   let onDismiss: () -> Void
-  let onShare: () -> Void
   let onInfo: () -> Void
 
   /// Optional filmstrip data — when empty the filmstrip rail collapses.
@@ -71,6 +70,11 @@ struct EditorView: View {
   /// Presets sheet / popover.
   @State private var presetsOpen = false
   @State private var presetStore = PresetStore()
+
+  /// Export panel (#3403). Owned here, not by the hosts, so the pill's
+  /// Share button reaches the same `ExportPanel` on iPhone, iPad and Mac —
+  /// the iPhone host used to hand `EditorView` a no-op share closure.
+  @State private var showExport = false
 
   /// Frame (in `editorCanvas` space) of whichever floating chrome panel is
   /// currently reporting itself as a wheel-exclusion region — e.g.
@@ -244,7 +248,7 @@ struct EditorView: View {
           PillHeader(
             state: state,
             onBack: onDismiss,
-            onShare: onShare,
+            onShare: { showExport = true },
             onInfo: onInfo,
             showsScope: $showsScope
           )
@@ -315,6 +319,9 @@ struct EditorView: View {
       // must not rebuild the filmstrip, tool dock, and controls.
       EditorRenderStatus(session: state.session)
 
+    }
+    .sheet(isPresented: $showExport) {
+      ExportPanel(session: state.session)
     }
     .overlay(alignment: .topTrailing) {
       VStack(alignment: .trailing, spacing: 8) {
@@ -422,7 +429,6 @@ struct EditorView: View {
     return EditorView(
       state: state,
       onDismiss: {},
-      onShare: {},
       onInfo: {}
     )
   }
