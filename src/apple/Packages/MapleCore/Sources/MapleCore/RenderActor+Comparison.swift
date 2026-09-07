@@ -39,7 +39,9 @@ extension RenderActor {
       let profileLUT: CIFilter?
       if asset.isRaw, model.profile == .auto {
         let url = try await source.url(for: asset)
-        let scope = asset.scopeParentURL ?? url
+        // Match decode/export access so the Auto fit retains the same
+        // directory grant after the independent decode scope ends.
+        let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
         let access = scope.startAccessingSecurityScopedResource()
         defer { if access { scope.stopAccessingSecurityScopedResource() } }
         profileLUT = await AutoProfileLUT.shared.filter(
