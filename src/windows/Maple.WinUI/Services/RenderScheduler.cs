@@ -382,6 +382,11 @@ namespace Maple.WinUI.Services
             var curveRed = RenderEngine.FlattenCurve(state.ToneCurveRed);
             var curveGreen = RenderEngine.FlattenCurve(state.ToneCurveGreen);
             var curveBlue = RenderEngine.FlattenCurve(state.ToneCurveBlue);
+            // Local adjustments (#3406): same flat f32 layer stack the CPU
+            // fallback chain builds in RenderEngine.RenderTick — the GPU
+            // live present path needs its own copy since the two ABIs don't
+            // share params structs.
+            var localFlat = LocalAdjustmentFlat.ToFlat(state.LocalAdjustments);
             // The whole FFI call runs under the gate: SetImage (decode thread)
             // frees the session handle via maple_gpu_live_close, and a present
             // against a freed handle box is use-after-free. The native side's
@@ -401,10 +406,16 @@ namespace Maple.WinUI.Services
                 fixed (float* tcRed = curveRed)
                 fixed (float* tcGreen = curveGreen)
                 fixed (float* tcBlue = curveBlue)
+                fixed (float* localPtr = localFlat)
                 fixed (MapleGpuLiveSession* fullHandle = &_gpuSession)
                 fixed (MapleGpuLiveSession* halfHandle = &_gpuSessionHalf)
                 {
                     var handle = useHalf ? halfHandle : fullHandle;
+                    if (localFlat.Length > 0)
+                    {
+                        p.local_adjustments_ptr = localPtr;
+                        p.local_adjustments_len = (nuint)localFlat.Length;
+                    }
                     p.tone_curve_luma_ptr = tcLuma;
                     p.tone_curve_luma_len = (nuint)curveLuma.Length;
                     p.tone_curve_red_ptr = tcRed;
