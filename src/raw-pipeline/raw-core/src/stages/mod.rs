@@ -25,6 +25,7 @@ pub mod hot_pixel;
 pub mod hsl;
 pub mod inpaint_composite;
 pub mod local_adjustments;
+pub mod mask_range_sample;
 pub mod nlm;
 pub mod noise_reduction;
 pub mod saturation;
