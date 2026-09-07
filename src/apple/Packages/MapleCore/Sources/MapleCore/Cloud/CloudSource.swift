@@ -1,14 +1,19 @@
 // CloudSource.swift
 //
 // `ImageSource` that talks to a Maple Cloud server, scoped to one
-// registered library (folder). Lists files via `/api/fs/dir` —
-// matching the web app's "Phase B browse" pattern — so the user
-// sees subdirectory structure and the listing keeps up with the
-// filesystem instead of waiting for the indexer.
+// registered library (folder). Lists files via `/api/fs/dir` — the
+// enriched listing (video entries, size/ext/mtime, EXIF) that
+// `/api/folder/:slug/*` does not carry yet — so the user sees
+// subdirectory structure and the listing keeps up with the filesystem
+// instead of waiting for the indexer.
 //
-// `ImageRef.id` is `fs:<absPath>` (same convention as the web's
-// editor identifiers). Thumbnails and raw bytes are fetched by
-// absolute path via `/api/fs/thumb` and `/api/fs/raw`.
+// `ImageRef.id` is `fs:<absPath>` (same convention as the web's editor
+// identifiers). Thumbnails and previews go through the unified
+// `/api/thumb|preview/:slug/*` routes (#1325), the absolute path
+// translated to a `slug:relPath` address by `CloudAddressResolver`.
+// Original bytes deliberately stay on `/api/fs/raw`: that route carries
+// #926's mirror read-failover and `/api/image/:slug/*` does not, so
+// moving it would silently drop failover for every RAW open.
 //
 // CloudSidecarStore routes these fs: identifiers through the path-keyed
 // XMP endpoint, so edits do not depend on the indexer catching up (#3357).
@@ -24,6 +29,12 @@ public actor CloudSource {
   /// library root; bumped by `navigate(to:)` for subfolder drill-down.
   public private(set) var currentPath: String
   private let httpClient: AuthenticatedHTTPClient
+  /// Absolute path → `slug:relPath` for the unified thumb/preview routes.
+  /// Root-matched against `/api/folders` rather than derived from
+  /// `folderID`/`libraryPath`, because the timeline builds one `CloudSource`
+  /// per SERVER (`libraryPath: ""`) and serves assets from every library on
+  /// it through that one instance.
+  private let addresses: CloudAddressResolver
 
   public init(
     server: URL,
@@ -36,6 +47,7 @@ public actor CloudSource {
     self.libraryPath = libraryPath
     self.currentPath = libraryPath
     self.httpClient = httpClient
+    self.addresses = CloudAddressResolver(server: server, httpClient: httpClient)
   }
 
   /// Drill into a subfolder. The next `images()` call lists its contents.
@@ -96,29 +108,30 @@ extension CloudSource: ImageSource {
     }
   }
 
+  /// Grid thumbnail via `GET /api/thumb/:slug/*` — one fixed tier per
+  /// asset (#2220), content-keyed ETag, generated on demand for files the
+  /// indexer has not reached yet. nil on 404.
   public func thumb(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
-    let thumbURL = url(
-      "/api/fs/thumb",
-      query: [
-        URLQueryItem(name: "path", value: abs),
-        URLQueryItem(name: "size", value: "512"),
-      ])
-    return try await getOrNilOn404(thumbURL)
+    let thumbURL = try await addresses.url(route: "thumb", absPath: abs)
+    return try await getOrNilWhenUnavailable(thumbURL)
   }
 
-  /// Display-resolution (1280 px long-edge) preview via `/api/fs/preview` —
-  /// the server generates it on demand into the folder's `.maple/previews/`
-  /// (shared with the indexer's preview stage artifact) and caches it there.
-  /// nil on 404/415 so the Preview screen keeps showing the thumbnail.
+  /// Display-resolution (1280 px long-edge) preview via
+  /// `GET /api/preview/:slug/*` — the server generates it on demand into the
+  /// folder's `.maple/previews/` (shared with the indexer's preview stage
+  /// artifact) and caches it there. nil on 404, and on the route's 202
+  /// "indexing" reply for a file that has no catalog row yet, so the
+  /// Preview screen keeps showing the thumbnail in both cases.
   public func preview(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
-    let previewURL = url(
-      "/api/fs/preview",
-      query: [URLQueryItem(name: "path", value: abs)])
-    return try await getOrNilOn404(previewURL)
+    let previewURL = try await addresses.url(route: "preview", absPath: abs)
+    return try await getOrNilWhenUnavailable(previewURL)
   }
 
+  /// Original bytes via `/api/fs/raw?path=` — kept on the legacy route on
+  /// purpose (#1325): it is the one path-addressed route that carries #926's
+  /// mirror read-failover, which `/api/image/:slug/*` lacks server-side.
   public func rawBytes(for ref: ImageRef) async throws -> Data {
     let abs = Self.absPath(from: ref.id)
     let rawURL = url(
@@ -256,10 +269,15 @@ extension CloudSource: ImageSource {
 
   // MARK: - Helpers
 
-  private func getOrNilOn404(_ url: URL) async throws -> Data? {
+  /// nil on 404 (nothing to show) and on 202 (the unified preview route's
+  /// "indexing, retry shortly" JSON reply — not pixels); every other
+  /// non-2xx throws.
+  private func getOrNilWhenUnavailable(_ url: URL) async throws -> Data? {
     let req = URLRequest(url: url)
     let (data, resp) = try await httpClient.data(for: req)
-    if let http = resp as? HTTPURLResponse, http.statusCode == 404 { return nil }
+    if let http = resp as? HTTPURLResponse, http.statusCode == 404 || http.statusCode == 202 {
+      return nil
+    }
     try Self.checkOK(resp, data: data)
     return data
   }

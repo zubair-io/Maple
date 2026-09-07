@@ -39,16 +39,25 @@ final class ImportsClientTests: XCTestCase {
     XCTAssertEqual(roots, ["/", "/mnt"])
   }
 
-  func test_browse_targetsDirFastWithPathQuery() async throws {
+  /// The source picker browses the `MAPLE_ROOTS` jail *outside* any
+  /// registered library (an import source is by definition not a library
+  /// yet), so it has no `slug:relPath` address for `/api/folder` — it
+  /// stays on the pre-registration `/api/fs/list` route, same as the web's
+  /// Imports picker (#1325). `dir-fast` is gone from the client.
+  func test_browse_targetsFsListWithPathQuery() async throws {
     nonisolated(unsafe) var capturedURL: URL?
     let session = URLSession.stubbedSequence { req in
       capturedURL = req.url
-      return self.jsonResponse(req, #"{"path":"/mnt","parent":"/","dirs":[],"images":[]}"#)
+      return self.jsonResponse(
+        req,
+        #"{"path":"/mnt","parent":"/","entries":[{"name":"sd","path":"/mnt/sd","hasChildren":true}]}"#)
     }
     let listing = try await client(session).browse(path: "/mnt")
-    XCTAssertEqual(capturedURL?.path, "/api/fs/dir-fast")
+    XCTAssertEqual(capturedURL?.path, "/api/fs/list")
     XCTAssertEqual(capturedURL?.query, "path=/mnt")
     XCTAssertEqual(listing.path, "/mnt")
+    XCTAssertEqual(listing.parent, "/")
+    XCTAssertEqual(listing.entries, [ImportsDirEntry(name: "sd", path: "/mnt/sd", hasChildren: true)])
   }
 
   // MARK: - scan

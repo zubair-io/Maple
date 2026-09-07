@@ -1,5 +1,5 @@
-// ImportsClient.swift — /api/imports/*, plus the /api/fs and /api/folders
-// endpoints the wizard needs (#2773).
+// ImportsClient.swift — /api/imports/*, plus the /api/fs/roots + /api/fs/list
+// picker routes and the /api/folders endpoint the wizard needs (#2773).
 //
 // Every route here sits under plain `requireAuth` (src/api/src/index.ts
 // mounts `importsRoutes` and `fsRoutes` inside `authedApi`) — unlike
@@ -39,13 +39,16 @@ public actor ImportsClient {
     return try JSONDecoder().decode(Envelope.self, from: data).roots
   }
 
-  /// `GET /api/fs/dir-fast?path=` — one directory level of the SERVER's
-  /// filesystem (see `ImportsDirListing`). Deliberately the `-fast`
-  /// variant, not `/api/fs/dir`: the picker needs no EXIF/Mongo enrichment,
-  /// only names and the jail-aware `parent`.
+  /// `GET /api/fs/list?path=` — the subdirectories one level down on the
+  /// SERVER's filesystem (see `ImportsDirListing`). This stays on the
+  /// path-addressed surface by design (#1325): an import source is by
+  /// definition not a library yet, so it has no `slug:relPath` address for
+  /// `/api/folder` to resolve. `/api/fs/list` is the pre-registration picker
+  /// route the web's Imports picker and first-run library picker use too;
+  /// it returns directories only, which is all the picker renders.
   public func browse(path: String) async throws -> ImportsDirListing {
     var components = URLComponents(
-      url: server.appending(path: "/api/fs/dir-fast"), resolvingAgainstBaseURL: false)!
+      url: server.appending(path: "/api/fs/list"), resolvingAgainstBaseURL: false)!
     components.queryItems = [URLQueryItem(name: "path", value: path)]
     let (data, resp) = try await httpClient.data(for: URLRequest(url: components.url!))
     if let error = ServerAdminError.from(data: data, response: resp) { throw error }

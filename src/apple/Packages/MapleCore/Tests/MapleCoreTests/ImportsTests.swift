@@ -35,23 +35,24 @@ final class ImportsModelsDecodeTests: XCTestCase {
     XCTAssertEqual(bucket.nearbyMatchFolders, ["2026/Wedding"])
   }
 
-  func test_decode_dirListing_ignoresImagesField() throws {
-    // The real /api/fs/dir-fast response also carries `images`; the
-    // picker never reads it, so the type must decode fine without it.
+  func test_decode_dirListing_readsFsListEntries() throws {
+    // `/api/fs/list` (the pre-registration picker route, #1325) returns
+    // `entries` with a `hasChildren` hint; the picker keys on `name`/`path`.
     let json = """
-      {"path":"/mnt","parent":"/","dirs":[{"name":"sd","path":"/mnt/sd","mtime":"2026-01-01T00:00:00.000Z"}],
-       "images":[{"name":"a.jpg","path":"/mnt/a.jpg","size":1,"mtime":"2026-01-01T00:00:00.000Z","ext":"jpg"}]}
+      {"path":"/mnt","parent":"/","entries":[{"name":"sd","path":"/mnt/sd","hasChildren":false}]}
       """
     let listing = try JSONDecoder().decode(ImportsDirListing.self, from: Data(json.utf8))
-    XCTAssertEqual(listing.path, "/mnt")
     XCTAssertEqual(listing.parent, "/")
-    XCTAssertEqual(listing.dirs.first?.name, "sd")
+    XCTAssertEqual(listing.entries.first?.name, "sd")
+    XCTAssertEqual(listing.entries.first?.path, "/mnt/sd")
+    XCTAssertEqual(listing.entries.first?.hasChildren, false)
   }
 
-  func test_decode_dirListing_nullParentMeansJailRoot() throws {
-    let json = #"{"path":"/","parent":null,"dirs":[],"images":[]}"#
+  func test_decode_dirListing_nullParentAtJailRoot() throws {
+    let json = #"{"path":"/","parent":null,"entries":[]}"#
     let listing = try JSONDecoder().decode(ImportsDirListing.self, from: Data(json.utf8))
     XCTAssertNil(listing.parent)
+    XCTAssertTrue(listing.entries.isEmpty)
   }
 
   func test_decode_summary_snakeCaseFields() throws {

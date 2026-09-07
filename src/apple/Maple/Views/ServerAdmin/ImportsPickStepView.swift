@@ -112,7 +112,7 @@ struct ImportsPickStepView: View {
                 .truncationMode(.middle)
         }
 
-        if let dirs = listing?.dirs, !dirs.isEmpty {
+        if let dirs = listing?.entries, !dirs.isEmpty {
             ForEach(dirs, id: \.path) { dir in
                 Button {
                     onOpen(dir.path)

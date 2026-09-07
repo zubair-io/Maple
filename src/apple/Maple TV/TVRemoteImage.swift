@@ -8,7 +8,7 @@ import UIKit
 /// experience. Every cloud image on Maple TV — grid cells, the focused
 /// caption, the full-screen viewer — routes through this so bearer auth is
 /// never optional: there is no bare `AsyncImage(url:)` anywhere, because
-/// `/api/fs/thumb` and `/api/fs/preview` are bearer-gated with no
+/// `/api/thumb/:slug/*` and `/api/preview/:slug/*` are bearer-gated with no
 /// query-token escape hatch (Global Constraint, ticket #2102).
 ///
 /// Fetch order on appear:
@@ -21,10 +21,11 @@ import UIKit
 /// strategies. `CloudThumbCache` keys ONLY on `(host, absPath)` — there is
 /// no size/kind component — so it exists to hold the one small AVIF grid
 /// thumbnail per asset the server itself caches. That is now the only thumb
-/// tier the server offers: `/api/fs/thumb` took a `size` param that did
-/// nothing until it was removed in #2220, so the disk cache's sizeless key and
-/// the server's sizeless tier agree by construction. Routing `.preview`'s much larger
-/// ~1280px JPEG through the same disk slot would silently evict/replace the
+/// tier the server offers (the old `/api/fs/thumb` `size` param did nothing
+/// until it was removed in #2220; `/api/thumb/:slug/*` never had one), so the
+/// disk cache's sizeless key and the server's sizeless tier agree by
+/// construction. Routing `.preview`'s much larger
+/// ~1280px AVIF through the same disk slot would silently evict/replace the
 /// grid thumbnail bytes with preview bytes (or vice versa) any time both
 /// tiers are requested for the same asset — exactly the collision
 /// `ThumbnailProvider.preview(for:)` on iOS was written to avoid ("this
@@ -36,8 +37,8 @@ import UIKit
 /// asset in the same session doesn't refetch).
 struct TVRemoteImage: View {
   /// Which server-side tier to fetch. `.thumb` is the AVIF grid thumbnail
-  /// (`GET /api/fs/thumb`); `.preview` is the ~1280px JPEG display tier
-  /// (`GET /api/fs/preview`).
+  /// (`GET /api/thumb/:slug/*`); `.preview` is the ~1280px AVIF display tier
+  /// (`GET /api/preview/:slug/*`).
   enum Kind: Hashable {
     case thumb
     case preview
