@@ -33,6 +33,8 @@ import sharp from 'sharp';
 import { closeDb } from '../db/client.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import { relocateAsset } from './relocate-asset.ts';
+import { restoreAssetById, trashAssetById } from './asset-trash.ts';
+import { buildClaimQuery } from '../workers/claim-query.ts';
 import thumbStage from '../workers/stages/thumb.ts';
 import { resolveThumbPathForAsset } from '../fs/xmp.ts';
 import { sweepOrphanedCaches } from '../workers/cache-gc.ts';
@@ -144,6 +146,18 @@ async function seedAsset(
 ): Promise<{ id: ObjectId; libraryId: ObjectId }> {
   const libraryId = new ObjectId();
   const id = new ObjectId();
+  // A real `folders` row for the library — `trashAssetById` /
+  // `restoreAssetById` resolve the library root through it (the relocate
+  // tests above only need the `setLibraryRootsForTests` cache).
+  await d.collection('folders').insertOne({
+    _id: libraryId,
+    path: root,
+    slug: 'cache-invalidation-move',
+    label: 'cache-invalidation-move',
+    last_scan: null,
+    file_count: 0,
+    created_at: '2026-01-01T00:00:00Z',
+  } as never);
   await d.collection('assets').insertOne({
     _id: id,
     fileinfo: [{ path: relPath, filename, library_id: libraryId, deleted_at: null }],
@@ -330,5 +344,85 @@ describe('cache invalidation on move (#2659)', () => {
     // verify already enforces this before it ever publishes the copy; this
     // assertion re-confirms it from the caller's side.
     expect(Buffer.compare(afterBytes, beforeBytes)).toBe(0);
+  });
+
+  // #2847: trash and restore are relocates too (the bytes move into and
+  // back out of `.maple/trash/`), so they must carry the same cheap-tier /
+  // expensive-tier contract as `relocateAsset` — previously only
+  // `stages.meili` was re-armed, and a restored asset's thumb/preview
+  // bookkeeping kept claiming "done" for a path the file had left.
+  test('trash (#2847) resets ONLY thumb/preview in the same update that stamps deleted_at; the expensive stages are left alone', async () => {
+    if (!db) return;
+    await writeJpeg(path.join(root, 'a', 'IMG_1.jpg'));
+    const { id } = await seedAsset(db, 'a', 'IMG_1.jpg');
+    const before = await fetchAssetRow(db, id);
+
+    const trashed = await trashAssetById(id);
+    expect(trashed.kind).toBe('ok');
+
+    const after = await fetchAssetRow(db, id);
+    expect(after.fileinfo[0]!.path).toBe('.maple/trash/a');
+    expect(after.stages.thumb!.version).toBe(0);
+    expect(after.stages.preview!.version).toBe(0);
+    expect(after.stages.thumb!.attempts).toBe(0);
+    expect(after.stages.describe!.version).toBe(3);
+    expect(after.stages['face-detect']!.version).toBe(3);
+    expect(after.stages['face-embed']!.version).toBe(3);
+    expect(after.stages.geocode!.version).toBe(3);
+    expect(after.stages.describe!.processed_at).toEqual(before.stages.describe!.processed_at);
+  });
+
+  test('restore (#2847) resets thumb/preview so the stage re-claims the asset and regenerates the thumb cache-gc swept while it sat in Trash', async () => {
+    if (!db) return;
+    const oldAbsPath = path.join(root, 'a', 'IMG_1.jpg');
+    await writeJpeg(oldAbsPath);
+    const { id, libraryId } = await seedAsset(db, 'a', 'IMG_1.jpg');
+    const libs = new Map([[libraryId.toHexString(), root]]);
+
+    // Live thumb at the original path, as a cold-open would have produced.
+    const docLive = await fetchAssetRow(db, id);
+    const liveThumbPath = resolveThumbPathForAsset(docLive as never, libs) as string;
+    await thumbStage.handler(docLive as never, {} as never);
+    await fs.stat(liveThumbPath);
+
+    expect((await trashAssetById(id)).kind).toBe('ok');
+    // While trashed, the original-path thumb is an orphan (the row now
+    // points into `.maple/trash/`) and cache-gc reclaims it — exactly the
+    // state a restore lands in after the 60s recency guard has passed.
+    await agePast(liveThumbPath);
+    await sweepOrphanedCaches(root);
+    await expect(fs.stat(liveThumbPath)).rejects.toThrow();
+    // Simulate the thumb/preview workers having caught up on the trashed
+    // row, so the restore-side reset below is distinguishable from the
+    // trash-side one.
+    await db
+      .collection('assets')
+      .updateOne({ _id: id }, { $set: { 'stages.thumb.version': 3, 'stages.preview.version': 3 } });
+
+    const restored = await restoreAssetById(id);
+    expect(restored.kind).toBe('ok');
+
+    const after = await fetchAssetRow(db, id);
+    expect(after.fileinfo[0]!.path).toBe('a');
+    expect(after.stages.thumb!.version).toBe(0);
+    expect(after.stages.preview!.version).toBe(0);
+    expect(after.stages.describe!.version).toBe(3);
+    expect(after.stages['face-embed']!.version).toBe(3);
+    expect(after.stages.geocode!.version).toBe(3);
+    // The restored row is reachable by the thumb stage's claim query again —
+    // this is what lets the background worker (not a user-triggered cold
+    // open) bring the thumb back, and what keeps the Workers-page
+    // completeness counters honest.
+    const claim = buildClaimQuery('thumb', 3, [], new Set());
+    const claimed = await db
+      .collection('assets')
+      .find(claim as never)
+      .toArray();
+    expect(claimed.map((d) => d._id.toHexString())).toContain(id.toHexString());
+    // And re-running ONLY the thumb handler regenerates at the restored path.
+    const restoredThumbPath = resolveThumbPathForAsset(after as never, libs) as string;
+    expect(restoredThumbPath).toBe(liveThumbPath);
+    expect(await thumbStage.handler(after as never, {} as never)).toEqual({ wrote: true });
+    expect((await fs.stat(restoredThumbPath)).size).toBeGreaterThan(0);
   });
 });

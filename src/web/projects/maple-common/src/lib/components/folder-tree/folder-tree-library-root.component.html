@@ -1,4 +1,10 @@
-<app-folder-tree-node [node]="section()" [level]="0" (crudRequested)="crudRequested.emit($event)" />
+<app-folder-tree-node
+  [node]="section()"
+  [open]="rootOpen()"
+  [selected]="rootSelected()"
+  [level]="0"
+  (crudRequested)="crudRequested.emit($event)"
+/>
 
 @if (libraryIdForTrashRow(); as trashLibraryId) {
   <app-trash-node-row

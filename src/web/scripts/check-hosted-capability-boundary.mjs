@@ -46,6 +46,18 @@ const SERVER_ONLY_MARKERS = [
   '/display/config',
   '/photos/hidden',
   '/settings/workers',
+  // File management (#2847 review): the Trash + folder CRUD endpoints —
+  // `TrashApiService` (`/folders/:id/trash`, `/assets/:id/restore`,
+  // `/folders/:id/restore-folder`) and `FolderCrudService` (`/folders/:id/
+  // mkdir`, `/move`, `/trash-folder`). Both services are Self Hosted
+  // capabilities wired through `provideFolderTreeCrud()` / `TRASH_CAPABILITY`
+  // in `projects/maple/src/app/app.config.ts`; the hosted bundle must never
+  // carry their URL literals.
+  '/trash',
+  '/restore',
+  'trash-folder',
+  '/mkdir',
+  '/move',
   'Merge to panorama',
   'Timeline view',
   'Add folder',
@@ -65,20 +77,51 @@ const SOURCE_BOUNDARIES = [
     forbidden: ['InfoEnrichmentComponent', 'BunApiBackendService', 'LIBRARY_BACKEND'],
   },
   {
+    // The shared tree template may only reach Self Hosted chrome through the
+    // `FOLDER_TREE_EXTENSIONS` outlets (`appExtensions.header` / `.body`).
+    // The 'Add folder' button and the Timeline row live in
+    // `projects/maple/src/app/self-hosted-sidebar-*` (Self Hosted only) —
+    // this guards against either being inlined back into the shared file,
+    // by copy or by selector. The bare 'Timeline' string is NOT a marker
+    // here for the same reason it was retired from SERVER_ONLY_MARKERS
+    // above (a legitimate hosted Timeline organism exists since #3000).
     path: new URL(
       '../projects/maple-common/src/lib/components/folder-tree/folder-tree.component.html',
       import.meta.url,
     ),
-    forbidden: ['Add folder', 'Timeline'],
+    forbidden: [
+      'Add folder',
+      'Timeline view',
+      'app-timeline-view',
+      'app-self-hosted-sidebar-header',
+      'app-self-hosted-sidebar-body',
+    ],
   },
   {
     // Folder CRUD (#2643 / #2705 review): the eager tree component may only
     // reference `FolderTreeCrudComponent` (and only inside an `@defer`
-    // block, in the .html above) — never the HTTP service or the
-    // menu/dialog components directly. Those live exclusively behind that
-    // `@defer` boundary so they code-split into their own chunk.
+    // block — since the #2749 extraction that block lives in
+    // `folder-tree-footer.component.html`, guarded below) — never the HTTP
+    // service or the menu/dialog components directly. Those live
+    // exclusively behind that `@defer` boundary so they code-split into
+    // their own chunk.
     path: new URL(
       '../projects/maple-common/src/lib/components/folder-tree/folder-tree.component.ts',
+      import.meta.url,
+    ),
+    forbidden: [
+      'FolderCrudService',
+      'FolderContextMenuComponent',
+      'FolderNewFolderDialogComponent',
+      'FolderRenameDialogComponent',
+      'FolderTrashConfirmDialogComponent',
+    ],
+  },
+  {
+    // Same rule for the footer that now hosts the `@defer` block (#2847
+    // review: the entry above was left pointing at the pre-#2749 file).
+    path: new URL(
+      '../projects/maple-common/src/lib/components/folder-tree/folder-tree-footer.component.ts',
       import.meta.url,
     ),
     forbidden: [
