@@ -10,6 +10,7 @@ compare_images.py's deps; no new packages).
 Usage:
     pano_metrics.py --candidate cand.png --reference ref.png
         [--report stitch_report.json] [--long-edge 2048] [--seam-percentile P]
+        [--ghost-evidence fixed-motion-rois.json]
     pano_metrics.py --self-test [--fixture-root path/to/test-fixtures]
 
 Output (stdout, single-line JSON):
@@ -143,12 +144,14 @@ def _normalize(im: Image.Image, long_edge: int) -> Image.Image:
     scale = long_edge / max(w, h)
     if scale >= 1.0:
         return im
-    return im.resize((max(1, round(w * scale)), max(1, round(h * scale))),
-                     Image.LANCZOS)
+    return im.resize(
+        (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS
+    )
 
 
-def seam_energy(cand: np.ndarray, ref: np.ndarray,
-                percentile: float = DEFAULT_SEAM_PERCENTILE) -> float:
+def seam_energy(
+    cand: np.ndarray, ref: np.ndarray, percentile: float = DEFAULT_SEAM_PERCENTILE
+) -> float:
     """Seam-line gradient-energy metric — exact formula in the module doc."""
     excess = np.maximum(_grad_mag(_luma(cand)) - _grad_mag(_luma(ref)), 0.0)
     tau = np.percentile(excess, percentile)
@@ -159,10 +162,10 @@ def wrap_closure(im: Image.Image, strip_px: int = EDGE_STRIP_PX) -> dict:
     """360 wrap-edge closure of `im` — exact definition in the module doc."""
     w, h = im.size
     strip = max(2, min(strip_px, w // 4))
-    left = np.asarray(im.crop((0, 0, strip, h)).convert("L"),
-                      dtype=np.float32) / 255.0
-    right = np.asarray(im.crop((w - strip, 0, w, h)).convert("L"),
-                       dtype=np.float32) / 255.0
+    left = np.asarray(im.crop((0, 0, strip, h)).convert("L"), dtype=np.float32) / 255.0
+    right = (
+        np.asarray(im.crop((w - strip, 0, w, h)).convert("L"), dtype=np.float32) / 255.0
+    )
     sig_l = left.mean(axis=1)
     sig_r = right.mean(axis=1)
     if float(sig_l.std()) < 1e-6 or float(sig_r.std()) < 1e-6:
@@ -174,7 +177,7 @@ def wrap_closure(im: Image.Image, strip_px: int = EDGE_STRIP_PX) -> dict:
     for idx, s in enumerate(shifts):
         lo, hi = max(0, s), min(h, h + s)  # pairs (i, i - s), both in range
         a = sig_l[lo:hi]
-        b = sig_r[lo - s:hi - s]
+        b = sig_r[lo - s : hi - s]
         a0 = a - a.mean()
         b0 = b - b.mean()
         denom = float(np.sqrt((a0 * a0).sum() * (b0 * b0).sum()))
@@ -199,9 +202,11 @@ def report_block(report_path) -> dict:
         data = json.load(f)
     out = {"available": True}
     missing = []
-    for src_key, out_key in (("mean_reproj_error_px", "mean_reproj_px"),
-                             ("max_reproj_error_px", "max_reproj_px"),
-                             ("horizon_tilt_deg", "horizon_tilt_deg")):
+    for src_key, out_key in (
+        ("mean_reproj_error_px", "mean_reproj_px"),
+        ("max_reproj_error_px", "max_reproj_px"),
+        ("horizon_tilt_deg", "horizon_tilt_deg"),
+    ):
         if src_key in data and data[src_key] is not None:
             out[out_key] = float(data[src_key])
         else:
@@ -220,10 +225,15 @@ def report_block(report_path) -> dict:
     return out
 
 
-def _metrics_from_images(cand_im: Image.Image, ref_im: Image.Image, *,
-                         report_path=None, long_edge: int = DEFAULT_LONG_EDGE,
-                         seam_percentile: float = DEFAULT_SEAM_PERCENTILE,
-                         edge_strip: int = EDGE_STRIP_PX) -> dict:
+def _metrics_from_images(
+    cand_im: Image.Image,
+    ref_im: Image.Image,
+    *,
+    report_path=None,
+    long_edge: int = DEFAULT_LONG_EDGE,
+    seam_percentile: float = DEFAULT_SEAM_PERCENTILE,
+    edge_strip: int = EDGE_STRIP_PX,
+) -> dict:
     cand_im = cand_im.convert("RGB")
     ref_im = ref_im.convert("RGB")
     cand_size, ref_size = cand_im.size, ref_im.size
@@ -250,8 +260,7 @@ def _metrics_from_images(cand_im: Image.Image, ref_im: Image.Image, *,
     both_valid = cand_valid & ref_valid
     n_ref_valid = int(ref_valid.sum())
     coverage = float(both_valid.sum() / n_ref_valid) if n_ref_valid else None
-    rmse_valid = (float(np.sqrt(sq[both_valid].mean()))
-                  if both_valid.any() else None)
+    rmse_valid = float(np.sqrt(sq[both_valid].mean())) if both_valid.any() else None
 
     return {
         "rmse": float(np.sqrt(sq.mean())),
@@ -275,20 +284,31 @@ def _metrics_from_images(cand_im: Image.Image, ref_im: Image.Image, *,
     }
 
 
-def diff(cand_path: str, ref_path: str, *, report_path=None,
-         long_edge: int = DEFAULT_LONG_EDGE,
-         seam_percentile: float = DEFAULT_SEAM_PERCENTILE,
-         edge_strip: int = EDGE_STRIP_PX) -> dict:
+def diff(
+    cand_path: str,
+    ref_path: str,
+    *,
+    report_path=None,
+    long_edge: int = DEFAULT_LONG_EDGE,
+    seam_percentile: float = DEFAULT_SEAM_PERCENTILE,
+    edge_strip: int = EDGE_STRIP_PX,
+) -> dict:
     """Full metric set for a candidate/reference pair. See module doc."""
     with Image.open(cand_path) as cand_im, Image.open(ref_path) as ref_im:
         return _metrics_from_images(
-            cand_im, ref_im, report_path=report_path, long_edge=long_edge,
-            seam_percentile=seam_percentile, edge_strip=edge_strip)
+            cand_im,
+            ref_im,
+            report_path=report_path,
+            long_edge=long_edge,
+            seam_percentile=seam_percentile,
+            edge_strip=edge_strip,
+        )
 
 
 # --------------------------------------------------------------------------
 # Self-test
 # --------------------------------------------------------------------------
+
 
 def _procedural_image(w: int = 1200, h: int = 420, seed: int = 7) -> np.ndarray:
     """Deterministic structured RGB image in [0,1], HxWx3, with horizontally
@@ -298,34 +318,33 @@ def _procedural_image(w: int = 1200, h: int = 420, seed: int = 7) -> np.ndarray:
     rng = np.random.default_rng(seed)
 
     def octave(div: int) -> np.ndarray:
-        small = (rng.random((max(2, h // div), max(2, w // div))) * 255)
-        im = Image.fromarray(small.astype(np.uint8)).resize((w, h),
-                                                            Image.BICUBIC)
+        small = rng.random((max(2, h // div), max(2, w // div))) * 255
+        im = Image.fromarray(small.astype(np.uint8)).resize((w, h), Image.BICUBIC)
         return np.asarray(im, dtype=np.float32) / 255.0
 
     base = 0.6 * octave(16) + 0.3 * octave(4) + 0.1 * octave(2)
     yy = np.linspace(0.0, 0.15, h, dtype=np.float32)[:, None]
     base = np.clip(0.1 + 0.75 * base + yy, 0.0, 1.0)
-    rgb = np.stack([base,
-                    np.roll(base, 11, axis=1),
-                    np.roll(base, -7, axis=1)], axis=-1)
+    rgb = np.stack(
+        [base, np.roll(base, 11, axis=1), np.roll(base, -7, axis=1)], axis=-1
+    )
     wrap_w = 2 * EDGE_STRIP_PX
     rgb[:, -wrap_w:, :] = rgb[:, :wrap_w, :]
     return rgb.astype(np.float32)
 
 
 def _to_image(arr: np.ndarray) -> Image.Image:
-    return Image.fromarray((np.clip(arr, 0.0, 1.0) * 255.0 + 0.5)
-                           .astype(np.uint8), mode="RGB")
+    return Image.fromarray(
+        (np.clip(arr, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), mode="RGB"
+    )
 
 
 def self_test(fixture_root=None) -> int:
     if fixture_root is None:
         fixture_root = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "..",
-            "test-fixtures")
-    ref_png = os.path.join(fixture_root, "references", "pano_01",
-                           "pano_01.png")
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "test-fixtures"
+        )
+    ref_png = os.path.join(fixture_root, "references", "pano_01", "pano_01.png")
 
     if os.path.exists(ref_png):
         source = f"fixture:{ref_png}"
@@ -342,31 +361,40 @@ def self_test(fixture_root=None) -> int:
 
     def check(name: str, ok: bool, detail: str) -> None:
         checks.append({"name": name, "ok": bool(ok), "detail": detail})
-        print(f"  {'PASS' if ok else 'FAIL'} {name}: {detail}",
-              file=sys.stderr)
+        print(f"  {'PASS' if ok else 'FAIL'} {name}: {detail}", file=sys.stderr)
 
-    print(f"pano_metrics self-test — source: {source} ({w}x{h})",
-          file=sys.stderr)
+    print(f"pano_metrics self-test — source: {source} ({w}x{h})", file=sys.stderr)
 
     # (a) reference vs itself: ~zero RMSE / seam energy, full coverage.
-    m_same = _metrics_from_images(base_im, base_im,
-                                  long_edge=SELF_TEST_LONG_EDGE)
-    check("identical-rmse", m_same["rmse"] < 1e-9,
-          f"rmse={m_same['rmse']:.3e} (< 1e-9)")
-    check("identical-seam-energy", m_same["seam_energy"] < 1e-12,
-          f"seam_energy={m_same['seam_energy']:.3e} (< 1e-12)")
-    check("identical-coverage", m_same["coverage"] == 1.0,
-          f"coverage={m_same['coverage']} (== 1.0)")
+    m_same = _metrics_from_images(base_im, base_im, long_edge=SELF_TEST_LONG_EDGE)
+    check(
+        "identical-rmse", m_same["rmse"] < 1e-9, f"rmse={m_same['rmse']:.3e} (< 1e-9)"
+    )
+    check(
+        "identical-seam-energy",
+        m_same["seam_energy"] < 1e-12,
+        f"seam_energy={m_same['seam_energy']:.3e} (< 1e-12)",
+    )
+    check(
+        "identical-coverage",
+        m_same["coverage"] == 1.0,
+        f"coverage={m_same['coverage']} (== 1.0)",
+    )
 
     # (b) reference vs perturbed copy: clearly non-zero values.
     pert = np.roll(base, shift=(4, 7), axis=(0, 1))
-    pert[:, w // 2:, :] = np.clip(pert[:, w // 2:, :] + 0.15, 0.0, 1.0)
-    m_pert = _metrics_from_images(_to_image(pert), base_im,
-                                  long_edge=SELF_TEST_LONG_EDGE)
-    check("perturbed-rmse", m_pert["rmse"] > 0.01,
-          f"rmse={m_pert['rmse']:.4f} (> 0.01)")
-    check("perturbed-seam-energy", m_pert["seam_energy"] > 1e-7,
-          f"seam_energy={m_pert['seam_energy']:.3e} (> 1e-7)")
+    pert[:, w // 2 :, :] = np.clip(pert[:, w // 2 :, :] + 0.15, 0.0, 1.0)
+    m_pert = _metrics_from_images(
+        _to_image(pert), base_im, long_edge=SELF_TEST_LONG_EDGE
+    )
+    check(
+        "perturbed-rmse", m_pert["rmse"] > 0.01, f"rmse={m_pert['rmse']:.4f} (> 0.01)"
+    )
+    check(
+        "perturbed-seam-energy",
+        m_pert["seam_energy"] > 1e-7,
+        f"seam_energy={m_pert['seam_energy']:.3e} (> 1e-7)",
+    )
 
     # (c) hole-punched copy: coverage must see the missing half; the masked
     # rmse_valid must NOT (its blindness is why it is never gated). Punch
@@ -376,54 +404,70 @@ def self_test(fixture_root=None) -> int:
     norm_im = _normalize(base_im, SELF_TEST_LONG_EDGE)
     norm = np.asarray(norm_im, dtype=np.float32) / 255.0
     holes = norm.copy()
-    holes[:, norm.shape[1] // 2:, :] = 0.0
-    m_holes = _metrics_from_images(_to_image(holes), norm_im,
-                                   long_edge=SELF_TEST_LONG_EDGE)
+    holes[:, norm.shape[1] // 2 :, :] = 0.0
+    m_holes = _metrics_from_images(
+        _to_image(holes), norm_im, long_edge=SELF_TEST_LONG_EDGE
+    )
     cov = m_holes["coverage"]
-    check("holes-coverage",
-          cov is not None and 0.30 <= cov <= 0.70,
-          f"coverage={cov:.4f} (right half zeroed -> expected in "
-          f"[0.30, 0.70])")
+    check(
+        "holes-coverage",
+        cov is not None and 0.30 <= cov <= 0.70,
+        f"coverage={cov:.4f} (right half zeroed -> expected in [0.30, 0.70])",
+    )
     rv = m_holes["rmse_valid"]
-    check("holes-rmse-valid-blind",
-          rv is not None and rv < 1e-3,
-          f"rmse_valid={rv} (< 1e-3: masked metric cannot see the holes)")
-    check("holes-rmse-sees",
-          rv is not None and m_holes["rmse"] > 10 * max(rv, 1e-9),
-          f"rmse={m_holes['rmse']:.4f} (>10x rmse_valid: all-pixel rmse "
-          f"prices the holes)")
+    check(
+        "holes-rmse-valid-blind",
+        rv is not None and rv < 1e-3,
+        f"rmse_valid={rv} (< 1e-3: masked metric cannot see the holes)",
+    )
+    check(
+        "holes-rmse-sees",
+        rv is not None and m_holes["rmse"] > 10 * max(rv, 1e-9),
+        f"rmse={m_holes['rmse']:.4f} (>10x rmse_valid: all-pixel rmse "
+        f"prices the holes)",
+    )
 
     # (d) wrap-closure shift recovery — always on the procedural image,
     # whose edges are wrap-consistent by construction.
     proc = _procedural_image()
-    ph, pw = proc.shape[0], proc.shape[1]
-    m_closed = _metrics_from_images(_to_image(proc), _to_image(proc),
-                                    long_edge=SELF_TEST_LONG_EDGE)
+    pw = proc.shape[1]
+    m_closed = _metrics_from_images(
+        _to_image(proc), _to_image(proc), long_edge=SELF_TEST_LONG_EDGE
+    )
     closed_px = m_closed["wrap_closure_px"]
-    check("wrap-closed",
-          closed_px is not None and closed_px <= 1.5,
-          f"wrap_closure_px={closed_px} (<= 1.5, "
-          f"ncc={m_closed['wrap_closure_ncc']:.3f})")
+    check(
+        "wrap-closed",
+        closed_px is not None and closed_px <= 1.5,
+        f"wrap_closure_px={closed_px} (<= 1.5, ncc={m_closed['wrap_closure_ncc']:.3f})",
+    )
 
     sheared = proc.copy()
-    sheared[:, pw // 2:, :] = np.roll(sheared[:, pw // 2:, :], 5, axis=0)
-    m_shear = _metrics_from_images(_to_image(sheared), _to_image(proc),
-                                   long_edge=SELF_TEST_LONG_EDGE)
+    sheared[:, pw // 2 :, :] = np.roll(sheared[:, pw // 2 :, :], 5, axis=0)
+    m_shear = _metrics_from_images(
+        _to_image(sheared), _to_image(proc), long_edge=SELF_TEST_LONG_EDGE
+    )
     shear_px = m_shear["wrap_closure_px"]
-    check("wrap-shift-recovery",
-          shear_px is not None and abs(shear_px - 5.0) <= 1.5,
-          f"wrap_closure_px={shear_px} (expected 5 +/- 1.5, "
-          f"ncc={m_shear['wrap_closure_ncc']:.3f})")
+    check(
+        "wrap-shift-recovery",
+        shear_px is not None and abs(shear_px - 5.0) <= 1.5,
+        f"wrap_closure_px={shear_px} (expected 5 +/- 1.5, "
+        f"ncc={m_shear['wrap_closure_ncc']:.3f})",
+    )
 
     # Report passthrough contract: absent report must say so, not fake.
     rb = report_block(None)
-    check("report-unavailable",
-          rb == {"available": False, "reason": "unavailable: no report"},
-          f"report_block(None)={rb}")
+    check(
+        "report-unavailable",
+        rb == {"available": False, "reason": "unavailable: no report"},
+        f"report_block(None)={rb}",
+    )
 
     ok = all(c["ok"] for c in checks)
-    print(json.dumps({"self_test": "pass" if ok else "fail",
-                      "source": source, "checks": checks}))
+    print(
+        json.dumps(
+            {"self_test": "pass" if ok else "fail", "source": source, "checks": checks}
+        )
+    )
     return 0 if ok else 1
 
 
@@ -431,37 +475,61 @@ def self_test(fixture_root=None) -> int:
 # CLI
 # --------------------------------------------------------------------------
 
+
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="Maple Pano stitch metrics (see module docstring).")
+        description="Maple Pano stitch metrics (see module docstring)."
+    )
     p.add_argument("--candidate", help="candidate panorama image")
     p.add_argument("--reference", help="reference panorama image")
-    p.add_argument("--report", help="StitchReport JSON from maple-cli pano "
-                                    "stitch (optional)")
-    p.add_argument("--long-edge", type=int, default=DEFAULT_LONG_EDGE,
-                   help="common long edge for size-normalized metrics "
-                        f"(default {DEFAULT_LONG_EDGE})")
-    p.add_argument("--seam-percentile", type=float,
-                   default=DEFAULT_SEAM_PERCENTILE,
-                   help="outlier percentile for the seam-energy metric "
-                        f"(default {DEFAULT_SEAM_PERCENTILE})")
-    p.add_argument("--self-test", action="store_true",
-                   help="run the built-in validation and exit")
-    p.add_argument("--fixture-root",
-                   help="test-fixtures root for --self-test (default: "
-                        "resolved relative to this script)")
+    p.add_argument(
+        "--report", help="StitchReport JSON from maple-cli pano stitch (optional)"
+    )
+    p.add_argument(
+        "--ghost-evidence",
+        help="fixed coherent-source motion ROI manifest (see pano_ghost_metrics.py)",
+    )
+    p.add_argument(
+        "--long-edge",
+        type=int,
+        default=DEFAULT_LONG_EDGE,
+        help="common long edge for size-normalized metrics "
+        f"(default {DEFAULT_LONG_EDGE})",
+    )
+    p.add_argument(
+        "--seam-percentile",
+        type=float,
+        default=DEFAULT_SEAM_PERCENTILE,
+        help="outlier percentile for the seam-energy metric "
+        f"(default {DEFAULT_SEAM_PERCENTILE})",
+    )
+    p.add_argument(
+        "--self-test", action="store_true", help="run the built-in validation and exit"
+    )
+    p.add_argument(
+        "--fixture-root",
+        help="test-fixtures root for --self-test (default: "
+        "resolved relative to this script)",
+    )
     args = p.parse_args()
 
     if args.self_test:
         return self_test(args.fixture_root)
 
     if not args.candidate or not args.reference:
-        p.error("--candidate and --reference are required "
-                "(or use --self-test)")
+        p.error("--candidate and --reference are required (or use --self-test)")
     try:
-        out = diff(args.candidate, args.reference, report_path=args.report,
-                   long_edge=args.long_edge,
-                   seam_percentile=args.seam_percentile)
+        out = diff(
+            args.candidate,
+            args.reference,
+            report_path=args.report,
+            long_edge=args.long_edge,
+            seam_percentile=args.seam_percentile,
+        )
+        if args.ghost_evidence:
+            from pano_ghost_metrics import measure
+
+            out["ghosting"] = measure(args.candidate, args.ghost_evidence)
     except Exception as e:  # noqa: BLE001 — CLI surfaces error as JSON
         print(json.dumps({"error": str(e)}))
         return 2
