@@ -1,456 +1,476 @@
 import XCTest
+
 @testable import MapleCore
 
 @MainActor
 final class EditSessionTests: XCTestCase {
-    func testInitialModelSeedsAsShotWhiteBalanceWhenNoSidecarExists() {
-        let model = EditSession.initialModel(
-            loadedModel: nil,
-            asShotCCT: 4875,
-            asShotTint: 14
-        )
+  func testInitialModelSeedsAsShotWhiteBalanceWhenNoSidecarExists() {
+    let model = EditSession.initialModel(
+      loadedModel: nil,
+      asShotCCT: 4875,
+      asShotTint: 14
+    )
 
-        XCTAssertEqual(model.temperature, 4875, accuracy: 0.01)
-        XCTAssertEqual(model.tint, 14, accuracy: 0.01)
+    XCTAssertEqual(model.temperature, 4875, accuracy: 0.01)
+    XCTAssertEqual(model.tint, 14, accuracy: 0.01)
+  }
+
+  func testInitialModelPreservesSidecarWhiteBalanceWhenSidecarExists() {
+    var sidecarModel = AdjustmentModel.default
+    sidecarModel.temperature = 3200
+    sidecarModel.tint = -8
+
+    let model = EditSession.initialModel(
+      loadedModel: sidecarModel,
+      asShotCCT: 4875,
+      asShotTint: 14
+    )
+
+    XCTAssertEqual(model.temperature, 3200, accuracy: 0.01)
+    XCTAssertEqual(model.tint, -8, accuracy: 0.01)
+  }
+
+  // #1069 — the loading-indicator readiness predicate. The bug-encoding case:
+  // on the GPU path a hydration-seeded renderedPreview must NOT count as a
+  // frame on screen (the GPU canvas is the Metal layer, blank until presented).
+  func testCanvasHasFrame_gpuPath_usesGpuFramePresented_notRenderedPreview() {
+    // Seeded renderedPreview but no GPU present yet → no frame on screen.
+    XCTAssertFalse(
+      EditSession.canvasHasFrame(
+        gpuActive: true, gpuFramePresented: false, hasRenderedPreview: true))
+    // GPU has presented → frame on screen (even with renderedPreview nil).
+    XCTAssertTrue(
+      EditSession.canvasHasFrame(
+        gpuActive: true, gpuFramePresented: true, hasRenderedPreview: false))
+  }
+
+  func testCanvasHasFrame_cpuPath_usesRenderedPreview() {
+    XCTAssertTrue(
+      EditSession.canvasHasFrame(
+        gpuActive: false, gpuFramePresented: false, hasRenderedPreview: true))
+    XCTAssertFalse(
+      EditSession.canvasHasFrame(
+        gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false))
+  }
+
+  func testLoadingIndicator_visibleWhileResolvingFirstFrame() {
+    // Stays visible even once a (preview) frame is on screen — the whole
+    // point of #1201: don't hide just because the sub-second preview landed.
+    // `isResolvingFirstFrame` stays true through the decode AND the first
+    // full render, so this covers the entire cold-open wait.
+    XCTAssertTrue(
+      EditSession.shouldShowLoadingIndicator(
+        isResolvingFirstFrame: true, isRendering: false, hasOnscreenFrame: true))
+  }
+  func testLoadingIndicator_hiddenOnceFirstFrameResolvedAndPresent() {
+    XCTAssertFalse(
+      EditSession.shouldShowLoadingIndicator(
+        isResolvingFirstFrame: false, isRendering: false, hasOnscreenFrame: true))
+  }
+  func testLoadingIndicator_visibleInNoPreviewRenderWindow() {
+    XCTAssertTrue(
+      EditSession.shouldShowLoadingIndicator(
+        isResolvingFirstFrame: false, isRendering: true, hasOnscreenFrame: false))
+  }
+  func testLoadingIndicator_noFlashOnTickAfterFrame() {
+    // A slider tick re-renders (isRendering true) but a frame is up and the
+    // cold-open already resolved → no spinner flash.
+    XCTAssertFalse(
+      EditSession.shouldShowLoadingIndicator(
+        isResolvingFirstFrame: false, isRendering: true, hasOnscreenFrame: true))
+  }
+  func testLoadingIndicator_stillVisibleDuringPostDecodeRenderTail() {
+    // The exact bug from the field logs: the decode call returned (so the
+    // OLD flag would have dropped), but the first full-quality frame hasn't
+    // published yet — `isResolvingFirstFrame` keeps the indicator up across
+    // that render tail even though a (preview) frame is already on screen.
+    XCTAssertTrue(
+      EditSession.shouldShowLoadingIndicator(
+        isResolvingFirstFrame: true, isRendering: true, hasOnscreenFrame: true))
+  }
+
+  /// Fit-to-window opens are the common case; if `RenderedPreviewCache`
+  /// only writes on `phase == .refine` then those opens never populate
+  /// the cache and every re-open redoes the Rust pipeline. Verify that
+  /// after a fast pass completes in fit mode, the cache file appears
+  /// on disk for the asset.
+  func testFitModeRenderPersistsToPreviewCacheAfterFastPass() async throws {
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+
+    // Configure the cache against the temp dir so the write lands
+    // somewhere the test can observe.
+    await RenderedPreviewCache.shared.configure(folderURL: tmp)
+
+    // A real .dng under tmp so EditSession's `assetURL` is valid for
+    // mtime keying. Empty bytes are fine — the test seeds
+    // `renderedPreview` directly rather than running Rust; we're
+    // testing the persist path, not decode.
+    let assetURL = tmp.appendingPathComponent("test.dng")
+    try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+
+    let asset = AssetRef(url: assetURL)
+    let session = await EditSession(asset: asset)
+
+    // Manually drive a fast-only render: previewSize set, pixelScale=0
+    // (fit mode), seed `renderedPreview`, then exercise the public
+    // render path. After the 250 ms refine debounce + the detached
+    // cache write, the file should exist on disk.
+    await MainActor.run {
+      session.previewSize = CGSize(width: 800, height: 600)
+      session.pixelScale = 0  // fit mode
+      session.renderedPreview = CIImage(color: .red)
+        .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+      // Simulate a completed fast pass: only full-canvas renders of
+      // the current model are persistable (#1881). Without this the
+      // seeded buffer counts as a cold-open seed and the persist
+      // path (correctly) refuses to bake it.
+      session.previewIsFullRender = true
     }
 
-    func testInitialModelPreservesSidecarWhiteBalanceWhenSidecarExists() {
-        var sidecarModel = AdjustmentModel.default
-        sidecarModel.temperature = 3200
-        sidecarModel.tint = -8
+    // Trigger persist via the public render path. This kicks
+    // _scheduleRender(.fast) → fast publish → _scheduleRefine →
+    // skip branch → persistCurrentPreviewToCache.
+    session.ensureRenderStarted()
 
-        let model = EditSession.initialModel(
-            loadedModel: sidecarModel,
-            asShotCCT: 4875,
-            asShotTint: 14
-        )
+    // Poll for the cache file to appear. The persist path runs through
+    // a 250 ms refine debounce, then a `.utility`-priority detached
+    // task, then a JPEG encode + atomic write — most of the time this
+    // lands within ~400 ms but utility QoS can queue behind unrelated
+    // work under CI load. Cap at 5 s so a real bug fails fast.
+    let mapleDir = tmp.appendingPathComponent(".maple/previews")
+    let deadline = Date().addingTimeInterval(5.0)
+    var files: [String] = []
+    while Date() < deadline {
+      files = (try? FileManager.default.contentsOfDirectory(atPath: mapleDir.path)) ?? []
+      if !files.isEmpty { break }
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    XCTAssertFalse(
+      files.isEmpty, "RenderedPreviewCache should have written a file under .maple/previews")
+  }
 
-        XCTAssertEqual(model.temperature, 3200, accuracy: 0.01)
-        XCTAssertEqual(model.tint, -8, accuracy: 0.01)
+  /// #1881 — a preview that is NOT a completed full-canvas render of the
+  /// current model (a cold-open seed, or a viewport patch composited over
+  /// an older underlay) must never reach `RenderedPreviewCache`. Baking
+  /// such a mixed-provenance image writes a hard tone seam that every
+  /// subsequent cold open re-displays until a full render overwrites it.
+  func testPersistSkipsPreviewThatIsNotAFullRender() async throws {
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+
+    await RenderedPreviewCache.shared.configure(folderURL: tmp)
+
+    let assetURL = tmp.appendingPathComponent("test.dng")
+    try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+
+    let session = await EditSession(asset: AssetRef(url: assetURL))
+    let scheduled = await MainActor.run {
+      session.previewSize = CGSize(width: 800, height: 600)
+      session.renderedPreview = CIImage(color: .red)
+        .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+      // Default is false; set explicitly to document the contract
+      // under test: seed / composite provenance blocks persistence.
+      session.previewIsFullRender = false
+      return session.persistCurrentPreviewToCache()
+    }
+    // Deterministic: the gate refuses BEFORE spawning the detached write,
+    // so the returned Bool is the whole story — no sleep-and-probe.
+    XCTAssertFalse(
+      scheduled,
+      "A non-full-render preview must not be persisted to RenderedPreviewCache (#1881)"
+    )
+
+    // And the positive control on the same session: flipping the flag is
+    // the only change that may allow a persist to schedule.
+    let scheduledWhenFull = await MainActor.run {
+      session.previewIsFullRender = true
+      return session.persistCurrentPreviewToCache()
+    }
+    XCTAssertTrue(scheduledWhenFull, "A full render with a valid URL must persist")
+  }
+
+  /// On a cold open (no `.maple/previews` cache hit), the embedded JPEG
+  /// preview should publish to `renderedPreview` *before* the Rust
+  /// decode lands — that's the difference between a 50 ms first paint
+  /// and a multi-second one on a 100 MP RAW. This test captures the
+  /// ordering invariant by asserting `renderedPreview != nil` within
+  /// a tight window (well under any plausible Rust decode time, even
+  /// on cached fixtures).
+  ///
+  /// Requires a real .dng with an embedded JPEG preview. Uses
+  /// `test-fixtures/raws/test_0002.dng` if present; skips otherwise so
+  /// CI without fixtures still runs.
+  func testColdOpenPaintsEmbeddedPreviewBeforeRustDecode() async throws {
+    let fixturePath = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("test-fixtures/raws/test_0002.dng")
+
+    guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+      throw XCTSkip("test_0002.dng fixture not present; skipping")
     }
 
-    // #1069 — the loading-indicator readiness predicate. The bug-encoding case:
-    // on the GPU path a hydration-seeded renderedPreview must NOT count as a
-    // frame on screen (the GPU canvas is the Metal layer, blank until presented).
-    func testCanvasHasFrame_gpuPath_usesGpuFramePresented_notRenderedPreview() {
-        // Seeded renderedPreview but no GPU present yet → no frame on screen.
-        XCTAssertFalse(EditSession.canvasHasFrame(
-            gpuActive: true, gpuFramePresented: false, hasRenderedPreview: true))
-        // GPU has presented → frame on screen (even with renderedPreview nil).
-        XCTAssertTrue(EditSession.canvasHasFrame(
-            gpuActive: true, gpuFramePresented: true, hasRenderedPreview: false))
+    let asset = AssetRef(url: fixturePath)
+    let session = await EditSession(asset: asset)
+
+    // Kick off the open path. ensureRenderStarted() returns
+    // synchronously after spawning a Task whose body runs cache +
+    // embedded-preview seeds before awaiting the Rust task. The
+    // polling loop below waits for the embedded-preview seed to
+    // publish to renderedPreview.
+    session.ensureRenderStarted()
+
+    // Poll for `renderedPreview` to land. Embedded preview via
+    // ImageIO is ~50 ms on a healthy local machine; Rust on this
+    // fixture is 3-5 s. 1500 ms ceiling is well under any plausible
+    // Rust decode time but generous enough to absorb CI scheduling
+    // jitter when MainActor work is queued.
+    let deadline = Date().addingTimeInterval(1.5)
+    while Date() < deadline {
+      if await session.renderedPreview != nil { break }
+      try await Task.sleep(for: .milliseconds(10))
     }
 
-    func testCanvasHasFrame_cpuPath_usesRenderedPreview() {
-        XCTAssertTrue(EditSession.canvasHasFrame(
-            gpuActive: false, gpuFramePresented: false, hasRenderedPreview: true))
-        XCTAssertFalse(EditSession.canvasHasFrame(
-            gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false))
+    let preview = await session.renderedPreview
+    XCTAssertNotNil(
+      preview,
+      "Embedded preview must publish within 1500 ms; otherwise cold open regressed to wait for Rust"
+    )
+  }
+
+  // MARK: - setKeywords (#632)
+
+  /// `setKeywords` updates the culling list and the change persists
+  /// across an `XMPSidecarStore` flush + reload — the same write path
+  /// the rating/flag mutators use.
+  func testSetKeywordsRoutesThroughSidecarStore() async throws {
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let rawURL = dir.appendingPathComponent("kw.dng")
+    try Data("placeholder".utf8).write(to: rawURL)
+
+    let session = EditSession(asset: AssetRef(url: rawURL))
+    session.setKeywords(["paris", "travel"])
+    XCTAssertEqual(session.culling.keywords, ["paris", "travel"])
+
+    // `culling.didSet` spawns a detached Task that calls `store.update`.
+    // Yield enough times for that Task to land its scheduled write
+    // before we flush; otherwise `flush()` cancels the pending Task
+    // before it ever calls `update()`, and nothing reaches disk.
+    for _ in 0..<5 { await Task.yield() }
+    await session.flushPendingSidecarWrite()
+
+    let fresh = XMPSidecarStore(rawURL: rawURL)
+    let (_, c) = try await fresh.load()
+    XCTAssertEqual(c.keywords, ["paris", "travel"])
+  }
+
+  /// `flushPendingSidecarWrite()` must force an immediate PUT for a
+  /// `CloudSidecarStore`-backed session, not just `XMPSidecarStore` /
+  /// `PhotoKitSidecarStore` — `CloudSidecarStore.flush()` cancels the
+  /// pending debounce Task and writes now, the same "force it now" shape
+  /// as the other two stores (PR #2556 review fix — this branch was
+  /// previously missing, so backgrounding the app right after a cloud
+  /// edit could drop it before the 750ms debounce fired).
+  func testFlushPendingSidecarWriteForcesCloudSidecarStorePUT() async throws {
+    let server = URL(string: "https://x")!
+    let session = URLSession.stubbedSequence { req in
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 204,
+        httpVersion: "HTTP/1.1", headerFields: nil)!
+      return (Data(), resp)
+    }
+    let cloudStore = CloudSidecarStore(
+      server: server, assetID: "a1",
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    let asset = AssetRef(
+      displayName: "IMG_CLOUD",
+      hintExtension: "dng",
+      stableID: "a1",
+      bytesProvider: { throw NSError(domain: "test", code: -1) }
+    )
+    let editSession = EditSession(asset: asset, remoteSidecarStore: cloudStore)
+
+    var edited = editSession.model
+    edited.exposure = 1.75
+    editSession.model = edited
+
+    for _ in 0..<5 { await Task.yield() }
+    await editSession.flushPendingSidecarWrite()
+
+    let body = URLProtocolStub.capturedBodies["https://x/api/assets/a1/xmp"]
+    let xml = try XCTUnwrap(
+      body.flatMap { String(data: $0, encoding: .utf8) },
+      "flushPendingSidecarWrite() never forced the CloudSidecarStore PUT")
+    XCTAssertTrue(xml.contains("xmpmeta"))
+  }
+
+  /// Duplicate + blank entries are normalized out before the list
+  /// hits `culling.keywords` so the sidecar never carries
+  /// `<rdf:li></rdf:li>` blanks or repeated bag members.
+  func testSetKeywordsDedupesAndDropsBlanks() {
+    let session = EditSession(asset: AssetRef.preview())
+    session.setKeywords(["a", "  ", "b", "a", " b ", ""])
+    XCTAssertEqual(session.culling.keywords, ["a", "b"])
+  }
+
+  /// No-op writes (same list) don't bump anything — verified by
+  /// confirming the equality short-circuit.
+  func testSetKeywordsIsIdempotent() {
+    let session = EditSession(asset: AssetRef.preview())
+    session.setKeywords(["a", "b"])
+    let before = session.culling
+    session.setKeywords(["a", "b"])
+    XCTAssertEqual(session.culling, before)
+  }
+
+  // MARK: - Sidecar error propagation (#1412)
+
+  /// Injecting a failing `SidecarStoreProtocol` via `remoteSidecarStore`
+  /// triggers `sidecarError` on the session. Verifies the Task-based
+  /// subscription wiring added in PR #1434.
+  func testSidecarWriteErrorPropagatesFromStoreThroughSession() async throws {
+    // A sourceless AssetRef (no primary URL) so EditSession doesn't
+    // create an XMPSidecarStore of its own — it will use the injected one.
+    let asset = AssetRef.preview()
+    let store = FailingSidecarStore()
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+
+    // Yield enough times for EditSession's sidecarErrorTask to start
+    // executing and call store.errors(), registering its continuation.
+    // Without this yield, emitError fires before any subscriber is
+    // registered and the error is lost.
+    for _ in 0..<10 { await Task.yield() }
+
+    // Ask the store to emit a write error. The session's Task subscribes
+    // to `store.errors()` and should publish it to `session.sidecarError`.
+    let sentinel = NSError(
+      domain: "test.sidecar", code: 42,
+      userInfo: [NSLocalizedDescriptionKey: "disk full"])
+    await store.emitError(sentinel)
+
+    // Poll for the error to hop from the actor onto MainActor.
+    let deadline = Date().addingTimeInterval(1.0)
+    while Date() < deadline {
+      if session.sidecarError != nil { break }
+      try await Task.sleep(for: .milliseconds(10))
     }
 
-    func testLoadingIndicator_visibleWhileResolvingFirstFrame() {
-        // Stays visible even once a (preview) frame is on screen — the whole
-        // point of #1201: don't hide just because the sub-second preview landed.
-        // `isResolvingFirstFrame` stays true through the decode AND the first
-        // full render, so this covers the entire cold-open wait.
-        XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
-            isResolvingFirstFrame: true, isRendering: false, hasOnscreenFrame: true))
-    }
-    func testLoadingIndicator_hiddenOnceFirstFrameResolvedAndPresent() {
-        XCTAssertFalse(EditSession.shouldShowLoadingIndicator(
-            isResolvingFirstFrame: false, isRendering: false, hasOnscreenFrame: true))
-    }
-    func testLoadingIndicator_visibleInNoPreviewRenderWindow() {
-        XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
-            isResolvingFirstFrame: false, isRendering: true, hasOnscreenFrame: false))
-    }
-    func testLoadingIndicator_noFlashOnTickAfterFrame() {
-        // A slider tick re-renders (isRendering true) but a frame is up and the
-        // cold-open already resolved → no spinner flash.
-        XCTAssertFalse(EditSession.shouldShowLoadingIndicator(
-            isResolvingFirstFrame: false, isRendering: true, hasOnscreenFrame: true))
-    }
-    func testLoadingIndicator_stillVisibleDuringPostDecodeRenderTail() {
-        // The exact bug from the field logs: the decode call returned (so the
-        // OLD flag would have dropped), but the first full-quality frame hasn't
-        // published yet — `isResolvingFirstFrame` keeps the indicator up across
-        // that render tail even though a (preview) frame is already on screen.
-        XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
-            isResolvingFirstFrame: true, isRendering: true, hasOnscreenFrame: true))
-    }
+    let received = try XCTUnwrap(session.sidecarError as NSError?)
+    XCTAssertEqual(received.code, 42)
+    XCTAssertEqual(received.domain, "test.sidecar")
+  }
 
-    /// Fit-to-window opens are the common case; if `RenderedPreviewCache`
-    /// only writes on `phase == .refine` then those opens never populate
-    /// the cache and every re-open redoes the Rust pipeline. Verify that
-    /// after a fast pass completes in fit mode, the cache file appears
-    /// on disk for the asset.
-    func testFitModeRenderPersistsToPreviewCacheAfterFastPass() async throws {
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
+  // MARK: - Masks (#3275)
 
-        // Configure the cache against the temp dir so the write lands
-        // somewhere the test can observe.
-        await RenderedPreviewCache.shared.configure(folderURL: tmp)
+  private func makeSessionForMaskTests() throws -> EditSession {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: tmp) }
+    let assetURL = tmp.appendingPathComponent("test.dng")
+    try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+    return EditSession(asset: AssetRef(url: assetURL))
+  }
 
-        // A real .dng under tmp so EditSession's `assetURL` is valid for
-        // mtime keying. Empty bytes are fine — the test seeds
-        // `renderedPreview` directly rather than running Rust; we're
-        // testing the persist path, not decode.
-        let assetURL = tmp.appendingPathComponent("test.dng")
-        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+  func testCreateWholeImageSkinMaskAppendsAndSelectsALayer() throws {
+    let session = try makeSessionForMaskTests()
+    XCTAssertTrue(session.model.localAdjustments.isEmpty)
 
-        let asset = AssetRef(url: assetURL)
-        let session = await EditSession(asset: asset)
+    session.createWholeImageSkinMask()
 
-        // Manually drive a fast-only render: previewSize set, pixelScale=0
-        // (fit mode), seed `renderedPreview`, then exercise the public
-        // render path. After the 250 ms refine debounce + the detached
-        // cache write, the file should exist on disk.
-        await MainActor.run {
-            session.previewSize = CGSize(width: 800, height: 600)
-            session.pixelScale = 0  // fit mode
-            session.renderedPreview = CIImage(color: .red)
-                .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
-            // Simulate a completed fast pass: only full-canvas renders of
-            // the current model are persistable (#1881). Without this the
-            // seeded buffer counts as a cold-open seed and the persist
-            // path (correctly) refuses to bake it.
-            session.previewIsFullRender = true
-        }
+    XCTAssertEqual(session.model.localAdjustments.count, 1)
+    XCTAssertEqual(session.model.localAdjustments[0].mask, .everywhere)
+    XCTAssertEqual(session.model.localAdjustments[0].range, .skinTone)
+    XCTAssertEqual(session.selectedMaskId, session.model.localAdjustments[0].id)
+  }
 
-        // Trigger persist via the public render path. This kicks
-        // _scheduleRender(.fast) → fast publish → _scheduleRefine →
-        // skip branch → persistCurrentPreviewToCache.
-        session.ensureRenderStarted()
+  func testDeleteMaskRemovesItAndClearsSelectionIfItWasSelected() throws {
+    let session = try makeSessionForMaskTests()
+    session.createWholeImageSkinMask()
+    let id = session.model.localAdjustments[0].id
 
-        // Poll for the cache file to appear. The persist path runs through
-        // a 250 ms refine debounce, then a `.utility`-priority detached
-        // task, then a JPEG encode + atomic write — most of the time this
-        // lands within ~400 ms but utility QoS can queue behind unrelated
-        // work under CI load. Cap at 5 s so a real bug fails fast.
-        let mapleDir = tmp.appendingPathComponent(".maple/previews")
-        let deadline = Date().addingTimeInterval(5.0)
-        var files: [String] = []
-        while Date() < deadline {
-            files = (try? FileManager.default.contentsOfDirectory(atPath: mapleDir.path)) ?? []
-            if !files.isEmpty { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        XCTAssertFalse(files.isEmpty, "RenderedPreviewCache should have written a file under .maple/previews")
-    }
+    session.deleteMask(id: id)
 
-    /// #1881 — a preview that is NOT a completed full-canvas render of the
-    /// current model (a cold-open seed, or a viewport patch composited over
-    /// an older underlay) must never reach `RenderedPreviewCache`. Baking
-    /// such a mixed-provenance image writes a hard tone seam that every
-    /// subsequent cold open re-displays until a full render overwrites it.
-    func testPersistSkipsPreviewThatIsNotAFullRender() async throws {
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
+    XCTAssertTrue(session.model.localAdjustments.isEmpty)
+    XCTAssertNil(session.selectedMaskId)
+  }
 
-        await RenderedPreviewCache.shared.configure(folderURL: tmp)
+  func testDeleteMaskLeavesSelectionAloneWhenADifferentLayerWasSelected() throws {
+    let session = try makeSessionForMaskTests()
+    session.createWholeImageSkinMask()
+    let firstId = session.model.localAdjustments[0].id
+    session.createWholeImageSkinMask()
+    let secondId = session.model.localAdjustments[1].id
+    XCTAssertEqual(session.selectedMaskId, secondId)
 
-        let assetURL = tmp.appendingPathComponent("test.dng")
-        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+    session.deleteMask(id: firstId)
 
-        let session = await EditSession(asset: AssetRef(url: assetURL))
-        let scheduled = await MainActor.run {
-            session.previewSize = CGSize(width: 800, height: 600)
-            session.renderedPreview = CIImage(color: .red)
-                .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
-            // Default is false; set explicitly to document the contract
-            // under test: seed / composite provenance blocks persistence.
-            session.previewIsFullRender = false
-            return session.persistCurrentPreviewToCache()
-        }
-        // Deterministic: the gate refuses BEFORE spawning the detached write,
-        // so the returned Bool is the whole story — no sleep-and-probe.
-        XCTAssertFalse(
-            scheduled,
-            "A non-full-render preview must not be persisted to RenderedPreviewCache (#1881)"
-        )
+    XCTAssertEqual(session.model.localAdjustments.count, 1)
+    XCTAssertEqual(
+      session.selectedMaskId, secondId,
+      "deleting an unselected layer must not disturb the selection")
+  }
 
-        // And the positive control on the same session: flipping the flag is
-        // the only change that may allow a persist to schedule.
-        let scheduledWhenFull = await MainActor.run {
-            session.previewIsFullRender = true
-            return session.persistCurrentPreviewToCache()
-        }
-        XCTAssertTrue(scheduledWhenFull, "A full render with a valid URL must persist")
-    }
+  func testDisablingAMaskKeepsTheModelButClearsItForTheRenderer() throws {
+    let session = try makeSessionForMaskTests()
+    session.createWholeImageSkinMask()
+    let id = session.model.localAdjustments[0].id
+    let original = PartialAdjustments(exposure: 0.4, hue: -12)
+    session.model.localAdjustments[0].adjustments = original
+    XCTAssertTrue(session.isMaskEnabled(id: id))
 
-    /// On a cold open (no `.maple/previews` cache hit), the embedded JPEG
-    /// preview should publish to `renderedPreview` *before* the Rust
-    /// decode lands — that's the difference between a 50 ms first paint
-    /// and a multi-second one on a 100 MP RAW. This test captures the
-    /// ordering invariant by asserting `renderedPreview != nil` within
-    /// a tight window (well under any plausible Rust decode time, even
-    /// on cached fixtures).
-    ///
-    /// Requires a real .dng with an embedded JPEG preview. Uses
-    /// `test-fixtures/raws/test_0002.dng` if present; skips otherwise so
-    /// CI without fixtures still runs.
-    func testColdOpenPaintsEmbeddedPreviewBeforeRustDecode() async throws {
-        let fixturePath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("test-fixtures/raws/test_0002.dng")
+    session.setMaskEnabled(id: id, enabled: false)
 
-        guard FileManager.default.fileExists(atPath: fixturePath.path) else {
-            throw XCTSkip("test_0002.dng fixture not present; skipping")
-        }
+    XCTAssertFalse(session.isMaskEnabled(id: id))
+    XCTAssertEqual(
+      session.model.localAdjustments[0].adjustments, original,
+      "the persisted model must keep the user's sliders while the mask is off")
+    XCTAssertTrue(
+      session.renderModel.localAdjustments[0].adjustments.isEmpty,
+      "the renderer must see the layer as a stage no-op")
+    XCTAssertEqual(session.renderModel.localAdjustments[0].range, .skinTone)
+  }
 
-        let asset = AssetRef(url: fixturePath)
-        let session = await EditSession(asset: asset)
+  func testReenablingAMaskRendersItsSlidersAgain() throws {
+    let session = try makeSessionForMaskTests()
+    session.createWholeImageSkinMask()
+    let id = session.model.localAdjustments[0].id
+    let original = PartialAdjustments(exposure: 0.4, saturation: 8, hue: -12)
+    session.model.localAdjustments[0].adjustments = original
 
-        // Kick off the open path. ensureRenderStarted() returns
-        // synchronously after spawning a Task whose body runs cache +
-        // embedded-preview seeds before awaiting the Rust task. The
-        // polling loop below waits for the embedded-preview seed to
-        // publish to renderedPreview.
-        session.ensureRenderStarted()
+    session.setMaskEnabled(id: id, enabled: false)
+    session.setMaskEnabled(id: id, enabled: true)
 
-        // Poll for `renderedPreview` to land. Embedded preview via
-        // ImageIO is ~50 ms on a healthy local machine; Rust on this
-        // fixture is 3-5 s. 1500 ms ceiling is well under any plausible
-        // Rust decode time but generous enough to absorb CI scheduling
-        // jitter when MainActor work is queued.
-        let deadline = Date().addingTimeInterval(1.5)
-        while Date() < deadline {
-            if await session.renderedPreview != nil { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+    XCTAssertTrue(session.isMaskEnabled(id: id))
+    XCTAssertEqual(session.renderModel.localAdjustments[0].adjustments, original)
+    XCTAssertEqual(session.renderModel, session.model)
+  }
 
-        let preview = await session.renderedPreview
-        XCTAssertNotNil(preview, "Embedded preview must publish within 1500 ms; otherwise cold open regressed to wait for Rust")
-    }
+  func testDeletingADisabledMaskForgetsItsDisabledState() throws {
+    let session = try makeSessionForMaskTests()
+    session.createWholeImageSkinMask()
+    let id = session.model.localAdjustments[0].id
+    session.setMaskEnabled(id: id, enabled: false)
 
-    // MARK: - setKeywords (#632)
+    session.deleteMask(id: id)
 
-    /// `setKeywords` updates the culling list and the change persists
-    /// across an `XMPSidecarStore` flush + reload — the same write path
-    /// the rating/flag mutators use.
-    func testSetKeywordsRoutesThroughSidecarStore() async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let rawURL = dir.appendingPathComponent("kw.dng")
-        try Data("placeholder".utf8).write(to: rawURL)
-
-        let session = EditSession(asset: AssetRef(url: rawURL))
-        session.setKeywords(["paris", "travel"])
-        XCTAssertEqual(session.culling.keywords, ["paris", "travel"])
-
-        // `culling.didSet` spawns a detached Task that calls `store.update`.
-        // Yield enough times for that Task to land its scheduled write
-        // before we flush; otherwise `flush()` cancels the pending Task
-        // before it ever calls `update()`, and nothing reaches disk.
-        for _ in 0..<5 { await Task.yield() }
-        await session.flushPendingSidecarWrite()
-
-        let fresh = XMPSidecarStore(rawURL: rawURL)
-        let (_, c) = try await fresh.load()
-        XCTAssertEqual(c.keywords, ["paris", "travel"])
-    }
-
-    /// `flushPendingSidecarWrite()` must force an immediate PUT for a
-    /// `CloudSidecarStore`-backed session, not just `XMPSidecarStore` /
-    /// `PhotoKitSidecarStore` — `CloudSidecarStore.flush()` cancels the
-    /// pending debounce Task and writes now, the same "force it now" shape
-    /// as the other two stores (PR #2556 review fix — this branch was
-    /// previously missing, so backgrounding the app right after a cloud
-    /// edit could drop it before the 750ms debounce fired).
-    func testFlushPendingSidecarWriteForcesCloudSidecarStorePUT() async throws {
-        let server = URL(string: "https://x")!
-        let session = URLSession.stubbedSequence { req in
-            let resp = HTTPURLResponse(url: req.url!, statusCode: 204,
-                                       httpVersion: "HTTP/1.1", headerFields: nil)!
-            return (Data(), resp)
-        }
-        let cloudStore = CloudSidecarStore(
-            server: server, assetID: "a1",
-            httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
-
-        let asset = AssetRef(
-            displayName: "IMG_CLOUD",
-            hintExtension: "dng",
-            stableID: "a1",
-            bytesProvider: { throw NSError(domain: "test", code: -1) }
-        )
-        let editSession = EditSession(asset: asset, remoteSidecarStore: cloudStore)
-
-        var edited = editSession.model
-        edited.exposure = 1.75
-        editSession.model = edited
-
-        for _ in 0..<5 { await Task.yield() }
-        await editSession.flushPendingSidecarWrite()
-
-        let body = URLProtocolStub.capturedBodies["https://x/api/assets/a1/xmp"]
-        let xml = try XCTUnwrap(body.flatMap { String(data: $0, encoding: .utf8) },
-            "flushPendingSidecarWrite() never forced the CloudSidecarStore PUT")
-        XCTAssertTrue(xml.contains("xmpmeta"))
-    }
-
-    /// Duplicate + blank entries are normalized out before the list
-    /// hits `culling.keywords` so the sidecar never carries
-    /// `<rdf:li></rdf:li>` blanks or repeated bag members.
-    func testSetKeywordsDedupesAndDropsBlanks() {
-        let session = EditSession(asset: AssetRef.preview())
-        session.setKeywords(["a", "  ", "b", "a", " b ", ""])
-        XCTAssertEqual(session.culling.keywords, ["a", "b"])
-    }
-
-    /// No-op writes (same list) don't bump anything — verified by
-    /// confirming the equality short-circuit.
-    func testSetKeywordsIsIdempotent() {
-        let session = EditSession(asset: AssetRef.preview())
-        session.setKeywords(["a", "b"])
-        let before = session.culling
-        session.setKeywords(["a", "b"])
-        XCTAssertEqual(session.culling, before)
-    }
-
-    // MARK: - Sidecar error propagation (#1412)
-
-    /// Injecting a failing `SidecarStoreProtocol` via `remoteSidecarStore`
-    /// triggers `sidecarError` on the session. Verifies the Task-based
-    /// subscription wiring added in PR #1434.
-    func testSidecarWriteErrorPropagatesFromStoreThroughSession() async throws {
-        // A sourceless AssetRef (no primary URL) so EditSession doesn't
-        // create an XMPSidecarStore of its own — it will use the injected one.
-        let asset = AssetRef.preview()
-        let store = FailingSidecarStore()
-        let session = EditSession(asset: asset, remoteSidecarStore: store)
-
-        // Yield enough times for EditSession's sidecarErrorTask to start
-        // executing and call store.errors(), registering its continuation.
-        // Without this yield, emitError fires before any subscriber is
-        // registered and the error is lost.
-        for _ in 0..<10 { await Task.yield() }
-
-        // Ask the store to emit a write error. The session's Task subscribes
-        // to `store.errors()` and should publish it to `session.sidecarError`.
-        let sentinel = NSError(domain: "test.sidecar", code: 42,
-                               userInfo: [NSLocalizedDescriptionKey: "disk full"])
-        await store.emitError(sentinel)
-
-        // Poll for the error to hop from the actor onto MainActor.
-        let deadline = Date().addingTimeInterval(1.0)
-        while Date() < deadline {
-            if session.sidecarError != nil { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        let received = try XCTUnwrap(session.sidecarError as NSError?)
-        XCTAssertEqual(received.code, 42)
-        XCTAssertEqual(received.domain, "test.sidecar")
-    }
-
-    // MARK: - Masks (#3275)
-
-    private func makeSessionForMaskTests() throws -> EditSession {
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: tmp) }
-        let assetURL = tmp.appendingPathComponent("test.dng")
-        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
-        return EditSession(asset: AssetRef(url: assetURL))
-    }
-
-    func testCreateWholeImageSkinMaskAppendsAndSelectsALayer() throws {
-        let session = try makeSessionForMaskTests()
-        XCTAssertTrue(session.model.localAdjustments.isEmpty)
-
-        session.createWholeImageSkinMask()
-
-        XCTAssertEqual(session.model.localAdjustments.count, 1)
-        XCTAssertEqual(session.model.localAdjustments[0].mask, .everywhere)
-        XCTAssertEqual(session.model.localAdjustments[0].range, .skinTone)
-        XCTAssertEqual(session.selectedMaskId, session.model.localAdjustments[0].id)
-    }
-
-    func testDeleteMaskRemovesItAndClearsSelectionIfItWasSelected() throws {
-        let session = try makeSessionForMaskTests()
-        session.createWholeImageSkinMask()
-        let id = session.model.localAdjustments[0].id
-
-        session.deleteMask(id: id)
-
-        XCTAssertTrue(session.model.localAdjustments.isEmpty)
-        XCTAssertNil(session.selectedMaskId)
-    }
-
-    func testDeleteMaskLeavesSelectionAloneWhenADifferentLayerWasSelected() throws {
-        let session = try makeSessionForMaskTests()
-        session.createWholeImageSkinMask()
-        let firstId = session.model.localAdjustments[0].id
-        session.createWholeImageSkinMask()
-        let secondId = session.model.localAdjustments[1].id
-        XCTAssertEqual(session.selectedMaskId, secondId)
-
-        session.deleteMask(id: firstId)
-
-        XCTAssertEqual(session.model.localAdjustments.count, 1)
-        XCTAssertEqual(session.selectedMaskId, secondId, "deleting an unselected layer must not disturb the selection")
-    }
-
-    func testDisablingAMaskKeepsTheModelButClearsItForTheRenderer() throws {
-        let session = try makeSessionForMaskTests()
-        session.createWholeImageSkinMask()
-        let id = session.model.localAdjustments[0].id
-        let original = PartialAdjustments(exposure: 0.4, hue: -12)
-        session.model.localAdjustments[0].adjustments = original
-        XCTAssertTrue(session.isMaskEnabled(id: id))
-
-        session.setMaskEnabled(id: id, enabled: false)
-
-        XCTAssertFalse(session.isMaskEnabled(id: id))
-        XCTAssertEqual(
-            session.model.localAdjustments[0].adjustments, original,
-            "the persisted model must keep the user's sliders while the mask is off")
-        XCTAssertTrue(
-            session.renderModel.localAdjustments[0].adjustments.isEmpty,
-            "the renderer must see the layer as a stage no-op")
-        XCTAssertEqual(session.renderModel.localAdjustments[0].range, .skinTone)
-    }
-
-    func testReenablingAMaskRendersItsSlidersAgain() throws {
-        let session = try makeSessionForMaskTests()
-        session.createWholeImageSkinMask()
-        let id = session.model.localAdjustments[0].id
-        let original = PartialAdjustments(exposure: 0.4, saturation: 8, hue: -12)
-        session.model.localAdjustments[0].adjustments = original
-
-        session.setMaskEnabled(id: id, enabled: false)
-        session.setMaskEnabled(id: id, enabled: true)
-
-        XCTAssertTrue(session.isMaskEnabled(id: id))
-        XCTAssertEqual(session.renderModel.localAdjustments[0].adjustments, original)
-        XCTAssertEqual(session.renderModel, session.model)
-    }
-
-    func testDeletingADisabledMaskForgetsItsDisabledState() throws {
-        let session = try makeSessionForMaskTests()
-        session.createWholeImageSkinMask()
-        let id = session.model.localAdjustments[0].id
-        session.setMaskEnabled(id: id, enabled: false)
-
-        session.deleteMask(id: id)
-
-        XCTAssertTrue(session.disabledMaskIds.isEmpty, "a deleted mask's disabled flag must not leak forward")
-        XCTAssertEqual(session.renderModel, session.model)
-    }
+    XCTAssertTrue(
+      session.disabledMaskIds.isEmpty, "a deleted mask's disabled flag must not leak forward")
+    XCTAssertEqual(session.renderModel, session.model)
+  }
 }
 
 // MARK: - FailingSidecarStore (test double for #1412)
@@ -458,22 +478,25 @@ final class EditSessionTests: XCTestCase {
 /// Minimal `SidecarStoreProtocol` conformer that lets the test imperatively
 /// emit errors into the async stream returned by `errors()`.
 private actor FailingSidecarStore: SidecarStoreProtocol {
-    private var continuations: [AsyncStream<Error>.Continuation] = []
-    private var nextID: UInt64 = 0
+  private var continuations: [AsyncStream<Error>.Continuation] = []
+  private var nextID: UInt64 = 0
 
-    func load() async throws -> (AdjustmentModel, CullingState) { (.default, CullingState()) }
-    func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? { nil }
-    func update(model: AdjustmentModel, culling: CullingState) {}
-    func flush() async {}
+  func load() async throws -> (AdjustmentModel, CullingState) { (.default, CullingState()) }
+  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? { nil }
+  func update(model: AdjustmentModel, culling: CullingState) {}
+  func flush() async {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
+    throw CocoaError(.fileWriteUnknown)
+  }
 
-    func errors() -> AsyncStream<Error> {
-        AsyncStream { continuation in
-            continuations.append(continuation)
-        }
+  func errors() -> AsyncStream<Error> {
+    AsyncStream { continuation in
+      continuations.append(continuation)
     }
+  }
 
-    /// Emit an error into every currently open subscriber stream.
-    func emitError(_ error: Error) {
-        for c in continuations { c.yield(error) }
-    }
+  /// Emit an error into every currently open subscriber stream.
+  func emitError(_ error: Error) {
+    for c in continuations { c.yield(error) }
+  }
 }
