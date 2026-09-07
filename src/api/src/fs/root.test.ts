@@ -1,12 +1,16 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 // Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { getRegisteredRoots, registerRoot, safeWriteAllowed, unregisterRoot } from './root.ts';
 
-const originalRoots = process.env.MAPLE_ROOTS;
+let originalRoots: string | undefined;
 const temporaryRoots: string[] = [];
+
+beforeEach(() => {
+  originalRoots = process.env.MAPLE_ROOTS;
+});
 
 afterEach(async () => {
   if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
