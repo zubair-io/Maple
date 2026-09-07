@@ -305,6 +305,27 @@ extension _XMPParserDelegate {
       model.lensCorrectionCa = d(value) ?? model.lensCorrectionCa
     case "crs:LensProfileVignettingScale":
       model.lensCorrectionVignetting = d(value) ?? model.lensCorrectionVignetting
+    // Profile-free lateral CA + defringe (#3411). Same accepted spellings
+    // for the checkbox as `crs:LensProfileEnable` above; an unknown value
+    // keeps the default (`.off`).
+    case "crs:AutoLateralCA":
+      switch value.lowercased() {
+      case "1", "true", "on": model.autoLateralCa = .on
+      case "0", "false", "off": model.autoLateralCa = .off
+      default: break
+      }
+    case "crs:DefringePurpleAmount":
+      model.defringePurpleAmount = d(value) ?? model.defringePurpleAmount
+    case "crs:DefringePurpleHueLo":
+      model.defringePurpleHueLo = d(value) ?? model.defringePurpleHueLo
+    case "crs:DefringePurpleHueHi":
+      model.defringePurpleHueHi = d(value) ?? model.defringePurpleHueHi
+    case "crs:DefringeGreenAmount":
+      model.defringeGreenAmount = d(value) ?? model.defringeGreenAmount
+    case "crs:DefringeGreenHueLo":
+      model.defringeGreenHueLo = d(value) ?? model.defringeGreenHueLo
+    case "crs:DefringeGreenHueHi":
+      model.defringeGreenHueHi = d(value) ?? model.defringeGreenHueHi
     // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
     case "crs:HasCrop", "crs:CropConstrainToWarp": break
     // Consumed at document level in `didStartElement` (#1780).

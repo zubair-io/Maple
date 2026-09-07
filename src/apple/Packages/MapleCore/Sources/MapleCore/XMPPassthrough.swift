@@ -126,6 +126,12 @@ enum XMPKnownFields {
         "crs:ColorGradeGlobalHue", "crs:ColorGradeGlobalSat", "crs:ColorGradeGlobalLum",
         "crs:LensProfileEnable", "crs:LensProfileDistortionScale",
         "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
+        // Profile-free lateral CA + defringe (#3411) — the aberration Maple
+        // measures from the image itself, on the bodies the DNG opcodes above
+        // never reach.
+        "crs:AutoLateralCA",
+        "crs:DefringePurpleAmount", "crs:DefringePurpleHueLo", "crs:DefringePurpleHueHi",
+        "crs:DefringeGreenAmount", "crs:DefringeGreenHueLo", "crs:DefringeGreenHueHi",
         "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom", "crs:CropRight",
         "crs:CropAngle", "crs:CropConstrainToWarp",
         // Manual geometry (#3410). Like every key above, these MUST be listed

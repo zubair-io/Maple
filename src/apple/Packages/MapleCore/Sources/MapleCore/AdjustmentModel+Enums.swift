@@ -127,6 +127,21 @@ public enum LensProfileEnable: String, Codable, Sendable, Hashable, CaseIterable
     case on  = "On"
 }
 
+// MARK: - AutoLateralCa
+
+/// Profile-free lateral chromatic-aberration correction (#3411). Mirrors
+/// `raw_core::types::adjustment::AutoLateralCa`. `on` estimates the radial
+/// R/B-vs-G displacement from the mosaic itself and resamples both planes
+/// before demosaic; `off` (default, matching ACR's unticked "Remove
+/// Chromatic Aberration" checkbox) skips the stage bit-identically. A
+/// decode-product parameter like `lensProfileEnable` above, so it is KEPT
+/// by `stripAppleGPUStages` and the decode-cache key carries it. XMP key
+/// `crs:AutoLateralCA`, written in ACR's "1"/"0" spelling.
+public enum AutoLateralCa: String, Codable, Sendable, Hashable, CaseIterable {
+    case off = "Off"
+    case on  = "On"
+}
+
 // MARK: - AutoExposureMode
 
 /// Auto-exposure mode (raw-core ticket #429; mirrored into Swift by #1387).
