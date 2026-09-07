@@ -23,12 +23,10 @@ extension EditorCanvasView {
   }
 
   /// True when the host should render the canvas leaf (vs the
-  /// placeholder).  The GPU layer mounts immediately; the CPU leaf
-  /// needs a published preview AND `!showingOriginal` — the
-  /// before/after "original" view falls back to the placeholder
-  /// (review #1).
+  /// placeholder). GPU and comparison mount immediately and show their
+  /// own preparation state; the live CPU leaf needs a published preview.
   var canvasIsReady: Bool {
-    useGpuCanvas || (!state.session.showingOriginal && state.session.renderedPreview != nil)
+    state.session.showingOriginal || useGpuCanvas || state.session.renderedPreview != nil
   }
 
   /// True once real pixels for this asset are actually painted — the GPU
@@ -62,7 +60,9 @@ extension EditorCanvasView {
 
   @ViewBuilder
   private var canvasLeafContent: some View {
-    if useGpuCanvas {
+    if state.session.showingOriginal {
+      EditorOriginalPreview()
+    } else if useGpuCanvas {
       ZStack {
         GpuLiveCanvasView(session: state.session)
         if showCpuBackdrop,
@@ -171,7 +171,7 @@ extension EditorCanvasView {
     EditorSeedThumbnail(
       asset: state.session.asset,
       source: filmstripSource,
-      visible: !canvasHasOnscreenFrame
+      visible: !state.session.showingOriginal && !canvasHasOnscreenFrame
     )
   }
 

@@ -6,21 +6,21 @@ There are two distinct tile consumers on Apple, and only one of them is live. `N
 
 ## The zoom model
 
-| Concept           | Apple                                                      | Web                                          |
-| ----------------- | ---------------------------------------------------------- | -------------------------------------------- |
-| Zoom state        | `CanvasZoomModel.pixelScale`                               | `ImageCanvasService.pixelScale` signal       |
-| Fit sentinel      | `0`, resolved by `CanvasMath.effectivePixelScale`          | `0`, resolved by `fitPixelScale()`           |
-| Maximum           | `CanvasZoomModel.maxPixelScale = 8.0`                      | `MAX_PIXEL_SCALE = 8`                        |
-| Snap back to fit  | at or below `fit × 1.02` (`snapToFitTolerance`)            | at or below `fit × 1.02` (`FIT_SNAP_FACTOR`) |
-| Mid-gesture floor | pinch anchors on a start-captured scale                    | `fit × 0.5` rubber band (`FIT_UNDERSHOOT`)   |
-| Keyboard commands | ⌘0 = fit, ⌘1 = 100%                                        | ⌘/Ctrl+0 = fit, ⌘/Ctrl+1 = 100%              |
-| Wheel zoom        | `exp2(deltaY × wheelZoomSensitivity)`, sensitivity `0.015` | Cmd+wheel / ctrl-wheel trackpad pinch        |
+| Concept           | Apple                                                      | Web                                                           |
+| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------- |
+| Zoom state        | `CanvasZoomModel.pixelScale`                               | `ImageCanvasService.pixelScale` signal                        |
+| Fit sentinel      | `0`, resolved by `CanvasMath.effectivePixelScale`          | `0`, resolved by `fitPixelScale()`                            |
+| Maximum           | `CanvasZoomModel.maxPixelScale = 8.0`                      | `MAX_PIXEL_SCALE = 8`                                         |
+| Snap back to fit  | at or below `fit × 1.02` (`snapToFitTolerance`)            | at or below `fit × 1.02` (`FIT_SNAP_FACTOR`)                  |
+| Mid-gesture floor | pinch anchors on a start-captured scale                    | `fit × 0.5` rubber band (`FIT_UNDERSHOOT`)                    |
+| Keyboard commands | F / ⌘0 fit, Z / ⌘1 100%, ⌘= / ⌘- step                      | F / ⌘/Ctrl+0 fit, Z / ⌘/Ctrl+1 100%, ⌘/Ctrl+= / ⌘/Ctrl+- step |
+| Wheel zoom        | `exp2(deltaY × wheelZoomSensitivity)`, sensitivity `0.015` | Cmd+wheel / ctrl-wheel trackpad pinch                         |
 
 Apple's state machine is `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/CanvasZoomModel.swift` — a pure, testable value type holding scale, pan, and the pinch-start captures. It exists because `MagnifyGesture.magnification` is _cumulative_: multiplying it into the live scale every frame compounds exponentially, so each frame re-derives scale and pan from the values captured at pinch start rather than from the previous frame. The same model exposes gesture arbitration as intents rather than leaving each host to re-derive the rules: `dragIntent` is `.editing` at fit and `.pan` when zoomed; `wheelIntent(commandHeld:)` is `.zoom` with Cmd, otherwise `.pan` when zoomed and `.editing` at fit. Double-tap behaviour is per-surface — the editor toggles fit ↔ 100%, because pixel-perfect is what you need to judge noise reduction and sharpening.
 
 Web mirrors all of it in `src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts`, including the anchored-zoom pan formula that keeps the image point under the cursor stationary, and a pan clamp that allows at most `(imageCss − wrapCss) / 2` per axis so the image edge can meet the viewport edge but a gap can never open.
 
-The always-visible zoom percentage badge lives at the viewport's bottom-leading corner on Apple (`src/apple/Maple/Views/CanvasZoomHost.swift`, accessibility identifier `canvas-zoom-indicator`). Clicking it or the editor header's zoom readout returns the image to fit and clears pan. `View > Zoom` exposes Zoom to Fit (⌘0) and Actual Size (⌘1); the same shortcuts work with an iPad hardware keyboard. Commands follow the active scene's ready canvas and are disabled outside it. On iOS `pixelScale` is frozen during a pinch — the zoom is a compositor transform — so the badge reads a live scale value instead; macOS updates `pixelScale` continuously.
+The always-visible zoom percentage badge lives at the viewport's bottom-leading corner on Apple (`src/apple/Maple/Views/CanvasZoomHost.swift`, accessibility identifier `canvas-zoom-indicator`). Clicking it or the editor header's zoom readout returns the image to fit and clears pan. `View > Zoom` exposes Zoom to Fit (⌘0), Actual Size (⌘1), Zoom In (⌘=) and Zoom Out (⌘-); the same shortcuts work with an iPad hardware keyboard. Steps preserve the image point at the viewport centre and use the existing fit/8× bounds. Option+arrows pan 32 points (Shift: 128), clamped by the same pan model as pointer input. Bare F / Z also select fit / 100%; text fields own their keys. Commands follow the active scene's ready canvas and are disabled outside it. On iOS `pixelScale` is frozen during a pinch — the zoom is a compositor transform — so the badge reads a live scale value instead; macOS updates `pixelScale` continuously.
 
 ## What actually renders, by zoom level
 

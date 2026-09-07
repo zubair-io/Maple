@@ -343,8 +343,7 @@ public final class EditorState {
 
   /// Mark the start of a continuous value gesture (drag bar, living
   /// slider, canvas scrub). Inert for every per-tick tool; pairs with
-  /// `endGesture()`. IDEMPOTENT: `LivingSliderRow` has no drag-start hook
-  /// and calls this from its value setter, so a repeat must not discard
+  /// `endGesture()`. Idempotent so repeated wheel ticks cannot discard
   /// the value already parked by the same gesture.
   public func beginGesture() {
     guard !gestureActive else { return }
@@ -478,7 +477,7 @@ public final class EditorState {
   }
 
   /// Reset every tool in `group` to its canonical default as a SINGLE
-  /// undo boundary: commit once up front, then batch-apply defaults
+  /// undo boundary: compute the reset, then batch-apply changed defaults
   /// without arming each tool (arming per tool would spawn extra
   /// crop-session transitions and undo entries).
   ///
@@ -492,21 +491,24 @@ public final class EditorState {
   public func resetGroup(_ group: ToolGroup) {
     let tools = Tool.tools(in: group).filter(\.isWired)
     guard !tools.isEmpty else { return }
-    commit(kind: .reset, description: "Reset \(group.displayName)")
-    defer { session.endEdit() }
+    var reset = session.model
     for tool in tools {
       if ToolValueMapping.displayRange(for: tool) != nil {
         ToolValueMapping.apply(
           ToolValueMapping.defaultDisplayValue(for: tool),
-          to: &session.model,
+          to: &reset,
           tool: tool
         )
       } else {
         for sub in tool.subParams {
-          session.model[keyPath: sub.keyPath] = sub.defaultDisplayValue
+          reset[keyPath: sub.keyPath] = sub.defaultDisplayValue
         }
       }
     }
+    guard reset != session.model else { return }
+    commit(kind: .reset, description: "Reset \(group.displayName)")
+    session.model = reset
+    session.endEdit()
   }
 
   // `resetAll()` — a thin wrapper over `session.resetToOriginal()`, i.e.
