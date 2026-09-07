@@ -34,6 +34,7 @@ describe('semantic adjustment transfer', () => {
   it('applies the source correction to target as-shot and clears source sample provenance', () => {
     const input = request();
     input.source.wbSampleX = 0.3;
+    input.source.wbSampleY = 0.7;
     input.source.wbAlgorithmVersion = 2;
     const patch = buildTransferPatch(input, { temperature: 7000, tint: -5 });
     expect(patch).toMatchObject({
@@ -43,6 +44,7 @@ describe('semantic adjustment transfer', () => {
       whiteBalancePreset: 'Custom',
       wbScaleVersion: 5,
       wbSampleX: 0,
+      wbSampleY: 0,
       wbAlgorithmVersion: 0,
     });
   });
