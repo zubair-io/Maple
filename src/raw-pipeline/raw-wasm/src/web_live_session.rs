@@ -58,6 +58,7 @@ use crate::gpu_render::{
     chain_inputs_for_model, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
     resolve_target_color_space,
 };
+use raw_core::stages::perspective;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -459,6 +460,24 @@ impl WebLiveSession {
     /// Build the chain inputs for `model`, run the resident chain to its f32
     /// buffer, and present to the held canvas surface. The shared tail of `open` +
     /// `render`. Returns the achieved colour-space tag (from the one-time retag).
+    /// The manual-geometry homography for the present shader (#3410).
+    ///
+    /// Note the framing caveat this inherits: `develop_prefix_rgba` hands the
+    /// live chain a SENSOR-framed buffer (the web canvas has never applied EXIF
+    /// orientation — the one-shot readback path orients on the CPU afterwards),
+    /// so on a rotated RAW this warps in sensor framing while the export tail
+    /// warps in display framing. That divergence predates this stage and covers
+    /// the whole canvas, not just geometry; it is tracked separately rather
+    /// than papered over here.
+    fn present_geometry(&self, model: &AdjustmentModel) -> raw_gpu::PresentGeometry {
+        let geometry = perspective::Perspective::from_model(model);
+        if geometry.is_identity() {
+            return raw_gpu::PresentGeometry::IDENTITY;
+        }
+        let inverse = geometry.inverse_matrix(perspective::aspect_ratio(self.width, self.height));
+        raw_gpu::PresentGeometry::from_inverse(inverse.0)
+    }
+
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
         let mut inputs = chain_inputs_for_model(
             &self.raw_img,
@@ -487,7 +506,12 @@ impl WebLiveSession {
         // The present recompiles nothing (the pipeline + surface are session-owned);
         // it only fetches the next surface texture, encodes the dither/quantize pass,
         // and presents — zero readback.
-        self.present.present(&self.ctx, &self.session, final_idx)?;
+        self.present.present(
+            &self.ctx,
+            &self.session,
+            final_idx,
+            self.present_geometry(model),
+        )?;
         Ok(self.present.color_space().to_string())
     }
 }

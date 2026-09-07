@@ -120,6 +120,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         // generation whenever it registers a different layer instance (covers
         // pointer reuse / ABA) or detects a drawableSize divergence, so a stale
         // cached surface can never be presented against a recycled address.
+        let (session_w, session_h) = inner.session.dims();
         let present_result = raw_gpu::present_chain_to_surface(
             &state.ctx,
             &inner.session,
@@ -127,6 +128,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
             layer,
             &mut state.present_surface,
             surface_generation,
+            params::present_geometry_from_params(p, session_w, session_h),
             &token,
         );
 

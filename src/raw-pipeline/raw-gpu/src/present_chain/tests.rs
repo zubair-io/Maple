@@ -167,13 +167,26 @@ fn gpu_present_u8(
     h: u32,
     inputs: &crate::FullChainInputs,
 ) -> Vec<u8> {
+    gpu_present_u8_with_geometry(ctx, input, w, h, inputs, crate::PresentGeometry::IDENTITY)
+}
+
+/// [`gpu_present_u8`] with a manual-geometry homography armed on the present
+/// (#3410).
+fn gpu_present_u8_with_geometry(
+    ctx: &GpuContext,
+    input: &[f32],
+    w: u32,
+    h: u32,
+    inputs: &crate::FullChainInputs,
+    geometry: crate::PresentGeometry,
+) -> Vec<u8> {
     let session = LiveSession::new_with_airlight_readback(ctx, input, w, h).expect("session");
     let cancel = CancelToken::new();
     let final_idx = session
         .render_chain_to_f32(ctx, inputs, &cancel)
         .expect("chain-to-f32 ok")
         .expect("uncancelled chain-to-f32 returns Some");
-    present_chain_to_offscreen(ctx, &session, final_idx).expect("offscreen present ok")
+    present_chain_to_offscreen(ctx, &session, final_idx, geometry).expect("offscreen present ok")
 }
 
 /// Compare two equal-length u8 RGB buffers; return `(max_byte_delta, mismatch_fraction)`.
@@ -351,4 +364,155 @@ fn pre_cancelled_chain_to_f32_returns_none() {
         .render_chain_to_f32(&ctx, &inputs, &cancel)
         .expect("chain-to-f32 ok");
     assert!(out.is_none(), "pre-cancelled chain-to-f32 must return None");
+}
+
+// ---------------------------------------------------------------------------
+// Manual geometry on the present path (#3410)
+// ---------------------------------------------------------------------------
+//
+// The homography itself is raw-core's (`stages::perspective`); what these gate
+// is that the WGSL reproduces it — the same normalized coordinate space, the
+// same composition, the same hybrid out-of-bounds fill. The oracle is
+// raw-core's own f32 warp applied to the CPU chain output, then the shared
+// quantizer, which is the order the shader itself works in (warp the f32 chain
+// values, dither at the DESTINATION pixel).
+
+/// A geometry that keeps every destination pixel inside the source, so the
+/// comparison below is a pure resampling-parity number with no coverage
+/// boundary in it. `scale = 130` shrinks the sampled region to ~0.77 of the
+/// frame before the keystone widens one edge back out; the test asserts the
+/// interior property rather than trusting the arithmetic.
+fn interior_geometry() -> raw_core::stages::perspective::Perspective {
+    raw_core::stages::perspective::Perspective {
+        vertical: 20.0,
+        horizontal: -12.0,
+        rotate: 2.0,
+        scale: 130.0,
+        aspect: 8.0,
+        ..raw_core::stages::perspective::Perspective::IDENTITY
+    }
+}
+
+fn cpu_reference_warped_u8(
+    input: &[f32],
+    w: u32,
+    h: u32,
+    case: &Case,
+    geometry: &raw_core::stages::perspective::Perspective,
+) -> Vec<u8> {
+    let f32_out = cpu_oracle(input, w, h, case);
+    let inverse = geometry.inverse_matrix(raw_core::stages::perspective::aspect_ratio(w, h));
+    let warped = raw_core::stages::perspective::warp_f32_rgba(&f32_out, w, h, &inverse);
+    dither_and_quantize(&warped, w as usize, h as usize)
+}
+
+/// An identity `PresentGeometry` must leave the present byte-for-byte where it
+/// was before #3410 — the shader's new branch is entered only when the flag is
+/// set, so every existing gate above keeps measuring what it measured.
+#[test]
+fn identity_geometry_present_is_byte_identical_to_no_geometry() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (64u32, 64u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let inputs = mild_case().gpu_inputs();
+    let plain = gpu_present_u8(&ctx, &input, w, h, &inputs);
+    let flagged = gpu_present_u8_with_geometry(
+        &ctx,
+        &input,
+        w,
+        h,
+        &inputs,
+        crate::PresentGeometry::IDENTITY,
+    );
+    assert_eq!(plain, flagged, "identity geometry perturbed the present");
+    assert!(!crate::PresentGeometry::IDENTITY.is_active());
+}
+
+/// THE GEOMETRY PRESENT GATE: the WGSL warp matches raw-core's homography
+/// within the same ≤ 1 LSB the un-warped present is held to.
+#[test]
+fn offscreen_present_with_manual_geometry_matches_the_cpu_warp() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (64u32, 64u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let geometry = interior_geometry();
+    let inverse = geometry.inverse_matrix(raw_core::stages::perspective::aspect_ratio(w, h));
+
+    // Guard the premise: no destination pixel may fall outside the source, or
+    // the ≤ 1 LSB budget below would be measuring a coverage-boundary flip
+    // rather than resampling parity.
+    let probe: Vec<f32> = vec![1.0; (w * h * 4) as usize];
+    let probe_warped = raw_core::stages::perspective::warp_f32_rgba(&probe, w, h, &inverse);
+    assert!(
+        probe_warped.chunks_exact(4).all(|px| px[0] > 0.99),
+        "interior_geometry() exposes surround — pick a stronger scale"
+    );
+
+    for (name, case) in [("mild", mild_case()), ("aggressive", aggressive_case())] {
+        let got = gpu_present_u8_with_geometry(
+            &ctx,
+            &input,
+            w,
+            h,
+            &case.gpu_inputs(),
+            crate::PresentGeometry::from_inverse(inverse.0),
+        );
+        let want = cpu_reference_warped_u8(&input, w, h, &case, &geometry);
+        let (max_delta, frac) = byte_diff(&got, &want);
+        eprintln!(
+            "PRESENT GEOMETRY PARITY [#3410, {name}, {w}x{h}]: max byte delta = {max_delta}, \
+             {:.2}% of bytes differ",
+            frac * 100.0
+        );
+        assert!(
+            max_delta <= MAX_BYTE_DELTA,
+            "[{name}] warped present vs CPU homography max byte delta {max_delta} > \
+             {MAX_BYTE_DELTA} — the WGSL warp diverges from raw-core (coordinate space, \
+             composition order, or the half-pixel convention)"
+        );
+        assert!(
+            frac < MAX_MISMATCH_FRACTION,
+            "[{name}] {:.2}% of bytes differ — too many for ≤1 LSB boundary noise",
+            frac * 100.0
+        );
+    }
+}
+
+/// Coverage: content pushed off-frame leaves the surround black on the GPU too,
+/// and does NOT clamp-to-edge (the smear a plain bilinear sampler would give).
+/// Checked away from the boundary itself, which is where a one-ULP disagreement
+/// between the two float evaluations could legitimately land.
+#[test]
+fn manual_geometry_surround_is_black_on_the_gpu_present() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (64u32, 64u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    // +50 on a 64-wide frame is 0.5 half-extents = 16 px right, so destination
+    // columns 0..16 have no source and columns well past 16 do.
+    let geometry = raw_core::stages::perspective::Perspective {
+        x: 50.0,
+        ..raw_core::stages::perspective::Perspective::IDENTITY
+    };
+    let inverse = geometry.inverse_matrix(raw_core::stages::perspective::aspect_ratio(w, h));
+    let got = gpu_present_u8_with_geometry(
+        &ctx,
+        &input,
+        w,
+        h,
+        &mild_case().gpu_inputs(),
+        crate::PresentGeometry::from_inverse(inverse.0),
+    );
+    let row = 32usize;
+    let byte_at = |x: usize, c: usize| got[(row * w as usize + x) * 3 + c] as u32;
+    for x in 0..14usize {
+        // The terminal dither adds up to ±1 LSB even to an exact zero, so the
+        // surround reads as "no more than a dither tick", not a hard 0.
+        let sum = byte_at(x, 0) + byte_at(x, 1) + byte_at(x, 2);
+        assert!(sum <= 3, "column {x} should be surround, read sum {sum}");
+    }
+    let interior_sum = byte_at(40, 0) + byte_at(40, 1) + byte_at(40, 2);
+    assert!(
+        interior_sum > 10,
+        "column 40 should carry image, read sum {interior_sum}"
+    );
 }

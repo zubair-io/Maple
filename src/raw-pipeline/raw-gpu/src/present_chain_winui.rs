@@ -157,6 +157,7 @@ impl PersistentSwapChainPanelSurface {
         ctx: &GpuContext,
         session: &LiveSession,
         final_idx: usize,
+        geometry: crate::PresentGeometry,
     ) -> Result<(), String> {
         let chain_buf = session.ping_pong_buffer(final_idx);
         let (sw, sh) = session.dims();
@@ -171,6 +172,7 @@ impl PersistentSwapChainPanelSurface {
             chain_buf,
             (self.width, self.height),
             src_dims,
+            geometry,
         );
         let frame = self
             .surface
@@ -210,8 +212,11 @@ pub unsafe fn present_chain_to_swapchain_panel(
     panel: *mut c_void,
     cache: &mut Option<PersistentSwapChainPanelSurface>,
     generation: u64,
+    geometry: crate::PresentGeometry,
 ) -> Result<(), String> {
-    present_chain_to_swapchain_panel_scaled(ctx, session, final_idx, panel, cache, generation, 0, 0)
+    present_chain_to_swapchain_panel_scaled(
+        ctx, session, final_idx, panel, cache, generation, 0, 0, geometry,
+    )
 }
 
 /// [`present_chain_to_swapchain_panel`] with an explicit SURFACE size
@@ -233,6 +238,7 @@ pub unsafe fn present_chain_to_swapchain_panel_scaled(
     generation: u64,
     target_w: u32,
     target_h: u32,
+    geometry: crate::PresentGeometry,
 ) -> Result<(), String> {
     if panel.is_null() {
         return Err("present_chain_winui: panel pointer is null".to_string());
@@ -297,7 +303,7 @@ pub unsafe fn present_chain_to_swapchain_panel_scaled(
     };
 
     let surface = cache.as_ref().expect("populated above");
-    if let Err(e) = surface.draw_and_present(ctx, session, final_idx) {
+    if let Err(e) = surface.draw_and_present(ctx, session, final_idx, geometry) {
         // Poisoned-surface guard: a lost/outdated swapchain (display change,
         // device removal) must be recreated next call, not retried forever.
         *cache = None;
@@ -308,7 +314,7 @@ pub unsafe fn present_chain_to_swapchain_panel_scaled(
         // flip-model composition swapchain has the same mid-handoff hazard as
         // the Core Animation drawable (#1742) — draw a second complete frame.
         let surface = cache.as_ref().expect("populated above");
-        if let Err(e) = surface.draw_and_present(ctx, session, final_idx) {
+        if let Err(e) = surface.draw_and_present(ctx, session, final_idx, geometry) {
             *cache = None;
             return Err(e);
         }

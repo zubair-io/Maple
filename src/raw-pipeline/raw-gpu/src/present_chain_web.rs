@@ -216,6 +216,7 @@ impl WebPresentSurface {
         ctx: &GpuContext,
         session: &LiveSession,
         final_idx: usize,
+        geometry: crate::PresentGeometry,
     ) -> Result<(), String> {
         let dims = session.dims();
         if dims != (self.width, self.height) {
@@ -229,11 +230,13 @@ impl WebPresentSurface {
         // (#1930) — a same-identity re-present (the steady state while
         // dragging one slider) is zero-alloc; only an identity change (a
         // pass-count parity flip, or a re-open's fresh buffers) rebuilds.
-        let (_uniform, bind_group) = self.present_cache.get_or_build(
+        let (_uniform, bind_group) = self.present_cache.get_or_build_scaled(
             ctx,
             &self.bind_group_layout,
             chain_buf,
             (self.width, self.height),
+            (0, 0),
+            geometry,
         );
         let frame = self
             .surface

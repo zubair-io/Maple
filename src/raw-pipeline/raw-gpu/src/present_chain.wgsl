@@ -48,6 +48,16 @@ struct Params {
     // are bit-identical to before.
     src_width: u32,
     src_height: u32,
+    // Manual geometry (#3410): the DESTINATION → SOURCE homography, one row
+    // per `vec4`, in the centred half-extent-normalized `[-1, 1]` space
+    // `raw_core::stages::perspective::matrix` documents. `geom_row0.w` is the
+    // active flag — 0 means "no manual geometry", and the FS then takes the
+    // untouched pre-#3410 load paths byte-for-byte. `.w` on the other two rows
+    // is unused padding (a `vec4` is the only 16-byte-aligned row shape a
+    // uniform block accepts without an implicit-stride surprise).
+    geom_row0: vec4<f32>,
+    geom_row1: vec4<f32>,
+    geom_row2: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -344,6 +354,54 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return out;
 }
 
+// Bilinear sample of the chain buffer at fractional source-pixel coordinates,
+// reproducing `raw_core::stages::crop::bilinear::sample_rgba` EXACTLY — which
+// is a hybrid, not plain clamp-to-edge: a footprint that has left the source
+// entirely returns opaque black, while one still straddling the border clamps
+// its individual taps. That distinction is what the CPU/GPU parity gate on the
+// warped present measures, and getting it wrong shows up as a one-pixel bright
+// fringe all the way around a keystoned frame.
+fn sample_chain_warped(sx: f32, sy: f32, sw: u32, sh: u32) -> vec4<f32> {
+    let wi = i32(sw);
+    let hi = i32(sh);
+    let x0f = floor(sx);
+    let y0f = floor(sy);
+    let x0 = i32(x0f);
+    let y0 = i32(y0f);
+    if (x0 + 1 < 0 || y0 + 1 < 0 || x0 >= wi || y0 >= hi) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    let fx = sx - x0f;
+    let fy = sy - y0f;
+    let cx0 = u32(clamp(x0, 0, wi - 1));
+    let cy0 = u32(clamp(y0, 0, hi - 1));
+    let cx1 = u32(clamp(x0 + 1, 0, wi - 1));
+    let cy1 = u32(clamp(y0 + 1, 0, hi - 1));
+    let c00 = chain_buf[cy0 * sw + cx0];
+    let c10 = chain_buf[cy0 * sw + cx1];
+    let c01 = chain_buf[cy1 * sw + cx0];
+    let c11 = chain_buf[cy1 * sw + cx1];
+    return mix(mix(c00, c10, fx), mix(c01, c11, fx), fy);
+}
+
+// The manual-geometry warp (#3410): destination pixel → the chain-buffer colour
+// that belongs there. Mirrors `raw_core::stages::perspective::warp`'s
+// `source_for` + sampler, including the `w`-near-zero arm that renders a
+// destination beyond the projective horizon as surround rather than dividing.
+fn warped_chain_sample(px: u32, py: u32, sw: u32, sh: u32) -> vec4<f32> {
+    let nx = (f32(px) + 0.5) / (f32(params.width) * 0.5) - 1.0;
+    let ny = (f32(py) + 0.5) / (f32(params.height) * 0.5) - 1.0;
+    let hw = params.geom_row2.x * nx + params.geom_row2.y * ny + params.geom_row2.z;
+    if (abs(hw) < 1.0e-6) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    let sxn = (params.geom_row0.x * nx + params.geom_row0.y * ny + params.geom_row0.z) / hw;
+    let syn = (params.geom_row1.x * nx + params.geom_row1.y * ny + params.geom_row1.z) / hw;
+    let sx = (sxn + 1.0) * (f32(sw) * 0.5) - 0.5;
+    let sy = (syn + 1.0) * (f32(sh) * 0.5) - 0.5;
+    return sample_chain_warped(sx, sy, sw, sh);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Framebuffer-space pixel (top-left origin, y down) → the row-major f32 index.
@@ -357,7 +415,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     let off = blue_noise_offset_lsb(px, py);
     var c: vec4<f32>;
-    if (params.src_width == 0u
+    let src_w = select(params.src_width, params.width, params.src_width == 0u);
+    let src_h = select(params.src_height, params.height, params.src_width == 0u);
+    if (params.geom_row0.w != 0.0) {
+        // Manual geometry armed: ONE resample from the chain grid, whatever
+        // the surface/chain size relationship is — the normalized space the
+        // homography lives in already absorbs a half-res chain buffer, so this
+        // arm subsumes the upscale below rather than stacking on top of it.
+        c = warped_chain_sample(px, py, src_w, src_h);
+    } else if (params.src_width == 0u
         || (params.src_width == params.width && params.src_height == params.height)) {
         // 1:1 — the original path, untouched (parity-critical for Apple/web).
         let i = py * params.width + px;

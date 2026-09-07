@@ -143,7 +143,14 @@ fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
     let cache = PresentDispatchCache::new();
     let chain_buf = make_chain_buf(&ctx, "chain");
     let (_, original) = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
-    let (_, scaled) = cache.get_or_build_scaled(&ctx, &bgl, &chain_buf, (8, 8), (4, 4));
+    let (_, scaled) = cache.get_or_build_scaled(
+        &ctx,
+        &bgl,
+        &chain_buf,
+        (8, 8),
+        (4, 4),
+        crate::PresentGeometry::IDENTITY,
+    );
     assert!(!Arc::ptr_eq(&original, &scaled));
     let (_, resized) = cache.get_or_build(&ctx, &bgl, &chain_buf, (4, 4));
     assert!(!Arc::ptr_eq(&original, &resized));
