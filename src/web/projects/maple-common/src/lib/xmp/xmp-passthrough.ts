@@ -1,3 +1,5 @@
+import { selfContainedXml } from './xmp-foreign-xml';
+import { collectMaskGroups, sharesMaskGroupContext } from './xmp-mask-group-passthrough';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket } from './xmp.types';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
@@ -87,50 +89,12 @@ const visibleNamespaceUris = (description: Element): Map<string, string> => {
   return namespaces;
 };
 
-/** Serialize a foreign subtree with every namespace it inherited made explicit. */
-const usedPrefix = (attribute: Attr): string | null =>
-  attribute.prefix && attribute.prefix !== 'xmlns' && attribute.namespaceURI
-    ? attribute.prefix
-    : null;
-
-const elementPrefixes = (element: Element): string[] =>
-  [
-    element.namespaceURI ? (element.prefix ?? '') : null,
-    ...Array.from(element.attributes, usedPrefix),
-  ].filter((prefix): prefix is string => prefix !== null);
-
-const inScopeNamespaces = (source: Element): ReadonlyMap<string, string> => {
-  const prefixes = new Set([source, ...source.querySelectorAll('*')].flatMap(elementPrefixes));
-  return new Map(
-    Array.from(prefixes).flatMap((prefix) => {
-      const uri = source.lookupNamespaceURI(prefix || null);
-      return uri ? [[prefix, uri]] : [];
-    }),
-  );
-};
-
-const addExplicitNamespaces = (element: Element, namespaces: ReadonlyMap<string, string>): void => {
-  for (const [prefix, uri] of namespaces) {
-    if (prefix === 'xml') continue;
-    const name = prefix ? `xmlns:${prefix}` : 'xmlns';
-    if (!element.hasAttribute(name)) {
-      element.setAttributeNS('http://www.w3.org/2000/xmlns/', name, uri);
-    }
-  }
-};
-
-const selfContainedXml = (source: Element): string => {
-  const clone = source.cloneNode(true) as Element;
-  addExplicitNamespaces(clone, inScopeNamespaces(source));
-  return clone.outerHTML;
-};
-
 const isModeledAttribute = (attribute: Attr): boolean => {
   const name = managedXmpName(attribute);
   return name !== null && name !== 'rdf:about' && KNOWN_ATTRIBUTES.has(name);
 };
 
-const withoutModeledFields = (source: Element): Element => {
+const withoutModeledFields = (source: Element, primary: Element): Element => {
   const clone = source.cloneNode(true) as Element;
   for (const attribute of Array.from(source.attributes)) {
     if (!isModeledAttribute(attribute)) continue;
@@ -140,16 +104,18 @@ const withoutModeledFields = (source: Element): Element => {
   }
   const clonedChildren = Array.from(clone.children);
   Array.from(source.children).forEach((child, index) => {
+    if (localAdjustmentContainerKind(child) === 'group' && !sharesMaskGroupContext(source, primary))
+      return;
     if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
       clonedChildren[index]?.remove();
   });
   return clone;
 };
 
-const preservedRdfNode = (element: Element): string => {
+const preservedRdfNode = (element: Element, primary: Element): string => {
   const isDescription =
     element.namespaceURI === RDF_NAMESPACE && element.localName === 'Description';
-  return selfContainedXml(isDescription ? withoutModeledFields(element) : element);
+  return selfContainedXml(isDescription ? withoutModeledFields(element, primary) : element);
 };
 
 const preservedStructure = (
@@ -161,7 +127,7 @@ const preservedStructure = (
   if (!rdf) return {};
   const unknownRdfNodes = Array.from(rdf.children)
     .filter((child) => child !== description)
-    .map(preservedRdfNode);
+    .map((element) => preservedRdfNode(element, description));
   const xmpmeta = rdf.parentElement;
   const unknownXmpmetaNodes = xmpmeta
     ? Array.from(xmpmeta.children)
@@ -211,6 +177,7 @@ export function collectXmpPassthrough(
     // the model — in document order, linear and radial alike — and never
     // reach the passthrough bucket, or the writer would emit them twice.
     const containerKind = localAdjustmentContainerKind(child);
+    if (containerKind === 'group') continue;
     if (containerKind) {
       model.localAdjustments = [
         ...(model.localAdjustments ?? []),
@@ -221,6 +188,8 @@ export function collectXmpPassthrough(
     if (isManagedChild(child)) continue;
     unknownNodes.push(selfContainedXml(child));
   }
+
+  const maskGroups = collectMaskGroups(description, model);
 
   for (const attr of unknownAttributes) {
     const colon = attr.name.indexOf(':');
@@ -237,6 +206,7 @@ export function collectXmpPassthrough(
     unknownNamespaces,
     unknownAttributes,
     unknownNodes,
+    ...maskGroups,
     ...preservedStructure(description, document),
   };
 }
