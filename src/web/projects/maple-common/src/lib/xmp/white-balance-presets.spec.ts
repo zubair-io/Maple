@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   WHITE_BALANCE_PRESETS,
   WHITE_BALANCE_PRESET_VALUES,
@@ -11,6 +11,10 @@ function sidecar(attributes: string): string {
 }
 
 describe('foreign named WB sidecars', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+  });
+
   for (const preset of WHITE_BALANCE_PRESETS.filter((name) => WHITE_BALANCE_PRESET_VALUES[name])) {
     it(`${preset} resolves on read and explicit numbers take precedence in either order`, () => {
       const parser = TestBed.inject(XmpParserService);
