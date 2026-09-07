@@ -14,6 +14,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { type WithId } from 'mongodb';
 import { jobsCollection } from '../db/client.ts';
 import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
+import { ensureBatchActiveLibraryIndex } from './batch-active-index.ts';
 
 export interface CreateJobInput {
   kind: JobKind;
@@ -67,6 +68,7 @@ export async function createJob(
   now: () => Date = () => new Date(),
 ): Promise<JobWithId> {
   const c = await jobsCollection();
+  if (input.kind === 'batch_adjustment_sync') await ensureBatchActiveLibraryIndex(c);
   const scopes =
     input.kind === 'batch_adjustment_sync' ? await batchScopes(input.payload) : undefined;
   const nowIso = now().toISOString();

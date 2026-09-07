@@ -104,10 +104,25 @@ extension EditSession {
     // `model` agree (#3366). Awaited outside the hydration window on
     // purpose: this can run Vision on a cache miss.
     let base = await rehydratedMaskRasters(in: seeded)
-    guard !Task.isCancelled, !hasLoadedSidecar else { return }
+    let seededRasterIds = Set(
+      seeded.localAdjustments.compactMap { layer -> UInt32? in
+        guard case .bitmap(_, let rasterId) = layer.mask, rasterId != 0 else { return nil }
+        return rasterId
+      })
+    let registeredRasterIds = Set(
+      base.localAdjustments.compactMap { layer -> UInt32? in
+        guard case .bitmap(_, let rasterId) = layer.mask, rasterId != 0 else { return nil }
+        return rasterId
+      }
+    ).subtracting(seededRasterIds)
+    guard !Task.isCancelled, !hasLoadedSidecar else {
+      registeredRasterIds.forEach(MaskRasterRegistry.release)
+      return
+    }
     guard model == startingModel, culling == startingCulling,
       transactions.nextID == startingTransaction
     else {
+      registeredRasterIds.forEach(MaskRasterRegistry.release)
       hasLoadedSidecar = true
       return
     }
