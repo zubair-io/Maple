@@ -1,24 +1,11 @@
-// ColorAccessoryRow.swift — Color-group accessory for the S5 editor (#875).
-//
-// Non-slider Color controls that lost their home when the Develop tab
-// was removed (#875): the Profile picker (Auto / Neutral) and the As-Shot
-// white-balance controls. These do not fit the "drag a value" tool-pill model, so
-// they surface here as a thin contextual strip between the tool row and the
-// group tabs — shown only while the Color group is armed.
-//
-// Profile binding matches the old DevelopTab: Profile binds straight to
-// `session.model.profile` (no commit wrapper — the picker had none), and
-// WhiteBalanceControls supplies As Shot, the eyedropper, and provenance.
-//
-// Lives in its own file so EditorView stays a thin composer (its own
-// header note) and to mirror ProfilePicker's single-purpose file.
+// Shared Color-section controls: profile, Black & White, white-balance
+// sampling and provenance. The same controls remain reachable at every width.
 
 import MapleCore
 import SwiftUI
 
 struct ColorAccessoryRow: View {
   @Bindable var state: EditorState
-  var compactStyle = false
 
   private var session: EditSession { state.session }
 
@@ -47,35 +34,23 @@ struct ColorAccessoryRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 12) {
-        // Black & white mix (#276) — shown only while the B&W Mix tool
-        // is armed; the eight gray-mixer sliders are meaningless (and
-        // pipeline-forced inert) until this is on.
-        if state.armedTool == .bwMix {
-          Toggle(isOn: blackWhiteBinding) {
-            Text("Black & White")
-              .font(.system(size: 11, weight: .regular))
-              .foregroundStyle(MapleTokens.textMuted)
-          }
-          .toggleStyle(.switch)
-          .fixedSize()
-          .accessibilityIdentifier("editor-bw-toggle")
-          .accessibilityLabel("Convert to black and white")
-        }
-
-        HStack(spacing: 6) {
-          Text("Profile")
-            .font(.system(size: 11, weight: .regular))
-            .foregroundStyle(MapleTokens.textMuted)
-          ProfilePicker(selection: profileBinding)
-            .frame(maxWidth: 160)
-        }
-
+      HStack(spacing: 6) {
+        Text("Profile")
+          .font(.caption)
+          .foregroundStyle(MapleTokens.textMuted)
+        ProfilePicker(selection: profileBinding)
+          .frame(maxWidth: 160)
       }
+      Toggle(isOn: blackWhiteBinding) { Text("Black & White").font(.caption) }
+        .toggleStyle(.button)
+        .frame(minHeight: 44)
+        .accessibilityValue(session.model.blackWhite == .on ? "On" : "Off")
+        .accessibilityIdentifier("editor-bw-toggle")
+        .accessibilityLabel("Convert to black and white")
       WhiteBalanceControls(state: state)
     }
-    .padding(.horizontal, compactStyle ? 24 : 12)
-    .padding(.vertical, compactStyle ? 6 : 8)
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
     .frame(maxWidth: .infinity)
     .background(MapleTokens.bg)
     .accessibilityElement(children: .contain)

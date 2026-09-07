@@ -34,13 +34,8 @@
 // `src/apple/MapleUITests/Goldens/` and commit. Re-record later by deleting
 // the PNG and repeating.
 //
-// The panel is reached by arming the Curve tool through the dock button
-// (`editor-dock-tool-toneCurve`), which is how a user reaches it in the
-// default `.compact` control variant: Tone Curve has no primary field, so
-// `LivingSliderGrid` filters it out of the Light group's slider stack and the
-// dock is its route in. On macOS-regular that variant mounts
-// `FlyoutSliderPanel`, which swaps in `ToneCurveSection` while the tool is
-// armed.
+// The dock's Tone Curve button reveals the existing ToneCurveSection in
+// the shared StackedAdjustmentsPanel at every MapleLayout (#3252).
 //
 // The golden is the PLOT, not the whole section. Two reasons: it is the part
 // this ticket actually draws (the sliders are the existing `LivingSlider`,
@@ -58,32 +53,32 @@ import XCTest
 // XCUIApplication, so the target still compiles for the iOS Simulator (which
 // `PanoOrtSelftestUITests` needs).
 #if os(macOS)
-final class ToneCurvePanelUITests: XCTestCase {
+  final class ToneCurvePanelUITests: XCTestCase {
     override func setUpWithError() throws {
-        continueAfterFailure = false
+      continueAfterFailure = false
     }
 
     /// Arm the Curve tool and return the running app, or skip when the
     /// fixture is absent (mirrors every other harness in this target).
     private func launchWithCurveArmed() throws -> XCUIApplication {
-        let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
-        driver.waitForCanvasReady(timeout: 30)
-        // The decode that needed the staged fixture file has already
-        // happened by this point — safe to clean up now rather than leak a
-        // maple-uitest-* dir per run (Copilot review on #3193). This
-        // helper returns only `app`, not `driver`, so there is no later
-        // point a caller could `defer` this from.
-        driver.cleanupStagedFixture()
+      let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
+      driver.waitForCanvasReady(timeout: 30)
+      // The decode that needed the staged fixture file has already
+      // happened by this point — safe to clean up now rather than leak a
+      // maple-uitest-* dir per run (Copilot review on #3193). This
+      // helper returns only `app`, not `driver`, so there is no later
+      // point a caller could `defer` this from.
+      driver.cleanupStagedFixture()
 
-        let app = XCUIApplication()
-        let curveButton = app.buttons["editor-dock-tool-toneCurve"]
-        XCTAssertTrue(
-            curveButton.waitForExistence(timeout: 10),
-            "Curve dock button missing — the tone-curve tool lost its only route "
-                + "into the default control variant."
-        )
-        curveButton.click()
-        return app
+      let app = XCUIApplication()
+      let curveButton = app.buttons["editor-dock-tool-toneCurve"]
+      XCTAssertTrue(
+        curveButton.waitForExistence(timeout: 10),
+        "Curve dock button missing — the tone-curve tool lost its only route "
+          + "into the shared adjustments panel."
+      )
+      curveButton.click()
+      return app
     }
 
     /// Name of the baseline this gate diffs against. Not committed yet — see
@@ -91,34 +86,34 @@ final class ToneCurvePanelUITests: XCTestCase {
     private static let goldenName = "tone-curve-plot-default"
 
     func testToneCurvePlotMatchesGolden() throws {
-        // Skipped BEFORE launching: with no baseline on disk there is nothing
-        // to diff against, and letting `compareOrRecord` take its first-run
-        // path here would both fail the run and write whatever happened to be
-        // on screen. See the file header.
-        try XCTSkipIf(
-            GoldenStore.loadGolden(name: Self.goldenName) == nil,
-            "no committed golden for \(Self.goldenName) — see this file's header "
-                + "for why it is absent and how to record one"
-        )
+      // Skipped BEFORE launching: with no baseline on disk there is nothing
+      // to diff against, and letting `compareOrRecord` take its first-run
+      // path here would both fail the run and write whatever happened to be
+      // on screen. See the file header.
+      try XCTSkipIf(
+        GoldenStore.loadGolden(name: Self.goldenName) == nil,
+        "no committed golden for \(Self.goldenName) — see this file's header "
+          + "for why it is absent and how to record one"
+      )
 
-        let app = try launchWithCurveArmed()
+      let app = try launchWithCurveArmed()
 
-        let plot = app.groups["editor-tone-curve-plot"]
-        XCTAssertTrue(
-            plot.waitForExistence(timeout: 10),
-            "Tone Curve plot did not appear after arming the Curve tool."
-        )
+      let plot = app.groups["editor-tone-curve-plot"]
+      XCTAssertTrue(
+        plot.waitForExistence(timeout: 10),
+        "Tone Curve plot did not appear after arming the Curve tool."
+      )
 
-        // The plot's histogram backdrop loads behind a 350ms debounce; give it
-        // room to settle so the golden is of the settled widget, not a
-        // half-painted one.
-        Thread.sleep(forTimeInterval: 2.0)
+      // The plot's histogram backdrop loads behind a 350ms debounce; give it
+      // room to settle so the golden is of the settled widget, not a
+      // half-painted one.
+      Thread.sleep(forTimeInterval: 2.0)
 
-        try GoldenStore.compareOrRecord(
-            name: Self.goldenName,
-            candidate: plot.screenshot().pngRepresentation,
-            budget: GoldenBudget(mean: 5, p95: 10, max: 40, bias: 0.05)
-        )
+      try GoldenStore.compareOrRecord(
+        name: Self.goldenName,
+        candidate: plot.screenshot().pngRepresentation,
+        budget: GoldenBudget(mean: 5, p95: 10, max: 40, bias: 0.05)
+      )
     }
 
     /// Cheap structural companion to the pixel gate: the controls the widget
@@ -126,59 +121,59 @@ final class ToneCurvePanelUITests: XCTestCase {
     /// regression; this catches an accessibility one, which a screenshot
     /// cannot see at all.
     func testToneCurvePanelExposesItsControls() throws {
-        let app = try launchWithCurveArmed()
-        XCTAssertTrue(app.groups["editor-tone-curve-plot"].waitForExistence(timeout: 10))
+      let app = try launchWithCurveArmed()
+      XCTAssertTrue(app.groups["editor-tone-curve-plot"].waitForExistence(timeout: 10))
 
-        for channel in ["luma", "r", "g", "b"] {
-            XCTAssertTrue(
-                app.buttons["editor-tone-curve-channel-\(channel)"].exists,
-                "channel chip \(channel) missing"
-            )
-        }
-        for region in ["highlights", "lights", "darks", "shadows"] {
-            XCTAssertTrue(
-                app.otherElements["editor-tone-curve-\(region)"].exists,
-                "region slider \(region) missing"
-            )
-        }
-        // An unedited curve materialises its two corner anchors, and both must
-        // be reachable as labelled elements rather than pixels in a canvas.
-        XCTAssertTrue(app.otherElements["editor-tone-curve-knot-0"].exists)
-        XCTAssertTrue(app.otherElements["editor-tone-curve-knot-1"].exists)
-        // Reset is disabled on an identity curve — it has nothing to undo.
-        XCTAssertFalse(app.buttons["editor-tone-curve-reset"].isEnabled)
+      for channel in ["luma", "r", "g", "b"] {
+        XCTAssertTrue(
+          app.buttons["editor-tone-curve-channel-\(channel)"].exists,
+          "channel chip \(channel) missing"
+        )
+      }
+      for region in ["highlights", "lights", "darks", "shadows"] {
+        XCTAssertTrue(
+          app.otherElements["editor-tone-curve-\(region)"].exists,
+          "region slider \(region) missing"
+        )
+      }
+      // An unedited curve materialises its two corner anchors, and both must
+      // be reachable as labelled elements rather than pixels in a canvas.
+      XCTAssertTrue(app.otherElements["editor-tone-curve-knot-0"].exists)
+      XCTAssertTrue(app.otherElements["editor-tone-curve-knot-1"].exists)
+      // Reset is disabled on an identity curve — it has nothing to undo.
+      XCTAssertFalse(app.buttons["editor-tone-curve-reset"].isEnabled)
     }
 
     /// The Display family (#2232) exposes its own four channel chips and
     /// hides the parametric region sliders, which have no display-referred
     /// equivalent on the model.
     func testDisplayFamilySwapsChannelsAndHidesParametricSliders() throws {
-        let app = try launchWithCurveArmed()
-        XCTAssertTrue(app.groups["editor-tone-curve-plot"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["editor-tone-curve-family-sceneLinear"].exists)
-        XCTAssertTrue(app.buttons["editor-tone-curve-family-display"].exists)
+      let app = try launchWithCurveArmed()
+      XCTAssertTrue(app.groups["editor-tone-curve-plot"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.buttons["editor-tone-curve-family-sceneLinear"].exists)
+      XCTAssertTrue(app.buttons["editor-tone-curve-family-display"].exists)
 
-        app.buttons["editor-tone-curve-family-display"].tap()
+      app.buttons["editor-tone-curve-family-display"].tap()
 
-        // Same four channel ids, now targeting the display-referred fields
-        // — "Master" replaces "Luma" as the label, matching PV2012's own
-        // point-curve editor terminology.
-        for channel in ["luma", "r", "g", "b"] {
-            XCTAssertTrue(
-                app.buttons["editor-tone-curve-channel-\(channel)"].exists,
-                "display-family channel chip \(channel) missing"
-            )
-        }
-        for region in ["highlights", "lights", "darks", "shadows"] {
-            XCTAssertFalse(
-                app.otherElements["editor-tone-curve-\(region)"].exists,
-                "region slider \(region) should be hidden for the Display family"
-            )
-        }
+      // Same four channel ids, now targeting the display-referred fields
+      // — "Master" replaces "Luma" as the label, matching PV2012's own
+      // point-curve editor terminology.
+      for channel in ["luma", "r", "g", "b"] {
+        XCTAssertTrue(
+          app.buttons["editor-tone-curve-channel-\(channel)"].exists,
+          "display-family channel chip \(channel) missing"
+        )
+      }
+      for region in ["highlights", "lights", "darks", "shadows"] {
+        XCTAssertFalse(
+          app.otherElements["editor-tone-curve-\(region)"].exists,
+          "region slider \(region) should be hidden for the Display family"
+        )
+      }
 
-        // Switching back to Scene restores the parametric sliders.
-        app.buttons["editor-tone-curve-family-sceneLinear"].tap()
-        XCTAssertTrue(app.otherElements["editor-tone-curve-highlights"].waitForExistence(timeout: 5))
+      // Switching back to Scene restores the parametric sliders.
+      app.buttons["editor-tone-curve-family-sceneLinear"].tap()
+      XCTAssertTrue(app.otherElements["editor-tone-curve-highlights"].waitForExistence(timeout: 5))
     }
-}
-#endif // os(macOS)
+  }
+#endif  // os(macOS)
