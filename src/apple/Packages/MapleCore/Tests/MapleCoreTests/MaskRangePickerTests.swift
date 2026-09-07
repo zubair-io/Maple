@@ -136,12 +136,13 @@ final class MaskRangePickerTests: XCTestCase {
       mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments())
     let s = session(with: layer)
     let before = s.model
-    // One drag: begin, several samples, release.
-    s.beginEdit()
+    // One drag, through the same boundary the slider's `onEditingChanged`
+    // calls: press, several samples, release.
+    s.setMaskDragActive(true)
     s.setMaskRangeField(id: layer.id, .hueWidth, 30)
     s.setMaskRangeField(id: layer.id, .hueWidth, 35)
     s.setMaskRangeField(id: layer.id, .feather, 0.5)
-    s.endEdit()
+    s.setMaskDragActive(false)
     XCTAssertEqual(s.undoHistory.count, 1)
     XCTAssertEqual(s.maskRange(id: layer.id)?.value(of: .hueWidth), 35)
     XCTAssertEqual(s.maskRange(id: layer.id)?.value(of: .feather), 0.5)
@@ -150,12 +151,64 @@ final class MaskRangePickerTests: XCTestCase {
     XCTAssertEqual(s.model, before)
   }
 
+  /// #3453 review: releasing the slider must CLOSE the transaction. Left
+  /// open, the drag records nothing until some later boundary closes it —
+  /// and swallows whatever the user did next into the same undo entry.
+  func testDragEndClosesTheTransactionSoLaterActionsAreSeparateEntries() {
+    let layer = LocalAdjustment(
+      mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments())
+    let s = session(with: layer)
+    s.setMaskDragActive(true)
+    s.setMaskRangeField(id: layer.id, .hueWidth, 35)
+    s.setMaskDragActive(false)
+    // Recorded on release, not deferred to the next boundary.
+    XCTAssertEqual(s.undoHistory.count, 1)
+    XCTAssertFalse(s.isAdjustingMask)
+    let afterDrag = s.model
+
+    // An unrelated action afterwards is its OWN entry.
+    s.setMaskRangeEnabled(id: layer.id, enabled: false)
+    XCTAssertEqual(s.undoHistory.count, 2)
+    s.undo()
+    XCTAssertEqual(s.model, afterDrag, "undo must return to the drag's result, not past it")
+    XCTAssertEqual(s.maskRange(id: layer.id)?.value(of: .hueWidth), 35)
+  }
+
+  /// The same boundary drives the ten adjustment sliders, so two successive
+  /// drags — one range, one adjustment — are two entries, not one.
+  func testTwoSuccessiveDragsAreTwoEntries() {
+    let layer = LocalAdjustment(
+      mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments())
+    let s = session(with: layer)
+    s.setMaskDragActive(true)
+    s.setMaskRangeField(id: layer.id, .feather, 0.6)
+    s.setMaskDragActive(false)
+    let afterFirst = s.model
+
+    s.setMaskDragActive(true)
+    s.model.localAdjustments[0].adjustments.exposure = 1.5
+    s.setMaskDragActive(false)
+    XCTAssertEqual(s.undoHistory.count, 2)
+    s.undo()
+    XCTAssertEqual(s.model, afterFirst)
+  }
+
+  /// A drag that moves nothing records nothing — `endEdit` drops a no-op
+  /// transaction, so a stray press never pollutes the history.
+  func testAPressWithoutMovementRecordsNothing() {
+    let s = session(
+      with: LocalAdjustment(mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments()))
+    s.setMaskDragActive(true)
+    s.setMaskDragActive(false)
+    XCTAssertTrue(s.undoHistory.isEmpty)
+  }
+
   func testSliderWriteIsIgnoredWithoutARange() {
     let layer = LocalAdjustment(mask: .everywhere, adjustments: PartialAdjustments())
     let s = session(with: layer)
-    s.beginEdit()
+    s.setMaskDragActive(true)
     s.setMaskRangeField(id: layer.id, .lMax, 0.5)
-    s.endEdit()
+    s.setMaskDragActive(false)
     XCTAssertNil(s.maskRange(id: layer.id))
     XCTAssertTrue(s.undoHistory.isEmpty)
   }
