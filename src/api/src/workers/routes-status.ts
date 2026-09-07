@@ -158,6 +158,7 @@ export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
     maxAttempts: doc.maxAttempts,
     paused: doc.paused,
     last_seen_target_version: doc.last_seen_target_version,
+    ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
   };
 }
 

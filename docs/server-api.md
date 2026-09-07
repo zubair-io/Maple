@@ -261,7 +261,7 @@ Pause and config changes are written to `worker_config` in Mongo; the worker chi
 | GET    | `/api/workers/performance`                 | bearer | FFI decode-pool size and the on-demand preview limiter                  |
 | PATCH  | `/api/workers/performance`                 | bearer | Resize the pool live, clamped to its min/max                            |
 | POST   | `/api/workers/:name/pause`                 | bearer | Pause one stage                                                         |
-| POST   | `/api/workers/:name/resume`                | bearer | Resume it                                                               |
+| POST   | `/api/workers/:name/resume`                | bearer | Resume it; also clears a self-imposed `pause_reason`                    |
 | PATCH  | `/api/workers/:name/config`                | bearer | Patch its concurrency, batch size, and target version                   |
 | GET    | `/api/workers/:name/dead`                  | bearer | Dead-lettered assets for that stage                                     |
 | POST   | `/api/workers/:name/retry-dead`            | bearer | Re-arm them                                                             |

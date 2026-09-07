@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { explainEmbeddingPolicyError } from './meilisearch-embedding-policy.ts';
+import {
+  explainEmbeddingPolicyError,
+  isEmbeddingPolicyRejection,
+} from './meilisearch-embedding-policy.ts';
 import { MeilisearchSearchError } from './meilisearch-search-error.ts';
 import { readMeilisearchSemanticStatus } from './meilisearch-semantic-status.ts';
 import { MeilisearchTaskError, waitForMeilisearchTask } from './meilisearch-transport.ts';
@@ -119,5 +122,105 @@ describe('Meilisearch embedding IP policy diagnostics (#3315)', () => {
     expect(status.embedderConfigured).toBe(true);
     expect(status.embedderReachable).toBe(false);
     expect(status.error).toContain(policyKey);
+  });
+});
+
+describe('embedding policy rejection classification (#3315)', () => {
+  it('recognises the rejection wherever it appears in a message', () => {
+    expect(isEmbeddingPolicyRejection(rejected)).toBe(true);
+    expect(isEmbeddingPolicyRejection(`meilisearch task 12 failed {"message":"${rejected}"}`)).toBe(
+      true,
+    );
+    expect(isEmbeddingPolicyRejection('connection refused')).toBe(false);
+    expect(isEmbeddingPolicyRejection(null)).toBe(false);
+    expect(isEmbeddingPolicyRejection(undefined)).toBe(false);
+  });
+
+  it('flags the rejection on the semantic status so writers can gate on it', async () => {
+    const { fetchImpl } = makeFakeFetch({
+      routes: [
+        { method: 'GET', pathPrefix: '/health', body: { status: 'available' } },
+        {
+          method: 'GET',
+          pathPrefix: '/indexes/assets/settings/embedders',
+          body: { caption: { source: 'ollama', model: 'bge-m3' } },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/indexes/assets/stats',
+          body: { numberOfDocuments: 3, numberOfEmbeddedDocuments: 0, isIndexing: false },
+        },
+        {
+          method: 'POST',
+          pathPrefix: '/indexes/assets/search',
+          status: 400,
+          body: { code: 'vector_embedding_error', message: rejected },
+        },
+      ],
+    });
+    const status = await readMeilisearchSemanticStatus(
+      { ...config(fetchImpl), semantic: true, embedderModel: 'bge-m3', semanticRatio: 0.5 },
+      'assets',
+      'caption',
+    );
+    expect(status.embedderPolicyRejected).toBe(true);
+  });
+
+  it('does not flag an ordinary outage as a policy rejection', async () => {
+    const { fetchImpl } = makeFakeFetch({
+      routes: [{ method: 'GET', pathPrefix: '/health', status: 503, body: { status: 'down' } }],
+    });
+    const status = await readMeilisearchSemanticStatus(
+      { ...config(fetchImpl), semantic: true, embedderModel: 'bge-m3', semanticRatio: 0.5 },
+      'assets',
+      'caption',
+    );
+    expect(status.meilisearchReachable).toBe(false);
+    expect(status.embedderPolicyRejected).toBe(false);
+  });
+
+  it('fails a policy-rejected task on the first poll that reports it, flagged for callers', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/13',
+          body: {
+            uid: 13,
+            status: 'failed',
+            error: { code: 'vector_embedding_error', message: rejected },
+          },
+        },
+      ],
+    });
+    // A generous timeout the waiter must NOT sit out: the task is already
+    // failed, so one poll is the whole wait.
+    const failure = await waitForMeilisearchTask(
+      { ...config(fetchImpl), taskTimeoutMs: 10 * 60 * 1000 },
+      { ok: true, status: 202, body: { taskUid: 13 }, errorText: null },
+      'batch upsert',
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(MeilisearchTaskError);
+    expect((failure as MeilisearchTaskError).policyRejected).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('leaves policyRejected false on a task that failed for another reason', async () => {
+    const { fetchImpl } = makeFakeFetch({
+      routes: [
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/14',
+          body: { uid: 14, status: 'failed', error: { code: 'invalid_document_fields' } },
+        },
+      ],
+    });
+    const failure = await waitForMeilisearchTask(
+      config(fetchImpl),
+      { ok: true, status: 202, body: { taskUid: 14 }, errorText: null },
+      'batch upsert',
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(MeilisearchTaskError);
+    expect((failure as MeilisearchTaskError).policyRejected).toBe(false);
   });
 });

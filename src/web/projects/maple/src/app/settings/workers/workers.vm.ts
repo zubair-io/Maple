@@ -493,6 +493,17 @@ export function pendingTitle(s: StageStatus): string {
   return `${ready} ready · ${blocked} blocked on an upstream stage · ${total} pending total`;
 }
 
+/** Why a stage paused ITSELF — `meili` does this when Meilisearch's address
+ * policy rejects the embedding server (#3315), so the row must say so or the
+ * operator's first move is to resume it straight back into the same failure.
+ * Null for an operator pause (no reason recorded) and for a running stage:
+ * the server clears the reason on every resume, and a stale reason on a row
+ * that is no longer paused would be misleading. */
+export function pauseReason(s: StageStatus): string | null {
+  const reason = s.config?.pause_reason?.trim() ?? '';
+  return s.config?.paused === true && reason.length > 0 ? reason : null;
+}
+
 /** Format a byte count compactly: 13478912 → "12.9 MB". */
 export function formatBytes(bytes: number | undefined | null): string {
   if (!bytes || bytes <= 0) return '0 B';

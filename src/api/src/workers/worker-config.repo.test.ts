@@ -119,3 +119,44 @@ describe('WorkerConfigRepo.patch', () => {
     expect(result?.paused).toBe(false);
   });
 });
+
+describe('WorkerConfigRepo — self-imposed pause reason (#3315)', () => {
+  it('round-trips pause_reason and omits the key when none was recorded', async () => {
+    const coll = makeMockCollection();
+    const repo = new WorkerConfigRepo(coll);
+    await repo.upsert('meili', {
+      concurrency: 2,
+      maxAttempts: 5,
+      paused: false,
+      last_seen_target_version: 10,
+    });
+    expect(await repo.load('meili')).not.toHaveProperty('pause_reason');
+
+    await repo.patch('meili', { paused: true, pause_reason: 'Paused automatically: policy' });
+    const paused = await repo.load('meili');
+    expect(paused?.paused).toBe(true);
+    expect(paused?.pause_reason).toBe('Paused automatically: policy');
+  });
+
+  it('clears pause_reason on every resume, whichever path patches paused: false', async () => {
+    const coll = makeMockCollection();
+    const repo = new WorkerConfigRepo(coll);
+    await repo.patch('meili', { paused: true, pause_reason: 'Paused automatically: policy' });
+
+    await repo.patch('meili', { paused: false });
+    const resumed = await repo.load('meili');
+    expect(resumed?.paused).toBe(false);
+    expect(resumed).not.toHaveProperty('pause_reason');
+  });
+
+  it('keeps an existing pause_reason when an unrelated knob is patched', async () => {
+    const coll = makeMockCollection();
+    const repo = new WorkerConfigRepo(coll);
+    await repo.patch('meili', { paused: true, pause_reason: 'Paused automatically: policy' });
+
+    await repo.patch('meili', { concurrency: 4 });
+    const patched = await repo.load('meili');
+    expect(patched?.concurrency).toBe(4);
+    expect(patched?.pause_reason).toBe('Paused automatically: policy');
+  });
+});
