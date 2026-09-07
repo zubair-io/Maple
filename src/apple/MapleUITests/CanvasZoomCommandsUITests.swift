@@ -66,8 +66,15 @@ import XCTest
       app.buttons["editor-back"].click()
       XCTAssertTrue(badge.waitForNonExistence(timeout: 10))
       app.menuBars.menuBarItems["View"].click()
-      XCTAssertFalse(
-        app.menuItems["Zoom"].isEnabled, "Browse must not retain the editor's Zoom commands.")
+      let zoom = app.menuItems["Zoom"]
+      XCTAssertTrue(zoom.exists)
+      // macOS can leave the submenu enabled while disabling its commands.
+      if zoom.isEnabled {
+        zoom.hover()
+        XCTAssertTrue(app.menuItems["Zoom to Fit"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.menuItems["Zoom to Fit"].isEnabled)
+        XCTAssertFalse(app.menuItems["Actual Size (100%)"].isEnabled)
+      }
       app.typeKey(.escape, modifierFlags: [])
     }
 
