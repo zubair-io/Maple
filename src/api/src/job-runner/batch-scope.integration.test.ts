@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:te
 // Symlink setup is deliberately confined to temporary authorization fixtures.
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, parse } from 'node:path';
 import type { MongoClient } from 'mongodb';
 import { closeDb, getDb } from '../db/client.ts';
 import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
@@ -68,4 +68,13 @@ test('batch queueing rejects a sidecar symlink outside its allowed root', async 
   await expect(
     batchScopes({ targets: [{ id: 'photo', path: join(root, 'photo.jpg') }], patch }),
   ).rejects.toThrow('outside all registered roots');
+});
+
+test('a filesystem root authorizes descendants and owns their batch fence', async () => {
+  if (!mongo) throw new Error('This regression requires MongoDB');
+  const root = parse(fixture).root;
+  process.env.MAPLE_ROOTS = root;
+  expect(
+    await batchScopes({ targets: [{ id: 'photo', path: join(fixture, 'photo.jpg') }], patch }),
+  ).toEqual([await realpath(root)]);
 });
