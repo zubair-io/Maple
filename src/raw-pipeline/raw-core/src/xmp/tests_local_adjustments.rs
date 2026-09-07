@@ -39,7 +39,9 @@ pub(super) fn linear_layer() -> LocalAdjustment {
         adjustments: PartialAdjustments {
             exposure: Some(0.5),
             shadows: Some(-20.0),
-            hue: Some(-35.0),
+            // Fractional on purpose: pins the four-decimal `crs:LocalHue` wire
+            // precision across all four writers (two decimals would drift it).
+            hue: Some(-42.5),
             ..Default::default()
         },
     }
