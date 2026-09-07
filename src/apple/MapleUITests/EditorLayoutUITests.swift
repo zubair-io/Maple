@@ -109,6 +109,15 @@ import XCTest
           "Crop handles must clear the inspector after reflow")
         app.buttons["editor-crop-done"].click()
       }
+
+      // Main's wired Mask surface keeps an entry in the shared dock after
+      // the legacy mobile and stacked tool rows are consolidated.
+      let mask = app.buttons["editor-dock-tool-mask"]
+      XCTAssertTrue(mask.exists)
+      mask.click()
+      let maskPanel = app.descendants(matching: .any)
+        .matching(identifier: "editor-mask-panel").firstMatch
+      XCTAssertTrue(maskPanel.waitForExistence(timeout: 5))
     }
 
     private func resize(_ window: XCUIElement, width: CGFloat, height: CGFloat) {
