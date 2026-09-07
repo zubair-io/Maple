@@ -8,6 +8,7 @@
 
 import * as path from 'node:path';
 import { parseRootList } from '../fs/root-list.ts';
+import { isWithinRoot } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 
 /**
@@ -57,7 +58,7 @@ export async function resolveAndAuthorizePath(
   }
 
   for (const root of allRoots) {
-    if (normalized === root || normalized.startsWith(root + path.sep)) {
+    if (isWithinRoot(root, normalized)) {
       return { ok: true, data: normalized };
     }
   }

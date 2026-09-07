@@ -1,5 +1,5 @@
-import { dirname, join, resolve, sep } from 'node:path';
-import { safeWriteAllowed } from '../fs/root.ts';
+import { dirname, join, resolve } from 'node:path';
+import { isWithinRoot, safeWriteAllowed } from '../fs/root.ts';
 import { parseRootList } from '../fs/root-list.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -41,9 +41,7 @@ export async function batchScopes(payload: Record<string, unknown>): Promise<str
     if (sidecars.has(sidecarPath))
       throw new BatchScopeError('Photos in this batch share a sidecar');
     sidecars.add(sidecarPath);
-    const matches = roots.filter(
-      (root) => sidecarPath === root || sidecarPath.startsWith(root + sep),
-    );
+    const matches = roots.filter((root) => isWithinRoot(root, sidecarPath));
     if (!matches.length) throw new BatchScopeError('Photo is outside registered libraries');
     // The broadest matching root makes nested registrations share one fence.
     scopes.add(matches.sort((a, b) => a.length - b.length)[0]);

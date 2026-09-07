@@ -20,6 +20,15 @@ export interface OpResult<T = undefined> {
   error?: string;
 }
 
+/** Containment for normalized absolute paths, including volume roots. */
+export function isWithinRoot(root: string, filePath: string): boolean {
+  const relative = path.relative(root, filePath);
+  return (
+    relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
+}
+
 /**
  * Registered roots — updated at startup from DB and on folder registration.
  * Using a simple Set for O(1) prefix checks.
@@ -104,11 +113,7 @@ async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   }
 
   for (const root of allowedRoots) {
-    const relative = path.relative(root, real);
-    if (
-      relative === '' ||
-      (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
-    ) {
+    if (isWithinRoot(root, real)) {
       return { ok: true, data: real };
     }
   }
