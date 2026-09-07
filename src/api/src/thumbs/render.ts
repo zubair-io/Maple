@@ -24,11 +24,11 @@ import heicConvert from 'heic-convert';
 import { decodePsdComposite } from './psd-hdr-decode.ts';
 import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
 
-// The SHARP_EXTENSIONS allowlist moved to `fs/browse.ts` (a light module with
-// no renderer deps) so routes like `/api/fs/raw` can import the gate without
-// pulling in `sharp` / `heic-convert`. Re-exported here so existing
-// `thumbs/render.ts` importers keep working unchanged. (#782)
-export { SHARP_EXTENSIONS } from '../fs/browse.ts';
+// The SHARP_EXTENSIONS allowlist lives in `indexer/media-types.ts` (a leaf
+// module with no renderer deps) so routes like `/api/fs/raw` can import the
+// gate without pulling in `sharp` / `heic-convert`. Re-exported here so
+// existing `thumbs/render.ts` importers keep working unchanged. (#782, #1988)
+export { SHARP_EXTENSIONS } from '../indexer/media-types.ts';
 
 /** Default AVIF quality for the `thumbs` cache tier — on AVIF's own [1,100]
  * scale, NOT JPEG's; a JPEG-82-equivalent AVIF quality is meaningfully

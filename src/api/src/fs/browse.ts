@@ -12,6 +12,13 @@ import type { OpResult } from './root.ts';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import {
+  AUDIO_EXTENSIONS,
+  PSD_HDR_EXTENSIONS,
+  RAW_EXTENSIONS,
+  SHARP_EXTENSIONS,
+  STUB_IMAGE_EXTENSIONS,
+} from '../indexer/media-types.ts';
 import type { AssetExif, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -301,66 +308,19 @@ export async function listDir(reqPath: string, showAll: boolean): Promise<OpResu
 // shows folders + image files at each level.
 // ---------------------------------------------------------------------------
 
-/** RAW file extensions handled by the libraw FFI pipeline (lowercase, no dot).
- * Used by `/api/fs/raw` (byte stream into WASM decode) and the thumb endpoint
- * to choose between the libraw FFI and the sharp/heic-convert path. */
-export const RAW_EXTENSIONS = new Set<string>([
-  'cr2',
-  'cr3',
-  'nef',
-  'arw',
-  'dng',
-  'raf',
-  'orf',
-  'rw2',
-  'pef',
-  'srw',
-  'x3f',
-  '3fr',
-  'mef',
-  'erf',
-  'mrw',
-  'raw',
-  'fff',
-]);
-
-/** Non-RAW bitmap extensions decoded via sharp / heic-convert (lowercase, no
- * dot). Lives here next to RAW_EXTENSIONS so the lightweight allowlist can be
- * imported without pulling in the thumbnail renderer (and its `sharp` /
- * `heic-convert` deps). `thumbs/render.ts` re-exports it for back-compat. */
-export const SHARP_EXTENSIONS = new Set<string>([
-  'jpg',
-  'jpeg',
-  'png',
-  'webp',
-  'gif',
-  'tif',
-  'tiff',
-  'heic',
-  'heif',
-  'avif',
-]);
-
-/** Photoshop PSD/PSB and Radiance HDR (lowercase, no dot). Not RAW (no
- * libraw FFI support) and not sharp-native (sharp can't decode these bytes
- * on its own) — they get a first-pass decode via `ag-psd` / `hdr` into a
- * flattened RGBA8 raster before sharp resizes + JPEG-encodes it. See
- * `thumbs/psd-hdr-decode.ts`. Kept as its own set, parallel to
- * `SHARP_EXTENSIONS`, rather than folded into it, since sharp cannot open
- * these formats without that decode step. */
-export const PSD_HDR_EXTENSIONS = new Set<string>(['psd', 'psb', 'hdr']);
-
-/** Image-like formats with no realistic decode path (see #1835): eip
- * (Phase One, no rawler support), braw (Blackmagic RAW, proprietary
- * SDK-gated), afphoto (Affinity Photo, no public spec), ai (Illustrator, a
- * PDF/vector container rather than a raster image). Metadata-only stubs —
- * indexed for filename/size/date, never thumbnailed/decoded. */
-export const STUB_IMAGE_EXTENSIONS = new Set<string>(['eip', 'braw', 'afphoto', 'ai']);
-
-/** Audio formats (lowercase, no dot) — a wholly new asset category (see
- * #1835). Metadata-only stubs, same as `STUB_IMAGE_EXTENSIONS`: indexed for
- * filename/size/date, never thumbnailed/decoded. */
-export const AUDIO_EXTENSIONS = new Set<string>(['mp3', 'wav', 'm4a', 'aac']);
+// The per-format extension allowlists (RAW / sharp / PSD+HDR / stub / audio)
+// live in `indexer/media-types.ts`, a leaf module with no imports beyond
+// `node:path`, so `indexer/thumbnailer.ts` and `indexer/previewer.ts` can
+// read them without importing this file — which would close the
+// browse → workers/discover → workers/stages → indexer/* → browse cycle
+// (#1988). Re-exported here so the existing route importers keep working.
+export {
+  AUDIO_EXTENSIONS,
+  PSD_HDR_EXTENSIONS,
+  RAW_EXTENSIONS,
+  SHARP_EXTENSIONS,
+  STUB_IMAGE_EXTENSIONS,
+} from '../indexer/media-types.ts';
 
 /** All image extensions surfaced by the directory listing. Union of RAWs
  * (decoded via FFI), bitmap formats (decoded via sharp/heic-convert), and

@@ -115,3 +115,78 @@ export function classifyMediaType(filename: string): 'image' | 'video' | 'audio'
 export function isUndecodableFilename(filename: string): boolean {
   return isStubImageFilename(filename) || isAudioFilename(filename);
 }
+
+// ---------------------------------------------------------------------------
+// Per-format extension allowlists (lowercase, NO leading dot — the shape the
+// `/api/fs` browse listing and the thumb/preview renderers key on). Moved
+// here from `fs/browse.ts` (#1988) so the renderers can import them from a
+// leaf module: `fs/browse.ts` lazily imports `workers/discover`, which
+// reaches `indexer/thumbnailer.ts` / `indexer/previewer.ts` through the
+// stage manifest, and those importing `fs/browse.ts` back closed a 4-cycle.
+// `fs/browse.ts` re-exports every set below for its existing importers.
+// ---------------------------------------------------------------------------
+
+/** RAW file extensions handled by the libraw FFI pipeline (lowercase, no dot).
+ * Used by `/api/fs/raw` (byte stream into WASM decode) and the thumb endpoint
+ * to choose between the libraw FFI and the sharp/heic-convert path. */
+export const RAW_EXTENSIONS = new Set<string>([
+  'cr2',
+  'cr3',
+  'nef',
+  'arw',
+  'dng',
+  'raf',
+  'orf',
+  'rw2',
+  'pef',
+  'srw',
+  'x3f',
+  '3fr',
+  'mef',
+  'erf',
+  'mrw',
+  'raw',
+  'fff',
+]);
+
+/** Non-RAW bitmap extensions decoded via sharp / heic-convert (lowercase, no
+ * dot). Lives here next to RAW_EXTENSIONS so the lightweight allowlist can be
+ * imported without pulling in the thumbnail renderer (and its `sharp` /
+ * `heic-convert` deps). `thumbs/render.ts` re-exports it for back-compat. */
+export const SHARP_EXTENSIONS = new Set<string>([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'avif',
+]);
+
+/** Photoshop PSD/PSB and Radiance HDR (lowercase, no dot). Not RAW (no
+ * libraw FFI support) and not sharp-native (sharp can't decode these bytes
+ * on its own) — they get a first-pass decode via `ag-psd` / `hdr` into a
+ * flattened RGBA8 raster before sharp resizes + JPEG-encodes it. See
+ * `thumbs/psd-hdr-decode.ts`. Kept as its own set, parallel to
+ * `SHARP_EXTENSIONS`, rather than folded into it, since sharp cannot open
+ * these formats without that decode step. */
+export const PSD_HDR_EXTENSIONS = new Set<string>(['psd', 'psb', 'hdr']);
+
+/** Strip the leading dot off a dotted extension set, yielding the no-dot
+ * shape the browse listing keys on. Derived rather than re-listed so the
+ * dotted (`isStubImageFilename` / `isAudioFilename`) and no-dot forms can
+ * never disagree on which formats are stubs. */
+function withoutLeadingDot(exts: ReadonlySet<string>): Set<string> {
+  return new Set([...exts].map((ext) => ext.slice(1)));
+}
+
+/** `STUB_IMAGE_EXTS` in no-dot form (see #1835): metadata-only stubs —
+ * indexed for filename/size/date, never thumbnailed/decoded. */
+export const STUB_IMAGE_EXTENSIONS = withoutLeadingDot(STUB_IMAGE_EXTS);
+
+/** `AUDIO_EXTS` in no-dot form (see #1835): metadata-only stubs, same as
+ * `STUB_IMAGE_EXTENSIONS`. */
+export const AUDIO_EXTENSIONS = withoutLeadingDot(AUDIO_EXTS);
