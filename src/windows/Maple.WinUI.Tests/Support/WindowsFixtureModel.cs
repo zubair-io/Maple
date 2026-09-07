@@ -15,10 +15,9 @@
 // It is deliberately NOT the same field set as the two-platform golden in
 // `docs/xmp-canonical-format.md` / `XMPCanonicalFormatTests.swift` /
 // `xmp-canonical.spec.ts`. `AdjustmentState` (Models/AdjustmentState.cs) is a
-// structural subset of the full cross-platform `AdjustmentModel`: no crop,
-// no keywords (`dc:subject`), no metadata block (title/creator/description/
-// rights), and no `whiteBalancePreset` (so no `crs:WhiteBalance`) — none of
-// these have a Windows editor surface yet. A byte-for-byte comparison against
+// structural subset of the full cross-platform `AdjustmentModel`: no
+// keywords (`dc:subject`) and no metadata block (title/creator/description/
+// rights) — neither has a Windows editor surface yet. A byte-for-byte comparison against
 // the cross-platform golden literal would therefore fail for reasons that
 // are missing UI, not a broken serializer, which would bury any real
 // divergence under noise. This fixture instead pins down everything Windows
@@ -35,6 +34,7 @@
 // golden document's.
 
 using System.Collections.Generic;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services.Xmp;
 
@@ -49,6 +49,18 @@ namespace Maple.WinUI.Tests.Support
             Temperature = 5200,
             Tint = -14.5,
             WbMethod = WbMethod.DiagonalRec2020,
+            // White-balance name + provenance (#2434): raw-core's sampled
+            // pair (0.25, 0.75, version 1) plus a named illuminant. No
+            // editor produces a Sampled pair carrying a preset name, but
+            // every field here must sit off its default so the writer's
+            // omit rule can't hide one; the writer's gating (the point
+            // only with a derived Sampled source, the version only with
+            // Auto/Sampled) is pinned by XmpWhiteBalanceProvenanceTests.
+            WhiteBalancePreset = WhiteBalancePresets.Shade,
+            WbSource = WbSource.Sampled,
+            WbSampleX = 0.25,
+            WbSampleY = 0.75,
+            WbAlgorithmVersion = 1,
             Exposure = 0.5,
             Brightness = 6,
             Contrast = 12,
