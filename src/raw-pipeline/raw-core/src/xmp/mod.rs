@@ -10,11 +10,18 @@ use quick_xml::reader::Reader;
 mod fields;
 mod local_adjustments;
 mod tone_curves;
+mod variants;
 use fields::set_field;
 pub use local_adjustments::serialize_local_adjustments;
 use local_adjustments::LocalAdjustmentsWalker;
 pub use tone_curves::serialize_tone_curves;
 use tone_curves::CurveWalker;
+use variants::VariantsWalker;
+pub use variants::{
+    compact_history, is_valid_variant_id, parse_variant_sidecar_name, serialize_variants,
+    variant_sidecar_name, HistoryEntry, Snapshot, VariantRecord, Variants, HISTORY_CAP,
+    PRIMARY_VARIANT_ID,
+};
 
 // Re-export the canonical schema types so existing
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
@@ -34,6 +41,16 @@ pub use crate::types::adjustment::{
 /// serialized without the other four crop edges — spec § 01 invariant 3).
 /// The parser does two passes per element so attribute order is irrelevant.
 pub fn parse(xml: &str) -> Result<AdjustmentModel> {
+    Ok(parse_document(xml)?.0)
+}
+
+/// Parse a sidecar into both halves of what it carries: the develop state
+/// (the [`AdjustmentModel`] [`parse`] returns) and the branching state —
+/// this sidecar's own variant identity, the variant manifest, the
+/// snapshots, and the semantic history (#2437, see the [`variants`]
+/// module). A sidecar with none of those blocks yields
+/// [`Variants::default()`], so a variant-naive document costs nothing.
+pub fn parse_document(xml: &str) -> Result<(AdjustmentModel, Variants)> {
     let mut model = AdjustmentModel::default();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -62,6 +79,11 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // see `local_adjustments/` for the canonical `crs:GradientBasedCorrections`
     // / `crs:CircularGradientBasedCorrections` shape this walks.
     let mut local_adj = LocalAdjustmentsWalker::default();
+    // Variants / snapshots / history (#2437) — three more nested blocks
+    // whose subtrees must be claimed before the flat attribute walk, or a
+    // history entry's own `crs:Exposure2012` would be applied to the live
+    // image.
+    let mut branch = VariantsWalker::default();
 
     loop {
         match reader.read_event() {
@@ -70,26 +92,28 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 // Inside a tone-curve or local-adjustments subtree there are
                 // no flat Maple attributes to read, so the attribute walk is
                 // skipped entirely for elements either walker claims.
-                if local_adj.start(&name, &e)? {
+                if branch.start(&name, &e)? || local_adj.start(&name, &e)? {
                     // handled
                 } else if !curves.start(&name) {
-                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp, &mut branch)?;
                 }
             }
             Ok(Event::Empty(e)) => {
                 let name = element_name(&e)?.to_string();
-                if !local_adj.empty(&name, &e)? {
-                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                if !branch.empty(&name, &e)? && !local_adj.empty(&name, &e)? {
+                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp, &mut branch)?;
                 }
             }
             Ok(Event::Text(t)) => {
                 let text = t.unescape().map_err(|e| Error::Xmp(e.to_string()))?;
+                branch.text(&text);
                 curves.text(&text);
             }
             Ok(Event::End(e)) => {
                 let name = std::str::from_utf8(e.name().as_ref())
                     .map_err(|e| Error::Xmp(e.to_string()))?
                     .to_string();
+                branch.end(&name);
                 local_adj.end(&name);
                 curves.end(&name, &mut model);
             }
@@ -123,7 +147,8 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     } else {
         WbScaleVersion::V5
     });
-    Ok(model)
+    let branching = branch.finish(model.wb_scale_version);
+    Ok((model, branching))
 }
 
 /// The element's qualified name (`papp:SceneLinearToneCurve`, `rdf:li`, …).
@@ -160,6 +185,7 @@ fn apply_attributes(
     model: &mut AdjustmentModel,
     papp_seen: &mut bool,
     stamp: &mut Option<WbScaleVersion>,
+    branch: &mut VariantsWalker,
 ) -> Result<()> {
     // Track whether the new-style `papp:CaptureSharpeningSigma`
     // attribute has been written into `capture_sharpening_sigma`
@@ -217,6 +243,12 @@ fn apply_attributes(
                 "5" => WbScaleVersion::V5,
                 other => return Err(Error::Xmp(format!("unknown WbScaleVersion: {}", other))),
             });
+        }
+        // This sidecar's own variant identity (#2437) is document
+        // bookkeeping, not develop state, so it is captured beside the
+        // model rather than on it.
+        if branch.document_attribute(key, &value) {
+            continue;
         }
         set_field(
             model,
