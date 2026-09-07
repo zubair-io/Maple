@@ -107,6 +107,7 @@ namespace Maple.WinUI
             if (group == "Crop")
             {
                 PanelBwHeader.Visibility = Visibility.Collapsed;
+                PanelDetailHeader.Visibility = Visibility.Collapsed;
                 PanelHslBands.ItemsSource = null;
                 PanelHslBands.Visibility = Visibility.Collapsed;
                 PanelSliders.Visibility = Visibility.Collapsed;
@@ -126,6 +127,10 @@ namespace Maple.WinUI
             }
 
             PanelBwHeader.Visibility = Visibility.Collapsed;
+            // The profile-free lateral-CA switch (#3411) rides above the Detail
+            // sliders, the same shape the B&W toggle rides above its mixer.
+            PanelDetailHeader.Visibility =
+                group == "Detail" ? Visibility.Visible : Visibility.Collapsed;
             PanelHslBands.ItemsSource = null;
             PanelHslBands.Visibility = Visibility.Collapsed;
             PanelSliders.Visibility = Visibility.Visible;
@@ -232,6 +237,7 @@ namespace Maple.WinUI
 
             ShowWhiteBalanceRow(tab == "Basic");
             PanelBwHeader.Visibility = tab == "B&W" ? Visibility.Visible : Visibility.Collapsed;
+            PanelDetailHeader.Visibility = Visibility.Collapsed;
             PanelHslBands.Visibility = tab == "HSL" ? Visibility.Visible : Visibility.Collapsed;
             PanelHslBands.ItemsSource = tab == "HSL" ? ViewModel.HslBands : null;
             PanelSliders.Visibility = tab == "HSL" ? Visibility.Collapsed : Visibility.Visible;
@@ -255,6 +261,7 @@ namespace Maple.WinUI
             EffectsTabGrade.Selected = tab == "Grade";
 
             PanelBwHeader.Visibility = Visibility.Collapsed;
+            PanelDetailHeader.Visibility = Visibility.Collapsed;
             PanelHslBands.ItemsSource = null;
             PanelHslBands.Visibility = Visibility.Collapsed;
             PanelGradeHost.Visibility = tab == "Grade" ? Visibility.Visible : Visibility.Collapsed;
