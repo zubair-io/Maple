@@ -449,10 +449,8 @@ public final class EditSession {
   /// The mask panel's selection — the highlighted row, whose sliders show, and the scope HUD's target.
   public var selectedMaskId: UUID?
 
-  /// Masks switched off in the panel. Session-only and never persisted:
-  /// the model keeps every slider value, and only the model handed to the
-  /// renderer (`renderModel`) has these layers' adjustments cleared, so
-  /// quitting with a mask disabled loses nothing (#3291 review).
+  /// Masks switched off in the panel — session-only; `model` keeps every slider
+  /// and only `renderModel` clears these layers (#3291 review).
   public internal(set) var disabledMaskIds: Set<UUID> = []
 
   /// Latest scope sample (#3277); published by the GPU present or `EditSession+ScopeCpu.swift`.
