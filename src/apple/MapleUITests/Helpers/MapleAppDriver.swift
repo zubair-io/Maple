@@ -1,7 +1,7 @@
 // MapleAppDriver.swift — Fluent harness for MapleUITests.
 //
-// Resolves a fixture path against `MAPLE_UITEST_FIXTURE_ROOT` (env var,
-// defaults to `<repo>/test-fixtures/raws/`), launches Maple with
+// Resolves a fixture path through `UITestFixtureRoot` (`MAPLE_UITEST_
+// FIXTURE_ROOT`, else `<repo>/test-fixtures/raws/`), launches Maple with
 // `MAPLE_UITEST_FIXTURE=<basename>`, and exposes wait/screenshot
 // helpers built on top of XCUIElement queries against the
 // accessibility identifiers added in Task 2 of the plan.
@@ -24,12 +24,14 @@ import XCTest
     private let stagedDirectory: URL?
 
     /// Launch Maple with the given fixture seeded into a single-asset
-    /// library. Calls `XCTSkip` if the fixture is missing — mirrors the
-    /// `test_color_pipeline.sh` "no fixtures, skipping" pattern (CLAUDE.md
-    /// § Build & test — Apple). The fixture path is resolved against
-    /// `MAPLE_UITEST_FIXTURE_ROOT` (env var, TEST_RUNNER_-forwarded from
-    /// the scheme, #2366) → repo `test-fixtures/raws/` (default) — callers
-    /// should pass the basename ("test_0017.dng"), not an absolute path.
+    /// library. The fixture path is resolved by `UITestFixtureRoot`
+    /// (`MAPLE_UITEST_FIXTURE_ROOT`, TEST_RUNNER_-forwarded from the
+    /// scheme, else the compile-time repo `test-fixtures/raws/`, #2366) —
+    /// callers pass the basename ("test_0017.dng"), not an absolute path.
+    /// Missing at the repo default → `XCTSkip` (the `test_color_pipeline.sh`
+    /// "no fixtures, skipping" convention); missing at a root the operator
+    /// named explicitly → `XCTFail` (#2366's open decision: a skip that is
+    /// indistinguishable from a pass is what hid this gate).
     ///
     /// The located fixture is COPIED into a fresh tmp directory before
     /// launch (#2366 cause 2): `Maple.entitlements`' app sandbox has no
@@ -47,16 +49,7 @@ import XCTest
       file: StaticString = #file,
       line: UInt = #line
     ) throws -> MapleAppDriver {
-      let root = Self.fixtureRoot()
-      let fixtureURL = URL(fileURLWithPath: root)
-        .appendingPathComponent(fixture)
-      guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
-        throw XCTSkip(
-          "UITest fixture missing: \(fixtureURL.path) "
-            + "— set MAPLE_UITEST_FIXTURE_ROOT or check test-fixtures/raws/.",
-          file: file, line: line)
-      }
-
+      let fixtureURL = try UITestFixtureRoot.locate(fixture, file: file, line: line)
       return try launch(fixtureURL: fixtureURL)
     }
 
@@ -209,20 +202,6 @@ import XCTest
           NSPredicate(format: "label == 'Editor canvas' AND value == 'canvas-render-ready'")
         )
         .firstMatch
-    }
-
-    // MARK: - Fixture root resolution
-
-    private static func fixtureRoot() -> String {
-      if let explicit = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"],
-        !explicit.isEmpty
-      {
-        return explicit
-      }
-      // Best-effort fallback when the env var isn't set: the harness
-      // process's CWD is typically the project root. Mirrors the
-      // default in MapleApp.defaultFixtureRoot().
-      return FileManager.default.currentDirectoryPath + "/test-fixtures/raws"
     }
   }
 #endif  // os(macOS)

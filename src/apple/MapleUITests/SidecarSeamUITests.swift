@@ -31,8 +31,7 @@
 //     -project src/apple/Maple.xcodeproj \
 //     -scheme "Maple Exposure" \
 //     -destination 'platform=macOS' \
-//     -only-testing:MapleUITests/SidecarSeamUITests \
-//     MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
+//     -only-testing:MapleUITests/SidecarSeamUITests
 
 import XCTest
 

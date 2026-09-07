@@ -125,4 +125,40 @@ final class FolderMoveDestinationsTests: XCTestCase {
 
         XCTAssertEqual(tree.map(\.id), ["/", "/Trips", "/Trips/Norway"])
     }
+
+    // MARK: - Cancellation (the picker's "Finding folders…" Cancel)
+
+    /// A cancelled walk returns nothing rather than finishing the listing —
+    /// the task cancels itself before the walk starts so the outcome doesn't
+    /// depend on scheduling.
+    func testLocalTreeStopsWhenItsTaskIsCancelled() async {
+        makeDirs("2024/Paris", "2025")
+        let root = root!
+        let moving = root.appendingPathComponent("Loose")
+
+        let tree = await Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return FolderMoveDestinations.localTree(root: root, rootName: "Library", excluding: moving)
+        }.value
+
+        XCTAssertEqual(tree, [])
+    }
+
+    func testSMBTreeThrowsCancellationWhenItsTaskIsCancelled() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("a", at: "/2024/Paris/IMG_1.dng")
+
+        let failure: Error? = await Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try await FolderMoveDestinations.smbTree(
+                    rootName: "nas / photos", excluding: "/Loose", transport: t)
+                return nil
+            } catch {
+                return error
+            }
+        }.value
+
+        XCTAssertTrue(failure is CancellationError, "expected CancellationError, got \(String(describing: failure))")
+    }
 }

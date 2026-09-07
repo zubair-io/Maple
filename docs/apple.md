@@ -215,15 +215,16 @@ Cloud CI is deliberately narrow. `.github/workflows/apple.yml` runs a single job
 
 ### UI test harnesses
 
-All three live in `MapleUITests` and share `Helpers/MapleAppDriver.swift` (launch, wait for the `canvas-render-ready` accessibility identifier, screenshot the canvas), `Helpers/GoldenStore.swift` and the Swift CIEDE2000 port in `Helpers/CIEDE2000.swift`. Every one skip-passes when its fixtures are absent, mirroring the Rust harness convention.
+All three live in `MapleUITests` and share `Helpers/MapleAppDriver.swift` (launch, wait for the `canvas-render-ready` accessibility identifier, screenshot the canvas), `Helpers/GoldenStore.swift` and the Swift CIEDE2000 port in `Helpers/CIEDE2000.swift`. Every one skip-passes when its fixtures are absent at the repo default, mirroring the Rust harness convention.
 
 **Golden canvas** (`MapleUITests.testCanvasMatchesGolden`) launches with `test_0017.dng`, screenshots the canvas, and diffs against `MapleUITests/Goldens/test_0017-default.png` at mean ΔE ≤ 5, p95 ≤ 10, max ≤ 30, per-channel bias ≤ 0.05. Deleting the PNG re-records it; the run then fails with a "baseline written" message so a human eyeballs the new baseline before committing.
 
 ```bash
 xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
-  -destination 'platform=macOS' -only-testing:MapleUITests \
-  MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
+  -destination 'platform=macOS' -only-testing:MapleUITests
 ```
+
+The runner finds `test-fixtures/raws/` on its own (`Helpers/UITestFixtureRoot.swift`: the scheme's `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`, else the repo root baked in at compile time — the path the iOS Simulator runner relies on). A trailing `MAPLE_UITEST_FIXTURE_ROOT=…` argument is a build setting and reaches nothing (#2366); to use fixtures elsewhere, prefix the variable with `TEST_RUNNER_` in `xcodebuild`'s environment — and then a missing fixture fails instead of skipping.
 
 **Slider matrix** (`SliderMatrixUITests`) walks every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/`, stages a temp directory with the RAW plus the XMP renamed to the canonical sidecar name, relaunches the app against it, screenshots, resizes both candidate and reference to a 1024 px long edge, and diffs. Budgets are loose on purpose — mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10 — because Maple's AgX view transform differs from the reference renderer's even when the color math is right. Failed cases attach both PNGs for triage.
 

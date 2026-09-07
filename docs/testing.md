@@ -238,9 +238,23 @@ cd src/apple/Packages/MapleBackup && swift test
 
 # Xcode targets. The "Maple Exposure" scheme carries MapleTests and MapleUITests.
 xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
-  -destination 'platform=macOS' -only-testing:MapleUITests \
-  MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
+  -destination 'platform=macOS' -only-testing:MapleUITests
+
+# iPhone-shell gates run the same way against a simulator.
+xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:MapleUITests/PhoneExportUITests
 ```
+
+No fixture-root argument is needed or effective: a trailing `MAPLE_UITEST_FIXTURE_ROOT=…` on the `xcodebuild` line is a _build setting_, not a process environment variable, and never reaches the test runner (#2366). The runner resolves fixtures through `MapleUITests/Helpers/UITestFixtureRoot.swift`: `MAPLE_UITEST_FIXTURE_ROOT` from its own environment — which the scheme's `TestAction` forwards as `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` (Xcode strips the prefix) — else the repo's `test-fixtures/raws/` located from the bundle's compile-time source path, which is what the iOS Simulator runner uses because the scheme's `$(PROJECT_DIR)` arrives there unexpanded. To point a run at fixtures elsewhere, set the prefixed variable in `xcodebuild`'s own environment:
+
+```bash
+TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT=/Volumes/Fixtures/raws \
+  xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+  -destination 'platform=macOS' -only-testing:MapleUITests
+```
+
+A fixture missing at the repo default skip-passes (the convention for absent gitignored RAWs); a fixture missing at a root named this way fails the test — an explicit root that doesn't resolve is misconfiguration, not "fixtures not provisioned".
 
 Three local packages hold most of the code: `MapleCore` (roughly 280 test files, covering the pipeline wrapper, sidecar store, sources, auth, and view models), `MapleUI` (the dependency-free design system — its component tests mirror the contracts in `docs/design/maple-ui/components/`), and `MapleBackup`. The Xcode project adds `MapleTests` (view-model unit tests) and `MapleUITests` (live-UI visual harnesses); both are in the shared `Maple Exposure` scheme.
 
@@ -253,7 +267,7 @@ The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a 
 | `SyntheticGreyUITests` | The Apple path (Rust FFI scene-linear → Metal AgX → Metal sRGB encode) lands on the same grey the Rust CPU tail produces: every pixel neutral within ±2 LSB, canvas mean within ±3 LSB of six per-case expected values |
 | `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on a committed calibration PNG pair                                                                                                                    |
 
-Fixture-dependent classes call `XCTSkip` when the RAW isn't present, mirroring the shell harnesses.
+Fixture-dependent classes call `XCTSkip` when the RAW isn't present at the repo default, mirroring the shell harnesses — and fail when it isn't present at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`.
 
 ### What CI actually builds for Apple
 

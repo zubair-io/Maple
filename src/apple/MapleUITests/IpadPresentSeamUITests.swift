@@ -27,9 +27,10 @@
 //     -project src/apple/Maple.xcodeproj \
 //     -scheme "Maple Exposure" \
 //     -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
-//     -only-testing:MapleUITests/IpadPresentSeamUITests \
-//     MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
+//     -only-testing:MapleUITests/IpadPresentSeamUITests
 //
+// The fixture is located by `UITestFixtureRoot` (the compile-time repo root
+// unless `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` names another — #2366).
 // XCTSkips without the fixture (CI without test-fixtures/raws/test_0002.dng),
 // mirroring the repo's harness convention.
 
@@ -44,25 +45,6 @@ final class IpadPresentSeamUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// Walk #filePath up to the repo root (the UITest runner's cwd is its
-    /// sandbox container; the compile-time path survives that). Mirrors
-    /// `LaunchScreenshotUITests.repoRoot()`.
-    private static func repoRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // MapleUITests/
-            .deletingLastPathComponent()  // apple/
-            .deletingLastPathComponent()  // src/
-            .deletingLastPathComponent()  // repo root
-    }
-
-    private static func fixtureRoot() -> String {
-        if let explicit = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"],
-           !explicit.isEmpty {
-            return explicit
-        }
-        return Self.repoRoot().appendingPathComponent("test-fixtures/raws").path
-    }
-
     /// THE #1769 GATE: cold-open `test_0002` on the GPU-live canvas while
     /// driving the exact layout-churn triggers of the splice (rotation during
     /// AND after the cold open — every rotation frame fires `layoutSubviews`
@@ -70,13 +52,9 @@ final class IpadPresentSeamUITests: XCTestCase {
     /// assert the canvas holds ONE coherent frame via the row-luminance seam
     /// detector.
     func testColdOpenWithLayoutChurnHasNoSpliceSeam() throws {
-        let root = Self.fixtureRoot()
         let fixture = "test_0002.dng"
-        let fixtureURL = URL(fileURLWithPath: root).appendingPathComponent(fixture)
-        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
-            throw XCTSkip("UITest fixture missing: \(fixtureURL.path) " +
-                          "— set MAPLE_UITEST_FIXTURE_ROOT or check test-fixtures/raws/.")
-        }
+        let fixtureURL = try UITestFixtureRoot.locate(fixture)
+        let root = fixtureURL.deletingLastPathComponent().path
 
         let app = XCUIApplication()
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]

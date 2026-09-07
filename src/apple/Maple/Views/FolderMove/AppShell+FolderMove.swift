@@ -2,8 +2,9 @@
 // rows (#2847). Both engines' `moveFolder` (`LocalFileOperations+Folders`,
 // `SMBFileOperations+Folders`) were merged and tested with no UI entry
 // point — the sidebar only ever reached `renameFolder`. This is the
-// wiring: build the destination tree (`FolderMoveDestinations`), present
-// Maple UI's Move To Modal (`FolderMoveSheets.swift`), run the engine, and
+// wiring: build the destination tree (`FolderMoveDestinations`) behind
+// `FolderMoveVM`'s spinner phase (`FolderMove+VM.swift`), present Maple
+// UI's Move To Modal (`FolderMoveSheets.swift`), run the engine, and
 // repoint whatever the grid was showing — the same shape
 // `AppShell+FolderContextMenu.swift`'s rename path uses, plus a real
 // reload when the moved subtree is what's on screen (its asset URLs are
@@ -24,41 +25,51 @@ extension AppShell {
 
     /// Local: the destination tree is every folder under the row's saved
     /// root (the bookmark's scope covers the whole subtree), minus the
-    /// moving folder's own subtree. The walk runs off the main actor —
-    /// a large library is a deep directory tree — inside a scope claim on
-    /// the resolved root, then the prompt is published back on main.
+    /// moving folder's own subtree. `folderMove.begin` flips the overlay
+    /// to its spinner sheet before the walk starts and ignores a second
+    /// click while one is running; the walk itself runs off the main
+    /// actor (`walkLocalTree`) inside a scope claim on the resolved root.
     func beginLocalFolderMove(_ folderURL: URL, rootBookmark: Data) {
-        guard folderMovePrompt == nil, let root = resolveFolderBookmark(rootBookmark) else { return }
-        Task { @MainActor in
-            let nodes = await Task.detached(priority: .userInitiated) { () -> [FolderMoveDestination] in
-                let accessing = root.startAccessingSecurityScopedResource()
-                defer { if accessing { root.stopAccessingSecurityScopedResource() } }
-                return FolderMoveDestinations.localTree(
-                    root: root, rootName: root.lastPathComponent, excluding: folderURL)
-            }.value
-            folderMovePrompt = FolderMovePrompt(
-                target: .local(folderURL: folderURL, rootBookmark: rootBookmark), nodes: nodes)
+        guard let root = resolveFolderBookmark(rootBookmark) else { return }
+        folderMove.begin(.local(folderURL: folderURL, rootBookmark: rootBookmark)) {
+            await Self.walkLocalTree(root: root, excluding: folderURL)
+        }
+    }
+
+    /// The local walk on a detached task — a large library is a deep
+    /// directory tree — wired to the caller's cancellation so the sheet's
+    /// Cancel stops it at the next directory (`FolderMoveDestinations`
+    /// checks `Task.isCancelled` per level) instead of finishing a listing
+    /// nobody will see.
+    private static func walkLocalTree(root: URL, excluding folderURL: URL) async -> [FolderMoveDestination] {
+        let walk = Task.detached(priority: .userInitiated) { () -> [FolderMoveDestination] in
+            let accessing = root.startAccessingSecurityScopedResource()
+            defer { if accessing { root.stopAccessingSecurityScopedResource() } }
+            return FolderMoveDestinations.localTree(
+                root: root, rootName: root.lastPathComponent, excluding: folderURL)
+        }
+        return await withTaskCancellationHandler {
+            await walk.value
+        } onCancel: {
+            walk.cancel()
         }
     }
 
     /// SMB: the whole share's folder tree over one throwaway connection
     /// (`SMBSource.folderTree`), reachable for any saved share — same
-    /// reasoning `createSMBFolder` documents.
+    /// reasoning `createSMBFolder` documents. One network round trip per
+    /// directory, which is exactly why the spinner sheet exists; a
+    /// dismissed sheet cancels the walk at the next directory.
     func beginSMBFolderMove(_ path: String, share: SMBCredentialStore.SavedShare) {
-        guard folderMovePrompt == nil else { return }
-        Task { @MainActor in
+        folderMove.begin(.smb(share: share, path: path)) {
             guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
-                browseVM.loadError = FileOperationError.sourceMissing(
+                throw FileOperationError.sourceMissing(
                     "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
-                return
             }
-            do {
-                let nodes = try await SMBSource.folderTree(
-                    rootName: "\(share.host) / \(share.share)", excluding: path, credentials: creds)
-                folderMovePrompt = FolderMovePrompt(target: .smb(share: share, path: path), nodes: nodes)
-            } catch {
-                browseVM.loadError = error
-            }
+            return try await SMBSource.folderTree(
+                rootName: "\(share.host) / \(share.share)", excluding: path, credentials: creds)
+        } onFailure: { error in
+            browseVM.loadError = error
         }
     }
 
