@@ -22,6 +22,20 @@ namespace Maple.WinUI.ViewModels
         public double StepFrequency { get; }
         public double DefaultValue { get; }
 
+        /// <summary>DECODE-PRODUCT field: writing it invalidates the decoded
+        /// base, so the model write is held until the gesture ENDS instead of
+        /// firing per tick. The per-tick path (<see cref="EditSessionViewModel
+        /// .NotifyAdjustmentEdited"/>) only re-runs the GPU chain over the
+        /// existing base, so it could not show these fields at all; the
+        /// deferred write goes through <see cref="EditSessionViewModel
+        /// .ApplyDecodeFieldEdit"/>, which re-decodes once. Mirrors the web
+        /// `ToolSubParam.commitOnRelease` flag (#1153 / #3414).</summary>
+        public bool CommitOnRelease { get; }
+
+        /// <summary>Parked value awaiting the gesture's end; null when
+        /// nothing is pending. Only ever set for a commit-on-release row.</summary>
+        private double? _deferred;
+
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(FormattedValue))]
         [NotifyPropertyChangedFor(nameof(IsModified))]
@@ -34,7 +48,7 @@ namespace Maple.WinUI.ViewModels
             EditSessionViewModel session, string label,
             double min, double max, double step,
             Func<AdjustmentState, double> get, Action<AdjustmentState, double> set,
-            Func<double, string>? format = null)
+            Func<double, string>? format = null, bool commitOnRelease = false)
         {
             _session = session;
             Label = label;
@@ -44,6 +58,7 @@ namespace Maple.WinUI.ViewModels
             _get = get;
             _set = set;
             _format = format ?? (v => v.ToString("0"));
+            CommitOnRelease = commitOnRelease;
             DefaultValue = get(new AdjustmentState());
             _value = get(session.Adjustments);
         }
@@ -51,21 +66,50 @@ namespace Maple.WinUI.ViewModels
         partial void OnValueChanged(double value)
         {
             if (_suppress) return;
+            if (CommitOnRelease)
+            {
+                // Park it: the value chip and the modified dot read `Value`,
+                // not the model, so the row still tracks the drag live while
+                // the expensive re-decode waits for the release.
+                _deferred = value;
+                return;
+            }
             _set(_session.Adjustments, value);
             _session.NotifyAdjustmentEdited();
         }
 
+        /// <summary>Flush a parked commit-on-release value as the single model
+        /// write of the whole gesture. Called from the slider row's
+        /// pointer-capture-lost / key-up handlers; a no-op for every per-tick
+        /// row, which never parks anything.</summary>
+        public void CommitDeferred()
+        {
+            if (_deferred is not double value) return;
+            _deferred = null;
+            _session.ApplyDecodeFieldEdit(state => _set(state, value));
+        }
+
         /// <summary>Refresh from the model without echoing back (sidecar reload,
-        /// preset apply, undo).</summary>
+        /// preset apply, undo). Drops any parked value: the model it would have
+        /// been written onto is gone.</summary>
         public void SyncFromModel()
         {
             _suppress = true;
+            _deferred = null;
             Value = _get(_session.Adjustments);
             _suppress = false;
         }
 
-        /// <summary>Double-tap reset per the drag-bar spec.</summary>
-        public void Reset() => Value = DefaultValue;
+        /// <summary>Double-tap reset per the drag-bar spec. A reset is an
+        /// explicit, discrete edit, so it writes through immediately even on a
+        /// commit-on-release row — the assignment parks the default, and the
+        /// flush below is what lands it (and no-ops when the row was already
+        /// at its default, so nothing was parked).</summary>
+        public void Reset()
+        {
+            Value = DefaultValue;
+            CommitDeferred();
+        }
     }
 
     /// <summary>A titled expander group of sliders (Tone, Color & WB, ...).</summary>
@@ -93,7 +137,8 @@ namespace Maple.WinUI.ViewModels
             AdjustmentSliderViewModel Sl(
                 string label, double min, double max, double step,
                 Func<AdjustmentState, double> get, Action<AdjustmentState, double> set,
-                Func<double, string>? fmt = null) => new(s, label, min, max, step, get, set, fmt);
+                Func<double, string>? fmt = null, bool commitOnRelease = false) =>
+                new(s, label, min, max, step, get, set, fmt, commitOnRelease);
 
             var ev = (Func<double, string>)(v => $"{v:+0.00;-0.00;0.00} EV");
             var kelvin = (Func<double, string>)(v => $"{v:0} K");
@@ -158,6 +203,18 @@ namespace Maple.WinUI.ViewModels
                     Sl("Sharpen Masking", 0, 100, 1, m => m.SharpenMasking, (m, v) => m.SharpenMasking = v),
                     Sl("Noise", 0, 100, 1, m => m.NrLuminance, (m, v) => m.NrLuminance = v),
                     Sl("Color NR", 0, 100, 1, m => m.NrColor, (m, v) => m.NrColor = v),
+                    // Capture sharpening (#3414) — Richardson-Lucy deconvolution.
+                    // Both fields are DECODE-OWNED (`StripChainStages` keeps them,
+                    // `DecodeInputsChanged` watches them), so both commit on
+                    // release: a per-tick write would re-decode the RAW on every
+                    // pointer sample. Ranges match the canonical schema
+                    // (0..100 default 0; 0.5..2.0 default 1.0) and Apple's pills.
+                    Sl("Deconv", 0, 100, 1,
+                        m => m.CaptureSharpeningAmount, (m, v) => m.CaptureSharpeningAmount = v,
+                        commitOnRelease: true),
+                    Sl("Deconv Sigma", 0.5, 2, 0.01,
+                        m => m.CaptureSharpeningSigma, (m, v) => m.CaptureSharpeningSigma = v,
+                        v => v.ToString("0.00"), commitOnRelease: true),
                 }, expanded: false),
 
                 new("Tone Curve", new[]

@@ -126,6 +126,10 @@ namespace Maple.WinUI.Services
             || before.LensProfileEnable != after.LensProfileEnable
             || Math.Abs(before.LensCorrectionDistortion - after.LensCorrectionDistortion) > 1e-6
             || Math.Abs(before.CaptureSharpeningAmount - after.CaptureSharpeningAmount) > 1e-6
+            // Sigma is the deconvolution PSF width — as decode-owned as Amount
+            // (#3414). Without it a Sigma-only edit changed the sidecar and
+            // never re-decoded, so the preview kept the old kernel.
+            || Math.Abs(before.CaptureSharpeningSigma - after.CaptureSharpeningSigma) > 1e-6
             || Math.Abs(before.DeepDenoise - after.DeepDenoise) > 1e-6;
 
         /// <summary>

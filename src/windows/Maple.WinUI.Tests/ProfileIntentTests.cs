@@ -49,6 +49,36 @@ namespace Maple.WinUI.Tests
             Assert.False(RenderEngine.DecodeInputsChanged(auto, new AdjustmentState { Exposure = 1 }));
         }
 
+        /// <summary>Capture sharpening (#3414) runs inside the decode, so BOTH
+        /// of its fields have to invalidate the decoded base and BOTH have to
+        /// survive the chain strip — otherwise the two Detail sliders would
+        /// write the sidecar and never change a pixel on screen.</summary>
+        [Fact]
+        public void CaptureSharpeningIsDecodeOwnedInBothFields()
+        {
+            var baseline = new AdjustmentState();
+            var amount = new AdjustmentState { CaptureSharpeningAmount = 60 };
+            var sigma = new AdjustmentState { CaptureSharpeningSigma = 0.8 };
+
+            Assert.True(RenderEngine.DecodeInputsChanged(baseline, amount));
+            Assert.True(RenderEngine.DecodeInputsChanged(amount, baseline));
+            Assert.True(RenderEngine.DecodeInputsChanged(baseline, sigma));
+            Assert.True(RenderEngine.DecodeInputsChanged(sigma, baseline));
+
+            // StripChainStages zeroes the GPU-chain sliders and KEEPS the
+            // decode-owned ones — the decode is what applies them.
+            var stripped = RenderEngine.StripChainStages(
+                new AdjustmentState
+                {
+                    CaptureSharpeningAmount = 60,
+                    CaptureSharpeningSigma = 0.8,
+                    SharpenAmount = 120,
+                });
+            Assert.Equal(60, stripped.CaptureSharpeningAmount);
+            Assert.Equal(0.8, stripped.CaptureSharpeningSigma);
+            Assert.Equal(0, stripped.SharpenAmount);
+        }
+
         [Theory]
         [InlineData("", ProfileMode.Auto)]
         [InlineData("papp:Look=\"Default\"", ProfileMode.Auto)]
