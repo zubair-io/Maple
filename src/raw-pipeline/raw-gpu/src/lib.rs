@@ -291,7 +291,7 @@ pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;
-pub use defringe::DefringePass;
+pub use defringe::{DefringeInputs, DefringePass};
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use display_tone_curve::{
