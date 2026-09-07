@@ -47,7 +47,7 @@ DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline
 | 7   | `baseline_exposure`                         | inline in `develop/mod.rs`                                     | camera RGB (one gain per channel)                                              |
 | 8   | WB pre-gain (divide by `AsShotNeutral`)     | `stages/white_balance.rs`                                      | camera RGB                                                                     |
 | 9   | `highlight_recovery`                        | `stages/highlight_recovery.rs`                                 | camera RGB, post-pre-gain                                                      |
-| 10   | `wb_camera::apply` (user temperature/tint)  | `stages/wb_camera.rs`                                          | camera-native linear RGB                                                       |
+| 10  | `wb_camera::apply` (user temperature/tint)  | `stages/wb_camera.rs`                                          | camera-native linear RGB                                                       |
 | 11  | `dcp::apply_colorimetry`                    | `color/dcp.rs`, `color/hsm.rs`                                 | camera RGB → linear ProPhoto D50 (CM/FM + HSM) → **scene-linear Rec.2020 D65** |
 | 12  | `highlight_recovery_oklab`                  | `stages/highlight_recovery_oklab.rs`                           | scene-linear Rec.2020, via Oklab                                               |
 | 13  | `chroma_prefilter`                          | `stages/chroma_prefilter.rs`                                   | scene-linear Rec.2020                                                          |
