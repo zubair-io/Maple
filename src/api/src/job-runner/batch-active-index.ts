@@ -3,7 +3,9 @@ import type { Collection } from 'mongodb';
 const readiness = new Map<string, Promise<void>>();
 
 /** Fail closed until the cross-client active-library fence is available. */
-export function ensureBatchActiveLibraryIndex(collection: Collection): Promise<void> {
+export function ensureBatchActiveLibraryIndex(
+  collection: Pick<Collection, 'namespace' | 'createIndex'>,
+): Promise<void> {
   const existing = readiness.get(collection.namespace);
   if (existing) return existing;
   const pending = collection

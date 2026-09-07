@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { Elysia } from 'elysia';
 import { type MongoClient, ObjectId } from 'mongodb';
 import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
-import { closeDb, getDb } from '../db/client.ts';
+import { assetChangesCollection, closeDb, getDb } from '../db/client.ts';
 import { registerRoot, unregisterRoot } from '../fs/root.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -119,12 +119,12 @@ describe('persisted batch adjustment sync', () => {
     const asset = await db.collection('assets').findOne({ _id: assetId });
     expect(asset?.sidecar_ver).toBe(8);
     expect(asset?.has_xmp).toBe(true);
-    const rows = await db.collection('asset_changes').find({ asset_id: assetId }).toArray();
+    const changes = await assetChangesCollection();
+    const rows = await changes.find({ asset_id: assetId }).toArray();
     expect(rows).toHaveLength(1);
     expect(rows[0].abs_path).toBe(photo.path);
     expect(rows[0].relative_path).toBe('copies/selected.jpg');
     expect(rows[0].folder_id).toEqual(library!._id);
-    // Publish the exact durable row, including its real Mongo ID and time.
     expect(getChangeBus().snapshot()).toEqual(rows);
     const again = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
     expect(again.result.applied).toEqual([photo.id]);
