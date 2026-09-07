@@ -71,6 +71,17 @@ namespace Maple.UI
         private readonly Border _radiusYPin = Pin();
         private readonly Border _rotatePin = Pin();
 
+        // Hoisted so a drag (Shape reassigned, and therefore Rebuild(), on
+        // every PointerMoved) never allocates a fresh SolidColorBrush or
+        // re-resolves an Application.Current.Resources lookup per frame —
+        // the geometry is the only thing Rebuild() still recomputes.
+        private static readonly SolidColorBrush StrokeBrush =
+            new(Windows.UI.Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF)); // white @ 0.9
+        private static readonly SolidColorBrush PinBorderBrush =
+            new(Windows.UI.Color.FromArgb(0x80, 0, 0, 0)); // black @ 0.5
+        private readonly Brush _pinBackground;
+        private readonly Brush _rotateBackground;
+
         private MuiMaskHandle? _draggingHandle;
 
         public MuiMaskOverlay()
@@ -92,6 +103,18 @@ namespace Maple.UI
             PointerReleased += (_, _) => EndDrag();
             PointerCanceled += (_, _) => EndDrag();
             PointerCaptureLost += (_, _) => _draggingHandle = null;
+
+            _pinBackground = R("MapleSurface");
+            _rotateBackground = R("MaplePrimary");
+            _axis.Stroke = StrokeBrush;
+            _outline.Stroke = StrokeBrush;
+            foreach (var pin in new[] { _startPin, _endPin, _bodyHandle, _centerPin, _radiusXPin, _radiusYPin })
+            {
+                pin.Background = _pinBackground;
+                pin.BorderBrush = PinBorderBrush;
+            }
+            _rotatePin.Background = _rotateBackground;
+            _rotatePin.BorderBrush = PinBorderBrush;
 
             Content = _canvas;
             IsHitTestVisible = true;
@@ -156,18 +179,6 @@ namespace Maple.UI
 
             if (Shape is null)
                 return;
-
-            var strokeBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF)); // white @ 0.9
-            _axis.Stroke = strokeBrush;
-            _outline.Stroke = strokeBrush;
-
-            foreach (var pin in new[] { _startPin, _endPin, _bodyHandle, _centerPin, _radiusXPin, _radiusYPin })
-            {
-                pin.Background = R("MapleSurface");
-                pin.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(0x80, 0, 0, 0)); // black @ 0.5
-            }
-            _rotatePin.Background = R("MaplePrimary");
-            _rotatePin.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(0x80, 0, 0, 0));
 
             switch (Shape)
             {
