@@ -112,6 +112,13 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   film_look: 'Absolute',
   film_strength: 'Absolute',
   crop: 'AssetRelative',
+  perspective_vertical: 'Absolute',
+  perspective_horizontal: 'Absolute',
+  perspective_rotate: 'Absolute',
+  perspective_scale: 'Absolute',
+  perspective_aspect: 'Absolute',
+  perspective_x: 'Absolute',
+  perspective_y: 'Absolute',
   local_adjustments: 'Unsupported',
   inpaint_removals: 'Unsupported',
   mask_rasters: 'Unsupported',
@@ -231,6 +238,13 @@ export const TRANSFER_XMP_ATTRIBUTES: Readonly<Record<string, readonly string[]>
     'crs:CropAngle',
     'crs:CropConstrainToWarp',
   ],
+  perspective_vertical: ['crs:PerspectiveVertical'],
+  perspective_horizontal: ['crs:PerspectiveHorizontal'],
+  perspective_rotate: ['crs:PerspectiveRotate'],
+  perspective_scale: ['crs:PerspectiveScale'],
+  perspective_aspect: ['crs:PerspectiveAspect'],
+  perspective_x: ['crs:PerspectiveX'],
+  perspective_y: ['crs:PerspectiveY'],
 };
 
 export const TRANSFER_XMP_ELEMENTS: Readonly<Record<string, string>> = {

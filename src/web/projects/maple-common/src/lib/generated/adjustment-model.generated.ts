@@ -253,6 +253,20 @@ export interface GeneratedAdjustmentModel {
   lensCorrectionCa: number;
   /** Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
   lensCorrectionVignetting: number;
+  /** Vertical keystone correction (#3410, `crs:PerspectiveVertical`). Projective coefficient about the image centre: positive converges the bottom edge (the correction for a camera tilted up at a building). 0 (default) contributes an identity row to the homography. Range: [-100.0, 100.0]. */
+  perspectiveVertical: number;
+  /** Horizontal keystone correction (#3410, `crs:PerspectiveHorizontal`). Projective coefficient about the image centre: positive converges the right edge. 0 (default) is identity. Range: [-100.0, 100.0]. */
+  perspectiveHorizontal: number;
+  /** Geometry rotation in degrees, positive = clockwise (#3410, `crs:PerspectiveRotate`). Adobe's ±10° fine level, independent of `crop.angle`'s ±45° straighten: this one rotates INSIDE the frame the crop then samples, so the two compose rather than replace one another. 0 (default) is identity. Range: [-10.0, 10.0]. */
+  perspectiveRotate: number;
+  /** Uniform scale about the image centre, in percent (#3410, `crs:PerspectiveScale`). Below 100 shrinks the frame's content inward (exposing the transparent surround a keystone leaves behind); above 100 magnifies it to push that surround off-frame. 100 (default) is identity. Range: [50.0, 150.0]. */
+  perspectiveScale: number;
+  /** Aspect stretch (#3410, `crs:PerspectiveAspect`). Positive stretches horizontally and compresses vertically by the reciprocal factor, so frame area is preserved; negative does the opposite. 0 (default) is identity. Range: [-100.0, 100.0]. */
+  perspectiveAspect: number;
+  /** Horizontal offset of the transformed frame (#3410, `crs:PerspectiveX`). ±100 shifts by one half-extent — half the frame width. 0 (default) is identity. Range: [-100.0, 100.0]. */
+  perspectiveX: number;
+  /** Vertical offset of the transformed frame (#3410, `crs:PerspectiveY`). ±100 shifts by one half-extent — half the frame height. 0 (default) is identity. Range: [-100.0, 100.0]. */
+  perspectiveY: number;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -366,6 +380,13 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     lensCorrectionDistortion: 100.0,
     lensCorrectionCa: 100.0,
     lensCorrectionVignetting: 100.0,
+    perspectiveVertical: 0.0,
+    perspectiveHorizontal: 0.0,
+    perspectiveRotate: 0.0,
+    perspectiveScale: 100.0,
+    perspectiveAspect: 0.0,
+    perspectiveX: 0.0,
+    perspectiveY: 0.0,
   };
 }
 
