@@ -4,9 +4,12 @@
 // `AssetDropSheets.swift`: one place for the present/confirm/dismiss logic
 // so the two shells can't drift.
 //
-// The picker itself is Maple UI's Move To Modal (`MuiMoveToModal`, catalog
-// §4.4) — the same destination-tree organism the web reference uses for
-// asset moves — hosted as a window-level `.overlay` because Overlay Shell
+// Two phases, driven by `FolderMoveVM` (`FolderMove+VM.swift`): while the
+// destination tree is being built, a small Overlay Shell with a Spinner
+// ("Finding folders…") and a Cancel — up the instant the user asks, so a
+// long SMB walk never looks like a dropped click (PR #3429 review); once
+// the tree is ready, Maple UI's Move To Modal (`MuiMoveToModal`, catalog
+// §4.4). Both are hosted as a window-level `.overlay` because Overlay Shell
 // paints its own scrim rather than living inside a system sheet.
 
 import SwiftUI
@@ -14,8 +17,8 @@ import MapleCore
 import MapleUI
 
 /// What the picker is moving, plus the destination tree it offers. Built
-/// by `AppShell.beginLocalFolderMove` / `beginSMBFolderMove`; consumed by
-/// `AppShell.confirmFolderMove`.
+/// by `FolderMoveVM.begin` from `AppShell.beginLocalFolderMove` /
+/// `beginSMBFolderMove`; consumed by `AppShell.confirmFolderMove`.
 struct FolderMovePrompt: Identifiable {
     enum Target {
         case local(folderURL: URL, rootBookmark: Data)
@@ -28,45 +31,75 @@ struct FolderMovePrompt: Identifiable {
 }
 
 extension View {
-    /// Attaches the "Move Folder to…" picker. `onConfirm` receives the
-    /// prompt and the chosen destination's id — the absolute path (local)
-    /// or share-relative path (SMB) the engine's `moveFolder(_:into:)`
-    /// takes as the new parent.
+    /// Attaches the "Move Folder to…" picker and its loading sheet.
+    /// `onConfirm` receives the prompt and the chosen destination's id —
+    /// the absolute path (local) or share-relative path (SMB) the engine's
+    /// `moveFolder(_:into:)` takes as the new parent.
     func folderMoveOverlay(
-        prompt: Binding<FolderMovePrompt?>,
+        vm: FolderMoveVM,
         onConfirm: @escaping (FolderMovePrompt, String) -> Void
     ) -> some View {
         overlay {
             // Keyed on the prompt's identity so every presentation starts
             // with a fresh selection and collapsed tree — the modal keeps
             // its expansion set as private state.
-            FolderMoveModalHost(prompt: prompt, onConfirm: onConfirm)
-                .id(prompt.wrappedValue?.id)
+            FolderMoveModalHost(vm: vm, onConfirm: onConfirm)
+                .id(vm.prompt?.id)
         }
     }
 }
 
 private struct FolderMoveModalHost: View {
-    @Binding var prompt: FolderMovePrompt?
+    let vm: FolderMoveVM
     let onConfirm: (FolderMovePrompt, String) -> Void
 
     @State private var selectedID: String?
 
     var body: some View {
-        MuiMoveToModal(
-            isPresented: prompt != nil,
-            nodes: (prompt?.nodes ?? []).map { node in
-                MuiMoveToTreeNode(
-                    id: node.id, parentId: node.parentID, name: node.name,
-                    depth: node.depth, hasChildren: node.hasChildren)
-            },
-            selectedId: $selectedID,
-            moveConfirmed: { destination in
-                guard let confirmed = prompt else { return }
-                prompt = nil
-                onConfirm(confirmed, destination)
-            },
-            dismissed: { prompt = nil }
-        )
+        ZStack {
+            FolderMovePreparingSheet(isPresented: vm.isPreparing) { vm.cancel() }
+            MuiMoveToModal(
+                isPresented: vm.prompt != nil,
+                nodes: (vm.prompt?.nodes ?? []).map { node in
+                    MuiMoveToTreeNode(
+                        id: node.id, parentId: node.parentID, name: node.name,
+                        depth: node.depth, hasChildren: node.hasChildren)
+                },
+                selectedId: $selectedID,
+                moveConfirmed: { destination in
+                    guard let confirmed = vm.finish() else { return }
+                    onConfirm(confirmed, destination)
+                },
+                dismissed: { vm.cancel() }
+            )
+        }
+    }
+}
+
+/// The loading state: same Overlay Shell chrome the picker will replace it
+/// with, a Spinner (spinner.md — inline next to its label), and a Cancel
+/// that stops the walk. Dismissing via the scrim cancels too.
+private struct FolderMovePreparingSheet: View {
+    let isPresented: Bool
+    let cancel: () -> Void
+
+    var body: some View {
+        MuiOverlayShell(isPresented: isPresented, size: .sm, accessibilityLabel: "Move To") {
+            MuiText("Move To", variant: .sheetTitle)
+        } content: {
+            HStack(spacing: MuiTokens.spacingSm) {
+                MuiSpinner(size: .md, label: "Finding folders")
+                MuiText("Finding folders…", color: .muted)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("folder-move-preparing")
+        } footer: {
+            HStack {
+                Spacer()
+                MuiButton(label: "Cancel", variant: .ghost) { cancel() }
+            }
+        } dismissed: {
+            cancel()
+        }
     }
 }
