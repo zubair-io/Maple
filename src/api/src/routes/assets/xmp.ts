@@ -47,37 +47,16 @@ import {
   deleteConflictSidecar,
 } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
-import {
-  findCoreInfoById,
-  parseAssetId,
-  setHasXmp,
-  recordSidecarEdit,
-} from '../../db/assets.repo.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { setHasXmp, recordSidecarEdit } from '../../db/assets.repo.ts';
+import { resolveAssetLocationOrRespond } from './_shared.ts';
 
 export const xmpRoutes = new Elysia()
   // Read XMP sidecar
   .get('/:id/xmp', async ({ params, query, set }) => {
     markDeprecated(set);
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
-    }
-
-    const info = await findCoreInfoById(id);
-    if (!info) {
-      set.status = 404;
-      return { error: 'Asset not found' };
-    }
-
-    const libs = await loadLibraryRoots();
-    const absPath = assetAbsPath(info, libs);
-    if (!absPath) {
-      set.status = 404;
-      return { error: 'Asset has no resolvable location' };
-    }
+    const resolved = await resolveAssetLocationOrRespond(params.id, set);
+    if ('error' in resolved) return resolved;
+    const { info, absPath } = resolved;
 
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     if (conflict !== null) {
@@ -128,24 +107,9 @@ export const xmpRoutes = new Elysia()
     // fallow-ignore-next-line complexity
     async ({ params, body, headers, query, set }) => {
       markDeprecated(set);
-      const id = parseAssetId(params.id);
-      if (!id) {
-        set.status = 400;
-        return { error: 'Invalid asset id' };
-      }
-
-      const info = await findCoreInfoById(id);
-      if (!info) {
-        set.status = 404;
-        return { error: 'Asset not found' };
-      }
-
-      const libs = await loadLibraryRoots();
-      const absPath = assetAbsPath(info, libs);
-      if (!absPath) {
-        set.status = 404;
-        return { error: 'Asset has no resolvable location' };
-      }
+      const resolved = await resolveAssetLocationOrRespond(params.id, set);
+      if ('error' in resolved) return resolved;
+      const { id, info, absPath } = resolved;
 
       const xmlContent =
         typeof body === 'string'
@@ -227,22 +191,9 @@ export const xmpRoutes = new Elysia()
   // Delete XMP sidecar (idempotent).
   .delete('/:id/xmp', async ({ params, query, set }) => {
     markDeprecated(set);
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
-    }
-    const info = await findCoreInfoById(id);
-    if (!info) {
-      set.status = 404;
-      return { error: 'Asset not found' };
-    }
-    const libs = await loadLibraryRoots();
-    const absPath = assetAbsPath(info, libs);
-    if (!absPath) {
-      set.status = 404;
-      return { error: 'Asset has no resolvable location' };
-    }
+    const resolved = await resolveAssetLocationOrRespond(params.id, set);
+    if ('error' in resolved) return resolved;
+    const { id, info, absPath } = resolved;
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null

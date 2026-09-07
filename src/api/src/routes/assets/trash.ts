@@ -36,9 +36,8 @@ import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
+import { resolveAssetAbsPathOrRespond } from './_shared.ts';
 
 /** Map a `restoreAssetById` outcome to its HTTP status + body. Split out of
  * the route handler below purely to keep that handler's own cyclomatic
@@ -113,13 +112,9 @@ async function purgeTrashedAsset(
     }).catch(() => {});
     return;
   }
-  const libs = await loadLibraryRoots();
-  const absPathResolved = assetAbsPath(info, libs);
-  if (!absPathResolved) {
-    set.status = 404;
-    return { error: 'Asset has no resolvable location' };
-  }
-  const absPath = absPathResolved;
+  const located = await resolveAssetAbsPathOrRespond(info, set);
+  if ('error' in located) return located;
+  const { absPath } = located;
   try {
     await unlink(absPath);
   } catch {
