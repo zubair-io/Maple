@@ -118,14 +118,13 @@ public struct MuiVectorscope: View {
         guard maxCount > 0 else { return }
         let cell = (radius * 2) / CGFloat(n)
         for row in 0..<n {
-            for col in 0..<n where bins[row][col] > 0 {
+            for col in 0..<min(n, bins[row].count) where bins[row][col] > 0 {
                 let t = log(1 + Double(bins[row][col])) / log(1 + Double(maxCount))
                 // Bin (row, col) covers an n×n grid over the SAME [-0.5,
                 // 0.5] chroma square `canvasPoint` maps — row 0 is the
                 // most-negative cr (matches `canvasPoint`'s cr-grows-up,
                 // so the top row is HIGH cr, hence `0.5 - row/n`).
-                var cb = Double(col) / Double(n) - 0.5
-                var cr = 0.5 - Double(row) / Double(n)
+                var (cb, cr) = MuiVectorscopeMath.binCentre(row: row, col: col, n: n)
                 if redAt3OClock {
                     (cb, cr) = MuiVectorscopeMath.rotated(cb: cb, cr: cr, by: rotationDeg)
                 }

@@ -88,4 +88,17 @@ final class MuiVectorscopeMathTests: XCTestCase {
         // target real skin).
         XCTAssertEqual(MuiVectorscopeMath.skinToneLineAngleDeg, 123.0, accuracy: 0.01)
     }
+
+    func testBinCentresTileTheChromaSquareExactly() {
+        // 4 × 4: centres at ±0.125 / ±0.375, so cells of width 0.25 span
+        // exactly [-0.5, 0.5] — no half-cell bleed past the edge.
+        let topLeft = MuiVectorscopeMath.binCentre(row: 0, col: 0, n: 4)
+        XCTAssertEqual(topLeft.cb, -0.375, accuracy: 1e-12)
+        XCTAssertEqual(topLeft.cr, 0.375, accuracy: 1e-12)
+        let bottomRight = MuiVectorscopeMath.binCentre(row: 3, col: 3, n: 4)
+        XCTAssertEqual(bottomRight.cb, 0.375, accuracy: 1e-12)
+        XCTAssertEqual(bottomRight.cr, -0.375, accuracy: 1e-12)
+        XCTAssertEqual(topLeft.cb - 0.125, -0.5, accuracy: 1e-12)
+        XCTAssertEqual(bottomRight.cb + 0.125, 0.5, accuracy: 1e-12)
+    }
 }
