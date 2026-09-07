@@ -26,6 +26,8 @@ export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
 
 export type LensProfileEnable = 'Off' | 'On';
 
+export type AutoLateralCa = 'Off' | 'On';
+
 export type WbMethod = 'Cat16' | 'DiagonalRec2020';
 
 export type WbSource = 'AsShot' | 'Auto' | 'Preset' | 'Sampled' | 'Manual';
@@ -271,6 +273,20 @@ export interface GeneratedAdjustmentModel {
   perspectiveY: number;
   /** Bayer demosaic kernel override (#3413). 'Auto' (default) picks from the frame's noise profile and size — LMMSE when noisy, the AMaZE+VNG4 dual on a large clean frame, AMaZE alone on a small one; every other value pins one kernel. Inert on the binned fit-view path and on non-Bayer sources. XMP key `papp:Demosaic`. Part of the decoded-image cache key. */
   demosaic: DemosaicChoice;
+  /** Profile-free lateral chromatic-aberration correction (#3411). 'On' estimates the radial R/B-vs-G displacement from the mosaic itself and resamples both planes before demosaic; 'Off' (default, matching ACR's unticked 'Remove Chromatic Aberration') skips the stage bit-identically. Self-skips on a RAW whose OpcodeList3 already carries per-plane WarpRectilinear coefficients. XMP key `crs:AutoLateralCA`. Part of the decoded-image cache key. */
+  autoLateralCa: AutoLateralCa;
+  /** Purple-fringe suppression strength (#3411), ACR's Defringe amount. Desaturates in-band chroma next to high-contrast edges in scene-linear Oklab; 0 (default) skips the stage bit-identically. XMP key `crs:DefringePurpleAmount`. Range: [0.0, 20.0]. */
+  defringePurpleAmount: number;
+  /** Low edge of the purple hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringePurpleAmount` is 0. XMP key `crs:DefringePurpleHueLo`. Range: [0.0, 100.0]. */
+  defringePurpleHueLo: number;
+  /** High edge of the purple hue band (#3411). XMP key `crs:DefringePurpleHueHi`. Range: [0.0, 100.0]. */
+  defringePurpleHueHi: number;
+  /** Green-fringe suppression strength (#3411), ACR's Defringe amount for the green family. 0 (default) skips the stage bit-identically. XMP key `crs:DefringeGreenAmount`. Range: [0.0, 20.0]. */
+  defringeGreenAmount: number;
+  /** Low edge of the green hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringeGreenAmount` is 0. XMP key `crs:DefringeGreenHueLo`. Range: [0.0, 100.0]. */
+  defringeGreenHueLo: number;
+  /** High edge of the green hue band (#3411). XMP key `crs:DefringeGreenHueHi`. Range: [0.0, 100.0]. */
+  defringeGreenHueHi: number;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -392,6 +408,13 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     perspectiveX: 0.0,
     perspectiveY: 0.0,
     demosaic: 'Auto',
+    autoLateralCa: 'Off',
+    defringePurpleAmount: 0.0,
+    defringePurpleHueLo: 30.0,
+    defringePurpleHueHi: 70.0,
+    defringeGreenAmount: 0.0,
+    defringeGreenHueLo: 40.0,
+    defringeGreenHueHi: 60.0,
   };
 }
 
