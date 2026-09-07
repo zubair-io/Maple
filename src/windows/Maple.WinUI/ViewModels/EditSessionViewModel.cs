@@ -66,12 +66,19 @@ namespace Maple.WinUI.ViewModels
         private AdjustmentState? _undoBaseline;
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
-        private IntPtr _decodeCancelFlag = IntPtr.Zero;
-        /// <summary>Cancel flag for a background AMaZE upgrade decode
-        /// (#3417 review) — separate from <see cref="_decodeCancelFlag"/>
+        /// <summary>Shared by <see cref="_decodeCancel"/> and
+        /// <see cref="_amazeCancel"/> (#3417 Jules review): a signal
+        /// (<see cref="CancelActiveDecode"/>) and a free (a decode task's
+        /// own cleanup) of the same native cancel-flag handle must never
+        /// interleave, or the signal can land on already-freed memory. See
+        /// <see cref="CancelFlagSlot"/>.</summary>
+        private readonly object _cancelGate = new();
+        private readonly CancelFlagSlot _decodeCancel;
+        /// <summary>Cancel-flag slot for a background AMaZE upgrade decode
+        /// (#3417 review) — separate handle from <see cref="_decodeCancel"/>
         /// since it can still be in flight after the Preview decode that
-        /// scheduled it has already finished and freed its own flag.</summary>
-        private IntPtr _amazeCancelFlag = IntPtr.Zero;
+        /// scheduled it has already finished and released its own flag.</summary>
+        private readonly CancelFlagSlot _amazeCancel;
         private int _decodeGeneration;
         private string? _lastSidecarWriteText;
         /// <summary>The photo whose adjustments are currently loaded — the only
@@ -114,6 +121,13 @@ namespace Maple.WinUI.ViewModels
 
         public EditSessionViewModel()
         {
+            // Both slots share _cancelGate (#3417 Jules review) so every
+            // cancel-flag signal/free on the session is serialized under one
+            // lock, not just within each flag's own lifecycle.
+            _decodeCancel = new CancelFlagSlot(
+                RawFfi.maple_cancel_flag_set, RawFfi.maple_cancel_flag_free, _cancelGate);
+            _amazeCancel = new CancelFlagSlot(
+                RawFfi.maple_cancel_flag_set, RawFfi.maple_cancel_flag_free, _cancelGate);
             Sections = AdjustmentSections.Build(this);
             HslBands = AdjustmentSections.BuildHslBands(this);
             GradeZones = AdjustmentSections.BuildGradeZones(this);
@@ -221,7 +235,7 @@ namespace Maple.WinUI.ViewModels
             IsDecoding = true;
             DecodeStatus = $"Decoding {photo.FileName}…";
             var cancelFlag = RawFfi.maple_cancel_flag_new();
-            _decodeCancelFlag = cancelFlag;
+            _decodeCancel.Reset(cancelFlag);
             var model = Adjustments.Clone();
             _ = Task.Run(() =>
             {
@@ -246,23 +260,20 @@ namespace Maple.WinUI.ViewModels
                 }
                 finally
                 {
-                    RawFfi.maple_cancel_flag_free(cancelFlag);
+                    // Release, not a bare free (#3417 Jules review): frees
+                    // this task's own flag unconditionally, and clears
+                    // _decodeCancel's current handle only if it still IS
+                    // this one — a newer DecodeCurrent call may already have
+                    // installed a fresher flag that must not be clobbered.
+                    _decodeCancel.Release(cancelFlag);
                 }
             });
         }
 
         private void CancelActiveDecode()
         {
-            CancelFlag(ref _decodeCancelFlag);
-            CancelFlag(ref _amazeCancelFlag);
-        }
-
-        private static void CancelFlag(ref IntPtr flag)
-        {
-            var f = flag;
-            flag = IntPtr.Zero;
-            if (f != IntPtr.Zero)
-                RawFfi.maple_cancel_flag_set(f);
+            _decodeCancel.Cancel();
+            _amazeCancel.Cancel();
         }
 
         // --- Adjustment edits ---
