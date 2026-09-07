@@ -33,6 +33,7 @@ namespace Maple.WinUI
             _profileDescription.Foreground = (Brush)Application.Current.Resources["MapleTextMuted"];
             PanelProfileHost.Children.Add(_profileDescription);
             SyncProfilePanel();
+            BuildWhiteBalancePanel();   // #2434 — MainWindow.WhiteBalance.cs
         }
 
         private void SyncProfilePanel()
