@@ -90,9 +90,12 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
   ],
   // Lens Corrections (#2231) has no single primary drag-bar field — same
   // reason as colorGrade/filmLook above — so Detail gains a row too.
+  // Geometry (#3410) joins that row for the same reason: seven
+  // `crs:Perspective*` sliders and no single primary drag-bar field.
   detail: [
     { id: null, label: 'Basic' },
     { id: 'lensCorrections', label: 'Lens' },
+    { id: 'geometry', label: 'Geometry' },
   ],
 };
 

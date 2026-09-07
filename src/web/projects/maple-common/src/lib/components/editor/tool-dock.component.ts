@@ -52,6 +52,7 @@ import {
   type ToolId,
 } from '../../editor/tool-model';
 import { subParamsFor } from '../../editor/tool-sub-param';
+import { GEOMETRY_SLIDERS } from './geometry-panel.component';
 import { parityPlaceholders } from '../../editor/parity/editor-parity';
 import { LibraryStateService } from '../../state/library-state.service';
 import {
@@ -129,6 +130,13 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
   },
   { id: 'curve', icon: 'tool-contrast', label: 'Tone Curve', panel: true },
   { id: 'film', icon: 'tool-film', label: 'Film', tool: 'filmLook' },
+  // Geometry (#3410) — arms the seven-slider panel, with the same two routes
+  // Film has: this dock button AND the Detail sub-tool chip. Position mirrors
+  // ToolDock.swift's `SpecialDockButton(tool: .geometry)`, which sits between
+  // Film and Presets. NOT `exclusive`: it swaps the control-card BODY rather
+  // than replacing the group surface, so the Detail group button stays active
+  // while it is armed.
+  { id: 'geometry', icon: 'tool-geometry', label: 'Geometry', tool: 'geometry' },
   { id: 'presets', icon: 'tool-presets', label: 'Presets', panel: true },
   // HSL, B&W and Grade are reached from the Colour/Effects sub-tool row
   // inside the control card (see control-card.component.ts), not from the
@@ -149,11 +157,16 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
  *  - Film (#2683) is a catalog pick (a string id) plus the Strength scalar:
  *    the dot lights when a look is chosen OR Strength left its default —
  *    ToolDock.swift's GroupDockButton rule, mirrored exactly.
- *  - Mask (#1541) is a layer stack: modified once any layer exists. */
+ *  - Mask (#1541) is a layer stack: modified once any layer exists.
+ *  - Geometry (#3410) has seven fields and declares no sub-params (its panel
+ *    is bespoke, like Lens's), so the generic sub-param sweep below would find
+ *    nothing to compare — the dot lights when ANY of the seven left its
+ *    default. */
 const NON_SCALAR_MODIFIED: Partial<Record<ToolId, (adj: AdjustmentModel) => boolean>> = {
   crop: (adj) => !isIdentityCrop(adj.crop),
   filmLook: (adj) => adj.filmLook !== '' || adj.filmStrength !== GENERATED_DEFAULTS.filmStrength,
   mask: (adj) => adj.localAdjustments.length > 0,
+  geometry: (adj) => GEOMETRY_SLIDERS.some((s) => adj[s.field] !== GENERATED_DEFAULTS[s.field]),
 };
 
 /** Tools whose dock entry REPLACES the group's control surface (Crop) — a

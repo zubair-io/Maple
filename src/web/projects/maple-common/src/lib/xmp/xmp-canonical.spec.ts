@@ -103,6 +103,17 @@ function canonicalFixtureModel(): AdjustmentModel {
     hotPixelSuppression: 'On',
     profile: 'Neutral',
     crop: { top: 0.1, left: 0.05, bottom: 0.9, right: 0.95, angle: 2.5 },
+    // Manual geometry (#3410). Values deliberately avoid an exact two-decimal
+    // midpoint: `Math.round` carries a negative tie toward +∞ while Rust and
+    // Swift carry it away from zero, so a midpoint here would split this
+    // golden from its Swift twin (the #3400/#3401 class of bug).
+    perspectiveVertical: -20,
+    perspectiveHorizontal: 12.5,
+    perspectiveRotate: -3.5,
+    perspectiveScale: 110,
+    perspectiveAspect: -35,
+    perspectiveX: 8,
+    perspectiveY: -6,
     toneCurveLuma: {
       points: [
         [0, 0],
@@ -362,6 +373,13 @@ const CANONICAL_GOLDEN_DOCUMENT = `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSz
       crs:ParametricMidtoneSplit="55.5"
       crs:ParametricShadowSplit="30"
       crs:ParametricShadows="-1"
+      crs:PerspectiveAspect="-35"
+      crs:PerspectiveHorizontal="12.5"
+      crs:PerspectiveRotate="-3.5"
+      crs:PerspectiveScale="110"
+      crs:PerspectiveVertical="-20"
+      crs:PerspectiveX="8"
+      crs:PerspectiveY="-6"
       crs:PostCropVignetteAmount="-20"
       crs:PostCropVignetteFeather="40"
       crs:ProcessVersion="11.0"
