@@ -134,6 +134,13 @@ extension AdjustmentModel {
         case perspectiveX = "perspective_x"
         case perspectiveY = "perspective_y"
         case demosaic = "demosaic"
+        case autoLateralCa = "auto_lateral_ca"
+        case defringePurpleAmount = "defringe_purple_amount"
+        case defringePurpleHueLo = "defringe_purple_hue_lo"
+        case defringePurpleHueHi = "defringe_purple_hue_hi"
+        case defringeGreenAmount = "defringe_green_amount"
+        case defringeGreenHueLo = "defringe_green_hue_lo"
+        case defringeGreenHueHi = "defringe_green_hue_hi"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -330,6 +337,18 @@ extension AdjustmentModel {
     public static let perspectiveXRange: ClosedRange<Double> = -100.0...100.0
     /// Vertical offset of the transformed frame (#3410, `crs:PerspectiveY`). ±100 shifts by one half-extent — half the frame height. 0 (default) is identity.
     public static let perspectiveYRange: ClosedRange<Double> = -100.0...100.0
+    /// Purple-fringe suppression strength (#3411), ACR's Defringe amount. Desaturates in-band chroma next to high-contrast edges in scene-linear Oklab; 0 (default) skips the stage bit-identically. XMP key `crs:DefringePurpleAmount`.
+    public static let defringePurpleAmountRange: ClosedRange<Double> = 0.0...20.0
+    /// Low edge of the purple hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringePurpleAmount` is 0. XMP key `crs:DefringePurpleHueLo`.
+    public static let defringePurpleHueLoRange: ClosedRange<Double> = 0.0...100.0
+    /// High edge of the purple hue band (#3411). XMP key `crs:DefringePurpleHueHi`.
+    public static let defringePurpleHueHiRange: ClosedRange<Double> = 0.0...100.0
+    /// Green-fringe suppression strength (#3411), ACR's Defringe amount for the green family. 0 (default) skips the stage bit-identically. XMP key `crs:DefringeGreenAmount`.
+    public static let defringeGreenAmountRange: ClosedRange<Double> = 0.0...20.0
+    /// Low edge of the green hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringeGreenAmount` is 0. XMP key `crs:DefringeGreenHueLo`.
+    public static let defringeGreenHueLoRange: ClosedRange<Double> = 0.0...100.0
+    /// High edge of the green hue band (#3411). XMP key `crs:DefringeGreenHueHi`.
+    public static let defringeGreenHueHiRange: ClosedRange<Double> = 0.0...100.0
 
     // MARK: - Pipeline-output version (canonical, generated)
 
@@ -488,6 +507,13 @@ extension AdjustmentGroup {
                 "lens_correction_ca",
                 "lens_correction_vignetting",
                 "demosaic",
+                "auto_lateral_ca",
+                "defringe_purple_amount",
+                "defringe_purple_hue_lo",
+                "defringe_purple_hue_hi",
+                "defringe_green_amount",
+                "defringe_green_hue_lo",
+                "defringe_green_hue_hi",
             ]
         case .effects:
             return [

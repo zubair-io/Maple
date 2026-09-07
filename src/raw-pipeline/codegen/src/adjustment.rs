@@ -260,6 +260,9 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                     // Hot/dead-pixel suppression (#1106). Off until a
                     // harness sweep shows enabling is free on clean fixtures.
                     "HotPixelSuppressionMode" => "Off",
+                    // Profile-free lateral CA (#3411). Off, matching ACR's
+                    // unticked "Remove Chromatic Aberration" checkbox.
+                    "AutoLateralCa" => "Off",
                     // Black & white mix (#276). Colour render by default.
                     "BlackWhiteMode" => "Off",
                     // Bayer demosaic override (#3413). The noise-adaptive

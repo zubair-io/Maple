@@ -58,6 +58,13 @@ pub(crate) fn emit_enum_types(s: &mut String) {
     // raw-core::pipeline::pano::opcode_apply::LensCorrectionScales).
     s.push_str("export type LensProfileEnable = 'Off' | 'On';\n\n");
 
+    // Profile-free lateral chromatic-aberration correction (#3411). `Off`
+    // (default) matches ACR's unticked "Remove Chromatic Aberration"
+    // checkbox and skips the raw-domain stage bit-identically; `On`
+    // estimates the R/B-vs-G radial displacement from the mosaic itself
+    // (see raw-core::stages::lateral_ca).
+    s.push_str("export type AutoLateralCa = 'Off' | 'On';\n\n");
+
     // User white-balance method (ticket #431). `Cat16` performs proper
     // chromatic adaptation in CAT16 LMS cone space (default since #431);
     // `DiagonalRec2020` is the legacy von-Kries diagonal-gain path
