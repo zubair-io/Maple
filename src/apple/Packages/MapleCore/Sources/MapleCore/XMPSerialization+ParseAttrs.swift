@@ -117,6 +117,16 @@ extension _XMPParserDelegate {
       case "off": model.hotPixelSuppression = .off
       default: break
       }
+    // Bayer demosaic override (#3413) — Maple-proprietary enum, consumed
+    // by the Rust decode. Case-insensitive like the papp: enum parsers
+    // above; an unknown value keeps the `.auto` default rather than
+    // failing the parse, so a sidecar from a newer build still opens.
+    case "papp:Demosaic":
+      if let choice = DemosaicChoice.allCases.first(
+        where: { $0.rawValue.lowercased() == value.lowercased() })
+      {
+        model.demosaic = choice
+      }
     // S5 effects (#643) — Lightroom-compatible `crs:` keys.
     case "crs:PostCropVignetteAmount": model.vignetteAmount = d(value) ?? model.vignetteAmount
     case "crs:PostCropVignetteFeather": model.vignetteFeather = d(value) ?? model.vignetteFeather
