@@ -70,20 +70,66 @@ DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline
 
 The develop function returns the scene-linear `Image` (and, on the `_with_gain` entries, the scalar gain auto-exposure applied — the tile path threads that back in so a tile reproduces the full-image anchor).
 
-`RenderQuality` (`pipeline/mod.rs`) picks the demosaic: `Preview` uses the half-res quad kernel (4× fewer pixels downstream, and the buffer comes back at half dimensions — callers scale it themselves), `Full` uses **RCD** (#3412), and `Amaze` uses the tiled AMaZE kernel and is `maple-cli`'s default. Full is the on-screen path on every platform — the full-image develop, the sized develop, the deep-zoom tile chain and the pano decode all take it — so no on-screen render is bilinear.
+`RenderQuality` (`pipeline/mod.rs`) picks the demosaic: `Preview` uses the half-res quad kernel (4× fewer pixels downstream, and the buffer comes back at half dimensions — callers scale it themselves), `Full` uses **RCD** (#3412), `Amaze` uses the tiled AMaZE kernel and is `maple-cli`'s default, and `Auto` (#3413) asks `demosaic::policy` which kernel this particular frame wants. Full is the on-screen path on every platform — the full-image develop, the sized develop, the deep-zoom tile chain and the pano decode all take it — so no on-screen render is bilinear.
+
+All four Bayer dispatch sites call one selector, `pipeline::bayer_kernel`, so they cannot drift apart. It resolves the quality level's own default kernel against the sidecar's `papp:Demosaic` override, and at `Auto` against the policy below. `Preview` is the exception and returns `HalfRes` unconditionally: that path bins 2×2 before any reconstruction runs, so there is no kernel choice to make and the override is deliberately inert there. The FFI/wasm quality integer gained `3 → Auto` by appending, so every existing caller's number keeps its old meaning.
+
+#### Noise-adaptive selection (#3413)
+
+Before #3413 the kernel was a constant per quality level, so a 12800-ISO handheld frame got exactly the same treatment as a tripod-mounted base-ISO landscape — even though the two want opposite things from a demosaic. `RenderQuality::Auto`, which export and native-detail patches now request, applies three rules in order (`demosaic/policy.rs`, one named constant each):
+
+1. **Noisy frame → LMMSE.** "Noisy" means a mean per-plane noise standard deviation at mid grey of `LMMSE_SIGMA_MID_GREY` (0.008, i.e. 0.8 % of full scale — roughly ISO 3200 on a current full-frame body) or more, read from the DNG `NoiseProfile`'s `variance = scale · signal + offset` pairs. Files without that tag — most vendor RAW formats — fall back to `LMMSE_ISO_FALLBACK` (ISO 3200). The fallback is deliberately not derived from the synthetic noise model in `stages::nlm`: that model is calibrated for a denoiser's strength knob, not for absolute variance, and reading an absolute threshold off it would be a guess dressed as a measurement.
+2. **Large frame → dual AMaZE + VNG4.** At or above `DUAL_MIN_PIXELS` (20 MP).
+3. **Small frame → AMaZE alone.** The dual mode's second kernel is a real cost, and on a frame small enough that the whole demosaic is already cheap it buys a difference measured over too few pixels to matter.
+
+Nothing in the policy looks at whether the frame "seems" detailed — that decision is per-pixel and belongs to the dual mode's contrast mask, which measures it directly. The policy only picks which pair of kernels the mask gets to choose between. A user who has picked a kernel by hand (`papp:Demosaic`, surfaced as the Detail → Basic picker on Apple and Web) always gets that kernel instead.
 
 **RCD** (`demosaic/rcd/`) is Ratio Corrected Demosaicing, written from the published description of Luis Sanz Rodríguez's method rather than from the GPL implementations that ship in RawTherapee and darktable. Four steps: a chroma-immune 7-tap roughness measure per axis whose vertical/horizontal ratio becomes a soft blend weight; green at R/B sites by transporting each green neighbour to the centre through the centre channel's own half-step ratio (the ratio correction — exact on a flat field and on a linear ramp, and incapable of overshooting a step edge); the opposite chroma on the two diagonals; then red and blue at green sites from all four orthogonal neighbours. Both chroma steps are bounded to the range their own contributing samples span, because the unbounded colour-difference form extrapolates across a hard edge into a near-zero-green patch. Bands of 64 output rows run over rayon against the shared read-only CFA plane, so there is no tile fill and no seam risk; the outer 6-px ring the stencil cannot reach takes the bilinear reconstruction, as does any frame under 13 px per side.
 
+**VNG4** (`demosaic/vng4/`, #3413) is the smooth counterpart, a four-direction variable-number-of-gradients kernel written from Chang, Cheung and Pan's published description (SPIE 3650, 1999). Per site it measures a roughness along each of N/E/S/W as a sum of absolute differences between same-colour sample pairs, keeps every direction scoring at or under `K1·gmin + K2·(gmax − gmin)`, and averages only those directions' gradient-corrected green estimates. In a flat region all four qualify, so green is the mean of four independent estimates and chroma the unweighted mean of four colour differences — the noise reduction a detail-first kernel cannot offer, because committing to one direction is the whole point of those kernels. Chroma completion is shared with LMMSE (`demosaic/chroma_diff.rs`) and is deliberately unweighted for the same reason.
+
+**LMMSE** (`demosaic/lmmse/`, #3413) is the high-ISO kernel, written from Zhang and Wu's published description (IEEE TIP 14(12), 2005). It is the only kernel here with an explicit noise model. Along any single row the Bayer samples alternate between green and *one* chroma colour, so `G − C` is well defined at every site; the same holds down any column, giving two "primary difference signal" planes. Over a 9-tap window along each direction the total variance of that signal is split into signal and noise — the noise part estimated from the mean squared second difference divided by 6, which is exactly its variance for white noise, so no separate filtered plane is needed — and the estimate is the classic shrinkage `μ + var_x/(var_x + var_n)·(d − μ)`. The two directional estimates fuse weighted by the inverse of their own mean-square errors. On clean data the gain is 1 and the signal passes through untouched; as noise takes over the reconstruction relaxes toward the local mean instead of tracking read noise.
+
+**Dual** (`demosaic/dual/`, #3413) runs a detail-first kernel and VNG4 and cross-fades them per pixel. The mask (`dual/weight.rs`) is the gradient magnitude of the *smooth* kernel's green plane divided by its local mean, smoothstepped between `CONTRAST_THRESHOLD` (0.03) and `EDGE_RATIO`× that. Relative rather than absolute contrast, so one threshold constant holds across every fixture: a bright sky and a dim sky are equally flat, and an absolute threshold would route highlights to the detail kernel and shadows to the smooth one purely on exposure. The smooth kernel's green is what the mask reads because green is sampled on a quincunx — a gradient operator on the raw plane alternates between measured and missing sites and reports a checkerboard. A 3×3 dilation runs before the 3×3 smooth, and is not optional: a gradient operator reports a hard edge on a two-pixel-wide ridge, and smoothing that directly would average a weight of 1 with two zero neighbours and hand a third of the sharpest edge in the frame to the smooth kernel.
+
+Only the detail-first reconstruction is materialised full-frame — it is also the output buffer. VNG4 is rendered one 64-row band at a time into per-task scratch, reading the shared CFA plane directly, and blended in place. The obvious implementation instead holds two full-frame `[f32; 3]` planes, which on the 100 MP reference is 1.2 GB *twice* on top of everything the develop chain already holds — the same peak that jetsam-killed iOS on large RAWs before #1637.
+
 Measured on the 100 MP reference (`test-fixtures/raws/dji-mavic3pro-100mp.dng`, 12288×8192 RGGB) via `cargo run --release -p raw-core --example demosaic-bench`, 18 rayon threads on an M-series Mac, median of 3:
 
-| kernel         | decode  | throughput | vs bilinear |
-| -------------- | ------- | ---------- | ----------- |
-| bilinear       | 221 ms  | 456 Mpx/s  | 1.00×       |
-| **RCD**        | 590 ms  | 171 Mpx/s  | 2.68× cost  |
-| Hamilton-Adams | 1728 ms | 58 Mpx/s   | 7.83× cost  |
-| AMaZE          | 4370 ms | 23 Mpx/s   | 19.8× cost  |
+| kernel          | decode  | vs bilinear | measured in |
+| --------------- | ------- | ----------- | ----------- |
+| bilinear        | 221 ms  | 1.00×       | #3412       |
+| **RCD**         | 590 ms  | 2.68× cost  | #3412       |
+| Hamilton-Adams  | 1728 ms | 7.83× cost  | #3412       |
+| AMaZE           | 4370 ms | 19.8× cost  | #3412       |
 
 RCD is **7.4× faster than AMaZE**, which is what makes it affordable as the default on-screen kernel where AMaZE is not (AMaZE is why the Apple refine is switchable off via `useAmazeDemosaic` on slower devices). Against the ACR references at `Profile::Neutral`, moving `Full` from bilinear to RCD improves or holds every metric — `test_0000` mean ΔE2000 6.078 → 5.963, p95 10.709 → 10.391, max 33.963 → 32.804; `test_0002` mean 12.313 → 12.324, p95 13.455 → 13.434, max 45.767 → 41.972 — and the `FILTER=baseline` gate (which renders at AMaZE) is unchanged across all 20 fixtures.
+
+#3413's kernels, same fixture and same command, medians of 11 interleaved rounds. This run was taken on a machine with other builds running, so read the ratios rather than the absolutes — bilinear and AMaZE reproduce the #3412 figures above to within 15 %, which is what makes the column comparable at all:
+
+| kernel               | decode  | vs bilinear |
+| -------------------- | ------- | ----------- |
+| bilinear             | 225 ms  | 1.00×       |
+| **VNG4**             | 825 ms  | 3.67× cost  |
+| RCD                  | 723 ms  | 3.22× cost  |
+| **LMMSE**            | 1055 ms | 4.70× cost  |
+| Hamilton-Adams       | 2283 ms | 10.2× cost  |
+| **dual RCD + VNG4**  | 1812 ms | 8.06× cost  |
+| AMaZE                | 3763 ms | 16.8× cost  |
+| **dual AMaZE + VNG4**| 4141 ms | 18.4× cost  |
+
+The ticket's budget is export within **1.5× AMaZE**, i.e. the last row against the second-to-last: **1.10×** here, and 1.24× on the 24 MP `test_0017` (where a loaded machine leaves less room for interference, because each run is four times shorter). The dual mode is structurally AMaZE plus VNG4 plus the blend, and VNG4 costs about a fifth of AMaZE, so ~1.2–1.4× is the expected figure. Individual runs on a contended machine ranged as high as 1.66×; re-take this on an idle machine before quoting it as a hard number.
+
+Against the ACR reference for `test_0000` at `Profile::Neutral`, over an ROI of the flattest 12 % of sky blocks (the region the dual mode and LMMSE exist to fix — 7.0 % of the frame, selected from the *reference*, so no kernel picks its own ROI):
+
+| kernel            | ΔE mean | ΔE p95 | ROI ΔE mean | ROI ΔE p95 | ROI Oklab chroma |
+| ----------------- | ------- | ------ | ----------- | ---------- | ---------------- |
+| AMaZE             | 6.035   | 10.531 | 6.144       | 8.636      | 0.012727         |
+| dual AMaZE + VNG4 | 6.000   | 10.491 | 6.127       | 8.608      | 0.012615         |
+| dual RCD + VNG4   | 5.967   | 10.384 | 6.121       | 8.597      | 0.012609         |
+| LMMSE             | 6.058   | 10.701 | 6.123       | 8.605      | 0.012595         |
+
+Every row is at or below AMaZE on the flat ROI, on ΔE and on mean Oklab chroma — the false-colour proxy, since the true chroma of a grey sky is zero and whatever is there was invented. The margins are small because `test_0000` is an ISO 200 frame whose measured noise σ at mid grey is 0.0039, half the level at which the policy would reach for LMMSE at all. **No fixture in the corpus is a high-ISO frame** — the highest is `test_0001` at ISO 1600, and every fixture carrying a `NoiseProfile` measures σ between 0.0015 and 0.0039 — so LMMSE's own case is gated by the synthetic tests in `demosaic/lmmse/tests.rs` (a grey field buried in deterministic noise, where LMMSE's interpolated-green RMS is 13 % under AMaZE's and its false-colour energy 5 % under) rather than by the ACR harness. Adding a high-ISO fixture with an ACR reference would close that gap.
 
 Cancellation is cooperative: `CancelToken` is threaded into demosaic, BM3D, capture sharpening, sharpen and both NR stages, and checked between the heavy stages, so a superseded cold open unwinds mid-stage instead of finishing an 8-second denoise nobody wants.
 

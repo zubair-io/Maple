@@ -132,8 +132,13 @@ Web and Windows expose an **Auto / Neutral** picker in the editor's Color contro
 | `hotPixelSuppression`                            | `Off` \| `On` | `Off`   |
 | `lensProfileEnable`                              | `On` \| `Off` | `On`    |
 | `lensCorrectionDistortion` / `Ca` / `Vignetting` | 0 … 100       | 100     |
+| `demosaic`                                       | see below     | `Auto`  |
 
-`chromaPrefilter`, `deepDenoise`, `hotPixelSuppression`, and the three lens-correction scales live inside the decode product: changing one invalidates the decoded-image cache and costs a full re-decode, which is why the web UI commits them on pointer release rather than on every tick.
+`chromaPrefilter`, `deepDenoise`, `hotPixelSuppression`, `demosaic`, and the three lens-correction scales live inside the decode product: changing one invalidates the decoded-image cache and costs a full re-decode, which is why the web UI commits them on pointer release rather than on every tick.
+
+**Demosaic** picks the kernel that turns the sensor's Bayer mosaic into RGB. `Auto` (the default) reads the frame's own noise profile and sensor size and chooses for it: a noisy frame gets LMMSE, the only kernel with an explicit noise model; a large clean one gets a dual reconstruction that runs AMaZE for detail and VNG4 for flat regions and cross-fades them by local contrast, so a sky stops being where the detail kernel invents maze patterning and false colour; a small clean one gets AMaZE alone. The picker in Detail → Basic pins one kernel instead — `Maximum detail (AMaZE)`, `Balanced (RCD)`, `High ISO (LMMSE)`, or either dual — for the rare frame where the automatic answer is wrong, such as astro work that wants no smoothing anywhere or a shot whose reported ISO badly misrepresents how noisy it is.
+
+The choice applies wherever a full-resolution reconstruction runs — the on-screen full render, the deep-zoom tiles and export — so the screen and the exported file agree. It has no effect on the fit-view preview, which halves resolution before demosaicing and has no kernel to pick, nor on Fuji X-Trans or LinearRaw files, which never reach a Bayer kernel. Apple and Web both surface the picker; Windows does not yet.
 
 ### Effects
 

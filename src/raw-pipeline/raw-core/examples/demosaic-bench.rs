@@ -10,6 +10,15 @@
 //! front, outside the timed region, so the figures are the kernel's own cost
 //! rather than a whole cold open's.
 //!
+//! Two statistics are reported per kernel. The **median** is what #3412's
+//! committed table quotes and is the right number on a machine doing
+//! nothing else. The **best** run is the robust one when the machine is
+//! shared: contention can only ever make a run slower, so the fastest of N
+//! is the closest estimate of the uncontended cost, and it is the basis for
+//! the ratios in the summary. On a quiet machine the two agree closely; a
+//! wide gap between them is itself the signal that the numbers were taken
+//! under load and should be re-measured before being quoted.
+//!
 //! Each kernel's output is hashed, so a timing claim always arrives with
 //! evidence that the three kernels actually produced different images (a
 //! silently-misdispatched run would otherwise read as a free speedup), and
@@ -41,6 +50,10 @@ fn fnv1a(buf: &[[f32; 3]]) -> u64 {
 fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     v[v.len() / 2]
+}
+
+fn best(v: &[f64]) -> f64 {
+    v.iter().copied().fold(f64::INFINITY, f64::min)
 }
 
 /// Mean absolute per-channel difference between two reconstructions.
@@ -96,33 +109,47 @@ fn main() {
     let mut rcd_ms = 0.0f64;
     let mut dual_amaze_ms = 0.0f64;
 
-    for (name, kernel) in kernels {
-        let times: Vec<f64> = (0..runs)
-            .map(|_| {
-                let t = Instant::now();
-                let out = kernel(&mosaic, raw.cfa);
-                let e = t.elapsed().as_secs_f64();
-                std::hint::black_box(&out.pixels);
-                e
-            })
-            .collect();
-        let ms = median(times) * 1e3;
+    // Round-robin, not kernel-by-kernel: one run of every kernel, `runs`
+    // times over. Timing eight kernels back to back means a load spike lands
+    // entirely inside one kernel's block and silently taxes that kernel
+    // alone — which is how an earlier measurement of this set produced a
+    // dual mode "cheaper" than the kernel it wraps. Interleaving spreads any
+    // slow-varying interference across all of them, so the per-kernel best
+    // runs are drawn from comparable conditions and the ratios below mean
+    // something even on a shared machine.
+    let mut all_times: Vec<Vec<f64>> = vec![Vec::with_capacity(runs); kernels.len()];
+    for _ in 0..runs {
+        for (k, (_, kernel)) in kernels.iter().enumerate() {
+            let t = Instant::now();
+            let out = kernel(&mosaic, raw.cfa);
+            let e = t.elapsed().as_secs_f64();
+            std::hint::black_box(&out.pixels);
+            all_times[k].push(e);
+        }
+    }
+
+    for (k, (name, kernel)) in kernels.into_iter().enumerate() {
+        let times = std::mem::take(&mut all_times[k]);
+        let ms = median(times.clone()) * 1e3;
+        let best_ms = best(&times) * 1e3;
         let out = kernel(&mosaic, raw.cfa);
         println!(
-            "{name}: {ms:9.1} ms   {:6.1} Mpx/s   hash {:016x}   mean|Δ vs bilinear| {:.6}",
-            mp / (ms / 1e3),
+            "{name}: median {ms:9.1} ms   best {best_ms:9.1} ms   {:6.1} Mpx/s   \
+             hash {:016x}   mean|Δ vs bilinear| {:.6}",
+            mp / (best_ms / 1e3),
             fnv1a(&out.pixels),
             mean_abs_diff(&out, &reference)
         );
         match name.trim() {
-            "bilinear" => baseline_ms = ms,
-            "rcd" => rcd_ms = ms,
-            "amaze" => amaze_ms = ms,
-            "dual-amaze-vng4" => dual_amaze_ms = ms,
+            "bilinear" => baseline_ms = best_ms,
+            "rcd" => rcd_ms = best_ms,
+            "amaze" => amaze_ms = best_ms,
+            "dual-amaze-vng4" => dual_amaze_ms = best_ms,
             _ => {}
         }
     }
 
+    // Ratios from the best run of each kernel — see the module docs.
     println!(
         "\nrcd vs bilinear      : {:.2}x slower\nrcd vs amaze         : {:.2}x faster\n\
          dual-amaze vs amaze  : {:.2}x cost (#3413 budget: 1.50x)",
