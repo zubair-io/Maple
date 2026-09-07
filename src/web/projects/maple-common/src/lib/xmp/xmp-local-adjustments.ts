@@ -23,7 +23,9 @@ import type {
   LocalMask,
   MaskPoint,
   PartialAdjustments,
+  RangeRefinement,
 } from '../models/local-adjustment';
+import { SKIN_TONE_RANGE } from '../models/local-adjustment';
 import { numericSerializer } from './xmp-fields';
 import { attrOf, managedXmpName } from './xmp-dom-utils';
 
@@ -45,7 +47,9 @@ const MASK_WHAT: Readonly<Record<LocalAdjustmentContainerKind, string>> = {
 /**
  * Slider attribute → model field, in canonical emit order. Every field has a
  * direct Adobe key except `vibrance`: Adobe's local-correction struct has no
- * vibrance control, so it rides Maple's own `papp:LocalVibrance`.
+ * vibrance control, so it rides Maple's own `papp:LocalVibrance`. `hue` is
+ * NOT in this list — it rides Adobe's ±1 scale and its own precision, see
+ * `HUE_KEY` below.
  */
 const SLIDER_KEYS: ReadonlyArray<readonly [string, keyof PartialAdjustments]> = [
   ['crs:LocalExposure2012', 'exposure'],
@@ -59,6 +63,39 @@ const SLIDER_KEYS: ReadonlyArray<readonly [string, keyof PartialAdjustments]> = 
   ['crs:LocalTemperature', 'temperature'],
   ['crs:LocalTint', 'tint'],
 ];
+
+/**
+ * Hue (#3269): Maple's slider is ±100, Adobe's `crs:LocalHue` is ±1 — scaled
+ * at the wire boundary, matching raw-core's serializer (`v / 100`) and
+ * parser (`v * 100`). Emitted after the plain sliders, like raw-core.
+ */
+const HUE_KEY = 'crs:LocalHue';
+
+/**
+ * The colour-range refinement's `papp:Range*` attributes (#3270) → model
+ * field, in canonical emit order. They sit on the SAME `rdf:Description` the
+ * sliders live on; `papp:RangeKind="Color"` (emitted first) is what says a
+ * refinement is present at all. Maple-private by design — Adobe has no
+ * range-mask schema to borrow — so a foreign reader simply ignores them.
+ */
+const RANGE_KIND_KEY = 'papp:RangeKind';
+const RANGE_KEYS: ReadonlyArray<readonly [string, Exclude<keyof RangeRefinement, 'kind'>]> = [
+  ['papp:RangeHue', 'hueDeg'],
+  ['papp:RangeHueWidth', 'hueHalfWidthDeg'],
+  ['papp:RangeChromaMin', 'chromaMin'],
+  ['papp:RangeLMin', 'lMin'],
+  ['papp:RangeLMax', 'lMax'],
+  ['papp:RangeFeather', 'feather'],
+];
+
+/**
+ * `crs:LocalHue` rides Adobe's ±1 scale, so the canonical 2-decimal wire
+ * precision (`numericSerializer`) would quantise Maple's ±100 slider to
+ * whole units and drift a fractional value on every round-trip (#3280
+ * review). Four decimals keep two decimals of the ±100 value — mirrors
+ * raw-core's `fmt4` and Swift's `fmtNum4`.
+ */
+const hueSerializer = (v: number): string => (Math.round(v * 10_000) / 10_000).toString();
 
 /** Which container `child` is, or undefined when it is not one. */
 export function localAdjustmentContainerKind(
@@ -141,6 +178,25 @@ function parseMask(
     .find((mask) => mask !== undefined);
 }
 
+/**
+ * `Ok(None)`-equivalent when `papp:RangeKind` is absent or an unrecognized
+ * value (forward-compat with a future non-`Color` shape). A missing numeric
+ * falls back to the skin preset rather than dropping the refinement — it is
+ * a soft "narrow the mask further" knob, not positional geometry where a
+ * wrong default silently mislocates the mask — matching raw-core's
+ * `parse_range_attrs`.
+ */
+function parseRange(description: Element): RangeRefinement | undefined {
+  if (attrOf(description, [RANGE_KIND_KEY]) !== 'Color') return undefined;
+  return RANGE_KEYS.reduce<RangeRefinement>(
+    (acc, [key, field]) => {
+      const v = finiteAttr(description, key);
+      return v === undefined ? acc : { ...acc, [field]: v };
+    },
+    { ...SKIN_TONE_RANGE },
+  );
+}
+
 function parseCorrection(
   description: Element,
   kind: LocalAdjustmentContainerKind,
@@ -153,13 +209,19 @@ function parseCorrection(
   // `CorrectionAmount` is Adobe's 0–1 overall-strength dial: it scales every
   // stored slider at parse time, exactly as Adobe's own Amount slider does.
   const amount = finiteAttr(description, 'crs:CorrectionAmount') ?? 1;
-  const adjustments = Object.fromEntries(
-    SLIDER_KEYS.flatMap(([key, field]) => {
+  const scaled = (v: number): number => (amount === 1 ? v : v * amount);
+  const wireHue = finiteAttr(description, HUE_KEY);
+  const adjustments = Object.fromEntries([
+    ...SLIDER_KEYS.flatMap(([key, field]) => {
       const v = finiteAttr(description, key);
-      return v === undefined ? [] : [[field, amount === 1 ? v : v * amount] as const];
+      return v === undefined ? [] : [[field, scaled(v)] as const];
     }),
-  ) as PartialAdjustments;
-  return { mask, adjustments };
+    // The Amount dial applies to the wire value exactly as it does for
+    // every other slider, so the products agree across platforms.
+    ...(wireHue === undefined ? [] : [['hue', scaled(wireHue * 100)] as const]),
+  ]) as PartialAdjustments;
+  const range = parseRange(description);
+  return range ? { mask, range, adjustments } : { mask, adjustments };
 }
 
 /**
@@ -207,6 +269,26 @@ function maskLines(mask: LocalMask, indent: string): string[] {
   ];
 }
 
+/** `crs:LocalHue` on Adobe's ±1 scale at four decimals, or nothing when unset. */
+function hueLine(hue: number | undefined, indent: string): string[] {
+  return typeof hue === 'number' && Number.isFinite(hue)
+    ? [`${indent}${HUE_KEY}="${hueSerializer(hue / 100)}"`]
+    : [];
+}
+
+/**
+ * `papp:Range*` attributes for a colour-range refinement, in the same order
+ * raw-core's `serialize_range` emits them. Empty when the layer has none, so
+ * an unrefined mask is byte-identical to the pre-#3270 output.
+ */
+function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
+  if (range === undefined) return [];
+  return [
+    `${indent}${RANGE_KIND_KEY}="Color"`,
+    ...RANGE_KEYS.map(([key, field]) => `${indent}${key}="${numericSerializer(range[field])}"`),
+  ];
+}
+
 function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent: string): string {
   const [i1, i2, i3, i4, i5, i6] = [2, 4, 6, 8, 10, 12].map((n) => indent + ' '.repeat(n));
   const layerLines = layers.flatMap((layer) => {
@@ -222,6 +304,8 @@ function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent:
           ? [`${i4}${key}="${numericSerializer(v)}"`]
           : [];
       }),
+      ...hueLine(layer.adjustments.hue, i4),
+      ...rangeLines(layer.range, i4),
     ];
     return [
       `${i2}<rdf:li>`,

@@ -39,6 +39,9 @@ pub(super) fn linear_layer() -> LocalAdjustment {
         adjustments: PartialAdjustments {
             exposure: Some(0.5),
             shadows: Some(-20.0),
+            // A fractional hue: pins the four-decimal `crs:LocalHue` wire
+            // precision across all four writers (#3335).
+            hue: Some(-42.5),
             ..Default::default()
         },
     }
@@ -56,7 +59,9 @@ pub(super) fn radial_layer() -> LocalAdjustment {
             feather: 0.6,
             invert: true,
         },
-        range: None,
+        // The skin preset's `papp:Range*` attributes ride the shared fixture
+        // so every writer is pinned to emit them (#3335).
+        range: Some(SKIN_TONE_RANGE),
         adjustments: PartialAdjustments {
             contrast: Some(15.0),
             vibrance: Some(-10.0),

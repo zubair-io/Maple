@@ -33,6 +33,12 @@ export interface PartialAdjustments {
   vibrance?: number;
   temperature?: number;
   tint?: number;
+  /**
+   * Oklab hue rotation, −100…100 → ±30° (#3269, `crs:LocalHue`). Applied
+   * after `blacks` and before `saturation`, reusing saturation's soft-knee
+   * gamut handling.
+   */
+  hue?: number;
 }
 
 /** Normalized 2D point: `x` across the width, `y` down from the top edge. */
@@ -64,9 +70,46 @@ export type LocalMask =
       invert: boolean;
     };
 
-/** One local-adjustment layer: a mask and the controls it scales. */
+/**
+ * An optional colour-range gate multiplied into the mask weight (#3270) — an
+ * Oklab hue band with chroma and lightness gates, so "the skin in this
+ * gradient" is one layer rather than a hand-painted mask. Mirror of
+ * `raw_core::types::RangeRefinement`; one variant today, discriminated the
+ * same way `LocalMask` is so a second shape slots in beside it.
+ */
+export type RangeRefinement = {
+  kind: 'color';
+  hueDeg: number;
+  hueHalfWidthDeg: number;
+  chromaMin: number;
+  lMin: number;
+  lMax: number;
+  feather: number;
+};
+
+/**
+ * The skin preset (`raw_core::types::SKIN_TONE_RANGE`, spec §5.2) — also
+ * what a `papp:Range*` attribute missing from a sidecar falls back to, so
+ * the reader and the preset cannot drift apart.
+ */
+export const SKIN_TONE_RANGE: RangeRefinement = {
+  kind: 'color',
+  hueDeg: 55,
+  hueHalfWidthDeg: 25,
+  chromaMin: 0.02,
+  lMin: 0.15,
+  lMax: 0.95,
+  feather: 0.3,
+};
+
+/**
+ * One local-adjustment layer: a mask, an optional colour-range refinement,
+ * and the controls they scale. An absent `range` means the primary mask
+ * alone.
+ */
 export interface LocalAdjustment {
   mask: LocalMask;
+  range?: RangeRefinement;
   adjustments: PartialAdjustments;
 }
 

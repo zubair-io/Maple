@@ -20,14 +20,19 @@ import { XmpSerializerService } from './xmp-serializer.service';
 import { localAdjustmentBlocks } from './xmp-local-adjustments';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import type { AdjustmentModel, LocalAdjustment } from '../models/adjustment-model';
+import { SKIN_TONE_RANGE } from '../models/local-adjustment';
 
 /** Six spaces — the canonical depth for children of `rdf:Description`. */
 const CANONICAL_INDENT = '      ';
 
-/** The linear half of the shared fixture (`linear_layer()` in Rust). */
+/**
+ * The linear half of the shared fixture (`linear_layer()` in Rust). The
+ * fractional hue pins the four-decimal `crs:LocalHue` wire precision across
+ * all four writers (#3335).
+ */
 const LINEAR_LAYER: LocalAdjustment = {
   mask: { kind: 'linear', start: { x: 0.2, y: 0.3 }, end: { x: 0.8, y: 0.7 }, feather: 0.4 },
-  adjustments: { exposure: 0.5, shadows: -20 },
+  adjustments: { exposure: 0.5, shadows: -20, hue: -42.5 },
 };
 
 /**
@@ -44,6 +49,9 @@ const RADIAL_LAYER: LocalAdjustment = {
     feather: 0.6,
     invert: true,
   },
+  // The skin preset's `papp:Range*` attributes ride the shared fixture so
+  // every writer is pinned to emit them (#3335).
+  range: SKIN_TONE_RANGE,
   adjustments: { contrast: 15, vibrance: -10, temperature: 200 },
 };
 
@@ -57,7 +65,8 @@ const CANONICAL_BLOCK = [
   '              crs:CorrectionAmount="1"',
   '              crs:CorrectionActive="True"',
   '              crs:LocalExposure2012="0.5"',
-  '              crs:LocalShadows2012="-20">',
+  '              crs:LocalShadows2012="-20"',
+  '              crs:LocalHue="-0.425">',
   '              <crs:CorrectionMasks>',
   '                <rdf:Seq>',
   '                  <rdf:li',
@@ -81,7 +90,14 @@ const CANONICAL_BLOCK = [
   '              crs:CorrectionActive="True"',
   '              crs:LocalContrast2012="15"',
   '              papp:LocalVibrance="-10"',
-  '              crs:LocalTemperature="200">',
+  '              crs:LocalTemperature="200"',
+  '              papp:RangeKind="Color"',
+  '              papp:RangeHue="55"',
+  '              papp:RangeHueWidth="25"',
+  '              papp:RangeChromaMin="0.02"',
+  '              papp:RangeLMin="0.15"',
+  '              papp:RangeLMax="0.95"',
+  '              papp:RangeFeather="0.3">',
   '              <crs:CorrectionMasks>',
   '                <rdf:Seq>',
   '                  <rdf:li',
@@ -328,5 +344,76 @@ describe('XMP local adjustments (#358)', () => {
         adjustments: { saturation: -15, temperature: -50 },
       },
     ]);
+  });
+  // ── Apple-authored hue + range (#3335) ───────────────────────────────────
+
+  const APPLE_HUE_RANGE_ATTRS =
+    'crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalHue="-0.2" ' +
+    'papp:RangeKind="Color" papp:RangeHue="40" papp:RangeHueWidth="20" papp:RangeChromaMin="0.03" ' +
+    'papp:RangeLMin="0.1" papp:RangeLMax="0.9" papp:RangeFeather="0.25"';
+
+  it('re-saves an Apple-authored crs:LocalHue and papp:Range* instead of dropping them', () => {
+    const doc = sidecar(gradientCorrection(APPLE_HUE_RANGE_ATTRS, FULL_FRAME_GRADIENT));
+    const { model, passthrough } = parser.parseAdjustmentModel(doc);
+    expect(model.localAdjustments).toEqual([
+      {
+        mask: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, feather: 0.5 },
+        range: {
+          kind: 'color',
+          hueDeg: 40,
+          hueHalfWidthDeg: 20,
+          chromaMin: 0.03,
+          lMin: 0.1,
+          lMax: 0.9,
+          feather: 0.25,
+        },
+        adjustments: { hue: -20 },
+      },
+    ]);
+    const resaved = serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough);
+    for (const attr of [
+      'crs:LocalHue="-0.2"',
+      'papp:RangeKind="Color"',
+      'papp:RangeHue="40"',
+      'papp:RangeHueWidth="20"',
+      'papp:RangeChromaMin="0.03"',
+      'papp:RangeLMin="0.1"',
+      'papp:RangeLMax="0.9"',
+      'papp:RangeFeather="0.25"',
+    ]) {
+      expect(resaved).toContain(attr);
+    }
+  });
+
+  it('scales crs:LocalHue by crs:CorrectionAmount like every other slider', () => {
+    const doc = sidecar(
+      gradientCorrection(
+        'crs:What="Correction" crs:CorrectionAmount="0.5" crs:LocalHue="-0.2"',
+        FULL_FRAME_GRADIENT,
+      ),
+    );
+    expect(parser.parseAdjustmentModel(doc).model.localAdjustments?.[0].adjustments).toEqual({
+      hue: -10,
+    });
+  });
+
+  it('fills a missing papp:Range* numeric from the skin preset and ignores an unknown RangeKind', () => {
+    const partial = sidecar(
+      gradientCorrection(
+        'crs:What="Correction" papp:RangeKind="Color" papp:RangeHue="40"',
+        FULL_FRAME_GRADIENT,
+      ),
+    );
+    expect(parser.parseAdjustmentModel(partial).model.localAdjustments?.[0].range).toEqual({
+      ...SKIN_TONE_RANGE,
+      hueDeg: 40,
+    });
+    const unknown = sidecar(
+      gradientCorrection(
+        'crs:What="Correction" papp:RangeKind="Luminance" papp:RangeHue="40"',
+        FULL_FRAME_GRADIENT,
+      ),
+    );
+    expect(parser.parseAdjustmentModel(unknown).model.localAdjustments?.[0].range).toBeUndefined();
   });
 });

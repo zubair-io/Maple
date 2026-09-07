@@ -36,11 +36,18 @@ namespace Maple.WinUI.Models
         public double? Temperature { get; init; }
         public double? Tint { get; init; }
 
+        /// <summary>
+        /// Oklab hue rotation, −100…100 → ±30° (#3269, `crs:LocalHue`).
+        /// Applied after Blacks and before Saturation, reusing saturation's
+        /// soft-knee gamut handling.
+        /// </summary>
+        public double? Hue { get; init; }
+
         /// <summary>True when no field is set — the layer would change nothing.</summary>
         public bool IsEmpty =>
             Exposure is null && Contrast is null && Highlights is null && Shadows is null
             && Whites is null && Blacks is null && Saturation is null && Vibrance is null
-            && Temperature is null && Tint is null;
+            && Temperature is null && Tint is null && Hue is null;
     }
 
     /// <summary>Normalized 2D point: X across the width, Y down from the top edge, both in [0, 1].</summary>
@@ -67,6 +74,38 @@ namespace Maple.WinUI.Models
     public sealed record RadialMask(
         MaskPoint Center, MaskPoint Radii, double Angle, double Feather, bool Invert) : LocalMask;
 
-    /// <summary>One local-adjustment layer: a mask and the controls it scales.</summary>
-    public sealed record LocalAdjustment(LocalMask Mask, PartialAdjustments Adjustments);
+    /// <summary>
+    /// An optional colour-range gate multiplied into the mask weight (#3270)
+    /// — an Oklab band, so "the skin in this gradient" is one layer rather
+    /// than a hand-painted mask. Mirror of `raw_core::types::RangeRefinement`;
+    /// one shape today, an abstract record like LocalMask so a second slots
+    /// in beside it.
+    /// </summary>
+    public abstract record RangeRefinement;
+
+    /// <summary>
+    /// An Oklab hue band with chroma and lightness gates: weight 1 inside the
+    /// inner (1 − Feather)·HueHalfWidthDeg of the band, rolling off to 0 at
+    /// HueHalfWidthDeg, gated by ChromaMin and the lightness window
+    /// [LMin, LMax].
+    /// </summary>
+    public sealed record ColorRangeRefinement(
+        double HueDeg, double HueHalfWidthDeg, double ChromaMin,
+        double LMin, double LMax, double Feather) : RangeRefinement
+    {
+        /// <summary>
+        /// The skin preset (`raw_core::types::SKIN_TONE_RANGE`, spec §5.2) —
+        /// also what a `papp:Range*` attribute missing from a sidecar falls
+        /// back to, so the reader and the preset cannot drift apart.
+        /// </summary>
+        public static readonly ColorRangeRefinement SkinTone = new(55, 25, 0.02, 0.15, 0.95, 0.3);
+    }
+
+    /// <summary>
+    /// One local-adjustment layer: a mask, an optional colour-range
+    /// refinement, and the controls they scale. A null Range means the
+    /// primary mask alone.
+    /// </summary>
+    public sealed record LocalAdjustment(
+        LocalMask Mask, PartialAdjustments Adjustments, RangeRefinement? Range = null);
 }

@@ -43,7 +43,8 @@ namespace Maple.WinUI.Services.Xmp
         /// Slider attribute ↔ model field, in canonical emit order. Every
         /// field has a direct Adobe key except vibrance: Adobe's local-
         /// correction struct has no vibrance control, so it rides Maple's
-        /// own `papp:LocalVibrance`.
+        /// own `papp:LocalVibrance`. Hue is NOT in this list — it rides
+        /// Adobe's ±1 scale and its own precision, see HueKey below.
         /// </summary>
         private static readonly (string Key, Func<PartialAdjustments, double?> Get,
             Func<PartialAdjustments, double, PartialAdjustments> With)[] Sliders =
@@ -58,6 +59,35 @@ namespace Maple.WinUI.Services.Xmp
             ("papp:LocalVibrance", p => p.Vibrance, (p, v) => p with { Vibrance = v }),
             ("crs:LocalTemperature", p => p.Temperature, (p, v) => p with { Temperature = v }),
             ("crs:LocalTint", p => p.Tint, (p, v) => p with { Tint = v }),
+        };
+
+        /// <summary>
+        /// Hue (#3269): Maple's slider is ±100, Adobe's `crs:LocalHue` is ±1
+        /// — scaled at the wire boundary, matching raw-core's serializer
+        /// (`v / 100`) and parser (`v * 100`). Emitted after the plain
+        /// sliders, like raw-core.
+        /// </summary>
+        private const string HueKey = "crs:LocalHue";
+
+        /// <summary>
+        /// The colour-range refinement's `papp:Range*` attributes (#3270) ↔
+        /// model field, in canonical emit order. They sit on the SAME
+        /// `rdf:Description` the sliders live on; `papp:RangeKind="Color"`
+        /// (emitted first) is what says a refinement is present at all.
+        /// Maple-private by design — Adobe has no range-mask schema to
+        /// borrow — so a foreign reader simply ignores them.
+        /// </summary>
+        private const string RangeKindKey = "papp:RangeKind";
+
+        private static readonly (string Key, Func<ColorRangeRefinement, double> Get,
+            Func<ColorRangeRefinement, double, ColorRangeRefinement> With)[] RangeFields =
+        {
+            ("papp:RangeHue", r => r.HueDeg, (r, v) => r with { HueDeg = v }),
+            ("papp:RangeHueWidth", r => r.HueHalfWidthDeg, (r, v) => r with { HueHalfWidthDeg = v }),
+            ("papp:RangeChromaMin", r => r.ChromaMin, (r, v) => r with { ChromaMin = v }),
+            ("papp:RangeLMin", r => r.LMin, (r, v) => r with { LMin = v }),
+            ("papp:RangeLMax", r => r.LMax, (r, v) => r with { LMax = v }),
+            ("papp:RangeFeather", r => r.Feather, (r, v) => r with { Feather = v }),
         };
 
         /// <summary>The canonical container tag `child` is, or null when it is neither.</summary>
@@ -146,6 +176,24 @@ namespace Maple.WinUI.Services.Xmp
                 .FirstOrDefault(mask => mask is not null);
         }
 
+        /// <summary>
+        /// Null when `papp:RangeKind` is absent or an unrecognized value
+        /// (forward-compat with a future non-Color shape). A missing numeric
+        /// falls back to the skin preset rather than dropping the refinement
+        /// — it is a soft "narrow the mask further" knob, not positional
+        /// geometry where a wrong default silently mislocates the mask —
+        /// matching raw-core's `parse_range_attrs`.
+        /// </summary>
+        private static RangeRefinement? ParseRange(XElement description)
+        {
+            if (Attr(description, RangeKindKey) != "Color") return null;
+            return RangeFields.Aggregate(ColorRangeRefinement.SkinTone, (acc, field) =>
+            {
+                var value = Finite(description, field.Key);
+                return value is null ? acc : field.With(acc, value.Value);
+            });
+        }
+
         private static LocalAdjustment? ParseCorrection(XElement description, bool linear)
         {
             // Absent or unrecognized CorrectionActive means active (Adobe's
@@ -156,12 +204,17 @@ namespace Maple.WinUI.Services.Xmp
             // CorrectionAmount is Adobe's 0–1 overall-strength dial: it scales
             // every stored slider at parse time, as Adobe's own Amount slider does.
             var amount = Finite(description, "crs:CorrectionAmount") ?? 1;
-            var adjustments = Sliders.Aggregate(new PartialAdjustments(), (acc, slider) =>
+            double Scaled(double v) => amount == 1 ? v : v * amount;
+            var sliders = Sliders.Aggregate(new PartialAdjustments(), (acc, slider) =>
             {
                 var value = Finite(description, slider.Key);
-                return value is null ? acc : slider.With(acc, amount == 1 ? value.Value : value.Value * amount);
+                return value is null ? acc : slider.With(acc, Scaled(value.Value));
             });
-            return new LocalAdjustment(mask, adjustments);
+            // The Amount dial applies to the wire value exactly as it does
+            // for every other slider, so the products agree across platforms.
+            var wireHue = Finite(description, HueKey);
+            var adjustments = wireHue is null ? sliders : sliders with { Hue = Scaled(wireHue.Value * 100) };
+            return new LocalAdjustment(mask, adjustments, ParseRange(description));
         }
 
         /// <summary>
@@ -186,6 +239,35 @@ namespace Maple.WinUI.Services.Xmp
 
         private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180;
         private static double RadiansToDegrees(double radians) => radians * 180 / Math.PI;
+
+        /// <summary>
+        /// `crs:LocalHue` rides Adobe's ±1 scale, so the canonical 2-decimal
+        /// wire precision (XmpSchema.FormatNumber) would quantise Maple's
+        /// ±100 slider to whole units and drift a fractional value on every
+        /// round-trip (#3280 review). Four decimals keep two decimals of the
+        /// ±100 value — mirrors raw-core's `fmt4` (round half away from zero)
+        /// and Swift's `fmtNum4`.
+        /// </summary>
+        private static string FormatHue(double v) =>
+            (Math.Round(v * 10_000, MidpointRounding.AwayFromZero) / 10_000).ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>`crs:LocalHue` on Adobe's ±1 scale at four decimals, or nothing when unset.</summary>
+        private static IEnumerable<string> HueLine(double? hue, string indent) =>
+            hue is double h && double.IsFinite(h)
+                ? new[] { $"{indent}{HueKey}=\"{FormatHue(h / 100)}\"" }
+                : Enumerable.Empty<string>();
+
+        /// <summary>
+        /// `papp:Range*` attributes for a colour-range refinement, in the
+        /// same order raw-core's `serialize_range` emits them. Empty when the
+        /// layer has none, so an unrefined mask is byte-identical to the
+        /// pre-#3270 output.
+        /// </summary>
+        private static IEnumerable<string> RangeLines(RangeRefinement? range, string indent) =>
+            range is ColorRangeRefinement color
+                ? new[] { $"{indent}{RangeKindKey}=\"Color\"" }
+                    .Concat(RangeFields.Select(f => $"{indent}{f.Key}=\"{XmpSchema.FormatNumber(f.Get(color))}\""))
+                : Enumerable.Empty<string>();
 
         private static IEnumerable<string> MaskLines(LocalMask mask, string indent)
         {
@@ -238,7 +320,9 @@ namespace Maple.WinUI.Services.Xmp
                         // value is not representable in XMP and is skipped.
                         .Select(s => (s.Key, Value: s.Get(layer.Adjustments)))
                         .Where(s => s.Value is not null && double.IsFinite(s.Value.Value))
-                        .Select(s => $"{i4}{s.Key}=\"{XmpSchema.FormatNumber(s.Value!.Value)}\""));
+                        .Select(s => $"{i4}{s.Key}=\"{XmpSchema.FormatNumber(s.Value!.Value)}\""))
+                    .Concat(HueLine(layer.Adjustments.Hue, i4))
+                    .Concat(RangeLines(layer.Range, i4));
                 return new[]
                     {
                         $"{i2}<rdf:li>",
