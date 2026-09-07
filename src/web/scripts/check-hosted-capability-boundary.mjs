@@ -46,18 +46,15 @@ const SERVER_ONLY_MARKERS = [
   '/display/config',
   '/photos/hidden',
   '/settings/workers',
-  // File management (#2847 review): the Trash + folder CRUD endpoints —
-  // `TrashApiService` (`/folders/:id/trash`, `/assets/:id/restore`,
-  // `/folders/:id/restore-folder`) and `FolderCrudService` (`/folders/:id/
-  // mkdir`, `/move`, `/trash-folder`). Both services are Self Hosted
-  // capabilities wired through `provideFolderTreeCrud()` / `TRASH_CAPABILITY`
-  // in `projects/maple/src/app/app.config.ts`; the hosted bundle must never
-  // carry their URL literals.
-  '/trash',
+  // Trash (#2847 review): `TrashApiService`'s endpoints — `/folders/:id/
+  // trash` (the template-literal tail, so the `/trash-folder` crud route
+  // guarded in DEFERRED_ONLY_MARKERS below doesn't alias it), `/assets/:id/
+  // restore` and `/folders/:id/restore-folder`. The service is only reached
+  // through `TRASH_CAPABILITY`, wired in `projects/maple/src/app/app.config.ts`,
+  // so no chunk of the Hosted build — eager or deferred — may carry it.
+  '/trash`',
   '/restore',
-  'trash-folder',
-  '/mkdir',
-  '/move',
+  'restore-folder',
   'Merge to panorama',
   'Timeline view',
   'Add folder',
@@ -70,6 +67,19 @@ const SERVER_ONLY_MARKERS = [
   'app-pano-dialog',
   'app-timeline-view',
 ];
+
+// Markers that MAY appear in the Hosted build, but only inside a chunk the
+// browser never fetches eagerly. `FolderCrudService`'s endpoints
+// (`/folders/:id/mkdir`, `/move`, `/trash-folder`) are the one accepted
+// case: `FolderTreeCrudComponent` is imported by the shared folder tree
+// (`folder-tree-footer.component.html`) inside an `@defer (when crudRequest()
+// !== null)` block that Hosted never triggers (`FOLDER_TREE_CRUD_ENABLED`
+// is false there), so the builder code-splits it into its own lazy chunk
+// (#2643 / #2705 review). The SOURCE_BOUNDARIES comments below promised that
+// split; this is the first machine check that it actually holds in the
+// artifact — if the service ever lands in the entry or a modulepreload
+// chunk, the `@defer` boundary has been bypassed (#2847 review).
+const DEFERRED_ONLY_MARKERS = ['/mkdir', '/move', 'trash-folder'];
 
 const SOURCE_BOUNDARIES = [
   {
@@ -249,6 +259,16 @@ for (const path of scripts) {
   const source = await readFile(path, 'utf8');
   const marker = SERVER_ONLY_MARKERS.find((candidate) => source.includes(candidate));
   if (marker) throw new Error(`Hosted bundle ${path} contains server-only marker: ${marker}`);
+}
+
+for (const href of eagerHrefs) {
+  const source = await readFile(resolveEagerFile(href), 'utf8');
+  const marker = DEFERRED_ONLY_MARKERS.find((candidate) => source.includes(candidate));
+  if (marker) {
+    throw new Error(
+      `Hosted eager chunk ${href} contains deferred-only marker: ${marker} (the folder-crud @defer boundary has been bypassed)`,
+    );
+  }
 }
 
 const eagerSizes = await Promise.all(
