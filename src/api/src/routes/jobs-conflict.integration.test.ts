@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from '../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Elysia } from 'elysia';
 import { type MongoClient, ObjectId } from 'mongodb';
 import { closeDb, getDb } from '../db/client.ts';
@@ -26,18 +26,6 @@ beforeAll(async () => {
   await closeDb();
   const db = await getDb();
   await db.collection('folders').insertOne({ path: root, slug: 'conflicts' });
-  await db.collection('jobs').createIndex(
-    { batch_scopes: 1 },
-    {
-      name: 'batch_active_library',
-      unique: true,
-      partialFilterExpression: {
-        kind: 'batch_adjustment_sync',
-        status: { $in: ['queued', 'running'] },
-        batch_scopes: { $exists: true },
-      },
-    },
-  );
   invalidateLibraryRoots();
 });
 beforeEach(async () => {
@@ -153,6 +141,34 @@ describe('job creation conflicts', () => {
     expect((await blocked.json()).error).toContain('active in this library');
     await markCancelled(active._id);
     expect((await post('', body)).status).toBe(201);
+  });
+
+  it('fences active batches submitted through aliased library registrations', async () => {
+    const alias = join(dirname(root), `${basename(root)}-alias`);
+    await symlink(root, alias);
+    registerRoot(alias);
+    const db = await getDb();
+    const folder = await db
+      .collection('folders')
+      .insertOne({ path: alias, slug: 'conflicts-alias' });
+    invalidateLibraryRoots();
+    try {
+      await createJob({ kind: 'batch_adjustment_sync', payload: batchPayload('canonical') });
+      const response = await post('', {
+        kind: 'batch_adjustment_sync',
+        payload: {
+          targets: [{ id: 'conflicts-alias:aliased.jpg', path: join(alias, 'aliased.jpg') }],
+          patch,
+        },
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toContain('active in this library');
+    } finally {
+      await db.collection('folders').deleteOne({ _id: folder.insertedId });
+      unregisterRoot(alias);
+      await rm(alias, { force: true });
+      invalidateLibraryRoots();
+    }
   });
 
   it('returns 409 when a retry request id belongs to another job', async () => {
