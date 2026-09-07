@@ -169,13 +169,17 @@ export async function safeReadFile(filePath: string): Promise<OpResult<Buffer>> 
  * Returns the resolved absolute path on success.
  */
 export async function safeWriteAllowed(filePath: string): Promise<OpResult<string>> {
+  const name = path.basename(filePath);
+  if (name === '.' || name === '..') {
+    return { ok: false, error: 'Write destination must name a file, not a dot component.' };
+  }
   // For writes, the file may not exist yet; check parent dir.
   const parent = path.dirname(filePath);
   const check = await checkAllowed(parent);
   if (check.ok) {
-    // Authorize the complete destination too: a terminal '..' can escape
-    // the checked parent, and an existing sidecar may itself be a symlink.
-    return checkAllowed(path.join(check.data!, path.basename(filePath)));
+    // Retain the canonical parent for new sidecars beneath configured aliases,
+    // and authorize the complete destination in case the sidecar is a symlink.
+    return checkAllowed(path.join(check.data!, name));
   } else {
     // Also try the file path itself (in case dirname escapes).
     const check2 = await checkAllowed(filePath);

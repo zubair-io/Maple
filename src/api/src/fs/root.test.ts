@@ -96,7 +96,7 @@ describe('safeWriteAllowed', () => {
     });
   });
 
-  test('rejects a trailing parent traversal after authorizing its directory', async () => {
+  test('rejects terminal dot components before constructing a write destination', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'maple-root-traversal-'));
     temporaryRoots.push(fixture);
     const allowedRoot = join(fixture, 'allowed');
@@ -105,7 +105,7 @@ describe('safeWriteAllowed', () => {
 
     // Keep the literal terminal component: path.join would normalize it away
     // before the authorization function sees the caller's input.
-    for (const suffix of ['..', `..${sep}`]) {
+    for (const suffix of ['.', `.${sep}`, '..', `..${sep}`]) {
       const result = await safeWriteAllowed(`${allowedRoot}${sep}${suffix}`);
       expect(result.ok).toBe(false);
       expect(result.data).toBeUndefined();
