@@ -96,9 +96,11 @@ export class FolderTreeNodeComponent {
    * `folder-tree-row.ts`. Only read by the template inside `@if (open())`,
    * so a collapsed row never subscribes to `folderOpen` /
    * `selectedSourceId` at all. */
-  protected readonly childRows = computed(() =>
-    deriveFolderRows(this.node().children, this.state.folderOpen(), this.state.selectedSourceId()),
-  );
+  protected readonly childRows = computed(() => {
+    const children = this.node().children;
+    if (!children?.length) return [];
+    return deriveFolderRows(children, this.state.folderOpen(), this.state.selectedSourceId());
+  });
 
   // ── Selection / expand ──────────────────────────────────────────────────
 
