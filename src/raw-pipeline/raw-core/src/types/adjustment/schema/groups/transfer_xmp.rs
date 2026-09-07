@@ -186,6 +186,7 @@ pub const TRANSFER_XMP_ATTRIBUTES: &[(&str, &[&str])] = &[
     ("lens_profile_enable", &["crs:LensProfileEnable"]),
     ("black_white", &["crs:ConvertToGrayscale"]),
     ("tone_curve_mode", &["papp:ToneCurveMode"]),
+    ("demosaic", &["papp:Demosaic"]),
     (
         "crop",
         &[

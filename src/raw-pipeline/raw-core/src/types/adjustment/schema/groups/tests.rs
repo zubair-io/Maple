@@ -139,6 +139,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         perspective_aspect: _,
         perspective_x: _,
         perspective_y: _,
+        demosaic: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -264,6 +265,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "perspective_aspect",
         "perspective_x",
         "perspective_y",
+        "demosaic",
     ]
 }
 

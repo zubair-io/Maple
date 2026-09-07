@@ -147,6 +147,7 @@ fn schema_matches_struct() {
         perspective_aspect,
         perspective_x,
         perspective_y,
+        demosaic,
     } = m;
     let expected_order = [
         "temperature",
@@ -264,6 +265,7 @@ fn schema_matches_struct() {
         "perspective_aspect",
         "perspective_x",
         "perspective_y",
+        "demosaic",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -398,6 +400,7 @@ fn schema_matches_struct() {
         perspective_aspect,
         perspective_x,
         perspective_y,
+        demosaic,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema

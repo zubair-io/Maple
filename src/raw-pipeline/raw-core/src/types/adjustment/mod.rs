@@ -126,6 +126,10 @@ pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WbSource, WhiteBa
 mod lens_correction;
 pub use lens_correction::LensProfileEnable;
 
+// DemosaicChoice split into its own submodule for the same reason (#3413).
+mod demosaic_choice;
+pub use demosaic_choice::DemosaicChoice;
+
 /// Per-image develop settings.
 ///
 /// This struct's field order, types, and ranges are the canonical reference
@@ -553,6 +557,13 @@ pub struct AdjustmentModel {
     pub perspective_aspect: f32,     // -100..100, default 0
     pub perspective_x: f32,          // -100..100, default 0
     pub perspective_y: f32,          // -100..100, default 0
+    /// Bayer demosaic kernel override (#3413). `Auto` (default) lets
+    /// `crate::demosaic::policy` pick from the frame's noise profile and
+    /// size; every other value pins one kernel. A decode-product parameter,
+    /// in the same cache-key family as `chroma_prefilter` and
+    /// `hot_pixel_suppression`. XMP key `papp:Demosaic`. See
+    /// [`DemosaicChoice`].
+    pub demosaic: DemosaicChoice,
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this
