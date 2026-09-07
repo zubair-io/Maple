@@ -87,8 +87,6 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onFullImageFallback: () -> Void
     /// S5 EditorView dismiss (back to browse) — #815.
     let onEditorDismiss: () -> Void
-    /// S5 EditorView share affordance — wired to the desktop ExportPanel.
-    let onEditorShare: () -> Void
     /// S5 EditorView Info affordance — reveals the DetailPanel column.
     let onEditorInfo: () -> Void
     /// S5 EditorView filmstrip-rail tap — switches the edited asset in place
@@ -232,7 +230,6 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
             onEditorDismiss: onEditorDismiss,
-            onEditorShare: onEditorShare,
             onEditorInfo: onEditorInfo,
             onEditorSelectAsset: onEditorSelectAsset,
             onPreviewEdit: onPreviewEdit,
