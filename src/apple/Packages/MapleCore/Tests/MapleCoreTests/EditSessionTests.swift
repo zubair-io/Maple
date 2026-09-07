@@ -286,9 +286,14 @@ final class EditSessionTests: XCTestCase {
   /// edit could drop it before the 750ms debounce fired).
   func testFlushPendingSidecarWriteForcesCloudSidecarStorePUT() async throws {
     let server = URL(string: "https://x")!
+    // `CloudSidecarStore.send()` now GETs the current remote sidecar first
+    // to preserve foreign XML/metadata across the write (#3311). No sidecar
+    // exists yet for this asset, so the GET must answer 404 — a 2xx GET
+    // response is treated as existing content and parsed as XMP, which an
+    // empty body is not.
     let session = URLSession.stubbedSequence { req in
       let resp = HTTPURLResponse(
-        url: req.url!, statusCode: 204,
+        url: req.url!, statusCode: req.httpMethod == "GET" ? 404 : 204,
         httpVersion: "HTTP/1.1", headerFields: nil)!
       return (Data(), resp)
     }
