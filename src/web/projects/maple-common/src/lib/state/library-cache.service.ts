@@ -325,15 +325,13 @@ export class LibraryCache {
   }
 
   // Per-backend byte-read dispatch (legacy in-memory, M2 network — retried on
-  // transient failure, #2407 — FS-walk absPath, Self-Hosted apiId, Hosted
-  // FS-Access handle) lives in `library-cache.byte-source.ts`, split out to
-  // keep this file under the file-size budget.
+  // transient failure, #2407 — Self-Hosted apiId, Hosted FS-Access handle)
+  // lives in `library-cache.byte-source.ts`, split out to keep this file
+  // under the file-size budget.
   private _doReadBytes(id: AssetId): Promise<Uint8Array> {
     return readAssetBytes(id, {
       legacyBytes: this.legacyBytes,
       librarySource: this.librarySource,
-      assetAbsPaths: this.store.assetAbsPaths,
-      fsBrowse: this.fsBrowse,
       backend: this.store.backend,
       apiAssetIds: this.store.apiAssetIds,
       api: this.api,
