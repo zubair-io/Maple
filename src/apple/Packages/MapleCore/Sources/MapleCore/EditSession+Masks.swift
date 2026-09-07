@@ -96,7 +96,7 @@ extension EditSession {
         // (raw-ffi/src/mask_registry.rs) without needing an FFI round trip
         // just to name a cache entry.
         let raw = "\(assetKey)|\(request.person)|\(request.facialSkin)|\(request.bodySkin)|\(model)"
-        let digest = raw.utf8.reduce(UInt64(1469598103934665603)) { h, b in (h ^ UInt64(b)) &* 1099511628211 }
+        let digest = raw.utf8.reduce(UInt64(0xcbf2_9ce4_8422_2325)) { h, b in (h ^ UInt64(b)) &* 0x0000_0100_0000_01b3 }
         return String(format: "%016llx", digest)
     }
 
