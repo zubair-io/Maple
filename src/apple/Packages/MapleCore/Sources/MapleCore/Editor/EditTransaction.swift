@@ -79,7 +79,8 @@ public enum InvalidationScope: String, Equatable, Sendable {
             lensCorrectionVignetting: m.lensCorrectionVignetting,
             autoLateralCa: m.autoLateralCa,
             captureSharpeningAmount: m.captureSharpeningAmount,
-            captureSharpeningSigma: m.captureSharpeningSigma)
+            captureSharpeningSigma: m.captureSharpeningSigma,
+            retouchSpots: m.retouchSpots)
     }
 
     private struct DecodeInputs: Equatable {
@@ -97,6 +98,10 @@ public enum InvalidationScope: String, Equatable, Sendable {
         let autoLateralCa: AutoLateralCa
         let captureSharpeningAmount: Double
         let captureSharpeningSigma: Double
+        /// Repair spots (#3409) — applied inside the decode product, after
+        /// DCP colorimetry and before the chroma pre-filter, so placing or
+        /// moving one re-develops rather than re-running the per-tick chain.
+        let retouchSpots: [RetouchSpot]
     }
 }
 
@@ -106,10 +111,10 @@ public struct EditTransaction: Equatable, Sendable {
     /// `EDIT_TRANSACTION_VERSION`.
     public static let serializationVersion = 1
 
-    /// The action classes the contract covers. `mask`, `repair`, and
-    /// `variant` are declared so the surfaces that ship them route through
-    /// the same object; nothing constructs them on Apple today (masks are
-    /// not surfaced, repair and variants have no editor entry point).
+    /// The action classes the contract covers. `variant` is declared so the
+    /// surface that ships it routes through the same object; nothing
+    /// constructs it on Apple today. `mask` is the mask tool's class and
+    /// `repair` the clone / heal brush's (#3409).
     public enum Kind: String, Equatable, Sendable, CaseIterable {
         case adjustment
         case auto
@@ -181,8 +186,9 @@ public struct EditTransaction: Equatable, Sendable {
 public enum SidecarDiff {
     /// Every canonical attribute the sidecar writer would emit for `model`
     /// that differs from what it emits for the default model, plus the
-    /// nested tone-curve block under the synthetic key `toneCurves` (curves
-    /// are children, not attributes). Subtracting the default-model emission
+    /// nested tone-curve and repair-spot blocks under the synthetic keys
+    /// `toneCurves` and `retouchAreas` (both are children, not attributes).
+    /// Subtracting the default-model emission
     /// gives both platforms omit-on-default semantics: the Apple writer
     /// emits the core `crs:` block unconditionally where the Web writer
     /// omits it at default (docs/xmp-canonical-format.md § "Known
@@ -201,6 +207,14 @@ public enum SidecarDiff {
         let curves = XMPSerializer._buildToneCurvesBlock(model: model, indent: "")
         if !curves.isEmpty {
             out["toneCurves"] = curves
+        }
+        // Repair spots (#3409) are a nested container too, so they ride a
+        // synthetic key the same way the curves do — without it a spot edit
+        // would produce an EMPTY transaction diff and the history entry
+        // would announce a change nobody could see.
+        let retouch = XMPSerializer._buildRetouchAreasBlock(model: model, indent: "")
+        if !retouch.isEmpty {
+            out["retouchAreas"] = retouch
         }
         return out
     }

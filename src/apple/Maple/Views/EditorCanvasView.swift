@@ -44,6 +44,11 @@ struct EditorCanvasView: View {
           if state.armedTool == .mask {
             MaskOverlay(state: state)
           }
+          // Heal overlay (#3409): every repair spot's destination disc, plus
+          // the selected spot's source disc and the line joining them.
+          if state.armedTool == .heal {
+            RetouchOverlay(state: state)
+          }
           if state.whiteBalancePicker.isArmed {
             WhiteBalancePickOverlay(state: state)
               .id(ObjectIdentifier(state.session))

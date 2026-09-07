@@ -78,6 +78,7 @@ public final class EditorState {
   public let whiteBalancePicker: WhiteBalancePicker
   /// The mask panel's colour-range eyedropper (#362) — same shape as the WB picker.
   public let maskRangePicker: MaskRangePicker
+  public let retouch: RetouchSession
 
   /// `subParamMemory` defaults to the app-session `.shared` store;
   /// tests inject fresh instances for isolation. (`nil` sentinel
@@ -98,6 +99,7 @@ public final class EditorState {
     self.zoom = CanvasZoomController(session: session)
     self.whiteBalancePicker = WhiteBalancePicker(session: session)
     self.maskRangePicker = MaskRangePicker(session: session)
+    self.retouch = RetouchSession(session: session)
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
     )
