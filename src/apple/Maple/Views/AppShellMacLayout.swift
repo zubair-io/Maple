@@ -91,6 +91,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onEditorShare: () -> Void
     /// S5 EditorView Info affordance — reveals the DetailPanel column.
     let onEditorInfo: () -> Void
+    /// S5 EditorView filmstrip-rail tap — switches the edited asset in place
+    /// (`mode` stays `.editing`). #3402.
+    let onEditorSelectAsset: (AssetRef) -> Void
     /// Preview's Edit button — flips the pane shell to `mode = .editing`.
     /// Fast Preview §1.
     var onPreviewEdit: (AssetRef) -> Void = { _ in }
@@ -231,6 +234,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onEditorDismiss: onEditorDismiss,
             onEditorShare: onEditorShare,
             onEditorInfo: onEditorInfo,
+            onEditorSelectAsset: onEditorSelectAsset,
             onPreviewEdit: onPreviewEdit,
             onPreviewDismiss: onPreviewDismiss,
             onMergePanorama: onMergePanorama,
