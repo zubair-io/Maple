@@ -88,6 +88,12 @@
     @if (activeGroup() === 'color') {
       <ng-content select="[cardBodyWhiteBalance]" />
     }
+    <!-- Demosaic kernel picker (#3413) — Detail → Basic, above the sliders.
+         Not a pill of its own: the choice frames what the sharpen and noise
+         sliders are operating on rather than being one more value to scrub. -->
+    @if (activeGroup() === 'detail') {
+      <ng-content select="[cardBodyDemosaic]" />
+    }
     <div class="slider-grid flex flex-col gap-2.5">
       @for (tool of slidersFor(activeGroup()); track tool) {
         <mui-living-slider

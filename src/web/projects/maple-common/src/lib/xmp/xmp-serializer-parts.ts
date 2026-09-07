@@ -98,6 +98,7 @@ function pixelPipelineEnumParts(model: AdjustmentModel): string[] {
     ['papp:WbMethod', model.wbMethod, 'Cat16'],
     ['papp:WbSource', model.wbSource, 'AsShot'],
     ['papp:ToneCurveMode', model.toneCurveMode, 'PerChannel'],
+    ['papp:Demosaic', model.demosaic, 'Auto'],
   ];
   const enums = omitOnDefault
     .filter(([, value, fallback]) => value !== undefined && value !== fallback)
