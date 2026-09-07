@@ -20,7 +20,7 @@ extension _XMPParserDelegate {
   func parserDidEndDocument(_ parser: XMLParser) {
     // Foreign authored pairs are Custom edits. Wait for the whole document:
     // a later Maple namespace preserves legacy AsShot omission semantics.
-    if !sawPappNamespace, sawExplicitWb, model.whiteBalancePreset == .custom,
+    if !sawPappNamespace, !sawMapleNamespaceURI, sawExplicitWb, model.whiteBalancePreset == .custom,
       model.wbSource == .asShot
     {
       model.wbSource = .manual
