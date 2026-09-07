@@ -22,37 +22,23 @@
 //   3. The event loop is yielded to between chunks, so progress actually
 //      paints and the tab stays interactive at 2,000 assets.
 
-/** What one asset's transfer did. */
-export type BatchOutcome = 'applied' | 'failed';
+import type {
+  BatchAssetStatus,
+  BatchTransferFailure,
+  BatchTransferProgress,
+  BatchTransferSummary,
+} from '../../generated/batch-transfer.generated';
 
-/** An asset the run could not write, with the reason it reports. */
-export interface BatchFailure<Id> {
-  id: Id;
-  reason: string;
-}
-
-/** Live progress, emitted after each asset. */
-export interface BatchProgress<Id> {
-  /** Assets in the run. */
-  total: number;
-  /** Assets attempted so far — applied plus failed. */
-  processed: number;
-  /** Assets written successfully so far. */
-  applied: number;
-  /** Assets that failed so far. */
-  failed: number;
-  /** The asset just attempted. */
+export type BatchOutcome = Extract<BatchAssetStatus, 'applied' | 'failed'>;
+export type BatchFailure<Id> = Omit<BatchTransferFailure, 'id'> & { id: Id };
+export type BatchProgress<Id> = Omit<BatchTransferProgress, 'current' | 'outcome'> & {
   current: Id;
   outcome: BatchOutcome;
-}
-
-/** The result of a finished (or cancelled) run. */
-export interface BatchSummary<Id> {
+};
+export type BatchSummary<Id> = Omit<BatchTransferSummary, 'applied' | 'failed'> & {
   applied: readonly Id[];
   failed: readonly BatchFailure<Id>[];
-  /** True when the run stopped early because cancellation was requested. */
-  cancelled: boolean;
-}
+};
 
 export interface BatchOptions<Id> {
   /** Called after every asset. */

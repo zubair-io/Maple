@@ -161,9 +161,16 @@ export class JobRunner {
     const ctx: JobHandlerContext = {
       jobId: claim._id,
       checkpoint: claim.checkpoint,
-      saveCheckpoint: async (checkpoint) => {
+      saveCheckpoint: async (checkpoint, entryIndex) => {
         check();
-        await saveJobCheckpoint(claim._id, this.workerId, checkpoint, this.leaseMs, this.now);
+        await saveJobCheckpoint(
+          claim._id,
+          this.workerId,
+          checkpoint,
+          this.leaseMs,
+          this.now,
+          entryIndex,
+        );
       },
       reportProgress: async (current, total) => {
         check();

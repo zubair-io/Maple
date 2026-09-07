@@ -29,6 +29,27 @@ describe('group value preview', () => {
     expect(preview.color).toEqual([]);
   });
 
+  it('labels an unopened As Shot target instead of displaying unseeded temperatures', () => {
+    const source = {
+      ...defaultAdjustmentModel(),
+      temperature: 4700,
+      tint: 15,
+      whiteBalancePreset: 'Custom' as const,
+      wbSource: 'Manual' as const,
+    };
+    const preview = groupValuePreview(source, [defaultAdjustmentModel()]).white_balance;
+    expect(preview.find((field) => field.field === 'Temperature')).toMatchObject({
+      before: 'As Shot',
+      after: '4700',
+      changedCount: 1,
+    });
+    expect(preview.find((field) => field.field === 'Tint')).toMatchObject({
+      before: 'As Shot',
+      after: '15',
+      changedCount: 1,
+    });
+  });
+
   it('shows authored WB semantics without presenting As Shot display seeds as edits', () => {
     const source = { ...defaultAdjustmentModel(), temperature: 4700, tint: 15 };
     const target = { ...defaultAdjustmentModel(), temperature: 6200, tint: -2 };

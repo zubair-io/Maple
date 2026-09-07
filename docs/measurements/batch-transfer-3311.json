@@ -1,0 +1,83 @@
+{
+  "measuredAt": "2026-09-06T19:33:00.095Z",
+  "platform": "darwin",
+  "cpu": "Apple M5 Max",
+  "browser": "147.0.7727.15",
+  "scope": "Chromium with an owned temporary persistent profile, native DOMParser, disk-backed OPFS copies of actual photos and XMP sidecars, IndexedDB ledger, actual Angular LibraryStateService and BatchSyncAssetIO, and production batch Worker. Setup and verification excluded from processing time and RSS sampling.",
+  "corpus": {
+    "imageCount": 2000,
+    "originalBytes": 3034079453,
+    "extensions": [".jpg", ".cr2", ".heic", ".jpeg"]
+  },
+  "result": {
+    "seconds": 12.570540000200271,
+    "applied": 2000,
+    "failed": [],
+    "phaseSeconds": {
+      "prepare": 3.272960000276552,
+      "write": 7.160850003719323
+    },
+    "initialExposure": -0.5
+  },
+  "memory": {
+    "method": "Sum of RSS from ps for this Chromium instance PIDs supplied by browser CDP; shared pages may be counted more than once. Node and Vite excluded.",
+    "baseline": {
+      "rssBytes": 809730048,
+      "processes": [
+        {
+          "pid": 20996,
+          "type": "browser",
+          "rssBytes": 152633344
+        },
+        {
+          "pid": 21141,
+          "type": "GPU",
+          "rssBytes": 66551808
+        },
+        {
+          "pid": 21142,
+          "type": "network.mojom.NetworkService",
+          "rssBytes": 50642944
+        },
+        {
+          "pid": 21179,
+          "type": "renderer",
+          "rssBytes": 539901952
+        }
+      ]
+    },
+    "peak": {
+      "rssBytes": 909066240,
+      "processes": [
+        {
+          "pid": 20996,
+          "type": "browser",
+          "rssBytes": 172294144
+        },
+        {
+          "pid": 21141,
+          "type": "GPU",
+          "rssBytes": 66600960
+        },
+        {
+          "pid": 21142,
+          "type": "network.mojom.NetworkService",
+          "rssBytes": 50642944
+        },
+        {
+          "pid": 21179,
+          "type": "renderer",
+          "rssBytes": 619528192
+        }
+      ]
+    },
+    "extraPeakRssBytes": 99336192,
+    "sampleIntervalMs": 100,
+    "samples": 79
+  },
+  "budget": {
+    "processingSeconds": 120,
+    "extraPeakRssBytes": 536870912
+  },
+  "verified": true
+}

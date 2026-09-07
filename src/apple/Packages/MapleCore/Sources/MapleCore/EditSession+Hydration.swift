@@ -32,6 +32,10 @@ extension EditSession {
   /// Hydration is silent for sessions pre-created by the browse grid; a
   /// render is scheduled only if the editor has already requested pixels.
   public func loadSidecar() async {
+    guard !hasLoadedSidecar else { return }
+    let startingModel = model
+    let startingCulling = culling
+    let startingTransaction = transactions.nextID
     // (1) As-shot white balance — needed by Browse so the WB chip
     // shows the correct value without opening the editor. CIRAWFilter
     // metadata reads still perform source I/O, so use a detached task.
@@ -76,6 +80,17 @@ extension EditSession {
         return
       }
     }
+
+    // An edit or another completed load owns the current state. In particular,
+    // a confirmed batch paste must not be overwritten by a late browse hydrate.
+    // Mark this attempt resolved before the snapshot guard: when the guard
+    // rejects stale I/O, a later call must not replay that persisted snapshot
+    // over the edit that won the race.
+    guard !hasLoadedSidecar else { return }
+    hasLoadedSidecar = true
+    guard model == startingModel, culling == startingCulling,
+      transactions.nextID == startingTransaction
+    else { return }
 
     // (3/4) Build the initial model. As-shot seeding only applies when
     // no sidecar was loaded — once the user has saved edits, their

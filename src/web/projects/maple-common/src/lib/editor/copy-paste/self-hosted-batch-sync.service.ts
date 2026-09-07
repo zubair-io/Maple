@@ -9,14 +9,12 @@ import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
 import { BatchPreviewService } from './batch-preview.service';
 import { buildXmpTransferPatch } from './xmp-transfer-patch';
+import { CURRENT_WHITE_BALANCE_SCALE_VERSION } from '../../generated/adjustment-transfer.generated';
+import { whiteBalanceCorrection, type AdjustmentTransferRequest } from './adjustment-transfer';
 import type { PersistedBatchSync } from './persisted-batch-sync';
 import type { BatchProgress, BatchSummary } from './batch-sync';
 
-interface SavedSummary {
-  applied: string[];
-  failed: { id: string; reason: string }[];
-  remaining: string[];
-}
+type SavedSummary = Omit<BatchSummary<string>, 'cancelled'> & { remaining: string[] };
 interface SyncJob {
   id: string;
   status: 'queued' | 'running' | 'done' | 'cancelled' | 'failed';
@@ -61,11 +59,10 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     if (this.jobId) void this.reconnect();
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   async apply(
     ids: readonly string[],
     patch: Partial<AdjustmentModel>,
+    request?: AdjustmentTransferRequest,
   ): Promise<BatchSummary<string> | null> {
     if (this.inFlight || this.needsReconnect() || ids.length === 0) return null;
     if (this.remaining().length > 0) {
@@ -81,24 +78,35 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
       });
       const xml = this.serializer.serialize({ ...defaultAdjustmentModel(), ...patch });
       const transfer = buildXmpTransferPatch(patch, xml);
+      const relativeWhiteBalance =
+        request?.relativeWhiteBalance && request.groups.includes('white_balance')
+          ? whiteBalanceCorrection(request)
+          : undefined;
+      // As Shot legitimately omits its XMP scale stamp. The relative command
+      // still states the scale validated by whiteBalanceCorrection above.
+      const wirePatch = relativeWhiteBalance
+        ? {
+            ...transfer,
+            attributes: {
+              ...transfer.attributes,
+              'papp:WbScaleVersion': String(CURRENT_WHITE_BALANCE_SCALE_VERSION),
+            },
+          }
+        : transfer;
       const requestId = this.newRequestId();
       return firstValueFrom(
         this.http.post<{ id: string }>(`${this.base}/jobs`, {
           kind: 'batch_adjustment_sync',
           requestId,
-          payload: { targets, patch: transfer },
+          payload: { targets, patch: wirePatch, relativeWhiteBalance },
         }),
       );
     }, ids.length);
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   retryFailed(): Promise<BatchSummary<string> | null> {
     return this.remaining().length ? Promise.resolve(null) : this.action('retry-failed');
   }
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   resume(): Promise<BatchSummary<string> | null> {
     return this.action('resume');
   }
@@ -120,8 +128,6 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }, 0);
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   cancel(): void {
     this.cancelRequested = true;
     if (this.jobId && this.inFlight) void this.requestCancel();
@@ -135,8 +141,6 @@ export class SelfHostedBatchSyncService implements PersistedBatchSync {
     }
   }
 
-  // Invoked through the PERSISTED_BATCH_SYNC injection-token interface.
-  // fallow-ignore-next-line unused-class-member
   dismissSummary(): void {
     if (this.inFlight || this.needsReconnect()) return;
     this.lastSummary.set(null);

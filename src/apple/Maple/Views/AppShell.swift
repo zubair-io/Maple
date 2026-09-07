@@ -563,6 +563,7 @@ struct AppShell: View {
     // #633 — InfoPanel/HistogramBlock reads this. nil ⇒ placeholder
     // (local/PhotoKit assets, no cloud asset open). Set + cleared by
     // `openCloudAsset` / the library-selection reset below.
+    .environment(\.batchAdjustmentLibrary, batchAdjustmentLibrary)
     .environment(\.cloudHistogramClient, cloudHistogramClient)
     // InfoPanel/EnrichmentBlock reads this. nil ⇒ no enrichment section
     // (local/PhotoKit assets, no cloud asset open). Set + cleared
@@ -1075,51 +1076,6 @@ struct AppShell: View {
     }
   }
 
-  /// Persist the editing session's developed preview when the app
-  /// backgrounds (jules review, #2009).
-  ///
-  /// On iOS a bare `Task { … }` would be aborted mid-flight when the OS
-  /// suspends the process. Hold a UIKit background-task assertion for the
-  /// async readback + AVIF encode + local write (or `/api/preview` PUT).
-  /// This is async-friendly — no thread blocking: the persist runs on the
-  /// MainActor while the assertion is held (unlike a `DispatchSemaphore`
-  /// inside `performExpiringActivity`, whose wait could stall the actor and
-  /// starve the very persist Task it's waiting on). `end()` is idempotent, so
-  /// whichever of the completion or the OS expiration handler fires first
-  /// releases the assertion exactly once. Best-effort: the preview is a pure
-  /// cache, so an early expiration just leaves it to regenerate on next open.
-  ///
-  /// macOS doesn't suspend the process on background the way iOS does (as the
-  /// `scenePhase` comment above notes), so a plain task lands the write.
-  @MainActor
-  private func persistPreviewOnBackground(_ session: EditSession) {
-    #if os(iOS)
-      let bgTask = BackgroundTaskAssertion()
-      // Deliberately proceeding even when the assertion is denied
-      // (`begin` returns false — Low Power Mode, near-suspension): the
-      // persist is a pure cache and may be cut short, but the release
-      // MUST still run — the scenePhase handler excluded this session
-      // from the bulk release precisely because this path owns it
-      // (#2037/#2947); bailing out here left the active editor's buffers
-      // resident in a backgrounded app. `end()` no-ops without one.
-      _ = bgTask.begin(name: "app.justmaple.aperture.preview-persist") {
-        bgTask.end()
-      }
-      Task { @MainActor in
-        await session.persistDisplayPreviewOnExit()
-        // #2037 — now that the exit persist has read whatever GPU frame
-        // was live, release this session's decoded/tile/GPU buffers too
-        // (backgrounded apps are jetsam's first victims). Sequenced
-        // AFTER the persist — see `releaseTransientMemoryForAllSessions`'s
-        // `excluding` doc for why running it concurrently would race.
-        await session.releaseTransientMemory()
-        bgTask.end()
-      }
-    #else
-      Task { await session.persistDisplayPreviewOnExit() }
-    #endif
-  }
-
   /// Shared between the Mac/iPad NavigationSplitView and the iPhone
   /// drawer. Both shells fan the same 13 LibrarySidebar callbacks into
   /// AppShell action methods — keeping this as one computed property
@@ -1529,37 +1485,6 @@ struct AppShell: View {
       let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
       batchRenameVM = BatchRenameViewModel(assets: assets, routing: .cloud, cloudCatalog: remote)
     }
-  }
-
-  /// Decide the ONE routing this whole selection will use. A Browse
-  /// multi-select is always drawn from a single `browseVM.currentSource`,
-  /// so in every real call site the selection is homogeneous — the
-  /// `allSatisfy` checks below are the (defensive, not load-bearing)
-  /// guard against that assumption ever being violated, in which case the
-  /// batch is reported unsupported rather than silently mis-routing a
-  /// subset of it. Mirrors the single-asset rename ticket's
-  /// `renameUnsupportedReason` per-asset checks (#2638).
-  private func batchRenameRouting(for assets: [AssetRef]) -> BatchRenameRouting {
-    guard !assets.isEmpty else { return .unsupported("No photos selected.") }
-    if browseVM.currentSource is PhotoKitSource
-      || assets.contains(where: { $0.thumbnailProvenance == .photoKit })
-    {
-      return .unsupported(
-        "PhotoKit photos have no file on disk Maple can rename — rename from the Photos app instead."
-      )
-    }
-    if assets.allSatisfy({ $0.catalog != nil }) {
-      return .cloud
-    }
-    if assets.allSatisfy({ $0.primaryURL != nil }) {
-      return .filesystem
-    }
-    if browseVM.currentSource is SMBSource,
-      assets.allSatisfy({ $0.primaryURL == nil && $0.catalog == nil })
-    {
-      return .smb
-    }
-    return .unsupported("Batch rename isn't available for this selection.")
   }
 
   // MARK: - Panorama merge actions (M2, #1236)

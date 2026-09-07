@@ -71,6 +71,7 @@ interface RawFfi {
     filmPath: string | null,
     outPath: string,
   ): string | null;
+  asShotWhiteBalance(rawAbsPath: string): { temperature: number; tint: number } | null;
   /**
    * Render a RAW+XMP and return a 3×256 RGB histogram (R/G/B channel counts),
    * computed in Rust. The rendered pixel buffer never crosses the FFI boundary
@@ -210,6 +211,10 @@ function loadFfi(): RawFfi | null {
     const { dlopen, FFIType, ptr } = require('bun:ffi') as typeof BunFfi;
 
     const lib = dlopen(libPath, {
+      maple_as_shot_white_balance_file: {
+        args: [FFIType.cstring, FFIType.ptr],
+        returns: FFIType.i32,
+      },
       maple_histogram_file: {
         args: [
           FFIType.cstring, // raw_path
@@ -303,6 +308,17 @@ function loadFfi(): RawFfi | null {
     }
 
     return {
+      asShotWhiteBalance(rawAbsPath) {
+        const raw = Buffer.from(rawAbsPath + '\0');
+        const pair = Buffer.alloc(8);
+        const rc = lib.symbols.maple_as_shot_white_balance_file(ptr(raw), ptr(pair));
+        if (rc !== 0) return null;
+        const temperature = pair.readFloatLE(0);
+        const tint = pair.readFloatLE(4);
+        return Number.isFinite(temperature) && temperature > 0 && Number.isFinite(tint)
+          ? { temperature, tint }
+          : null;
+      },
       computeHistogramBins(
         rawAbsPath: string,
         xmpAbsPath: string | null = null,

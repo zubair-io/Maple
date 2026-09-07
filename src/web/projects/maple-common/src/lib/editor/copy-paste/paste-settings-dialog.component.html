@@ -4,7 +4,19 @@
   [summary]="summary()"
   [groups]="previewGroups()"
   (groupsChange)="groups.set($event)"
-  [confirmDisabled]="waitingForPreview() || previewError() !== null"
+  [confirmDisabled]="waitingForPreview() || previewError() !== null || relativeBlocked()"
   (pasteConfirmed)="onPasteConfirmed($event)"
   (dismissed)="onDismissed()"
-/>
+>
+  <mui-checkbox
+    [checked]="relativeWhiteBalance()"
+    label="White balance relative to each photo’s As Shot"
+    (checkedChange)="setRelative($event)"
+  />
+  @if (readingBaseline()) {
+    <p>Reading the source camera white balance…</p>
+  }
+  @if (baselineError()) {
+    <p role="alert">{{ baselineError() }}</p>
+  }
+</mui-selective-paste-modal>

@@ -6,6 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
 // config enables; Safari and Firefox decode paths are covered by unit tests.
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: ['batch-transfer/**', 'batch-transfer-ui.spec.ts', 'batch-library/**'],
   fullyParallel: false,
   retries: 0,
   workers: 1,

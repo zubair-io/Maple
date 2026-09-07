@@ -14,6 +14,7 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
 
   private var cached: (AdjustmentModel, CullingState)?
   private var pendingTask: Task<Void, Never>?
+  private var writeTail: Task<Void, Error>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
 
@@ -22,6 +23,7 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
   /// here, so the bucket is captured on load and held for the lifetime of the
   /// session — the same shape `cached` already has.
   private var cachedPassthrough: XMPPassthrough = .empty
+  private var cachedMetadata = XmpMetadata()
 
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
@@ -49,6 +51,7 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     let result = try XMPParser.parse(data: data)
     cached = result
     cachedPassthrough = XMPParser.parsePassthrough(data: data)
+    cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
     return result
   }
 
@@ -103,19 +106,60 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     return components.url!
   }
 
+  public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+
+    cached = (model, culling)
+    try await persist(model: model, culling: culling)
+  }
+
+  private func persist(model: AdjustmentModel, culling: CullingState) async throws {
+    // Actor reentrancy must not let an older network write finish after a
+    // confirmed batch write. Each real write waits for its predecessor.
+    let previous = writeTail
+    let task = Task {
+      _ = await previous?.result
+      try await send(model: model, culling: culling)
+    }
+    writeTail = task
+    try await task.value
+  }
+
+  private func send(model: AdjustmentModel, culling: CullingState) async throws {
+    // Metadata can change independently of this editor session. Preserve
+    // the current sidecar's foreign XML and IPTC fields at the write boundary.
+    let (bytes, response) = try await httpClient.data(for: URLRequest(url: sidecarURL))
+    let absent = (response as? HTTPURLResponse)?.statusCode == 404
+    if !absent { try Self.checkOK(response, data: bytes) }
+    if absent {
+      cachedMetadata = XmpMetadata()
+      cachedPassthrough = .empty
+    }
+    let existing: Data? = absent ? nil : bytes
+    if let existing {
+      _ = try XMPParser.parse(data: existing)
+      cachedMetadata = XMPParser.parseMetadata(String(decoding: existing, as: UTF8.self))
+      cachedPassthrough = XMPParser.parsePassthrough(data: existing)
+    }
+    let xml = XMPSerializer.serialize(
+      model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
+    var req = URLRequest(url: sidecarURL)
+    req.httpMethod = assetID.hasPrefix("fs:") ? "POST" : "PUT"
+    req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+    req.httpBody = Data(xml.utf8)
+    let (data, resp) = try await httpClient.data(for: req)
+    try Self.checkOK(resp, data: data)
+  }
+
   private func writePending() async {
     guard let model = pendingModel, let culling = pendingCulling else { return }
     pendingModel = nil
     pendingCulling = nil
     do {
-      let xml = XMPSerializer.serialize(
-        model: model, culling: culling, passthrough: cachedPassthrough)
-      var req = URLRequest(url: sidecarURL)
-      req.httpMethod = assetID.hasPrefix("fs:") ? "POST" : "PUT"
-      req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-      req.httpBody = Data(xml.utf8)
-      let (data, resp) = try await httpClient.data(for: req)
-      try Self.checkOK(resp, data: data)
+      try await persist(model: model, culling: culling)
     } catch {
       for subscriber in subscribers.values {
         subscriber.yield(error)

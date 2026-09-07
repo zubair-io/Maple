@@ -1,7 +1,7 @@
 /** Real temporary sidecars plus real Mongo. Set MAPLE_MONGO_URI to run integration cases. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, readFile, rm, stat, writeFile } from '../fs/mirrored.ts';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from '../fs/mirrored.ts';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Elysia } from 'elysia';
 import { type MongoClient, ObjectId } from 'mongodb';
@@ -14,6 +14,7 @@ import { batchAdjustmentSyncHandler, parseSyncPayload } from './handlers/batch-a
 import type { JobHandlerContext } from './handlers/index.ts';
 import * as jobs from './jobs.repo.ts';
 import { jobsRoutes } from '../routes/jobs.ts';
+import { ffiPool } from '../ffi/ffi-pool.ts';
 
 const dbName = withTestDb(`maple_test_batch_sync_${process.pid}`);
 let mongo: MongoClient | null = null;
@@ -38,6 +39,7 @@ beforeEach(async () => {
   if (mongo) await mongo.db(dbName).collection('jobs').deleteMany({});
 });
 afterAll(async () => {
+  await ffiPool().shutdown();
   await closeDb();
   await mongo?.close();
   if (root) {
@@ -59,31 +61,275 @@ async function context(jobId: ObjectId, worker = 'worker-a'): Promise<JobHandler
   return {
     jobId,
     checkpoint: (await jobs.getJob(jobId))?.checkpoint,
-    saveCheckpoint: (value) => jobs.saveJobCheckpoint(jobId, worker, value, 60000),
+    saveCheckpoint: (value, entryIndex) =>
+      jobs.saveJobCheckpoint(jobId, worker, value, 60000, undefined, entryIndex),
     reportProgress: (current, total) =>
       jobs.updateProgress(jobId, { current, total }, 60000, undefined, worker),
     shouldCancel: () => jobs.isCancelRequested(jobId),
   };
 }
 async function claimed(targets: Awaited<ReturnType<typeof target>>[]) {
-  const job = await jobs.createJob({ kind: 'batch_adjustment_sync', payload: { targets, patch } });
+  const job = await jobs.createJob({
+    kind: 'batch_adjustment_sync',
+    payload: { targets, patch },
+  });
   expect((await jobs.claimJob('worker-a', 60000))?._id.toHexString()).toBe(job._id.toHexString());
   return job;
 }
 
 describe('persisted batch adjustment sync', () => {
+  it('publishes the edited copy and bumps its shared asset version without editing its primary copy', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const db = await getDb();
+    const library = await db.collection('folders').findOne({ slug: 'batch' });
+    expect(library).not.toBeNull();
+    await mkdir(join(root, 'copies'), { recursive: true });
+    const primary = await target('primary-copy');
+    const photo = await target('copies/selected');
+    const primaryXml = await readFile(xmpSidecarPath(primary.path), 'utf8');
+    const assetId = new ObjectId();
+    await db.collection('assets').insertOne({
+      _id: assetId,
+      sidecar_ver: 7,
+      fileinfo: [
+        { library_id: library!._id, path: '', filename: 'primary-copy.jpg', deleted_at: null },
+        { library_id: library!._id, path: 'copies', filename: 'selected.jpg', deleted_at: null },
+      ],
+    });
+    const job = await claimed([photo]);
+    const out = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
+    expect(out.result.applied).toEqual([photo.id]);
+    expect(await readFile(xmpSidecarPath(primary.path), 'utf8')).toBe(primaryXml);
+    const asset = await db.collection('assets').findOne({ _id: assetId });
+    expect(asset?.sidecar_ver).toBe(8);
+    expect(asset?.has_xmp).toBe(true);
+    const rows = await db.collection('asset_changes').find({ asset_id: assetId }).toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].abs_path).toBe(photo.path);
+    expect(rows[0].relative_path).toBe('copies/selected.jpg');
+    expect(rows[0].folder_id).toEqual(library!._id);
+    const again = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
+    expect(again.result.applied).toEqual([photo.id]);
+    expect((await db.collection('assets').findOne({ _id: assetId }))?.sidecar_ver).toBe(8);
+  });
+
+  it('resolves an id without a slug delimiter from the longest matching library root', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const db = await getDb();
+    const library = await db.collection('folders').findOne({ slug: 'batch' });
+    expect(library).not.toBeNull();
+    const misleading = await db
+      .collection('folders')
+      .insertOne({ path: dirname(root), slug: 'plain-photo.jp' });
+    invalidateLibraryRoots();
+    try {
+      const photo = await target('plain-photo');
+      photo.id = 'plain-photo.jpg';
+      const job = await claimed([photo]);
+      await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
+      const row = await db.collection('asset_changes').findOne({ abs_path: photo.path });
+      expect(row?.folder_id).toEqual(library!._id);
+      expect(row?.folder_id).not.toEqual(misleading.insertedId);
+    } finally {
+      await db.collection('folders').deleteOne({ _id: misleading.insertedId });
+      invalidateLibraryRoots();
+    }
+  });
+
+  it('recovers a real change-feed failure without rewriting an already committed sidecar', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const db = await getDb();
+    const photo = await target('notification-recovery');
+    const job = await claimed([photo]);
+    await db.collection('asset_changes').createIndex({ cursor: 1 });
+    await db.command({
+      collMod: 'asset_changes',
+      validator: { impossible_batch_field: { $exists: true } },
+    });
+    try {
+      await expect(
+        batchAdjustmentSyncHandler.run(job.payload, await context(job._id)),
+      ).rejects.toThrow();
+      const ledger = (await jobs.getJob(job._id))?.checkpoint?.entries as { status: string }[];
+      expect(ledger[0].status).toBe('prepared');
+      expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toContain(
+        'crs:Exposure2012="1.25"',
+      );
+    } finally {
+      await db.command({ collMod: 'asset_changes', validator: {} });
+    }
+    const written = await stat(xmpSidecarPath(photo.path));
+    const out = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
+    expect(out.result.applied).toEqual([photo.id]);
+    expect((await stat(xmpSidecarPath(photo.path))).mtimeMs).toBe(written.mtimeMs);
+    expect(await db.collection('asset_changes').countDocuments({ abs_path: photo.path })).toBe(1);
+  });
+
+  it('detects a new sidecar created after preparation and leaves its bytes untouched', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const photo = await target('new-sidecar-race');
+    await rm(xmpSidecarPath(photo.path));
+    const job = await claimed([photo]);
+    const ctx = await context(job._id);
+    const save = ctx.saveCheckpoint!;
+    ctx.saveCheckpoint = async (ledger) => {
+      await save(ledger);
+      if ((ledger.entries as { status?: string }[])[0]?.status === 'prepared')
+        await writeFile(xmpSidecarPath(photo.path), untouched);
+    };
+    const out = await batchAdjustmentSyncHandler.run(job.payload, ctx);
+    expect(out.result.applied).toEqual([]);
+    expect((out.result.failed as { reason: string }[])[0].reason).toContain('changed');
+    expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toBe(untouched);
+  });
+
+  it('rejects legacy or unversioned relative white balance before queueing', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const photo = await target('legacy-wb');
+    const app = new Elysia().use(jobsRoutes);
+    for (const version of [undefined, '4']) {
+      const response = await app.handle(
+        new Request('http://localhost/api/jobs', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            kind: 'batch_adjustment_sync',
+            payload: {
+              targets: [photo],
+              relativeWhiteBalance: { temperature: 100, tint: -0.5 },
+              patch: {
+                attributes: {
+                  'crs:WhiteBalance': 'Custom',
+                  ...(version ? { 'papp:WbScaleVersion': version } : {}),
+                },
+                elements: {},
+              },
+            },
+          }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toContain('current-scale');
+    }
+    expect(await (await getDb()).collection('jobs').countDocuments()).toBe(0);
+    expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toBe(untouched);
+  });
+
+  it('refuses a concurrent batch in the same library, including a second client', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const first = await claimed([await target('owner')]);
+    const app = new Elysia().use(jobsRoutes);
+    const request = () =>
+      new Request('http://localhost/api/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'batch_adjustment_sync',
+          payload: {
+            targets: [{ id: 'batch:second.jpg', path: join(root, 'second.jpg') }],
+            patch,
+          },
+        }),
+      });
+    const blocked = await app.handle(request());
+    expect(blocked.status).toBe(409);
+    await jobs.markCancelled(first._id, {
+      applied: [],
+      failed: [],
+      remaining: [],
+    });
+    expect((await app.handle(request())).status).toBe(201);
+  });
+
+  it('reads actual paired RAW baselines through HTTP and writes a frozen relative patch', async () => {
+    if (!mongo) throw new Error('This regression requires MongoDB');
+    const sourcePath = join(root, 'paired-source.dng');
+    const targetPath = join(root, 'paired-target.dng');
+    const sourceBytes = await readFile(
+      new URL('../../../../test-fixtures/batch-transfer/source.dng', import.meta.url),
+    );
+    const targetBytes = await readFile(
+      new URL('../../../../test-fixtures/batch-transfer/target.dng', import.meta.url),
+    );
+    await writeFile(sourcePath, sourceBytes);
+    await writeFile(targetPath, targetBytes);
+    await writeFile(xmpSidecarPath(targetPath), untouched);
+    const app = new Elysia().use(jobsRoutes);
+    const baseline = async (path: string) => {
+      const result = await app.handle(
+        new Request(`http://localhost/api/jobs/batch-baseline?path=${encodeURIComponent(path)}`),
+      );
+      expect(result.status).toBe(200);
+      return result.json();
+    };
+    expect(await baseline(sourcePath)).toEqual({ temperature: 7350, tint: 14 });
+    expect(await baseline(targetPath)).toEqual({ temperature: 5050, tint: 38 });
+    const payload = {
+      targets: [{ id: 'batch:paired-target.dng', path: targetPath }],
+      patch: {
+        attributes: {
+          'crs:WhiteBalance': 'Custom',
+          'crs:Temperature': '8550',
+          'crs:Tint': '24',
+          'papp:WbScaleVersion': '5',
+        },
+        elements: {},
+      },
+      relativeWhiteBalance: { temperature: 1200, tint: 10 },
+    };
+    const job = await jobs.createJob({
+      kind: 'batch_adjustment_sync',
+      payload,
+    });
+    await jobs.claimJob('worker-a', 60000);
+    const ctx = await context(job._id);
+    const save = ctx.saveCheckpoint!;
+    ctx.saveCheckpoint = async (ledger) => {
+      if ((ledger.applied as string[]).length) throw new Error('lost acknowledgement');
+      await save(ledger);
+    };
+    await expect(batchAdjustmentSyncHandler.run(payload, ctx)).rejects.toThrow(
+      'lost acknowledgement',
+    );
+    const written = await readFile(xmpSidecarPath(targetPath), 'utf8');
+    expect(written).toContain('crs:Temperature="6250"');
+    expect(written).toContain('crs:Tint="48"');
+    expect(written).toContain('custom:Keep="&#65;"');
+    const before = await stat(xmpSidecarPath(targetPath));
+    const ledger = (await jobs.getJob(job._id))!.checkpoint!.entries as {
+      patch: { attributes: Record<string, string> };
+    }[];
+    expect(ledger[0].patch.attributes['crs:Temperature']).toBe('6250');
+    const replay = await batchAdjustmentSyncHandler.run(payload, await context(job._id));
+    expect(replay.result.applied).toEqual(['batch:paired-target.dng']);
+    expect((await stat(xmpSidecarPath(targetPath))).mtimeMs).toBe(before.mtimeMs);
+    expect(await readFile(sourcePath)).toEqual(sourceBytes);
+    expect(await readFile(targetPath)).toEqual(targetBytes);
+  });
+
   it('reuses a client-generated job identity after a lost creation response', async () => {
     if (!mongo) return;
     const payload = { targets: [await target('request-id')], patch };
     const requestId = new ObjectId().toHexString();
-    const one = await jobs.createJob({ kind: 'batch_adjustment_sync', payload, requestId });
-    const two = await jobs.createJob({ kind: 'batch_adjustment_sync', payload, requestId });
+    const one = await jobs.createJob({
+      kind: 'batch_adjustment_sync',
+      payload,
+      requestId,
+    });
+    const two = await jobs.createJob({
+      kind: 'batch_adjustment_sync',
+      payload,
+      requestId,
+    });
     expect(two._id).toEqual(one._id);
     expect(await mongo.db(dbName).collection('jobs').countDocuments({ _id: one._id })).toBe(1);
     await expect(
       jobs.createJob({
         kind: 'batch_adjustment_sync',
-        payload: { ...payload, patch: { attributes: { 'crs:Exposure2012': '2' }, elements: {} } },
+        payload: {
+          ...payload,
+          patch: { attributes: { 'crs:Exposure2012': '2' }, elements: {} },
+        },
         requestId,
       }),
     ).rejects.toThrow('different job');
@@ -127,34 +373,51 @@ describe('persisted batch adjustment sync', () => {
     expect(await mongo.db(dbName).collection('jobs').countDocuments()).toBe(2);
   });
 
-  it('measures a 2,000-sidecar run when MAPLE_BATCH_BENCHMARK=1', async () => {
-    if (!mongo || process.env.MAPLE_BATCH_BENCHMARK !== '1') return;
-    const targets = [];
-    for (let i = 0; i < 2000; i++) targets.push(await target(`bench-${i}`));
-    const job = await claimed(targets);
-    const baseline = process.memoryUsage().rss;
-    let peak = baseline;
-    const sampler = setInterval(() => {
-      peak = Math.max(peak, process.memoryUsage().rss);
-    }, 50);
-    const started = performance.now();
-    try {
-      const out = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
-      expect(out.result.applied).toHaveLength(2000);
-      expect(out.result.failed).toEqual([]);
-      console.log(
-        JSON.stringify({
-          fixture: '2,000 synthetic local sidecars; no RAW decoding',
-          elapsedMs: Math.round(performance.now() - started),
-          baselineRssMiB: Math.round(baseline / 1048576),
-          peakRssMiB: Math.round(peak / 1048576),
-        }),
-      );
-      expect(await readFile(targets[1999].path, 'utf8')).toBe('original sentinel');
-    } finally {
-      clearInterval(sampler);
-    }
-  }, 180000);
+  it.skipIf(process.env.MAPLE_BATCH_BENCHMARK !== '1')(
+    'measures a 2,000-sidecar run when MAPLE_BATCH_BENCHMARK=1',
+    async () => {
+      if (!mongo || process.env.MAPLE_BATCH_BENCHMARK !== '1') return;
+      const targets = [];
+      for (let i = 0; i < 2000; i++) targets.push(await target(`bench-${i}`));
+      const job = await claimed(targets);
+      const baseline = process.memoryUsage().rss;
+      let peak = baseline;
+      const sampler = setInterval(() => {
+        peak = Math.max(peak, process.memoryUsage().rss);
+      }, 50);
+      const started = performance.now();
+      const ctx = await context(job._id);
+      const report = ctx.reportProgress;
+      ctx.reportProgress = async (current, total) => {
+        await report(current, total);
+        if (current % 250 === 0)
+          console.log(
+            JSON.stringify({
+              processed: current,
+              total,
+              elapsedMs: Math.round(performance.now() - started),
+            }),
+          );
+      };
+      try {
+        const out = await batchAdjustmentSyncHandler.run(job.payload, ctx);
+        expect(out.result.applied).toHaveLength(2000);
+        expect(out.result.failed).toEqual([]);
+        console.log(
+          JSON.stringify({
+            fixture: '2,000 synthetic local sidecars; no RAW decoding',
+            elapsedMs: Math.round(performance.now() - started),
+            baselineRssMiB: Math.round(baseline / 1048576),
+            peakRssMiB: Math.round(peak / 1048576),
+          }),
+        );
+        expect(await readFile(targets[1999].path, 'utf8')).toBe('original sentinel');
+      } finally {
+        clearInterval(sampler);
+      }
+    },
+    600000,
+  );
 
   it('continues after a malformed sidecar and retries only failed photos through HTTP', async () => {
     if (!mongo) return;
@@ -170,7 +433,9 @@ describe('persisted batch adjustment sync', () => {
     );
     const app = new Elysia().use(jobsRoutes);
     const retry = await app.handle(
-      new Request(`http://localhost/api/jobs/${job._id}/retry-failed`, { method: 'POST' }),
+      new Request(`http://localhost/api/jobs/${job._id}/retry-failed`, {
+        method: 'POST',
+      }),
     );
     expect(retry.status).toBe(201);
     const retryJob = await jobs.getJob(new ObjectId((await retry.json()).id));
@@ -200,9 +465,11 @@ describe('persisted batch adjustment sync', () => {
     const appliedBytes = await readFile(xmpSidecarPath(targets[0].path), 'utf8');
     const changedAfter = appliedBytes.replace('1.25', '2.75');
     await writeFile(xmpSidecarPath(targets[0].path), changedAfter);
-    const response = await new Elysia()
-      .use(jobsRoutes)
-      .handle(new Request(`http://localhost/api/jobs/${job._id}/resume`, { method: 'POST' }));
+    const response = await new Elysia().use(jobsRoutes).handle(
+      new Request(`http://localhost/api/jobs/${job._id}/resume`, {
+        method: 'POST',
+      }),
+    );
     expect(response.status).toBe(200);
     await jobs.claimJob('worker-a', 60000);
     const completed = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));

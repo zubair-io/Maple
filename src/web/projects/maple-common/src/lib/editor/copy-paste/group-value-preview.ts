@@ -38,7 +38,12 @@ export function groupValuePreview(
       // As Shot numbers are display seeds, not authored settings.
       if ((key === 'temperature' || key === 'tint') && source.whiteBalancePreset === 'As Shot')
         return [];
-      const values = targets.map((target) => target[key]);
+      const values = targets.map((target) =>
+        (key === 'temperature' || key === 'tint') &&
+        (target.wbSource === 'AsShot' || target.whiteBalancePreset === 'As Shot')
+          ? 'As Shot'
+          : target[key],
+      );
       const changedCount = values.filter(
         (before) => JSON.stringify(before) !== JSON.stringify(after),
       ).length;

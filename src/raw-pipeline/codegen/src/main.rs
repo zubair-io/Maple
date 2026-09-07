@@ -32,6 +32,7 @@ mod adjustment;
 mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
+mod batch_transfer_contract;
 mod capability_registry;
 mod capability_summary;
 mod color_matrices;
@@ -95,6 +96,10 @@ enum Schema {
     Adjustment,
     /// Per-field batch transfer decisions (#3311).
     AdjustmentTransfer,
+    /// Durable batch progress and outcome DTOs (#3311).
+    BatchTransfer,
+    /// Shared result shapes consumed by the existing API job runner (#3311).
+    BatchTransferApi,
     /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS,
     /// SPACING_TOKENS}` — design-system color hex strings, motion
     /// duration/easing pairs, radius, and spacing. Ticket #606.
@@ -164,6 +169,17 @@ fn main() {
         (Schema::ExportRecipe, Target::Cs) => export_recipe::emit_cs(),
         (Schema::ExportRecipe, _) => {
             eprintln!("export-recipe supports ts / swift / cs");
+            std::process::exit(2);
+        }
+        (Schema::BatchTransferApi, Target::Ts) => batch_transfer_contract::emit_api(),
+        (Schema::BatchTransferApi, _) => {
+            eprintln!("codegen: --schema batch-transfer-api supports only the ts target");
+            std::process::exit(2);
+        }
+        (Schema::BatchTransfer, Target::Swift) => batch_transfer_contract::emit(true),
+        (Schema::BatchTransfer, Target::Ts) => batch_transfer_contract::emit(false),
+        (Schema::BatchTransfer, _) => {
+            eprintln!("codegen: --schema batch-transfer supports only swift / ts targets");
             std::process::exit(2);
         }
         (Schema::AdjustmentTransfer, Target::Ts) => adjustment_transfer::emit_ts(),

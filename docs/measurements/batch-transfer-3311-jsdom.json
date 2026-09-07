@@ -1,0 +1,70 @@
+{
+  "purpose": "Preserved failed Node/jsdom diagnostic; replaced by the native Chromium performance gate, with the same 120-second and 512-MiB budgets.",
+  "initial": {
+    "date": "2026-09-06T19:16:18.420Z",
+    "runtime": "v24.14.0",
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5 Max",
+    "imageCount": 2000,
+    "initialExposure": -0.5,
+    "originalBytes": 3034079453,
+    "extensions": [".jpg", ".cr2", ".heic", ".jpeg"],
+    "operation": "All tone-group values; real LibraryState.updateAdjustment, canonical XMP reread, debounce flush, atomic filesystem close, per-asset durable ledger",
+    "previewScope": "Derived-preview scheduling is live and bounded to one original fetch/decode at a time; completion measures authoritative sidecar commits, not derived preview completion.",
+    "seconds": 419.571501084,
+    "assetsPerSecond": 4.766767987894372,
+    "baselineRssBytes": 261439488,
+    "peakRssBytes": 408879104,
+    "incrementalRssBytes": 147439616,
+    "baselineHeapBytes": 134303832,
+    "peakHeapBytes": 229444864,
+    "eventLoopP99Ms": 209.846271,
+    "eventLoopMaxMs": 376.438783,
+    "budget": {
+      "maximumSeconds": 120,
+      "maximumIncrementalRssBytes": 536870912
+    },
+    "applied": 2000,
+    "failed": 0
+  },
+  "profiled": {
+    "date": "2026-09-06T19:24:37.470Z",
+    "runtime": "v24.14.0",
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5 Max",
+    "imageCount": 2000,
+    "initialExposure": -0.5,
+    "originalBytes": 3034079453,
+    "extensions": [".jpg", ".cr2", ".heic", ".jpeg"],
+    "operation": "All tone-group values; real LibraryState.updateAdjustment, canonical XMP reread, debounce flush, atomic filesystem close, per-asset durable ledger",
+    "previewScope": "Derived-preview scheduling is live and bounded to one original fetch/decode at a time; completion measures authoritative sidecar commits, not derived preview completion.",
+    "seconds": 287.44168604199996,
+    "phaseSeconds": {
+      "prepare": 118.14470048699957,
+      "write": 161.74048766200036
+    },
+    "assetsPerSecond": 6.957933024744946,
+    "baselineRssBytes": 263340032,
+    "peakRssBytes": 422100992,
+    "incrementalRssBytes": 158760960,
+    "baselineHeapBytes": 134856280,
+    "peakHeapBytes": 233064312,
+    "eventLoopP99Ms": 228.065279,
+    "eventLoopMaxMs": 796.917759,
+    "budget": {
+      "maximumSeconds": 120,
+      "maximumIncrementalRssBytes": 536870912
+    },
+    "applied": 2000,
+    "failed": 0
+  },
+  "profile": {
+    "sampledSeconds": 20.170584,
+    "listenerRegistrationSeconds": 17.582212,
+    "listenerRegistrationPercent": 87.16759018975355,
+    "hotPath": "DOMParser -> jsdom DocumentImpl -> DOMSelector/Finder -> window.addEventListener -> linear duplicate-listener scan",
+    "cause": "Each parsed XML document installs additional global-window selector event listeners in jsdom. Their accumulating duplicate checks dominate the diagnostic; native browser DOMParser has no such jsdom selector registration."
+  }
+}

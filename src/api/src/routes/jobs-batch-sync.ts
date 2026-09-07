@@ -1,11 +1,14 @@
 /** Resume preserves the ledger; retry creates a fresh job containing failures only. */
 import { Elysia, t } from 'elysia';
-import { createJobResponse } from './jobs-create.ts';
 import { ObjectId } from 'mongodb';
 import { getJob, resumeBatchJob } from '../job-runner/jobs.repo.ts';
 import { parseExportPayload } from '../export/export-payload.ts';
 import type { JobDoc } from '../db/schema.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
+import { cameraBaseline } from '../job-runner/handlers/batch-white-balance.ts';
+import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { safeWriteAllowed } from '../fs/root.ts';
+import { createdJobResponse, createJobResponse, createRetryFailedJob } from './jobs-create.ts';
 
 function retrySource(previous: JobDoc) {
   if (previous.kind === 'batch_adjustment_sync')
@@ -42,6 +45,30 @@ function retryPayload(previous: JobDoc | null) {
 }
 
 export const batchSyncJobRoutes = new Elysia()
+  .get(
+    '/batch-baseline',
+    async ({ query, set }) => {
+      const path = await resolveAndAuthorizePath(query.path);
+      if (!path.ok) {
+        set.status = path.status;
+        return { error: path.error };
+      }
+      const allowed = await safeWriteAllowed(path.data);
+      if (!allowed.ok) {
+        set.status = 403;
+        return { error: allowed.error };
+      }
+      try {
+        return await cameraBaseline(path.data);
+      } catch (error) {
+        set.status = 422;
+        return {
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    { query: t.Object({ path: t.String() }) },
+  )
   .post('/:id/resume', async ({ params, set }) => {
     if (!ObjectId.isValid(params.id)) {
       set.status = 400;
@@ -60,7 +87,11 @@ export const batchSyncJobRoutes = new Elysia()
         set.status = 400;
         return { error: 'Invalid job id' };
       }
-      const previous = await getJob(new ObjectId(params.id));
+      const id = new ObjectId(params.id);
+      const previous = await getJob(id);
+      if (previous?.kind === 'batch_adjustment_sync') {
+        return createdJobResponse(() => createRetryFailedJob(id, body?.requestId), set);
+      }
       const retry = retryPayload(previous);
       if (typeof retry === 'string') {
         set.status = 409;

@@ -24,6 +24,12 @@ import {
 import { ADJUSTMENT_GROUPS } from './adjustment-groups';
 import type { AdjustmentGroupId } from './adjustment-groups';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { MuiCheckboxComponent } from '../../ui/checkbox/mui-checkbox.component';
+import {
+  relativeWhiteBalanceDescription,
+  whiteBalanceCorrection,
+  type WhiteBalanceBaseline,
+} from './adjustment-transfer';
 import { groupValuePreview } from './group-value-preview';
 
 function allEnabledGroups(): readonly MuiSelectivePasteGroup[] {
@@ -33,7 +39,7 @@ function allEnabledGroups(): readonly MuiSelectivePasteGroup[] {
 @Component({
   selector: 'app-paste-settings-dialog',
   standalone: true,
-  imports: [MuiSelectivePasteModalComponent],
+  imports: [MuiSelectivePasteModalComponent, MuiCheckboxComponent],
   templateUrl: './paste-settings-dialog.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -48,7 +54,23 @@ export class PasteSettingsDialogComponent {
   readonly targetModels = input<readonly AdjustmentModel[] | null>(null);
   readonly previewError = input<string | null>(null);
   /** Emitted with the checked group ids when the user confirms. */
-  readonly paste = output<readonly AdjustmentGroupId[]>();
+  readonly paste = output<{
+    groups: readonly AdjustmentGroupId[];
+    relativeWhiteBalance: boolean;
+    sourceBaseline?: WhiteBalanceBaseline;
+  }>();
+  readonly readSourceBaseline = input<(() => Promise<WhiteBalanceBaseline>) | null>(null);
+  protected readonly relativeWhiteBalance = signal(false);
+  protected readonly baseline = signal<WhiteBalanceBaseline | undefined>(undefined);
+  protected readonly baselineError = signal<string | null>(null);
+  protected readonly readingBaseline = signal(false);
+  private baselineGeneration = 0;
+  protected readonly relativeBlocked = computed(
+    () =>
+      this.relativeWhiteBalance() &&
+      this.groups().some((g) => g.id === 'white_balance' && g.enabled) &&
+      (this.readingBaseline() || this.baselineError() !== null || !this.baseline()),
+  );
   readonly dismiss = output<void>();
 
   protected readonly groups = signal<readonly MuiSelectivePasteGroup[]>(allEnabledGroups());
@@ -60,10 +82,27 @@ export class PasteSettingsDialogComponent {
     const targets = this.targetModels();
     if (!source || !targets) return this.groups();
     const previews = groupValuePreview(source, targets);
+    const relative = this.relativeWhiteBalance()
+      ? relativeWhiteBalanceDescription(
+          {
+            source,
+            groups: ['white_balance'],
+            relativeWhiteBalance: true,
+            sourceBaseline: this.baseline(),
+          },
+          targets,
+        )
+      : null;
     return this.groups().map((group) => ({
       ...group,
-      changes: previews[group.id as AdjustmentGroupId],
-      description: previews[group.id as AdjustmentGroupId].length === 0 ? 'No changes' : undefined,
+      changes:
+        relative && group.id === 'white_balance' ? [] : previews[group.id as AdjustmentGroupId],
+      description:
+        relative && group.id === 'white_balance'
+          ? relative
+          : previews[group.id as AdjustmentGroupId].length === 0
+            ? 'No changes'
+            : undefined,
     }));
   });
 
@@ -81,13 +120,60 @@ export class PasteSettingsDialogComponent {
     effect(() => {
       if (this.visible()) {
         this.groups.set(allEnabledGroups());
+        this.relativeWhiteBalance.set(false);
+        this.baseline.set(undefined);
+        this.baselineError.set(null);
+        this.readingBaseline.set(false);
+        ++this.baselineGeneration;
       }
     });
   }
 
   onPasteConfirmed(ids: readonly string[]): void {
-    if (ids.length === 0 || this.waitingForPreview() || this.previewError()) return;
-    this.paste.emit(ids as readonly AdjustmentGroupId[]);
+    if (
+      ids.length === 0 ||
+      this.waitingForPreview() ||
+      this.previewError() ||
+      this.relativeBlocked()
+    )
+      return;
+    this.paste.emit({
+      groups: ids as readonly AdjustmentGroupId[],
+      relativeWhiteBalance: this.relativeWhiteBalance(),
+      sourceBaseline: this.baseline(),
+    });
+  }
+
+  async setRelative(enabled: boolean): Promise<void> {
+    this.relativeWhiteBalance.set(enabled);
+    const generation = ++this.baselineGeneration;
+    if (!enabled) {
+      this.readingBaseline.set(false);
+      this.baseline.set(undefined);
+      this.baselineError.set(null);
+      return;
+    }
+    this.readingBaseline.set(true);
+    this.baselineError.set(null);
+    try {
+      const read = this.readSourceBaseline();
+      if (!read) throw new Error('Copy the source photo again to read its camera white balance.');
+      const baseline = await read();
+      const source = this.sourceModel();
+      if (!source) throw new Error('Copy the source photo again.');
+      whiteBalanceCorrection({
+        source,
+        groups: ['white_balance'],
+        relativeWhiteBalance: true,
+        sourceBaseline: baseline,
+      });
+      if (generation === this.baselineGeneration) this.baseline.set(baseline);
+    } catch (error) {
+      if (generation === this.baselineGeneration)
+        this.baselineError.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (generation === this.baselineGeneration) this.readingBaseline.set(false);
+    }
   }
 
   onDismissed(): void {

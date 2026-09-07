@@ -8,6 +8,7 @@ import { LibraryStore } from '../../state/library-store.service';
 import { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
 import { BatchPreviewService } from './batch-preview.service';
 import { SelfHostedBatchSyncService } from './self-hosted-batch-sync.service';
+import { buildGroupPatch } from './adjustment-groups';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 
 const key = 'maple.batch-sync:/api';
@@ -66,6 +67,63 @@ describe('Self Hosted batch sync recovery', () => {
   afterEach(() => {
     http.verify();
     localStorage.removeItem(key);
+  });
+
+  it('sends the explicit camera-baseline correction with the selected WB fields', async () => {
+    const service = TestBed.inject(SelfHostedBatchSyncService);
+    const source = {
+      ...defaultAdjustmentModel(),
+      temperature: 8550,
+      tint: 24,
+      whiteBalancePreset: 'Custom' as const,
+      wbSource: 'Manual' as const,
+    };
+    const run = service.apply(
+      ['a'],
+      {
+        temperature: source.temperature,
+        tint: source.tint,
+        whiteBalancePreset: 'Custom',
+        wbScaleVersion: 5,
+      },
+      {
+        source,
+        sourceAssetId: 'source',
+        groups: ['white_balance'],
+        relativeWhiteBalance: true,
+        sourceBaseline: { temperature: 7350, tint: 14 },
+      },
+    );
+    await settle();
+    const create = http.expectOne('/api/jobs');
+    expect(create.request.body.payload.relativeWhiteBalance).toEqual({
+      temperature: 1200,
+      tint: 10,
+    });
+    expect(create.request.body.payload.patch.attributes['crs:Temperature']).toBe('8550');
+    create.flush({ id: 'relative' });
+    await settle();
+    http.expectOne('/api/jobs/relative?summary=1').flush(view('done', ['a']));
+    expect((await run)?.applied).toEqual(['a']);
+  });
+
+  it('declares the validated current scale for relative As Shot even though canonical XMP omits it', async () => {
+    const service = TestBed.inject(SelfHostedBatchSyncService);
+    const source = defaultAdjustmentModel();
+    const run = service.apply(['a'], buildGroupPatch(source, ['white_balance']), {
+      source,
+      groups: ['white_balance'],
+      relativeWhiteBalance: true,
+      sourceBaseline: { temperature: 5000, tint: -1 },
+    });
+    await settle();
+    const create = http.expectOne('/api/jobs');
+    expect(create.request.body.payload.relativeWhiteBalance).toEqual({ temperature: 0, tint: 0 });
+    expect(create.request.body.payload.patch.attributes['papp:WbScaleVersion']).toBe('5');
+    create.flush({ id: 'relative-as-shot' });
+    await settle();
+    http.expectOne('/api/jobs/relative-as-shot?summary=1').flush(view('done', ['a']));
+    expect((await run)?.applied).toEqual(['a']);
   });
 
   it('queues only selected fields, persists its pointer and summarizes without touching the editor writer', async () => {
