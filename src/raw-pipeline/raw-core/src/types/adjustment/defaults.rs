@@ -180,6 +180,17 @@ impl Default for AdjustmentModel {
             // Per-#3413: the noise-adaptive selection is the default; a
             // pinned kernel is the exception, not the starting point.
             demosaic: DemosaicChoice::Auto,
+            // Per-#3411: matches ACR, whose "Remove Chromatic Aberration"
+            // checkbox and Defringe amounts all ship at zero/off. The hue
+            // bands carry ACR's own defaults so a user who only raises an
+            // amount gets ACR's band, not a degenerate empty one.
+            auto_lateral_ca: AutoLateralCa::Off,
+            defringe_purple_amount: 0.0,
+            defringe_purple_hue_lo: 30.0,
+            defringe_purple_hue_hi: 70.0,
+            defringe_green_amount: 0.0,
+            defringe_green_hue_lo: 40.0,
+            defringe_green_hue_hi: 60.0,
         }
     }
 }

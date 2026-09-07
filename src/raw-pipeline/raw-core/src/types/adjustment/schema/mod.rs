@@ -39,6 +39,8 @@ mod detail;
 mod perspective;
 // White balance: the slider pair, method, and the #2434 provenance fields.
 mod white_balance;
+// The seven profile-free lens-correction entries (#3411); same split reason.
+mod lens_auto;
 
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
 // same 600-LOC budget reason as `types`.
@@ -515,6 +517,15 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     perspective::PERSPECTIVE_Y,
     // Bayer demosaic override (#3413) — see `detail.rs`.
     detail::DEMOSAIC,
+    // Profile-free lens corrections (#3411) — see `lens_auto.rs`. Listed in
+    // place so emitted order still matches struct order.
+    lens_auto::AUTO_LATERAL_CA,
+    lens_auto::DEFRINGE_PURPLE_AMOUNT,
+    lens_auto::DEFRINGE_PURPLE_HUE_LO,
+    lens_auto::DEFRINGE_PURPLE_HUE_HI,
+    lens_auto::DEFRINGE_GREEN_AMOUNT,
+    lens_auto::DEFRINGE_GREEN_HUE_LO,
+    lens_auto::DEFRINGE_GREEN_HUE_HI,
 ];
 
 #[cfg(test)]

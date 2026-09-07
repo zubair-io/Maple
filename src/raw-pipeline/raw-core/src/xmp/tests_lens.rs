@@ -107,3 +107,106 @@ fn lens_correction_serialize_roundtrip_and_default_omission() {
     assert_eq!(parsed.lens_correction_ca, 0.0);
     assert_eq!(parsed.lens_correction_vignetting, 55.0);
 }
+
+// -------------------------------------------------------------------------
+// Profile-free lateral CA + defringe (#3411)
+// -------------------------------------------------------------------------
+
+/// An untouched model matches ACR's own out-of-the-box state: the "Remove
+/// Chromatic Aberration" checkbox unticked, both Defringe amounts at zero,
+/// and ACR's 30/70 and 40/60 hue bands preloaded.
+#[test]
+fn defaults_match_acrs_defringe_panel() {
+    let m = AdjustmentModel::default();
+    assert_eq!(m.auto_lateral_ca, AutoLateralCa::Off);
+    assert_eq!(m.defringe_purple_amount, 0.0);
+    assert_eq!(m.defringe_purple_hue_lo, 30.0);
+    assert_eq!(m.defringe_purple_hue_hi, 70.0);
+    assert_eq!(m.defringe_green_amount, 0.0);
+    assert_eq!(m.defringe_green_hue_lo, 40.0);
+    assert_eq!(m.defringe_green_hue_hi, 60.0);
+}
+
+#[test]
+fn parse_auto_lateral_ca_accepts_acr_and_boolean_spellings() {
+    let parse_flag = |v: &str| {
+        parse(&format!(
+            r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x" crs:AutoLateralCA="{v}"/></x>"#
+        ))
+    };
+    for on in ["1", "true", "True", "On"] {
+        assert_eq!(
+            parse_flag(on).unwrap().auto_lateral_ca,
+            AutoLateralCa::On,
+            "{on} must parse as On"
+        );
+    }
+    for off in ["0", "false", "False", "Off"] {
+        assert_eq!(
+            parse_flag(off).unwrap().auto_lateral_ca,
+            AutoLateralCa::Off,
+            "{off} must parse as Off"
+        );
+    }
+    assert!(parse_flag("Maybe").is_err());
+}
+
+#[test]
+fn defringe_serialize_roundtrip_and_default_omission() {
+    let empty = serialize(&AdjustmentModel::default());
+    assert!(
+        !empty.contains("crs:Defringe") && !empty.contains("crs:AutoLateralCA"),
+        "an untouched defringe panel must not write any attribute, got: {empty}"
+    );
+
+    let m = AdjustmentModel {
+        auto_lateral_ca: AutoLateralCa::On,
+        defringe_purple_amount: 12.0,
+        defringe_purple_hue_lo: 25.0,
+        defringe_purple_hue_hi: 80.0,
+        defringe_green_amount: 7.0,
+        defringe_green_hue_lo: 35.0,
+        defringe_green_hue_hi: 65.0,
+        ..AdjustmentModel::default()
+    };
+    let frag = serialize(&m);
+    for expected in [
+        r#"crs:AutoLateralCA="1""#,
+        r#"crs:DefringePurpleAmount="12""#,
+        r#"crs:DefringePurpleHueLo="25""#,
+        r#"crs:DefringePurpleHueHi="80""#,
+        r#"crs:DefringeGreenAmount="7""#,
+        r#"crs:DefringeGreenHueLo="35""#,
+        r#"crs:DefringeGreenHueHi="65""#,
+    ] {
+        assert!(frag.contains(expected), "missing {expected} in: {frag}");
+    }
+
+    let xml = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"{frag}/></x>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.auto_lateral_ca, AutoLateralCa::On);
+    assert_eq!(parsed.defringe_purple_amount, 12.0);
+    assert_eq!(parsed.defringe_purple_hue_lo, 25.0);
+    assert_eq!(parsed.defringe_purple_hue_hi, 80.0);
+    assert_eq!(parsed.defringe_green_amount, 7.0);
+    assert_eq!(parsed.defringe_green_hue_lo, 35.0);
+    assert_eq!(parsed.defringe_green_hue_hi, 65.0);
+}
+
+/// A partially-authored panel writes only what moved: a purple amount with
+/// ACR's default band emits the amount alone.
+#[test]
+fn defringe_omits_hue_bands_left_at_their_defaults() {
+    let frag = serialize(&AdjustmentModel {
+        defringe_purple_amount: 5.0,
+        ..AdjustmentModel::default()
+    });
+    assert!(
+        frag.contains(r#"crs:DefringePurpleAmount="5""#),
+        "got: {frag}"
+    );
+    assert!(!frag.contains("crs:DefringePurpleHue"), "got: {frag}");
+    assert!(!frag.contains("crs:DefringeGreen"), "got: {frag}");
+}

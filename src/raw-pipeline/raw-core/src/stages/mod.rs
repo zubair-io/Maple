@@ -1,10 +1,10 @@
 pub mod auto_adjustments;
-/// Tone-slider calibration for [`auto_adjustments`] (#1376). `pub(crate)` API
-/// surface; the public entry point stays `compute_auto_adjustments`.
-pub mod auto_adjustments_tone;
 /// Auto white balance for [`auto_adjustments`] (#2247). `pub(crate)` API
 /// surface; the public entry point stays `compute_auto_adjustments`.
 pub(crate) mod auto_adjustments_awb;
+/// Tone-slider calibration for [`auto_adjustments`] (#1376). `pub(crate)` API
+/// surface; the public entry point stays `compute_auto_adjustments`.
+pub mod auto_adjustments_tone;
 pub mod auto_exposure;
 pub mod auto_tone;
 pub mod blur;
@@ -25,6 +25,7 @@ pub mod highlight_recovery_oklab;
 pub mod hot_pixel;
 pub mod hsl;
 pub mod inpaint_composite;
+pub mod lateral_ca;
 pub mod local_adjustments;
 pub mod mask_range_sample;
 pub mod nlm;
