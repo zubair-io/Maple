@@ -72,7 +72,7 @@ namespace Maple.WinUI.Services.Xmp
         /// and Swift's `fmtNum4` so all four writers stay byte-identical (#3400).
         /// </summary>
         private static string FormatHue(double v) =>
-            (Math.Round(v * 10_000, MidpointRounding.AwayFromZero) / 10_000).ToString(CultureInfo.InvariantCulture);
+            Math.Round(v, 4, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
 
         private static string FormatSlider(string key, double v) =>
             key == HueKey ? FormatHue(v) : XmpSchema.FormatNumber(v);
