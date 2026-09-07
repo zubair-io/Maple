@@ -62,7 +62,8 @@ use crate::{
     xmp::HighlightRecoveryMode,
 };
 
-/// Per-channel "this channel is clipped" margin, in post-WB camera-RGB units.
+/// Per-channel clip margin in post-WB camera RGB at zero BaselineExposure.
+/// Scale it with the pixels and ceilings when baseline exposure is applied.
 const EPSILON: f32 = 0.005;
 
 /// Half-window for the unclipped-neighbor scan.
@@ -111,19 +112,23 @@ pub fn apply(
 /// `2^BaselineExposure / neutral[c]`. Clamps the denominator at 1e-6 to keep
 /// a degenerate `AsShotNeutral` from producing infinities.
 fn ceilings(neutral: [f32; 3], baseline_exposure: f32) -> [f32; 3] {
-    // Match the baseline-exposure stage's negligible-gain fast path in
-    // full, sized, tile and panorama develop, including its exact boundary.
-    let gain = if baseline_exposure.abs() > 1e-4 {
-        baseline_exposure.exp2()
-    } else {
-        1.0
-    };
+    let gain = baseline_gain(baseline_exposure);
     [
         1.0 / neutral[0].abs().max(1e-6),
         1.0 / neutral[1].abs().max(1e-6),
         1.0 / neutral[2].abs().max(1e-6),
     ]
     .map(|ceiling| ceiling * gain)
+}
+
+fn baseline_gain(baseline_exposure: f32) -> f32 {
+    // Match the baseline-exposure stage's negligible-gain fast path in
+    // full, sized, tile and panorama develop, including its exact boundary.
+    if baseline_exposure.abs() > 1e-4 {
+        baseline_exposure.exp2()
+    } else {
+        1.0
+    }
 }
 
 /// Path C — chromatic-adaptation highlight reconstruction. See module comment.
@@ -134,7 +139,8 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
         return;
     }
     let ceil = ceilings(neutral, baseline_exposure);
-    let thresholds = [ceil[0] - EPSILON, ceil[1] - EPSILON, ceil[2] - EPSILON];
+    let margin = EPSILON * baseline_gain(baseline_exposure);
+    let thresholds = ceil.map(|ceiling| ceiling - margin);
 
     // Cheap pre-scan: most scenes have no clipping post-WB (the common case
     // now that ChromaticAdaptation is the default — see #335 per-fixture
@@ -149,7 +155,7 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
     }
 
     // Pass 1: build a per-pixel clip mask. Bit 0..2 = "channel c is clipped".
-    // Pixels with any channel ≥ its per-channel ceiling minus EPSILON count as
+    // Pixels with any channel ≥ its per-channel ceiling minus the margin count as
     // "clipped" for the purposes of neighbor exclusion. Storing the mask in a
     // `Vec<u8>` rather than recomputing keeps the inner loop branch-free.
     let n = img.pixels.len();
