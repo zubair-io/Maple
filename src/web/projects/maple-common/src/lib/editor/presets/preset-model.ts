@@ -23,6 +23,7 @@ import {
   type GeneratedAdjustmentModel,
   type HighlightRecoveryMode,
   type HotPixelSuppressionMode,
+  type AutoLateralCa,
   type LensProfileEnable,
   type Look,
   type Profile,
@@ -149,6 +150,9 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
     'DualRcd',
     'Lmmse',
   ]),
+  // Profile-free lateral CA (#3411) — decode-product enum field, ACR's
+  // "Remove Chromatic Aberration" checkbox.
+  auto_lateral_ca: allVariantsOf<AutoLateralCa>()(['Off', 'On']),
 };
 
 /**

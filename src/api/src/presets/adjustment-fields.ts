@@ -150,6 +150,15 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   perspective_aspect: [-100.0, 100.0],
   perspective_x: [-100.0, 100.0],
   perspective_y: [-100.0, 100.0],
+  // Profile-free defringe (#3411) — ACR's two amounts and their hue bands
+  // on ACR's own [0, 100] defringe-hue axis. The `auto_lateral_ca` switch
+  // is an enum and lives in STRING_FIELDS below.
+  defringe_purple_amount: [0.0, 20.0],
+  defringe_purple_hue_lo: [0.0, 100.0],
+  defringe_purple_hue_hi: [0.0, 100.0],
+  defringe_green_amount: [0.0, 20.0],
+  defringe_green_hue_lo: [0.0, 100.0],
+  defringe_green_hue_hi: [0.0, 100.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */
@@ -171,6 +180,9 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // DNG lens-correction master switch (#376) — Off|On enum; the three
   // `lens_correction_*` strengths it gates are numeric fields above.
   'lens_profile_enable',
+  // Profile-free lateral CA (#3411) — Off|On enum, decode-product field;
+  // the six `defringe_*` sliders it sits beside are numeric fields above.
+  'auto_lateral_ca',
   // Film emulation look id (#2683) — a free-form film-catalog id, NOT a
   // closed enum like the other entries in this set (there is no fixed
   // variant list; an id the catalog doesn't recognise resolves as identity

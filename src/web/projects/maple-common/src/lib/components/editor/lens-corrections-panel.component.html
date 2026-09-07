@@ -67,6 +67,33 @@
   </div>
 </div>
 
+<!-- Profile-free lateral CA (#3411). Outside the block above, and outside
+     its panelDisabled() gate: this correction exists for the bodies that
+     carry no OpcodeList3 at all, so dimming it with the profile block would
+     hide it on every RAW it is meant for. -->
+<div class="flex min-h-0 flex-col gap-2.5 px-2.5 pb-2.5" data-testid="auto-lateral-ca">
+  <button
+    type="button"
+    class="group flex w-full items-center gap-2.5 border-none bg-none px-0 font-[inherit] text-[color:var(--pro-text)] enabled:cursor-pointer disabled:cursor-default disabled:opacity-[0.45]"
+    role="switch"
+    [attr.aria-checked]="autoLateralCa()"
+    [attr.aria-disabled]="autoLateralCaDisabled() ? true : null"
+    [disabled]="autoLateralCaDisabled()"
+    aria-label="Remove Chromatic Aberration"
+    data-testid="auto-lateral-ca-toggle"
+    (click)="toggleAutoLateralCa()"
+  >
+    <span
+      class="relative h-[20px] w-[34px] shrink-0 rounded-[10px] bg-[color:var(--pro-glass-border)] transition-[background] duration-150 ease-out group-aria-checked:bg-[color:var(--pro-accent)]"
+    >
+      <span
+        class="absolute top-[2px] left-[2px] h-4 w-4 rounded-full bg-[color:var(--pro-text)] transition-transform duration-150 ease-out group-aria-checked:translate-x-[14px] group-aria-checked:bg-white"
+      ></span>
+    </span>
+    <span class="text-[13px] font-medium">Remove Chromatic Aberration</span>
+  </button>
+</div>
+
 @if (lensSupport(); as support) {
   <section
     aria-label="Lens support"

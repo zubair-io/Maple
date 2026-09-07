@@ -65,6 +65,10 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   // Lens Corrections (#2231) — field-less tool (toggle + three sliders,
   // no single drag-bar field), same shape as filmLook/colorGrade/hsl.
   lensCorrections: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
+  // Defringe (#3411) — field-less for the same reason (six sliders, no
+  // single drag-bar field). Violet to green, the two fringe families the
+  // tool suppresses.
+  defringe: 'linear-gradient(90deg, #8a5fd0 0%, #5fbf7a 100%)',
 
   // Non-slider tools — these appear as group chips or special controls;
   // they get a neutral gradient as a safety fallback.

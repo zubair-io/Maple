@@ -63,6 +63,10 @@ const DECODE_INPUT_KEYS = [
   'lensCorrectionDistortion',
   'lensCorrectionCa',
   'lensCorrectionVignetting',
+  // Profile-free lateral CA (#3411) — a raw-domain decode stage, so a
+  // change re-decodes exactly like the four scales above. The six
+  // `defringe*` sliders are per-tick and deliberately absent here.
+  'autoLateralCa',
   'captureSharpeningAmount',
   'captureSharpeningSigma',
 ] as const satisfies readonly (keyof AdjustmentModel)[];

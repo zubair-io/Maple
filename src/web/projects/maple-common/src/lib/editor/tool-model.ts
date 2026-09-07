@@ -78,6 +78,7 @@ export type ToolId =
   | 'colorNR'
   | 'captureSharpen'
   | 'lensCorrections'
+  | 'defringe'
   | 'mask'
   | 'crop'
   | 'geometry'
@@ -116,6 +117,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   colorNR: 'Color NR',
   captureSharpen: 'Deconv',
   lensCorrections: 'Lens',
+  defringe: 'Defringe',
   mask: 'Mask',
   crop: 'Crop',
   geometry: 'Geometry',
@@ -134,6 +136,8 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'colorGrade', 'filmLook'],
   // lensCorrections (#2231) joins Detail: DNG-embedded distortion/CA/
   // vignetting scales, decode-product like sharpen/noise/colorNR.
+  // defringe (#3411) follows it: the profile-free half of the same story,
+  // but per-tick — six sliders driven through the ordinary sub-param row.
   // mask (#1541) joins Detail beside crop: like crop it is edited through
   // the canvas overlay + its own panel, never the drag bar.
   // geometry (#3410) joins Detail beside crop: the seven `crs:Perspective*`
@@ -141,12 +145,15 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // tail the crop rect is applied in.
   // captureSharpen (#3414) joins Detail after colorNR, matching Apple's own
   // declaration order — Richardson-Lucy deconvolution Amount + Sigma.
+  // defringe (#3411) follows lensCorrections: the profile-free half of the
+  // same story, but per-tick — six sliders on the sub-param row.
   detail: [
     'sharpen',
     'noise',
     'colorNR',
     'captureSharpen',
     'lensCorrections',
+    'defringe',
     'mask',
     'crop',
     'geometry',
