@@ -108,11 +108,12 @@ export class ImageExportService {
       colorLabel: asset.colorLabel,
       keywords: asset.keywords ?? [],
     };
+    const passthrough = this.xmpStore.passthroughFor(asset.id);
     return this.serializer.serialize(
       model,
-      this.xmpStore.passthroughFor(asset.id),
+      passthrough,
       culling,
-      this.xmpStore.metadataFor(asset.id),
+      passthrough ? undefined : this.xmpStore.metadataFor(asset.id),
     );
   }
 
