@@ -95,7 +95,7 @@
               </div>
 
               <div class="card-list flex flex-col max-h-[320px] overflow-y-auto">
-                @for (d of listing()?.dirs ?? []; track d.path) {
+                @for (d of listing()?.entries ?? []; track d.path) {
                   <mui-button
                     variant="ghost"
                     class="row-btn block w-full"

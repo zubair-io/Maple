@@ -1,27 +1,30 @@
-// FilesystemBrowseService — wraps the auth-gated /api/fs/* endpoints.
+// FilesystemBrowseService — the absolute-path thumbnail surface for the
+// Self-Hosted grids that are still keyed on server-side `abs_path`s (search
+// results, timeline rows, map pins, people covers), plus the one remaining
+// pre-registration filesystem call.
 //
-// Phase B of the "browse by walking the filesystem" feature: the registered
-// libraries from /api/folders are still the roots of the sidebar tree, but
-// once the user opens one we walk the directory tree directly via
-//   GET /api/fs/dir-fast?path=<abs>  → sub-dirs + RAW images at one level
-//   GET /api/fs/thumb?path=<abs>     → image/avif bytes at the fixed thumb
-//                                      tier (cached on disk by API)
-// instead of going through Mongo-keyed /api/folders/{id}/assets.
+// After the #1325 web cutover nothing here talks to `/api/fs/dir-fast`,
+// `/api/fs/thumb` or `/api/fs/raw` any more. An absolute path is resolved
+// through the registered libraries (`LibraryStore.registeredFolders`) to its
+// `slug:relPath` address and the thumbnail is fetched from the unified
+// `/api/thumb/:slug/*` route via `LibrarySource.thumbBlob` (`HttpLibrarySource`
+// on Self-Hosted) — the same route, and so the same server cache entry, the
+// browse grid already uses.
 //
-// `/dir-fast` is the pure-filesystem variant (no EXIF / asset_id / sidecars).
-// The Apple File Provider extension and the iOS/macOS cloud-source browse
-// continue to use `/api/fs/dir`, which returns the enriched response they
-// depend on (FP items are keyed by Mongo asset ID).
-//
-// Both endpoints sit behind requireAuth on the server. /api/fs/dir-fast is
-// JSON and rides through HttpClient (so the auth interceptor attaches the
-// bearer). /api/fs/thumb returns image bytes — we fetch via HttpClient too
-// and turn the Blob into an object URL so the bearer-less <img src=...> works.
+// `roots()` (`/api/fs/roots`) deliberately stays: it seeds folder pickers
+// that walk the filesystem BEFORE a library is registered (Settings →
+// Imports source picker, first-run library picker), which by definition have
+// no slug to address by. Those pickers list through
+// `BunApiBackendService.listDir` (`/api/fs/list`) for the same reason.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpEventType, HttpParams } from '@angular/common/http';
-import { Observable, firstValueFrom, lastValueFrom, filter, map } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
+import { Observable, firstValueFrom, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
+import { LIBRARY_SOURCE } from '../addressing/library-source';
+import type { MapleAddress } from '../addressing/maple-address';
+import { LibraryStore } from '../state/library-store.service';
+import { SERVER_LIBRARY_IO, type ApiFolder } from '../workspace/server-library-io';
 
 /**
  * Download progress for a byte fetch. `total` is the known size in bytes
@@ -34,86 +37,87 @@ export interface DownloadProgress {
   total: number | null;
 }
 
-export interface FsDirEntry {
-  /** Basename. */
-  name: string;
-  /** Absolute, symlink-resolved path on disk. */
-  path: string;
-  /** ISO-8601 mtime from the server. */
-  mtime: string;
-}
-
-export interface FsImageEntry extends FsDirEntry {
-  size: number;
-  /** Lowercase extension, no dot. */
-  ext: string;
-  /** True when this entry is a video container (e.g. .mov, .mp4). */
-  isVideo?: boolean;
-}
-
-export interface FsDirListing {
-  /** Resolved absolute path of the listed directory. */
-  path: string;
-  /** Parent directory, or null at MAPLE_ROOTS. */
-  parent: string | null;
-  dirs: FsDirEntry[];
-  images: FsImageEntry[];
+/**
+ * Inverse of `LibraryStore.absPathFor`: the `slug:relPath` address of an
+ * absolute on-disk path, resolved through the registered libraries. When
+ * roots nest, the longest matching root wins (the same rule the store's
+ * legacy `fs:` branch uses). Matches on whole path segments only, so
+ * `/photos/library2` is never claimed by the `/photos/library` root. Falls
+ * back to the folder id as the slug for pre-slug-era registrations, exactly
+ * as `absPathFor` does in the other direction. `null` when no registered
+ * library owns the path.
+ */
+export function addressForAbsPath(
+  absPath: string,
+  folders: readonly ApiFolder[],
+): MapleAddress | null {
+  const owner = folders
+    .map((f) => ({ folder: f, root: f.path.replace(/\/+$/, '') }))
+    .filter(({ root }) => absPath === root || absPath.startsWith(`${root}/`))
+    .reduce<{ folder: ApiFolder; root: string } | null>(
+      (best, candidate) =>
+        best === null || candidate.root.length > best.root.length ? candidate : best,
+      null,
+    );
+  if (owner === null) return null;
+  const relPath = absPath === owner.root ? '' : absPath.slice(owner.root.length + 1);
+  return { slug: owner.folder.slug ?? owner.folder.id, relPath };
 }
 
 @Injectable({ providedIn: 'root' })
 export class FilesystemBrowseService {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
+  /** `HttpLibrarySource` on Self-Hosted — the only deployment with server-side
+   * absolute paths to resolve. Injected by token so Hosted's eager bundle does
+   * not pick up the HTTP source it never uses (`check-hosted-capability-boundary`). */
+  private readonly librarySource = inject(LIBRARY_SOURCE);
+  private readonly store = inject(LibraryStore);
+  /** Self-Hosted only; `null` on Hosted, where nothing calls the thumb path. */
+  private readonly serverLibrary = inject(SERVER_LIBRARY_IO, { optional: true });
 
   /**
-   * Cache of `path → Promise<blob:url>`. Promises live here (not just URLs)
+   * Cache of `absPath → Promise<blob:url>`. Promises live here (not just URLs)
    * so concurrent requests for the same thumbnail share a single network
    * round-trip. The Promise resolves to a `blob:` URL backed by an
    * `image/avif` blob; bind it to an <img> via [src].
    */
   private readonly thumbBlobCache = new Map<string, Promise<string>>();
 
-  /** GET /api/fs/dir-fast?path=<abs>. Returns subdirs + RAW images at one
-   * level. Pure filesystem — no Mongo round-trip, no EXIF, no sidecars. */
-  listDir(absPath: string): Observable<FsDirListing> {
-    const params = new HttpParams().set('path', absPath);
-    return this.http.get<FsDirListing>(`${this.base}/fs/dir-fast`, { params });
-  }
+  /**
+   * One shared `/api/folders` load for the case where a thumb is requested
+   * before Browse has populated `registeredFolders` (a cold `/search`,
+   * `/timeline` or `/map` deep link). Mirrors
+   * `XmpAdjustmentRestoreService._ensureRegisteredFolders`.
+   */
+  private foldersLoad: Promise<void> | null = null;
 
   /** GET /api/fs/roots — the MAPLE_ROOTS jail roots (default `["/"]`). A
-   * picker starts browsing here instead of at a registered library. */
+   * pre-registration picker starts browsing here instead of at a library. */
   roots(): Observable<string[]> {
     return this.http.get<{ roots: string[] }>(`${this.base}/fs/roots`).pipe(map((r) => r.roots));
   }
 
   /**
-   * Plain URL form for cases where the bearer isn't required (e.g. logging,
-   * or an open-Web public deployment). NOT what `<img src>` uses today —
-   * use {@link getThumbBlobUrl} for that, since /api/fs/thumb is auth-gated
-   * and `<img>` requests bypass the HttpClient interceptor.
+   * Resolve `absPath` to its `slug:relPath` address, fetch the thumbnail
+   * from `/api/thumb/:slug/*` via HttpClient (so the auth interceptor
+   * attaches the bearer) and return a `blob:` URL the grid can drop into
+   * <img src>. Caches by absPath so re-renders / scroll-back don't re-fetch.
    *
-   * No size parameter: `/api/fs/thumb` serves a single fixed tier (#2220). It
-   * used to accept `?size=` and ignore it — one cache file per source with an
-   * mtime-only freshness check meant any other size was served the 512 px file
-   * anyway. For the display-resolution tier use the preview endpoint.
-   */
-  thumbUrl(absPath: string): string {
-    const q = new URLSearchParams({ path: absPath });
-    return `${this.base}/fs/thumb?${q.toString()}`;
-  }
-
-  /**
-   * Fetch a thumbnail AVIF via HttpClient (so the auth interceptor attaches
-   * the bearer) and return a `blob:` URL the grid can drop into <img src>.
-   * Caches by absPath so re-renders / scroll-back don't re-fetch.
+   * Rejects — and forgets the entry so a later call retries — when no
+   * registered library owns the path or the server has no thumbnail yet
+   * (a `202` while the discover scan indexes the file). Callers keep their
+   * placeholder in both cases.
    */
   getThumbBlobUrl(absPath: string): Promise<string> {
     const cached = this.thumbBlobCache.get(absPath);
     if (cached) return cached;
 
-    const promise = firstValueFrom(
-      this.http.get(this.thumbUrl(absPath), { responseType: 'blob' }),
-    ).then((blob) => URL.createObjectURL(blob));
+    const promise = this.resolveAddress(absPath).then(async (address) => {
+      const blob = await this.librarySource.thumbBlob(address);
+      if (!blob) throw new Error(`getThumbBlobUrl: thumbnail not ready for ${absPath}`);
+      return URL.createObjectURL(blob);
+    });
 
     this.thumbBlobCache.set(absPath, promise);
     // If the request fails, drop the cached promise so the next attempt can
@@ -122,7 +126,7 @@ export class FilesystemBrowseService {
     return promise;
   }
 
-  /** Drop every cached blob URL (e.g. on sign-out). */
+  /** Drop every cached blob URL (e.g. on sign-out or a folder switch). */
   clearThumbCache(): void {
     for (const p of this.thumbBlobCache.values()) {
       p.then((url) => URL.revokeObjectURL(url)).catch(() => {});
@@ -130,55 +134,30 @@ export class FilesystemBrowseService {
     this.thumbBlobCache.clear();
   }
 
-  /**
-   * Stream the RAW bytes via `/api/fs/raw?path=<abs>`. Used by the editor's
-   * cold-load path on Self-Hosted, where there's no Mongo asset id to look
-   * up in `bun-api-backend.getRawBytes` — the asset's identity is its
-   * absolute filesystem path. Goes through HttpClient so the auth
-   * interceptor attaches the bearer.
-   */
-  getRawBytes(absPath: string, onProgress?: (p: DownloadProgress) => void): Promise<ArrayBuffer> {
-    const q = new URLSearchParams({ path: absPath });
-    const url = `${this.base}/fs/raw?${q.toString()}`;
-
-    // Fast path: no progress consumer → buffer silently, exactly as before.
-    if (!onProgress) {
-      return firstValueFrom(this.http.get(url, { responseType: 'arraybuffer' }));
+  private async resolveAddress(absPath: string): Promise<MapleAddress> {
+    await this.ensureRegisteredFolders();
+    const address = addressForAbsPath(absPath, this.store.registeredFolders());
+    if (!address) {
+      throw new Error(`getThumbBlobUrl: ${absPath} is not under a registered library`);
     }
+    return address;
+  }
 
-    // Progress path: observe download events. We emit `DownloadProgress` to
-    // the callback as bytes stream in and resolve with the final body. The
-    // emission contract stays "resolve with the ArrayBuffer" — the callback
-    // is the only extra surface, so existing callers are unaffected.
-    return lastValueFrom(
-      this.http
-        .get(url, {
-          responseType: 'arraybuffer',
-          observe: 'events',
-          reportProgress: true,
-        })
-        .pipe(
-          map((event) => {
-            if (event.type === HttpEventType.DownloadProgress) {
-              onProgress({ loaded: event.loaded, total: event.total ?? null });
-              return null;
-            }
-            if (event.type === HttpEventType.Response) {
-              // A successful download always carries a body. A null/missing
-              // body here means the request broke or aborted mid-stream —
-              // fail fast with a clear error instead of handing back a 0-byte
-              // buffer that would later surface as a baffling RAW decode error.
-              if (event.body == null) {
-                throw new Error(
-                  `getRawBytes: empty response body for ${absPath} (status ${event.status})`,
-                );
-              }
-              return event.body;
-            }
-            return null;
-          }),
-          filter((body): body is ArrayBuffer => body !== null),
-        ),
-    );
+  private ensureRegisteredFolders(): Promise<void> {
+    if (this.store.registeredFolders().length > 0) return Promise.resolve();
+    if (!this.serverLibrary) return Promise.resolve();
+    const serverLibrary = this.serverLibrary;
+    this.foldersLoad ??= firstValueFrom(serverLibrary.listFolders())
+      .then((folders) => {
+        // Don't stomp a richer list a concurrent loadFolderTree() landed.
+        if (this.store.registeredFolders().length === 0) {
+          this.store.registeredFolders.set(folders);
+        }
+      })
+      .catch((err: unknown) => {
+        this.foldersLoad = null; // allow a later thumb request to retry
+        throw err;
+      });
+    return this.foldersLoad;
   }
 }

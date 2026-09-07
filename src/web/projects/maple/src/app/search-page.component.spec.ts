@@ -18,6 +18,8 @@ import { Observable, Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   API_BASE_URL,
+  HttpLibrarySource,
+  LIBRARY_SOURCE,
   RECENT_QUERIES_KEY,
   SearchParams,
   SearchResponse,
@@ -57,6 +59,9 @@ function setup(q?: string): {
       { provide: Router, useValue: { navigate: vi.fn() } },
       { provide: SearchService, useValue: stub },
       { provide: API_BASE_URL, useValue: '/api' },
+      // Self Hosted: FilesystemBrowseService resolves result thumbnails
+      // through LIBRARY_SOURCE (#1325), bound app-wide to HttpLibrarySource.
+      { provide: LIBRARY_SOURCE, useExisting: HttpLibrarySource },
     ],
   });
   const fixture = TestBed.createComponent(SearchPageComponent);

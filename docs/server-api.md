@@ -117,17 +117,17 @@ The four routes clients should prefer. Each resolves the slug through an in-memo
 
 ## Path-addressed filesystem
 
-The older absolute-path surface, still used by the Apple File Provider and cloud-source browse. All share the `MAPLE_ROOTS` jail and the system-directory denylist.
+**Legacy.** The older absolute-path surface. Since #1325 the web app only calls `/api/fs/roots` and `/api/fs/list` (pre-registration folder pickers, which walk the jail before a library — and so a `slug:relPath` address — exists); every other route here is kept for the Apple clients (File Provider, cloud-source browse, ImportsClient) and the Windows cloud client, and is retired once those move to the unified routes above. All share the `MAPLE_ROOTS` jail and the system-directory denylist.
 
-| Method | Path               | Auth   | Purpose                                                                                                                                                                  |
-| ------ | ------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/api/fs/roots`    | +file  | The configured browse roots                                                                                                                                              |
-| GET    | `/api/fs/list`     | +file  | Subdirectories under `?path=` (no files). Backs the library-picker empty state. `showAll=0\|1`                                                                           |
-| GET    | `/api/fs/dir`      | +file  | Directories and image files at one level, enriched with catalog `asset_id`, EXIF, and paired sidecars. Two Mongo `$in` lookups per request. Paged via `cursor` + `limit` |
-| GET    | `/api/fs/dir-fast` | +file  | Same paging contract, pure filesystem — no Mongo, no EXIF, no sidecars. Backs the Angular browse grid                                                                    |
-| GET    | `/api/fs/raw`      | +file  | Stream the original bytes at `?path=`. Allowlisted to RAW ∪ bitmap extensions; others get 415. May be served from a mirror when the primary volume is unreachable        |
-| GET    | `/api/fs/thumb`    | bearer | Thumbnail AVIF for `?path=`, cached at `.maple/thumbs/`. A cache hit is one `readFile`. Deliberately no `size` parameter                                                 |
-| GET    | `/api/fs/preview`  | bearer | 1280 px preview for `?path=`, cached at `.maple/previews/`. Falls back to on-demand generation for un-indexed files                                                      |
+| Method | Path               | Auth   | Purpose                                                                                                                                                                                 |
+| ------ | ------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/fs/roots`    | +file  | The configured browse roots                                                                                                                                                             |
+| GET    | `/api/fs/list`     | +file  | Subdirectories under `?path=` (no files). Backs the web library picker and the Imports source picker. `showAll=0\|1`                                                                    |
+| GET    | `/api/fs/dir`      | +file  | Directories and image files at one level, enriched with catalog `asset_id`, EXIF, and paired sidecars. Two Mongo `$in` lookups per request. Paged via `cursor` + `limit`                |
+| GET    | `/api/fs/dir-fast` | +file  | Same paging contract, pure filesystem — no Mongo, no EXIF, no sidecars. Apple ImportsClient only; the web grid lists via `/api/folder`                                                  |
+| GET    | `/api/fs/raw`      | +file  | Stream the original bytes at `?path=`. Allowlisted to RAW ∪ bitmap extensions; others get 415. May be served from a mirror when the primary volume is unreachable. Apple + Windows only |
+| GET    | `/api/fs/thumb`    | bearer | Thumbnail AVIF for `?path=`, cached at `.maple/thumbs/`. A cache hit is one `readFile`. Deliberately no `size` parameter. Apple only; the web fetches `/api/thumb`                      |
+| GET    | `/api/fs/preview`  | bearer | 1280 px preview for `?path=`, cached at `.maple/previews/`. Falls back to on-demand generation for un-indexed files                                                                     |
 
 ## Assets
 

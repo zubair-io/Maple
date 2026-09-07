@@ -2,17 +2,19 @@
 // for `LibraryCache._doReadBytes`, split out so `library-cache.service.ts`
 // stays under the file-size budget (CONTRIBUTING.md § "File-size budget").
 //
-// Mirrors the service's original branch order exactly: legacy in-memory →
-// M2 (`slug:relPath`) network read → FS-walk absPath → Self-Hosted apiId →
-// Hosted FS-Access handle. The M2 branch is the one wrapped in
-// `withTransientRetry` (#2407) — it's the network GET every browse-opened
-// Self-Hosted asset takes, and the one that used to surface a transient blip
-// as a permanent blank canvas.
+// Branch order: legacy in-memory → M2 (`slug:relPath`) network read →
+// Self-Hosted apiId → Hosted FS-Access handle. The M2 branch is the one
+// wrapped in `withTransientRetry` (#2407) — it's the network GET every
+// browse-opened Self-Hosted asset takes, and the one that used to surface a
+// transient blip as a permanent blank canvas. The legacy FS-walk absPath
+// branch (`/api/fs/raw`) was retired in #1325: nothing has populated
+// `assetAbsPaths` since the M2 cutover, so a legacy `fs:` id with no api id
+// rejects here rather than reaching the path-addressed route.
 
 import { firstValueFrom } from 'rxjs';
 import type { AssetId } from '../models/asset';
 import type { ServerLibraryIo } from '../workspace/server-library-io';
-import type { DownloadProgress, FilesystemBrowseService } from '../api/filesystem-browse.service';
+import type { DownloadProgress } from '../api/filesystem-browse.service';
 import type { LibraryBackendKind } from '../api/library-backend.token';
 import type { FolderEntry } from '../folder-access/folder-access.types';
 import type { LibrarySource } from '../addressing/library-source';
@@ -27,8 +29,6 @@ export function isM2Asset(id: AssetId): boolean {
 export interface ByteSourceDeps {
   legacyBytes: Map<AssetId, Uint8Array>;
   librarySource: LibrarySource;
-  assetAbsPaths: Map<AssetId, string>;
-  fsBrowse: FilesystemBrowseService;
   backend: LibraryBackendKind;
   apiAssetIds: Map<AssetId, string>;
   api: ServerLibraryIo | null;
@@ -36,27 +36,12 @@ export interface ByteSourceDeps {
   makeProgressCallback: (id: AssetId) => (p: DownloadProgress) => void;
 }
 
-async function readFsBytes(
-  fsAbsPath: string,
-  id: AssetId,
-  deps: ByteSourceDeps,
-): Promise<Uint8Array> {
-  const buf = await deps.fsBrowse.getRawBytes(fsAbsPath, deps.makeProgressCallback(id));
-  return new Uint8Array(buf);
-}
-
 async function readM2Bytes(id: AssetId, deps: ByteSourceDeps): Promise<Uint8Array> {
-  try {
-    const onProgress = deps.makeProgressCallback(id);
-    const blob = await withTransientRetry(() =>
-      deps.librarySource.imageBlob(parseAddress(id), onProgress),
-    );
-    return new Uint8Array(await blob.arrayBuffer());
-  } catch (err) {
-    const fsAbsPath = deps.assetAbsPaths.get(id);
-    if (!fsAbsPath) throw err;
-    return readFsBytes(fsAbsPath, id, deps);
-  }
+  const onProgress = deps.makeProgressCallback(id);
+  const blob = await withTransientRetry(() =>
+    deps.librarySource.imageBlob(parseAddress(id), onProgress),
+  );
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 async function readSelfHostedBytes(id: AssetId, deps: ByteSourceDeps): Promise<Uint8Array> {
@@ -81,11 +66,6 @@ export async function readAssetBytes(id: AssetId, deps: ByteSourceDeps): Promise
 
   if (isM2Asset(id)) {
     return readM2Bytes(id, deps);
-  }
-
-  const fsAbsPath = deps.assetAbsPaths.get(id);
-  if (fsAbsPath) {
-    return readFsBytes(fsAbsPath, id, deps);
   }
 
   if (deps.backend === 'self-hosted') {

@@ -278,7 +278,6 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
 
   it('does NOT route a legacy fs:<absPath> id through LibrarySource.imageBlob (regression)', async () => {
     const imageBlob = vi.fn(async () => new Blob());
-    const getRawBytes = vi.fn(async () => new Uint8Array([9, 9]).buffer);
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
@@ -294,7 +293,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
         },
         { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
         { provide: BunApiBackendService, useValue: {} },
-        { provide: FilesystemBrowseService, useValue: { getRawBytes } },
+        { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: { imageBlob } },
@@ -302,12 +301,12 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
     });
     const svc = TestBed.inject(LibraryCache);
 
-    const bytes = await svc.bytesForAsset('fs:/srv/a.dng' as AssetId);
-
-    // `fs:` ids contain ':' but must use the assetAbsPaths FS-walk branch.
+    // `fs:` ids contain ':' but are not MapleAddresses. The FS-walk byte
+    // branch behind them (`/api/fs/raw`) was retired in #1325, so with no
+    // Mongo api id the read rejects — it must never be parsed as an address
+    // and sent to `/api/image`.
+    await expect(svc.bytesForAsset('fs:/srv/a.dng' as AssetId)).rejects.toThrow(/no api id/);
     expect(imageBlob).not.toHaveBeenCalled();
-    expect(getRawBytes).toHaveBeenCalledWith('/srv/a.dng', expect.any(Function));
-    expect(Array.from(bytes)).toEqual([9, 9]);
   });
 });
 
