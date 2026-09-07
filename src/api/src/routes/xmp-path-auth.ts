@@ -7,6 +7,7 @@
  */
 
 import * as path from 'node:path';
+import { parseRootList } from '../fs/root-list.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 
 /**
@@ -41,9 +42,7 @@ export async function resolveAndAuthorizePath(
 
   const normalized = path.resolve(decoded);
 
-  const envRoots = process.env.MAPLE_ROOTS
-    ? process.env.MAPLE_ROOTS.split(':').filter(Boolean)
-    : [];
+  const envRoots = parseRootList(process.env.MAPLE_ROOTS);
   const libRoots = [...(await loadLibraryRoots()).values()];
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.

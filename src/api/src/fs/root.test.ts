@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 // Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, parse } from 'node:path';
+import { delimiter, join, parse, sep } from 'node:path';
 import { getRegisteredRoots, registerRoot, safeWriteAllowed, unregisterRoot } from './root.ts';
 
 let originalRoots: string | undefined;
@@ -94,6 +94,53 @@ describe('safeWriteAllowed', () => {
       ok: true,
       data: join(await realpath(fixture), 'photo.xmp'),
     });
+  });
+
+  test('rejects a trailing parent traversal after authorizing its directory', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'maple-root-traversal-'));
+    temporaryRoots.push(fixture);
+    const allowedRoot = join(fixture, 'allowed');
+    await mkdir(allowedRoot);
+    process.env.MAPLE_ROOTS = allowedRoot;
+
+    // Keep the literal terminal component: path.join would normalize it away
+    // before the authorization function sees the caller's input.
+    for (const suffix of ['..', `..${sep}`]) {
+      const result = await safeWriteAllowed(`${allowedRoot}${sep}${suffix}`);
+      expect(result.ok).toBe(false);
+      expect(result.data).toBeUndefined();
+    }
+  });
+
+  test('rejects a sidecar symlink that points outside its permitted directory', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'maple-root-sidecar-link-'));
+    temporaryRoots.push(fixture);
+    const allowedRoot = join(fixture, 'allowed');
+    const outside = join(fixture, 'outside.xmp');
+    await mkdir(allowedRoot);
+    await writeFile(outside, '<xmpmeta/>');
+    await symlink(outside, join(allowedRoot, 'photo.xmp'));
+    process.env.MAPLE_ROOTS = allowedRoot;
+
+    const result = await safeWriteAllowed(join(allowedRoot, 'photo.xmp'));
+    expect(result.ok).toBe(false);
+    expect(result.data).toBeUndefined();
+  });
+
+  test('authorizes every root in the native platform path list', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'maple-root-list-'));
+    temporaryRoots.push(fixture);
+    const roots = [join(fixture, 'first'), join(fixture, 'second')];
+    await Promise.all(roots.map((root) => mkdir(root)));
+    process.env.MAPLE_ROOTS = roots.join(delimiter);
+
+    for (const root of roots) {
+      expect(await safeWriteAllowed(join(root, 'photo.xmp'))).toEqual({
+        ok: true,
+        data: join(await realpath(root), 'photo.xmp'),
+      });
+    }
+    expect((await safeWriteAllowed(join(fixture, 'outside.xmp'))).ok).toBe(false);
   });
 
   test('denies every concurrent write while MAPLE_ROOTS normalization is in flight', async () => {

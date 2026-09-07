@@ -1,5 +1,6 @@
 import { dirname, join, resolve, sep } from 'node:path';
 import { safeWriteAllowed } from '../fs/root.ts';
+import { parseRootList } from '../fs/root-list.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
@@ -17,10 +18,9 @@ async function canonicalRoot(root: string): Promise<string> {
 /** Canonical registered roots form an atomic Mongo uniqueness fence across clients. */
 export async function batchScopes(payload: Record<string, unknown>): Promise<string[]> {
   const roots = await Promise.all(
-    [
-      ...(await loadLibraryRoots()).values(),
-      ...(process.env.MAPLE_ROOTS?.split(':').filter(Boolean) ?? []),
-    ].map(canonicalRoot),
+    [...(await loadLibraryRoots()).values(), ...parseRootList(process.env.MAPLE_ROOTS)].map(
+      canonicalRoot,
+    ),
   );
   const targets = (() => {
     try {
