@@ -11,6 +11,7 @@ import type { AdjustmentModel } from '../models/adjustment-model';
 import type {
   AutoExposureMode,
   BlackWhiteMode,
+  DemosaicChoice,
   HighlightRecoveryMode,
   HotPixelSuppressionMode,
   LensProfileEnable,
@@ -36,6 +37,21 @@ const HIGHLIGHT_RECOVERY_MODES = Object.keys({
   OklabChromaReduction: true,
 } satisfies Record<HighlightRecoveryMode, true>) as readonly HighlightRecoveryMode[];
 
+/**
+ * `papp:Demosaic` vocabulary (#3413). Built through `satisfies` for the same
+ * reason the highlight-recovery list is: a variant added to the generated
+ * union without one here is a compile error rather than a value this parser
+ * silently drops to the 'Auto' default.
+ */
+const DEMOSAIC_CHOICES = Object.keys({
+  Auto: true,
+  Amaze: true,
+  Rcd: true,
+  DualAmaze: true,
+  DualRcd: true,
+  Lmmse: true,
+} satisfies Record<DemosaicChoice, true>) as readonly DemosaicChoice[];
+
 /** Case-insensitive wire → canonical variant match, or undefined if unknown. */
 function matchVariant<T extends string>(variants: readonly T[], raw: string): T | undefined {
   const lower = raw.toLowerCase();
@@ -60,6 +76,14 @@ const ENUM_ATTRIBUTE_PARSERS: Record<string, EnumAttributeParser> = {
     const parsed: HotPixelSuppressionMode | undefined =
       lower === 'on' ? 'On' : lower === 'off' ? 'Off' : undefined;
     return parsed !== undefined ? { hotPixelSuppression: parsed } : undefined;
+  },
+
+  // Bayer demosaic kernel override (#3413). Case-insensitive like the other
+  // papp: enums; an unknown value is dropped so the field keeps its 'Auto'
+  // default and a sidecar written by a newer build still opens.
+  'papp:Demosaic': (v) => {
+    const parsed = matchVariant(DEMOSAIC_CHOICES, v);
+    return parsed !== undefined ? { demosaic: parsed } : undefined;
   },
 
   // DNG lens corrections master switch (#376). ACR writes "1"/"0"; the

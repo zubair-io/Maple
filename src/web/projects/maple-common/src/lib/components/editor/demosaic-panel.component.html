@@ -1,0 +1,13 @@
+<!-- DemosaicPanelComponent — the Bayer demosaic kernel picker (#3413).
+     Sits at the top of the Detail group's Basic body, above the sharpen /
+     noise sliders. See the .ts file banner for why the write commits on
+     selection rather than through the drag-bar value pipe. -->
+<div class="flex flex-col gap-1.5 pb-1" data-testid="demosaic-panel">
+  <mui-text variant="tool-label" color="muted">Demosaic</mui-text>
+  <mui-select
+    ariaLabel="Demosaic kernel"
+    [value]="choice()"
+    [options]="options"
+    (valueChange)="select($event)"
+  />
+</div>

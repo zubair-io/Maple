@@ -65,6 +65,10 @@
   <geometry-panel />
 </ng-template>
 
+<ng-template #cardBodyDemosaicTpl>
+  <demosaic-panel />
+</ng-template>
+
 <div
   class="relative h-full w-full touch-none bg-[color:var(--pro-canvas)]"
   [class.shell--desktop]="isDesktop()"
@@ -464,6 +468,14 @@
             <div cardBodyGeometry>
               <ng-container *ngTemplateOutlet="cardBodyGeometryTpl" />
             </div>
+
+            <!-- Demosaic kernel picker (#3413) — projected into the control
+                 card's `cardBodyDemosaic` slot, which renders it at the top
+                 of the Detail group's Basic body. Authored once in
+                 `cardBodyDemosaicTpl` above (shared with the phone card). -->
+            <div cardBodyDemosaic>
+              <ng-container *ngTemplateOutlet="cardBodyDemosaicTpl" />
+            </div>
           </pro-control-card>
         </div>
       }
@@ -542,6 +554,13 @@
                  `cardBodyGeometryTpl` above. -->
             <div cardBodyGeometry>
               <ng-container *ngTemplateOutlet="cardBodyGeometryTpl" />
+            </div>
+
+            <!-- Demosaic picker (#3413) — same content as tablet/desktop's
+                 `cardBodyDemosaic` slot, authored once in
+                 `cardBodyDemosaicTpl` above. -->
+            <div cardBodyDemosaic>
+              <ng-container *ngTemplateOutlet="cardBodyDemosaicTpl" />
             </div>
           </pro-control-card>
         </div>

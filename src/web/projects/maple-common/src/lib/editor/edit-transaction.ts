@@ -58,6 +58,7 @@ const DECODE_INPUT_KEYS = [
   'chromaPrefilter',
   'deepDenoise',
   'hotPixelSuppression',
+  'demosaic',
   'lensProfileEnable',
   'lensCorrectionDistortion',
   'lensCorrectionCa',
