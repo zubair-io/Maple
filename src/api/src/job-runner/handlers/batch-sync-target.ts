@@ -76,7 +76,7 @@ export async function prepareTarget(
     // Retain a frozen relative patch when the filesystem changes during recovery.
     return {
       action: 'none',
-      entry: { ...saved, id: target.id, status: 'failed', reason: errorMessage(error) },
+      entry: { ...(saved ?? {}), id: target.id, status: 'failed', reason: errorMessage(error) },
     };
   }
 }
