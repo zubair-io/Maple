@@ -5,7 +5,8 @@
 // of the full-resolution render is a pipeline concern, not an encode concern —
 // see docs/pipeline.md and docs/zoom.md. Core Image already tiles graph
 // evaluation internally.
-// macOS: NSSavePanel. iOS: UIActivityViewController (share sheet).
+// macOS: NSSavePanel. iOS / iPadOS: the app's `ExportPanelVM` stages the
+// encoded bytes as a file and hands it to the system share sheet.
 
 import Foundation
 import CoreImage
@@ -14,8 +15,6 @@ import ImageIO
 
 #if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
 #endif
 
 // MARK: - ExportOptions
@@ -129,25 +128,6 @@ public struct MapleExporter: Sendable {
 
         let data = try await exportData(session: session, options: options)
         try data.write(to: url, options: .atomic)
-    }
-    #endif
-
-    // MARK: - iOS: Share Sheet
-
-    #if os(iOS)
-    @MainActor
-    public static func shareSheet(
-        session: EditSession,
-        options: ExportOptions,
-        sourceView: UIView
-    ) async throws -> UIActivityViewController {
-        let data = try await exportData(session: session, options: options)
-        let tmpURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(session.asset.displayName).\(options.format.fileExtension)")
-        try data.write(to: tmpURL, options: .atomic)
-        let vc = UIActivityViewController(activityItems: [tmpURL], applicationActivities: nil)
-        vc.popoverPresentationController?.sourceView = sourceView
-        return vc
     }
     #endif
 

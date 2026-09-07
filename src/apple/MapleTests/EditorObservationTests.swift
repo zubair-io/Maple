@@ -11,7 +11,7 @@ final class EditorObservationTests: XCTestCase {
     for tool in [Tool.exposure, .temp, .contrast, .toneCurve] {
       let session = EditSession.preview()
       let state = EditorState(session: session, armedGroup: tool.group, armedTool: tool)
-      let view = EditorView(state: state, onDismiss: {}, onShare: {}, onInfo: {})
+      let view = EditorView(state: state, onDismiss: {}, onInfo: {})
       let changed = ObservationFlag()
       withObservationTracking {
         _ = view.body
@@ -31,7 +31,7 @@ final class EditorObservationTests: XCTestCase {
   func testRenderPublicationDoesNotInvalidateEditorShell() {
     let session = EditSession.preview()
     let state = EditorState(session: session)
-    let view = EditorView(state: state, onDismiss: {}, onShare: {}, onInfo: {})
+    let view = EditorView(state: state, onDismiss: {}, onInfo: {})
     let changed = ObservationFlag()
     withObservationTracking {
       _ = view.body

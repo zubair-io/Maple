@@ -109,9 +109,6 @@ struct AppShellCenterColumn: View {
     /// is true and `usePreview` is false; defaults to no-op so the iPhone
     /// shell needn't supply it. #815.
     var onEditorDismiss: () -> Void = {}
-    /// S5 EditorView share affordance. Only used when `isFullImage` is true
-    /// and `usePreview` is false; defaults to no-op. #815.
-    var onEditorShare: () -> Void = {}
     /// S5 EditorView Info affordance (reveals the DetailPanel column). Only
     /// used when `isFullImage` is true and `usePreview` is false; defaults to
     /// no-op. #815.
@@ -188,7 +185,6 @@ struct AppShellCenterColumn: View {
                     filmstripAssets: browseVM.assets,
                     filmstripSource: browseVM.currentSource,
                     onDismiss: onEditorDismiss,
-                    onShare: onEditorShare,
                     onInfo: onEditorInfo,
                     onSelectAsset: onEditorSelectAsset
                 )
