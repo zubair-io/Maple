@@ -86,10 +86,7 @@ impl NativeDetailSession {
         if prepare {
             // Release prior artifacts before creating the new bounded reference.
             self.prepared = None;
-            let model = match &xmp {
-                Some(x) => raw_core::xmp::parse(x).map_err(js_error)?,
-                None => raw_core::xmp::AdjustmentModel::default(),
-            };
+            let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
             let film = if film_bytes.is_empty() {
                 None
             } else {

@@ -167,6 +167,18 @@ const settleSampleWb: Settler<'sample-wb'> = (msg, handler) => {
   return false;
 };
 
+const settleRegisterMaskRaster: Settler<'register-mask-raster'> = (msg, handler) => {
+  if (msg.type === 'register-mask-raster-success') {
+    handler.resolve(msg.rasterId);
+    return true;
+  }
+  if (msg.type === 'register-mask-raster-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleExport: Settler<'export'> = (msg, handler) => {
   if (msg.type === 'export-success') {
     handler.resolve({
@@ -199,29 +211,33 @@ const settleNativeDetail = (
   return false;
 };
 
+type NonNativeKind = Exclude<PendingHandler, { kind: 'native-detail' }>['kind'];
+
+/** One settler per handler kind — a table rather than a `switch`, so adding a
+ *  request kind is one entry, not another branch on a function whose
+ *  cyclomatic count already tracks the number of kinds (fallow gate, #3300). */
+const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
+  legacy: settleLegacy,
+  'scene-linear': settleSceneLinear,
+  'open-session': settleOpenSession,
+  'render-session': settleRenderSession,
+  'set-film-lut': settleSetFilmLut,
+  'auto-adjust': settleAutoAdjust,
+  'sample-wb': settleSampleWb,
+  'register-mask-raster': settleRegisterMaskRaster,
+  export: settleExport,
+};
+
 /** Pick the settler for `handler.kind` and report whether it recognised `msg`. */
 function settleByKind(
   msg: WorkerResponse,
   handler: Exclude<PendingHandler, { kind: 'native-detail' }>,
 ): boolean {
-  switch (handler.kind) {
-    case 'legacy':
-      return settleLegacy(msg, handler);
-    case 'scene-linear':
-      return settleSceneLinear(msg, handler);
-    case 'open-session':
-      return settleOpenSession(msg, handler);
-    case 'render-session':
-      return settleRenderSession(msg, handler);
-    case 'set-film-lut':
-      return settleSetFilmLut(msg, handler);
-    case 'auto-adjust':
-      return settleAutoAdjust(msg, handler);
-    case 'sample-wb':
-      return settleSampleWb(msg, handler);
-    case 'export':
-      return settleExport(msg, handler);
-  }
+  // The table entry for `handler.kind` accepts exactly that kind's handler;
+  // widening its parameter to the union is sound because the key came from
+  // the same handler.
+  const settler = SETTLERS[handler.kind] as (m: WorkerResponse, h: typeof handler) => boolean;
+  return settler(msg, handler);
 }
 
 /** Hand `msg` to the settler for `handler.kind`, rejecting if it goes unrecognised. */

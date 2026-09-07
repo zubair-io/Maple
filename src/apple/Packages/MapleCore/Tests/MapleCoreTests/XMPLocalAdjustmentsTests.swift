@@ -71,6 +71,34 @@ final class XMPLocalAdjustmentsTests: XCTestCase {
         XCTAssertEqual(recipeBack.digest, "8f3a1c9e0b2d4f67")
     }
 
+    /// Cross-language byte-parity fixture for the third container (#3300):
+    /// the same literal is pinned by the Rust suite
+    /// (`tests_local_adjustments_bitmap.rs`, `CANONICAL_GROUP_BLOCK`) and the
+    /// TypeScript suite (`local-adjustments-bitmap.spec.ts`), and every
+    /// writer that models bitmap/everywhere masks must produce it
+    /// byte-for-byte from the same two layers at the same indent — the
+    /// group-container twin of `LocalAdjustmentXMPTests.canonicalBlock`.
+    func testSerializesTheCanonicalGroupBlockByteForByte() throws {
+        let bitmap = LocalAdjustment(
+            mask: .bitmap(
+                recipe: BitmapRecipe(
+                    person: 0, facialSkin: true, bodySkin: true,
+                    model: "apple-vision-person-instance/1", digest: "a1b2c3d4e5f60718"),
+                rasterId: 0),
+            range: .skinTone, adjustments: PartialAdjustments(hue: 12))
+        let everywhere = LocalAdjustment(
+            mask: .everywhere, range: nil, adjustments: PartialAdjustments(exposure: 0.3))
+        var model = AdjustmentModel()
+        model.localAdjustments = [bitmap, everywhere]
+
+        XCTAssertEqual(
+            XMPSerializer._buildLocalAdjustmentsBlock(model: model, indent: "      "),
+            canonicalGroupBlock)
+
+        let (parsed, _) = try XMPParser.parse(groupSidecar(canonicalGroupBlock))
+        XCTAssertEqual(parsed.localAdjustments, [bitmap, everywhere])
+    }
+
     func testAFractionalHueSurvivesTheAdobeScaleRoundTrip() throws {
         // −42.5 on the ±100 slider is −0.425 on Adobe's ±1 wire scale; the
         // canonical 2-decimal precision would persist "-0.43" and read back
@@ -181,4 +209,76 @@ final class XMPLocalAdjustmentsTests: XCTestCase {
         XCTAssertEqual(back.range, layer.range)
         XCTAssertEqual(back.adjustments, layer.adjustments)
     }
+}
+
+/// The bitmap + everywhere half of the cross-language parity fixture (#3300)
+/// — see `testSerializesTheCanonicalGroupBlockByteForByte`.
+private let canonicalGroupBlock = """
+      <crs:MaskGroupBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              crs:LocalHue="0.12"
+              papp:RangeKind="Color"
+              papp:RangeHue="55"
+              papp:RangeHueWidth="25"
+              papp:RangeChromaMin="0.02"
+              papp:RangeLMin="0.15"
+              papp:RangeLMax="0.95"
+              papp:RangeFeather="0.3">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Image"
+                    crs:MaskSubType="1"
+                    crs:MaskValue="1"
+                    papp:MaskSource="PersonSkin"
+                    papp:MaskPerson="0"
+                    papp:MaskFacialSkin="True"
+                    papp:MaskBodySkin="True"
+                    papp:MaskModel="apple-vision-person-instance/1"
+                    papp:MaskDigest="a1b2c3d4e5f60718"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              crs:LocalExposure2012="0.3">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Image"
+                    crs:MaskValue="1"
+                    papp:MaskSource="Everywhere"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:MaskGroupBasedCorrections>
+"""
+
+/// Wrap a nested child block in a sidecar envelope.
+private func groupSidecar(_ children: String) -> String {
+    """
+    <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+    <x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description
+          xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+          xmlns:papp="http://ns.justmaple.app/photo/1.0/"
+          crs:Version="11.0">
+    \(children)
+        </rdf:Description>
+      </rdf:RDF>
+    </x:xmpmeta>
+    <?xpacket end="w"?>
+    """
 }
