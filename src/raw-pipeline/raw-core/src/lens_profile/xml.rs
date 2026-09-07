@@ -184,7 +184,8 @@ fn model(node: &Node) -> Result<LensModel, String> {
         if child.namespace == CAMERA_NS
             && child.children.is_empty()
             && child.properties.is_empty()
-            && !child.name.ends_with("Model")
+            && (!child.name.ends_with("Model")
+                || matches!(child.name.as_str(), "Model" | "UniqueCameraModel"))
         {
             insert(
                 &mut properties,
