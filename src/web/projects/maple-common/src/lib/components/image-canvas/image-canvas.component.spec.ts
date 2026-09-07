@@ -1,15 +1,7 @@
 import { of } from 'rxjs';
-// ImageCanvasComponent — two-phase live render and XMP wiring (#846/#1101):
-//   - cold open issues exactly one VIEWPORT-SIZED decode (no spurious decode)
-//   - every edit tick fires an immediate fast-phase sized decode (coalesced
-//     latest-wins while one is in flight — no storm)
-//   - at fit, the refine pass is skipped (fast target == refine target)
-//   - zoomed in, the trailing 150ms refine fires at native × min(scale, 1)
-//   - zooming in without an edit schedules a refine for the current model
-//   - switching assets cancels pending renders
-//
-// Zoneless effects run on detectChanges; fake timers drive refinement.
-// This suite asserts pipeline requests; raw-core tests exercise pixel output.
+// Component request contracts: viewport open, latest-wins edits, zoom refinement,
+// and asset replacement. Zoneless effects run on detectChanges; fake timers drive
+// refinement. raw-core and browser worker gates exercise actual pixel output.
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
@@ -308,12 +300,8 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
   });
 });
 
-// ── flag-ON GPU live-render path (epic #925, P4b-web / #1038) ───────────────
-// With `gpuLiveRenderEnabled` true and a session-capable pipeline stub, a RAW asset
-// routes cold-open through `openLiveSession` (transferring a fresh OffscreenCanvas)
-// and #846 edits through `renderLiveSession` — NOT the sized `decode()`. The session
-// is the 16ms live path: edits render IMMEDIATELY (coalesced latest-wins), with no
-// trailing debounce and no refine pass (the session presents full-res).
+// GPU sessions present viewport-sized frames and coalesce pending edits while
+// awaiting completion, without the CPU path's trailing refine pass.
 describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
   let focused: WritableSignal<Asset | null>;
   let models: Map<AssetId, WritableSignal<AdjustmentModel>>;
@@ -327,17 +315,14 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    // This suite exercises a secure, GPU-capable browser (the happy path) —
-    // the #2415 insecure-context short-circuit is covered in
-    // `image-canvas.gpu-present.spec.ts`'s "GPU fallback notice" suite.
+    // Insecure-context fallback is covered in image-canvas.gpu-present.spec.ts.
     gpuContext = patchSecureGpuContext();
     focused = signal<Asset | null>(null);
     models = new Map();
     decodeSpy = vi.fn((_b: Uint8Array, _e: string, _x: string | undefined, mle: number) =>
       Promise.resolve(decodedAt(mle)),
     );
-    // A tiny 1×1 RGB readback snapshot, mirroring what the worker folds into the
-    // session reply (#1045) so the component can feed the scopes' `currentPixels`.
+    // Retain compatibility with older producers that include pixels in replies.
     const scopeSnap = (): DecodedImage => ({
       width: 1,
       height: 1,
@@ -514,10 +499,8 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     expect(openSessionSpy).toHaveBeenCalledTimes(2);
   });
 
-  // ── Scope feed on the GPU path (#1045) ─────────────────────────────────────
-  // The zero-readback present produces no `currentPixels`; the worker folds a small
-  // readback snapshot into the session reply, which the component publishes so the
-  // scopes update instead of going stale.
+  // Legacy reply snapshots remain accepted. Independent current-session scope
+  // delivery is exercised in image-canvas.gpu-present.spec.ts.
   it('cold-open publishes the readback snapshot to currentPixels for the scopes', async () => {
     const canvasSvc = TestBed.inject(ImageCanvasService);
     focused.set(fakeAsset('a'));

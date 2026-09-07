@@ -1,7 +1,7 @@
 /** Actual production-worker scope and reply gate (#3397).
  * bun scripts/verify-live-scopes.ts /readonly/100mp.dng [dist/browser] [srgb|display-p3]
- * No fixture skip or software GPU override. Scope hold is an instrumented native
- * mapAsync Promise, never a replacement renderer. Canvas readback is used ONLY
+ * No fixture skip or software GPU override. Scope hold delays JS delivery AFTER
+ * the native map completes, never the GPU itself. Canvas readback is used ONLY
  * as a pixel oracle outside measured edits. Reply timing is not scanout timing.
  */
 import { chromium } from '@playwright/test';
@@ -10,8 +10,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { hashFixture } from './lib/hash-fixture';
-import { defaultAdjustmentModel } from '../projects/maple-common/src/lib/models/adjustment-model';
-import { buildLiveParams } from '../projects/maple-common/src/lib/components/image-canvas/image-canvas.live-params';
+import { scopeWorkerProbe } from './lib/live-scope-probe';
 
 const fixture = process.argv[2];
 if (!fixture) throw new Error('An explicit read-only RAW fixture is required.');
@@ -24,72 +23,19 @@ const workerFile = readdirSync(dist).find(
     readFileSync(resolve(dist, file), 'utf8').includes('"export-success"'),
 );
 assert.ok(workerFile, 'Production RAW worker must exist');
-const params = Array.from(buildLiveParams({ ...defaultAdjustmentModel(), profile: 'Neutral' }));
+
 const originalHash = await hashFixture(fixture);
 const headers = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
-const wrapper = `
-const counts = {};
-for (const key of ['createBuffer','createTexture','createBindGroup','createComputePipeline','createComputePipelineAsync','createRenderPipeline','createRenderPipelineAsync']) {
-  counts[key] = 0;
-  const original = GPUDevice.prototype[key];
-  if (typeof original === 'function') GPUDevice.prototype[key] = function(...args) {
-    counts[key]++; return Reflect.apply(original, this, args);
-  };
-}
-let hold = true, held = [], canvas, captureOracle = false, oracle;
-function captureCanvas() {
-  const target = new OffscreenCanvas(canvas.width, canvas.height);
-  const context = target.getContext('2d', {colorSpace:'srgb', willReadFrequently:true});
-  context.drawImage(canvas, 0, 0);
-  const source = context.getImageData(0,0,canvas.width,canvas.height).data;
-  const scale=Math.min(1,512/Math.max(canvas.width,canvas.height));
-  const width=Math.round(canvas.width*scale),height=Math.round(canvas.height*scale);
-  const rgb=new Uint8Array(width*height*3);
-  for(let y=0;y<height;y++) for(let x=0;x<width;x++) {
-    const sx=Math.min(canvas.width-1,Math.floor((x+.5)*canvas.width/width));
-    const sy=Math.min(canvas.height-1,Math.floor((y+.5)*canvas.height/height));
-    const from=(sy*canvas.width+sx)*4, to=(y*width+x)*3;
-    rgb.set(source.subarray(from,from+3),to);
-  }
-  return rgb;
-}
-const post = self.postMessage.bind(self);
-self.postMessage = function(message, transfer) {
-  // Freeze the actual frame before Chromium discards the worker backing store
-  // on compositor commit. Enabled only for an untimed correctness frame.
-  if(captureOracle && message.type==='render-session-success') oracle={renderId:message.id,rgb:captureCanvas()};
-  post(message,transfer ?? []);
-};
-const map = GPUBuffer.prototype.mapAsync;
-GPUBuffer.prototype.mapAsync = function(...args) {
-  const pending = Reflect.apply(map, this, args);
-  return this.label === 'scope-sample-staging' && hold
-    ? pending.then(() => new Promise(resolve => held.push(resolve))) : pending;
-};
-const marks = [];
-new PerformanceObserver(list => marks.push(...list.getEntries().map(e => ({name:e.name,duration:e.duration})))).observe({entryTypes:['measure']});
-addEventListener('message', ({data}) => {
-  if (data.type === 'open-session') canvas = data.canvas;
-  if (data.type === 'probe-stats') postMessage({id:data.id, type:'probe-stats-result', counts:{...counts}, held:held.length, marks:marks.splice(0)});
-  if (data.type === 'probe-hold') { hold=true; postMessage({id:data.id,type:'probe-held'}); }
-  if (data.type === 'probe-release') {
-    hold = false; for (const release of held.splice(0)) release();
-    postMessage({id:data.id, type:'probe-released'});
-  }
-  if(data.type==='probe-oracle') {
-    captureOracle=data.enabled; post({id:data.id,type:'probe-oracle-set'});
-  }
-  if (data.type === 'probe-canvas') {
-    if(!oracle) throw new Error('No captured presented frame');
-    const rgb=oracle.rgb.slice();
-    post({id:data.id,type:'probe-canvas-result',renderId:oracle.renderId,rgb:rgb.buffer},[rgb.buffer]);
-  }
-});
-await import('/${workerFile}'); postMessage({id:0,type:'probe-ready'});
-`;
+const wrapper = scopeWorkerProbe(workerFile);
+const schedulerSource = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+  readFileSync(
+    'projects/maple-common/src/lib/components/image-canvas/image-canvas.two-phase.ts',
+    'utf8',
+  ),
+);
 const routes: Record<string, () => Response> = {
   '/': () =>
     new Response('<!doctype html><canvas></canvas>', {
@@ -97,6 +43,8 @@ const routes: Record<string, () => Response> = {
     }),
   '/probe.js': () =>
     new Response(wrapper, { headers: { ...headers, 'Content-Type': 'text/javascript' } }),
+  '/scheduler.js': () =>
+    new Response(schedulerSource, { headers: { ...headers, 'Content-Type': 'text/javascript' } }),
   '/fixture': () => new Response(Bun.file(fixture), { headers }),
 };
 const server = Bun.serve({
@@ -118,7 +66,7 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(server.url.href);
   const result = await page.evaluate(
-    async ({ colorSpace, params }) => {
+    async ({ colorSpace }) => {
       function check(condition: unknown, message: string): asserts condition {
         if (!condition) throw new Error(message);
       }
@@ -192,14 +140,11 @@ try {
       };
       const xmp = (exposure: number) =>
         `<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="https://justmaple.app/ns/xmp/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" papp:Profile="Neutral" crs:Exposure2012="${exposure}"/>`;
-      const edit = async (exposure: number, flat = false) => {
-        const values = new Float32Array(params);
-        values[0] = exposure;
+      const edit = async (exposure: number) => {
         const start = performance.now();
         const reply = await send({
           type: 'render-session',
           xmp: xmp(exposure),
-          ...(flat ? { params: values } : {}),
         });
         if (reply.type !== 'render-session-success') throw new Error(JSON.stringify(reply));
         return { id: reply.id, start, ms: performance.now() - start };
@@ -239,8 +184,17 @@ try {
         ]);
         const bytes = await (await fetch('/fixture')).arrayBuffer();
         const canvas = document.querySelector('canvas')!.transferControlToOffscreen();
+        const waitForFence = async () => {
+          const start = performance.now();
+          while ((await send({ type: 'probe-stats' })).fences.held === 0) {
+            check(performance.now() - start < 10_000, 'No actual GPU completion fence intercepted');
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        };
+        await send({ type: 'probe-fence', hold: true });
         const start = performance.now();
-        const opened = await send(
+        let openSettled = false;
+        const opening = send(
           {
             type: 'open-session',
             bytes,
@@ -251,7 +205,14 @@ try {
             targetColorSpace: colorSpace,
           },
           [bytes, canvas],
-        );
+        ).then((value) => {
+          openSettled = true;
+          return value;
+        });
+        await waitForFence();
+        check(!openSettled, 'Cold open acknowledged before GPU completion delivery');
+        await send({ type: 'probe-fence' });
+        const opened = await opening;
         check(opened.type === 'open-session-success', JSON.stringify(opened));
         const openMs = performance.now() - start;
         const waitForHeldMap = async () => {
@@ -265,7 +226,25 @@ try {
           }
         };
         await waitForHeldMap();
-        // The actual first scope map is held. Two real edits MUST still finish.
+        // Native map completed; its JS result delivery is held. Rendering still
+        // completes, but a held frame fence MUST bound admission to one frame.
+        await send({ type: 'probe-fence', hold: true });
+        let firstSettled = false,
+          nextSettled = false;
+        const first = edit(0.1).then((value) => {
+          firstSettled = true;
+          return value;
+        });
+        await waitForFence();
+        const next = edit(0.15).then((value) => {
+          nextSettled = true;
+          return value;
+        });
+        const bounded = await send({ type: 'probe-stats' });
+        check(!firstSettled && !nextSettled, 'Render acknowledged before GPU completion delivery');
+        check(bounded.fences.active === 1, 'More than one GPU frame admitted');
+        await send({ type: 'probe-fence' });
+        await Promise.all([first, next]);
         const heldEdit1 = await edit(0.25);
         await send({ type: 'probe-oracle', enabled: true });
         const heldEdit2 = await edit(0.75);
@@ -294,6 +273,12 @@ try {
         const discreteScope = await sample(discrete.id);
         const changedPixels = compare(trailing.scope.rgb, discreteScope.scope.rgb);
         check(changedPixels.changed > 0, 'Exposure did not change real pixels');
+        await send({ type: 'probe-fence', reject: true });
+        const rejected = await send({ type: 'render-session', xmp: xmp(0.3) });
+        check(rejected.type === 'session-error', 'Failed completion fence acknowledged success');
+        const recovered = await edit(0.4);
+        await sample(recovered.id);
+        check(!scopes.has(rejected.id), 'Failed render published a scope');
         const pace = async (enabled: boolean, elapsed: number) => {
           if (enabled)
             await new Promise((resolve) => setTimeout(resolve, Math.max(0, 1000 / 60 - elapsed)));
@@ -314,14 +299,14 @@ try {
           if (paced) check(count > 0, 'Scopes starved throughout a 60Hz drag');
         };
         const runDrag = async (paced: boolean) => {
-          await edit(0); // establish full-XMP prefix before scalar params
+          await edit(0); // warm the same full-XMP path the Neutral editor uses
           let warmup;
-          for (let i = 0; i < 3; i++) warmup = await edit(i * 0.1, true);
+          for (let i = 0; i < 3; i++) warmup = await edit(i * 0.1);
           await sample(warmup!.id); // drain warmup GPU work before timing
           const before = await send({ type: 'probe-stats' });
           const replies = [];
           for (let i = 0; i < 30; i++) {
-            const tick = await edit(-0.5 + (i % 15) / 10, true);
+            const tick = await edit(-0.5 + (i % 15) / 10);
             replies.push(tick);
             await pace(paced, tick.ms);
           }
@@ -347,12 +332,54 @@ try {
                 .map((mark: any) => mark.duration),
             ),
             finalScopeLatencyMs: finalScope.arrived - final.start,
+            finalScopeAfterReplyMs: finalScope.arrived - final.start - final.ms,
             initialGpuResources: before.counts,
             allocations,
           };
         };
         const burst = await runDrag(false);
         const paced = await runDrag(true);
+        // Drive the actual product scheduler at 60Hz independently of GPU speed.
+        // A submitted frame must retain admission until completion, so obsolete
+        // inputs coalesce rather than hiding seconds of GPU work behind fast acks.
+        const schedulerUrl = '/scheduler.js';
+        const { TwoPhaseRenderScheduler } = await import(schedulerUrl);
+        const scheduledReplies: { id: number; xmp: string; completed: number }[] = [];
+        let scheduledError: Error | undefined;
+        const scheduler = new TwoPhaseRenderScheduler({
+          currentGeneration: () => 1,
+          fastTargetPx: () => 2048,
+          refineTargetPx: () => null,
+          gpuActive: () => true,
+          runRender: async (snapshot: string) => {
+            const reply = await send({ type: 'render-session', xmp: snapshot });
+            if (reply.type !== 'render-session-success')
+              scheduledError = new Error(JSON.stringify(reply));
+            scheduledReplies.push({ id: reply.id, xmp: snapshot, completed: performance.now() });
+          },
+        });
+        let lastInput = 0;
+        const finalXmp = xmp(0.29);
+        for (let i = 0; i < 30; i++) {
+          lastInput = performance.now();
+          scheduler.schedule(xmp(i / 100), 1);
+          await new Promise((resolve) => setTimeout(resolve, 1000 / 60));
+        }
+        await waitFor(
+          () => scheduledReplies.at(-1)?.xmp === finalXmp,
+          'Latest scheduled edit did not complete',
+        );
+        scheduler.clear();
+        if (scheduledError) throw scheduledError;
+        const scheduledFinal = scheduledReplies.at(-1)!;
+        const scheduledScope = await sample(scheduledFinal.id);
+        const schedulerDrag = {
+          inputCount: 30,
+          completedFrames: scheduledReplies.length,
+          finalReplyFromLastInputMs: scheduledFinal.completed - lastInput,
+          finalScopeFromLastInputMs: scheduledScope.arrived - lastInput,
+          finalScopeAfterReplyMs: scheduledScope.arrived - scheduledFinal.completed,
+        };
         // Free the real WASM session with an owned map still pending, then open
         // a fresh image. Completion must free the old result without publishing it.
         await send({ type: 'probe-hold' });
@@ -381,6 +408,18 @@ try {
           'Replacement scope has old session identity',
         );
         check(!scopes.has(abandoned.id), 'Closed session published its late sample');
+        const finalProbe = await send({ type: 'probe-stats' });
+        check(finalProbe.fences.maxActive === 1, 'GPU completion fences overlapped');
+        const expectedErrors = logs.filter(
+          (entry) =>
+            entry.level === 'error' &&
+            entry.text.includes('Injected completed-frame fence failure'),
+        );
+        check(expectedErrors.length === 1, 'Completion failure was not exercised exactly once');
+        check(
+          logs.every((entry) => entry.level !== 'error' || expectedErrors.includes(entry)),
+          'Worker emitted an unexpected error',
+        );
         return {
           adapterInfo,
           requestedColorSpace: colorSpace,
@@ -390,6 +429,9 @@ try {
           scopeDimensions: [discreteScope.scope.width, discreteScope.scope.height],
           openMs,
           pendingMapReopenPassed: true,
+          boundedGpuAdmissionPassed: true,
+          fenceRejectionRecoveryPassed: true,
+          maximumFramesInFlight: finalProbe.fences.maxActive,
           heldMap: {
             ordinaryEditReplyMs: heldEdit1.ms,
             // Includes intentionally blocking canvas oracle; excluded from performance gate.
@@ -399,13 +441,15 @@ try {
           changedPixels,
           burst,
           paced,
-          logs,
+          schedulerDrag,
+          expectedFenceErrorCount: expectedErrors.length,
+          logs: logs.filter((entry) => !expectedErrors.includes(entry)),
         };
       } finally {
         worker.terminate();
       }
     },
-    { colorSpace, params },
+    { colorSpace },
   );
   assert.equal(await hashFixture(fixture), originalHash, 'Original RAW must remain unchanged');
   assert.deepEqual(errors, [], 'Browser must not raise an unhandled error');
@@ -425,9 +469,15 @@ try {
       2,
     ),
   );
+  for (const trial of [result.burst, result.paced, result.schedulerDrag]) {
+    assert.ok(
+      trial.finalScopeAfterReplyMs <= 50,
+      `Final scope exceeded 50ms after completed-frame reply: ${trial.finalScopeAfterReplyMs}ms`,
+    );
+  }
   assert.ok(
-    result.paced.reply.p95 <= 50,
-    `50ms reply gate failed: P95 ${result.paced.reply.p95}ms`,
+    result.paced.reply.max! <= 50,
+    `50ms hard reply gate failed: max ${result.paced.reply.max}ms`,
   );
 } finally {
   await browser.close();
