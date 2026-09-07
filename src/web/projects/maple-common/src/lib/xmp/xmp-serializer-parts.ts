@@ -109,6 +109,7 @@ function pixelPipelineEnumParts(model: AdjustmentModel): string[] {
   return [
     ...enums,
     ...(model.lensProfileEnable === 'Off' ? ['crs:LensProfileEnable="0"'] : []),
+    ...(model.autoLateralCa === 'On' ? ['crs:AutoLateralCA="1"'] : []),
     ...(model.blackWhite === 'On' ? ['crs:ConvertToGrayscale="True"'] : []),
   ];
 }

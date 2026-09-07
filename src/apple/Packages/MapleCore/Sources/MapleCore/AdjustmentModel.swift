@@ -257,62 +257,67 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
   /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
   /// the Rust decode product (post-DCP, pre auto-exposure) — there is
-  /// no per-tick Apple chain equivalent, so `stripAppleGPUStages` keeps
-  /// it and the decoded-image cache key (the baked model, #950) picks
-  /// it up automatically: changing it re-decodes. XMP key
-  /// `papp:ChromaPrefilter`; 0 (default) = bit-identical stage skip.
+  /// no per-tick Apple chain equivalent, so `stripAppleGPUStages` keeps it
+  /// and the decoded-image cache key (the baked model, #950) picks it up:
+  /// changing it re-decodes. XMP `papp:ChromaPrefilter`; 0 = skip.
   public var chromaPrefilter: Double  // 0..100, default 0
 
-  /// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6).
-  /// Pre-demosaic, baked into the Rust decode product like
-  /// `chromaPrefilter` — kept by `stripAppleGPUStages`, so the #950
-  /// baked-model decode-cache key carries it automatically. XMP key
-  /// `papp:HotPixelSuppression`; `.off` (default) = bit-identical skip.
+  /// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6,
+  /// pre-demosaic) and BM3D deep denoise (#1105, § 3.2, input-referred
+  /// immediately after `chromaPrefilter`). Both are baked into the Rust
+  /// decode product with the same KEPT/strip + #950 cache-key story as
+  /// `chromaPrefilter` above — changing either re-decodes, and for deep
+  /// denoise that cached buffer is what amortises its seconds-scale
+  /// runtime. XMP keys `papp:HotPixelSuppression` / `papp:DeepDenoise`;
+  /// `.off` and 0 (the defaults) are bit-identical stage skips.
   public var hotPixelSuppression: HotPixelSuppressionMode
-
-  /// BM3D deep denoise (#1105, tone/zoom design § 3.2). Input-referred,
-  /// baked into the Rust decode product immediately after
-  /// `chromaPrefilter` — same KEPT/strip + #950 baked-model cache-key
-  /// story (changing it re-decodes; the cached decoded buffer is what
-  /// amortises the seconds-scale runtime). XMP key `papp:DeepDenoise`;
-  /// 0 (default) = bit-identical stage skip.
   public var deepDenoise: Double  // 0..100, default 0
 
   /// Geometry — crop rect (normalised to display-oriented dimensions) plus
-  /// straighten angle. Default is `Crop.identity` (full frame, 0°). When
-  /// identity, the crop stage is skipped and the XMP serializer omits the
-  /// whole `crs:Crop*` group. See `Crop` and spec § 3.12.
+  /// straighten angle. At identity (full frame, 0°) the crop stage is
+  /// skipped and the serializer omits the whole `crs:Crop*` group. See
+  /// `Crop` and spec § 3.12.
   public var crop: Crop  // default .identity
 
   /// Masked, per-region edits (#280/#358) — a hand-written mirror of
-  /// `raw_core::types::LocalAdjustment`, permanently outside codegen
-  /// because it is a nested list rather than a flat slider (see
-  /// `LocalAdjustment.swift`). Empty is the default; the XMP writer emits
-  /// the `crs:GradientBasedCorrections` /
-  /// `crs:CircularGradientBasedCorrections` / `crs:MaskGroupBasedCorrections`
-  /// containers only for a non-empty stack
+  /// `raw_core::types::LocalAdjustment`, permanently outside codegen because
+  /// it is a nested list rather than a flat slider (see
+  /// `LocalAdjustment.swift`). Empty is the default; the writer emits the
+  /// `crs:*BasedCorrections` containers only for a non-empty stack
   /// (`XMPSerialization+LocalAdjustments.swift`).
   public var localAdjustments: [LocalAdjustment]  // default []
 
-  /// DNG-embedded lens corrections (#376). The vendor's distortion /
-  /// lateral-CA / vignetting corrections travel inside the DNG as
-  /// `OpcodeList3` opcodes and are resampled into the demosaiced buffer
-  /// before DCP — inside the Rust decode product, upstream of every
-  /// per-tick Metal stage. Like `chromaPrefilter` these are KEPT by
-  /// `stripAppleGPUStages`, so the #950 baked-model decode-cache key
-  /// carries them automatically: changing one correctly re-decodes.
-  /// XMP key `crs:LensProfileEnable`; `.on` (default) matches ACR.
+  /// DNG-embedded lens corrections (#376) — the master switch plus the
+  /// per-family strength of the distortion (`WarpRectilinear`), lateral-CA
+  /// (each plane's deviation from the green reference plane) and vignetting
+  /// (`FixVignetteRadial` / `GainMap`) opcodes the vendor wrote into the
+  /// file. Resampled into the demosaiced buffer before DCP, so like
+  /// `chromaPrefilter` they are KEPT by `stripAppleGPUStages` and the #950
+  /// baked-model decode-cache key carries them: changing one re-decodes.
+  /// XMP keys `crs:LensProfileEnable` (`.on` by default, matching ACR) and
+  /// `crs:LensProfile{Distortion,ChromaticAberration,Vignetting}Scale`.
   public var lensProfileEnable: LensProfileEnable
-  /// Geometric-distortion strength — the `WarpRectilinear` component
-  /// common to all three planes. XMP `crs:LensProfileDistortionScale`.
   public var lensCorrectionDistortion: Double  // 0..100, default 100
-  /// Lateral chromatic-aberration strength — each plane's
-  /// `WarpRectilinear` deviation from the green reference plane. XMP
-  /// `crs:LensProfileChromaticAberrationScale`.
   public var lensCorrectionCa: Double  // 0..100, default 100
-  /// Vignetting / lens-shading strength — the `FixVignetteRadial` and
-  /// `GainMap` gain opcodes. XMP `crs:LensProfileVignettingScale`.
   public var lensCorrectionVignetting: Double  // 0..100, default 100
+
+  /// Profile-free lens corrections (#3411) — the aberration Maple measures
+  /// from the image itself, on the bodies the opcodes above never reach.
+  /// `autoLateralCa` is a decode-product parameter like that block (KEPT by
+  /// `stripAppleGPUStages`, so switching it re-decodes); the six `defringe*`
+  /// values are per-tick sliders whose hue edges carry ACR's band defaults,
+  /// not zero. XMP keys `crs:AutoLateralCA` + `crs:Defringe*`.
+  /// These seven carry INLINE defaults and are absent from the memberwise
+  /// `init` below — `whiteBalancePreset`'s shape. Callers assign them on a
+  /// `var` model (how the editor authors every slider), which keeps this
+  /// file inside the #2311 headroom gate its `init` cannot be split to clear.
+  public var autoLateralCa: AutoLateralCa = .off
+  public var defringePurpleAmount: Double = 0  // 0..20
+  public var defringePurpleHueLo: Double = 30  // 0..100
+  public var defringePurpleHueHi: Double = 70  // 0..100
+  public var defringeGreenAmount: Double = 0  // 0..20
+  public var defringeGreenHueLo: Double = 40  // 0..100
+  public var defringeGreenHueHi: Double = 60  // 0..100
 
   /// Film-look emulation id (epic #2683) — the `.mlut` catalog id (also its
   /// filename stem), or `""` for "no look" (the default). Resolved to a

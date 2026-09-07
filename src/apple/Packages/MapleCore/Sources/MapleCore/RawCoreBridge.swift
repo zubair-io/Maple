@@ -127,6 +127,12 @@
 //     carrying it is what makes the seconds-scale run a ONE-TIME cost per
 //     setting: downstream slider ticks reuse the denoised decode. Default
 //     0 short-circuits the stage.
+//   * `autoLateralCa` (#3411)     — the profile-free raw-domain lateral-CA
+//     correction, estimated and resampled before demosaic inside the Rust
+//     decode product; no per-tick equivalent on any platform, so the same
+//     KEPT/cache-key story as `chromaPrefilter` applies. Default `.off`
+//     short-circuits the stage. (The six `defringe*` values are the
+//     opposite case — a per-tick stage — and ARE stripped below.)
 //   * `lensProfileEnable` / `lensCorrectionDistortion` /
 //     `lensCorrectionCa` / `lensCorrectionVignetting` (#376) — the DNG's
 //     own OpcodeList3 lens corrections, resampled into the demosaiced
@@ -200,6 +206,16 @@ public enum RawCoreBridge {
     m.clarity = d.clarity
     m.texture = d.texture
     m.dehaze = d.dehaze
+    // Defringe (#3411) — the six `defringe*` values drive a per-tick stage
+    // that runs in BOTH the decode and the chain (scene-linear Oklab, right
+    // after dehaze), so leaving them in would desaturate every fringe twice.
+    // `autoLateralCa` is the opposite case and is KEPT — see the file header.
+    m.defringePurpleAmount = d.defringePurpleAmount
+    m.defringePurpleHueLo = d.defringePurpleHueLo
+    m.defringePurpleHueHi = d.defringePurpleHueHi
+    m.defringeGreenAmount = d.defringeGreenAmount
+    m.defringeGreenHueLo = d.defringeGreenHueLo
+    m.defringeGreenHueHi = d.defringeGreenHueHi
     // HSL 8-band hue/sat/lum (#1112) — the `hsl` stage runs in both the
     // decode and the chain (scene-linear Oklab, after saturation), so
     // all 24 bands double-apply unless zeroed here.

@@ -243,6 +243,19 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:PerspectiveAspect', 'perspectiveAspect'),
   numericField('crs:PerspectiveX', 'perspectiveX'),
   numericField('crs:PerspectiveY', 'perspectiveY'),
+  // ---- Profile-free defringe (#3411) ----
+  // ACR's six Defringe controls. Amounts are 0..20 (0 = off); the hue
+  // bands are positions on ACR's own 0..100 defringe-hue axis and carry
+  // non-zero defaults (30/70 purple, 40/60 green), so omit-on-default
+  // suppresses them for the common "just raised an amount" case. The
+  // `crs:AutoLateralCA` checkbox is an enum and rides the enum block in
+  // the parser / serializer alongside `crs:LensProfileEnable`.
+  numericField('crs:DefringePurpleAmount', 'defringePurpleAmount'),
+  numericField('crs:DefringePurpleHueLo', 'defringePurpleHueLo'),
+  numericField('crs:DefringePurpleHueHi', 'defringePurpleHueHi'),
+  numericField('crs:DefringeGreenAmount', 'defringeGreenAmount'),
+  numericField('crs:DefringeGreenHueLo', 'defringeGreenHueLo'),
+  numericField('crs:DefringeGreenHueHi', 'defringeGreenHueHi'),
   // ---- Film emulation (epic #2683) ----
   // Strength is a plain 0..100 numeric field, default 100 (full strength),
   // so it rides the shared numeric-field table like any other slider — omit-
