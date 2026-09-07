@@ -44,9 +44,9 @@ use crate::spatial::{encode_simple, pool_data_storage};
 
 /// Floats per serialized layer. MUST equal
 /// `raw_core::types::local_adjustment::LAYER_FLAT_LEN`; the parity test pins
-/// the two together, and the WGSL `Layer` struct (eight `vec4<f32>`) is the
-/// same 128 bytes.
-pub const LAYER_FLAT_LEN: usize = 32;
+/// the two together, and the WGSL `Layer` struct (ten `vec4<f32>`) is the
+/// same 160 bytes.
+pub const LAYER_FLAT_LEN: usize = 40;
 
 /// Index of the presence-bitmask slot within a layer record. A layer whose mask
 /// is zero sets no controls, and both the Rust stage and the kernel skip it.
@@ -54,6 +54,12 @@ const PRESENT_SLOT: usize = 8;
 
 /// Index of the `kind` slot within a layer record.
 const KIND_SLOT: usize = 6;
+
+/// Presence bits for the six SPATIAL controls (#3407), mirrored from
+/// `raw_core::types::local_adjustment::flat`. This kernel does not apply
+/// them — `crate::local_spatial` does — but the inclusion predicates below
+/// have to tell a spatial-only layer apart from a point layer.
+pub const PRESENT_SPATIAL_MASK: u32 = 0b111111 << 11;
 
 /// `kind` slot value for [`Mask::Bitmap`](raw_core doc) records (#3271).
 /// Mirrored from `raw_core::types::local_adjustment::flat::KIND_BITMAP`; the
@@ -103,6 +109,26 @@ pub fn local_adjustments_are_active(layers_flat: &[f32], scope_layer: i32) -> bo
     layers_flat
         .chunks_exact(LAYER_FLAT_LEN)
         .any(|layer| layer[PRESENT_SLOT] != 0.0)
+}
+
+/// The presence bitmask a layer record carries, as a `u32`. `as u32` on a
+/// float saturates rather than wrapping in Rust, and the encoder only ever
+/// writes an exact small integer here, so a corrupt slot reads as "nothing
+/// present" — the same convention `raw_core`'s decoder uses.
+pub fn layer_present_bits(layer: &[f32]) -> u32 {
+    layer[PRESENT_SLOT] as u32
+}
+
+/// `true` when some layer sets one of the six SPATIAL controls (#3407).
+/// The live-chain builder asks this to decide between the ONE-DISPATCH form
+/// (every layer's point ops fused in registers, the shape every model
+/// without spatial controls keeps) and the SPLIT form, which runs one pass
+/// per layer so a layer's spatial group can be interleaved in the right
+/// place.
+pub fn local_adjustments_need_spatial(layers_flat: &[f32]) -> bool {
+    layers_flat
+        .chunks_exact(LAYER_FLAT_LEN)
+        .any(|layer| layer_present_bits(layer) & PRESENT_SPATIAL_MASK != 0)
 }
 
 /// `repr(C)` params uniform shared with `local_adjustments.wgsl`. 32 bytes

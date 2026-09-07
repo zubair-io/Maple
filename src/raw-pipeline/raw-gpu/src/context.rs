@@ -106,6 +106,18 @@ pub struct GpuContext {
     /// scale + a gamut-hull bisection, so it concats the generated matrices like
     /// vibrance. Built on first use via [`GpuContext::saturation_pipeline`].
     pub(crate) saturation_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled defringe compute pipeline (`defringe.wgsl` + the
+    /// generated color matrices). The per-mask-only stage (#3407): a relative
+    /// luma gradient drives an Oklab chroma suppression, so it concats the
+    /// generated matrices like saturation. Built on first use via
+    /// [`GpuContext::defringe_pipeline`].
+    pub(crate) defringe_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled per-mask spatial blend pipeline
+    /// (`local_spatial_blend.wgsl`, #3407). A pure lerp of three RGBA inputs
+    /// — no colour maths — so it compiles standalone with no generated
+    /// matrix concat. Built on first use via
+    /// [`GpuContext::local_spatial_blend_pipeline`].
+    pub(crate) local_spatial_blend_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled Auto Profile curve compute pipeline
     /// (`auto_profile_curve.wgsl` + the generated color matrices). A P2
     /// view-transform stage (#990): the per-pixel fitted tone curve
@@ -395,6 +407,8 @@ impl GpuContext {
             display_encode_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),
             saturation_pipeline: OnceCell::new(),
+            defringe_pipeline: OnceCell::new(),
+            local_spatial_blend_pipeline: OnceCell::new(),
             auto_profile_curve_pipeline: OnceCell::new(),
             agx_pipeline: OnceCell::new(),
             residual_lut_pipeline: OnceCell::new(),

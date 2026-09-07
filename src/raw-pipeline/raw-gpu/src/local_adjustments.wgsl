@@ -59,18 +59,26 @@ struct Params {
     inv_h: f32,        // 1 / (full_height - 1), or 0 when full_height == 1
 };
 
-// One serialized layer. Byte-for-byte the 24-float record
+// One serialized layer. Byte-for-byte the 40-float record
 // `raw_core::types::local_adjustment::flat` writes; see that module for the
 // slot map and for why presence is an explicit bitmask rather than a sentinel.
+//
+// The two `spatial*` members (#3407) are read by this kernel only to know
+// they are NOT its business: the six spatial controls need a neighbourhood,
+// so `local_spatial.rs` runs them as their own passes over the whole buffer
+// and blends by the mask weight. They ride the record so the flat wire stays
+// one layout with one stride on every consumer.
 struct Layer {
-    geom: vec4<f32>,   // p0.xy, p1.xy  (start/end, or center/radii)
-    shape: vec4<f32>,  // feather, angle, kind, invert
-    flags: vec4<f32>,  // presence bitmask, padding
-    adj0: vec4<f32>,   // exposure, contrast, highlights, shadows
-    adj1: vec4<f32>,   // whites, blacks, saturation, vibrance
-    adj2: vec4<f32>,   // temperature, tint, hue, padding
-    range0: vec4<f32>, // range_kind, hue_deg, hue_half_width_deg, chroma_min
-    range1: vec4<f32>, // l_min, l_max, feather, padding
+    geom: vec4<f32>,     // p0.xy, p1.xy  (start/end, or center/radii)
+    shape: vec4<f32>,    // feather, angle, kind, invert
+    flags: vec4<f32>,    // presence bitmask, padding
+    adj0: vec4<f32>,     // exposure, contrast, highlights, shadows
+    adj1: vec4<f32>,     // whites, blacks, saturation, vibrance
+    adj2: vec4<f32>,     // temperature, tint, hue, padding
+    range0: vec4<f32>,   // range_kind, hue_deg, hue_half_width_deg, chroma_min
+    range1: vec4<f32>,   // l_min, l_max, feather, padding
+    spatial0: vec4<f32>, // texture, clarity, dehaze, sharpness
+    spatial1: vec4<f32>, // luminance_noise, defringe, padding, padding
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -107,6 +115,19 @@ const P_VIBRANCE: u32    = 128u;
 const P_TEMPERATURE: u32 = 256u;
 const P_TINT: u32        = 512u;
 const P_HUE: u32         = 1024u;
+// Spatial controls (#3407) — applied by `local_spatial.rs`, not here. Named
+// so a reader of this kernel can see which presence bits it deliberately
+// ignores rather than wondering whether they were forgotten.
+const P_TEXTURE: u32         = 2048u;
+const P_CLARITY: u32         = 4096u;
+const P_DEHAZE: u32          = 8192u;
+const P_SHARPNESS: u32       = 16384u;
+const P_LUMINANCE_NOISE: u32 = 32768u;
+const P_DEFRINGE: u32        = 65536u;
+/// Every POINT bit — the controls this kernel actually applies.
+const P_POINT_ANY: u32 = P_EXPOSURE | P_CONTRAST | P_HIGHLIGHTS | P_SHADOWS
+    | P_WHITES | P_BLACKS | P_SATURATION | P_VIBRANCE | P_TEMPERATURE
+    | P_TINT | P_HUE;
 
 // raw_core::stages::hsl::HSL_HUE_MAX_RAD (30°) — the local `hue` control's
 // full-deflection rotation, shared with the HSL stage's own constant.
@@ -637,9 +658,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // this is identical to the Rust stage's per-layer whole-image passes.
     for (var li: u32 = 0u; li < params.layer_count; li = li + 1u) {
         let layer = layers[li];
+        let present = u32(layer.flags.x);
+        // A layer whose only controls are spatial (#3407) has nothing for
+        // THIS kernel — `local_spatial.rs` owns those — but its mask still
+        // has to be evaluated when it is the scope target.
+        let has_point = (present & P_POINT_ANY) != 0u;
         let is_scope_target = params.scope_layer >= 0 && li == u32(params.scope_layer);
-        if (layer.flags.x == 0.0 && !is_scope_target) {
-            continue;   // layer carries no controls and isn't the scope target
+        if (!has_point && !is_scope_target) {
+            continue;
         }
         let geometric = mask_weight(layer, n);
         var w = 0.0;
@@ -652,7 +678,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         if (is_scope_target) {
             alpha = w;
         }
-        if (layer.flags.x == 0.0 || w <= 0.0) {
+        if (!has_point || w <= 0.0) {
             continue;
         }
         p = apply_pixel(p, layer, w);
