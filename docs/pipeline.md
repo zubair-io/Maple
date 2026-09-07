@@ -36,41 +36,56 @@ DNG `OpcodeList3` (tag 51022) is parsed at decode time by `raw-core/src/pipeline
 
 `raw-core/src/pipeline/develop/mod.rs` holds the single funnel every full-image render goes through — `develop_scene_linear_from_raw_with_quality` and its cancellable / AE-gain-returning variants. `pipeline/develop_sized.rs` is the same chain with a downsample inserted right after demosaic (see "Sized and tile renders"). Stages, in the order they actually run:
 
-| #   | Stage                                       | Implementation                                             | Working space                                                                  |
-| --- | ------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| 1   | `linearize` (or `linearraw_decode`)         | `linearize.rs`                                             | raw codes → normalized `[0,1]` camera mosaic                                   |
-| 2   | `hot_pixel`                                 | `stages/hot_pixel.rs`                                      | raw mosaic domain                                                              |
-| 3   | `demosaic`                                  | `demosaic/{half_res,bilinear,hamilton_adams,amaze,xtrans}` | camera-native linear RGB                                                       |
-| 4   | `opcode_list3`                              | `pipeline/pano/opcode_apply/`                              | camera RGB, ActiveArea coords                                                  |
-| 5   | `crop_to_default` (DNG `DefaultCrop`)       | `pipeline/develop/geometry.rs`                             | camera RGB                                                                     |
-| 6   | `baseline_exposure`                         | inline in `develop/mod.rs`                                 | camera RGB (one gain per channel)                                              |
-| 7   | WB pre-gain (divide by `AsShotNeutral`)     | `stages/white_balance.rs`                                  | camera RGB                                                                     |
-| 8   | `highlight_recovery`                        | `stages/highlight_recovery.rs`                             | camera RGB, post-pre-gain                                                      |
-| 9   | `wb_camera::apply` (user temperature/tint)  | `stages/wb_camera.rs`                                      | camera-native linear RGB                                                       |
-| 10  | `dcp::apply_colorimetry`                    | `color/dcp.rs`, `color/hsm.rs`                             | camera RGB → linear ProPhoto D50 (CM/FM + HSM) → **scene-linear Rec.2020 D65** |
-| 11  | `highlight_recovery_oklab`                  | `stages/highlight_recovery_oklab.rs`                       | scene-linear Rec.2020, via Oklab                                               |
-| 12  | `chroma_prefilter`                          | `stages/chroma_prefilter.rs`                               | scene-linear Rec.2020                                                          |
-| 13  | `deep_denoise` (BM3D)                       | `stages/bm3d/`                                             | scene-linear Rec.2020                                                          |
-| 14  | `capture_sharpening` (Richardson–Lucy)      | `stages/capture_sharpening.rs`                             | scene-linear Rec.2020, luma plane                                              |
-| 15  | `auto_exposure`                             | `stages/auto_exposure/`                                    | scene-linear Rec.2020                                                          |
-| 16  | `white_balance` (CAT16, fallback path only) | `stages/white_balance.rs`                                  | scene-linear Rec.2020                                                          |
-| 17  | `scene_tone_controls`                       | `stages/scene_tone_controls/`                              | scene-linear Rec.2020                                                          |
-| 18  | `tone_curves`                               | `stages/tone_curves/`                                      | scene-linear Rec.2020                                                          |
-| 19  | `vibrance`                                  | `stages/vibrance.rs`                                       | Oklab                                                                          |
-| 20  | `saturation`                                | `stages/saturation.rs`                                     | Oklab                                                                          |
-| 21  | `hsl` (8-band)                              | `stages/hsl.rs`                                            | Oklab                                                                          |
-| 22  | `clarity`                                   | `stages/clarity.rs`                                        | scene-linear Rec.2020, luma guided filter                                      |
-| 23  | `texture`                                   | `stages/texture.rs`                                        | same, finer radius                                                             |
-| 24  | `dehaze`                                    | `stages/dehaze.rs`                                         | scene-linear Rec.2020                                                          |
-| 25  | `local_adjustments`                         | `stages/local_adjustments/`                                | scene-linear Rec.2020                                                          |
-| 26  | `vignette`                                  | `stages/vignette.rs`                                       | scene-linear Rec.2020                                                          |
-| 27  | `sharpen`                                   | `stages/sharpen.rs`                                        | scene-linear Rec.2020, luma-only USM                                           |
-| 28  | `nr_luminance`                              | `stages/noise_reduction.rs` → `stages/nlm.rs`              | Oklab L plane                                                                  |
-| 29  | `nr_color`                                  | same                                                       | Oklab a/b planes                                                               |
+| #   | Stage                                       | Implementation                                                 | Working space                                                                  |
+| --- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 1   | `linearize` (or `linearraw_decode`)         | `linearize.rs`                                                 | raw codes → normalized `[0,1]` camera mosaic                                   |
+| 2   | `hot_pixel`                                 | `stages/hot_pixel.rs`                                          | raw mosaic domain                                                              |
+| 3   | `demosaic`                                  | `demosaic/{half_res,bilinear,rcd,hamilton_adams,amaze,xtrans}` | camera-native linear RGB                                                       |
+| 4   | `opcode_list3`                              | `pipeline/pano/opcode_apply/`                                  | camera RGB, ActiveArea coords                                                  |
+| 5   | `crop_to_default` (DNG `DefaultCrop`)       | `pipeline/develop/geometry.rs`                                 | camera RGB                                                                     |
+| 6   | `baseline_exposure`                         | inline in `develop/mod.rs`                                     | camera RGB (one gain per channel)                                              |
+| 7   | WB pre-gain (divide by `AsShotNeutral`)     | `stages/white_balance.rs`                                      | camera RGB                                                                     |
+| 8   | `highlight_recovery`                        | `stages/highlight_recovery.rs`                                 | camera RGB, post-pre-gain                                                      |
+| 9   | `wb_camera::apply` (user temperature/tint)  | `stages/wb_camera.rs`                                          | camera-native linear RGB                                                       |
+| 10  | `dcp::apply_colorimetry`                    | `color/dcp.rs`, `color/hsm.rs`                                 | camera RGB → linear ProPhoto D50 (CM/FM + HSM) → **scene-linear Rec.2020 D65** |
+| 11  | `highlight_recovery_oklab`                  | `stages/highlight_recovery_oklab.rs`                           | scene-linear Rec.2020, via Oklab                                               |
+| 12  | `chroma_prefilter`                          | `stages/chroma_prefilter.rs`                                   | scene-linear Rec.2020                                                          |
+| 13  | `deep_denoise` (BM3D)                       | `stages/bm3d/`                                                 | scene-linear Rec.2020                                                          |
+| 14  | `capture_sharpening` (Richardson–Lucy)      | `stages/capture_sharpening.rs`                                 | scene-linear Rec.2020, luma plane                                              |
+| 15  | `auto_exposure`                             | `stages/auto_exposure/`                                        | scene-linear Rec.2020                                                          |
+| 16  | `white_balance` (CAT16, fallback path only) | `stages/white_balance.rs`                                      | scene-linear Rec.2020                                                          |
+| 17  | `scene_tone_controls`                       | `stages/scene_tone_controls/`                                  | scene-linear Rec.2020                                                          |
+| 18  | `tone_curves`                               | `stages/tone_curves/`                                          | scene-linear Rec.2020                                                          |
+| 19  | `vibrance`                                  | `stages/vibrance.rs`                                           | Oklab                                                                          |
+| 20  | `saturation`                                | `stages/saturation.rs`                                         | Oklab                                                                          |
+| 21  | `hsl` (8-band)                              | `stages/hsl.rs`                                                | Oklab                                                                          |
+| 22  | `clarity`                                   | `stages/clarity.rs`                                            | scene-linear Rec.2020, luma guided filter                                      |
+| 23  | `texture`                                   | `stages/texture.rs`                                            | same, finer radius                                                             |
+| 24  | `dehaze`                                    | `stages/dehaze.rs`                                             | scene-linear Rec.2020                                                          |
+| 25  | `local_adjustments`                         | `stages/local_adjustments/`                                    | scene-linear Rec.2020                                                          |
+| 26  | `vignette`                                  | `stages/vignette.rs`                                           | scene-linear Rec.2020                                                          |
+| 27  | `sharpen`                                   | `stages/sharpen.rs`                                            | scene-linear Rec.2020, luma-only USM                                           |
+| 28  | `nr_luminance`                              | `stages/noise_reduction.rs` → `stages/nlm.rs`                  | Oklab L plane                                                                  |
+| 29  | `nr_color`                                  | same                                                           | Oklab a/b planes                                                               |
 
 The develop function returns the scene-linear `Image` (and, on the `_with_gain` entries, the scalar gain auto-exposure applied — the tile path threads that back in so a tile reproduces the full-image anchor).
 
-`RenderQuality` (`pipeline/mod.rs`) picks the demosaic: `Preview` uses the half-res quad kernel (4× fewer pixels downstream, and the buffer comes back at half dimensions — callers scale it themselves), `Full` uses bilinear (or Hamilton-Adams under the `high-quality-demosaic` feature), and `Amaze` uses the tiled AMaZE kernel and is `maple-cli`'s default. Cancellation is cooperative: `CancelToken` is threaded into demosaic, BM3D, capture sharpening, sharpen and both NR stages, and checked between the heavy stages, so a superseded cold open unwinds mid-stage instead of finishing an 8-second denoise nobody wants.
+`RenderQuality` (`pipeline/mod.rs`) picks the demosaic: `Preview` uses the half-res quad kernel (4× fewer pixels downstream, and the buffer comes back at half dimensions — callers scale it themselves), `Full` uses **RCD** (#3412), and `Amaze` uses the tiled AMaZE kernel and is `maple-cli`'s default. Full is the on-screen path on every platform — the full-image develop, the sized develop, the deep-zoom tile chain and the pano decode all take it — so no on-screen render is bilinear.
+
+**RCD** (`demosaic/rcd/`) is Ratio Corrected Demosaicing, written from the published description of Luis Sanz Rodríguez's method rather than from the GPL implementations that ship in RawTherapee and darktable. Four steps: a chroma-immune 7-tap roughness measure per axis whose vertical/horizontal ratio becomes a soft blend weight; green at R/B sites by transporting each green neighbour to the centre through the centre channel's own half-step ratio (the ratio correction — exact on a flat field and on a linear ramp, and incapable of overshooting a step edge); the opposite chroma on the two diagonals; then red and blue at green sites from all four orthogonal neighbours. Both chroma steps are bounded to the range their own contributing samples span, because the unbounded colour-difference form extrapolates across a hard edge into a near-zero-green patch. Bands of 64 output rows run over rayon against the shared read-only CFA plane, so there is no tile fill and no seam risk; the outer 6-px ring the stencil cannot reach takes the bilinear reconstruction, as does any frame under 13 px per side.
+
+Measured on the 100 MP reference (`test-fixtures/raws/dji-mavic3pro-100mp.dng`, 12288×8192 RGGB) via `cargo run --release -p raw-core --example demosaic-bench`, 18 rayon threads on an M-series Mac, median of 3:
+
+| kernel         | decode  | throughput | vs bilinear |
+| -------------- | ------- | ---------- | ----------- |
+| bilinear       | 221 ms  | 456 Mpx/s  | 1.00×       |
+| **RCD**        | 590 ms  | 171 Mpx/s  | 2.68× cost  |
+| Hamilton-Adams | 1728 ms | 58 Mpx/s   | 7.83× cost  |
+| AMaZE          | 4370 ms | 23 Mpx/s   | 19.8× cost  |
+
+RCD is **7.4× faster than AMaZE**, which is what makes it affordable as the default on-screen kernel where AMaZE is not (AMaZE is why the Apple refine is switchable off via `useAmazeDemosaic` on slower devices). Against the ACR references at `Profile::Neutral`, moving `Full` from bilinear to RCD improves or holds every metric — `test_0000` mean ΔE2000 6.078 → 5.963, p95 10.709 → 10.391, max 33.963 → 32.804; `test_0002` mean 12.313 → 12.324, p95 13.455 → 13.434, max 45.767 → 41.972 — and the `FILTER=baseline` gate (which renders at AMaZE) is unchanged across all 20 fixtures.
+
+Cancellation is cooperative: `CancelToken` is threaded into demosaic, BM3D, capture sharpening, sharpen and both NR stages, and checked between the heavy stages, so a superseded cold open unwinds mid-stage instead of finishing an 8-second denoise nobody wants.
 
 ### Colour management
 
