@@ -10,7 +10,7 @@ const POLICY_REJECTION = /bad uri:\s*Rejected URI/i;
 
 export const EMBEDDING_POLICY_KEY = 'MEILI_EXPERIMENTAL_ALLOWED_IP_NETWORKS';
 
-export const EMBEDDING_POLICY_HINT = `Meilisearch blocked the embedding server's address. Configure ${EMBEDDING_POLICY_KEY} on the Meilisearch process to allow only the embedding server's IP or network, then retry. See docs/indexer-enrichment.md (Local embedding connectivity).`;
+const EMBEDDING_POLICY_HINT = `Meilisearch blocked the embedding server's address. Configure ${EMBEDDING_POLICY_KEY} on the Meilisearch process to allow only the embedding server's IP or network, then retry. See docs/indexer-enrichment.md (Local embedding connectivity).`;
 
 /** True when `message` carries Meilisearch's address-policy rejection. */
 export function isEmbeddingPolicyRejection(message: string | null | undefined): boolean {
