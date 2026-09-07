@@ -67,6 +67,12 @@ struct MaskPanel: View {
             }
         }
         .padding(.vertical, 6)
+        // A disabled mask is present-but-inert (`setMaskEnabled`): its
+        // sliders read as zero and any drag would write into the live
+        // layer only to be overwritten by the stash on re-enable, so they
+        // are not interactable until the toggle is back on (#3291 review).
+        .disabled(!state.session.isMaskEnabled(id: layer.id))
+        .opacity(state.session.isMaskEnabled(id: layer.id) ? 1 : 0.45)
     }
 }
 
