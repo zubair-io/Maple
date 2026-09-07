@@ -100,6 +100,7 @@ The entries the app uses, grouped:
 - `XmpParser.cs` — permissive reader. Attributes resolve by namespace URI + local name (never by a spoofable source prefix); unknown attributes and nested elements are captured for passthrough; missing keys take canonical defaults.
 - `XmpWriter.cs` — canonical serializer: fixed envelope, LF endings, two-space indent ladder, the three core namespaces in fixed order, attributes sorted by namespace priority then name, non-default fields only, passthrough re-emitted verbatim.
 - `XmpSidecarDocument.cs` — the parsed model plus the passthrough buckets.
+- `XmpWhiteBalance.cs` — the white-balance name + provenance block (`crs:WhiteBalance`, `papp:WbSource`, `papp:WbSampleX/Y`, `papp:WbAlgorithmVersion`, #2434): value decoding, the post-walk resolution rules the other readers apply (a named illuminant resolves its pair when no explicit pair is authored; a foreign authored pair reads as Manual), and the writer's gated emit. `Models/WhiteBalanceProvenance.cs` is the edit-time half: a Temp/Tint slider write clears the block to Manual, AUTO stamps `Auto` with the generated algorithm version.
 - `SidecarStore.cs` — file I/O. Reads are permissive (absent or unparseable → null); writes are atomic (temp file in the same directory, then `File.Move` with overwrite). Images use same-stem (`photo.dng` → `photo.xmp`); videos keep their extension (`clip.mov` → `clip.mov.xmp`) so a Live Photo's still and clip don't clobber each other.
 
 `Services/SidecarWatcher.cs` watches `*.xmp` in the open folder so external edits refresh the UI.
@@ -164,7 +165,7 @@ Registration uses the Win32 `CfRegisterSyncRoot` path rather than the WinRT `Sto
 
 `Maple.WinUI.Tests` (xUnit, 93 files, ~690 test cases) deliberately targets plain `net8.0` — **not** `net8.0-windows`/`UseWinUI` — and takes no `ProjectReference` on the app. Instead it links the app's WinUI-free source files a second time via explicit `<Compile Include>` entries. That keeps the pure logic testable and the project restorable/runnable on any OS, without pulling in the Windows App SDK restore graph.
 
-What it covers: the XMP parser/writer/store round-trips, canonical envelope and number formatting, legacy layouts, passthrough and WB scale versioning; the whole file-operations layer (relocate parity, collision, crash safety, sidecar follow, trash/restore including path-traversal, rename reconciliation, drag-move, drop-mount, batch rename, folder CRUD, selection); `AppSettings.Update`; `StorageReport`; `ThumbCachePaths` (carrying the same filename→hex vectors as the API, Apple and web implementations); and the Maple.UI math/logic/reducer classes.
+What it covers: the XMP parser/writer/store round-trips, canonical envelope and number formatting, legacy layouts, passthrough, WB scale versioning and WB name/provenance; the whole file-operations layer (relocate parity, collision, crash safety, sidecar follow, trash/restore including path-traversal, rename reconciliation, drag-move, drop-mount, batch rename, folder CRUD, selection); `AppSettings.Update`; `StorageReport`; `ThumbCachePaths` (carrying the same filename→hex vectors as the API, Apple and web implementations); and the Maple.UI math/logic/reducer classes.
 
 Sidecar tests follow the repo's "no mocks for the sidecar layer" rule and use real files in temp directories.
 

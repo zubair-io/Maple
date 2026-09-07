@@ -77,8 +77,9 @@ enum Target {
     /// ui-tokens`; closes the Windows codegen gap tracked under milestone
     /// #22 — `Themes/Tokens.xaml` was previously hand-mirrored.
     Xaml,
-    /// C# output. Only valid for `--schema capability-registry` (#2430) —
-    /// the WinUI shell's copy of the registry.
+    /// C# output — the WinUI shell's copies. Valid for `--schema
+    /// capability-registry` (#2430), `--schema support-tiers`, `--schema
+    /// export-recipe`, and `--schema white-balance-presets` (#2434).
     Cs,
     /// Markdown release summary. Only valid for `--schema
     /// capability-registry` (#2430).
@@ -177,8 +178,11 @@ fn main() {
         }
         (Schema::WhiteBalancePresets, Target::Swift) => white_balance_presets::emit_swift(),
         (Schema::WhiteBalancePresets, Target::Ts) => white_balance_presets::emit_ts(),
+        (Schema::WhiteBalancePresets, Target::Cs) => white_balance_presets::emit_cs(),
         (Schema::WhiteBalancePresets, _) => {
-            eprintln!("codegen: --schema white-balance-presets supports only swift / ts targets");
+            eprintln!(
+                "codegen: --schema white-balance-presets supports only swift / ts / cs targets"
+            );
             std::process::exit(2);
         }
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),

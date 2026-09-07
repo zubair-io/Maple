@@ -45,6 +45,9 @@ namespace Maple.WinUI.Services.Xmp
                 "xmp:Label", "Label",
                 "rdf:about",
             };
+            // White-balance name + provenance (#2434) — modeled, so a stale
+            // sample point can no longer ride through passthrough.
+            names.UnionWith(XmpWhiteBalance.Keys);
             return names;
         }
 
@@ -90,6 +93,7 @@ namespace Maple.WinUI.Services.Xmp
             var namespaceDecls = new Dictionary<string, string>();
             string? legacySigma = null;
             int? wbStamp = null;
+            var wbSourceSeen = false;
             var profileSeen = false;
             string? flagMaple = null, flagPapp = null, flagPlain = null;
             string? labelMaple = null, labelPapp = null, labelPlain = null, xmpLabel = null;
@@ -131,6 +135,27 @@ namespace Maple.WinUI.Services.Xmp
                         if (int.TryParse(attr.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stamp) &&
                             stamp is >= 1 and <= 5)
                             wbStamp = stamp;
+                        break;
+                    // White-balance name + provenance (#2434); the rules that
+                    // depend on the rest of the element run after the walk.
+                    case XmpWhiteBalance.PresetKey:
+                        state.WhiteBalancePreset = XmpWhiteBalance.ParsePreset(attr.Value);
+                        break;
+                    case XmpWhiteBalance.SourceKey:
+                        Apply(XmpWhiteBalance.ParseSource(attr.Value), m =>
+                        {
+                            state.WbSource = m;
+                            wbSourceSeen = true;
+                        });
+                        break;
+                    case XmpWhiteBalance.SampleXKey:
+                        if (TryParseDouble(attr.Value, out var wbx)) state.WbSampleX = wbx;
+                        break;
+                    case XmpWhiteBalance.SampleYKey:
+                        if (TryParseDouble(attr.Value, out var wby)) state.WbSampleY = wby;
+                        break;
+                    case XmpWhiteBalance.AlgorithmVersionKey:
+                        if (TryParseDouble(attr.Value, out var wbv)) state.WbAlgorithmVersion = wbv;
                         break;
                     case "papp:HighlightRecoveryMode":
                         Apply(ParseHighlightRecovery(attr.Value), m => state.HighlightRecovery = m);
@@ -251,6 +276,12 @@ namespace Maple.WinUI.Services.Xmp
                 state.Temperature = temperature;
                 state.Tint = tint;
             }
+
+            // Named illuminant + provenance (#2434), after the scale pass so
+            // a name-only document takes its pair in the current (V5) scale.
+            XmpWhiteBalance.Resolve(
+                state, wbSourceSeen,
+                applied.Contains("crs:Temperature"), applied.Contains("crs:Tint"), sawPapp);
         }
 
         private static void CapturePassthroughAttribute(

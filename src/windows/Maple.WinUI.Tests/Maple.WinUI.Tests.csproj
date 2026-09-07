@@ -234,6 +234,13 @@
     <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
     <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Models\LocalAdjustment.cs" LinkBase="Models" />
+    <!-- White-balance name + provenance (#2434): the generated vocabulary /
+         AUTO version constant the parser and writer read, and the
+         edit-time clearing/stamping helper — the WinUI-free seam of the
+         Temp/Tint slider and AUTO paths, which live in view-model files
+         this project cannot link. -->
+    <Compile Include="..\Maple.WinUI\Generated\WhiteBalancePresets.g.cs" LinkBase="Generated" />
+    <Compile Include="..\Maple.WinUI\Models\WhiteBalanceProvenance.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />
