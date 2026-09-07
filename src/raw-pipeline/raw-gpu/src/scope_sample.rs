@@ -7,6 +7,9 @@ use futures_channel::oneshot;
 use std::{cell::Cell, rc::Rc};
 use wgpu::util::DeviceExt;
 
+#[path = "scope_sample/shader.rs"]
+mod shader;
+
 const MAX_EDGE: u32 = 512;
 
 /// Quantized RGBA in the source display primaries, not implicitly sRGB.
@@ -50,20 +53,15 @@ impl ScopeSampler {
         let (source_width, source_height) = session.dims();
         let (width, height) = sample_dims(source_width, source_height);
         let byte_len = u64::from(width) * u64::from(height) * 4;
-        // Reuse the actual display quantizer and noise, exactly as the display
-        // histogram does. A different entry point leaves presentation untouched.
+        // Reuse the actual display quantizer, with its noise table in storage
+        // so the sampler also compiles on FXC. Presentation itself is untouched.
+        let (source, noise) = shader::compose(include_str!("present_chain.wgsl"))
+            .expect("scope sample: present shader contract changed");
         let shader = ctx
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("scope-sample"),
-                source: wgpu::ShaderSource::Wgsl(
-                    format!(
-                        "{}\n{}",
-                        include_str!("present_chain.wgsl"),
-                        include_str!("scope_sample.wgsl")
-                    )
-                    .into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
             });
         let pipeline = ctx
             .device
@@ -83,6 +81,15 @@ impl ScopeSampler {
                 // src_width/src_height. Only our compute entry reads this uniform.
                 contents: bytemuck::cast_slice(&[source_width, source_height, width, height]),
                 usage: wgpu::BufferUsages::UNIFORM,
+            });
+        // Both bind groups retain this once-created 16 KiB buffer. Sampling
+        // never recreates or updates the immutable noise table.
+        let noise = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("scope-sample-noise"),
+                contents: bytemuck::cast_slice(&noise),
+                usage: wgpu::BufferUsages::STORAGE,
             });
         let output = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scope-sample-output"),
@@ -117,6 +124,10 @@ impl ScopeSampler {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: output.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: noise.as_entire_binding(),
                     },
                 ],
             })

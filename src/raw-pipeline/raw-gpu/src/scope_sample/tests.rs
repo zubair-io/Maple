@@ -57,6 +57,7 @@ fn dimensions_are_bounded_without_upscaling_or_empty_rows() {
 #[test]
 fn samples_match_actual_display_quantization_and_leave_source_unchanged() {
     let ctx = GpuContext::new_blocking().expect("GPU");
+    eprintln!("scope sample default adapter: {:?}", ctx.adapter.get_info());
     for (width, height) in [(64, 64), (1025, 3), (3, 1025), (513, 771)] {
         let pixels = fixture(width, height);
         let session = LiveSession::new(&ctx, &pixels, width, height).expect("session");
