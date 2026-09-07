@@ -19,12 +19,17 @@ enum EditorTextInput {
     #endif
   }
 
-  static var undoManager: UndoManager? {
+  /// Resolve focus and history together for scene menu validation. A field
+  /// with no undo manager still owns Undo; do not fall through to photo edits.
+  static var historyTarget: (hasFocus: Bool, undoManager: UndoManager?) {
     #if os(macOS)
-      NSApp.keyWindow?.firstResponder?.undoManager
+      let responder = NSApp.keyWindow?.firstResponder
+      let hasFocus = responder is NSTextView
     #else
-      firstResponder?.undoManager
+      let responder = firstResponder
+      let hasFocus = responder is any UITextInput
     #endif
+    return (hasFocus, hasFocus ? responder?.undoManager : nil)
   }
 
   #if !os(macOS)
