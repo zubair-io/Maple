@@ -335,6 +335,25 @@ extension XMPSerializer {
     ] where value.rounded() != 100 {
       attrs.append((key, String(format: "%.0f", value)))
     }
+    // Manual geometry (#3410) — Adobe's `crs:Perspective*` seven, emitted
+    // only when moved off default so a sidecar that never opened the
+    // Geometry tool stays byte-identical. Same rounded-wire-value omit test
+    // as the split points above; six default to 0 and `Scale` to 100.
+    let perspectiveAttrs = [
+      ("crs:PerspectiveVertical", model.perspective.vertical, 0.0),
+      ("crs:PerspectiveHorizontal", model.perspective.horizontal, 0.0),
+      ("crs:PerspectiveRotate", model.perspective.rotate, 0.0),
+      ("crs:PerspectiveScale", model.perspective.scale, 100.0),
+      ("crs:PerspectiveAspect", model.perspective.aspect, 0.0),
+      ("crs:PerspectiveX", model.perspective.x, 0.0),
+      ("crs:PerspectiveY", model.perspective.y, 0.0),
+    ]
+    for (key, value, defaultValue) in perspectiveAttrs {
+      let rounded = (value * 100).rounded() / 100
+      if rounded.isFinite && rounded != defaultValue {
+        attrs.append((key, fmtNum(value)))
+      }
+    }
     // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
     // non-identity. CropAngle is independent so a pure straighten emits
     // only the angle without the HasCrop/rect group.

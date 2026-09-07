@@ -428,6 +428,51 @@ extension Tool {
                              decimals: 0,
                              commitsOnRelease: true),
             ]
+        case .geometry:
+            // Manual geometry (#3410). Unlike the lens scales above these are
+            // DISPLAY-TAIL parameters — the present shader warps by them per
+            // tick and no decode re-runs — so they take the ordinary live
+            // preview rather than `commitsOnRelease`. `.linear` throughout:
+            // `scale`'s default (100) is interior to its 50…150 range but
+            // `.anchored` buys nothing for a percentage, and the six bipolar
+            // sliders are already centred on their own default.
+            return [
+                ToolSubParam(id: "vertical", label: "Vertical",
+                             keyPath: \.perspective.vertical, mapping: .linear,
+                             range: AdjustmentModel.perspectiveVerticalRange,
+                             defaultDisplayValue: Self.defaults.perspective.vertical,
+                             decimals: 0),
+                ToolSubParam(id: "horizontal", label: "Horizontal",
+                             keyPath: \.perspective.horizontal, mapping: .linear,
+                             range: AdjustmentModel.perspectiveHorizontalRange,
+                             defaultDisplayValue: Self.defaults.perspective.horizontal,
+                             decimals: 0),
+                ToolSubParam(id: "rotate", label: "Rotate",
+                             keyPath: \.perspective.rotate, mapping: .linear,
+                             range: AdjustmentModel.perspectiveRotateRange,
+                             defaultDisplayValue: Self.defaults.perspective.rotate,
+                             decimals: 1),
+                ToolSubParam(id: "scale", label: "Scale",
+                             keyPath: \.perspective.scale, mapping: .linear,
+                             range: AdjustmentModel.perspectiveScaleRange,
+                             defaultDisplayValue: Self.defaults.perspective.scale,
+                             decimals: 0),
+                ToolSubParam(id: "aspect", label: "Aspect",
+                             keyPath: \.perspective.aspect, mapping: .linear,
+                             range: AdjustmentModel.perspectiveAspectRange,
+                             defaultDisplayValue: Self.defaults.perspective.aspect,
+                             decimals: 0),
+                ToolSubParam(id: "offsetX", label: "X Offset",
+                             keyPath: \.perspective.x, mapping: .linear,
+                             range: AdjustmentModel.perspectiveXRange,
+                             defaultDisplayValue: Self.defaults.perspective.x,
+                             decimals: 0),
+                ToolSubParam(id: "offsetY", label: "Y Offset",
+                             keyPath: \.perspective.y, mapping: .linear,
+                             range: AdjustmentModel.perspectiveYRange,
+                             defaultDisplayValue: Self.defaults.perspective.y,
+                             decimals: 0),
+            ]
         default:
             return []
         }

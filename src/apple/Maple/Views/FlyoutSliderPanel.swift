@@ -55,6 +55,11 @@ struct FlyoutSliderPanel: View {
                 // so this is its whole control surface, same swap as
                 // Tone Curve.
                 FilmSection(state: state)
+            } else if state.armedTool == .geometry {
+                // Seven manual-geometry sliders while Geometry is armed
+                // (#3410) — no single primary field, so this is its whole
+                // control surface, same swap as Lens / Tone Curve / Film.
+                GeometrySection(state: state)
             } else if state.armedTool == .lensCorrections {
                 // Master toggle + three DNG-correction sliders replace the
                 // sliders while Lens is armed (#2231) — it has no single

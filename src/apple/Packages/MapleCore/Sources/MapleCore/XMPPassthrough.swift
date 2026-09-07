@@ -127,6 +127,12 @@ enum XMPKnownFields {
         "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
         "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom", "crs:CropRight",
         "crs:CropAngle", "crs:CropConstrainToWarp",
+        // Manual geometry (#3410). Like every key above, these MUST be listed
+        // here as well as in the writer, or a sidecar carrying them would be
+        // emitted twice — once from the model, once from the passthrough pipe.
+        "crs:PerspectiveVertical", "crs:PerspectiveHorizontal", "crs:PerspectiveRotate",
+        "crs:PerspectiveScale", "crs:PerspectiveAspect",
+        "crs:PerspectiveX", "crs:PerspectiveY",
     ]
 
     /// The 24 HSL bands + the black-and-white toggle and its 8 mixer weights.
