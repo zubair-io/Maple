@@ -1,9 +1,10 @@
-//! Decode-time comparison of the Bayer demosaic kernels (#3412).
+//! Decode-time comparison of the Bayer demosaic kernels (#3412, #3413).
 //!
-//! The ticket's acceptance criterion is a wall-clock one — "RCD decode on
-//! the 100 MP reference is at least 2× faster than AMaZE on M-series" — so
-//! this is the harness that produces the number, alongside the bilinear
-//! floor the on-screen `RenderQuality::Full` path used to run.
+//! Two acceptance criteria are wall-clock ones — "RCD decode on the 100 MP
+//! reference is at least 2× faster than AMaZE on M-series" (#3412) and
+//! "export time on the 100 MP reference stays within 1.5× AMaZE" (#3413) —
+//! so this is the harness that produces both numbers, alongside the
+//! bilinear floor the on-screen `RenderQuality::Full` path used to run.
 //!
 //! Only the demosaic is timed: decode and `sensor_linearize` run once, up
 //! front, outside the timed region, so the figures are the kernel's own cost
@@ -20,7 +21,9 @@
 //!
 //! Defaults to `test-fixtures/raws/dji-mavic3pro-100mp.dng` and 3 runs.
 
-use raw_core::demosaic::{amaze, bilinear, hamilton_adams, rcd};
+use raw_core::demosaic::{
+    amaze, bilinear, dual_amaze_vng4, dual_rcd_vng4, hamilton_adams, lmmse, rcd, vng4,
+};
 use raw_core::image::Image;
 use std::time::Instant;
 
@@ -76,17 +79,22 @@ fn main() {
     println!("threads (rayon): {}", rayon::current_num_threads());
     println!("runs per kernel: {runs}\n");
 
-    let kernels: [(&str, fn(&Image, raw_core::image::CfaPattern) -> Image); 4] = [
-        ("bilinear     ", bilinear),
+    let kernels: [(&str, fn(&Image, raw_core::image::CfaPattern) -> Image); 8] = [
+        ("bilinear      ", bilinear),
         ("hamilton-adams", hamilton_adams),
-        ("rcd          ", rcd),
-        ("amaze        ", amaze),
+        ("vng4          ", vng4),
+        ("rcd           ", rcd),
+        ("lmmse         ", lmmse),
+        ("amaze         ", amaze),
+        ("dual-rcd-vng4 ", dual_rcd_vng4),
+        ("dual-amaze-vng4", dual_amaze_vng4),
     ];
 
     let reference = bilinear(&mosaic, raw.cfa);
     let mut baseline_ms = 0.0f64;
     let mut amaze_ms = 0.0f64;
     let mut rcd_ms = 0.0f64;
+    let mut dual_amaze_ms = 0.0f64;
 
     for (name, kernel) in kernels {
         let times: Vec<f64> = (0..runs)
@@ -110,13 +118,16 @@ fn main() {
             "bilinear" => baseline_ms = ms,
             "rcd" => rcd_ms = ms,
             "amaze" => amaze_ms = ms,
+            "dual-amaze-vng4" => dual_amaze_ms = ms,
             _ => {}
         }
     }
 
     println!(
-        "\nrcd vs bilinear: {:.2}x slower\nrcd vs amaze   : {:.2}x faster",
+        "\nrcd vs bilinear      : {:.2}x slower\nrcd vs amaze         : {:.2}x faster\n\
+         dual-amaze vs amaze  : {:.2}x cost (#3413 budget: 1.50x)",
         rcd_ms / baseline_ms,
-        amaze_ms / rcd_ms
+        amaze_ms / rcd_ms,
+        dual_amaze_ms / amaze_ms
     );
 }
