@@ -24,6 +24,7 @@ Every document in this directory describes the code as it is in the tree today. 
 | [zoom.md](zoom.md)                                 | The shared `pixelScale` zoom model, fast/refine render targets, the native-detail tile path, and the gated deep-zoom tile compositor.                                                                  |
 | [pano.md](pano.md)                                 | Panorama stitching in `maple-pano`: stages, ONNX models, the C ABI, and how Apple and the server drive it.                                                                                             |
 | [caching.md](caching.md)                           | Every cache on every platform, what keys it, and what invalidates it, including the `.maple/` folder cache shared across devices.                                                                      |
+| [performance.md](performance.md)                   | **Generated** — the committed per-device slider-tick, cold-open, and export benchmark table, the recording method and its caveats, and the local-only regression ratchet.                             |
 
 ## Platforms
 
