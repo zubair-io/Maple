@@ -419,6 +419,8 @@ Keywords are deduplicated at parse time (first occurrence wins, source order pre
 
 The IPTC/EXIF batch-metadata fields ride the same document. Simple attributes: `exif:GPSLatitude`, `exif:GPSLongitude`, `exif:GPSAltitude`, `exif:GPSAltitudeRef`, `exif:DateTimeOriginal`, `papp:TimeZone`, `Iptc4xmpCore:Location`, `Iptc4xmpCore:CountryCode`, `photoshop:City`, `photoshop:State`, `photoshop:Country`, `photoshop:Headline`, `photoshop:Instructions`, `photoshop:AuthorsPosition`, `photoshop:Credit`, `photoshop:Source`, `xmpRights:Marked`. Nested lang-alt/seq elements: `dc:title`, `dc:creator`, `dc:description`, `dc:rights`, `xmpRights:UsageTerms`. GPS uses the standard XMP rational encoding (`deg,min.mmmmH`); altitude is `thousandths/1000` with a `0`/`1` sign reference.
 
+An ordinary Web adjustment save preserves the source metadata XML, including language alternatives and multiple creators, through passthrough. Only an explicit metadata replacement removes the modeled metadata attributes and direct children from the source RDF descriptions before emitting the replacement; namespace aliases are resolved by URI, and same-named foreign fields survive. An explicitly empty replacement clears the modeled fields. An authoritative missing-sidecar response clears cached source XML so a later edit cannot restore remotely deleted metadata.
+
 Child elements sit in fixed slots so the order is stable: title/creator/description, then `dc:subject`, then rights/usage terms, then the point tone curves, then preserved unknown nodes last.
 
 ## Passthrough

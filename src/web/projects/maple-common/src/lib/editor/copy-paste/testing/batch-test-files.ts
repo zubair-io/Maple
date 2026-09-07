@@ -133,7 +133,11 @@ export class DiskBatchLedger implements BatchLedger {
   }
   private async atomic(path: string, record: unknown) {
     const temporary = path + '.' + crypto.randomUUID() + '.tmp';
-    await fs.writeFile(temporary, JSON.stringify(record));
-    await fs.rename(temporary, path);
+    try {
+      await fs.writeFile(temporary, JSON.stringify(record));
+      await fs.rename(temporary, path);
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
   }
 }

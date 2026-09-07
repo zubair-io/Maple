@@ -142,10 +142,17 @@ describe('parseMetadata round-trip', () => {
       caption: 'D',
       copyrightNotice: 'R',
       usageTerms: 'U',
+      gpsLatitude: 48.8566,
+      city: 'Paris',
+      copyrightStatus: 'copyrighted',
+      timeZone: 'Europe/Paris',
     });
     const { passthrough } = parser.parseAdjustmentModel(xml1);
-    // None of the managed nested elements leak into passthrough nodes.
-    const joined = passthrough.unknownNodes.join('');
+    const xml2 = ser.serialize(defaultAdjustmentModel(), passthrough, undefined, {
+      ...parser.parseMetadata(xml1),
+      title: 'Replacement',
+    });
+    // Explicit replacement suppresses retained metadata XML at the write boundary.
     for (const tag of [
       'dc:title',
       'dc:creator',
@@ -153,13 +160,12 @@ describe('parseMetadata round-trip', () => {
       'dc:rights',
       'xmpRights:UsageTerms',
     ]) {
-      expect(joined).not.toContain(tag);
+      expect(xml2.split(`</${tag}>`).length - 1).toBe(1);
     }
-    // None of the managed attributes leak into passthrough attributes.
-    const names = passthrough.unknownAttributes.map((a) => a.name);
     for (const key of ['exif:GPSLatitude', 'photoshop:City', 'xmpRights:Marked', 'papp:TimeZone']) {
-      expect(names).not.toContain(key);
+      expect(xml2.split(`${key}=`).length - 1).toBe(1);
     }
+    expect(parser.parseMetadata(xml2).title).toBe('Replacement');
   });
 
   it('leaves a genuinely-unknown node in passthrough untouched', () => {

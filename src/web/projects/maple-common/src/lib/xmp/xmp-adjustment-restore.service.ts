@@ -126,7 +126,7 @@ export class XmpAdjustmentRestoreService {
     if (!this.serverPersistence) return null;
     try {
       const xml = await firstValueFrom(this.serverPersistence.readSidecar(absPath));
-      if (xml === null) return null;
+      if (xml === null) return this._absentSidecar(id);
       const sidecar = {
         ...this.parser.parseAdjustmentModel(xml),
         culling: this.parser.parseCulling(xml),
@@ -135,9 +135,15 @@ export class XmpAdjustmentRestoreService {
       this.xmpStore.rememberMetadata(id, sidecar.metadata);
       return sidecar;
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 404) return null;
+      if (err instanceof HttpErrorResponse && err.status === 404) return this._absentSidecar(id);
       throw err;
     }
+  }
+
+  /** A confirmed deletion invalidates source XML; a failed read does not. */
+  private _absentSidecar(id: AssetId): null {
+    this.xmpStore.replacePassthroughs([id], new Map());
+    return null;
   }
 
   private _applyParsedSidecar(id: AssetId, sidecar: HydratedSidecar): void {

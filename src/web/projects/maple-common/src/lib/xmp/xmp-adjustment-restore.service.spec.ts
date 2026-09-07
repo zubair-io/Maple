@@ -11,6 +11,9 @@
 // "XMP is the contract; mocks let bugs through".
 
 import { TestBed } from '@angular/core/testing';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -28,6 +31,11 @@ import { provideSelfHostedWorkspace } from '../workspace/self-hosted-workspace.p
 import { SIDECAR_CACHE } from './sidecar-idb-cache';
 import type { AssetId } from '../models/asset';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
+import { XmpAdjustmentRestoreService } from './xmp-adjustment-restore.service';
+import { XmpStoreService } from './xmp-store.service';
+import { FolderAccessService } from '../folder-access/folder-access.service';
+import { fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 
 // The deep-linked asset: `/edit/photos/raws/test_0004.fff` resolves to the
 // address `photos:raws/test_0004.fff` inside the registered library at
@@ -77,7 +85,7 @@ const clearPrefKeys = (): void => {
 };
 
 class ApiStub {
-  getXmpResult: Observable<string> = of(SIDECAR_XML);
+  getXmpResult: Observable<string | null> = of(SIDECAR_XML);
   getXmp = vi.fn((_path: string) => this.getXmpResult);
   putXmp = vi.fn((_path: string, _xml: string) => of(undefined as void));
   listFolders = vi.fn(() => of([LIBRARY]));
@@ -109,6 +117,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
         { provide: BunApiBackendService, useValue: api },
         { provide: SIDECAR_CACHE, useValue: new NoopSidecarCache() },
+        { provide: FolderAccessService, useValue: { writeFile: fsAccessWriteFile } },
       ],
     });
 
@@ -192,6 +201,76 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     // sidecar read regardless of the model's content.
     const asset = store.assets().find((a) => a.id === ASSET_ID);
     expect(asset?.edited).toBe(true);
+  });
+
+  it.each(['null', '404'] as const)(
+    'does not restore deleted source XML on an ordinary write after a %s reload',
+    async (absence) => {
+      vi.useFakeTimers();
+      hydrateAndFocus();
+      await flushAsync();
+      const restore = TestBed.inject(XmpAdjustmentRestoreService);
+      const xmpStore = TestBed.inject(XmpStoreService);
+      expect(xmpStore.passthroughFor(ASSET_ID)?.unknownAttributes).toContainEqual({
+        name: 'vendor:OpaqueSetting',
+        value: 'keep-me',
+      });
+      xmpStore.rememberMetadata(ASSET_ID, { title: 'Deleted title' });
+      api.getXmpResult =
+        absence === 'null' ? of(null) : throwError(() => new HttpErrorResponse({ status: 404 }));
+      restore.invalidateForAsset(ASSET_ID);
+      expect(await restore.loadForWrite(ASSET_ID)).toBeNull();
+
+      state.updateAdjustment(ASSET_ID, { contrast: 11 });
+      await vi.advanceTimersByTimeAsync(200);
+      const [, xml] = api.putXmp.mock.calls[0]!;
+      expect(xml).toContain('crs:Contrast2012="11"');
+      expect(xml).not.toContain('vendor:OpaqueSetting');
+
+      // The shared writer also holds parsed metadata for confirmed batch
+      // writes. Exercise its public serialization path to ensure both caches
+      // were invalidated by the authoritative absence.
+      const directory = await fs.mkdtemp(join(tmpdir(), 'maple-absent-sidecar-'));
+      try {
+        xmpStore.scheduleWrite(
+          ASSET_ID,
+          {
+            name: 'raws',
+            read: true,
+            write: true,
+            native: new DiskDirectory(directory) as unknown as FileSystemDirectoryHandle,
+          },
+          'test_0004.fff',
+          store.adjustmentFor(ASSET_ID)(),
+          { rating: 0, flag: 'unflagged', colorLabel: null },
+        );
+        await xmpStore.flushAsset(ASSET_ID);
+        const written = await fs.readFile(join(directory, 'test_0004.xmp'), 'utf8');
+        expect(written).not.toContain('Deleted title');
+        expect(written).not.toContain('vendor:OpaqueSetting');
+      } finally {
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('keeps source XML on a transient reload failure and allows a successful retry', async () => {
+    hydrateAndFocus();
+    await flushAsync();
+    const restore = TestBed.inject(XmpAdjustmentRestoreService);
+    const xmpStore = TestBed.inject(XmpStoreService);
+    const previous = xmpStore.passthroughFor(ASSET_ID);
+    restore.invalidateForAsset(ASSET_ID);
+    api.getXmpResult = throwError(() => new HttpErrorResponse({ status: 503 }));
+    await expect(restore.loadForWrite(ASSET_ID)).rejects.toMatchObject({ status: 503 });
+    expect(xmpStore.passthroughFor(ASSET_ID)).toEqual(previous);
+
+    api.getXmpResult = of(SIDECAR_XML.replace('keep-me', 'updated-after-retry'));
+    await restore.loadForWrite(ASSET_ID);
+    expect(xmpStore.passthroughFor(ASSET_ID)?.unknownAttributes).toContainEqual({
+      name: 'vendor:OpaqueSetting',
+      value: 'updated-after-retry',
+    });
   });
 
   it('waits for a delayed restore before writing and merges the authored edit over persisted XML', async () => {
