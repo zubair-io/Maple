@@ -37,6 +37,10 @@ public actor CloudFoldersClient {
   /// has its own `listDir` that goes through the same endpoint; this
   /// one lives on the folders client so the sidebar doesn't need a
   /// per-folder source instance just to list a tree.
+  ///
+  /// Deliberately still the path-addressed route (#1325): the sidebar
+  /// tree walks by absolute path and the enriched entries (size, ext,
+  /// mtime, EXIF) have no equivalent on `/api/folder/:slug/*` yet.
   public func listDir(absPath: String) async throws -> FsDirListing {
     var c = URLComponents(url: server.appending(path: "/api/fs/dir"),
                           resolvingAgainstBaseURL: false)!
