@@ -405,23 +405,27 @@ final class EditSessionTests: XCTestCase {
         XCTAssertEqual(session.selectedMaskId, secondId, "deleting an unselected layer must not disturb the selection")
     }
 
-    func testSetMaskEnabledFalseZeroesAdjustmentsAndIsMaskEnabledReflectsIt() throws {
+    func testDisablingAMaskKeepsTheModelButClearsItForTheRenderer() throws {
         let session = try makeSessionForMaskTests()
         session.createWholeImageSkinMask()
         let id = session.model.localAdjustments[0].id
-        session.model.localAdjustments[0].adjustments = PartialAdjustments(exposure: 0.4, hue: -12)
+        let original = PartialAdjustments(exposure: 0.4, hue: -12)
+        session.model.localAdjustments[0].adjustments = original
         XCTAssertTrue(session.isMaskEnabled(id: id))
 
         session.setMaskEnabled(id: id, enabled: false)
 
-        XCTAssertTrue(session.model.localAdjustments[0].adjustments.isEmpty, "disabling must reduce adjustments to a stage no-op")
         XCTAssertFalse(session.isMaskEnabled(id: id))
-        // The range refinement is untouched — an empty-adjustments layer is
-        // already a no-op at the pipeline stage regardless of its range.
-        XCTAssertEqual(session.model.localAdjustments[0].range, .skinTone)
+        XCTAssertEqual(
+            session.model.localAdjustments[0].adjustments, original,
+            "the persisted model must keep the user's sliders while the mask is off")
+        XCTAssertTrue(
+            session.renderModel.localAdjustments[0].adjustments.isEmpty,
+            "the renderer must see the layer as a stage no-op")
+        XCTAssertEqual(session.renderModel.localAdjustments[0].range, .skinTone)
     }
 
-    func testSetMaskEnabledTrueRestoresTheStashedAdjustments() throws {
+    func testReenablingAMaskRendersItsSlidersAgain() throws {
         let session = try makeSessionForMaskTests()
         session.createWholeImageSkinMask()
         let id = session.model.localAdjustments[0].id
@@ -431,26 +435,21 @@ final class EditSessionTests: XCTestCase {
         session.setMaskEnabled(id: id, enabled: false)
         session.setMaskEnabled(id: id, enabled: true)
 
-        XCTAssertEqual(session.model.localAdjustments[0].adjustments, original)
         XCTAssertTrue(session.isMaskEnabled(id: id))
+        XCTAssertEqual(session.renderModel.localAdjustments[0].adjustments, original)
+        XCTAssertEqual(session.renderModel, session.model)
     }
 
-    func testDeletingADisabledMaskDropsItsStashedAdjustments() throws {
+    func testDeletingADisabledMaskForgetsItsDisabledState() throws {
         let session = try makeSessionForMaskTests()
         session.createWholeImageSkinMask()
         let id = session.model.localAdjustments[0].id
-        session.model.localAdjustments[0].adjustments = PartialAdjustments(exposure: 0.4)
         session.setMaskEnabled(id: id, enabled: false)
 
         session.deleteMask(id: id)
-        session.createWholeImageSkinMask()
-        let newId = session.model.localAdjustments[0].id
 
-        // A fresh layer must not accidentally inherit a stale stash entry
-        // if a future layer happened to reuse a UUID (it won't, in
-        // practice, but the stash is keyed by id — this pins that a
-        // deleted mask's stash entry doesn't leak forward).
-        XCTAssertTrue(session.isMaskEnabled(id: newId))
+        XCTAssertTrue(session.disabledMaskIds.isEmpty, "a deleted mask's disabled flag must not leak forward")
+        XCTAssertEqual(session.renderModel, session.model)
     }
 }
 

@@ -453,11 +453,11 @@ public final class EditSession {
   /// mask exists or none is selected.
   public var selectedMaskId: UUID?
 
-  /// Per-session (never persisted to the sidecar) stash of a mask's
-  /// adjustments while `setMaskEnabled(id:enabled:false)` has zeroed them
-  /// out — see that method's doc comment for why "disabled" has no wire
-  /// representation of its own.
-  @ObservationIgnored var maskDisabledStash: [UUID: PartialAdjustments] = [:]
+  /// Masks switched off in the panel. Session-only and never persisted:
+  /// the model keeps every slider value, and only the model handed to the
+  /// renderer (`renderModel`) has these layers' adjustments cleared, so
+  /// quitting with a mask disabled loses nothing (#3291 review).
+  public internal(set) var disabledMaskIds: Set<UUID> = []
 
   // MARK: Deep zoom (Plan 3 / Ticket 06 M4) — storage + field docs moved
   // to `DeepZoomState.swift` (#2683 round-2, 570-line headroom gate).

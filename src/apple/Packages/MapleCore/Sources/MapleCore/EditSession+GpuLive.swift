@@ -160,7 +160,7 @@ extension EditSession {
       return false
     }
 
-    let m = model
+    let m = renderModel
     let pipeline = self.pipeline
 
     let dims = Self.gpuTargetDims(for: decoded, targetSize: targetSize, pipeline: pipeline)
