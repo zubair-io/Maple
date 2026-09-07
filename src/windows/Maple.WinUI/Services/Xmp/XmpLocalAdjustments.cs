@@ -58,6 +58,7 @@ namespace Maple.WinUI.Services.Xmp
             ("papp:LocalVibrance", p => p.Vibrance, (p, v) => p with { Vibrance = v }),
             ("crs:LocalTemperature", p => p.Temperature, (p, v) => p with { Temperature = v }),
             ("crs:LocalTint", p => p.Tint, (p, v) => p with { Tint = v }),
+            ("crs:LocalHue", p => p.Hue / 100, (p, v) => p with { Hue = v * 100 }),
         };
 
         /// <summary>The canonical container tag `child` is, or null when it is neither.</summary>
@@ -161,7 +162,35 @@ namespace Maple.WinUI.Services.Xmp
                 var value = Finite(description, slider.Key);
                 return value is null ? acc : slider.With(acc, amount == 1 ? value.Value : value.Value * amount);
             });
-            return new LocalAdjustment(mask, adjustments);
+            return new LocalAdjustment(mask, adjustments, ParseRange(description));
+        }
+
+        private static ColorRangeRefinement? ParseRange(XElement description)
+        {
+            if (Attr(description, "papp:RangeKind") != "Color") return null;
+            double? Read(string key, double fallback) =>
+                Attr(description, key) is null ? fallback : Finite(description, key);
+            var hue = Read("papp:RangeHue", 55);
+            var width = Read("papp:RangeHueWidth", 25);
+            var chroma = Read("papp:RangeChromaMin", 0.02);
+            var min = Read("papp:RangeLMin", 0.15);
+            var max = Read("papp:RangeLMax", 0.95);
+            var feather = Read("papp:RangeFeather", 0.3);
+            return hue is null || width is null || chroma is null || min is null || max is null || feather is null
+                ? null : new(hue.Value, width.Value, chroma.Value, min.Value, max.Value, feather.Value);
+        }
+
+        private static IEnumerable<string> RangeLines(ColorRangeRefinement? range, string indent)
+        {
+            if (range is null) return Array.Empty<string>();
+            var values = new[] {
+                ("RangeHue", range.HueDeg), ("RangeHueWidth", range.HueHalfWidthDeg),
+                ("RangeChromaMin", range.ChromaMin), ("RangeLMin", range.LMin),
+                ("RangeLMax", range.LMax), ("RangeFeather", range.Feather),
+            };
+            if (values.Any(v => !double.IsFinite(v.Item2))) return Array.Empty<string>();
+            return new[] { $"{indent}papp:RangeKind=\"Color\"" }.Concat(values.Select(v =>
+                $"{indent}papp:{v.Item1}=\"{XmpSchema.FormatNumber(v.Item2)}\""));
         }
 
         /// <summary>
@@ -238,7 +267,8 @@ namespace Maple.WinUI.Services.Xmp
                         // value is not representable in XMP and is skipped.
                         .Select(s => (s.Key, Value: s.Get(layer.Adjustments)))
                         .Where(s => s.Value is not null && double.IsFinite(s.Value.Value))
-                        .Select(s => $"{i4}{s.Key}=\"{XmpSchema.FormatNumber(s.Value!.Value)}\""));
+                        .Select(s => $"{i4}{s.Key}=\"{XmpSchema.FormatNumber(s.Value!.Value)}\""))
+                    .Concat(RangeLines(layer.Range, i4));
                 return new[]
                     {
                         $"{i2}<rdf:li>",

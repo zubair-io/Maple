@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::types::local_adjustment::{
-    LocalAdjustment, Mask, PartialAdjustments, Point2, SKIN_TONE_RANGE,
+    LocalAdjustment, Mask, PartialAdjustments, Point2, RangeRefinement, SKIN_TONE_RANGE,
 };
 
 /// Six-space child indent, matching `docs/xmp-canonical-format.md` §
@@ -35,10 +35,11 @@ pub(super) fn linear_layer() -> LocalAdjustment {
             end: Point2::new(0.8, 0.7),
             feather: 0.4,
         },
-        range: None,
+        range: Some(SKIN_TONE_RANGE),
         adjustments: PartialAdjustments {
             exposure: Some(0.5),
             shadows: Some(-20.0),
+            hue: Some(-35.0),
             ..Default::default()
         },
     }
@@ -56,11 +57,19 @@ pub(super) fn radial_layer() -> LocalAdjustment {
             feather: 0.6,
             invert: true,
         },
-        range: None,
+        range: Some(RangeRefinement::Color {
+            hue_deg: 210.0,
+            hue_half_width_deg: 40.0,
+            chroma_min: 0.1,
+            l_min: 0.0,
+            l_max: 1.0,
+            feather: 0.0,
+        }),
         adjustments: PartialAdjustments {
             contrast: Some(15.0),
             vibrance: Some(-10.0),
             temperature: Some(200.0),
+            hue: Some(0.0),
             ..Default::default()
         },
     }
@@ -490,6 +499,7 @@ fn range_refinement_round_trips_as_papp_range_attributes() {
 fn a_correction_without_range_attributes_parses_with_range_none() {
     let mut model = AdjustmentModel::default();
     model.local_adjustments = vec![linear_layer()];
+    model.local_adjustments[0].range = None;
     let children = serialize_local_adjustments(&model, INDENT);
     assert!(!children.contains("papp:Range"));
     let parsed = parse(&sidecar(&children)).expect("parse");
