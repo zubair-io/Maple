@@ -38,7 +38,7 @@ It depends on `raw-core`, `raw-ffi` and `raw-gpu`, so building it proves those c
 
 Timeline queries the cloud search API in capture-date order and follows its continuation cursor through Load more. Dates appear as grid headers. Folder navigation clears stale grid contents while loading, expands the active path, and selects its sidebar row; both folder trees share one sidebar scrollbar. Preview opens with its info inspector docked on the right, with an info button to toggle it.
 
-Keyboard handling lives in one `switch` in `MainWindow.xaml.cs`: `E`/`Escape` move between modes, `F2` renames, `Delete` trashes, `Ctrl+0/1/+/-` drive zoom (a `ScrollViewer` zoom factor — there is no tile pyramid on Windows), `Ctrl+Z`/`Ctrl+Shift+Z` undo/redo, and `Ctrl+Shift+G` opens the Maple.UI gallery.
+Keyboard handling lives in one `switch` in `MainWindow.xaml.cs`: `E`/`Escape` move between modes (`Escape` first disarms the white-balance eyedropper when it is armed), `F2` renames, `Delete` trashes, `Ctrl+0/1/+/-` drive zoom (a `ScrollViewer` zoom factor — there is no tile pyramid on Windows), `Ctrl+Z`/`Ctrl+Shift+Z` undo/redo, and `Ctrl+Shift+G` opens the Maple.UI gallery.
 
 Feature work is split across `MainWindow.*.cs` partials, each paired with a WinUI-free logic class it delegates to:
 
@@ -59,6 +59,7 @@ Feature work is split across `MainWindow.*.cs` partials, each paired with a WinU
 | `MainWindow.Pano.cs`                                | Panorama stitching over a grid multi-selection.                                            |
 | `MainWindow.Dialogs.cs`                             | Folder picker, export dialogs, Settings window.                                            |
 | `MainWindow.Qualify.cs`                             | Headless qualification mode (see "Qualification harness").                                 |
+| `MainWindow.WhiteBalance.cs`                        | White-balance eyedropper, preset picker and provenance readout (#2434).                    |
 
 The convention throughout is that the `MainWindow` partial is UI-thread mechanics only (dialogs, focus, Narrator announcements) and the decision logic lives in a plain C# class under `Services/FileOperations/` or `ViewModels/`, so it can be unit-tested without a live window.
 
@@ -80,6 +81,7 @@ The entries the app uses, grouped:
 - **Per-tick chain** — `maple_apply_chain_and_encode_display_f32` and the curves-aware sibling `maple_apply_chain_and_encode_display_curves_f32`.
 - **GPU live** — `maple_gpu_live_open` / `maple_gpu_present_chain_winui` / `maple_gpu_present_chain_winui_scaled` / `maple_gpu_live_close`.
 - **Auto Profile** — `maple_gpu_fit_auto_profile`, `maple_compute_auto_profile_lut`, `maple_compute_auto_adjustments`.
+- **White balance** — `maple_sample_white_balance_oriented` (#2434), the neutral eyedropper: a normalised point in the uncropped, EXIF-oriented frame the viewport presents, developed against a probe sidecar of the current model, returning `MapleWbSample`; the same entry Apple's `WhiteBalanceSampler` calls. Wrapped by `Services/WhiteBalanceSampler.cs`, which also runs the picker's Auto choice through `maple_compute_auto_adjustments` and keeps only the white-balance pair.
 - **Derivatives** — `maple_render_thumbnail_avif_to_file`, `maple_render_thumbnail_preview_jpeg_to_file`, `maple_render_develop_jpeg_to_file`, `maple_export_developed_to_file`, `maple_histogram_file`.
 - **Filenames** — `maple_validate_filename` and `maple_render_filename_template_buf`, the same symbols Apple and the Self Hosted API call, wrapped by `Services/FilenameValidation.cs` and `Services/FilenameTemplateEngine.cs`.
 
@@ -101,7 +103,7 @@ The entries the app uses, grouped:
 - `XmpParser.cs` — permissive reader. Attributes resolve by namespace URI + local name (never by a spoofable source prefix); unknown attributes and nested elements are captured for passthrough; missing keys take canonical defaults.
 - `XmpWriter.cs` — canonical serializer: fixed envelope, LF endings, two-space indent ladder, the three core namespaces in fixed order, attributes sorted by namespace priority then name, non-default fields only, passthrough re-emitted verbatim.
 - `XmpSidecarDocument.cs` — the parsed model plus the passthrough buckets.
-- `XmpWhiteBalance.cs` — the white-balance name + provenance block (`crs:WhiteBalance`, `papp:WbSource`, `papp:WbSampleX/Y`, `papp:WbAlgorithmVersion`, #2434): value decoding, the post-walk resolution rules the other readers apply (a named illuminant resolves its pair when no explicit pair is authored; a foreign authored pair reads as Manual), and the writer's gated emit. `Models/WhiteBalanceProvenance.cs` is the edit-time half: a Temp/Tint slider write clears the block to Manual, AUTO stamps `Auto` with the generated algorithm version.
+- `XmpWhiteBalance.cs` — the white-balance name + provenance block (`crs:WhiteBalance`, `papp:WbSource`, `papp:WbSampleX/Y`, `papp:WbAlgorithmVersion`, #2434): value decoding, the post-walk resolution rules the other readers apply (a named illuminant resolves its pair when no explicit pair is authored; a foreign authored pair reads as Manual), and the writer's gated emit. `Models/WhiteBalanceProvenance.cs` is the edit-time half: a Temp/Tint slider write clears the block to Manual, AUTO stamps `Auto` with the generated algorithm version, the eyedropper stamps `Sampled` with the normalised point and the sampler's version, a named illuminant writes its generated pair as `Preset`, Custom keeps the pair as Manual, and As Shot restores the camera pair. It also produces the readout text the Color panel shows ("White balance: Sampled · (0.250, 0.750) · version 1").
 - `SidecarStore.cs` — file I/O. Reads are permissive (absent or unparseable → null); writes are atomic (temp file in the same directory, then `File.Move` with overwrite). Images use same-stem (`photo.dng` → `photo.xmp`); videos keep their extension (`clip.mov` → `clip.mov.xmp`) so a Live Photo's still and clip don't clobber each other.
 
 `Services/SidecarWatcher.cs` watches `*.xmp` in the open folder so external edits refresh the UI.
