@@ -33,6 +33,7 @@ mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
 mod batch_transfer_contract;
+mod adjustment_ts_enums;
 mod capability_registry;
 mod capability_summary;
 mod color_matrices;
