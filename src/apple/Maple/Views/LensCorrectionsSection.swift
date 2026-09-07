@@ -63,6 +63,23 @@ struct LensCorrectionsSection: View {
   /// the toggle and the sliders it gates read as one visual system.
   private static let disabledOpacity = 0.45
 
+  /// Profile-free lateral CA (#3411). A DECODE-PRODUCT toggle like the
+  /// three scales above — flipping it re-runs the Rust decode — so it
+  /// commits through `state.commit()` exactly the way the master switch
+  /// does. Enabled only when the RAW's own opcodes carry no CA data
+  /// (`lensCorrectionCaInert`): where they do, the vendor's coefficients
+  /// are authoritative and the raw-domain stage self-skips, so offering
+  /// the switch would promise a correction that can never run.
+  private var autoLateralCaBinding: Binding<Bool> {
+    Binding(
+      get: { session.model.autoLateralCa == .on },
+      set: { newValue in
+        state.commit()
+        session.model.autoLateralCa = newValue ? .on : .off
+      }
+    )
+  }
+
   private var enabledBinding: Binding<Bool> {
     Binding(
       get: { session.model.lensProfileEnable == .on },
@@ -74,6 +91,31 @@ struct LensCorrectionsSection: View {
   }
 
   var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      profileGroup
+      // Profile-free lateral CA (#3411) — deliberately OUTSIDE the group
+      // above, and outside its `hasLensCorrections` gate: this correction
+      // exists precisely for the bodies that ship no lens data at all, so
+      // greying it out with the profile block would hide it on every RAW
+      // it is meant for.
+      MuiToggle(
+        checked: autoLateralCaBinding,
+        label: "Remove Chromatic Aberration",
+        disabled: !session.lensCorrectionCaInert
+      )
+      .accessibilityIdentifier("editor-auto-lateral-ca-toggle")
+      .accessibilityHint(
+        session.lensCorrectionCaInert
+          ? "Estimates and removes lateral chromatic aberration from the image itself"
+          : "This RAW's lens profile already corrects chromatic aberration"
+      )
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("editor-lens-corrections-section")
+  }
+
+  private var profileGroup: some View {
     VStack(alignment: .leading, spacing: 10) {
       let support: LensSupport =
         session.hasLensCorrections ? .embeddedCorrection : .noCorrectionData
@@ -130,9 +172,8 @@ struct LensCorrectionsSection: View {
     }
     .disabled(!session.hasLensCorrections)
     .opacity(session.hasLensCorrections ? 1 : Self.disabledOpacity)
-    .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("editor-lens-corrections-section")
+    .accessibilityIdentifier("editor-lens-profile-group")
   }
 
   private func slider(_ sub: ToolSubParam) -> some View {

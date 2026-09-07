@@ -471,6 +471,46 @@ extension Tool {
                              keyPath: \.perspective.y, mapping: .linear,
                              range: AdjustmentModel.perspectiveYRange,
                              defaultDisplayValue: Self.defaults.perspective.y,
+        case .defringe:
+            // Profile-free defringe (#3411). Unlike `.lensCorrections`
+            // above these are PER-TICK sliders — the stage runs in the
+            // scene-linear chain between dehaze and local adjustments —
+            // so none of them commits on release. `.linear` throughout:
+            // the amounts default to their range floor (0) and the hue
+            // edges to interior positions, neither of which `.anchored`
+            // can express. (`autoLateralCa`, the decode-product half of
+            // this ticket, is a toggle rather than a slider and lives in
+            // the Lens Corrections section's own control.)
+            return [
+                ToolSubParam(id: "purpleAmount", label: "Purple Amount",
+                             keyPath: \.defringePurpleAmount, mapping: .linear,
+                             range: AdjustmentModel.defringePurpleAmountRange,
+                             defaultDisplayValue: Self.defaults.defringePurpleAmount,
+                             decimals: 0),
+                ToolSubParam(id: "purpleHueLo", label: "Purple Hue Low",
+                             keyPath: \.defringePurpleHueLo, mapping: .linear,
+                             range: AdjustmentModel.defringePurpleHueLoRange,
+                             defaultDisplayValue: Self.defaults.defringePurpleHueLo,
+                             decimals: 0),
+                ToolSubParam(id: "purpleHueHi", label: "Purple Hue High",
+                             keyPath: \.defringePurpleHueHi, mapping: .linear,
+                             range: AdjustmentModel.defringePurpleHueHiRange,
+                             defaultDisplayValue: Self.defaults.defringePurpleHueHi,
+                             decimals: 0),
+                ToolSubParam(id: "greenAmount", label: "Green Amount",
+                             keyPath: \.defringeGreenAmount, mapping: .linear,
+                             range: AdjustmentModel.defringeGreenAmountRange,
+                             defaultDisplayValue: Self.defaults.defringeGreenAmount,
+                             decimals: 0),
+                ToolSubParam(id: "greenHueLo", label: "Green Hue Low",
+                             keyPath: \.defringeGreenHueLo, mapping: .linear,
+                             range: AdjustmentModel.defringeGreenHueLoRange,
+                             defaultDisplayValue: Self.defaults.defringeGreenHueLo,
+                             decimals: 0),
+                ToolSubParam(id: "greenHueHi", label: "Green Hue High",
+                             keyPath: \.defringeGreenHueHi, mapping: .linear,
+                             range: AdjustmentModel.defringeGreenHueHiRange,
+                             defaultDisplayValue: Self.defaults.defringeGreenHueHi,
                              decimals: 0),
             ]
         default:

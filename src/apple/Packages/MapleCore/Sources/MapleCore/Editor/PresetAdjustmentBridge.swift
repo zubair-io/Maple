@@ -141,6 +141,14 @@ extension AdjustmentModel.FieldName {
     case .lensCorrectionDistortion: return \.lensCorrectionDistortion
     case .lensCorrectionCa: return \.lensCorrectionCa
     case .lensCorrectionVignetting: return \.lensCorrectionVignetting
+    // Profile-free defringe (#3411) — numeric per-tick fields; the
+    // `.autoLateralCa` checkbox is the enum half, below.
+    case .defringePurpleAmount: return \.defringePurpleAmount
+    case .defringePurpleHueLo: return \.defringePurpleHueLo
+    case .defringePurpleHueHi: return \.defringePurpleHueHi
+    case .defringeGreenAmount: return \.defringeGreenAmount
+    case .defringeGreenHueLo: return \.defringeGreenHueLo
+    case .defringeGreenHueHi: return \.defringeGreenHueHi
     // Film-look blend strength (epic #2683) — numeric, like every other
     // blend-strength field.
     case .filmStrength: return \.filmStrength
@@ -160,7 +168,7 @@ extension AdjustmentModel.FieldName {
     case .wbSampleX, .wbSampleY, .wbAlgorithmVersion: return nil
     case .wbMethod, .wbSource, .highlightRecovery, .autoExposure, .look, .profile,
       .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable,
-      .demosaic:
+      .demosaic, .autoLateralCa:
       return nil
     // Film-look id (epic #2683) — a free-form string, not a numeric
     // slider or a closed rawValue enum, so it has no key path here (like
@@ -284,6 +292,15 @@ extension AdjustmentModel.FieldName {
     case .lensCorrectionDistortion: return AdjustmentModel.lensCorrectionDistortionRange
     case .lensCorrectionCa: return AdjustmentModel.lensCorrectionCaRange
     case .lensCorrectionVignetting: return AdjustmentModel.lensCorrectionVignettingRange
+    // Profile-free defringe (#3411) — 0..20 amounts and 0..100 hue-band
+    // edges on ACR's own defringe-hue axis; out-of-range preset values
+    // clamp rather than selecting an impossible band.
+    case .defringePurpleAmount: return AdjustmentModel.defringePurpleAmountRange
+    case .defringePurpleHueLo: return AdjustmentModel.defringePurpleHueLoRange
+    case .defringePurpleHueHi: return AdjustmentModel.defringePurpleHueHiRange
+    case .defringeGreenAmount: return AdjustmentModel.defringeGreenAmountRange
+    case .defringeGreenHueLo: return AdjustmentModel.defringeGreenHueLoRange
+    case .defringeGreenHueHi: return AdjustmentModel.defringeGreenHueHiRange
     case .filmStrength: return AdjustmentModel.filmStrengthRange
     // Manual geometry (#3410) — declared explicitly rather than left to the
     // catch-all so a pasted preset is CLAMPED to the canonical range; the
@@ -343,6 +360,9 @@ public enum PresetAdjustments {
       // decode-product field.
       case .lensProfileEnable where model.lensProfileEnable != defaults.lensProfileEnable:
         fields[field.rawValue] = .string(model.lensProfileEnable.rawValue)
+      // Profile-free lateral CA (#3411) — enum decode-product field.
+      case .autoLateralCa where model.autoLateralCa != defaults.autoLateralCa:
+        fields[field.rawValue] = .string(model.autoLateralCa.rawValue)
       // Film-look id (#2720) — free-form string, not a closed enum;
       // same non-default capture gate as every other field here. The
       // default is the empty string ("no look"), so this only fires
@@ -416,6 +436,10 @@ public enum PresetAdjustments {
       case .lensProfileEnable:
         guard let mode = LensProfileEnable(rawValue: rawValue) else { continue }
         merged.lensProfileEnable = mode
+        applied += 1
+      case .autoLateralCa:
+        guard let mode = AutoLateralCa(rawValue: rawValue) else { continue }
+        merged.autoLateralCa = mode
         applied += 1
       // Film-look id (#2720) — free-form string: ANY value applies,
       // including the empty string, which is the canonical

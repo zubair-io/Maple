@@ -77,6 +77,7 @@ public enum InvalidationScope: String, Equatable, Sendable {
             lensCorrectionDistortion: m.lensCorrectionDistortion,
             lensCorrectionCa: m.lensCorrectionCa,
             lensCorrectionVignetting: m.lensCorrectionVignetting,
+            autoLateralCa: m.autoLateralCa,
             captureSharpeningAmount: m.captureSharpeningAmount,
             captureSharpeningSigma: m.captureSharpeningSigma)
     }
@@ -90,6 +91,10 @@ public enum InvalidationScope: String, Equatable, Sendable {
         let lensCorrectionDistortion: Double
         let lensCorrectionCa: Double
         let lensCorrectionVignetting: Double
+        /// Profile-free lateral CA (#3411) — a raw-domain decode stage, so a
+        /// change re-decodes exactly like the four scales above. The six
+        /// `defringe*` sliders are per-tick and deliberately absent here.
+        let autoLateralCa: AutoLateralCa
         let captureSharpeningAmount: Double
         let captureSharpeningSigma: Double
     }
