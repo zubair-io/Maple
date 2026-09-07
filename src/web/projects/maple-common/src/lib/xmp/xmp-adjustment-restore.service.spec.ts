@@ -55,6 +55,7 @@ const SIDECAR_XML = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
     xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
     xmlns:maple="https://maple.app/ns/1.0/"
+    xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
     xmlns:dc="http://purl.org/dc/elements/1.1/"
     xmlns:vendor="https://example.test/vendor/1.0/"
     xmp:Rating="3"
@@ -63,6 +64,7 @@ const SIDECAR_XML = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
     crs:Version="11.0"
     crs:Exposure2012="1.05"
     crs:Vibrance="26"
+    photoshop:City="Montréal"
     vendor:OpaqueSetting="keep-me">
     <dc:subject><rdf:Bag><rdf:li>existing-keyword</rdf:li></rdf:Bag></dc:subject>
   </rdf:Description>
@@ -213,6 +215,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(xml).toContain('crs:Exposure2012="1.05"');
     expect(xml).toContain('crs:Contrast2012="14"');
     expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
+    expect(xml).toContain('photoshop:City="Montréal"');
     expect(store.adjustmentFor(ASSET_ID)().exposure).toBeCloseTo(1.05);
     expect(store.adjustmentFor(ASSET_ID)().contrast).toBeCloseTo(14);
     expect(xml).toContain('xmp:Rating="3"');
@@ -237,6 +240,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(path).toBe(NON_FOCUSED_SIDECAR_PATH);
     expect(xml).toContain('crs:Exposure2012="1.05"');
     expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
+    expect(xml).toContain('photoshop:City="Montréal"');
     expect(xml).toContain('xmp:Rating="4"');
     expect(xml).toContain('papp:Flag="pick"');
     expect(xml).toContain('papp:ColorLabel="blue"');

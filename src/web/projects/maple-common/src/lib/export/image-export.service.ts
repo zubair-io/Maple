@@ -108,7 +108,12 @@ export class ImageExportService {
       colorLabel: asset.colorLabel,
       keywords: asset.keywords ?? [],
     };
-    return this.serializer.serialize(model, this.xmpStore.passthroughFor(asset.id), culling);
+    return this.serializer.serialize(
+      model,
+      this.xmpStore.passthroughFor(asset.id),
+      culling,
+      this.xmpStore.metadataFor(asset.id),
+    );
   }
 
   /**

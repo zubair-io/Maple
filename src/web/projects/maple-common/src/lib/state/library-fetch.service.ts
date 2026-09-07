@@ -1223,6 +1223,7 @@ export class LibraryFetch {
           model,
           persisted?.passthrough ?? this.xmpStore.passthroughFor(id),
           culling,
+          persisted?.metadata ?? this.xmpStore.metadataFor(id),
         );
         return this.sidecarStore.write(absPath, xml);
       })

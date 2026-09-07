@@ -55,6 +55,7 @@ describe('ImageExportService', () => {
   let flushPendingXmpWrites: ReturnType<typeof vi.fn>;
   let serialize: ReturnType<typeof vi.fn>;
   let passthroughFor: ReturnType<typeof vi.fn>;
+  let metadataFor: ReturnType<typeof vi.fn>;
   let clickedAnchors: HTMLAnchorElement[];
   let originalCreateObjectURL: typeof URL.createObjectURL;
   let originalRevokeObjectURL: typeof URL.revokeObjectURL;
@@ -73,6 +74,7 @@ describe('ImageExportService', () => {
     flushPendingXmpWrites = vi.fn().mockResolvedValue(undefined);
     serialize = vi.fn().mockReturnValue(SIDECAR_XML);
     passthroughFor = vi.fn().mockReturnValue(undefined);
+    metadataFor = vi.fn().mockReturnValue(undefined);
 
     const libraryStub = {
       bytesForAsset: vi.fn().mockResolvedValue(RAW_BYTES),
@@ -89,7 +91,7 @@ describe('ImageExportService', () => {
         { provide: LibraryStateService, useValue: libraryStub },
         {
           provide: XmpStoreService,
-          useValue: { passthroughFor },
+          useValue: { passthroughFor, metadataFor },
         },
         { provide: XmpSerializerService, useValue: { serialize } },
       ],
@@ -208,6 +210,31 @@ describe('ImageExportService', () => {
       defaultAdjustmentModel(),
       passthrough,
       expect.objectContaining({ rating: 5, flag: 'pick', keywords: ['keeper'] }),
+      undefined,
+    );
+  });
+
+  it('preserves loaded metadata in rendered and downloaded sidecars', async () => {
+    const metadata = { city: 'Montréal', title: 'Night portrait' };
+    metadataFor.mockReturnValue(metadata);
+    const asset = makeAsset();
+
+    await runExport(asset, OPTIONS);
+    service.downloadSidecar(asset);
+
+    expect(serialize).toHaveBeenNthCalledWith(
+      1,
+      defaultAdjustmentModel(),
+      undefined,
+      expect.any(Object),
+      metadata,
+    );
+    expect(serialize).toHaveBeenNthCalledWith(
+      2,
+      defaultAdjustmentModel(),
+      undefined,
+      expect.any(Object),
+      metadata,
     );
   });
 
