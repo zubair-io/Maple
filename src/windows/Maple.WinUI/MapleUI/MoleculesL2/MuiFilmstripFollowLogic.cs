@@ -18,11 +18,9 @@ namespace Maple.UI
     /// </summary>
     public static class MuiFilmstripFollowLogic
     {
-        /// <summary>Extent of one Sm <c>MuiMediaCell</c> along the strip's
-        /// scroll axis, and the gap between cells — the geometry both
-        /// controls lay out with and feed back into
-        /// <see cref="FollowOffset"/>.</summary>
-        public const double CellExtent = 72;
+        /// <summary>Gap between cells in both strip orientations. Cell
+        /// bounds come from layout: 72px is only the thumbnail, not the
+        /// full Media Cell including its padding and metadata.</summary>
         public const double CellSpacing = 8;
 
         /// <summary>Index of <paramref name="activeId"/> within
@@ -52,8 +50,20 @@ namespace Maple.UI
             if (index < 0) return currentOffset;
 
             var itemStart = index * (itemExtent + spacing);
+            return FollowBounds(itemStart, itemExtent, viewportExtent, currentOffset);
+        }
+
+        /// <summary>Follow a cell's actual laid-out bounds, including its
+        /// chrome and any metadata, rather than assuming uniform thumbnail
+        /// dimensions. A cell taller/wider than the viewport aligns its
+        /// leading edge so repeated layout does not bounce between edges.</summary>
+        public static double FollowBounds(
+            double itemStart, double itemExtent, double viewportExtent, double currentOffset)
+        {
+            if (itemExtent <= 0 || viewportExtent <= 0) return currentOffset;
             var itemEnd = itemStart + itemExtent;
 
+            if (itemExtent >= viewportExtent) return itemStart;
             if (itemStart < currentOffset) return itemStart;
             if (itemEnd > currentOffset + viewportExtent) return itemEnd - viewportExtent;
             return currentOffset;

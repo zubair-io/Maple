@@ -10,7 +10,8 @@ using Maple.UI.Atoms;
 namespace Maple.UI
 {
     /// <summary>One thumbnail in a Filmstrip Row/Rail.</summary>
-    public sealed record MuiFilmstripItem(string Id, ImageSource? Source, string Alt);
+    public sealed record MuiFilmstripItem(
+        string Id, ImageSource? Source, string Alt, IReadOnlyList<string>? Badges = null);
 
     /// <summary>
     /// Maple.UI Filmstrip Row molecule (unified-component-catalog.md §3,
@@ -55,6 +56,7 @@ namespace Maple.UI
         };
         private readonly StackPanel _row = new() { Orientation = Orientation.Horizontal, Spacing = MuiFilmstripFollowLogic.CellSpacing };
         private readonly List<MuiMediaCell> _cells = new();
+        private bool _followAfterLayout;
 
         public MuiFilmstripRow()
         {
@@ -62,6 +64,11 @@ namespace Maple.UI
             Content = _scroll;
             IsTabStop = false;
             AutomationProperties.SetName(this, "Filmstrip");
+            _scroll.SizeChanged += (_, _) => RequestFollow();
+            _row.LayoutUpdated += (_, _) =>
+            {
+                if (_followAfterLayout) _followAfterLayout = !FollowActive();
+            };
 
             RebuildCells();
         }
@@ -84,12 +91,15 @@ namespace Maple.UI
                     CellSize = MuiMediaCellSize.Sm,
                     Source = item.Source,
                     Alt = item.Alt,
+                    Badges = item.Badges,
+                    ShowMetadata = false,
                     Selected = item.Id == ActiveId,
                 };
                 cell.Pressed += (_, _) => Select(item.Id);
                 _cells.Add(cell);
                 _row.Children.Add(cell);
             }
+            RequestFollow();
         }
 
         private void OnActiveIdChanged()
@@ -98,14 +108,26 @@ namespace Maple.UI
             for (var i = 0; i < _cells.Count && i < items.Count; i++)
                 _cells[i].Selected = items[i].Id == ActiveId;
 
-            var index = MuiFilmstripFollowLogic.IndexOf(items.Select(item => item.Id).ToList(), ActiveId);
-            if (index < 0 || _scroll.ViewportWidth <= 0) return;
+            RequestFollow();
+        }
 
-            var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index, MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+        private void RequestFollow() => _followAfterLayout = !FollowActive();
+
+        private bool FollowActive()
+        {
+            var items = Items ?? Array.Empty<MuiFilmstripItem>();
+            var index = MuiFilmstripFollowLogic.IndexOf(items.Select(item => item.Id).ToList(), ActiveId);
+            if (index < 0) return true;
+            if (_scroll.ViewportWidth <= 0 || _cells[index].ActualWidth <= 0) return false;
+
+            var cell = _cells[index];
+            var start = cell.TransformToVisual(_row).TransformPoint(new Windows.Foundation.Point()).X;
+            var offset = MuiFilmstripFollowLogic.FollowBounds(
+                start, cell.ActualWidth,
                 _scroll.ViewportWidth, _scroll.HorizontalOffset);
             if (offset != _scroll.HorizontalOffset)
-                _scroll.ChangeView(offset, null, null);
+                return _scroll.ChangeView(offset, null, null, disableAnimation: true);
+            return true;
         }
     }
 }
