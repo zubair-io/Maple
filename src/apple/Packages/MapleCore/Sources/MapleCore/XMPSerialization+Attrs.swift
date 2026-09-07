@@ -317,6 +317,12 @@ extension XMPSerializer {
     if model.hotPixelSuppression != .off {
       attrs.append(("papp:HotPixelSuppression", model.hotPixelSuppression.rawValue))
     }
+    // Bayer demosaic override (#3413) — emit only when the user pinned a
+    // kernel. The `.auto` default is the absent attribute, so an untouched
+    // sidecar keeps following the policy as it improves.
+    if model.demosaic != .auto {
+      attrs.append(("papp:Demosaic", model.demosaic.rawValue))
+    }
     // BM3D deep denoise (#1105) — emit only when non-default (0).
     if model.deepDenoise != 0 {
       attrs.append(("papp:DeepDenoise", fmtNum(model.deepDenoise)))

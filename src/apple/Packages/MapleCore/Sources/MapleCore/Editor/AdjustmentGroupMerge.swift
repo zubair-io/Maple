@@ -83,6 +83,11 @@ public enum AdjustmentGroupMerge {
       merged.profile = source.profile
     case .hotPixelSuppression:
       merged.hotPixelSuppression = source.hotPixelSuppression
+    case .demosaic:
+      // #3413. In the Detail group with the other decode-product knobs;
+      // without this case a Detail paste would leave the target on its own
+      // kernel while carrying the source's noise-reduction settings.
+      merged.demosaic = source.demosaic
     case .blackWhite:
       // #276. In the Color group, so a paste of Color from a
       // monochrome source must convert the target too — without this

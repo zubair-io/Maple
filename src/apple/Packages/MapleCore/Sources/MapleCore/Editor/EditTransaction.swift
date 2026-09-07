@@ -72,6 +72,7 @@ public enum InvalidationScope: String, Equatable, Sendable {
             chromaPrefilter: m.chromaPrefilter,
             deepDenoise: m.deepDenoise,
             hotPixelSuppression: m.hotPixelSuppression,
+            demosaic: m.demosaic,
             lensProfileEnable: m.lensProfileEnable,
             lensCorrectionDistortion: m.lensCorrectionDistortion,
             lensCorrectionCa: m.lensCorrectionCa,
@@ -84,6 +85,7 @@ public enum InvalidationScope: String, Equatable, Sendable {
         let chromaPrefilter: Double
         let deepDenoise: Double
         let hotPixelSuppression: HotPixelSuppressionMode
+        let demosaic: DemosaicChoice
         let lensProfileEnable: LensProfileEnable
         let lensCorrectionDistortion: Double
         let lensCorrectionCa: Double

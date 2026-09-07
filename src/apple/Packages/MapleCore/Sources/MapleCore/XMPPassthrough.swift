@@ -108,6 +108,7 @@ enum XMPKnownFields {
         "papp:CaptureSharpeningRadius",
         "crs:LuminanceSmoothing", "crs:ColorNoiseReduction",
         "papp:ChromaPrefilter", "papp:DeepDenoise", "papp:HotPixelSuppression",
+        "papp:Demosaic",
         "papp:HighlightRecoveryMode", "papp:AutoExposure", "papp:Look", "papp:Profile",
         // WB method + point-curve mode (#431/#436; wired into Swift by
         // #2216) — without these two in the known set, a sidecar carrying

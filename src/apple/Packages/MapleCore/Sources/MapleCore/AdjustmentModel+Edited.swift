@@ -6,6 +6,13 @@
 import Foundation
 
 extension AdjustmentModel {
+    /// The fresh-import model — every field at its canonical raw-core
+    /// default. Lives here rather than in the struct body (#3413) because
+    /// `AdjustmentModel.swift` sits against the 570-line headroom budget
+    /// and the memberwise `init` is the one member that cannot be lifted
+    /// into an extension (see that file's header).
+    public static let `default` = AdjustmentModel()
+
     /// True when this model carries user adjustments that change the
     /// rendered pixels, judged with the white-balance fields excluded.
     ///
