@@ -159,7 +159,8 @@ extension AdjustmentModel.FieldName {
     // deprecated `captureSharpeningRadius` alias above.
     case .wbSampleX, .wbSampleY, .wbAlgorithmVersion: return nil
     case .wbMethod, .wbSource, .highlightRecovery, .autoExposure, .look, .profile,
-      .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
+      .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable,
+      .demosaic:
       return nil
     // Film-look id (epic #2683) — a free-form string, not a numeric
     // slider or a closed rawValue enum, so it has no key path here (like
@@ -330,6 +331,8 @@ public enum PresetAdjustments {
       case .hotPixelSuppression
       where model.hotPixelSuppression != defaults.hotPixelSuppression:
         fields[field.rawValue] = .string(model.hotPixelSuppression.rawValue)
+      case .demosaic where model.demosaic != defaults.demosaic:
+        fields[field.rawValue] = .string(model.demosaic.rawValue)
       // Auto-exposure (#1387) — enum decode-product field.
       case .autoExposure where model.autoExposure != defaults.autoExposure:
         fields[field.rawValue] = .string(model.autoExposure.rawValue)
@@ -397,6 +400,9 @@ public enum PresetAdjustments {
       case .hotPixelSuppression:
         guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }
         merged.hotPixelSuppression = mode
+      case .demosaic:
+        guard let choice = DemosaicChoice(rawValue: rawValue) else { continue }
+        merged.demosaic = choice
         applied += 1
       case .autoExposure:
         guard let mode = AutoExposureMode(rawValue: rawValue) else { continue }

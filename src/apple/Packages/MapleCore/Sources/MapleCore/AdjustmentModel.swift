@@ -332,6 +332,9 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// for why Swift groups what raw-core declares flat.
   public var perspective: Perspective
 
+  /// Bayer demosaic kernel override (#3413) — see `DemosaicChoice`. A decode-product parameter; XMP key `papp:Demosaic`, omitted on write at `.auto`.
+  public var demosaic: DemosaicChoice
+
   public init(
     temperature: Double = 6500,
     tint: Double = 0,
@@ -443,7 +446,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     lensCorrectionVignetting: Double = 100,
     perspective: Perspective = .identity,
     filmLook: String = "",
-    filmStrength: Double = 100
+    filmStrength: Double = 100,
+    demosaic: DemosaicChoice = .auto
   ) {
     self.temperature = temperature
     self.tint = tint
@@ -556,7 +560,6 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     self.perspective = perspective
     self.filmLook = filmLook
     self.filmStrength = filmStrength
+    self.demosaic = demosaic
   }
-
-  public static let `default` = AdjustmentModel()
 }
