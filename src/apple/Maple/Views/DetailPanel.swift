@@ -23,7 +23,6 @@ struct DetailPanel: View {
     ScrollView {
       InfoTab(session: session)
     }
-    .background(MapleTokens.sidebar)
     // Fill the detail column entirely so resizing doesn't reveal a gap
     // between the panel and the window edge. The column's own width is
     // capped in AppShell via navigationSplitViewColumnWidth.

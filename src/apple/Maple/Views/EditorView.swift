@@ -90,18 +90,17 @@ struct EditorSurface: View {
           onSelect: onSelectAsset
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .padding(.leading, 12)
+        .padding(.leading, EditorCropGeometry.filmstripLeadingPadding)
         .ignoresSafeArea(edges: .bottom)
       }
 
       // The same panel and dock reflow without replacing their view identity.
       EditorControls(state: state, onPresetsTap: { presetsOpen = true })
-        #if os(macOS)
-          .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
-            presetsPanel.frame(width: 340, height: 460)
-          }
-        #else
-          .mapleBottomSheet(isPresented: $presetsOpen) { presetsPanel }
+        .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
+          presetsPanel.frame(width: 340, height: 460)
+        }
+        #if os(iOS)
+          .mapleBottomSheet(isPresented: presetsPresented(asSheet: true)) { presetsPanel }
         #endif
 
       // Navigation and actions remain visible while adjusting the photo.
@@ -202,6 +201,21 @@ struct EditorSurface: View {
       withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: prev) }
       return .handled
     }
+  }
+
+  private var presetsUseSheet: Bool {
+    #if os(iOS)
+      layout == .phone
+    #else
+      false
+    #endif
+  }
+
+  private func presetsPresented(asSheet: Bool) -> Binding<Bool> {
+    Binding(
+      get: { presetsOpen && presetsUseSheet == asSheet },
+      set: { if presetsUseSheet == asSheet { presetsOpen = $0 } }
+    )
   }
 
   private var presetsPanel: some View {
