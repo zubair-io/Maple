@@ -305,7 +305,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - render_bytes_gpu vs render_bytes on Mesa lavapipe (#1973)
 - Covers: `web`
 - Accepted backends: `vulkan-lavapipe`
-- Expected cases: 16
+- Expected cases: 17
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
 - Record: no record
 
@@ -314,9 +314,9 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - render_bytes_gpu vs render_bytes on Metal (#2315)
 - Covers: `apple`
 - Accepted backends: `metal`
-- Expected cases: 16
+- Expected cases: 17
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: satisfied — 16 of 16 executed, 0 failed, 0 skipped, on `metal`, pipeline v2, schema v5, commit `d082c46a64ce91f4edaf474d5d9231d810e159c8`, recorded 2026-09-07T05:34:23Z
+- Record: satisfied — 17 of 17 executed, 0 failed, 0 skipped, on `metal`, pipeline v2, schema v5, commit `ff346ef1fd639772ea20a4cf34b1dd39effaf72a`, recorded 2026-09-07T08:00:39Z
 
 ### `apple_canvas_golden`
 
