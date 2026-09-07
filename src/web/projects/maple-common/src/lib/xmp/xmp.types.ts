@@ -57,7 +57,8 @@ export interface XmpMetadata {
 
 /**
  * Unknown attributes and nested elements from a source sidecar that Maple
- * does not model (ToneCurve, MaskGroupBasedCorrections, etc.).
+ * does not model (`crs:PaintBasedCorrections`, `xmpMM:History`, etc. —
+ * every local-adjustment container is modeled, #358/#3300).
  * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
  */
 export interface PassthroughBucket {

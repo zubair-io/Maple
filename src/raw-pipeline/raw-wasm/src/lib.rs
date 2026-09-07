@@ -65,6 +65,11 @@ pub mod export;
 /// `raw-ffi` so a template renders byte-identically on every surface.
 pub mod filename;
 pub mod id;
+/// Instance-wide bitmap-mask raster registry (#3300) — `mask_raster_register`
+/// / `mask_raster_release`, the web mirror of raw-ffi's
+/// `maple_mask_raster_register`, plus the shared `parse_model` every render
+/// entry resolves `Mask::Bitmap` layers through.
+pub mod mask_registry;
 pub mod native_detail;
 mod open_metadata;
 pub mod preview;

@@ -50,16 +50,18 @@
 
   @if (selected(); as layer) {
     <div class="mask-controls flex flex-col gap-2" data-testid="mask-controls">
-      <mui-living-slider
-        label="Feather"
-        [value]="feather()"
-        [min]="0"
-        [max]="1"
-        [step]="0.01"
-        (valueChange)="onFeatherChange($event)"
-        (dragStart)="onDragStart()"
-        (dragEnd)="onDragEnd()"
-      />
+      @if (feather(); as featherValue) {
+        <mui-living-slider
+          label="Feather"
+          [value]="featherValue"
+          [min]="0"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="onFeatherChange($event)"
+          (dragStart)="onDragStart()"
+          (dragEnd)="onDragEnd()"
+        />
+      }
       @if (isRadial()) {
         <mui-checkbox
           label="Invert"

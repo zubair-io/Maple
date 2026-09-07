@@ -19,6 +19,7 @@ import {
   maskToScreen,
   MIN_RADIUS,
   ROTATE_HANDLE_FACTOR,
+  withMaskFeather,
 } from './mask-geometry';
 
 const footprint = { left: 100, top: 50, width: 600, height: 400 };
@@ -243,6 +244,43 @@ describe('handles', () => {
       const outside: LocalMask = { ...inside, radii: { x: radii.x * 0.99, y: radii.y * 0.99 } };
       expect(evaluateMaskWeight(inside, p.x, p.y)).toBe(1);
       expect(evaluateMaskWeight(outside, p.x, p.y)).toBe(0);
+    }
+  });
+});
+
+describe('bitmap and everywhere masks (#3300)', () => {
+  const bitmap: LocalMask = {
+    kind: 'bitmap',
+    recipe: {
+      person: 0,
+      facialSkin: true,
+      bodySkin: true,
+      model: 'apple-vision-person-instance/1',
+      digest: 'a1b2c3d4e5f60718',
+    },
+    rasterId: 0,
+  };
+  const everywhere: LocalMask = { kind: 'everywhere' };
+
+  it('everywhere weighs 1 and an unresolved bitmap weighs 0, like raw-core', () => {
+    for (const [x, y] of [
+      [0, 0],
+      [0.5, 0.5],
+      [1, 1],
+    ]) {
+      expect(evaluateMaskWeight(everywhere, x, y)).toBe(1);
+      expect(evaluateMaskWeight(bitmap, x, y)).toBe(0);
+    }
+  });
+
+  it('has no handles, ignores drags and feather edits', () => {
+    for (const mask of [bitmap, everywhere]) {
+      expect(maskHandles(mask)).toEqual([]);
+      expect(
+        hitTestMaskHandle(0, 0, mask, makeMaskCanvasMap(footprint, identityCrop, 600, 400), 20),
+      ).toBeNull();
+      expect(dragMaskHandle(mask, 'linearBody', { x: 0.5, y: 0.5 }, { x: 0, y: 0 })).toBe(mask);
+      expect(withMaskFeather(mask, 0.25)).toBe(mask);
     }
   });
 });
