@@ -230,6 +230,7 @@
          DECLARATIONS — nothing in this suite invokes them, so no native
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\MaskLayerSelectionLogic.cs" LinkBase="Services" />
     <!-- RefineDecodeQuality.cs (#3417) — the refine-escalation rule
          RenderEngine.Decode calls — and its own dependency,
