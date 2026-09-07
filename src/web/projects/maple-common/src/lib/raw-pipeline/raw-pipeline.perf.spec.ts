@@ -123,6 +123,19 @@ describe('markStart / markEnd (#1123)', () => {
 });
 
 describe('markScopeReadback (jules review, #1123)', () => {
+  it('times an owned asynchronous map until completion and cleans up after rejection', async () => {
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_resolve, no) => {
+      reject = no;
+    });
+    const measured = markScopeReadback(99, () => pending);
+    expect(performance.getEntriesByName('maple:scope-readback:99:start', 'mark')).toHaveLength(1);
+    expect(performance.getEntriesByName('maple:scope-readback:99:end', 'mark')).toHaveLength(0);
+    reject(new Error('map failed'));
+    await expect(measured).rejects.toThrow('map failed');
+    expect(performance.getEntriesByName('maple:scope-readback:99:start', 'mark')).toHaveLength(0);
+    expect(performance.getEntriesByName('maple:scope-readback:99:end', 'mark')).toHaveLength(0);
+  });
   it('returns the wrapped callback result', () => {
     const result = markScopeReadback(1, () => 'scope-snapshot');
     expect(result).toBe('scope-snapshot');

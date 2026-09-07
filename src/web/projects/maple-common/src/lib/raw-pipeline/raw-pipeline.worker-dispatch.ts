@@ -20,6 +20,7 @@ import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
 import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
+import type { LiveScopeClient } from './raw-pipeline.scope-client';
 
 // Module-local: this was a private method on `RawPipelineService` and has no
 // consumer outside this file. Exporting it would be dead surface area.
@@ -239,6 +240,7 @@ function settle(msg: WorkerResponse, handler: PendingHandler): void {
 
 /** The service state one `handleWorkerMessage` call reads and/or updates. */
 export interface WorkerDispatchContext {
+  liveScopes: LiveScopeClient;
   pending: Map<number, PendingHandler>;
   threadedSubject: BehaviorSubject<boolean | null>;
   threadCountSubject: BehaviorSubject<number>;
@@ -252,6 +254,10 @@ export interface WorkerDispatchContext {
  * `message` listener — no behaviour change.
  */
 export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchContext): void {
+  if (msg.type === 'session-scope') {
+    ctx.liveScopes.accept(msg);
+    return;
+  }
   if (msg.type === 'worker-log') {
     const prefix = '[raw-pipeline worker]';
     if (msg.level === 'error') console.error(prefix, msg.text);

@@ -26,10 +26,9 @@ import {
   type WebLiveSessionInstance,
   type WebLiveSessionCtor,
   ensureReady,
-  readbackScopeSnapshot,
-  setLiveCanvas,
 } from './raw-pipeline.worker-handlers';
-import { markStart, markEnd, markScopeReadback } from './raw-pipeline.perf';
+import { markStart, markEnd } from './raw-pipeline.perf';
+import { SessionScopeReadback } from './raw-pipeline.scope-readback';
 
 function liveSessionCtor(): WebLiveSessionCtor | null {
   // `Reflect.get` with a runtime key so the bundler doesn't statically resolve the
@@ -55,6 +54,16 @@ function enqueueSessionOp<T>(op: () => Promise<T>): Promise<T> {
   sessionChain = next.catch(() => undefined);
   return next;
 }
+
+// Only sampler submission enters sessionChain. Its owned map Promise never does.
+const scopeReadback = new SessionScopeReadback(
+  (operation) => {
+    void enqueueSessionOp(async () => {
+      operation();
+    });
+  },
+  (update) => (self as unknown as Worker).postMessage(update, [update.scope.rgb]),
+);
 
 function postSessionError(id: number, message: string): void {
   const response: WorkerResponse = { id, type: 'session-error', message };
@@ -84,18 +93,8 @@ function requireLiveSessionCtor(id: number): WebLiveSessionCtor | null {
   return null;
 }
 
-/**
- * Builds and posts the `open-session-success` response, including the scope
- * readback (#1045, #1930): marked SEPARATELY from `maple:session-open` — a
- * real GPU-sync cost (drawImage from the presented canvas + a synchronous
- * pixel readback) with nothing to do with the render the `session-open`
- * measure times, so folding it into that window would hide the cost it's
- * meant to isolate. `markScopeReadback` guards its own clearMarks/
- * clearMeasures cleanup independently (#1123), so a `measure` throw can't
- * skip a clear and leak marks into the buffer.
- */
+/** Reply after presentation; bounded scope pixels arrive independently. */
 function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSessionInstance): void {
-  const scope = markScopeReadback(req.id, () => readbackScopeSnapshot());
   const response: WorkerResponse = {
     id: req.id,
     type: 'open-session-success',
@@ -114,12 +113,8 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     // The TRUTH the browser configured after the one-time display-p3 retag
     // `open` did (read back via `getConfiguration()`), never an assumption.
     colorSpace: session.colorSpace,
-    // Downsampled RGB readback of the first frame for the scopes (#1045);
-    // undefined on any readback failure → scopes keep their pseudo fallback.
-    scope: scope ?? undefined,
   };
-  // Transfer the snapshot buffer when present (small; avoids a main-thread copy).
-  (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
+  (self as unknown as Worker).postMessage(response);
 }
 
 async function openSessionOp(req: OpenSessionRequest): Promise<void> {
@@ -129,9 +124,9 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     if (!ctor) return;
 
     // Tear down any prior session before opening a new one (asset switch).
+    scopeReadback.close();
     liveSession?.free();
     liveSession = null;
-    setLiveCanvas(null);
 
     const bytes = new Uint8Array(req.bytes);
     // #1123: markStart/markEnd — a Performance Timeline throw here must never fall
@@ -154,11 +149,8 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     );
     markEnd(sessionOpenStartMark, `maple:session-open:${req.id}:end`, 'maple:session-open');
     liveSession = session;
-    // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
-    // `open` already presented the first frame, so a snapshot here reflects it.
-    setLiveCanvas(req.canvas);
-
     postOpenSessionSuccess(req, session);
+    scopeReadback.open(req.id, session);
   } catch (e) {
     const err = e instanceof Error ? e : null;
     if (err?.stack) {
@@ -180,26 +172,14 @@ async function renderLiveSessionFrame(
   return req.params ? session.render_with_params(req.params) : session.render(req.xmp ?? null);
 }
 
-/**
- * Builds and posts the `render-session-success` response, including the scope
- * readback (#1045). Read back the just-presented frame — the render is
- * serialized on `sessionChain`, so the canvas holds this edit's frame here;
- * null on any failure → the scopes keep their previous (or pseudo) data.
- * Marked SEPARATELY from `maple:session-render` (#1930) — same reasoning as
- * `postOpenSessionSuccess`: the readback is a real GPU-sync cost with no
- * bearing on the render-loop tick the other measure times. `markScopeReadback`
- * guards its own clearMarks/clearMeasures cleanup independently (#1123, jules
- * review) so a `measure` throw can't skip it.
- */
+/** Release the scheduler after GPU completion; scope result delivery is separate. */
 function postRenderSessionSuccess(req: RenderSessionRequest, colorSpace: string): void {
-  const scope = markScopeReadback(req.id, () => readbackScopeSnapshot());
   const response: WorkerResponse = {
     id: req.id,
     type: 'render-session-success',
     colorSpace,
-    scope: scope ?? undefined,
   };
-  (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
+  (self as unknown as Worker).postMessage(response);
 }
 
 async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
@@ -216,6 +196,7 @@ async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
     const colorSpace = await renderLiveSessionFrame(req, liveSession);
     markEnd(sessionRenderStartMark, `maple:session-render:${req.id}:end`, 'maple:session-render');
     postRenderSessionSuccess(req, colorSpace);
+    scopeReadback.presented(req.id);
   } catch (e) {
     const err = e instanceof Error ? e : null;
     if (err?.stack) {
@@ -263,10 +244,8 @@ export function handleCloseSession(): void {
   // while a render holds the wasm `&mut self` borrow (that throws). The shared queue
   // guarantees the ordering. Fire-and-forget (no reply).
   void enqueueSessionOp(async () => {
+    scopeReadback.close();
     liveSession?.free();
     liveSession = null;
-    // Drop the readback source too (its control was transferred to the worker; the
-    // element is owned by the now-closed session). A re-open installs a fresh one.
-    setLiveCanvas(null);
   });
 }
