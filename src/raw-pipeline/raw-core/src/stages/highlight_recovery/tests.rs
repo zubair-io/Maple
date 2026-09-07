@@ -1,6 +1,41 @@
 use super::*;
 
 #[test]
+fn deeply_negative_baseline_preserves_black_and_unclipped_pixels() {
+    for baseline in [-8.0_f32, -16.0] {
+        let gain = baseline.exp2();
+        let mut img = Image::new(2, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels = vec![[0.0; 3], [0.8 * gain, 0.9 * gain, 0.7 * gain]];
+        let original = img.pixels.clone();
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_IDENTITY,
+            baseline,
+        );
+        assert_eq!(img.pixels, original, "baseline={baseline}");
+    }
+}
+
+#[test]
+fn clip_margin_tracks_baseline_gain_in_both_directions() {
+    for baseline in [-8.0_f32, -0.78, 0.0, 0.25, 4.0] {
+        let gain = baseline.exp2();
+        let mut img = Image::new(2, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels = vec![[0.99 * gain; 3], [0.996 * gain; 3]];
+        let unclipped = img.pixels[0];
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_IDENTITY,
+            baseline,
+        );
+        assert_eq!(img.pixels[0], unclipped, "baseline={baseline}");
+        assert_eq!(img.pixels[1], [gain; 3], "baseline={baseline}");
+    }
+}
+
+#[test]
 fn negative_baseline_exposure_recovers_sensor_clipped_green() {
     let gain = (-0.78_f32).exp2();
     let mut img = Image::new(11, 11, ColorSpace::CameraNativeLinearRgb);
