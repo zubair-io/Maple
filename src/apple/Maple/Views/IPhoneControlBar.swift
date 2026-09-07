@@ -118,6 +118,14 @@ struct IPhoneControlBar: View {
       LensCorrectionsSection(state: state)
         .padding(.horizontal, 24)
         .padding(.vertical, 7)
+    } else if state.armedTool == .defringe {
+      // Six defringe sliders replace the drag bar (#3411): Defringe
+      // has no single primary field either, so this is its whole
+      // control surface — same swap as Lens above, but per-tick
+      // rather than decode-product.
+      DefringeSection(state: state)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 7)
     } else if state.armedTool == .mask {
       // Keep the selected mask's controls scrollable without allowing the
       // layer stack to cover the photograph on a short landscape screen.

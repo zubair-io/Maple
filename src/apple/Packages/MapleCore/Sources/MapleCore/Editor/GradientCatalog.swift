@@ -273,6 +273,7 @@ public enum GradientCatalog {
         // Geometry (#3410) joins this list for the `.lensCorrections` reason:
         // seven independent sliders and no single track to tint.
         case .crop, .presets, .colorGrade, .bwMix, .filmLook, .lensCorrections, .geometry,
+             .defringe,
              .mask, .heal:
             return nil
         }

@@ -164,12 +164,14 @@ final class EditorSubParamCatalogTests: XCTestCase {
         // of this list — see #2812 for how it went missing here.
         // `.lensCorrections` declares three sub-params (distortion/ca/
         // vignetting, #2231) — no single primary field, same shape as
-        // vignette/grain/colorGrade. `.geometry` declares seven (#3410) for
-        // the same reason.
+        // vignette/grain/colorGrade. `.geometry` declares seven (#3410) and
+        // `.defringe` six (two amounts + two hue bands, #3411) for the same
+        // reason.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
             && tool != .colorGrade && tool != .hsl && tool != .bwMix && tool != .toneCurve
-            && tool != .filmLook && tool != .lensCorrections && tool != .geometry {
+            && tool != .filmLook && tool != .lensCorrections && tool != .geometry
+            && tool != .defringe {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
@@ -187,7 +189,7 @@ final class EditorSubParamCatalogTests: XCTestCase {
     func testEveryExcludedToolActuallyDeclaresSubParams() {
         let excluded: [Tool] = [.noise, .sharpen, .vignette, .grain,
                                 .colorGrade, .hsl, .bwMix, .toneCurve, .lensCorrections,
-                                .geometry]
+                                .geometry, .defringe]
         for tool in excluded {
             XCTAssertFalse(tool.subParams.isEmpty,
                 "\(tool) is excluded from the single-param check but declares no sub-params — "
@@ -244,6 +246,44 @@ final class EditorSubParamCatalogTests: XCTestCase {
         XCTAssertEqual(subs[0].defaultDisplayValue, defaults.lensCorrectionDistortion)
         XCTAssertEqual(subs[1].defaultDisplayValue, defaults.lensCorrectionCa)
         XCTAssertEqual(subs[2].defaultDisplayValue, defaults.lensCorrectionVignetting)
+    }
+
+    func testDefringeDeclaresTwoAmountsAndTwoHueBands() {
+        // #3411 — the per-tick half of the profile-free lens corrections.
+        // Six sliders, ACR's own controls and ranges, and NONE of them
+        // commits on release: unlike `.lensCorrections` above, the stage
+        // runs in the scene-linear chain, not the decode.
+        let subs = Tool.defringe.subParams
+        XCTAssertEqual(
+            subs.map(\.id),
+            ["purpleAmount", "purpleHueLo", "purpleHueHi",
+             "greenAmount", "greenHueLo", "greenHueHi"])
+        XCTAssertTrue(Tool.defringe.isMultiParam)
+        XCTAssertEqual(Tool.defringe.defaultSubParamId, "purpleAmount")
+        XCTAssertEqual(Tool.defringe.group, .detail)
+        XCTAssertNil(ToolValueMapping.displayRange(for: .defringe))
+        let defaults = AdjustmentModel()
+        XCTAssertEqual(subs[0].range, AdjustmentModel.defringePurpleAmountRange)
+        XCTAssertEqual(subs[0].defaultDisplayValue, defaults.defringePurpleAmount)
+        XCTAssertEqual(subs[1].defaultDisplayValue, defaults.defringePurpleHueLo)
+        XCTAssertEqual(subs[2].defaultDisplayValue, defaults.defringePurpleHueHi)
+        XCTAssertEqual(subs[3].defaultDisplayValue, defaults.defringeGreenAmount)
+        XCTAssertEqual(subs[4].defaultDisplayValue, defaults.defringeGreenHueLo)
+        XCTAssertEqual(subs[5].defaultDisplayValue, defaults.defringeGreenHueHi)
+        for sub in subs {
+            XCTAssertFalse(sub.commitsOnRelease, "\(sub.id) is a per-tick field")
+        }
+    }
+
+    func testDefringeSubParamsWriteDistinctFields() {
+        var model = AdjustmentModel()
+        for (index, sub) in Tool.defringe.subParams.enumerated() {
+            model[keyPath: sub.keyPath] = Double(index + 1)
+        }
+        for (index, sub) in Tool.defringe.subParams.enumerated() {
+            XCTAssertEqual(model[keyPath: sub.keyPath], Double(index + 1),
+                "\(sub.id) shares a field with another defringe sub-param")
+        }
     }
 
     func testLensCorrectionsSubParamsWriteDistinctFields() {
