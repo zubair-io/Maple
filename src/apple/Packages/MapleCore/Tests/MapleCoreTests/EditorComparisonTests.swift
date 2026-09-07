@@ -139,6 +139,39 @@ final class EditorComparisonTests: XCTestCase {
     XCTAssertFalse(session.canUndo)
   }
 
+  func testComparisonKeepsOpeningLocalAdjustmentsWithoutChangingLiveLayers() async throws {
+    let input = CIImage(color: CIColor(red: 0.25, green: 0.18, blue: 0.12))
+      .cropped(to: CGRect(x: 0, y: 0, width: 32, height: 24))
+    let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let bytes = try XCTUnwrap(
+      CIContext().pngRepresentation(of: input, format: .RGBA8, colorSpace: space))
+    let asset = AssetRef(displayName: "opening-mask.png", hintExtension: "png") { bytes }
+    var opening = AdjustmentModel.default
+    opening.profile = .neutral
+    opening.localAdjustments = [
+      LocalAdjustment(mask: .everywhere, range: nil, adjustments: PartialAdjustments(exposure: 1.5))
+    ]
+    var edited = opening
+    edited.localAdjustments = []
+    let session = EditSession(asset: asset, model: edited)
+    session.originalModel = opening
+    session.nativeImageSize = input.extent.size
+    let comparison = EditorComparison(session: session)
+
+    await comparison.prepare(comparison.request(viewport: input.extent.size))
+
+    let before = try XCTUnwrap(comparison.image, comparison.error ?? "Missing opening mask render")
+    let unmasked = try await session.renderActor.renderComparison(
+      asset: asset, model: edited, target: input.extent.size,
+      nativeSize: input.extent.size, filmLattice: nil)
+    XCTAssertGreaterThan(
+      try red(before), try red(unmasked) + 0.01,
+      "Before must render the opening layer stack, even after the live stack was removed")
+    XCTAssertEqual(session.originalModel, opening)
+    XCTAssertEqual(session.model, edited)
+    XCTAssertFalse(session.canUndo)
+  }
+
   func testComparisonRequestTracksLateLegacyWhiteBalanceAnchor() {
     let session = EditSession.preview()
     let comparison = EditorComparison(session: session)
