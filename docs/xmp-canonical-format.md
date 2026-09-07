@@ -159,6 +159,7 @@ The schema's single source of truth is `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/
 | `papp:ChromaPrefilter`                    | `chromaPrefilter`                    | 0 – 100                           | 0                     |
 | `papp:DeepDenoise`                        | `deepDenoise`                        | 0 – 100                           | 0                     |
 | `papp:HotPixelSuppression`                | `hotPixelSuppression`                | `On` \| `Off`                     | `Off`                 |
+| `papp:Demosaic`                           | `demosaic`                           | see enums below                   | `Auto`                |
 | `papp:HighlightRecoveryMode`              | `highlightRecovery`                  | see enums below                   | `ChromaticAdaptation` |
 | `crs:HueAdjustment{Band}` ×8              | `hueAdjustment*`                     | −100 – 100                        | 0                     |
 | `crs:SaturationAdjustment{Band}` ×8       | `saturationAdjustment*`              | −100 – 100                        | 0                     |
@@ -217,6 +218,7 @@ The wire spelling of every enum is the canonical variant name (`ChromaticAdaptat
 | `papp:WbMethod`              | `Cat16`, `DiagonalRec2020`                                                 |
 | `papp:AutoExposure`          | `On`, `Off`                                                                |
 | `papp:HotPixelSuppression`   | `On`, `Off`                                                                |
+| `papp:Demosaic`              | `Auto`, `Amaze`, `Rcd`, `DualAmaze`, `DualRcd`, `Lmmse`                    |
 | `papp:ToneCurveMode`         | `PerChannel`, `RatioPreserving`                                            |
 | `crs:ConvertToGrayscale`     | `True`/`true`/`TRUE`/`1`, `False`/`false`/`FALSE`/`0`                      |
 | `crs:LensProfileEnable`      | `1`/`true`/`True`/`on`/`On`, `0`/`false`/`False`/`off`/`Off`               |
