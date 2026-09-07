@@ -73,7 +73,18 @@ extension EditSession {
       }
       endRenderActivity(activityID)
     }
-    let m = model
+    // Local adjustments (#355): the per-tick chain below runs on the
+    // `decodeRect` patch alone, so its normalized (x, y) span the patch,
+    // while raw-core evaluates masks against the whole frame. Re-express
+    // the stack through the window's affine — the index-based map raw-core's
+    // own tile path uses (`local_adjustments::apply_windowed`) — so the 1:1
+    // patch places every mask where the fit-zoom canvas and the export do.
+    // (`NativeDetailRenderer` strips the stack from the tile develop, so
+    // the chain is the one place it is applied.) `renderModel`, not `model`:
+    // a panel-disabled layer must stay inert at 100% as it does at fit.
+    let m = await renderModel(
+      remappedThrough: MaskAffine.windowToFullFrame(window: decodeRect, fullSize: nativeImageSize))
+    guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
     let pipeline = self.pipeline
     let renderer = nativeDetailRenderer
     // Resolved on MainActor (matching `filmLutStore`'s other callers,
