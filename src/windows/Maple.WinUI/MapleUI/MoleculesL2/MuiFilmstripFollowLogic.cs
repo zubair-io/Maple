@@ -18,6 +18,13 @@ namespace Maple.UI
     /// </summary>
     public static class MuiFilmstripFollowLogic
     {
+        /// <summary>Extent of one Sm <c>MuiMediaCell</c> along the strip's
+        /// scroll axis, and the gap between cells — the geometry both
+        /// controls lay out with and feed back into
+        /// <see cref="FollowOffset"/>.</summary>
+        public const double CellExtent = 72;
+        public const double CellSpacing = 8;
+
         /// <summary>Index of <paramref name="activeId"/> within
         /// <paramref name="ids"/>, or -1 when absent/null (no active item
         /// yet, or an id that isn't in the current list).</summary>

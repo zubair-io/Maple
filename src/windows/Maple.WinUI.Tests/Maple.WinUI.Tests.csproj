@@ -245,6 +245,14 @@
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
+    <!-- ShellMode.cs + ViewerFilmstripLogic.cs (#3402): the shell's
+         Browse/Preview/Edit enum and the viewer filmstrip rail's
+         visibility/activation rules — plain C# (System.Globalization only),
+         split out of MainWindow the same way SelectionLogic.cs is so the
+         "rail shows in both viewer modes, a cell tap never changes mode"
+         contract is testable here without a live Window. -->
+    <Compile Include="..\Maple.WinUI\ShellMode.cs" />
+    <Compile Include="..\Maple.WinUI\ViewerFilmstripLogic.cs" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />

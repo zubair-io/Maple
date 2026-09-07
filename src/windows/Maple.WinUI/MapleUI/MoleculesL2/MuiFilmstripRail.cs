@@ -19,9 +19,6 @@ namespace Maple.UI
     /// </summary>
     public sealed class MuiFilmstripRail : ContentControl
     {
-        private const double CellExtent = 72;
-        private const double CellSpacing = 8;
-
         public static readonly DependencyProperty ItemsProperty =
             DependencyProperty.Register(nameof(Items), typeof(IReadOnlyList<MuiFilmstripItem>), typeof(MuiFilmstripRail),
                 new PropertyMetadata(null, (d, _) => ((MuiFilmstripRail)d).RebuildCells()));
@@ -54,7 +51,10 @@ namespace Maple.UI
 
         public event EventHandler<string>? Activated;
 
-        private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 6 };
+        // A Grid, not a StackPanel: the scroll row needs a bounded height
+        // to scroll at all, and a vertical StackPanel measures its children
+        // against infinity.
+        private readonly Grid _root = new() { RowSpacing = 6 };
         private readonly Button _toggle = new()
         {
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -70,7 +70,7 @@ namespace Maple.UI
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             HorizontalScrollMode = ScrollMode.Disabled,
         };
-        private readonly StackPanel _column = new() { Orientation = Orientation.Vertical, Spacing = CellSpacing };
+        private readonly StackPanel _column = new() { Orientation = Orientation.Vertical, Spacing = MuiFilmstripFollowLogic.CellSpacing };
         private readonly List<MuiMediaCell> _cells = new();
 
         public MuiFilmstripRail()
@@ -78,10 +78,18 @@ namespace Maple.UI
             _toggle.Content = _chevron;
             _toggle.Click += (_, _) => IsCollapsed = !IsCollapsed;
             _scroll.Content = _column;
+            _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(_toggle, 0);
+            Grid.SetRow(_scroll, 1);
             _root.Children.Add(_toggle);
             _root.Children.Add(_scroll);
             Content = _root;
             IsTabStop = false;
+            // ActiveId is often set before the rail has a viewport (it mounts
+            // collapsed, or its list arrives first); re-follow once it does,
+            // and again whenever the viewport changes size.
+            _scroll.SizeChanged += (_, _) => FollowActive();
 
             RebuildCells();
             Rebuild();
@@ -119,11 +127,18 @@ namespace Maple.UI
             for (var i = 0; i < _cells.Count && i < items.Count; i++)
                 _cells[i].Selected = items[i].Id == ActiveId;
 
+            FollowActive();
+        }
+
+        private void FollowActive()
+        {
+            var items = Items ?? Array.Empty<MuiFilmstripItem>();
             var index = MuiFilmstripFollowLogic.IndexOf(items.Select(item => item.Id).ToList(), ActiveId);
             if (index < 0 || _scroll.ViewportHeight <= 0) return;
 
             var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index, CellExtent, CellSpacing, _scroll.ViewportHeight, _scroll.VerticalOffset);
+                index, MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+                _scroll.ViewportHeight, _scroll.VerticalOffset);
             if (offset != _scroll.VerticalOffset)
                 _scroll.ChangeView(null, offset, null);
         }

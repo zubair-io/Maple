@@ -24,9 +24,6 @@ namespace Maple.UI
     /// </summary>
     public sealed class MuiFilmstripRow : ContentControl
     {
-        private const double CellExtent = 72;
-        private const double CellSpacing = 8;
-
         public static readonly DependencyProperty ItemsProperty =
             DependencyProperty.Register(nameof(Items), typeof(IReadOnlyList<MuiFilmstripItem>), typeof(MuiFilmstripRow),
                 new PropertyMetadata(null, (d, _) => ((MuiFilmstripRow)d).RebuildCells()));
@@ -56,7 +53,7 @@ namespace Maple.UI
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollMode = ScrollMode.Disabled,
         };
-        private readonly StackPanel _row = new() { Orientation = Orientation.Horizontal, Spacing = CellSpacing };
+        private readonly StackPanel _row = new() { Orientation = Orientation.Horizontal, Spacing = MuiFilmstripFollowLogic.CellSpacing };
         private readonly List<MuiMediaCell> _cells = new();
 
         public MuiFilmstripRow()
@@ -105,7 +102,8 @@ namespace Maple.UI
             if (index < 0 || _scroll.ViewportWidth <= 0) return;
 
             var offset = MuiFilmstripFollowLogic.FollowOffset(
-                index, CellExtent, CellSpacing, _scroll.ViewportWidth, _scroll.HorizontalOffset);
+                index, MuiFilmstripFollowLogic.CellExtent, MuiFilmstripFollowLogic.CellSpacing,
+                _scroll.ViewportWidth, _scroll.HorizontalOffset);
             if (offset != _scroll.HorizontalOffset)
                 _scroll.ChangeView(offset, null, null);
         }

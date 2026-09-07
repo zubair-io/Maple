@@ -8,12 +8,8 @@ using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
-    /// <summary>Shell navigation follows the product's three-stage flow:
-    /// Browse (grid) → Preview (full image + filmstrip + culling) → Edit
-    /// (full-bleed canvas with the floating tool rail and group panels).
-    /// Sliders exist only in Edit.</summary>
-    public enum ShellMode { Browse, Preview, Edit }
-
+    /// <summary>The shell's mode state machine over <see cref="ShellMode"/>
+    /// (declared in ShellMode.cs).</summary>
     public sealed partial class MainWindow : Window
     {
         public EditSessionViewModel ViewModel { get; }
@@ -162,6 +158,7 @@ namespace Maple.WinUI
                 SyncCropFromModel();
             };
             HookViewerPan();
+            HookFilmstripRail();   // #3402 — MainWindow.Filmstrip.cs
             // Wire the grouped grid source only after the chrome exists —
             // setting Source synchronously raises the grid's first selection.
             // The grid has two presentations (docs/spec/13-windows-shell.md):
@@ -206,7 +203,12 @@ namespace Maple.WinUI
             ViewerContainer.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
 
             PreviewTopBar.Visibility = mode == ShellMode.Preview ? Visibility.Visible : Visibility.Collapsed;
-            FilmstripBar.Visibility = mode == ShellMode.Preview ? Visibility.Visible : Visibility.Collapsed;
+            // One rail for both viewer surfaces (#3402); a strip that went
+            // stale behind the Browse grid catches up here.
+            var rail = ViewerFilmstripLogic.IsRailVisible(mode);
+            FilmstripRail.Visibility = rail ? Visibility.Visible : Visibility.Collapsed;
+            if (rail && _railDirty)
+                RebuildFilmstripRail();
             EditTopBar.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
             EditRail.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
             if (!edit)
