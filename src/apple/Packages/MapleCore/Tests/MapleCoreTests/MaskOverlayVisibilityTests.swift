@@ -12,49 +12,68 @@ import XCTest
 
 @MainActor
 final class MaskOverlayVisibilityTests: XCTestCase {
-    private func session() -> EditSession {
-        EditSession(asset: AssetRef(url: URL(fileURLWithPath: "/dev/null")))
-    }
+  private func session() -> EditSession {
+    EditSession(asset: AssetRef(url: URL(fileURLWithPath: "/dev/null")))
+  }
 
-    private func layer() -> LocalAdjustment {
-        LocalAdjustment(mask: .everywhere, adjustments: PartialAdjustments(hue: 0))
-    }
+  private func layer() -> LocalAdjustment {
+    LocalAdjustment(mask: .everywhere, adjustments: PartialAdjustments(hue: 0))
+  }
 
-    func testHiddenWithNoSelection() {
-        let s = session()
-        XCTAssertFalse(s.showsMaskOverlay, "nothing selected — nothing to outline")
-    }
+  func testHiddenWithNoSelection() {
+    let s = session()
+    XCTAssertFalse(s.showsMaskOverlay, "nothing selected — nothing to outline")
+  }
 
-    func testShownWhenALayerIsSelected() {
-        let s = session()
-        let l = layer()
-        s.model.localAdjustments = [l]
-        s.selectedMaskId = l.id
-        XCTAssertTrue(s.showsMaskOverlay)
-    }
+  func testShownWhenALayerIsSelected() {
+    let s = session()
+    let l = layer()
+    s.model.localAdjustments = [l]
+    s.selectedMaskId = l.id
+    XCTAssertTrue(s.showsMaskOverlay)
+  }
 
-    /// The behaviour this ticket exists for: the tint gets out of the way
-    /// for the duration of the drag, then comes back.
-    func testHiddenWhileAdjustingAndRestoredOnRelease() {
-        let s = session()
-        let l = layer()
-        s.model.localAdjustments = [l]
-        s.selectedMaskId = l.id
+  /// The behaviour this ticket exists for: the tint gets out of the way
+  /// for the duration of the drag, then comes back.
+  func testHiddenWhileAdjustingAndRestoredOnRelease() {
+    let s = session()
+    let l = layer()
+    s.model.localAdjustments = [l]
+    s.selectedMaskId = l.id
 
-        s.isAdjustingMask = true
-        XCTAssertFalse(
-            s.showsMaskOverlay,
-            "a red wash over the subject hides the adjustment being made")
+    s.isAdjustingMask = true
+    XCTAssertFalse(
+      s.showsMaskOverlay,
+      "a red wash over the subject hides the adjustment being made")
 
-        s.isAdjustingMask = false
-        XCTAssertTrue(s.showsMaskOverlay, "the overlay must come back on release")
-    }
+    s.isAdjustingMask = false
+    XCTAssertTrue(s.showsMaskOverlay, "the overlay must come back on release")
+  }
 
-    /// Releasing a drag with nothing selected must not resurrect it.
-    func testReleaseDoesNotShowOverlayWithoutSelection() {
-        let s = session()
-        s.isAdjustingMask = true
-        s.isAdjustingMask = false
-        XCTAssertFalse(s.showsMaskOverlay)
-    }
+  func testComparisonHidesLiveSelectionAndRestoresItAfterRelease() {
+    let s = session()
+    let l = layer()
+    s.model.localAdjustments = [l]
+    s.selectedMaskId = l.id
+    XCTAssertTrue(s.showsMaskOverlay)
+
+    s.isAdjustingMask = true
+    s.showingOriginal = true
+    s.isAdjustingMask = false
+    XCTAssertFalse(s.showsMaskOverlay, "releasing a slider must not tint Before")
+    XCTAssertEqual(s.selectedMaskId, l.id)
+    XCTAssertEqual(s.model.localAdjustments, [l])
+
+    s.showingOriginal = false
+    XCTAssertTrue(s.showsMaskOverlay, "After restores the existing selection tint")
+    XCTAssertEqual(s.selectedMaskId, l.id)
+  }
+
+  /// Releasing a drag with nothing selected must not resurrect it.
+  func testReleaseDoesNotShowOverlayWithoutSelection() {
+    let s = session()
+    s.isAdjustingMask = true
+    s.isAdjustingMask = false
+    XCTAssertFalse(s.showsMaskOverlay)
+  }
 }
