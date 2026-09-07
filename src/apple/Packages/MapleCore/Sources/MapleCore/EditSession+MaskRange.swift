@@ -24,9 +24,32 @@ extension EditSession {
     endEdit()
   }
 
+  /// Both ends of a mask slider drag, from a plain `Slider`'s
+  /// `onEditingChanged` — the only start/end signal it gives.
+  ///
+  /// Start opens the transaction the drag's writes land in; END CLOSES IT.
+  /// Opening without closing leaves the transaction pending, so the drag
+  /// records no undo entry and schedules no sidecar write until some later
+  /// boundary happens to close it — and whatever the user did in between is
+  /// swallowed into the same entry (#3453 review). `isAdjustingMask` rides
+  /// the same pair: it hides the overlay tint for the duration of the drag
+  /// (#3364), which is exactly the drag's duration and not a moment longer.
+  ///
+  /// On `EditSession` rather than inside the SwiftUI view so it can be
+  /// asserted in tests — the app target's own tests do not run in CI, the
+  /// same reason `showsMaskOverlay` lives here.
+  public func setMaskDragActive(_ editing: Bool) {
+    isAdjustingMask = editing
+    if editing {
+      beginEdit()
+    } else {
+      endEdit()
+    }
+  }
+
   /// Continuous write: the caller owns the transaction boundary (the
-  /// slider's `onEditingChanged` → `beginEdit()`), the same contract the
-  /// adjustment sliders follow. Ignored for a layer with no range.
+  /// slider's `onEditingChanged` → `setMaskDragActive`), the same contract
+  /// the adjustment sliders follow. Ignored for a layer with no range.
   public func setMaskRangeField(id: UUID, _ field: RangeField, _ value: Double) {
     guard let index = model.localAdjustments.firstIndex(where: { $0.id == id }),
       let range = model.localAdjustments[index].range

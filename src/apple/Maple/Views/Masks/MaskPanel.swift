@@ -159,13 +159,11 @@ private struct MaskSliderRow: View {
                 // at drag START, before this row's `set` closure has
                 // written anything — not at release, when `model` would
                 // already hold the new value and undo would be a no-op.
-                onEditingChanged: { editing in
-                    // Drives the overlay's hide-while-adjusting (#3364) —
-                    // this is the only drag start/end signal a plain
-                    // `Slider` gives, and the same one `beginEdit()` needs.
-                    state.session.isAdjustingMask = editing
-                    if editing { state.session.beginEdit() }
-                }
+                // Opens the transaction at drag start and CLOSES it at drag
+                // end, and drives the overlay's hide-while-adjusting (#3364)
+                // — `onEditingChanged` is the only start/end signal a plain
+                // `Slider` gives, and both need both ends (#3453 review).
+                onEditingChanged: { editing in state.session.setMaskDragActive(editing) }
             )
             Text(String(format: slider == .exposure ? "%.2f" : "%.0f", value))
                 .font(.system(size: 11).monospacedDigit())
