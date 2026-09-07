@@ -74,7 +74,19 @@ public enum DropMountPlanner {
         // common-parent calc below lands one level too high (the folder's
         // OWN parent), which is unscoped and never what the user meant by
         // dragging the folder itself.
-        let topLevel = reduceToTopLevel(urls)
+        //
+        // `.maple` is internal library state — derivative caches and the
+        // in-app trash — never a browsable source (#2847). Every other
+        // enumeration site funnels through a dot-filtered listing; a drop
+        // is the one entry point that hands the app arbitrary URLs, so
+        // with Finder's hidden files shown, dragging `.maple/trash` out
+        // of a library would otherwise mount it (or, under an already-
+        // mounted root, navigate into it) as an ordinary folder. Dropped
+        // BEFORE the mounted-root check so neither path can reach it.
+        let topLevel = reduceToTopLevel(urls).filter { !MapleSidecarPaths.isInsideDerivativeDirectory($0) }
+        guard !topLevel.isEmpty else {
+            return .unsupported(extensions: [Self.derivativeDirectoryToken])
+        }
 
         if let existingRoot = mountedRoots.first(where: { root in
             topLevel.allSatisfy { $0.isDescendant(ofOrEqualTo: root) }
@@ -120,6 +132,13 @@ public enum DropMountPlanner {
 
         return .mountAndSelect(parentFolder: commonParent, files: targets)
     }
+
+    /// What the unsupported-drop banner names when EVERYTHING dropped was
+    /// inside a `.maple` directory — same descriptive-token idea as the
+    /// "file without an extension" mapping above, rather than an empty
+    /// list that would render as "no supported file type."
+    static let derivativeDirectoryToken =
+        "Maple's internal \(MapleSidecarPaths.derivativeDirectoryName) folder"
 
     /// Drop any URL that is a descendant-or-equal of ANOTHER url in the same
     /// list — keeps only the "outermost" items. A dropped folder plus a

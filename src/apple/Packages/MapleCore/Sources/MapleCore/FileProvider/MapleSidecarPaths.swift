@@ -9,13 +9,28 @@
 import Foundation
 
 public enum MapleSidecarPaths {
+    /// Name of the per-folder derivative directory every cache below lives
+    /// in. Internal library state, never user content: enumeration sites
+    /// (`FolderTreeRow`, `SMBFileOperations.listSubdirectories`,
+    /// `DropMountPlanner`) must exclude it rather than surface it as an
+    /// ordinary browsable folder.
+    public static let derivativeDirectoryName = ".maple"
+
+    /// Whether `url` IS a `.maple` derivative directory, or lives anywhere
+    /// inside one (`<lib>/.maple/trash/IMG.dng` → `true`). Component-wise
+    /// match, so a user folder that merely CONTAINS the text — `.maplestuff`
+    /// — is not mistaken for it.
+    public static func isInsideDerivativeDirectory(_ url: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.contains(derivativeDirectoryName)
+    }
+
     /// `<assetDir>/.maple/thumbs/<sha256prefix16(basename)>.avif`
     public static func thumbURL(for assetURL: URL) -> URL {
         let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
         // Append each component separately (matches ThumbnailDiskCache.configure
         // / RenderedPreviewCache.configure) — avoids slash-in-component edge cases.
         return assetURL.deletingLastPathComponent()
-            .appendingPathComponent(".maple")
+            .appendingPathComponent(derivativeDirectoryName)
             .appendingPathComponent("thumbs")
             .appendingPathComponent("\(key).avif")
     }
@@ -41,7 +56,7 @@ public enum MapleSidecarPaths {
         // Append each component separately — avoids slash-in-component edge
         // cases (matches `thumbURL`).
         return assetURL.deletingLastPathComponent()
-            .appendingPathComponent(".maple")
+            .appendingPathComponent(derivativeDirectoryName)
             .appendingPathComponent("previews")
             .appendingPathComponent("\(assetURL.lastPathComponent).avif")
     }

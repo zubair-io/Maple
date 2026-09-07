@@ -51,6 +51,12 @@ struct FolderTreeRow: View {
     var onCreateFolder: ((URL, Data, String) -> Void)? = nil
     var onRenameFolder: ((URL, Data, String) -> Void)? = nil
     var onTrashFolder: ((URL, Data) -> Void)? = nil
+    /// "Move Folder to…" (#2847) — `(url, rootBookmark)`; the shell builds
+    /// the destination picker from the same saved root. Descendant rows
+    /// only (`depth > 0`): a top-level saved folder is a mount root whose
+    /// identity IS its bookmark — relocating it is "add a different
+    /// folder," not a move within the library.
+    var onMoveFolder: ((URL, Data) -> Void)? = nil
     /// "Show Trash…" (#2653) — depth == 0 only (the saved-folder root), and
     /// only ever wired on iOS/iPadOS: macOS Filesystem sources use the real
     /// OS Trash and have no in-app Trash node (see `AppShell+Trash.swift`'s
@@ -180,6 +186,15 @@ struct FolderTreeRow: View {
                     }
                     .accessibilityIdentifier("folderTree.rename.\(url.path)")
                 }
+                if let onMoveFolder, depth > 0 {
+                    Button {
+                        onMoveFolder(url, rootBookmark)
+                    } label: {
+                        Label("Move Folder to…", systemImage: "folder.badge.gearshape")
+                    }
+                    .accessibilityIdentifier("folderTree.moveTo.\(url.path)")
+                    .accessibilityLabel("Move Folder to…")
+                }
                 if onTrashFolder != nil {
                     Button(role: .destructive) {
                         showTrashConfirm = true
@@ -267,6 +282,7 @@ struct FolderTreeRow: View {
                         onCreateFolder: onCreateFolder,
                         onRenameFolder: onRenameFolder,
                         onTrashFolder: onTrashFolder,
+                        onMoveFolder: onMoveFolder,
                         onDropAssets: onDropAssets,
                         onDropURLs: onDropURLs,
                         selectedAssetCount: selectedAssetCount

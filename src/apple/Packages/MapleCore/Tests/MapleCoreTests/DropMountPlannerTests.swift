@@ -175,6 +175,64 @@ final class DropMountPlannerTests: XCTestCase {
         XCTAssertEqual(plan, .unsupported(extensions: []))
     }
 
+    // MARK: - #2847: `.maple` is internal library state, never a mount target
+
+    /// With Finder's hidden files shown, `.maple/trash` can be dragged out
+    /// of a library like any folder. Mounting it would surface derivative
+    /// caches and trashed originals as an ordinary browsable source.
+    func testMapleTrashFolderDroppedAloneIsUnsupported() throws {
+        let library = try makeFolder("Library")
+        let trash = try makeFolder(".maple/trash", in: library)
+        _ = try makeFile("IMG_0001.dng", in: trash)
+
+        let plan = DropMountPlanner.plan(for: [trash], mountedRoots: [])
+
+        XCTAssertEqual(plan, .unsupported(extensions: [DropMountPlanner.derivativeDirectoryToken]))
+    }
+
+    /// A supported file INSIDE `.maple` is just as internal as the folder —
+    /// the exclusion is by ancestry, not by the dropped item's own name.
+    func testFileInsideMapleFolderIsUnsupported() throws {
+        let library = try makeFolder("Library")
+        let file = try makeFile("IMG_0001.dng", in: try makeFolder(".maple/trash", in: library))
+
+        let plan = DropMountPlanner.plan(for: [file], mountedRoots: [])
+
+        XCTAssertEqual(plan, .unsupported(extensions: [DropMountPlanner.derivativeDirectoryToken]))
+    }
+
+    /// The exclusion runs BEFORE the already-mounted check: `.maple` under
+    /// a mounted root must not become a navigate-into target either.
+    func testMapleFolderUnderMountedRootDoesNotNavigate() throws {
+        let root = try makeFolder("Library")
+        let mapleDir = try makeFolder(".maple", in: root)
+
+        let plan = DropMountPlanner.plan(for: [mapleDir], mountedRoots: [root])
+
+        XCTAssertEqual(plan, .unsupported(extensions: [DropMountPlanner.derivativeDirectoryToken]))
+    }
+
+    /// Mixed drop: the `.maple` entry is silently dropped and the real
+    /// folder proceeds exactly as if it had been dropped alone.
+    func testMapleFolderAlongsideRealFolderIsIgnored() throws {
+        let library = try makeFolder("Library")
+        let mapleDir = try makeFolder(".maple", in: library)
+        let shoot = try makeFolder("Shoot", in: library)
+
+        let plan = DropMountPlanner.plan(for: [mapleDir, shoot], mountedRoots: [])
+
+        XCTAssertEqual(plan, .mountFolder(shoot))
+    }
+
+    /// A user folder whose name merely CONTAINS `.maple` is a real folder.
+    func testFolderNamedLikeMapleButNotMapleStillMounts() throws {
+        let folder = try makeFolder(".maple-archive")
+
+        let plan = DropMountPlanner.plan(for: [folder], mountedRoots: [])
+
+        XCTAssertEqual(plan, .mountFolder(folder))
+    }
+
     // MARK: - B2 (#2649 review): folder + its own descendant collapses to the folder
 
     /// Dropping a folder together with a file INSIDE it (both selected in

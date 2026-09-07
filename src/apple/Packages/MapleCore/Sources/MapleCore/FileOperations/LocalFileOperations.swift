@@ -293,6 +293,12 @@ public enum LocalFileOperations {
                                  finalPrimaryPath: target.path, finalSidecarPath: finalSidecarPath,
                                  renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true)
         await invalidateDerivedCaches(forOldPrimaryPath: source.path)
+        // Same index repoint `finalizeRelocate` performs for every other
+        // move (#2847): without it the `LibraryIndex` still lists the OLD
+        // casing, so the next scan sees the user's own rename as an
+        // EXTERNAL one and reconciles it after the fact — self-healing,
+        // but wrong the moment reconcile results surface in the UI.
+        await refreshLibraryIndexAfterMove(plan)
         return plan
     }
 

@@ -380,6 +380,9 @@ struct AppShell: View {
   /// context menu wouldn't appear until the user manually collapsed and
   /// re-expanded the row (#2645).
   @State var folderRefreshGeneration: Int = 0
+  /// "Move Folder to…" destination picker (#2847) — `nil` when not shown.
+  /// See `AppShell+FolderMove.swift` / `FolderMoveSheets.swift`.
+  @State var folderMovePrompt: FolderMovePrompt?
 
   /// Inline single-asset rename (#2638). The asset id currently showing an
   /// editable filename field (Info panel / Enter-key entry point) — `nil`
@@ -973,6 +976,11 @@ struct AppShell: View {
       onDismissBrowser: { dismissTrashBrowser() },
       onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
     )
+    // #2847: "Move Folder to…" destination picker. See
+    // `AppShell+FolderMove.swift` / `FolderMoveSheets.swift`.
+    .folderMoveOverlay(prompt: $folderMovePrompt) { prompt, destination in
+      confirmFolderMove(prompt, destinationID: destination)
+    }
     // M2: panorama merge view — presented as a sheet on Mac/iPad.
     // Covers the full content area; Cancel dismisses back to Browse
     // and exits select mode.
@@ -1140,6 +1148,12 @@ struct AppShell: View {
       },
       onTrashFolder: { url, bookmark in
         trashLocalFolder(url, rootBookmark: bookmark)
+      },
+      onMoveFolder: { url, bookmark in
+        beginLocalFolderMove(url, rootBookmark: bookmark)
+      },
+      onMoveSMBFolder: { share, path in
+        beginSMBFolderMove(path, share: share)
       },
       // #2646: drag-onto-source-tree, and its "Move/Copy Selected
       // Here" keyboard/menu equivalent. All three row kinds share
@@ -1409,6 +1423,10 @@ struct AppShell: View {
         onDismissBrowser: { dismissTrashBrowser() },
         onRestoreFolder: { relativePath in await restoreTrashBrowserFolder(relativePath) }
       )
+      // #2847: same "Move Folder to…" picker as Mac/iPad.
+      .folderMoveOverlay(prompt: $folderMovePrompt) { prompt, destination in
+        confirmFolderMove(prompt, destinationID: destination)
+      }
     }
   #endif
 

@@ -69,6 +69,30 @@ extension SMBSource {
         }
     }
 
+    /// Move a subfolder under a different parent (#2847) — the sidebar's
+    /// "Move Folder to…" item; same throwaway-connection shape as
+    /// `renameFolder` (which is this with `newParentDir` fixed to the
+    /// current parent).
+    public static func moveFolder(
+        _ path: String, into newParentDir: String, credentials: Credentials
+    ) async throws -> String {
+        try await withThrowawayConnection(credentials: credentials) { mgr in
+            try await SMBFileOperations.moveFolder(path, into: newParentDir, transport: mgr)
+        }
+    }
+
+    /// The destination tree the "Move Folder to…" picker offers for `path`
+    /// (#2847) — the whole share's folder tree minus `path`'s own subtree,
+    /// walked over ONE throwaway connection rather than one per directory.
+    /// See `FolderMoveDestinations.smbTree`.
+    public static func folderTree(
+        rootName: String, excluding path: String, credentials: Credentials
+    ) async throws -> [FolderMoveDestination] {
+        try await withThrowawayConnection(credentials: credentials) { mgr in
+            try await FolderMoveDestinations.smbTree(rootName: rootName, excluding: path, transport: mgr)
+        }
+    }
+
     /// Recursively move a subfolder into `.maple/trash` (#2697) — the
     /// folder-level counterpart to `trashAsset`, same throwaway-connection
     /// shape as `renameFolder` above.

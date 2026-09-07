@@ -209,6 +209,8 @@ On the server every durable file operation is built on one crash-safe primitive,
 - **Folder operations** — create, rename, move, and recursive trash/restore.
 - **Hide** — an asset can be marked hidden in the database and sidecar, with a sibling `<file>.hidden` marker written so filesystem-only consumers such as the File Provider agree. Timeline filters can show normal, all, or only hidden assets. There is no per-asset hide button in the web UI today; hiding is driven by person visibility and by the describe stage's nudity detection.
 
+Apple's sidebar offers the folder operations as a right-click context menu on a folder row: New Folder, Rename…, Move Folder to… (a destination tree picker over the same local saved root or SMB share; descendant rows only, since a saved root's identity is its bookmark), and Move to Trash, for local and SMB trees; Cloud folders get New Folder, Rename, and Move to Trash.
+
 Apple routes trash by source: on macOS a local file goes to the real Finder Trash, on iOS/iPadOS and SMB it goes to Maple's own `.maple/trash` with an in-app browser and restore, a server asset is trashed through the API, and PhotoKit assets cannot be trashed at all. Windows uses the Windows Recycle Bin for local fixed drives and Maple's trash for network paths.
 
 ---

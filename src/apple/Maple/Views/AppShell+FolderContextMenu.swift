@@ -85,8 +85,9 @@ extension AppShell {
     /// If `librarySelection` is a folder strictly inside `ancestorURL`,
     /// returns its path relative to `ancestorURL` (e.g. selection
     /// `/A/B/C`, `ancestorURL` `/A` → `"B/C"`). `nil` when the selection
-    /// isn't a folder, or isn't under `ancestorURL` at all.
-    private func selectionPath(under ancestorURL: URL) -> String? {
+    /// isn't a folder, or isn't under `ancestorURL` at all. Shared with
+    /// `AppShell+FolderMove.swift` (#2847).
+    func selectionPath(under ancestorURL: URL) -> String? {
         guard case .folder(let selectedPath) = librarySelection, selectedPath != ancestorURL.path else {
             return nil
         }
@@ -95,11 +96,10 @@ extension AppShell {
         return String(selectedPath.dropFirst(prefix.count))
     }
 
-    /// Resolves `rootBookmark`, claims security scope for the duration of
-    /// `body`, runs it, releases scope, and bumps `folderRefreshGeneration`
-    /// on success so the sidebar re-enumerates. Errors surface through the
-    /// same `browseVM.loadError` banner the rest of the shell uses.
-    private func withLocalFolderScope(_ rootBookmark: Data, _ body: (URL) throws -> Void) {
+    /// Resolves a saved folder's security-scope bookmark to its URL —
+    /// `nil` (with the shell's error banner set) when it no longer
+    /// resolves. Shared with `AppShell+FolderMove.swift` (#2847).
+    func resolveFolderBookmark(_ rootBookmark: Data) -> URL? {
         var isStale = false
         #if os(macOS)
         let root = try? URL(resolvingBookmarkData: rootBookmark, options: .withSecurityScope,
@@ -108,10 +108,18 @@ extension AppShell {
         let root = try? URL(resolvingBookmarkData: rootBookmark, options: [],
                             relativeTo: nil, bookmarkDataIsStale: &isStale)
         #endif
-        guard let root else {
+        if root == nil {
             browseVM.loadError = FileOperationError.sourceMissing("folder's saved bookmark could not be resolved")
-            return
         }
+        return root
+    }
+
+    /// Resolves `rootBookmark`, claims security scope for the duration of
+    /// `body`, runs it, releases scope, and bumps `folderRefreshGeneration`
+    /// on success so the sidebar re-enumerates. Errors surface through the
+    /// same `browseVM.loadError` banner the rest of the shell uses.
+    func withLocalFolderScope(_ rootBookmark: Data, _ body: (URL) throws -> Void) {
+        guard let root = resolveFolderBookmark(rootBookmark) else { return }
         let accessing = root.startAccessingSecurityScopedResource()
         defer { if accessing { root.stopAccessingSecurityScopedResource() } }
         do {
