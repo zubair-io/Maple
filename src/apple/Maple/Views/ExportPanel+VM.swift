@@ -14,7 +14,9 @@
 // not even animate) and XCUITest's accessibility query gave up with
 // "main thread busy for 30.0s". Only the published state below — busy
 // flag, error string, staged file — belongs on the main actor; the heavy
-// work hops to the cooperative pool and hops back once.
+// work hops away via `BlockingWork.run` (a Dispatch queue, deliberately
+// NOT the cooperative pool, which is core-count sized and would starve
+// under repeated exports — PR #3455 review) and hops back once.
 //
 // Pattern (issue #192): the `+VM.swift` sibling MUST NOT `import SwiftUI`
 // (a grep gate in CI enforces it) so every branch here is unit-testable
@@ -40,11 +42,16 @@ final class ExportPanelVM {
   /// and `RenderActor` already owns the decode and the develop.
   typealias Renderer = @MainActor (EditSession) async throws -> CIImage
   /// Evaluates that graph and encodes it — the expensive half. Synchronous
-  /// and unisolated on purpose: `encodeOffMainActor` below is what puts it
-  /// on a detached task, so *where* it runs is decided by this file (and
+  /// and unisolated on purpose: `encodeOffPool` below is what moves it off
+  /// the main actor, so *where* it runs is decided by this file (and
   /// asserted by `ExportPanelVMTests`) rather than by the closure's own
   /// isolation.
   typealias Encoder = @Sendable (CIImage, ExportOptions) throws -> Data
+  /// Puts the encoded bytes on disk. Injected for the same reason the
+  /// encode is: it is blocking (a 16-bit TIFF of a 100MP frame is most of a
+  /// gigabyte) and its exact ordering against cancellation is what
+  /// `testCancelBetweenTheWriteAndThePublishRemovesTheOrphanedFile` pins.
+  typealias Writer = @Sendable (Data, URL) throws -> Void
 
   var format: ExportFileFormat = .jpegSRGB
   var quality: Double = 0.92
@@ -56,6 +63,7 @@ final class ExportPanelVM {
 
   private let render: Renderer
   private let encode: Encoder
+  private let writeFile: Writer
   /// Bumped by every start and every cancel. A result whose generation no
   /// longer matches belongs to an attempt the user walked away from — it is
   /// dropped rather than published over whatever replaced it.
@@ -64,10 +72,12 @@ final class ExportPanelVM {
 
   init(
     render: @escaping Renderer = { try await $0.renderForExport() },
-    encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) }
+    encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
+    write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
   ) {
     self.render = render
     self.encode = encode
+    self.writeFile = write
   }
 
   var options: ExportOptions {
@@ -168,12 +178,10 @@ final class ExportPanelVM {
     do {
       let image = try await render(session)
       try guardLive(gen)
-      let data = try await encodeOffMainActor(image, options: options)
+      let data = try await encodeOffPool(image)
       try guardLive(gen)
       let url = directory.appendingPathComponent(outputFileName(for: session.asset))
-      try await Self.write(data, to: url)
-      try guardLive(gen)
-      stagedFile = StagedExportFile(url: url)
+      try await publish(data, to: url, gen: gen)
       finish(gen, with: nil)
     } catch {
       finish(gen, with: error)
@@ -186,27 +194,34 @@ final class ExportPanelVM {
     guard gen == generation, !Task.isCancelled else { throw CancellationError() }
   }
 
-  /// The expensive half on a detached task, with cancellation bridged back
-  /// (a detached child inherits none). `Task.detached` does not adopt the
-  /// caller's actor, so this holds however the panel was entered.
-  private func encodeOffMainActor(_ image: CIImage, options: ExportOptions) async throws -> Data {
+  /// The expensive half, off the main actor AND off the cooperative pool.
+  /// `BlockingWork.run` hands it to a Dispatch queue: a `Task.detached`
+  /// would park a cooperative thread for the whole bake, and a few
+  /// start/cancel cycles would exhaust a pool sized to the core count
+  /// (PR #3455 review).
+  private func encodeOffPool(_ image: CIImage) async throws -> Data {
     let encode = self.encode
-    let work = Task.detached(priority: .userInitiated) { () throws -> Data in
-      try Task.checkCancellation()
-      return try encode(image, options)
-    }
-    return try await withTaskCancellationHandler {
-      try await work.value
-    } onCancel: {
-      work.cancel()
-    }
+    let options = self.options
+    return try await BlockingWork.run { try encode(image, options) }
   }
 
-  /// A 16-bit TIFF of a 100MP frame is most of a gigabyte — the write goes
-  /// off the main actor for the same reason the encode does.
-  private static func write(_ data: Data, to url: URL) async throws {
-    try await Task.detached(priority: .userInitiated) {
-      try data.write(to: url, options: .atomic)
-    }.value
+  /// Writes the bytes and publishes them — deleting the file again if the
+  /// attempt goes stale in the window between the two. Without that, a
+  /// Cancel landing just after the write orphans up to a gigabyte in the
+  /// temp directory that nothing ever comes back for (PR #3455 review).
+  private func publish(_ data: Data, to url: URL, gen: Int) async throws {
+    let writeFile = self.writeFile
+    try await BlockingWork.run { try writeFile(data, url) }
+    do {
+      try guardLive(gen)
+    } catch {
+      // Only ever this attempt's orphan: an earlier attempt that already
+      // published the same filename still owns that file.
+      if stagedFile?.url != url {
+        try? FileManager.default.removeItem(at: url)
+      }
+      throw error
+    }
+    stagedFile = StagedExportFile(url: url)
   }
 }
