@@ -170,11 +170,7 @@ struct MobileControlBar: View {
                 // Mask (#3274) — no primary field, so the group slider stack
                 // filters it out; this button is its only route here,
                 // mirroring Curve/Film.
-                MobileToolButton(
-                    state: state,
-                    tool: .mask,
-                    onPresetsTap: onPresetsTap
-                )
+                MobileToolButton(state: state, tool: .mask)
 
                 // ── Disabled placeholders ────────────────────────────────────
                 MobileDisabledPlaceholder(symbol: "bandage", label: "Heal")

@@ -100,7 +100,7 @@ extension EditSession {
     hasLensCorrections = snapshot.hasLensCorrections
     lensCorrectionCaInert = snapshot.lensCorrectionCaInert
     lensCorrectionDistortionInert = snapshot.lensCorrectionDistortionInert
-    let m = model
+    let m = renderModel
     let pipeline = self.pipeline
     // Crop + straighten (#638). Applied as a CoreImage geometry op on the
     // FINAL developed CIImage — the crop is not in the Rust core on Apple,

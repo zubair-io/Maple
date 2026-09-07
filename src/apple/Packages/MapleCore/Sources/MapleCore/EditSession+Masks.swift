@@ -54,40 +54,40 @@ extension EditSession {
             _ = recipe  // the on-disk raster cache entry outlives one layer's deletion — re-adding the same person re-hits the MaskRasterStore cache rather than re-running Vision.
         }
         model.localAdjustments.removeAll { $0.id == id }
-        maskDisabledStash.removeValue(forKey: id)
+        disabledMaskIds.remove(id)
         if selectedMaskId == id { selectedMaskId = nil }
     }
 
     /// Disabled = present-but-inert: the panel keeps the row (so the user can
-    /// re-enable it), the pipeline skips it. There is no `enabled` bit
-    /// anywhere in the wire format (raw-core's `PartialAdjustments`, the
-    /// flat record, or the XMP schema) — adding one would be a cross-cutting
-    /// change to three already-shipped formats, out of scope here. Instead
-    /// this reduces `adjustments` to `PartialAdjustments()`, matching
-    /// `stages::local_adjustments::apply`'s existing "an empty adjustments
-    /// set is a stage no-op" contract (it skips mask evaluation entirely
-    /// when `PartialAdjustments.isEmpty`, so a cleared-but-still-ranged
-    /// layer costs nothing and renders nothing) — and stashes the prior
-    /// values in `maskDisabledStash` (session-only, never persisted) so
-    /// re-enabling restores them instead of losing the user's sliders.
+    /// re-enable it) and the model keeps the slider values, but the model the
+    /// renderer sees (`renderModel`) carries this layer with empty
+    /// adjustments — `stages::local_adjustments::apply` skips mask evaluation
+    /// entirely for a layer whose `PartialAdjustments.isEmpty`. There is no
+    /// `enabled` bit in any wire format (raw-core's `PartialAdjustments`, the
+    /// flat record, the XMP schema); the disabled state is session-only, so
+    /// a relaunch simply shows the mask enabled with its sliders intact
+    /// rather than persisting zeroed values (#3291 review).
     public func setMaskEnabled(id: UUID, enabled: Bool) {
-        guard let idx = model.localAdjustments.firstIndex(where: { $0.id == id }) else { return }
-        if enabled {
-            guard let restored = maskDisabledStash.removeValue(forKey: id) else { return }
-            model.localAdjustments[idx].adjustments = restored
-        } else {
-            guard !model.localAdjustments[idx].adjustments.isEmpty else { return }
-            maskDisabledStash[id] = model.localAdjustments[idx].adjustments
-            model.localAdjustments[idx].adjustments = PartialAdjustments()
-        }
+        guard model.localAdjustments.contains(where: { $0.id == id }) else { return }
+        let changed = enabled ? disabledMaskIds.remove(id) != nil : disabledMaskIds.insert(id).inserted
+        guard changed else { return }
+        _scheduleRender(phase: .fast)
     }
 
-    /// `true` when `id` currently carries no live adjustments purely because
-    /// `setMaskEnabled(id:enabled:false)` zeroed them — as opposed to a
-    /// freshly-created mask that never had any. Drives the panel's toggle
-    /// state without adding a model field.
     public func isMaskEnabled(id: UUID) -> Bool {
-        maskDisabledStash[id] == nil
+        !disabledMaskIds.contains(id)
+    }
+
+    /// `model` as the render paths consume it: identical unless a mask is
+    /// disabled, in which case that layer's adjustments are cleared so the
+    /// stage treats it as a no-op. The sidecar always sees `model` itself.
+    var renderModel: AdjustmentModel {
+        guard !disabledMaskIds.isEmpty else { return model }
+        var m = model
+        for i in m.localAdjustments.indices where disabledMaskIds.contains(m.localAdjustments[i].id) {
+            m.localAdjustments[i].adjustments = PartialAdjustments()
+        }
+        return m
     }
 
     private static func maskDigest(assetKey: String, request: SkinRasterRequest, model: String) -> String {
