@@ -44,6 +44,12 @@ struct IPhoneLegacyControlBar: View {
                 FilmSection(state: state)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 7)
+            } else if state.armedTool == .geometry {
+                // Seven manual-geometry sliders replace the drag bar
+                // (#3410): Geometry has no single primary field, so this is
+                // its whole control surface, same swap as Lens.
+                GeometrySection(state: state)
+                    .padding(.horizontal, 24)
             } else if state.armedTool == .lensCorrections {
                 // Master toggle + three DNG-correction sliders replace the
                 // drag bar (#2231): Lens has no single primary field, so
