@@ -489,7 +489,16 @@
       "asset_classes": ["raw", "non_raw"],
       "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
       "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
-      "fields": ["crop"],
+      "fields": [
+        "crop",
+        "perspective_vertical",
+        "perspective_horizontal",
+        "perspective_rotate",
+        "perspective_scale",
+        "perspective_aspect",
+        "perspective_x",
+        "perspective_y"
+      ],
       "integration": [
         {
           "source": "sidecar_contract_apple",

@@ -117,7 +117,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw, CapabilityAssetClass.NonRaw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference, CapabilityPreviewPath.GpuLive, CapabilityPreviewPath.WasmCpu, CapabilityPreviewPath.WasmGpu },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi, CapabilityExportPath.Wasm, CapabilityExportPath.ApiFfi, CapabilityExportPath.WindowsDll },
-                new string[] { "crop" },
+                new string[] { "crop", "perspective_vertical", "perspective_horizontal", "perspective_rotate", "perspective_scale", "perspective_aspect", "perspective_x", "perspective_y" },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.SidecarContractApple, CapabilityEvidenceSource.SidecarContractApi },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.AppleCanvasGolden },
                 CapabilityReleaseState.Core),
