@@ -359,6 +359,23 @@ extension XMPSerializer {
       if rounded.isFinite && rounded != defaultValue {
         attrs.append((key, fmtNum(value)))
       }
+    // Profile-free lateral CA + defringe (#3411) — same omit-on-default
+    // convention. `crs:AutoLateralCA` is ACR's "Remove Chromatic
+    // Aberration" checkbox, written in the same "1"/"0" spelling as the
+    // master switch above. The four hue edges have non-zero defaults, so
+    // each is compared against its own rather than against zero.
+    if model.autoLateralCa != .off {
+      attrs.append(("crs:AutoLateralCA", "1"))
+    }
+    for (key, value, fallback) in [
+      ("crs:DefringePurpleAmount", model.defringePurpleAmount, 0.0),
+      ("crs:DefringePurpleHueLo", model.defringePurpleHueLo, 30.0),
+      ("crs:DefringePurpleHueHi", model.defringePurpleHueHi, 70.0),
+      ("crs:DefringeGreenAmount", model.defringeGreenAmount, 0.0),
+      ("crs:DefringeGreenHueLo", model.defringeGreenHueLo, 40.0),
+      ("crs:DefringeGreenHueHi", model.defringeGreenHueHi, 60.0),
+    ] where value.rounded() != fallback {
+      attrs.append((key, String(format: "%.0f", value)))
     }
     // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
     // non-identity. CropAngle is independent so a pure straighten emits

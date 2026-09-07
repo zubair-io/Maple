@@ -14,6 +14,7 @@ import type {
   DemosaicChoice,
   HighlightRecoveryMode,
   HotPixelSuppressionMode,
+  AutoLateralCa,
   LensProfileEnable,
   ToneCurveMode,
   WbMethod,
@@ -100,6 +101,21 @@ const ENUM_ATTRIBUTE_PARSERS: Record<string, EnumAttributeParser> = {
           ? 'Off'
           : undefined;
     return parsed !== undefined ? { lensProfileEnable: parsed } : undefined;
+  },
+
+  // Profile-free lateral CA (#3411) — ACR's "Remove Chromatic Aberration"
+  // checkbox, same "1"/"0" spelling and same accepted alternates as
+  // `crs:LensProfileEnable` above. Unknown values are dropped so the field
+  // takes its default ('Off').
+  'crs:AutoLateralCA': (v) => {
+    const lower = v.toLowerCase();
+    const parsed: AutoLateralCa | undefined =
+      lower === '1' || lower === 'true' || lower === 'on'
+        ? 'On'
+        : lower === '0' || lower === 'false' || lower === 'off'
+          ? 'Off'
+          : undefined;
+    return parsed !== undefined ? { autoLateralCa: parsed } : undefined;
   },
 
   // Highlight recovery (#2214; raw-core spec § 3.3a). Case-insensitive parse
