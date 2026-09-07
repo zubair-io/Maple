@@ -1,3 +1,4 @@
+import { of } from 'rxjs';
 // ImageCanvasComponent — two-phase live render and XMP wiring (#846/#1101):
 //   - cold open issues exactly one VIEWPORT-SIZED decode (no spurious decode)
 //   - every edit tick fires an immediate fast-phase sized decode (coalesced
@@ -400,6 +401,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
       deepDenoiseProgress: signal(null),
       gpuLiveRenderEnabled: true,
       openLiveSession: openSessionSpy,
+      liveScope$: of(null),
       renderLiveSession: renderSessionSpy,
       closeLiveSession: closeSessionSpy,
     };

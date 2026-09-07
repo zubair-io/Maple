@@ -270,6 +270,7 @@ mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
 mod scope;
+mod scope_sample;
 mod sharpen;
 mod spatial;
 mod srgb_gamma;
@@ -316,6 +317,7 @@ pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPas
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass, SceneToneOptions};
 pub use scope::{encode_vectorscope, unpack_scope, ScopeStats, SCOPE_HIST_BYTE_LEN};
+pub use scope_sample::{ScopePixels, ScopeReadback, ScopeSampler};
 pub use sharpen::SharpenPass;
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,

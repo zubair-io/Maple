@@ -196,24 +196,25 @@ export interface SetFilmLutSuccess {
 }
 
 /**
- * A small, downsampled RGB snapshot of the GPU-presented frame, read back on the
- * worker side so the histogram/waveform/parade/vectorscope scopes have a pixel
- * source on the zero-readback GPU live path (#1045). Packed display-RGB
- * (`3 * width * height`), the SAME contract as `DecodeSuccess.rgb` — the scopes
- * are statistical reductions and were fed sRGB-ish bytes on the CPU path too, so
- * a downsampled p3-or-srgb readback is an apt source.
- *
- * OPTIONAL on every session reply: the readback is wrapped in try/catch in the
- * worker, so a gpu-off bundle, a non-`drawImage`-able surface, or any failure
- * simply omits it — the component then leaves `currentPixels` null and the scopes
- * fall back to their pseudo render, i.e. exactly today's flag-on behaviour (no
- * regression). Tiny by construction (long edge clamped), so folding it into the
- * existing reply costs ~one extra small transfer, no new round-trip.
+ * Bounded samples of quantized display pixels, converted to sRGB for all Web
+ * scopes. Packed RGB, at most 512 pixels on the long edge. Independently mapped
+ * samples arrive as session-scope events; mapping failure retains prior scopes.
  */
 export interface ScopeSnapshot {
   width: number;
   height: number;
   rgb: ArrayBuffer; // transferable, packed RGB (3 * width * height)
+}
+
+/** A separately completed GPU sample; render acknowledgements never await it. */
+export interface SessionScopeUpdate {
+  id: 0;
+  type: 'session-scope';
+  /** The open-session request that owns this sample. */
+  sessionId: number;
+  /** The successful open/render request whose pixels were sampled. */
+  renderId: number;
+  scope: ScopeSnapshot;
 }
 
 /** Reply to `open-session`: the session is live + presenting its first frame. */
@@ -241,7 +242,7 @@ export interface OpenSessionSuccess {
   cameraSupport?: CameraSupport;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
-  /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
+  /** Legacy reply payload; current workers send session-scope independently. */
   scope?: ScopeSnapshot;
 }
 
@@ -311,6 +312,7 @@ export type WorkerResponse =
   | DecodeSceneLinearError
   | OpenSessionSuccess
   | RenderSessionSuccess
+  | SessionScopeUpdate
   | SessionError
   | SetFilmLutSuccess
   | WorkerStatus

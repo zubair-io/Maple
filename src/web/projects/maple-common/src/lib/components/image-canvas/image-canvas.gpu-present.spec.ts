@@ -8,6 +8,7 @@
 //       flag prevents re-detection on every image.
 
 import { signal } from '@angular/core';
+import { BehaviorSubject } from 'rxjs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
@@ -88,6 +89,7 @@ function makeHost(
   const imageBitmap = signal<ImageBitmap | null>(null);
 
   const pipeline = {
+    liveScope$: new BehaviorSubject<DecodedImage | null>(null),
     get gpuLiveRenderEnabled() {
       return true;
     },
@@ -209,6 +211,36 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(gpuPresent.active()).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     expect((host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  it('publishes asynchronous scopes only to its active canvas and unsubscribes on teardown', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const scopes = host.pipeline.liveScope$ as BehaviorSubject<DecodedImage | null>;
+    const present = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+    const pixels = (value: number): DecodedImage => ({
+      width: 1,
+      height: 1,
+      rgb: new Uint8Array([value, 2, 3]),
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    });
+    // Replay covers a sample arriving between the worker reply and open's continuation.
+    const early = pixels(10);
+    scopes.next(early);
+    expect(await present.open('asset-1', new Uint8Array([1]), 'dng')).toBe(true);
+    expect(host.canvasSvc.currentPixels()).toBe(early);
+    const update = pixels(20);
+    scopes.next(update);
+    expect(host.canvasSvc.currentPixels()).toBe(update);
+    Object.assign(host, { currentAssetId: 'asset-2' });
+    scopes.next(pixels(30));
+    expect(host.canvasSvc.currentPixels()).toBe(update);
+    present.teardown();
+    Object.assign(host, { currentAssetId: 'asset-1' });
+    scopes.next(pixels(40));
+    expect(host.canvasSvc.currentPixels()).toBe(update);
+    expect(scopes.observed).toBe(false);
   });
 
   it('(b) failed GPU present test -> open() returns false and active stays false', async () => {

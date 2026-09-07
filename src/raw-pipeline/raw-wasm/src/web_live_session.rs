@@ -63,6 +63,9 @@ use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
+#[path = "web_live_session/scope.rs"]
+mod scope;
+
 /// A persistent web live-render session: the GPU-resident state for ONE image,
 /// driven across slider ticks via [`WebLiveSession::render`]. Owns the cached
 /// context, the upload-once session, the decoded RAW (for re-develop without
@@ -89,6 +92,9 @@ pub struct WebLiveSession {
     /// The upload-once image + persistent ping-pong / dither buffers. Recreated
     /// only on a prefix-affecting edit (re-develop) — never per hot-path tick.
     session: LiveSession,
+    /// Independent, bounded scope readback; never awaited by a render.
+    scope_sampler: raw_gpu::ScopeSampler,
+    last_presented: std::cell::Cell<Option<usize>>,
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
@@ -235,6 +241,7 @@ impl WebLiveSession {
             WebPresentSurface::create(&ctx, &canvas, width, height, requested_color_space)
                 .map_err(|e| JsError::new(&e))?;
 
+        let scope_sampler = raw_gpu::ScopeSampler::new(&ctx, &session);
         let handle = WebLiveSession {
             ctx,
             raw_img,
@@ -242,6 +249,8 @@ impl WebLiveSession {
             ext,
             present,
             session,
+            scope_sampler,
+            last_presented: std::cell::Cell::new(None),
             prefix_model,
             target_long_edge,
             width,
@@ -479,6 +488,9 @@ impl WebLiveSession {
         // bytes land on an sRGB tag, washed out the other way around).
         inputs.target_primaries =
             crate::gpu_render::target_primaries_for_color_space(self.present.color_space());
+        // A failed chain/present may overwrite the previous resident output.
+        // Until presentation succeeds, it is not a valid scope source.
+        self.last_presented.set(None);
         let final_idx = self
             .session
             .render_chain_to_f32_async(&self.ctx, &inputs, None)
@@ -489,6 +501,7 @@ impl WebLiveSession {
         // it only fetches the next surface texture, encodes the dither/quantize pass,
         // and presents — zero readback.
         self.present.present(&self.ctx, &self.session, final_idx)?;
+        self.last_presented.set(Some(final_idx));
         Ok(self.present.color_space().to_string())
     }
 }

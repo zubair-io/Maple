@@ -47,9 +47,15 @@ import type {
 } from './raw-pipeline.service-internals';
 export type { OpenedLiveSession, RenderedLiveSession } from './raw-pipeline.service-internals';
 import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
+import { LiveScopeClient } from './raw-pipeline.scope-client';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
+  private readonly liveScopes = new LiveScopeClient();
+  /** Sampled display pixels complete independently of the canvas render reply. */
+  // Consumed through GpuPresentHost.pipeline's structural type in ImageCanvasGpuPresent.
+  // fallow-ignore-next-line unused-class-member
+  readonly liveScope$ = this.liveScopes.pixels.asObservable();
   // Routes the legacy display-encoded `decode()` through the GPU live chain
   // (`render_bytes_gpu`) when true (epic #925, P4b-web / #1029). Off → the
   // WASM-CPU `render_bytes` path, byte-for-byte today. The worker further
@@ -109,6 +115,7 @@ export class RawPipelineService implements OnDestroy {
         // file kept every response kind's handling inline until it grew past
         // the file-size budget. Pure code move: no behaviour change.
         handleWorkerMessage(e.data, {
+          liveScopes: this.liveScopes,
           pending: this.pending,
           threadedSubject: this.threadedSubject,
           threadCountSubject: this.threadCountSubject,
@@ -129,6 +136,7 @@ export class RawPipelineService implements OnDestroy {
   private retireWorker(worker: Worker, message: string): void {
     worker.terminate();
     if (this.worker !== worker) return;
+    this.liveScopes.close();
     this.deepDenoiseProgress.set(null);
     this.detailClient.workerFailed();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
@@ -318,9 +326,11 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
+    const id = this.nextId++;
+    this.liveScopes.open(id);
     return openLiveSessionRequest(
       worker,
-      this.nextId++,
+      id,
       this.pending.set.bind(this.pending),
       canvas,
       bytes,
@@ -339,17 +349,14 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
-    return renderLiveSessionRequest(
-      worker,
-      this.nextId++,
-      this.pending.set.bind(this.pending),
-      xmp,
-      params,
-    );
+    const id = this.nextId++;
+    this.liveScopes.requested(id);
+    return renderLiveSessionRequest(worker, id, this.pending.set.bind(this.pending), xmp, params);
   }
 
   // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
+    this.liveScopes.close();
     if (!this.worker) return;
     closeLiveSessionRequest(this.worker, this.nextId++);
   }
@@ -534,6 +541,8 @@ export class RawPipelineService implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.liveScopes.close();
+    this.liveScopes.pixels.complete();
     this.worker?.terminate();
     this.worker = null;
     this.pending.forEach(({ reject }) => reject(new Error('RawPipelineService destroyed')));

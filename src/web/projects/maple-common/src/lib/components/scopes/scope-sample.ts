@@ -1,8 +1,8 @@
 // scope-sample.ts — reduce a decoded RGB frame into the four scope plots
 // the Maple UI scopes panel draws (#2449, milestone 18 design spec §2.4).
 //
-// The render worker already reads back a small downsampled RGB snapshot of
-// every presented frame (`readbackScopeSnapshot`, raw-pipeline.worker.ts)
+// The render worker asynchronously samples bounded sRGB pixels from the latest
+// available presented frame (`SessionScopeReadback`, #3397)
 // and `ImageCanvasComponent` publishes it as `ImageCanvasService.currentPixels`
 // — the same `DecodedImage` the top-bar histogram reduces. This module is
 // the pure reduction from that frame to `MuiScopeSample`: peak-relative RGB

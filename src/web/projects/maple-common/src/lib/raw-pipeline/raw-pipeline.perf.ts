@@ -64,7 +64,7 @@ export function markEnd(startMark: string, endMark: string, measureName: string)
 }
 
 /**
- * Time a synchronous scope readback and immediately clear its own marks/measure
+ * Time a synchronous or asynchronous scope readback and immediately clear its own marks/measure
  * so nothing accumulates in the worker's performance-entry buffer across a slider
  * drag. Every Performance Timeline call below — the clears included — runs in its
  * OWN `safeMeasure` (see module doc): a throw from `measure` must never suppress
@@ -79,12 +79,21 @@ export function markScopeReadback<T>(id: number, fn: () => T): T {
   const endMark = `maple:scope-readback:${id}:end`;
   const measureName = 'maple:scope-readback';
   markStart(startMark);
-  try {
-    return fn();
-  } finally {
+  const finish = () => {
     markEnd(startMark, endMark, measureName);
     safeMeasure(() => performance.clearMarks(startMark));
     safeMeasure(() => performance.clearMarks(endMark));
     safeMeasure(() => performance.clearMeasures(measureName));
+  };
+  try {
+    const result = fn();
+    // An owned GPU map can outlive the render reply. Time its completion without
+    // making the caller's serialized session operation wait for it.
+    if (result instanceof Promise) return result.finally(finish) as T;
+    finish();
+    return result;
+  } catch (error) {
+    finish();
+    throw error;
   }
 }

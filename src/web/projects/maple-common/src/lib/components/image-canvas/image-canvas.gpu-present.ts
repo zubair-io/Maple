@@ -14,19 +14,16 @@
 // 2D path (flag-off / mock assets); they are not supported on the GPU live canvas
 // this ticket.
 //
-// SCOPES (#1045): the histogram/waveform/parade/vectorscope read a CPU-side
-// `currentPixels` RGBA. The zero-readback present produces none, so the worker reads
-// back a SMALL downsampled RGB snapshot of the presented frame (drawing the webgpu
-// `OffscreenCanvas` onto a 2D canvas) and folds it into the open/render reply; `open`
-// and `render` below set `currentPixels` from it. A readback miss leaves it null (on
-// open) / unchanged (on edit), so the scopes degrade to their pseudo fallback rather
-// than regressing — see `raw-pipeline.worker.ts` `readbackScopeSnapshot`.
+// SCOPES (#1045, #3397): independently mapped, bounded GPU samples update
+// currentPixels after presentation. Scope work never delays the render reply;
+// the service rejects samples superseded by another session or edit.
 //
 // `transferControlToOffscreen()` is ONE-WAY per element, so each session-open creates
 // a FRESH GPU canvas element (a new asset = a new session at possibly new dims); the
 // previous element is removed.
 
 import { effect, signal, untracked } from '@angular/core';
+import type { Subscription } from 'rxjs';
 import type { ElementRef, Injector, WritableSignal } from '@angular/core';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { LibraryStateService } from '../../state/library-state.service';
@@ -118,6 +115,7 @@ export class ImageCanvasGpuPresent {
   // A scalar request cannot replace frozen prefix fields such as Profile.
   // Establish a compatible prefix through full XMP before using the fast path.
   private scalarPrefixReady = false;
+  private scopeSubscription: Subscription | null = null;
 
   /**
    * Set to `true` once a black-present is detected for this session (#1572). When
@@ -271,6 +269,8 @@ export class ImageCanvasGpuPresent {
    */
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
     this.scalarPrefixReady = false;
+    this.scopeSubscription?.unsubscribe();
+    this.scopeSubscription = null;
     // Skip the GPU probe entirely for the rest of this page session once a
     // black-present has been confirmed (#1572). No teardown needed — nothing opened.
     if (ImageCanvasGpuPresent.presentBroken) return false;
@@ -344,10 +344,17 @@ export class ImageCanvasGpuPresent {
       // Clear the 2D bitmap so the (hidden) 2D canvas doesn't retain stale pixels.
       this.host.imageBitmap()?.close();
       this.host.imageBitmap.set(null);
-      // Feed the scopes from the GPU readback of the first presented frame (#1045);
-      // null when the worker couldn't snapshot the surface → scopes use their
-      // pseudo fallback (today's flag-on behaviour, no regression).
       this.host.canvasSvc.currentPixels.set(info.scopePixels ?? null);
+      this.scopeSubscription = this.host.pipeline.liveScope$.subscribe((pixels) => {
+        if (
+          pixels &&
+          this.active() &&
+          assetId === this.host.currentAssetId &&
+          this.canvasEl === canvasEl
+        ) {
+          this.host.canvasSvc.currentPixels.set(pixels);
+        }
+      });
 
       // Same cold-open bookkeeping as the 2D path so #846 dedups identically.
       // The session dims are viewport-sized (#1080); record the NATIVE dims the
@@ -394,9 +401,8 @@ export class ImageCanvasGpuPresent {
   /**
    * Re-render the open session for `xmp` and present to the OffscreenCanvas (the #846
    * edit path). The display present itself is zero-readback (the OffscreenCanvas holds
-   * the pixels, no bitmap to publish); the worker additionally folds a SMALL
-   * downsampled readback of the presented frame into the reply for the scopes (#1045),
-   * which we publish to `currentPixels`. The worker serializes renders (the wasm
+   * the pixels, no bitmap to publish). Independently tagged scope updates feed
+   * `currentPixels`. The worker serializes renders (the wasm
    * `&mut self` re-entrancy guard), so an overlapping debounce fire can't trip
    * "recursive use of an object detected". Returns `true` once the result is accepted
    * as current; on a stale (superseded) generation it returns `false` and accepts the
@@ -445,6 +451,8 @@ export class ImageCanvasGpuPresent {
 
   /** Tear down the GPU live session + remove its canvas element. Idempotent. */
   teardown(): void {
+    this.scopeSubscription?.unsubscribe();
+    this.scopeSubscription = null;
     this.scalarPrefixReady = false;
     if (this.active() || this.canvasEl) {
       this.host.pipeline.closeLiveSession();
