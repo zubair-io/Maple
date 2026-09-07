@@ -24,12 +24,13 @@ namespace Maple.WinUI
         // their rows park the drag and write once at the gesture's end. A
         // Slider captures the pointer for the whole thumb drag and releases it
         // on pointer-up; KeyUp covers arrow-key adjustment. Two shims because
-        // the two XAML events carry different delegate types.
+        // the two XAML events carry different delegate types; each shim is named
+        // for the event it is subscribed to, and they share one gesture-end body.
 
-        private void OnSliderPointerReleased(object sender, PointerRoutedEventArgs e) =>
+        private void OnSliderPointerCaptureLost(object sender, PointerRoutedEventArgs e) =>
             CommitSliderGesture(sender);
 
-        private void OnSliderKeyReleased(object sender, KeyRoutedEventArgs e) =>
+        private void OnSliderKeyUp(object sender, KeyRoutedEventArgs e) =>
             CommitSliderGesture(sender);
 
         private static void CommitSliderGesture(object sender)
