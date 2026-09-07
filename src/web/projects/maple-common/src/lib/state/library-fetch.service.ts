@@ -1219,11 +1219,12 @@ export class LibraryFetch {
           this._apiAdjustmentPatches.get(id) ?? {},
         );
         const culling = this.store.mergePersistedCulling(id, persisted?.culling ?? pending.culling);
+        const passthrough = persisted?.passthrough ?? this.xmpStore.passthroughFor(id);
         const xml = this.xmpSerializer.serialize(
           model,
-          persisted?.passthrough ?? this.xmpStore.passthroughFor(id),
+          passthrough,
           culling,
-          persisted?.metadata ?? this.xmpStore.metadataFor(id),
+          passthrough ? undefined : this.xmpStore.metadataFor(id),
         );
         return this.sidecarStore.write(absPath, xml);
       })

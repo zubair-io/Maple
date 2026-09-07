@@ -7,12 +7,16 @@
 // browser under the right name.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ImageExportService, extensionOf } from './image-export.service';
 import { LibraryStateService } from '../state/library-state.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { XmpParserService } from '../xmp/xmp-parser.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { GPU_LIVE_RENDER_ENABLED } from '../raw-pipeline/gpu-live-render.token';
 import { WorkerStub, installWorkerStub } from '../raw-pipeline/raw-pipeline.service.test-helpers';
@@ -236,6 +240,87 @@ describe('ImageExportService', () => {
       expect.any(Object),
       metadata,
     );
+  });
+
+  it('retains source title languages and creators when exporting with a typed metadata cache', async () => {
+    const dc = 'http://purl.org/dc/elements/1.1/';
+    const rdf = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
+    const directory = await fs.mkdtemp(join(tmpdir(), 'maple-export-metadata-'));
+    try {
+      const sidecar = join(directory, 'IMG_0042.xmp');
+      await fs.writeFile(
+        sidecar,
+        `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="${rdf}">
+          <rdf:Description rdf:about="" xmlns:d="${dc}">
+            <d:title><rdf:Alt><rdf:li xml:lang="x-default">Original title</rdf:li><rdf:li xml:lang="fr">Titre original</rdf:li></rdf:Alt></d:title>
+          </rdf:Description>
+          <rdf:Description rdf:about="" xmlns:dc="${dc}">
+            <dc:creator><rdf:Seq><rdf:li>First author</rdf:li><rdf:li>Second author</rdf:li></rdf:Seq></dc:creator>
+          </rdf:Description>
+        </rdf:RDF></x:xmpmeta>`,
+      );
+      const source = await fs.readFile(sidecar, 'utf8');
+      const parser = new XmpParserService();
+      passthroughFor.mockReturnValue(parser.parseAdjustmentModel(source).passthrough);
+      const metadata = parser.parseMetadata(source);
+      expect(metadata).toMatchObject({ title: 'Original title', creator: 'First author' });
+      metadataFor.mockReturnValue(metadata);
+
+      // Keep transport stubs, but exercise the actual serialization path.
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          ImageExportService,
+          RawPipelineService,
+          XmpSerializerService,
+          { provide: GPU_LIVE_RENDER_ENABLED, useValue: false },
+          {
+            provide: LibraryStateService,
+            useValue: {
+              bytesForAsset: vi.fn().mockResolvedValue(RAW_BYTES),
+              adjustmentFor: vi.fn().mockReturnValue(signal(defaultAdjustmentModel())),
+              scheduleSidecarWrite,
+              flushPendingXmpWrites,
+            },
+          },
+          { provide: XmpStoreService, useValue: { passthroughFor, metadataFor } },
+        ],
+      });
+      service = TestBed.inject(ImageExportService);
+      const asset = makeAsset();
+      await runExport(asset, OPTIONS);
+      const renderedXmp = (workerStub.postMessage.mock.calls[0][0] as { xmp: string }).xmp;
+      vi.mocked(URL.createObjectURL).mockClear();
+      service.downloadSidecar(asset);
+      const downloadedBlob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+      const downloadedXmp = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(downloadedBlob);
+      });
+      for (const xml of [renderedXmp, downloadedXmp]) {
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const titles = doc.getElementsByTagNameNS(dc, 'title');
+        expect(titles.length).toBe(1);
+        expect(
+          Array.from(titles[0].getElementsByTagNameNS(rdf, 'li'), (li) => [
+            li.getAttribute('xml:lang'),
+            li.textContent,
+          ]),
+        ).toEqual([
+          ['x-default', 'Original title'],
+          ['fr', 'Titre original'],
+        ]);
+        const creators = doc.getElementsByTagNameNS(dc, 'creator');
+        expect(creators.length).toBe(1);
+        expect(
+          Array.from(creators[0].getElementsByTagNameNS(rdf, 'li'), (li) => li.textContent),
+        ).toEqual(['First author', 'Second author']);
+      }
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('reports the dimensions and size the worker returned', async () => {
