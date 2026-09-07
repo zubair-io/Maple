@@ -1,5 +1,6 @@
 // MaskPanel.swift — the Mask tool's control surface (#3275, spec §3.2): a
-// layer list plus, for the selected layer, its eleven sliders and its
+// layer list plus, for the selected layer, its seventeen sliders — the
+// eleven point controls, then the six spatial ones (#3407) — and its
 // colour-range controls (`MaskRangeSection`, #362). Mounted as a
 // full-surface swap in both control layouts (StackedAdjustmentsPanel,
 // MobileControlBar) the way ColorGrade/HSL already are, since Mask has no
@@ -62,10 +63,12 @@ struct MaskPanel: View {
 
     private func sliders(for layer: LocalAdjustment) -> some View {
         VStack(spacing: 4) {
-            ForEach(MaskSlider.allCases) { slider in
-                MaskSliderRow(state: state, layerId: layer.id, slider: slider)
-                    .padding(.horizontal, 14)
-            }
+            rows(MaskSlider.pointControls, for: layer)
+            // The spatial group is a separate pass in the render stage and a
+            // separate block in Lightroom's own panel, so it reads as its
+            // own run here rather than continuing the tone/colour list.
+            Divider().padding(.vertical, 2)
+            rows(MaskSlider.spatialControls, for: layer)
             // Colour range (#362): the refinement's enable toggle,
             // eyedropper and five sliders, under the adjustment sliders.
             MaskRangeSection(state: state, layerId: layer.id)
@@ -80,14 +83,47 @@ struct MaskPanel: View {
         .disabled(!state.session.isMaskEnabled(id: layer.id))
         .opacity(state.session.isMaskEnabled(id: layer.id) ? 1 : 0.45)
     }
+
+    private func rows(_ sliders: [MaskSlider], for layer: LocalAdjustment) -> some View {
+        ForEach(sliders) { slider in
+            MaskSliderRow(state: state, layerId: layer.id, slider: slider)
+                .padding(.horizontal, 14)
+        }
+    }
 }
 
-/// The eleven per-mask controls, in the order spec §3.2 lists them.
+/// The per-mask controls: the eleven point controls in the order spec §3.2
+/// lists them, then the six spatial ones (#3407) in Lightroom's own panel
+/// order. Declaration order is emission order — `pointControls` and
+/// `spatialControls` split `allCases` on `isSpatial`.
 enum MaskSlider: String, CaseIterable, Identifiable {
     case hue, temperature, tint, saturation, vibrance, exposure, contrast, highlights, shadows, whites, blacks
+    case texture, clarity, dehaze, sharpness, luminanceNoise, defringe
+
+    static let pointControls = allCases.filter { !$0.isSpatial }
+    static let spatialControls = allCases.filter(\.isSpatial)
 
     var id: String { rawValue }
-    var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+
+    /// True for the six controls that read a neighbourhood rather than a
+    /// single pixel, which raw-core runs as one grouped pass after the
+    /// point group (`PartialAdjustments.spatialIsEmpty`).
+    var isSpatial: Bool {
+        switch self {
+        case .texture, .clarity, .dehaze, .sharpness, .luminanceNoise, .defringe: return true
+        default: return false
+        }
+    }
+
+    var label: String {
+        switch self {
+        // "Noise" is what Lightroom's panel calls the luminance-noise
+        // control; the model field keeps the unambiguous name.
+        case .luminanceNoise: return "Noise"
+        default: return rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        }
+    }
+
     var range: ClosedRange<Double> {
         switch self {
         case .hue: return -100...100
@@ -96,6 +132,9 @@ enum MaskSlider: String, CaseIterable, Identifiable {
         // EV, like the global tool (`ToolValueMapping`) — the stage applies
         // it as `exp2(ev)`, so a ±100 range would be nonsense (#3291 review).
         case .exposure: return -4...4
+        // Noise reduction and defringe are one-sided: there is no
+        // "negative denoise", matching their global counterparts.
+        case .luminanceNoise, .defringe: return 0...100
         default: return -100...100
         }
     }
@@ -136,6 +175,12 @@ private struct MaskSliderRow: View {
         case .shadows: return a.shadows
         case .whites: return a.whites
         case .blacks: return a.blacks
+        case .texture: return a.texture
+        case .clarity: return a.clarity
+        case .dehaze: return a.dehaze
+        case .sharpness: return a.sharpness
+        case .luminanceNoise: return a.luminanceNoise
+        case .defringe: return a.defringe
         }
     }
 
@@ -165,6 +210,9 @@ private struct MaskSliderRow: View {
                 // `Slider` gives, and both need both ends (#3453 review).
                 onEditingChanged: { editing in state.session.setMaskDragActive(editing) }
             )
+            // The row's `Text` is a sibling of the control, not its name, so
+            // VoiceOver needs the label spelled out on the slider itself.
+            .accessibilityLabel(slider.label)
             Text(String(format: slider == .exposure ? "%.2f" : "%.0f", value))
                 .font(.system(size: 11).monospacedDigit())
                 .frame(width: 36, alignment: .trailing)
@@ -190,6 +238,12 @@ private struct MaskSliderRow: View {
         case .shadows: a.shadows = v
         case .whites: a.whites = v
         case .blacks: a.blacks = v
+        case .texture: a.texture = v
+        case .clarity: a.clarity = v
+        case .dehaze: a.dehaze = v
+        case .sharpness: a.sharpness = v
+        case .luminanceNoise: a.luminanceNoise = v
+        case .defringe: a.defringe = v
         }
     }
 }

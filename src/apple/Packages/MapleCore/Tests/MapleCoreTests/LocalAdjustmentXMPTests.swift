@@ -32,7 +32,14 @@ private let radialLayer = LocalAdjustment(
         center: MaskPoint(x: 0.5, y: 0.375), radii: MaskPoint(x: 0.25, y: 0.125),
         angle: LocalAdjustmentXMP.degreesToRadians(45), feather: 0.6, invert: true),
     range: .color(hueDeg: 210, hueHalfWidthDeg: 40, chromaMin: 0.1, lMin: 0, lMax: 1, feather: 0),
-    adjustments: PartialAdjustments(contrast: 15, vibrance: -10, temperature: 200, hue: 0))
+    // The six spatial controls (#3407), all non-default so the four-writer
+    // byte-parity golden pins their keys, their Adobe ±1 fraction scale and
+    // their emission order. `clarity: 35` is the ticket's own Lightroom
+    // example, which stores as `crs:LocalClarity2012="0.35"`.
+    adjustments: PartialAdjustments(
+        contrast: 15, vibrance: -10, temperature: 200, hue: 0,
+        texture: 18, clarity: 35, dehaze: -22.5, sharpness: 66,
+        luminanceNoise: 40, defringe: 75))
 
 /// Cross-language byte-parity fixture — see the file header.
 private let canonicalBlock = """
@@ -78,6 +85,12 @@ private let canonicalBlock = """
               papp:LocalVibrance="-10"
               crs:LocalTemperature="200"
               crs:LocalHue="0"
+              crs:LocalTexture="0.18"
+              crs:LocalClarity2012="0.35"
+              crs:LocalDehaze="-0.225"
+              crs:LocalSharpness="0.66"
+              crs:LocalLuminanceNoise="0.4"
+              crs:LocalDefringe="0.75"
               papp:RangeKind="Color"
               papp:RangeHue="210"
               papp:RangeHueWidth="40"
@@ -93,6 +106,40 @@ private let canonicalBlock = """
                     crs:Top="0.25" crs:Left="0.25" crs:Bottom="0.5" crs:Right="0.75"
                     crs:Angle="45" crs:Midpoint="50" crs:Roundness="0"
                     crs:Feather="60" crs:Flipped="True"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:CircularGradientBasedCorrections>
+"""
+
+/// A Lightroom-authored correction carrying only the six #3407 keys, on
+/// Adobe's ±1 fraction scale. Mirrors the Rust fixture in
+/// `tests_local_adjustments_spatial.rs` — parsing it and re-serializing must
+/// reproduce this text byte-for-byte.
+private let lightroomSpatialBlock = """
+      <crs:CircularGradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              crs:LocalTexture="0.2"
+              crs:LocalClarity2012="0.35"
+              crs:LocalDehaze="-0.4"
+              crs:LocalSharpness="0.55"
+              crs:LocalLuminanceNoise="0.3"
+              crs:LocalDefringe="0.65">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/CircularGradient"
+                    crs:MaskValue="1"
+                    crs:Top="0.25" crs:Left="0.25" crs:Bottom="0.75" crs:Right="0.75"
+                    crs:Angle="0" crs:Midpoint="50" crs:Roundness="0"
+                    crs:Feather="50" crs:Flipped="False"/>
                 </rdf:Seq>
               </crs:CorrectionMasks>
             </rdf:Description>
@@ -309,14 +356,16 @@ final class LocalAdjustmentXMPTests: XCTestCase {
     }
 
     /// A Lightroom-authored radial correction imports as the nearest
-    /// ellipse; the attributes Maple has no field for are ignored.
+    /// ellipse; the mask attributes Maple has no field for (`Roundness`,
+    /// `MaskName`, `MaskSyncID`) are ignored. `crs:LocalClarity2012` is on
+    /// Adobe's ±1 fraction scale (#3407), so `0.25` is a Clarity of +25.
     func testImportsALightroomRadialCorrection() throws {
         let doc = sidecar("""
               <crs:CircularGradientBasedCorrections>
                 <rdf:Seq>
                   <rdf:li>
                     <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="true"
-                      crs:LocalSaturation="-15" crs:LocalClarity2012="20" crs:LocalTemperature="-50">
+                      crs:LocalSaturation="-15" crs:LocalClarity2012="0.25" crs:LocalTemperature="-50">
                       <crs:CorrectionMasks>
                         <rdf:Seq>
                           <rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1"
@@ -336,7 +385,7 @@ final class LocalAdjustmentXMPTests: XCTestCase {
                 mask: .radial(
                     center: MaskPoint(x: 0.5, y: 0.375), radii: MaskPoint(x: 0.25, y: 0.125),
                     angle: 0, feather: 0.5, invert: false),
-                adjustments: PartialAdjustments(saturation: -15, temperature: -50)),
+                adjustments: PartialAdjustments(saturation: -15, temperature: -50, clarity: 25)),
         ])
     }
 
@@ -352,5 +401,81 @@ final class LocalAdjustmentXMPTests: XCTestCase {
         XCTAssertEqual(reparsed.toneCurveLuma, model.toneCurveLuma)
         XCTAssertEqual(reparsedCulling.keywords, ["alpha"])
         XCTAssertEqual(XMPSerializer.serialize(model: reparsed, culling: reparsedCulling), xml)
+    }
+
+    // MARK: - Spatial controls (#3407)
+
+    /// A Lightroom-authored correction carrying the six spatial keys parses
+    /// into Maple's ±100 sliders, and re-serializing reproduces the SAME
+    /// attribute text byte-for-byte — the ticket's explicit acceptance bar.
+    /// Adobe stores these as ±1 fractions, so `crs:LocalClarity2012="0.35"`
+    /// is a Clarity of +35 and must come back out as `"0.35"`.
+    func testLightroomAuthoredSpatialCorrectionRoundTripsByteForByte() throws {
+        let (model, _) = try XMPParser.parse(sidecar(lightroomSpatialBlock))
+        let a = model.localAdjustments[0].adjustments
+        // The ×100 lift out of Adobe's fraction scale is a float multiply,
+        // so these are compared to within noise (0.55 × 100 is
+        // 55.00000000000001); the byte-for-byte assertion below is what
+        // pins the WIRE exactly.
+        for (got, want) in [
+            (a.texture, 20.0), (a.clarity, 35.0), (a.dehaze, -40.0),
+            (a.sharpness, 55.0), (a.luminanceNoise, 30.0), (a.defringe, 65.0),
+        ] {
+            guard let got else { return XCTFail("control missing: \(a)") }
+            XCTAssertEqual(got, want, accuracy: 1e-4)
+        }
+        XCTAssertEqual(
+            XMPSerializer._buildLocalAdjustmentsBlock(model: model, indent: canonicalIndent),
+            lightroomSpatialBlock)
+    }
+
+    /// Omit-on-default: a layer that sets none of the six emits none of the
+    /// six keys, so an unedited correction stays byte-identical on re-save.
+    func testUnsetSpatialControlsEmitNoAttributes() throws {
+        let block = XMPSerializer._buildLocalAdjustmentsBlock(
+            model: withLayers([
+                LocalAdjustment(
+                    mask: .linear(start: MaskPoint(x: 0, y: 0), end: MaskPoint(x: 1, y: 0), feather: 0.5),
+                    adjustments: PartialAdjustments(exposure: 0.25)),
+            ]),
+            indent: canonicalIndent)
+        for key in [
+            "crs:LocalTexture", "crs:LocalClarity2012", "crs:LocalDehaze",
+            "crs:LocalSharpness", "crs:LocalLuminanceNoise", "crs:LocalDefringe",
+        ] {
+            XCTAssertFalse(block.contains(key), "\(key) leaked into:\n\(block)")
+        }
+        let (parsed, _) = try XMPParser.parse(sidecar(block))
+        XCTAssertTrue(parsed.localAdjustments[0].adjustments.spatialIsEmpty)
+    }
+
+    /// `crs:CorrectionAmount` scales the spatial controls exactly as it
+    /// scales every other stored delta — Adobe's own Amount semantics.
+    func testCorrectionAmountScalesTheSpatialControls() throws {
+        let doc = sidecar(gradientCorrection(
+            "crs:What=\"Correction\" crs:CorrectionAmount=\"0.5\" crs:LocalClarity2012=\"0.4\"",
+            fullFrameGradient))
+        let (model, _) = try XMPParser.parse(doc)
+        guard let clarity = model.localAdjustments.first?.adjustments.clarity else {
+            return XCTFail("clarity missing: \(model.localAdjustments)")
+        }
+        XCTAssertEqual(clarity, 20, accuracy: 1e-4)
+    }
+
+    /// Every one of the six survives a whole-document round trip on its own
+    /// layer, including the 0…100-only pair.
+    func testEverySpatialControlRoundTripsThroughAWholeDocument() throws {
+        let adjustments = PartialAdjustments(
+            texture: -12.5, clarity: 35, dehaze: -22.5, sharpness: 66,
+            luminanceNoise: 40, defringe: 75)
+        let layer = LocalAdjustment(
+            mask: .linear(start: MaskPoint(x: 0, y: 0), end: MaskPoint(x: 1, y: 0), feather: 0.5),
+            adjustments: adjustments)
+        let xml = XMPSerializer.serialize(model: withLayers([layer]), culling: CullingState())
+        XCTAssertTrue(xml.contains("crs:LocalTexture=\"-0.125\""), xml)
+        XCTAssertTrue(xml.contains("crs:LocalLuminanceNoise=\"0.4\""), xml)
+        let (parsed, culling) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsed.localAdjustments, [layer])
+        XCTAssertEqual(XMPSerializer.serialize(model: parsed, culling: culling), xml)
     }
 }
