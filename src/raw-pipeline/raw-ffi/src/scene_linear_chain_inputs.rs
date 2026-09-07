@@ -153,6 +153,27 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.sharpen_detail = p.sharpen_detail;
     model.sharpen_masking = p.sharpen_masking;
     model.nr_color = p.nr_color;
+    // Defringe (#3411) — see `model::defringe_triples` for the stale-tail
+    // band fallback. Both amounts at 0 leaves the stage a bit-identical
+    // no-op, which is what a pre-#3411 host's zero-filled tail produces.
+    let (defringe_purple, defringe_green) = crate::model::defringe_triples(
+        [
+            p.defringe_purple_amount,
+            p.defringe_purple_hue_lo,
+            p.defringe_purple_hue_hi,
+        ],
+        [
+            p.defringe_green_amount,
+            p.defringe_green_hue_lo,
+            p.defringe_green_hue_hi,
+        ],
+    );
+    model.defringe_purple_amount = defringe_purple[0];
+    model.defringe_purple_hue_lo = defringe_purple[1];
+    model.defringe_purple_hue_hi = defringe_purple[2];
+    model.defringe_green_amount = defringe_green[0];
+    model.defringe_green_hue_lo = defringe_green[1];
+    model.defringe_green_hue_hi = defringe_green[2];
     let (local_adjustments, mask_rasters) = read_local_adjustments(p);
     model.local_adjustments = local_adjustments;
     model.mask_rasters = mask_rasters;

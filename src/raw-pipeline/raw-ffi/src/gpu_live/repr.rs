@@ -346,4 +346,20 @@ pub struct MapleGpuLiveParams {
     pub perspective_aspect: f32,
     pub perspective_x: f32,
     pub perspective_y: f32,
+    // --- Defringe (#3411) — ACR's purple / green fringe suppression, run in
+    //     scene-linear Oklab between dehaze and local adjustments. Appended
+    //     at the struct tail per the offset-stable ABI convention. UNLIKE
+    //     most tail fields, 0.0 is NOT the model default for the four hue
+    //     edges (ACR's are 30/70 and 40/60) — but they are INERT while both
+    //     amounts are 0, which is what a stale host leaves them at, so a
+    //     zeroed tail is still bit-identical to pre-#3411 output. The Rust
+    //     side substitutes the canonical bands when the whole block reads
+    //     as a stale zero-fill, the same fallback convention #3152's
+    //     parametric splits use. ---
+    pub defringe_purple_amount: f32,
+    pub defringe_purple_hue_lo: f32,
+    pub defringe_purple_hue_hi: f32,
+    pub defringe_green_amount: f32,
+    pub defringe_green_hue_lo: f32,
+    pub defringe_green_hue_hi: f32,
 }

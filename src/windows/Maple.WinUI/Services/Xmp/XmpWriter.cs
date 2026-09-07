@@ -98,6 +98,12 @@ namespace Maple.WinUI.Services.Xmp
                 // ACR's "0" spelling so Lightroom reads it back (#376).
                 parts.Add("crs:LensProfileEnable=\"0\"");
             }
+            if (state.AutoLateralCa == ToggleMode.On)
+            {
+                // ACR's "Remove Chromatic Aberration" checkbox, same "1"/"0"
+                // spelling as LensProfileEnable above (#3411).
+                parts.Add("crs:AutoLateralCA=\"1\"");
+            }
             if (state.WbMethod != WbMethod.Cat16)
             {
                 parts.Add($"papp:WbMethod=\"{state.WbMethod}\"");

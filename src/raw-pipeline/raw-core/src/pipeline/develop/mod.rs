@@ -163,8 +163,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             stage("hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
-            // Profile-free lateral CA (#3411) — see `geometry::lateral_ca`.
-            geometry::lateral_ca(&mut mosaic, raw, model, cancel)?;
+            geometry::lateral_ca(&mut mosaic, raw, model, cancel)?; // #3411
             stage("demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
                 RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
@@ -179,8 +178,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             stage("hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
-            // Profile-free lateral CA (#3411) — raw-domain, so it runs
-            // BEFORE whichever Bayer kernel `bayer_kernel` picks below.
+            // #3411 — raw-domain, so BEFORE whichever kernel is picked below.
             geometry::lateral_ca(&mut mosaic, raw, model, cancel)?;
             // Which kernel is `bayer_kernel`'s call (#3413): the quality
             // level's own default, overridden by the model's `demosaic`
@@ -494,11 +492,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     dump_after("11_texture", &scene);
     stage("dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
-    // Defringe (#3411) — purple / green fringe suppression in scene-linear
-    // Oklab, between dehaze and local adjustments so a local mask can still
-    // paint over a defringed edge. Bit-identical no-op at both default
-    // amounts of 0; mirrored per-tick in `scene_linear_chain` and on the
-    // GPU by `raw_gpu::defringe`.
+    // Defringe (#3411) — Oklab, between dehaze and local adjustments so a
+    // mask can still paint over a defringed edge. No-op at both defaults.
     stage("defringe", || defringe::apply_model(&mut scene, model));
     dump_after("12a_defringe", &scene);
     // Local adjustments (ticket #280). Empty Vec (the default) makes this a
