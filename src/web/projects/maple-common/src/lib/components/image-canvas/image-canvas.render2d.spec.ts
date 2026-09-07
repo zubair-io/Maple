@@ -15,6 +15,7 @@ import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AssetId } from '../../models/asset';
+import { cameraSupportFromJson } from '../../state/camera-support';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { Render2dHost } from './image-canvas.render2d';
 import { runRender2d, coldOpen2d } from './image-canvas.render2d';
@@ -116,9 +117,15 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     );
   });
 
-  it('coldOpen2d never reads filmSync — the cold-open decode carries no film LUT', async () => {
+  it.each([
+    undefined,
+    cameraSupportFromJson(
+      '{"cameraKey":"Unknown camera","resolution":"embedded_cm_only","lens":"no_correction_data"}',
+    )!,
+  ])('coldOpen2d records decoded support %j without applying a film LUT', async (cameraSupport) => {
     const filmLut = new TextEncoder().encode('slide_fuji_velvia_50').buffer;
     const { host, decode } = harness(filmLut);
+    decode.mockResolvedValue({ ...decoded, cameraSupport });
     (host as unknown as { state: unknown }).state = {
       updateAssetDimensions: vi.fn(),
       seedAsShotWhiteBalance: vi.fn(),
@@ -135,6 +142,13 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     (host as unknown as { scheduleRefine: () => void }).scheduleRefine = vi.fn();
 
     await coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1, 2, 3]));
+
+    expect(host.state.seedLensCorrections).toHaveBeenCalledWith(
+      ASSET_ID,
+      false,
+      true,
+      cameraSupport ?? null,
+    );
 
     // `decode()`'s call signature at the cold open has only 4 args (no
     // sizing/filmLut trailing params beyond maxLongEdge/qualityPreview) —
