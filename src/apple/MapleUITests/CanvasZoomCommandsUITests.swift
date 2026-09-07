@@ -43,9 +43,16 @@ import XCTest
       app.buttons["editor-pill-zoom"].click()
       assertValue(fitValue, on: badge)
 
+      let slider = app.descendants(matching: .any)
+        .matching(identifier: "editor-slider-exposure").firstMatch
+      XCTAssertTrue(slider.waitForExistence(timeout: 10))
+      slider.click()
+      // The scene router keeps Zoom available while a control outside
+      // CanvasZoomHost owns focus; the canvas controller is only a fallback.
       openZoomMenu(in: app)
       app.menuItems["Actual Size (100%)"].click()
       assertValue("Zoom 100 percent", on: badge)
+      slider.click()
       openZoomMenu(in: app)
       app.menuItems["Zoom to Fit"].click()
       assertValue(fitValue, on: badge)
@@ -58,12 +65,9 @@ import XCTest
 
       app.buttons["editor-back"].click()
       XCTAssertTrue(badge.waitForNonExistence(timeout: 10))
-      openZoomMenu(in: app)
+      app.menuBars.menuBarItems["View"].click()
       XCTAssertFalse(
-        app.menuItems["Zoom to Fit"].isEnabled, "Browse must not retain the editor's Fit command.")
-      XCTAssertFalse(
-        app.menuItems["Actual Size (100%)"].isEnabled,
-        "Browse must not retain the editor's Actual Size command.")
+        app.menuItems["Zoom"].isEnabled, "Browse must not retain the editor's Zoom commands.")
       app.typeKey(.escape, modifierFlags: [])
     }
 

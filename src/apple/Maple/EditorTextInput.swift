@@ -29,13 +29,20 @@ enum EditorTextInput {
 
   #if !os(macOS)
     private static var firstResponder: UIView? {
-      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        .flatMap(\.windows).filter(\.isKeyWindow).compactMap(findResponder).first
+      for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+        for window in scene.windows where window.isKeyWindow {
+          if let responder = findResponder(window) { return responder }
+        }
+      }
+      return nil
     }
 
-    private static func findResponder(_ view: UIView) -> UIView? {
+    static func findResponder(_ view: UIView) -> UIView? {
       if view.isFirstResponder { return view }
-      return view.subviews.compactMap(findResponder).first
+      for subview in view.subviews {
+        if let responder = findResponder(subview) { return responder }
+      }
+      return nil
     }
   #endif
 }
