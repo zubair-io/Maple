@@ -72,7 +72,13 @@ pub(crate) fn register(digest: &str, width: u32, height: u32, data: &[u8]) -> Re
             "mask_raster_register: digest must be 16 lowercase hex chars, got {digest:?}"
         ));
     }
-    let expected_len = (width as usize) * (height as usize);
+    // `checked_mul`: on wasm32 `usize` is 32 bits, so `65536 * 65536` would
+    // wrap to 0 and let an empty `data` slip past the length check.
+    let Some(expected_len) = (width as usize).checked_mul(height as usize) else {
+        return Err(format!(
+            "mask_raster_register: width * height overflows ({width} * {height})"
+        ));
+    };
     if data.len() != expected_len {
         return Err(format!(
             "mask_raster_register: data length {} != width * height ({width} * {height} = {expected_len})",
