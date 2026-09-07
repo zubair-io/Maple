@@ -241,6 +241,16 @@
          this project cannot link. -->
     <Compile Include="..\Maple.WinUI\Generated\WhiteBalancePresets.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Models\WhiteBalanceProvenance.cs" LinkBase="Models" />
+    <!-- The eyedropper (#2434): `Services\WhiteBalanceSampler.cs` is the
+         probe-sidecar + raw-ffi call + return-code→message seam (System.IO,
+         the linked XmpWriter and RawFfi only; the native call itself runs
+         only when MAPLE_RAW_FFI_DLL arms it), and
+         `ViewModels\WhiteBalancePickLogic.cs` is the canvas-click →
+         normalised-point math — both plain C#, split out of the WinUI-bound
+         MainWindow / EditSessionViewModel partials the same way
+         SelectionLogic.cs is. -->
+    <Compile Include="..\Maple.WinUI\Services\WhiteBalanceSampler.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\ViewModels\WhiteBalancePickLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />

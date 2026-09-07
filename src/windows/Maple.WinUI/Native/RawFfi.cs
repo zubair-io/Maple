@@ -186,6 +186,29 @@ namespace Maple.WinUI.Native
             int qualityPreview,
             out MapleAutoAdjustments outAuto);
 
+        // --- Neutral white-balance sampler (#2434) ---
+
+        /// <summary>
+        /// The eyedropper. `nx`/`ny` are normalised [0, 1] in the UNCROPPED,
+        /// EXIF-oriented frame — the frame the viewport presents (the
+        /// scene-linear decode is oriented, `render_scene_linear_sized_*`) —
+        /// and raw-ffi maps them back onto the sensor itself, the same entry
+        /// Apple's `WhiteBalanceSampler` calls. `xmpPath` is the current edit
+        /// model (a probe sidecar), so the sample develops with the user's
+        /// lens/decode settings. Return codes: 0 ok; 11 outside the image;
+        /// 12 clipped; 13 too dark; 14 outside the slider domain; anything
+        /// else a read/decode failure — `maple_last_error()` carries the
+        /// message on the calling thread. `Services/WhiteBalanceSampler.cs`
+        /// wraps this.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_sample_white_balance_oriented(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            float nx,
+            float ny,
+            out MapleWbSample outSample);
+
         // --- Filename-template engine (#2628): shared with Apple (C-FFI) and
         //     the Self Hosted API (bun:ffi) via the same raw-ffi symbol.
         //     Pure string logic, no filesystem access. Used directly (no
