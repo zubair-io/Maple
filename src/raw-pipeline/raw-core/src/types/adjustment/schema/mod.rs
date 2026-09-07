@@ -558,6 +558,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     perspective::PERSPECTIVE_ASPECT,
     perspective::PERSPECTIVE_X,
     perspective::PERSPECTIVE_Y,
+    FieldSpec {
+        name: "demosaic",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "DemosaicChoice",
+        doc: "Bayer demosaic kernel override (#3413). 'Auto' (default) picks from the frame's noise profile and size — LMMSE when noisy, the AMaZE+VNG4 dual on a large clean frame, AMaZE alone on a small one; every other value pins one kernel. Inert on the binned fit-view path and on non-Bayer sources. XMP key `papp:Demosaic`. Part of the decoded-image cache key.",
+    },
 ];
 
 #[cfg(test)]

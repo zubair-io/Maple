@@ -158,6 +158,7 @@ const ABSOLUTE_FIELDS: &[&str] = &[
     "perspective_aspect",
     "perspective_x",
     "perspective_y",
+    "demosaic",
 ];
 
 #[cfg(test)]
