@@ -24,6 +24,7 @@ import {
   meilisearchFormToPatch,
   parseClampedInt,
   pendingTitle,
+  pauseReason,
   runtimeFormToPatch,
   stageMeta,
   statusDotColor,
@@ -438,5 +439,43 @@ describe('describe servers', () => {
       describe_servers: null,
       describe_provider_url: null,
     });
+  });
+});
+
+// ── Self-imposed pause reason (#3315) ─────────────────────────────────────
+
+describe('pauseReason', () => {
+  const reason =
+    'Paused automatically: Meilisearch blocked the embedding server’s address. Configure MEILI_EXPERIMENTAL_ALLOWED_IP_NETWORKS on the Meilisearch process, then resume this stage.';
+
+  it('returns the reason a stage paused itself with', () => {
+    const s = stage({
+      name: 'meili',
+      status: 'paused',
+      config: workerConfig({ paused: true, pause_reason: reason }),
+    });
+    expect(pauseReason(s)).toBe(reason);
+  });
+
+  it('is null for an operator pause, which records no reason', () => {
+    const s = stage({ status: 'paused', config: workerConfig({ paused: true }) });
+    expect(pauseReason(s)).toBeNull();
+    const blank = stage({
+      status: 'paused',
+      config: workerConfig({ paused: true, pause_reason: '   ' }),
+    });
+    expect(pauseReason(blank)).toBeNull();
+  });
+
+  it('is null once the stage is running again, even if a stale reason lingers on the row', () => {
+    const s = stage({
+      status: 'running',
+      config: workerConfig({ paused: false, pause_reason: reason }),
+    });
+    expect(pauseReason(s)).toBeNull();
+  });
+
+  it('is null before the stage config has been seeded', () => {
+    expect(pauseReason(stage({ status: 'paused', config: null }))).toBeNull();
   });
 });

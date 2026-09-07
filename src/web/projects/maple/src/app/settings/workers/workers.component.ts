@@ -67,6 +67,7 @@ import {
   statusDotColor,
   throughputLabel,
   pendingTitle,
+  pauseReason,
   formatBytes,
   formatDate,
   runtimeFormToPatch,
@@ -503,6 +504,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   statusDotColor = statusDotColor;
   throughputLabel = throughputLabel;
   pendingTitle = pendingTitle;
+  pauseReason = pauseReason;
   formatBytes = formatBytes;
   formatDate = formatDate;
 

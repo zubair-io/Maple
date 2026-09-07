@@ -97,7 +97,7 @@
                 <span class="mono set-mono">{{ s.name }}</span>
               </span>
 
-              <span class="status-pill">
+              <span class="status-pill" [attr.title]="pauseReason(s)">
                 <span class="status-dot" [style.background]="statusDotColor(s)"></span>
                 <span class="status-label" data-testid="status">{{ statusLabel(s) }}</span>
               </span>
@@ -188,6 +188,17 @@
                 >{{ meta(s).group }}</span
               >
             </div>
+
+            @if (pauseReason(s); as reason) {
+              <div class="pt-0 pr-6 pb-3.5 pl-[54px] max-[1023px]:px-4">
+                <p
+                  class="m-0 max-w-[640px] text-[12px] text-[var(--s-warn)] leading-[1.55] bg-amber-400/[0.08] border-[0.5px] border-amber-400/40 rounded-[5px] py-2 px-3"
+                  data-testid="pause-reason"
+                >
+                  {{ reason }}
+                </p>
+              </div>
+            }
 
             @if (s.name === 'missing-reaper') {
               <div class="block pt-0 pr-6 pb-4.5 pl-[54px] max-[1023px]:px-4 max-[1023px]:pb-4">

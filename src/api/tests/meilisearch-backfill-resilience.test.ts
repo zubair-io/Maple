@@ -139,6 +139,7 @@ describe('semantic backfill resilience', () => {
       indexedDocumentCount: 3,
       vectorizedDocumentCount: 3,
       isIndexing: false,
+      embedderPolicyRejected: false,
       error: null,
     });
     setMeilisearchClientForTests(meili.fake);
@@ -285,6 +286,7 @@ describe('GET /api/admin/enrichment/meilisearch-status — owner gate (#2353)', 
         indexedDocumentCount: 0,
         vectorizedDocumentCount: 0,
         isIndexing: false,
+        embedderPolicyRejected: false,
         error: null,
       };
     };
