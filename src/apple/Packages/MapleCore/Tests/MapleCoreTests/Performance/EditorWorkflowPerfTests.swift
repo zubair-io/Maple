@@ -27,6 +27,12 @@ final class EditorWorkflowPerfTests: XCTestCase {
     // Every edit/sidecar/derived cache belongs to this isolated copy.
     let staged = directory.appendingPathComponent(source.lastPathComponent)
     try FileManager.default.copyItem(at: source.resolvingSymlinksInPath(), to: staged)
+    // #3421: configure the disk-backed rendered-preview cache against this
+    // isolated staging directory so `recordPerfRow`'s cached-reopen
+    // measurement below has a real `.maple/previews` disk cache to hit,
+    // exactly like a second cold open of a previously-viewed photo would.
+    // A no-op unless MAPLE_PERF_RECORD later asks recordPerfRow to use it.
+    await RenderedPreviewCache.shared.configure(folderURL: directory)
     let session = EditSession(asset: AssetRef(url: staged))
     let layer = CAMetalLayer()
     layer.bounds = CGRect(x: 0, y: 0, width: 1920, height: 1280)
@@ -87,6 +93,14 @@ final class EditorWorkflowPerfTests: XCTestCase {
       "sameSessionEnsureStartedNoopMs": Self.ms(revisit.duration(to: .now)),
       "viewport": "1920x1280", "profile": String(describing: session.model.profile),
     ])
+    // #3421: measured here, against the just-opened, still-unedited session
+    // — before any drag below changes the model — so the "cached" reopen
+    // compares like-for-like against `fullMs`/`coldOpenUncachedMs` instead of
+    // racing a decode-freshness check against the edited state the later
+    // NR-attribution arm leaves behind. `session` itself is untouched by
+    // this helper (no close, no model change) and continues into the drag
+    // battery below exactly as it did before this existed.
+    let cacheAndExport = try await measureCachedReopenAndExport(session: session, staged: staged)
     let initialModel = session.model
     let changes: [(String, (inout AdjustmentModel, Double) -> Void)] = [
       ("exposure", { $0.exposure = -1 + $1 * 2 }),
@@ -102,8 +116,9 @@ final class EditorWorkflowPerfTests: XCTestCase {
         }
       ),
     ]
+    var tickResults: [String: TickSummary] = [:]
     for (name, change) in changes {
-      try await measureDrag(name: name, session: session, change: change)
+      tickResults[name] = try await measureDrag(name: name, session: session, change: change)
     }
     // Explicit attribution control, separate from the default-quality results.
     // Never use this arm as the product's 60 Hz acceptance measurement.
@@ -116,15 +131,133 @@ final class EditorWorkflowPerfTests: XCTestCase {
     _ = await session.latestRenderSchedule?.value
     await session.renderActor.awaitCurrentRenderIfInFlight()
     try await Task.sleep(for: .milliseconds(500))
-    try await measureDrag(
+    _ = try await measureDrag(
       name: "exposure-NR-disabled-attribution-only", session: session,
       change: { $0.exposure = -1 + $1 * 2 })
+
+    if let cacheAndExport {
+      var row = PerfRecordWriter.deviceSnapshot()
+      let deviceModel = row["deviceModel"] as? String ?? "unknown"
+      row["platform"] = "apple-macos"
+      row["deviceId"] = PerfRecordWriter.deviceIdSlug(fromModel: deviceModel)
+      row["fixture"] = source.lastPathComponent
+      row["profile"] = String(describing: session.model.profile)
+      row["viewportWidth"] = 1920
+      row["viewportHeight"] = 1280
+      row["viewportPixels"] = 1920 * 1280
+      row["cacheState"] = "uncachedOpen+cachedReopen"
+      row["coldOpenUncachedMs"] = fullMs
+      row["coldOpenCachedMs"] = cacheAndExport.cachedMs
+      row["exportMs"] = cacheAndExport.exportMs
+      row["exportFormat"] = ExportOptions.defaults.format.rawValue
+      if let exposure = tickResults["exposure"] {
+        row["tickExposure"] = exposure.asJSON
+      }
+      if let contrast = tickResults["tone"] {
+        row["tickContrast"] = contrast.asJSON
+      }
+      row["harness"] = "EditorWorkflowPerfTests.testRAWOpenAndContinuousDevelopAt60Hz"
+      row["commitSha"] = PerfRecordWriter.gitCommitSha()
+      row["date"] = ISO8601DateFormatter().string(from: Date())
+      PerfRecordWriter.recordIfRequested(row)
+    }
   }
 
+  /// Second half of the `#3421` perf row: a "cached" cold-open number
+  /// comparable to `fullMs`/`coldOpenUncachedMs`, plus a full-resolution
+  /// export timing. Returns `nil` (no-op) unless `MAPLE_PERF_RECORD` is set.
+  ///
+  /// `session` is the just-opened, still-unedited session from the top of
+  /// the test — untouched by this method, continuing into the drag battery
+  /// unaffected. The steps: let its settled GPU frame land in
+  /// `RenderedPreviewCache` (GPU-live presents never materialize a CIImage
+  /// per tick, so the automatic CPU-publish persist in
+  /// `EditSession+Render.swift` never fires while dragging — only the real
+  /// editor-dismiss path does, via `refreshThumbnailFromCurrentGpuFrame` in
+  /// `EditSession+GpuPreviewPersist.swift`); drop the in-process memory tier
+  /// (`handleMemoryPressure` — disk untouched) so a fresh `EditSession`
+  /// against the SAME staged asset has to hit disk, matching a real second
+  /// cold open of a previously-viewed photo rather than an in-process memory
+  /// hit no cold app launch would get for free; time that reopen the same
+  /// way the first one was timed; then export it full-resolution.
+  private func measureCachedReopenAndExport(
+    session: EditSession, staged: URL
+  ) async throws -> (cachedMs: Double, exportMs: Double)? {
+    guard ProcessInfo.processInfo.environment["MAPLE_PERF_RECORD"] != nil else { return nil }
+    await session.refreshThumbnailFromCurrentGpuFrame()
+    let cacheWidth = Int(session.previewSize.width)
+    let cacheDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+    while await RenderedPreviewCache.shared.preview(for: staged, screenWidth: cacheWidth) == nil {
+      if ContinuousClock.now >= cacheDeadline {
+        XCTFail("RenderedPreviewCache never populated for the #3421 cached cold-open comparison")
+        return nil
+      }
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    await RenderedPreviewCache.shared.handleMemoryPressure()
+
+    let layer2 = CAMetalLayer()
+    layer2.bounds = CGRect(x: 0, y: 0, width: 1920, height: 1280)
+    #if os(macOS)
+      let window2 = makeWindow(layer: layer2)
+    #endif
+    let session2 = EditSession(asset: AssetRef(url: staged))
+    defer {
+      #if os(macOS)
+        window2.orderOut(nil)
+      #endif
+      withExtendedLifetime(layer2) {}
+    }
+    let driver2 = try XCTUnwrap(session2.gpuLiveDriver, "Cached reopen requires the live GPU path")
+    driver2.register(layer: layer2)
+    session2.previewSize = CGSize(width: 1920, height: 1280)
+    session2.pixelScale = 0
+    let reopened = ContinuousClock.now
+    await session2.loadSidecar()
+    session2.ensureRenderStarted()
+    try await waitUntil(timeout: .seconds(120)) {
+      if let error = session2.renderError { throw error }
+      return session2.gpuFramePresented && !session2.isResolvingFirstFrame
+        && !session2.isFullQualityDecoding
+    }
+    let coldOpenCachedMs = Self.ms(reopened.duration(to: .now))
+
+    let exportStart = ContinuousClock.now
+    let exportedData = try await MapleExporter.exportData(session: session2, options: .defaults)
+    let exportMs = Self.ms(exportStart.duration(to: .now))
+    XCTAssertGreaterThan(exportedData.count, 0, "Full-resolution export must produce bytes")
+
+    await session2.renderActor.finishBenchmarkWork()
+    let persist2 = session2.previewPersistTask
+    persist2?.cancel()
+    await persist2?.value
+    await session2.flushPendingSidecarWrite()
+    await session2.gpuLiveDriver?.closeSession()
+
+    return (cachedMs: coldOpenCachedMs, exportMs: exportMs)
+  }
+
+  /// Per-tick latency summary for one `measureDrag` call — the same
+  /// percentiles `report(_:)` already prints, kept as a return value too so
+  /// `recordPerfRow` can fold them into the committed JSON row without
+  /// re-deriving them from the console log.
+  struct TickSummary {
+    let p50Ms: Double
+    let p95Ms: Double
+    let maxMs: Double
+    let over16: Int
+    let published: Int
+
+    var asJSON: [String: Any] {
+      ["p50Ms": p50Ms, "p95Ms": p95Ms, "maxMs": maxMs, "over16": over16, "published": published]
+    }
+  }
+
+  @discardableResult
   private func measureDrag(
     name: String, session: EditSession,
     change: (inout AdjustmentModel, Double) -> Void
-  ) async throws {
+  ) async throws -> TickSummary {
     let count = 60
     let baseline = session.model
     let observations = Publications()
@@ -194,14 +327,18 @@ final class EditorWorkflowPerfTests: XCTestCase {
       return Self.ms(input.duration(to: instant))
     }.sorted()
     XCTAssertFalse(samples.isEmpty, "Dragging must publish changed frames")
-    guard !samples.isEmpty else { return }
+    guard !samples.isEmpty else {
+      return TickSummary(p50Ms: 0, p95Ms: 0, maxMs: 0, over16: 0, published: 0)
+    }
     let intervals = zip(inputs, inputs.dropFirst()).map { Self.ms($0.duration(to: $1)) }.sorted()
     let inputSpanMs = Self.ms(inputs.first!.duration(to: inputs.last!))
+    let p50Ms = samples[samples.count / 2]
+    let p95Ms = samples[min(samples.count - 1, Int(Double(samples.count) * 0.95))]
+    let maxMs = samples.last!
+    let over16 = samples.filter { $0 > 16 }.count
     report([
       "case": name, "inputs": count, "published": samples.count,
-      "p50Ms": samples[samples.count / 2],
-      "p95Ms": samples[min(samples.count - 1, Int(Double(samples.count) * 0.95))],
-      "maxMs": samples.last!, "over16ms": samples.filter { $0 > 16 }.count,
+      "p50Ms": p50Ms, "p95Ms": p95Ms, "maxMs": maxMs, "over16ms": over16,
       "missedOrCoalesced": count - samples.count,
       "inputSpanMs": inputSpanMs, "deliveredInputHz": Double(count - 1) * 1000 / inputSpanMs,
       "inputIntervalP50Ms": intervals[intervals.count / 2],
@@ -213,6 +350,8 @@ final class EditorWorkflowPerfTests: XCTestCase {
     // 16ms target and missed inputs instead of disguising failures as a loose
     // average; device scanout and gesture latency need the Instruments run.
     try await Task.sleep(for: .milliseconds(250))
+    return TickSummary(
+      p50Ms: p50Ms, p95Ms: p95Ms, maxMs: maxMs, over16: over16, published: samples.count)
   }
 
   private func waitUntil(timeout: Duration, condition: () throws -> Bool) async throws {
