@@ -438,8 +438,10 @@ impl EvidenceSource {
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
             EvidenceSource::SidecarContractApi => 3,
-            EvidenceSource::GpuChainParityLavapipe => 16,
-            EvidenceSource::GpuChainParityMetal => 16,
+            // 17 since #3300: `gpu_render::tests_mask_raster` joined the
+            // `gpu_render` corpus (the bitmap-mask raster plumbing gate).
+            EvidenceSource::GpuChainParityLavapipe => 17,
+            EvidenceSource::GpuChainParityMetal => 17,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }
