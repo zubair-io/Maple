@@ -865,8 +865,8 @@
         "executed_cases": 16,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ca32294107b90302cf764c8ed152985539d159cb",
-        "recorded_at": "2026-09-07T01:35:21Z",
+        "git_sha": "d082c46a64ce91f4edaf474d5d9231d810e159c8",
+        "recorded_at": "2026-09-07T05:34:23Z",
         "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render"
       }
     },
