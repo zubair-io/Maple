@@ -33,6 +33,7 @@ import {
   type BackfillRow,
   type ComposedEntry,
 } from './meilisearch-backfill-compose.ts';
+import { withEmbedderPolicyGate } from './meilisearch-embedding-gate.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill-redrive');
 const REDRIVE_SORT = { updated_at: 1 } as const;
@@ -125,7 +126,7 @@ async function redriveFailurePage(
 
   const rowsById = await loadRowsByAssetId(failures.map((failure) => failure._id));
   const prep = await prepareRedriveBatch(failures, rowsById);
-  const writes = await commitBatch(client, prep);
+  const writes = await withEmbedderPolicyGate(client, () => commitBatch(client, prep));
 
   const resolvedIds = [...prep.goneIds, ...writes.assetIds, ...prep.tombstoneRowIds];
   if (resolvedIds.length > 0) {

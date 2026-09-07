@@ -14,6 +14,10 @@ export interface WorkerConfig {
   maxAttempts: number;
   paused: boolean;
   last_seen_target_version: number;
+  /** Why the stage paused ITSELF — e.g. `meili` when Meilisearch's address
+   * policy rejects the embedding server (#3315). Absent/null for an operator
+   * pause; the server clears it on every resume. Read-only from the UI. */
+  pause_reason?: string | null;
 }
 
 /** API status payload — one entry per stage from GET /api/workers/status. */

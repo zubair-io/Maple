@@ -25,6 +25,7 @@ import {
   type MeilisearchAssetDoc,
   type MeilisearchClient,
 } from '../../enrichment/meilisearch-client.ts';
+import { withEmbedderPolicyGate } from '../../enrichment/meilisearch-embedding-gate.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-doc-fields.ts';
 import { ASSET_DOC_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
@@ -212,14 +213,18 @@ export const SINGLE_DOC_TOMBSTONE_TIMEOUT_MS = 30_000;
  * Shared by both `meiliHandler` early-return branches below (trashed,
  * no-resolvable-location) so neither drifts from the other on the
  * batch-vs-single fallback.
+ *
+ * Gated like the upsert: with an embedder configured, Meilisearch renders
+ * the document template for a tombstone too (#2369), so a policy-rejected
+ * embedder fails these writes just the same (#3315).
  */
 async function tombstoneIfConfigured(client: MeilisearchClient, mapleId: string): Promise<void> {
   if (!client.isConfigured()) return;
-  if (client.tombstoneBatchOrThrow) {
-    await client.tombstoneBatchOrThrow([mapleId], SINGLE_DOC_TOMBSTONE_TIMEOUT_MS);
-  } else {
-    await client.tombstone(mapleId);
-  }
+  await withEmbedderPolicyGate(client, () =>
+    client.tombstoneBatchOrThrow
+      ? client.tombstoneBatchOrThrow([mapleId], SINGLE_DOC_TOMBSTONE_TIMEOUT_MS)
+      : client.tombstone(mapleId),
+  );
 }
 
 export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
@@ -259,8 +264,16 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
   const blob = searchBlobFor(searchable, vision, peopleNames);
 
   if (client.isConfigured() && primary) {
-    await client.upsertOrThrow(
-      meilisearchDocument(searchable, primary, mapleId, blob, vision, peopleNames),
+    // Behind the embedder admission gate (#3315): when Meilisearch's address
+    // policy rejects the embedding server, the gate pauses this stage with
+    // the reason and throws BEFORE the document is submitted, so the asset
+    // takes the runtime's retry path (attempt recorded, claimable again once
+    // the operator resumes) and never reaches the `{ patch }` below — that
+    // would stamp it done with nothing indexed.
+    await withEmbedderPolicyGate(client, () =>
+      client.upsertOrThrow(
+        meilisearchDocument(searchable, primary, mapleId, blob, vision, peopleNames),
+      ),
     );
   }
 

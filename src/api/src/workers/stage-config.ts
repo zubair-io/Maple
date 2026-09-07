@@ -61,6 +61,15 @@ export interface WorkerConfig {
    * require a dead-doc reset.
    */
   last_seen_target_version: number;
+  /**
+   * Why the stage paused ITSELF — set by `pauseStageWithReason`
+   * (`stage-pause.ts`) when a stage detects it cannot make progress (the
+   * `meili` stage under Meilisearch's embedder address policy, #3315) so
+   * Settings → Workers can show the explanation next to the paused row.
+   * Absent/null for an operator pause. Cleared by every resume path — see
+   * `WorkerConfigRepo.patch`.
+   */
+  pause_reason?: string | null;
 }
 
 export type StageResult<TPatch = Record<string, unknown>> =
@@ -238,6 +247,8 @@ export async function bootConfig(
     paused:
       typeof existing?.paused === 'boolean' ? existing.paused : stage.defaults.pausedOnFirstBoot,
     last_seen_target_version: pickInt(existing?.last_seen_target_version, 0),
+    // A self-imposed pause reason survives a restart alongside `paused`.
+    ...(typeof existing?.pause_reason === 'string' ? { pause_reason: existing.pause_reason } : {}),
   };
 
   // Idempotent. On first boot, seeds defaults; on subsequent boots, either

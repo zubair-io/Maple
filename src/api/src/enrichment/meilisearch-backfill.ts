@@ -15,6 +15,7 @@ import {
   type ComposedEntry,
 } from './meilisearch-backfill-compose.ts';
 import { redriveMeilisearchBackfillFailures } from './meilisearch-backfill-redrive.ts';
+import { withEmbedderPolicyGate } from './meilisearch-embedding-gate.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill');
 const STATE_ID = 'assets';
@@ -429,7 +430,12 @@ async function runBackfillBatch(batchSize: number, reset: boolean): Promise<Back
   const rows = await loadRows(state, batchSize);
   const batch = await prepareBatch(rows, state.cursor);
   try {
-    const writes = await commitBatch(client, batch);
+    // Embedder admission gate (#3315): a policy-rejected embedder pauses the
+    // `meili` stage and throws before the batch is submitted, so the failure
+    // lands in `handleCommitFailure` — cursor retained, migration retry
+    // circuit engaged — instead of holding Meilisearch's task queue for the
+    // minutes it takes to fail the batch on its own.
+    const writes = await withEmbedderPolicyGate(client, () => commitBatch(client, batch));
     const result = await finishCommittedBatch(states, state, rows, batch, writes, batchSize);
     // The cursor pass just reached the end of the library — redrive every row
     // parked in `meilisearch_backfill_failures` (paging `batchSize` rows at a

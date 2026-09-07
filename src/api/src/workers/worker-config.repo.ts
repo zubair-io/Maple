@@ -30,6 +30,10 @@ export class WorkerConfigRepo {
       maxAttempts: doc.maxAttempts,
       paused: doc.paused,
       last_seen_target_version: doc.last_seen_target_version,
+      // Only present when a stage paused itself with an explanation; an
+      // operator pause carries none, so the key is omitted rather than
+      // surfaced as a permanent `null` on every row.
+      ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
     };
   }
 
@@ -40,11 +44,18 @@ export class WorkerConfigRepo {
 
   /** Patch only the supplied fields on an existing config doc.
    * Uses upsert so a patch before first-boot (when no doc exists yet)
-   * doesn't silently no-op. `name` is set on insert via $setOnInsert. */
+   * doesn't silently no-op. `name` is set on insert via $setOnInsert.
+   *
+   * Resuming (`paused: false`) also clears `pause_reason`: the reason
+   * describes the pause it came with, and every resume path — the button,
+   * `PATCH /config`, the in-process registry — goes through here, so none
+   * of them can leave a stale explanation on a running stage. A stage that
+   * pauses itself again writes a fresh reason with its `paused: true`. */
   async patch(name: string, partial: Partial<WorkerConfig>): Promise<void> {
+    const fields = partial.paused === false ? { ...partial, pause_reason: null } : partial;
     await this.coll.updateOne(
       { name },
-      { $set: partial, $setOnInsert: { name } as Partial<WorkerConfigDoc> },
+      { $set: fields, $setOnInsert: { name } as Partial<WorkerConfigDoc> },
       { upsert: true },
     );
   }

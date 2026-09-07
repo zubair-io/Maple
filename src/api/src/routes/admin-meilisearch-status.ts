@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import type { Db } from 'mongodb';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { assetsCollection, getDb } from '../db/client.ts';
 import { EMBEDDER_NAME, meilisearchClient } from '../enrichment/meilisearch-client.ts';
@@ -9,6 +10,7 @@ import {
 import type { MeilisearchSemanticStatus } from '../enrichment/meilisearch-client.ts';
 import type { BackfillState } from '../enrichment/meilisearch-backfill.ts';
 import { LIVE_ASSET_FILTER } from '../enrichment/meilisearch-vector-coverage.ts';
+import { WorkerConfigRepo, type WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
 const unavailableStatus = (): MeilisearchSemanticStatus => ({
   configured: false,
@@ -23,7 +25,17 @@ const unavailableStatus = (): MeilisearchSemanticStatus => ({
   vectorizedDocumentCount: null,
   isIndexing: null,
   error: 'status_not_supported',
+  embedderPolicyRejected: false,
 });
+
+/** The `meili` stage's DB-backed pause state. When the stage paused ITSELF
+ * (embedder address policy, #3315) the reason rides along here so the
+ * semantic-status surface tells the same story as Settings → Workers. */
+async function meiliStagePause(db: Db): Promise<{ paused: boolean; pauseReason: string | null }> {
+  const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+  const config = await repo.load('meili');
+  return { paused: config?.paused === true, pauseReason: config?.pause_reason ?? null };
+}
 
 function backfillStatus(backfill: BackfillState): string {
   if (!backfill.completed_at) return 'in_progress';
@@ -90,14 +102,16 @@ async function computeAdminMeilisearchStatus(): Promise<Record<string, unknown>>
   const fingerprint = client.semanticFingerprint?.() ?? null;
   const assets = await assetsCollection();
   const db = await getDb();
-  const [semantic, liveDocumentCount, vectorizedLive, backfill] = await Promise.all([
+  const [semantic, liveDocumentCount, vectorizedLive, backfill, stage] = await Promise.all([
     client.semanticStatus?.() ?? Promise.resolve(unavailableStatus()),
     assets.countDocuments(LIVE_ASSET_FILTER as never),
     liveVectorizedCount(fingerprint),
     db.collection<BackfillState>('meilisearch_backfill_state').findOne({ _id: 'assets' }),
+    meiliStagePause(db),
   ]);
   return {
     semantic,
+    stage,
     documents: {
       live: liveDocumentCount,
       indexedRaw: semantic.indexedDocumentCount,

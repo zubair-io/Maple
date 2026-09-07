@@ -431,7 +431,7 @@ export async function runStage<TPatch extends Record<string, unknown>>(
     },
     resume: async () => {
       await repo.patch(stage.name, { paused: false });
-      config = { ...config, paused: false };
+      config = { ...config, paused: false, pause_reason: null };
       log.info(`${stage.name} resumed`);
     },
   });
