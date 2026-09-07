@@ -54,7 +54,7 @@ Feature work is split across `MainWindow.*.cs` partials, each paired with a WinU
 | `MainWindow.Trash.cs`, `MainWindow.TrashRestore.cs` | Delete → Trash, and the in-app restore list for Maple's own trash.                         |
 | `MainWindow.Reveal.cs`                              | "Show in Explorer" (`explorer.exe /select,"<path>"`).                                      |
 | `MainWindow.Crop.cs`                                | Crop tool: live rotate preview, client-side display crop, sidecar `crs:Crop*` for develop. |
-| `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, docked Preview inspector, histogram.                   |
+| `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, docked Preview inspector, histogram.      |
 | `MainWindow.Pano.cs`                                | Panorama stitching over a grid multi-selection.                                            |
 | `MainWindow.Dialogs.cs`                             | Folder picker, export dialogs, Settings window.                                            |
 | `MainWindow.Qualify.cs`                             | Headless qualification mode (see "Qualification harness").                                 |
