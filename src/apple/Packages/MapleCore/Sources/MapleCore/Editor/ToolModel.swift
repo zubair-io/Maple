@@ -53,10 +53,11 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Effects
     case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
     // Detail
-    case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections, crop, presets
+    case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections
     // Manual geometry (#3410) — seven `crs:Perspective*` sliders, no primary
-    // field; see `isWired` and `ToolSubParam`.
-    case geometry
+    // field; see `isWired` and `ToolSubParam`. Defringe (#3411) is the
+    // profile-free, per-tick sibling of Lens, with six of its own.
+    case geometry, defringe, crop, presets
     // Mask (#3274) — a full-surface swap, not a primary-field drag bar; see
     // `isWired` below. Heal is gated behind #1472 with no Tool-level surface
     // yet, per CLAUDE.md #6's deliberate-staging exception.
@@ -72,7 +73,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
             return .effects
         case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
-             .crop, .geometry, .presets, .mask, .heal:
+             .defringe, .crop, .geometry, .presets, .mask, .heal:
             return .detail
         }
     }
@@ -106,6 +107,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .captureSharpen: return "Deconv"
         case .captureSigma:   return "Deconv σ"
         case .lensCorrections: return "Lens"
+        case .defringe:       return "Defringe"
         case .crop:           return "Crop"
         case .geometry:       return "Geometry"
         case .presets:        return "Presets"
@@ -161,6 +163,11 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// — a layout the generic sub-param grid has no room for — so
     /// `displayRange` stays nil and `LensCorrectionsSection` is the whole
     /// control surface, same as HSL / Tone Curve / Film.
+    ///
+    /// Defringe (#3411) is wired and takes that same shape for the same
+    /// reason: six sub-params (two amounts and two hue bands) and no single
+    /// "main" one, so `displayRange` stays nil and `DefringeSection` is the
+    /// whole control surface.
     public var isWired: Bool {
         switch self {
         case .crop:

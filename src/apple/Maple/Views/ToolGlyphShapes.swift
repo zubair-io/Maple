@@ -190,6 +190,14 @@ enum ToolGlyphShapes {
         // light passes through the lens's own elements).
         case .lensCorrections:
             return [.circle(cx: 8, cy: 8, r: 4.8), .circle(cx: 8, cy: 8, r: 2.2)]
+        // Defringe (#3411) — one ring with a split arc offset outside it:
+        // the colour halo hugging one side of an edge, which is what this
+        // tool desaturates.
+        case .defringe:
+            return [
+                .circle(cx: 8, cy: 8, r: 4.0),
+                .path("M12.6 4.6a6.4 6.4 0 0 1 0 6.8"),
+            ]
 
         // ── Standalone ──────────────────────────────────────────────────────
         // Two crop rails crossing.
