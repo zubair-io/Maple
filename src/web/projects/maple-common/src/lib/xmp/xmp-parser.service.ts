@@ -11,7 +11,7 @@
 import { Injectable } from '@angular/core';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
+import { resolveWbScaleVersion, normalizeParsedWb, inferForeignWbSource } from './xmp-wb-scale';
 import { parseMetadataBlock } from './xmp-metadata';
 import { parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
@@ -123,6 +123,7 @@ export class XmpParserService {
     // attribute-presence record, and the #1892 authored-pair → 'Custom'
     // inference).
     normalizeParsedWb(model, canonicallyApplied, wbScale);
+    inferForeignWbSource(model, canonicallyApplied, sawPappAnywhere);
 
     // Emit `crop` only when any field came through; angle alone is enough
     // (pure straighten). Identity default is applied for absent fields.
