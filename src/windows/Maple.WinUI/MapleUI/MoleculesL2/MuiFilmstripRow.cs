@@ -19,7 +19,7 @@ namespace Maple.UI
     /// <see cref="MuiMediaCell"/>s whose selection follows
     /// <see cref="ActiveId"/>, auto-scrolling the minimum distance to keep
     /// the active cell fully in view via
-    /// <see cref="MuiFilmstripFollowLogic.FollowOffset"/> — the pure math
+    /// <see cref="MuiFilmstripFollowLogic.FollowBounds"/> — the pure math
     /// this control feeds real <see cref="ScrollViewer"/> geometry into.
     /// </summary>
     public sealed class MuiFilmstripRow : ContentControl
