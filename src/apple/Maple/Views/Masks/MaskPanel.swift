@@ -40,6 +40,7 @@ struct MaskPanel: View {
                 sliders(for: selected)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-mask-panel")
         .sheet(isPresented: $showingPeoplePicker) { PeoplePickerSheet(state: state) }
     }
@@ -55,6 +56,7 @@ struct MaskPanel: View {
             } label: {
                 Image(systemName: "plus.circle")
             }
+            .accessibilityLabel("Add Mask")
             .accessibilityIdentifier("editor-mask-add-menu")
         }
         .padding(.horizontal, 14)

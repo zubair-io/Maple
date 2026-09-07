@@ -42,10 +42,12 @@ struct FilmstripRail: View {
     @State private var collapsed = false
 
     /// Rail width — `EditorView` also reads it to place the scopes panel
-    /// (#3251) beside the rail.
-    static let railWidth: CGFloat = 110
+    /// (#3251) beside the rail. Single-sourced with the crop viewport
+    /// insets so the crop handles clear the complete rail (#3252).
+    static let railWidth = EditorCropGeometry.filmstripWidth
     private var railWidth: CGFloat { Self.railWidth }
-    private let tabWidth: CGFloat = 20   // width of the collapse-tab button
+    // width of the collapse-tab button
+    private let tabWidth = EditorCropGeometry.filmstripTabWidth
     private let thumbSpacing: CGFloat = 6
     /// Max height of the thumb-scroll area; beyond this the strip scrolls.
     private let scrollCap: CGFloat = 460
@@ -66,7 +68,7 @@ struct FilmstripRail: View {
                 // Slide off to the LEFT by the full rail width + its horizontal
                 // padding (12pt from EditorView) when collapsed.  The tab button
                 // (below) stays visible and handles expand.
-                .offset(x: collapsed ? -(railWidth + 12) : 0)
+                .offset(x: collapsed ? -(railWidth + EditorCropGeometry.filmstripLeadingPadding) : 0)
                 .animation(.easeInOut(duration: 0.25), value: collapsed)
                 // Hide from a11y while slid off — VoiceOver should not reach
                 // thumb cells that are visually off-screen.
@@ -141,7 +143,7 @@ struct FilmstripRail: View {
         // The tab sits at the leading edge of the ZStack.  When the rail is
         // visible, offset the tab to sit just past the right edge of the rail
         // so it peeks out without covering thumbs.
-        .offset(x: collapsed ? 0 : railWidth + 2)
+        .offset(x: collapsed ? 0 : railWidth + EditorCropGeometry.filmstripTabGap)
         .animation(.easeInOut(duration: 0.25), value: collapsed)
     }
 }
