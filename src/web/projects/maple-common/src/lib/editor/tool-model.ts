@@ -66,6 +66,7 @@ export type ToolId =
   | 'lensCorrections'
   | 'mask'
   | 'crop'
+  | 'geometry'
   | 'presets';
 
 export const TOOL_GROUP_DISPLAY: Record<ToolGroup, string> = {
@@ -102,6 +103,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   lensCorrections: 'Lens',
   mask: 'Mask',
   crop: 'Crop',
+  geometry: 'Geometry',
   presets: 'Presets',
 };
 
@@ -119,7 +121,10 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // vignetting scales, decode-product like sharpen/noise/colorNR.
   // mask (#1541) joins Detail beside crop: like crop it is edited through
   // the canvas overlay + its own panel, never the drag bar.
-  detail: ['sharpen', 'noise', 'colorNR', 'lensCorrections', 'mask', 'crop', 'presets'],
+  // geometry (#3410) joins Detail beside crop: the seven `crs:Perspective*`
+  // sliders that compose into one homography, applied in the same display
+  // tail the crop rect is applied in.
+  detail: ['sharpen', 'noise', 'colorNR', 'lensCorrections', 'mask', 'crop', 'geometry', 'presets'],
 };
 
 export const ALL_TOOLS: readonly ToolId[] = Object.values(TOOLS_IN_GROUP).flat();

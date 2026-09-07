@@ -307,7 +307,7 @@ describe('flyout header (FlyoutSliderPanel parity)', () => {
 // gets `Basic · HSL · B&W`, Effects gets `Basic · Grade · Film`, Detail
 // gets `Basic · Lens` (#2231), Light gets no row.
 describe('sub-tool row', () => {
-  it('renders Basic/HSL/B&W for the colour group, Basic/Grade/Film for effects, Basic/Lens for detail, and nothing for light', () => {
+  it('renders Basic/HSL/B&W for the colour group, Basic/Grade/Film for effects, Basic/Lens/Geometry for detail, and nothing for light', () => {
     const colour = render({ activeGroup: 'color' });
     const colourChips = Array.from(
       (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
@@ -327,7 +327,9 @@ describe('sub-tool row', () => {
     const detailChips = Array.from(
       (detail.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
     ).map((n) => n.textContent!.trim());
-    expect(detailChips).toEqual(['Basic', 'Lens']);
+    // Geometry (#3410) joined the Detail row for the same no-primary-field
+    // reason Lens is there.
+    expect(detailChips).toEqual(['Basic', 'Lens', 'Geometry']);
   });
 
   // Restores #276's dock-hiding behaviour in its new home: HSL's 24 sliders
