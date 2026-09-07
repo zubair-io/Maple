@@ -1,3 +1,4 @@
+import MapleCore
 import SwiftUI
 
 /// Shared leading content and glass treatment for Preview and Editor headers.
@@ -9,9 +10,9 @@ struct FloatingImageHeader<Trailing: View>: View {
   let onBack: () -> Void
   @ViewBuilder let trailing: () -> Trailing
 
-  @Environment(\.horizontalSizeClass) private var hSizeClass
+  @Environment(\.mapleLayout) private var layout
 
-  private var isCompact: Bool { hSizeClass == .compact }
+  private var isCompact: Bool { layout == .phone }
 
   var body: some View {
     HStack(spacing: 10) {

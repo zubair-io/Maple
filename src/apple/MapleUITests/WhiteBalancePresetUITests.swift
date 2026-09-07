@@ -6,8 +6,7 @@ import XCTest
       continueAfterFailure = false
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures/synthetic/grey-l018-rggb.dng")
-      let driver = try MapleAppDriver.launch(
-        fixtureURL: fixture, launchArguments: ["-proControlVariant", "compact"])
+      let driver = try MapleAppDriver.launch(fixtureURL: fixture)
       defer {
         driver.app.terminate()
         driver.cleanupStagedFixture()

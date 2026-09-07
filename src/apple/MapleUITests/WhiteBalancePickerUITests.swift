@@ -12,8 +12,7 @@ import XCTest
     func testNeutralPickCancellationProvenanceAndUndo() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures/synthetic/grey-l018-rggb.dng")
-      let driver = try MapleAppDriver.launch(
-        fixtureURL: fixture, launchArguments: ["-proControlVariant", "compact"])
+      let driver = try MapleAppDriver.launch(fixtureURL: fixture)
       defer {
         if let testRun, testRun.failureCount > 0 {
           let tree = XCTAttachment(string: driver.app.debugDescription)
