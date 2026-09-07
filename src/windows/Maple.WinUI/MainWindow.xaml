@@ -552,11 +552,7 @@
                         <ColumnDefinition x:Name="InfoColDef" Width="0" />
                     </Grid.ColumnDefinitions>
 
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Border x:Name="InfoPane" Grid.Column="1" Grid.RowSpan="2" Visibility="Collapsed"
+                    <Border x:Name="InfoPane" Grid.Column="1" Visibility="Collapsed"
                             Background="{StaticResource MapleSidebar}" BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
                             <StackPanel Spacing="10">
@@ -568,12 +564,23 @@
                         </ScrollViewer>
                     </Border>
 
-                    <Grid Grid.Row="0" x:Name="CanvasHost" SizeChanged="OnCanvasHostSizeChanged">
+                    <Grid x:Name="CanvasHost" SizeChanged="OnCanvasHostSizeChanged">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <!-- Filmstrip rail (#3402): the Maple.UI vertical rail on
+                             the viewer's left edge, one instance for Preview and
+                             Edit alike; cells, active-follow and activation are
+                             wired in MainWindow.Filmstrip.cs. Collapsed in Browse. -->
+                        <muim:MuiFilmstripRail x:Name="FilmstripRail" Grid.Column="0" Visibility="Collapsed"
+                                               Margin="10,14,0,16"
+                                               AutomationProperties.Name="Filmstrip" />
                         <!-- Zoom/pan viewer (#2572): ScrollViewer zoom over both
                              display paths — fit at factor 1, Ctrl+wheel / pinch /
                              double-click toggle / Ctrl+0/1/=/- ; drag pans when
                              zoomed. Zoom resets on navigation per the spec. -->
-                        <ScrollViewer x:Name="ViewerScroll" Margin="16,64,16,16"
+                        <ScrollViewer x:Name="ViewerScroll" Grid.Column="1" Margin="16,64,16,16"
                                       ZoomMode="Enabled" MinZoomFactor="0.4" MaxZoomFactor="8"
                                       HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollBarVisibility="Hidden"
@@ -609,7 +616,7 @@
                             </Grid>
                         </ScrollViewer>
 
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
                                     Visibility="{Binding IsDecoding, Converter={StaticResource BoolVisible}}">
                             <mui:MuiSpinner IsSpinning="{Binding IsDecoding}" SpinnerSize="Sm" DelayMs="0"
@@ -619,7 +626,7 @@
                         </StackPanel>
 
                         <!-- Preview top pill -->
-                        <Border x:Name="PreviewTopBar"
+                        <Border x:Name="PreviewTopBar" Grid.Column="1"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
@@ -648,7 +655,7 @@
                         </Border>
 
                         <!-- Edit top pill -->
-                        <Border x:Name="EditTopBar" Visibility="Collapsed"
+                        <Border x:Name="EditTopBar" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
@@ -703,7 +710,7 @@
                         </Border>
 
                         <!-- Edit tool rail -->
-                        <Border x:Name="EditRail" Visibility="Collapsed"
+                        <Border x:Name="EditRail" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"
@@ -712,7 +719,7 @@
                         </Border>
 
                         <!-- Floating group panel -->
-                        <Border x:Name="EditPanel" Visibility="Collapsed"
+                        <Border x:Name="EditPanel" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
                                 Width="300" MaxHeight="620"
@@ -853,39 +860,6 @@
                             </Grid>
                         </Border>
                     </Grid>
-
-                    <!-- Filmstrip (Preview only) -->
-                    <Border x:Name="FilmstripBar" Grid.Row="1" Height="80" Background="{StaticResource MapleBg}"
-                            BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,1,0,0" Padding="6,4">
-                        <ListView x:Name="Filmstrip" ItemsSource="{Binding Photos}"
-                                  SelectionMode="Single" SelectionChanged="OnGridSelectionChanged"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                  ScrollViewer.HorizontalScrollMode="Enabled"
-                                  ScrollViewer.VerticalScrollMode="Disabled"
-                                  AutomationProperties.Name="Filmstrip">
-                            <ListView.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <ItemsStackPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ListView.ItemsPanel>
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Width="86" Height="60" Margin="2" CornerRadius="3"
-                                          AutomationProperties.Name="{Binding FileName}"
-                                          Background="{StaticResource MapleSurface}">
-                                        <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill" />
-                                        <Ellipse Width="6" Height="6" Fill="#4CAF50" Margin="4"
-                                                 HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                 Visibility="{Binding FlagStatus, Converter={StaticResource PickVisible}}" />
-                                        <Border Background="#B3141210" VerticalAlignment="Bottom" Padding="3,1">
-                                            <TextBlock Text="{Binding RatingStars}" FontSize="8"
-                                                       Foreground="{StaticResource MapleStar}" HorizontalAlignment="Left" />
-                                        </Border>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                    </Border>
                 </Grid>
             </Grid>
         </Grid>

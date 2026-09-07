@@ -8,7 +8,7 @@ using Maple.WinUI.ViewModels;
 namespace Maple.WinUI
 {
     /// <summary>Browse mode: sidebar toggle, single-selection sync between the
-    /// grid/filmstrip and the viewer's embedded-JPEG placeholder, and the
+    /// grid, the filmstrip rail and the viewer's embedded-JPEG placeholder, and the
     /// sources-tree/timeline/format/rating/flag/search filters that drive
     /// ViewModel.Photos.</summary>
     public sealed partial class MainWindow
@@ -35,20 +35,11 @@ namespace Maple.WinUI
 
         // --- Selection ---
         // PhotoGrid's own SelectionChanged (Extended mode, multi-select) is
-        // OnPhotoGridSelectionChanged in MainWindow.Selection.cs.
+        // OnPhotoGridSelectionChanged in MainWindow.Selection.cs; the viewer's
+        // filmstrip rail (single-select, one photo at a time while paging
+        // Preview/Edit) is OnFilmstripActivated in MainWindow.Filmstrip.cs.
 
         private void OnGridDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => EnterPreview();
-
-        // Stays for the Filmstrip, which is single-select (one photo at a
-        // time while paging through Preview).
-        private void OnGridSelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (sender is ListViewBase list && list.SelectedItem is PhotoItem photo
-                && !ReferenceEquals(photo, ViewModel.SelectedPhoto))
-            {
-                ViewModel.SelectedPhoto = photo;
-            }
-        }
 
         private PhotoItem? _previewSubscribed;
 
@@ -60,11 +51,7 @@ namespace Maple.WinUI
                 return;
             if (PhotoGrid.SelectedItem != photo)
                 PhotoGrid.SelectedItem = photo;
-            if (Filmstrip.SelectedItem != photo)
-            {
-                Filmstrip.SelectedItem = photo;
-                Filmstrip.ScrollIntoView(photo);
-            }
+            SyncFilmstripRailActive();
             UpdateStarRow();
 
             // The viewer shows the embedded JPEG until the Edit decode delivers
