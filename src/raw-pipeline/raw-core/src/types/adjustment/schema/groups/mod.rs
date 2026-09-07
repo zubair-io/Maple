@@ -331,6 +331,12 @@ pub const NON_COPYABLE_FIELDS: &[&str] = &[
     // references a synthetic-raw patch content-hashed from THIS image's
     // pixels. Permanently excluded.
     "inpaint_removals",
+    // Clone / heal repair spots (#3409). Each spot names a source region in
+    // THIS image's raster; pasting the list onto another photo would sample
+    // whatever happens to sit at those coordinates there, which is never the
+    // texture the repair was chosen for. Permanently excluded, same reason
+    // as `inpaint_removals` above.
+    "retouch_spots",
     // Bitmap-mask raster registry (#3271). Each `MaskRaster` is a decoded
     // pixel buffer keyed to THIS image's Vision-generated skin mask — like
     // `inpaint_removals`, raster-derived and meaningless on another image.

@@ -120,6 +120,7 @@ fn schema_matches_struct() {
         local_adjustments,
         mask_rasters,
         inpaint_removals,
+        retouch_spots,
         tone_curve_mode,
         tone_curve_luma,
         tone_curve_red,
@@ -434,6 +435,10 @@ fn schema_matches_struct() {
         "AdjustmentModel::default().inpaint_removals must be empty"
     );
     assert!(
+        retouch_spots.is_empty(),
+        "AdjustmentModel::default().retouch_spots must be empty"
+    );
+    assert!(
         crop.is_identity(),
         "AdjustmentModel::default().crop must be identity"
     );
@@ -475,10 +480,14 @@ fn schema_exemption_allowlist() {
     // which WB slider scale the sidecar's stored values were authored in.
     // `mask_rasters` added in #3271: Vec<Arc<MaskRaster>> structured payload,
     // same rationale as `inpaint_removals`.
+    // `retouch_spots` added in #3409: Vec<RetouchSpot> structured payload,
+    // same rationale again — it rides the nested `crs:RetouchAreas` element,
+    // not a flat attribute.
     const ALLOWED: &[&str] = &[
         "local_adjustments",
         "mask_rasters",
         "inpaint_removals",
+        "retouch_spots",
         "crop",
         "temperature_seen",
         "tint_seen",
@@ -486,7 +495,7 @@ fn schema_exemption_allowlist() {
     ];
     assert_eq!(
         ALLOWED.len(),
-        7,
+        8,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -506,6 +515,12 @@ fn schema_exemption_allowlist() {
         ALLOWED.contains(&"inpaint_removals"),
         "inpaint_removals must remain on the schema-exemption allow-list \
          (Vec<Removal> structured payload, not a codegen-eligible scalar/enum)"
+    );
+    assert!(
+        ALLOWED.contains(&"retouch_spots"),
+        "retouch_spots must remain on the schema-exemption allow-list \
+         (Vec<RetouchSpot> structured payload, not a codegen-eligible \
+         scalar/enum)"
     );
     assert!(
         ALLOWED.contains(&"crop"),

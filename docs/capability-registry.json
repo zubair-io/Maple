@@ -606,6 +606,44 @@
       "qualification": []
     },
     {
+      "id": "retouch_repair",
+      "title": "Clone / heal brush",
+      "owner": "zubair-io",
+      "state": "core",
+      "surfaces": ["apple", "web"],
+      "storage_adapters": [
+        "filesystem",
+        "smb",
+        "photokit",
+        "cloud",
+        "api_filesystem",
+        "file_system_access",
+        "indexed_db"
+      ],
+      "asset_classes": ["raw"],
+      "preview_paths": ["cpu_reference", "gpu_live"],
+      "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
+      "fields": ["retouch_spots"],
+      "integration": [
+        {
+          "source": "sidecar_contract_apple",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "sidecar_contract_api",
+          "status": "satisfied",
+          "detail": "satisfied"
+        },
+        {
+          "source": "gpu_chain_parity_lavapipe",
+          "status": "missing",
+          "detail": "no record"
+        }
+      ],
+      "qualification": []
+    },
+    {
       "id": "inpaint_repair",
       "title": "Repair (local AI inpainting)",
       "owner": "zubair-io",
