@@ -7,7 +7,22 @@ import XCTest
   /// layout harness. The simulator can stage that host fixture in a fresh
   /// temporary directory; device deployment is validated separately.
   final class EditorPhoneLayoutUITests: XCTestCase {
+    private var launchedApp: XCUIApplication?
+    private var stagedDirectory: URL?
+
     override func setUpWithError() throws { continueAfterFailure = false }
+
+    override func tearDownWithError() throws {
+      if let app = launchedApp {
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "Final editor accessibility tree"
+        tree.lifetime = .keepAlways
+        add(tree)
+        app.terminate()
+      }
+      XCUIDevice.shared.orientation = .portrait
+      if let stagedDirectory { try FileManager.default.removeItem(at: stagedDirectory) }
+    }
 
     func testDeviceControlFamilyAndSelectedToolSurviveRotation() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -15,20 +30,12 @@ import XCTest
       let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-phone-layout-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      stagedDirectory = directory
       let staged = directory.appendingPathComponent(fixture.lastPathComponent)
       try FileManager.default.copyItem(at: fixture, to: staged)
       let original = try Data(contentsOf: staged)
       let app = XCUIApplication()
-      defer {
-        if let testRun, testRun.failureCount > 0 {
-          let tree = XCTAttachment(string: app.debugDescription)
-          tree.lifetime = .keepAlways
-          add(tree)
-        }
-        app.terminate()
-        XCUIDevice.shared.orientation = .portrait
-        try? FileManager.default.removeItem(at: directory)
-      }
+      launchedApp = app
       app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
       app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = staged.lastPathComponent
       app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = directory.path
@@ -48,6 +55,11 @@ import XCTest
       XCTAssertTrue(blackWhite.waitForExistence(timeout: 5))
       let initial = try XCTUnwrap(blackWhite.value as? String)
       blackWhite.tap()
+      wait(
+        blackWhite,
+        predicate: NSPredicate { object, _ in
+          (object as? XCUIElement)?.value as? String != initial
+        })
       let edited = try XCTUnwrap(blackWhite.value as? String)
       XCTAssertNotEqual(edited, initial)
 
@@ -103,8 +115,22 @@ import XCTest
         tapTool(app, "hsl")
         XCTAssertTrue(element(app, "editor-hsl-section").waitForExistence(timeout: 5))
         XCTAssertFalse(element(app, "editor-drag-bar").exists)
-        app.buttons["editor-group-detail"].tap()
-        tapTool(app, "mask")
+        for (group, tool) in [
+          ("light", "toneCurve"), ("effects", "filmLook"),
+          ("effects", "colorGrade"), ("detail", "lensCorrections"), ("detail", "mask"),
+        ] {
+          app.buttons["editor-group-\(group)"].tap()
+          tapTool(app, tool)
+          let selected = element(app, "editor-iphone-selected-control")
+          XCTAssertTrue(selected.exists)
+          XCTAssertGreaterThan(selected.frame.height, 0)
+          XCTAssertLessThanOrEqual(selected.frame.height, app.windows.firstMatch.frame.height * 0.4)
+          // Every group remains reachable even for a tall selected panel.
+          for id in ["light", "color", "effects", "detail"] {
+            XCTAssertTrue(app.buttons["editor-group-\(id)"].isHittable)
+          }
+          XCTAssertFalse(element(app, "editor-hsl-section").exists)
+        }
         let addMask = element(app, "editor-mask-add-menu")
         wait(
           addMask,
@@ -123,6 +149,7 @@ import XCTest
 
     private func tapTool(_ app: XCUIApplication, _ tool: String) {
       let button = app.buttons["editor-tool-\(tool)"]
+      if !button.isHittable { element(app, "editor-tool-row").swipeRight() }
       for _ in 0..<3 where !button.isHittable {
         element(app, "editor-tool-row").swipeLeft()
       }

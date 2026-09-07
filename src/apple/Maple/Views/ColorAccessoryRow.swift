@@ -38,7 +38,8 @@ struct ColorAccessoryRow: View {
       if compactStyle {
         HStack(spacing: 12) {
           if state.armedTool == .bwMix {
-            blackWhiteToggle.toggleStyle(.switch).fixedSize()
+            Text("Black & White").font(.caption).accessibilityHidden(true)
+            blackWhiteToggle.labelsHidden().toggleStyle(.switch).fixedSize()
           }
           profilePicker
         }
