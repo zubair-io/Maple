@@ -86,7 +86,7 @@ def fmt_int(value: Any) -> str:
         return str(value)
 
 
-def tick_rows(label: str, tick: dict[str, Any] | None, published_of: Any) -> list[str]:
+def tick_rows(label: str, tick: dict[str, Any] | None) -> list[str]:
     if not tick:
         return [f"| {label} p50 / p95 / max | — | 16 ms / 50 ms (hard) |"]
     p50, p95, mx = tick.get("p50Ms"), tick.get("p95Ms"), tick.get("maxMs")
@@ -145,8 +145,8 @@ def render_row_section(row: dict[str, Any]) -> str:
             f"| Cold open, cached reopen | {fmt_ms(row.get('coldOpenCachedMs'))} | "
             f"~{COLD_OPEN_CACHED_TARGET_MS:g} ms |"
         ),
-        *tick_rows("Exposure", row.get("tickExposure"), row.get("tickExposure", {}).get("published")),
-        *tick_rows("Contrast", row.get("tickContrast"), row.get("tickContrast", {}).get("published")),
+        *tick_rows("Exposure", row.get("tickExposure")),
+        *tick_rows("Contrast", row.get("tickContrast")),
         (
             f"| Full-resolution export ({row.get('exportFormat', 'jpeg')}) | "
             f"{fmt_ms(row.get('exportMs'))} | no fixed target — tracked for regression |"
