@@ -42,25 +42,25 @@ Keyboard handling lives in one `switch` in `MainWindow.xaml.cs`: `E`/`Escape` mo
 
 Feature work is split across `MainWindow.*.cs` partials, each paired with a WinUI-free logic class it delegates to:
 
-| Partial                                             | Feature                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `MainWindow.Selection.cs`                           | Grid multi-select (Extended mode) mirrored into the view model.                            |
-| `MainWindow.Filmstrip.cs`                           | The Preview/Edit filmstrip rail: cells, active-follow, mode-preserving activation.         |
-| `MainWindow.Rename.cs`                              | Inline single-asset rename (F2, double-click filename).                                    |
-| `MainWindow.BatchRename.cs`                         | Template-token batch rename with live before/after preview.                                |
-| `MainWindow.MoveToFolder.cs`                        | Keyboard/Narrator-accessible move, sharing the drag path's apply code.                     |
-| `MainWindow.DragDrop.cs`                            | Drag grid selection onto folder-tree nodes; Ctrl = copy; collisions ask.                   |
-| `MainWindow.DropMount.cs`                           | OS drops onto the window (mount by reference) and Explorer "Open with" activations.        |
-| `MainWindow.FolderContextMenu.cs`                   | Sources-tree flyout: New Folder / Rename / Move to Trash.                                  |
-| `MainWindow.Trash.cs`, `MainWindow.TrashRestore.cs` | Delete → Trash, and the in-app restore list for Maple's own trash.                         |
-| `MainWindow.Reveal.cs`                              | "Show in Explorer" (`explorer.exe /select,"<path>"`).                                      |
-| `MainWindow.Crop.cs`                                | Crop tool: live rotate preview, client-side display crop, sidecar `crs:Crop*` for develop. |
+| Partial                                             | Feature                                                                                                                           |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `MainWindow.Selection.cs`                           | Grid multi-select (Extended mode) mirrored into the view model.                                                                   |
+| `MainWindow.Filmstrip.cs`                           | The Preview/Edit filmstrip rail: cells, active-follow, mode-preserving activation.                                                |
+| `MainWindow.Rename.cs`                              | Inline single-asset rename (F2, double-click filename).                                                                           |
+| `MainWindow.BatchRename.cs`                         | Template-token batch rename with live before/after preview.                                                                       |
+| `MainWindow.MoveToFolder.cs`                        | Keyboard/Narrator-accessible move, sharing the drag path's apply code.                                                            |
+| `MainWindow.DragDrop.cs`                            | Drag grid selection onto folder-tree nodes; Ctrl = copy; collisions ask.                                                          |
+| `MainWindow.DropMount.cs`                           | OS drops onto the window (mount by reference) and Explorer "Open with" activations.                                               |
+| `MainWindow.FolderContextMenu.cs`                   | Sources-tree flyout: New Folder / Rename / Move to Trash.                                                                         |
+| `MainWindow.Trash.cs`, `MainWindow.TrashRestore.cs` | Delete → Trash, and the in-app restore list for Maple's own trash.                                                                |
+| `MainWindow.Reveal.cs`                              | "Show in Explorer" (`explorer.exe /select,"<path>"`).                                                                             |
+| `MainWindow.Crop.cs`                                | Crop tool: live rotate preview, client-side display crop, sidecar `crs:Crop*` for develop.                                        |
 | `MainWindow.Mask.cs`                                | Mask tool (#3406): linear/radial local-adjustment layers, add/select/delete, feather/invert/eleven controls, canvas drag handles. |
-| `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, docked Preview inspector, histogram.      |
-| `MainWindow.Pano.cs`                                | Panorama stitching over a grid multi-selection.                                            |
-| `MainWindow.Dialogs.cs`                             | Folder picker, export dialogs, Settings window.                                            |
-| `MainWindow.Qualify.cs`                             | Headless qualification mode (see "Qualification harness").                                 |
-| `MainWindow.WhiteBalance.cs`                        | White-balance eyedropper, preset picker and provenance readout (#2434).                    |
+| `MainWindow.Panels.cs`                              | Edit chrome — tool rail, group panels, star row, docked Preview inspector, histogram.                                             |
+| `MainWindow.Pano.cs`                                | Panorama stitching over a grid multi-selection.                                                                                   |
+| `MainWindow.Dialogs.cs`                             | Folder picker, export dialogs, Settings window.                                                                                   |
+| `MainWindow.Qualify.cs`                             | Headless qualification mode (see "Qualification harness").                                                                        |
+| `MainWindow.WhiteBalance.cs`                        | White-balance eyedropper, preset picker and provenance readout (#2434).                                                           |
 
 The convention throughout is that the `MainWindow` partial is UI-thread mechanics only (dialogs, focus, Narrator announcements) and the decision logic lives in a plain C# class under `Services/FileOperations/` or `ViewModels/`, so it can be unit-tested without a live window.
 
