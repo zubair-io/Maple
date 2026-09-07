@@ -7,7 +7,7 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleAdjustmentParams (scene_linear_chain.rs).
     /// Field order matches the Rust declaration byte-for-byte; fields are only
     /// ever appended at the tail (offset-stable ABI convention). Expected size
-    /// on x64: 672 bytes — asserted at startup by RawFfi.VerifyAbi().
+    /// on x64: 696 bytes — asserted at startup by RawFfi.VerifyAbi().
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleAdjustmentParams
@@ -111,6 +111,19 @@ namespace Maple.WinUI.Native
         public float* local_adjustments_ptr;
         public nuint local_adjustments_len;
 
+        // Defringe (#3411) — ACR's purple / green fringe suppression, applied
+        // in scene-linear Oklab between dehaze and local adjustments. Appended
+        // at the tail per the offset-stable ABI convention. Unlike most tail
+        // fields the four hue edges do NOT default to 0 in the model (ACR's are
+        // 30/70 and 40/60), so the builders below always write all six; the Rust
+        // side substitutes the canonical band when a family's pair reads 0/0.
+        public float defringe_purple_amount;
+        public float defringe_purple_hue_lo;
+        public float defringe_purple_hue_hi;
+        public float defringe_green_amount;
+        public float defringe_green_hue_lo;
+        public float defringe_green_hue_hi;
+
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference
         /// (PipelineRenderer.makeParams). Pointer fields stay null here — the
@@ -200,6 +213,12 @@ namespace Maple.WinUI.Native
                 target_primaries = 0,
                 input_shape = 0,
                 iso = iso,
+                defringe_purple_amount = (float)m.DefringePurpleAmount,
+                defringe_purple_hue_lo = (float)m.DefringePurpleHueLo,
+                defringe_purple_hue_hi = (float)m.DefringePurpleHueHi,
+                defringe_green_amount = (float)m.DefringeGreenAmount,
+                defringe_green_hue_lo = (float)m.DefringeGreenHueLo,
+                defringe_green_hue_hi = (float)m.DefringeGreenHueHi,
             };
             return p;
         }

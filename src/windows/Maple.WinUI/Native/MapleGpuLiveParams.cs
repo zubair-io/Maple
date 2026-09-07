@@ -194,6 +194,18 @@ namespace Maple.WinUI.Native
         public float perspective_aspect;
         public float perspective_x;
         public float perspective_y;
+        // Defringe (#3411) — ACR's purple / green fringe suppression, applied
+        // in scene-linear Oklab between dehaze and local adjustments. Appended
+        // at the tail per the offset-stable ABI convention. Unlike most tail
+        // fields the four hue edges do NOT default to 0 in the model (ACR's are
+        // 30/70 and 40/60), so the builders below always write all six; the Rust
+        // side substitutes the canonical band when a family's pair reads 0/0.
+        public float defringe_purple_amount;
+        public float defringe_purple_hue_lo;
+        public float defringe_purple_hue_hi;
+        public float defringe_green_amount;
+        public float defringe_green_hue_lo;
+        public float defringe_green_hue_hi;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
@@ -290,6 +302,12 @@ namespace Maple.WinUI.Native
                 color_grade_global_hue = (float)m.ColorGradeGlobalHue,
                 color_grade_global_saturation = (float)m.ColorGradeGlobalSaturation,
                 color_grade_global_luminance = (float)m.ColorGradeGlobalLuminance,
+                defringe_purple_amount = (float)m.DefringePurpleAmount,
+                defringe_purple_hue_lo = (float)m.DefringePurpleHueLo,
+                defringe_purple_hue_hi = (float)m.DefringePurpleHueHi,
+                defringe_green_amount = (float)m.DefringeGreenAmount,
+                defringe_green_hue_lo = (float)m.DefringeGreenHueLo,
+                defringe_green_hue_hi = (float)m.DefringeGreenHueHi,
                 iso = image.Iso,
                 perspective_vertical = (float)m.PerspectiveVertical,
                 perspective_horizontal = (float)m.PerspectiveHorizontal,

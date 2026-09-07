@@ -142,6 +142,12 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 nr_color,
                 local_adjustments_ptr,
                 local_adjustments_len,
+                defringe_purple_amount,
+                defringe_purple_hue_lo,
+                defringe_purple_hue_hi,
+                defringe_green_amount,
+                defringe_green_hue_lo,
+                defringe_green_hue_hi,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -358,6 +364,12 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             perspective_aspect,
             perspective_x,
             perspective_y,
+            defringe_purple_amount,
+            defringe_purple_hue_lo,
+            defringe_purple_hue_hi,
+            defringe_green_amount,
+            defringe_green_hue_lo,
+            defringe_green_hue_hi,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),
@@ -462,8 +474,8 @@ mod tests {
         }
         let (size, _) = parse(&describe("MapleAdjustmentParams").unwrap());
         assert_eq!(
-            size, 672,
-            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 672 bytes"
+            size, 696,
+            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 696 bytes"
         );
     }
 

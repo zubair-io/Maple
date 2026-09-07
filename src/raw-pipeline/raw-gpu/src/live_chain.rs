@@ -59,6 +59,7 @@ use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::color_grade::{color_grade_is_identity, ColorGradePass};
+use crate::defringe::DefringePass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::display_tone_curve::{display_tone_curve_is_identity, DisplayToneCurvePass};
@@ -282,6 +283,15 @@ pub fn build_live_split<'a>(
             airlight: airlight.clone(),
         }));
     }
+    // Defringe (#3411) — develop's 12a position, between dehaze and local
+    // adjustments. Gated on the SAME predicate raw-core's
+    // `defringe::params_from_model` applies (either strength above zero),
+    // carried on `FullChainInputs::defringe`.
+    if inputs.defringe.is_engaged() {
+        suffix.push(Box::new(DefringePass {
+            inputs: inputs.defringe,
+        }));
+    }
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. See the gate-predicate note in the module docs.
     push_local_adjustments(&mut suffix, inputs);
@@ -479,6 +489,13 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     }
     if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
         m |= 1 << 16;
+    }
+    // Bit 19: defringe (#3411) — same predicate as the `build_live_split`
+    // gate above. Only presence changes the dispatch/bind-group shape (the
+    // six sliders ride a fixed-size params uniform), so no content hash is
+    // folded in.
+    if inputs.defringe.is_engaged() {
+        m |= 1 << 19;
     }
     if inputs.vignette_amount.abs() >= SLIDER_EPS {
         m |= 1 << 9;

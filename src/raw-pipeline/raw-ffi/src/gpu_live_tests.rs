@@ -406,6 +406,7 @@ pub(super) fn direct_raw_gpu(
         // This file's fixtures don't exercise the scope pass — see
         // `gpu_live_scope_tests.rs` for that.
         scope: raw_gpu::ScopeRequest::default(),
+        defringe: raw_gpu::DefringeInputs::default(),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,

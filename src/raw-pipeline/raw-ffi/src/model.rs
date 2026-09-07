@@ -149,3 +149,28 @@ fn apply_ae_off(model: &xmp::AdjustmentModel, will_fit: bool) -> xmp::Adjustment
     }
     m
 }
+
+/// Resolve the six `Defringe*` tail fields both C params structs carry
+/// (#3411) into the `[amount, hue_lo, hue_hi]` triples raw-core's
+/// `stages::defringe::params_from_values` expects.
+///
+/// The one piece of interpretation here is the stale-host fallback. Unlike
+/// most tail fields, `0.0` is NOT the canonical default for the four hue
+/// edges — ACR's are 30/70 (purple) and 40/60 (green) — so a host built
+/// against a pre-#3411 header that zero-fills the tail would hand the stage
+/// a degenerate `lo == hi` band. Zero amounts make that harmless (the stage
+/// short-circuits), but a host that learns the amounts before it learns the
+/// bands would silently select nothing. Per family, `lo == 0 && hi == 0` is
+/// therefore read as "not supplied" and replaced with that family's
+/// canonical band; a live host that genuinely wants an empty band can still
+/// express it with any other equal pair.
+pub(crate) fn defringe_triples(purple: [f32; 3], green: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+    let resolve = |v: [f32; 3], lo: f32, hi: f32| {
+        if v[1] == 0.0 && v[2] == 0.0 {
+            [v[0], lo, hi]
+        } else {
+            v
+        }
+    };
+    (resolve(purple, 30.0, 70.0), resolve(green, 40.0, 60.0))
+}

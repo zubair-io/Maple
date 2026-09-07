@@ -62,6 +62,14 @@ pub struct GpuContext {
     /// generated color matrices. Built on first use via
     /// [`GpuContext::vignette_pipeline`].
     pub(crate) vignette_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled defringe compute pipeline (`defringe.wgsl` + the
+    /// generated color matrices). The #3411 purple / green fringe
+    /// suppressor: it scores each pixel's Oklab hue against ACR's band, its
+    /// 3×3 luminance neighbourhood against an edge gate, and scales chroma
+    /// by the product. Rounds pixels through Oklab, so it needs the
+    /// generated matrices. Built on first use via
+    /// [`GpuContext::defringe_pipeline`].
+    pub(crate) defringe_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled local-adjustments compute pipeline
     /// (`local_adjustments.wgsl` + the generated color matrices). The #1698
     /// vector-mask rasterizer: it rasterizes each layer's linear/radial mask
@@ -399,6 +407,7 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
+            defringe_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),
             grain_pipeline: OnceCell::new(),
             color_grade_pipeline: OnceCell::new(),

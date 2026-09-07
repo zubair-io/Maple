@@ -191,6 +191,18 @@ namespace Maple.WinUI.Models
         public double PerspectiveAspect = 0.0;
         public double PerspectiveX = 0.0;
         public double PerspectiveY = 0.0;
+        // --- Profile-free lens corrections (#3411) ---
+        // AutoLateralCa is a decode-product parameter (it re-decodes, like the
+        // DNG lens scales above); the six Defringe values are per-tick sliders.
+        // The hue bands carry ACR's own defaults so raising an amount alone
+        // gives ACR's band rather than a degenerate empty one.
+        public ToggleMode AutoLateralCa = ToggleMode.Off;
+        public double DefringePurpleAmount = 0.0;
+        public double DefringePurpleHueLo = 30.0;
+        public double DefringePurpleHueHi = 70.0;
+        public double DefringeGreenAmount = 0.0;
+        public double DefringeGreenHueLo = 40.0;
+        public double DefringeGreenHueHi = 60.0;
 
         public AdjustmentState Clone()
         {

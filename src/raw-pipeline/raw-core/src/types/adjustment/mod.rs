@@ -530,42 +530,22 @@ pub struct AdjustmentModel {
     /// [`DemosaicChoice`].
     pub demosaic: DemosaicChoice,
     // Profile-free lens corrections (#3411). The block above scales what a
-    // DNG's own `OpcodeList3` already encodes; these two stages measure the
-    // aberration from the image itself, so they are the only lateral-CA /
-    // fringe controls a CR2 / RAF / ARW / NEF ever gets.
-    //
-    // Declared at the struct tail so schema additions stay append-only.
-    /// Profile-free lateral chromatic-aberration correction — see
-    /// [`AutoLateralCa`] and `stages::lateral_ca`. `Off` (default) is an
-    /// exact bit-identical skip. A **decode-product** parameter (raw-domain,
-    /// between `hot_pixel` and `demosaic`), so it rides the same
-    /// decoded-image cache keys as `chroma_prefilter`, and there is
-    /// deliberately no WGSL mirror of it. XMP key `crs:AutoLateralCA`.
+    // DNG's `OpcodeList3` already encodes; these seven measure the
+    // aberration from the image itself, so they are the only lateral-CA or
+    // fringe control a CR2 / RAF / ARW / NEF ever gets. `auto_lateral_ca`
+    // is a DECODE-PRODUCT parameter (raw-domain, between `hot_pixel` and
+    // `demosaic`) riding the same cache keys as `chroma_prefilter`, with
+    // deliberately no WGSL mirror; the six `defringe_*` fields are PER-TICK
+    // sliders that do have one. All seven default to inert, and sit at the
+    // struct tail so schema additions stay append-only. Field docs live on
+    // their `ADJUSTMENT_SCHEMA` entries in `schema/lens_auto.rs`.
     pub auto_lateral_ca: AutoLateralCa,
-
-    /// Purple-fringe suppression strength, `[0, 20]` (#3411). ACR's
-    /// Defringe amount: 0 (default) is an exact bit-identical skip. Unlike
-    /// `auto_lateral_ca` this is a PER-TICK scene-linear stage (Oklab, run
-    /// between `dehaze` and `local_adjustments`), so it has a WGSL mirror
-    /// in `raw-gpu` and is NOT part of the decode-product cache key. XMP
-    /// key `crs:DefringePurpleAmount`.
     pub defringe_purple_amount: f32, // 0..20, default 0
-    /// Low edge of the purple hue band on ACR's `[0, 100]` defringe-hue
-    /// axis (#3411). Inert while `defringe_purple_amount` is 0. XMP key
-    /// `crs:DefringePurpleHueLo`.
     pub defringe_purple_hue_lo: f32, // 0..100, default 30
-    /// High edge of the purple hue band (#3411). XMP key
-    /// `crs:DefringePurpleHueHi`.
     pub defringe_purple_hue_hi: f32, // 0..100, default 70
-    /// Green-fringe suppression strength, `[0, 20]` (#3411). XMP key
-    /// `crs:DefringeGreenAmount`.
-    pub defringe_green_amount: f32, // 0..20, default 0
-    /// Low edge of the green hue band (#3411). Inert while
-    /// `defringe_green_amount` is 0. XMP key `crs:DefringeGreenHueLo`.
-    pub defringe_green_hue_lo: f32, // 0..100, default 40
-    /// High edge of the green hue band (#3411). XMP key
-    /// `crs:DefringeGreenHueHi`.
-    pub defringe_green_hue_hi: f32, // 0..100, default 60
+    pub defringe_green_amount: f32,  // 0..20, default 0
+    pub defringe_green_hue_lo: f32,  // 0..100, default 40
+    pub defringe_green_hue_hi: f32,  // 0..100, default 60
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this

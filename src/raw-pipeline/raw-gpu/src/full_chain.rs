@@ -15,7 +15,7 @@
 //!   highlight_recovery · DCP · oklab_highlight_recovery · PGTM ·
 //!   **capture_sharpening** · auto_exposure · **white_balance** ·
 //!   **scene_tone_controls** · **tone_curves** · **vibrance** · **saturation** ·
-//!   **clarity** · **texture** · **dehaze** · **local_adjustments** · **vignette** ·
+//!   **clarity** · **texture** · **dehaze** · **defringe** · **local_adjustments** · **vignette** ·
 //!   **sharpen** · **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
 //!   **agx** · **split_tone** (#1111) · **film_look** (epic #2683 Task 7,
@@ -71,6 +71,7 @@ use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 use crate::chain::Pass;
 use crate::clarity::ClarityPass;
+use crate::defringe::{DefringeInputs, DefringePass};
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::display_tone_curve::{DisplayToneCurveInputs, DisplayToneCurvePass};
@@ -295,6 +296,16 @@ pub struct FullChainInputs<'a> {
     /// [`build_full_chain_passes`]. Appended at the struct tail per the
     /// append-only convention.
     pub scope: ScopeRequest,
+    /// Defringe sliders (#3411), already resolved by
+    /// `raw_core::stages::defringe::params_from_model` — strengths are
+    /// `amount / 20`, band edges are ACR's `[0, 100]` axis values. Runs at
+    /// develop's 12a slot, between dehaze and local adjustments.
+    /// `DefringeInputs::default()` (both strengths 0) omits the pass
+    /// entirely in BOTH builders, exactly as raw-core's stage
+    /// short-circuits — so a stale caller that zero-fills this field gets
+    /// bit-identical pre-#3411 output. Appended at the struct tail per the
+    /// append-only convention.
+    pub defringe: DefringeInputs,
 }
 
 /// How the GPU-resident image was produced. Drives which leading stages the live
@@ -433,6 +444,16 @@ pub fn build_split<'a>(
         dehaze: inputs.dehaze,
         airlight: AirlightSource::Cpu(airlight),
     }));
+    // Defringe (#3411) — develop's 12a position, between dehaze and local
+    // adjustments. Gated even in the composition builder for the same reason
+    // `local_adjustments` below is: at zero strength the stage is a true
+    // bit-exact no-op in raw-core too, so there is no "always push it" form
+    // to compose, and pushing it would only pay a dispatch for nothing.
+    if inputs.defringe.is_engaged() {
+        suffix.push(Box::new(DefringePass {
+            inputs: inputs.defringe,
+        }));
+    }
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. Unlike the other passes here this one IS gated even in the
     // composition builder: `LocalAdjustmentsPass` needs a non-empty storage

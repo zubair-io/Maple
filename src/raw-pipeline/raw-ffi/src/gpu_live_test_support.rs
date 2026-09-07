@@ -297,5 +297,11 @@ pub(super) fn make_params(
         perspective_aspect: model.perspective_aspect,
         perspective_x: model.perspective_x,
         perspective_y: model.perspective_y,
+        defringe_purple_amount: 0.0,
+        defringe_purple_hue_lo: 0.0,
+        defringe_purple_hue_hi: 0.0,
+        defringe_green_amount: 0.0,
+        defringe_green_hue_lo: 0.0,
+        defringe_green_hue_hi: 0.0,
     }
 }

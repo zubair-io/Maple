@@ -244,7 +244,9 @@ impl LocalSpatialPass {
             }));
         }
         if let Some(v) = c.defringe.filter(|v| v.abs() >= ENGAGE_EPS) {
-            passes.push(Box::new(DefringePass { amount: v }));
+            passes.push(Box::new(DefringePass {
+                inputs: crate::defringe::DefringeInputs::per_mask(v),
+            }));
         }
         passes
     }

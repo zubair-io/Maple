@@ -210,6 +210,16 @@ impl Case {
             clarity: self.model.clarity,
             texture: self.model.texture,
             dehaze: self.model.dehaze,
+            defringe: raw_core::stages::defringe::params_from_model(&self.model)
+                .map(|p| crate::DefringeInputs {
+                    purple_strength: p.purple_strength,
+                    purple_lo: p.purple_lo,
+                    purple_hi: p.purple_hi,
+                    green_strength: p.green_strength,
+                    green_lo: p.green_lo,
+                    green_hi: p.green_hi,
+                })
+                .unwrap_or_default(),
             local_adjustments: raw_core::types::layers_to_flat(&self.model.local_adjustments),
             // Every existing `Case` leaves `model.mask_rasters` empty (#3271)
             // — bitmap-mask parity is covered directly by
@@ -325,6 +335,10 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
+    // Defringe (#3411) — develop's 12a slot, between dehaze and local
+    // adjustments. Both amounts default to 0, so every pre-#3411 case
+    // short-circuits here exactly as `build_split` omits the pass.
+    raw_core::stages::defringe::apply(&mut img, &case.model);
     // Local adjustments (#1698) — develop's 12b slot, between dehaze and
     // vignette. Empty for every existing case, so the shared oracle stays
     // bit-identical for them.

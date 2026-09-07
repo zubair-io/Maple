@@ -325,6 +325,17 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:PerspectiveAspect", a => a.PerspectiveAspect, (a, v) => a.PerspectiveAspect = v),
             F("crs:PerspectiveX", a => a.PerspectiveX, (a, v) => a.PerspectiveX = v),
             F("crs:PerspectiveY", a => a.PerspectiveY, (a, v) => a.PerspectiveY = v),
+            // Profile-free defringe (#3411). The four hue edges have non-zero
+            // canonical defaults (30/70, 40/60); `Defaults` above is a real
+            // AdjustmentState, so omit-on-write compares against those rather
+            // than against zero. `crs:AutoLateralCA` is a toggle, so it lives
+            // in the writer's enum block instead of this numeric table.
+            F("crs:DefringePurpleAmount", a => a.DefringePurpleAmount, (a, v) => a.DefringePurpleAmount = v),
+            F("crs:DefringePurpleHueLo", a => a.DefringePurpleHueLo, (a, v) => a.DefringePurpleHueLo = v),
+            F("crs:DefringePurpleHueHi", a => a.DefringePurpleHueHi, (a, v) => a.DefringePurpleHueHi = v),
+            F("crs:DefringeGreenAmount", a => a.DefringeGreenAmount, (a, v) => a.DefringeGreenAmount = v),
+            F("crs:DefringeGreenHueLo", a => a.DefringeGreenHueLo, (a, v) => a.DefringeGreenHueLo = v),
+            F("crs:DefringeGreenHueHi", a => a.DefringeGreenHueHi, (a, v) => a.DefringeGreenHueHi = v),
         };
 
         /// <summary>
