@@ -385,35 +385,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         sharpen_masking: p.sharpen_masking,
         nr_luminance: p.nr_luminance,
         nr_color: p.nr_color,
-        // Defringe (#3411) — resolved through raw-core's own
-        // `params_from_values`, so the GPU-live gate can never disagree with
-        // the CPU chain about whether the stage is engaged. A stale host's
-        // zero-filled tail yields `None` ⇒ `DefringeInputs::default()` ⇒ the
-        // pass is omitted, bit-identical to pre-#3411 output.
-        defringe: {
-            let (purple, green) = crate::model::defringe_triples(
-                [
-                    p.defringe_purple_amount,
-                    p.defringe_purple_hue_lo,
-                    p.defringe_purple_hue_hi,
-                ],
-                [
-                    p.defringe_green_amount,
-                    p.defringe_green_hue_lo,
-                    p.defringe_green_hue_hi,
-                ],
-            );
-            raw_core::stages::defringe::params_from_values(purple, green)
-                .map(|d| raw_gpu::DefringeInputs {
-                    purple_strength: d.purple_strength,
-                    purple_lo: d.purple_lo,
-                    purple_hi: d.purple_hi,
-                    green_strength: d.green_strength,
-                    green_lo: d.green_lo,
-                    green_hi: d.green_hi,
-                })
-                .unwrap_or_default()
-        },
+        // Defringe (#3411) — resolved through raw-core's own predicate by
+        // `model::gpu_defringe_inputs`, so the GPU-live gate can never
+        // disagree with the CPU chain about whether the stage is engaged.
+        defringe: crate::model::gpu_defringe_inputs(p),
         contrast: p.contrast,
         capture_sharpening,
         // The view tail ALWAYS runs the Auto Profile curve + residual-LUT passes

@@ -1,26 +1,37 @@
 //! Codegen-facing description of every scalar, enum, and point-curve field
 //! on [`super::AdjustmentModel`]. Flat const table (no proc-macro) for lean
-//! WASM builds. [`FieldKind`] and [`FieldSpec`] types live in
-//! `schema/types.rs`.
+//! WASM builds; [`FieldKind`] / [`FieldSpec`] live in `schema/types.rs`.
 //!
-//! `local_adjustments` (ticket #280) is intentionally absent — it is a
-//! `Vec<LocalAdjustment>` with its own schema; the drift test allow-lists it.
+//! `local_adjustments` (#280) is intentionally absent — a `Vec<LocalAdjustment>`
+//! with its own schema; the drift test allow-lists it.
 //!
 //! Single source of truth for the develop-settings schema: `tools/codegen.sh`
 //! emits the Swift and TypeScript mirrors from this table (#118), and the
 //! `codegen-drift` CI job re-generates them to prove the committed copies
 //! match. Only the NESTED value types those fields carry — `Crop`,
 //! `ToneCurve` — stay hand-written per platform, because a flat table cannot
-//! describe them. `whiteBalancePreset` remains a hand-written web-only field
-//! pending #119.
-//!
-//! `F32`, `Enum`, and `ToneCurve` fields are captured — both point-curve
-//! families (`tone_curve_*` since #366, `display_tone_curve_*` since #2232)
-//! carry [`FieldKind::ToneCurve`], re-exported from `types.rs`.
+//! describe them; `whiteBalancePreset` likewise, pending #119. `F32`, `Enum`
+//! and `ToneCurve` fields are all captured, both point-curve families
+//! (`tone_curve_*` #366, `display_tone_curve_*` #2232) as
+//! [`FieldKind::ToneCurve`].
 
-// FieldKind and FieldSpec split into a sibling submodule to stay under the
-// 600-LOC hard budget (#1181).
+// Every one of these is a sibling submodule for the same reason: spelling
+// its `FieldSpec` literals inline pushed this file past the 600-LOC hard
+// budget (#1181). `ADJUSTMENT_SCHEMA` still lists each entry IN PLACE, so
+// the emitted order matches `AdjustmentModel`'s struct order exactly.
+// `types` holds `FieldKind`/`FieldSpec` themselves; `hsl` the 24 band
+// entries (#366); `color_grade` the 13 wheel entries (#376);
+// `display_curves` the four display-referred point curves (#2232);
+// `perspective` the seven manual-geometry entries (#3410); `white_balance`
+// the slider pair, method and #2434 provenance fields; `lens_auto` the
+// seven profile-free lens corrections (#3411).
+mod color_grade;
+mod display_curves;
+mod hsl;
+mod lens_auto;
+mod perspective;
 mod types;
+mod white_balance;
 pub use types::{band_field, FieldKind, FieldSpec};
 
 // The 24 HSL band entries live in a sibling submodule for the same reason

@@ -471,6 +471,8 @@ extension Tool {
                              keyPath: \.perspective.y, mapping: .linear,
                              range: AdjustmentModel.perspectiveYRange,
                              defaultDisplayValue: Self.defaults.perspective.y,
+                             decimals: 0),
+            ]
         case .defringe:
             // Profile-free defringe (#3411). Unlike `.lensCorrections`
             // above these are PER-TICK sliders — the stage runs in the

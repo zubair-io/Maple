@@ -359,6 +359,7 @@ extension XMPSerializer {
       if rounded.isFinite && rounded != defaultValue {
         attrs.append((key, fmtNum(value)))
       }
+    }
     // Profile-free lateral CA + defringe (#3411) — same omit-on-default
     // convention. `crs:AutoLateralCA` is ACR's "Remove Chromatic
     // Aberration" checkbox, written in the same "1"/"0" spelling as the
