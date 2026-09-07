@@ -112,12 +112,24 @@ import XCTest
 
       // Main's wired Mask surface keeps an entry in the shared dock after
       // the legacy mobile and stacked tool rows are consolidated.
-      let mask = app.buttons["editor-dock-tool-mask"]
-      XCTAssertTrue(mask.exists)
-      mask.click()
-      let maskPanel = app.descendants(matching: .any)
-        .matching(identifier: "editor-mask-panel").firstMatch
-      XCTAssertTrue(maskPanel.waitForExistence(timeout: 5))
+      for width: CGFloat in [700, 1100] {
+        resize(window, width: width, height: 800)
+        let mask = app.buttons["editor-dock-tool-mask"]
+        XCTAssertTrue(mask.exists)
+        mask.click()
+        let maskPanel = app.descendants(matching: .any)
+          .matching(identifier: "editor-mask-panel").firstMatch
+        XCTAssertTrue(maskPanel.waitForExistence(timeout: 5))
+        let panel = app.descendants(matching: .any)
+          .matching(identifier: "editor-adjustments-panel").firstMatch
+        let editor = app.descendants(matching: .any)
+          .matching(identifier: "editor-view").firstMatch
+        if editor.frame.width < 768 {
+          XCTAssertLessThan(
+            panel.frame.height, editor.frame.height * 0.5,
+            "The scrollable Mask inspector must leave room for the photo on compact widths")
+        }
+      }
     }
 
     private func resize(_ window: XCUIElement, width: CGFloat, height: CGFloat) {
