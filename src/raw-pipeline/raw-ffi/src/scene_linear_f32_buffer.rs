@@ -6,6 +6,8 @@ use crate::scene_linear_f32::flatten_matrix;
 /// per-tick FFI chain (`maple_apply_scene_linear_chain_f32`) can use them for profile-aware NR
 /// (PR #1709 review fix). `ae_gain` (#1167) is the scalar auto-exposure anchor gain
 /// `auto_exposure` applied to `f32_rgba` — see `MapleSceneLinearBufferF32::ae_gain`'s doc.
+/// `support_raw` is supplied only on full/sized decode exports. Tiles pass `None`
+/// because callers already have decode-level support and do not consume it per tile.
 pub(crate) fn write_scene_linear_buf_f32(
     out_ptr: usize,
     w: u32,
@@ -18,7 +20,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     has_lens_corrections: bool,
     lens_correction_ca_inert: bool,
     lens_correction_distortion_inert: bool,
-    raw: &raw_core::RawImage,
+    support_raw: Option<&raw_core::RawImage>,
 ) {
     let (f32_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack_f32", || {
         let mut boxed = f32_rgba.into_boxed_slice();
@@ -69,8 +71,8 @@ pub(crate) fn write_scene_linear_buf_f32(
             has_lens_corrections: has_lens_corrections as u32,
             lens_correction_ca_inert: lens_correction_ca_inert as u32,
             lens_correction_distortion_inert: lens_correction_distortion_inert as u32,
-            camera_support_json: raw_core::support_tiers::RenderSupport::resolve(raw)
-                .ok()
+            camera_support_json: support_raw
+                .and_then(|raw| raw_core::support_tiers::RenderSupport::resolve(raw).ok())
                 .map(|support| {
                     std::ffi::CString::new(support.to_json())
                         .expect("JSON escapes NUL")
@@ -85,6 +87,10 @@ pub(crate) fn write_scene_linear_buf_f32(
 mod tests {
     use super::*;
     use crate::buffers::maple_free_scene_linear_buffer_f32;
+    use crate::handle::{
+        maple_close_raw_handle, maple_open_raw_handle,
+        maple_render_handle_scene_linear_tile_ae_f32, maple_render_handle_scene_linear_tile_f32,
+    };
     use crate::scene_linear_f32::maple_render_file_scene_linear_sized_f32;
     use raw_core::test_support::synth_dng::SyntheticGreyDng;
     use std::ffi::{CStr, CString};
@@ -103,6 +109,75 @@ mod tests {
             .as_bytes()
             .windows(6)
             .any(|bytes| bytes == b"\\u0000"));
+    }
+
+    #[test]
+    fn repeated_tiles_do_not_export_decode_level_camera_support() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("support-tile.dng");
+        SyntheticGreyDng {
+            width: 32,
+            height: 32,
+            ..Default::default()
+        }
+        .write_to(&path)
+        .unwrap();
+        let path = CString::new(path.to_str().unwrap()).unwrap();
+        let mut handle = std::ptr::null_mut();
+        unsafe {
+            assert_eq!(
+                maple_open_raw_handle(path.as_ptr(), std::ptr::null(), &mut handle),
+                0
+            );
+            let mut previous = None;
+            for ae_aware in [false, true, false, true] {
+                let mut buffer = MapleSceneLinearBufferF32::empty();
+                let rc = if ae_aware {
+                    maple_render_handle_scene_linear_tile_ae_f32(
+                        handle,
+                        4,
+                        4,
+                        16,
+                        16,
+                        16,
+                        16,
+                        0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        &mut buffer,
+                    )
+                } else {
+                    maple_render_handle_scene_linear_tile_f32(
+                        handle,
+                        4,
+                        4,
+                        16,
+                        16,
+                        16,
+                        16,
+                        0,
+                        0.0,
+                        0.0,
+                        &mut buffer,
+                    )
+                };
+                assert_eq!(rc, 0);
+                assert_eq!(
+                    (buffer.width, buffer.height, buffer.len_bytes),
+                    (16, 16, 4096)
+                );
+                let omitted = buffer.camera_support_json.is_null();
+                let pixels = std::slice::from_raw_parts(buffer.f32_rgba, 1024).to_vec();
+                maple_free_scene_linear_buffer_f32(&mut buffer);
+                assert!(omitted, "tiles must not allocate camera-support metadata");
+                if let Some(expected) = &previous {
+                    assert_eq!(&pixels, expected, "AE=1 preserves tile pixels");
+                }
+                previous = Some(pixels);
+            }
+            maple_close_raw_handle(handle);
+        }
     }
 
     #[test]
