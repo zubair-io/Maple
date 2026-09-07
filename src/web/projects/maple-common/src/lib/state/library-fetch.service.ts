@@ -27,7 +27,7 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
-import { PassthroughBucket, XmpCulling } from '../xmp/xmp.types';
+import { PassthroughBucket, XmpCulling, XmpMetadata } from '../xmp/xmp.types';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -186,6 +186,7 @@ export class LibraryFetch {
     const folderId = `f-${folderSlug}`;
     const newAdjustments = new Map<AssetId, AdjustmentModel>();
     const newPassthroughs = new Map<AssetId, PassthroughBucket>();
+    const newMetadata = new Map<AssetId, XmpMetadata>();
     const previousAssetIds = this.store
       .assets()
       .filter((asset) => asset.folderId === folderId)
@@ -230,10 +231,11 @@ export class LibraryFetch {
         keywords = [...(culling.keywords ?? [])];
 
         // Full AdjustmentModel (P6).
-        const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xmpText);
+        const { model, passthrough, metadata } = this.xmpParser.parseAdjustmentModel(xmpText);
         const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
         newAdjustments.set(id, fullModel);
         newPassthroughs.set(id, passthrough);
+        newMetadata.set(id, metadata);
 
         edited = true;
       } catch {
@@ -275,6 +277,7 @@ export class LibraryFetch {
     this.xmpStore.replacePassthroughs(
       new Set([...previousAssetIds, ...newAdjustments.keys()]),
       newPassthroughs,
+      newMetadata,
     );
 
     // The handle becomes the active persistence target only after its assets
