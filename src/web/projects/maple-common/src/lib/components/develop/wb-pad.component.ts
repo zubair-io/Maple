@@ -74,7 +74,14 @@ export class WbPadComponent {
     return id ? this.library.adjustmentFor(id)() : null;
   });
 
-  readonly selectedPreset = computed(() => this.adj()?.whiteBalancePreset ?? 'As Shot');
+  readonly selectedPreset = computed(() => {
+    const model = this.adj();
+    // Older Maple sidecars omitted the As Shot source while writing Custom.
+    // Match Apple's display without rewriting the stored pair or provenance.
+    return model?.whiteBalancePreset === 'Custom' && model.wbSource === 'AsShot'
+      ? 'As Shot'
+      : (model?.whiteBalancePreset ?? 'As Shot');
+  });
   readonly presetDisabled = computed(
     () => this.editor.autoInFlight() || this.editor.wbSampleInFlight(),
   );
