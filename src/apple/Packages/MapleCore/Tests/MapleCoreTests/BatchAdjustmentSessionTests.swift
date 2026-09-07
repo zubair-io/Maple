@@ -123,6 +123,36 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     XCTAssertTrue(session.hasLoadedSidecar)
   }
 
+  func testCancelledHydrationDiscardsARegisteredCachedMask() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "batch-cancelled-mask")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let digest = "0123456789abcdef"
+    let model = "apple-vision-person-instance/1"
+    let rasterStore = MaskRasterStore(directory: root.appendingPathComponent("masks"))
+    _ = try await rasterStore.raster(for: digest, model: model) { (2, 2, [255, 0, 255, 0]) }
+    var persisted = AdjustmentModel.default
+    persisted.localAdjustments = [
+      LocalAdjustment(
+        mask: .bitmap(
+          recipe: BitmapRecipe(
+            person: 0, facialSkin: true, bodySkin: true, model: model, digest: digest),
+          rasterId: 0),
+        range: .skinTone,
+        adjustments: PartialAdjustments(exposure: 0.4))
+    ]
+    let session = EditSession(
+      asset: AssetRef(displayName: "remote.png", hintExtension: "png", bytesProvider: { Data() }),
+      remoteSidecarStore: ImmediateHydrationStore(model: persisted))
+    session.maskRasterStore = rasterStore
+
+    let load = Task { await session.loadSidecar() }
+    load.cancel()
+    await load.value
+
+    XCTAssertFalse(session.hasLoadedSidecar)
+    XCTAssertTrue(session.model.localAdjustments.isEmpty)
+  }
+
   func testLateCopyReadCannotReplaceTheLatestRequestedPhoto() {
     let clipboard = AdjustmentClipboard()
     let old = clipboard.beginCopyRequest()

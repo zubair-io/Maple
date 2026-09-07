@@ -1,4 +1,4 @@
-import { resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { safeWriteAllowed } from '../fs/root.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -9,12 +9,19 @@ export class BatchScopeError extends Error {
   override name = 'BatchScopeError';
 }
 
+async function canonicalRoot(root: string): Promise<string> {
+  const marker = await safeWriteAllowed(join(root, '.maple-batch-scope'));
+  return marker.ok && marker.data ? dirname(marker.data) : resolve(root);
+}
+
 /** Canonical registered roots form an atomic Mongo uniqueness fence across clients. */
 export async function batchScopes(payload: Record<string, unknown>): Promise<string[]> {
-  const roots = [
-    ...(await loadLibraryRoots()).values(),
-    ...(process.env.MAPLE_ROOTS?.split(':').filter(Boolean) ?? []),
-  ].map((root) => resolve(root));
+  const roots = await Promise.all(
+    [
+      ...(await loadLibraryRoots()).values(),
+      ...(process.env.MAPLE_ROOTS?.split(':').filter(Boolean) ?? []),
+    ].map(canonicalRoot),
+  );
   const targets = (() => {
     try {
       return parseSyncPayload(payload).targets;
@@ -33,7 +40,9 @@ export async function batchScopes(payload: Record<string, unknown>): Promise<str
     if (sidecars.has(sidecar.data))
       throw new BatchScopeError('Photos in this batch share a sidecar');
     sidecars.add(sidecar.data);
-    const matches = roots.filter((root) => path.data === root || path.data.startsWith(root + sep));
+    const matches = roots.filter(
+      (root) => sidecar.data === root || sidecar.data.startsWith(root + sep),
+    );
     if (!matches.length) throw new BatchScopeError('Photo is outside registered libraries');
     // The broadest matching root makes nested registrations share one fence.
     scopes.add(matches.sort((a, b) => a.length - b.length)[0]);

@@ -49,6 +49,7 @@ import type {
   ApnsDeviceTokenDoc,
 } from './schema.ts';
 import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
+import { ensureBatchActiveLibraryIndex } from '../job-runner/batch-active-index.ts';
 
 const log = childLogger('db');
 
@@ -1106,18 +1107,7 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('jobs')
     .createIndex({ kind: 1, status: 1, created_at: -1 }, { name: 'jobs_list' });
-  await db.collection('jobs').createIndex(
-    { batch_scopes: 1 },
-    {
-      name: 'batch_active_library',
-      unique: true,
-      partialFilterExpression: {
-        kind: 'batch_adjustment_sync',
-        status: { $in: ['queued', 'running'] },
-        batch_scopes: { $exists: true },
-      },
-    },
-  );
+  await ensureBatchActiveLibraryIndex(db.collection('jobs'));
 
   // imports (ImportRunner, ticket #742) — same claim shape as jobs:
   //   { status: "pending"/"running",
