@@ -177,6 +177,9 @@ impl Default for AdjustmentModel {
             perspective_aspect: 0.0,
             perspective_x: 0.0,
             perspective_y: 0.0,
+            // Per-#3413: the noise-adaptive selection is the default; a
+            // pinned kernel is the exception, not the starting point.
+            demosaic: DemosaicChoice::Auto,
         }
     }
 }
