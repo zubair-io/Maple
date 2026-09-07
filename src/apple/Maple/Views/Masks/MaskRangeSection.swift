@@ -5,9 +5,11 @@
 // sliders in `MaskPanel` on every layout (stacked, flyout, phone).
 //
 // Slider rows follow `MaskSliderRow`'s contract exactly: a plain `Slider`
-// writing straight into `session.model` per sample, with `beginEdit()` at
-// drag START (`onEditingChanged`) so each drag is one undo entry, and the
-// overlay hidden for the drag's duration (#3364).
+// writing straight into `session.model` per sample, bracketed by
+// `setMaskDragActive` on `onEditingChanged` — open at drag start, CLOSED at
+// drag end, so each drag is exactly one undo entry and nothing that happens
+// afterwards is swallowed into it (#3453 review) — and the overlay hidden
+// for the drag's duration (#3364).
 
 import MapleCore
 import MapleUI
@@ -91,10 +93,7 @@ private struct MaskRangeSliderRow: View {
           set: { state.session.setMaskRangeField(id: layerId, field, $0) }
         ),
         in: field.range,
-        onEditingChanged: { editing in
-          state.session.isAdjustingMask = editing
-          if editing { state.session.beginEdit() }
-        }
+        onEditingChanged: { editing in state.session.setMaskDragActive(editing) }
       )
       Text(String(format: field == .hueWidth ? "%.0f°" : "%.2f", value))
         .font(.system(size: 11).monospacedDigit())
