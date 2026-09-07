@@ -26,6 +26,7 @@
 
 use super::TILE_OVERLAP_PX;
 use crate::pipeline::capture_sharpening_helper::capture_sharpening_params_from_model;
+use crate::stages::local_adjustments::spatial;
 use crate::stages::{
     capture_sharpening, clarity, noise_reduction, scene_tone_controls, sharpen, texture,
 };
@@ -53,9 +54,23 @@ pub(super) fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, di
         + scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
         + engaged(model.clarity, clarity::CLARITY_GUIDED_REACH_PX)
         + engaged(model.texture, texture::TEXTURE_GUIDED_REACH_PX)
+        + local_spatial_reach_px(model)
         + tail_reach_px(model);
     let mosaic_px = (sum as u32).saturating_mul(divisor);
     TILE_OVERLAP_PX.max(mosaic_px)
+}
+
+/// Reach of the per-mask spatial controls (#3407). Every layer's engaged
+/// controls cascade on that layer's own scratch buffer, and layers cascade
+/// on each other, so the whole stack's reaches add — the same additive rule
+/// the global stages above follow. A layer that engages the per-mask dehaze
+/// control never reaches here: `guards.rs` rejects the render first.
+fn local_spatial_reach_px(model: &AdjustmentModel) -> usize {
+    model
+        .local_adjustments
+        .iter()
+        .map(|layer| spatial::stencil_reach_px(&layer.adjustments))
+        .sum()
 }
 
 /// Remaining reach after texture, local adjustments, and vignette. Earlier
@@ -88,6 +103,48 @@ mod tests {
         assert_eq!(
             tile_overlap_px(&AdjustmentModel::default(), 6000, 1),
             TILE_OVERLAP_PX
+        );
+    }
+
+    /// A layer engaging clarity/texture/sharpness/noise widens the pad by
+    /// exactly those stages' reaches (#3407); a point-only layer adds none.
+    #[test]
+    fn per_mask_spatial_controls_widen_the_pad() {
+        use crate::types::{LocalAdjustment, PartialAdjustments, Point2};
+        let quiet = AdjustmentModel {
+            sharpen_amount: 0.0,
+            nr_color: 0.0,
+            ..AdjustmentModel::default()
+        };
+        let layer = |a: PartialAdjustments| {
+            LocalAdjustment::radial(Point2::new(0.5, 0.5), Point2::new(0.2, 0.2), a)
+        };
+
+        let point_only = AdjustmentModel {
+            local_adjustments: vec![layer(PartialAdjustments {
+                exposure: Some(1.0),
+                ..Default::default()
+            })],
+            ..quiet.clone()
+        };
+        assert_eq!(tile_overlap_px(&point_only, 6000, 1), TILE_OVERLAP_PX);
+
+        let spatial_layer = AdjustmentModel {
+            local_adjustments: vec![layer(PartialAdjustments {
+                clarity: Some(40.0),
+                texture: Some(20.0),
+                sharpness: Some(50.0),
+                luminance_noise: Some(30.0),
+                defringe: Some(60.0),
+                ..Default::default()
+            })],
+            ..quiet.clone()
+        };
+        // pre-scene 8 + clarity 40 + texture 4 + sharpen (⌈3·1⌉ + 1) + nr
+        // luma 4 + defringe 1 = 61, past the 48-px floor.
+        assert_eq!(
+            tile_overlap_px(&spatial_layer, 6000, 1),
+            8 + 40 + 4 + 4 + 4 + 1
         );
     }
 
