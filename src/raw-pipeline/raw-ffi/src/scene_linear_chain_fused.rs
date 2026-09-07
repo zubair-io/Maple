@@ -248,7 +248,9 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_f32(
 /// whole frame (matches [`raw_gpu::ScopeRequest`]'s `layer: -1` convention,
 /// and `apply_scene_linear_chain_f32_scoped`'s own out-of-range tolerance).
 /// `scope_out` null skips writing stats — mirrors `maple_gpu_live_render`'s
-/// optional-output-pointer contract. The written `frame` is always `1`: this
+/// optional-output-pointer contract; a non-null one receives the histogram
+/// AND the whole-frame RGB8 snapshot (#3251, see [`MapleScopeStats`]). The
+/// written `frame` is always `1`: this
 /// path is synchronous (no async GPU readback to be "one tick late" about),
 /// so a caller only needs to know a sample landed.
 ///
@@ -347,6 +349,11 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_scoped_f32(
         }
         let hist = raw_core::scope::vectorscope_histogram(&img, weights.as_deref());
         crate::scope_stats::write_stats(scope_out, 1, hist.total, &hist.bins);
+        // The downsampled RGB snapshot of the same encoded frame (#3251) —
+        // whole-frame by definition, like the web worker's readback; the
+        // scope target only weighs the histogram.
+        let snap = raw_core::scope::snapshot_image(&img);
+        crate::scope_stats::write_snapshot(scope_out, snap.width, snap.height, &snap.rgb);
     }
     0
 }

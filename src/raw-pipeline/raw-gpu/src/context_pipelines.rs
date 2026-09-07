@@ -292,4 +292,19 @@ impl GpuContext {
             )
         })
     }
+
+    /// The cached scope-snapshot compute pipeline (#3251): a box-mean
+    /// downsample of the display-encoded chain buffer into a packed-RGB8
+    /// `u32` buffer, dispatched once per OUTPUT cell. Same 3-binding shape
+    /// as `vectorscope_pipeline` (params uniform + src storage + out
+    /// storage); `layout: None` derives it from the WGSL bindings.
+    pub fn scope_snapshot_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.scope_snapshot_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "scope-snapshot",
+                include_str!("scope_snapshot.wgsl"),
+            )
+        })
+    }
 }

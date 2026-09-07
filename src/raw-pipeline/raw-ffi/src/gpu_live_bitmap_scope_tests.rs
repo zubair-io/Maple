@@ -96,6 +96,10 @@ fn render_ffi(
         _pad: 0,
         bins_ptr: bins.as_mut_ptr(),
         bins_len: bins.len() as u32,
+        snapshot_width: 0,
+        snapshot_height: 0,
+        snapshot_len: 0,
+        snapshot_ptr: std::ptr::null_mut(),
     };
     params.scope_layer = scope_layer;
     params.scope_enabled = scope_enabled as u8;

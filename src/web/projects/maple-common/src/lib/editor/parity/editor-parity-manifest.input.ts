@@ -7,7 +7,7 @@
 // The Apple and web command routers share the input contract. Remaining
 // asymmetric capabilities carry their own tracked exceptions.
 
-import type { ParityCapability, ParityException } from './editor-parity-types';
+import type { ParityCapability } from './editor-parity-types';
 
 const NONE = {
   undo: false,
@@ -361,22 +361,21 @@ const NAVIGATION: readonly ParityCapability[] = [
   },
 ];
 
-const SCOPE_EXCEPTION: ParityException = {
-  platform: 'apple',
-  rationale:
-    'Apple has neither a scope view beyond the histogram nor a downsampled readback path from RenderActor; web mounts the Maple UI scopes panel over the worker readback (#2449).',
-  ticket: '#3251',
-};
-
+// Both platforms mount the Maple UI scopes panel over a downsampled RGB
+// readback of the presented frame: web from the worker's canvas readback
+// (#2449), Apple from the scope pass's snapshot beside its vectorscope bins
+// (#3251 — `ScopeSample.snapshot`, reduced by `ScopePanelSample`).
 const scope = (id: string, name: string, order: number): ParityCapability => ({
   id: `scopes.${id}`,
   name,
   group: 'scopes',
   order,
-  reachability: { apple: 'absent', web: 'released' },
+  reachability: BOTH,
   presentation: {
-    compact: 'Web: Scopes button in the top bar opens a flyout panel above the dock',
-    regular: 'Web: Scopes button (the live histogram) opens a 240px dock-side panel',
+    compact:
+      "Web: Scopes button in the top bar opens a flyout panel above the dock. Apple: the panel is regular-width only; compact keeps the pill's skin-tone vectorscope HUD",
+    regular:
+      'Web: Scopes button (the live histogram) opens a 240px dock-side panel. Apple: Scopes button in the pill header opens the four-up panel (MuiScopesPanel) top-leading beside the filmstrip rail, over the GPU-live / CPU scope readback',
     wide: 'Same as regular',
   },
   interaction: {
@@ -387,7 +386,7 @@ const scope = (id: string, name: string, order: number): ParityCapability => ({
   },
   accessibility: { role: 'img', name, value: 'none', state: 'none', actions: ['read'] },
   participation: NONE,
-  exception: SCOPE_EXCEPTION,
+  exception: null,
 });
 
 const SCOPES: readonly ParityCapability[] = [

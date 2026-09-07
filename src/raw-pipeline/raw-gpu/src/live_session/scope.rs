@@ -1,5 +1,6 @@
-//! Scope readback for [`LiveSession`] (#3272): the histogram buffer, a pair
-//! of `MAP_READ` staging buffers, and the one-tick-late, never-blocking
+//! Scope readback for [`LiveSession`] (#3272, #3251): the histogram buffer,
+//! the RGB8 snapshot buffer, a pair of `MAP_READ` staging buffers each
+//! holding both, and the one-tick-late, never-blocking
 //! [`LiveSession::take_scope_stats`]. Sibling file so `live_session.rs`
 //! stays under the 600-line budget.
 //!
@@ -17,7 +18,10 @@
 
 use super::LiveSession;
 use crate::context::GpuContext;
-use crate::scope::{unpack_scope, ScopeStats, SCOPE_HIST_BYTE_LEN};
+use crate::scope::{
+    encode_snapshot, snapshot_dims, unpack_scope, ScopeStats, SCOPE_HIST_BYTE_LEN,
+    SCOPE_SNAPSHOT_BYTE_LEN, SCOPE_STAGING_BYTE_LEN,
+};
 use futures_channel::oneshot;
 use std::cell::{Cell, RefCell};
 
@@ -26,6 +30,13 @@ use std::cell::{Cell, RefCell};
 /// other `LiveSession` buffer).
 pub(super) struct ScopeBuffers {
     hist: wgpu::Buffer,
+    /// The packed-RGB8 snapshot (#3251), `snapshot_dims` cells of it used.
+    snap: wgpu::Buffer,
+    /// Fixed for the session: `snapshot_dims(image dims)`.
+    snapshot_dims: (u32, u32),
+    /// Bytes of each staging slot actually written per tick — the histogram
+    /// words plus the used snapshot words — so the map covers no more.
+    used_len: u64,
     staging: [wgpu::Buffer; 2],
     /// Which staging slot the NEXT tick's copy lands in.
     slot: Cell<usize>,
@@ -45,13 +56,19 @@ type PendingMap = (
 );
 
 impl ScopeBuffers {
-    pub(super) fn new(ctx: &GpuContext) -> Self {
+    pub(super) fn new(ctx: &GpuContext, dims: (u32, u32)) -> Self {
         let hist = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("live-scope-hist"),
             size: SCOPE_HIST_BYTE_LEN,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let snap = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("live-scope-snapshot"),
+            size: SCOPE_SNAPSHOT_BYTE_LEN,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let staging = [0, 1].map(|i| {
@@ -61,13 +78,19 @@ impl ScopeBuffers {
                 } else {
                     "live-scope-staging-b"
                 }),
-                size: SCOPE_HIST_BYTE_LEN,
+                size: SCOPE_STAGING_BYTE_LEN,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             })
         });
+        let snapshot_dims = snapshot_dims(dims.0, dims.1);
+        let used_len =
+            SCOPE_HIST_BYTE_LEN + (snapshot_dims.0 as u64) * (snapshot_dims.1 as u64) * 4;
         Self {
             hist,
+            snap,
+            snapshot_dims,
+            used_len,
             staging,
             slot: Cell::new(0),
             pending: RefCell::new([None, None]),
@@ -78,8 +101,9 @@ impl ScopeBuffers {
 
 impl LiveSession {
     /// Called by the chain encoders AFTER the chain passes are encoded and
-    /// BEFORE submit: histogram `chain_buf`, copy it into this tick's staging
-    /// slot. The map is requested right after the caller's submit, via
+    /// BEFORE submit: histogram `chain_buf`, downsample it into the snapshot
+    /// (#3251), copy both into this tick's staging slot. The map is
+    /// requested right after the caller's submit, via
     /// [`Self::scope_after_submit`].
     pub(super) fn encode_scope(
         &self,
@@ -98,7 +122,13 @@ impl LiveSession {
             dims.0 * dims.1,
             use_alpha,
         );
-        encoder.copy_buffer_to_buffer(&s.hist, 0, &s.staging[s.slot.get()], 0, SCOPE_HIST_BYTE_LEN);
+        let (dw, dh) = encode_snapshot(ctx, encoder, chain_buf, &s.snap, dims);
+        let staging = &s.staging[s.slot.get()];
+        encoder.copy_buffer_to_buffer(&s.hist, 0, staging, 0, SCOPE_HIST_BYTE_LEN);
+        let snap_len = (dw as u64) * (dh as u64) * 4;
+        if snap_len > 0 {
+            encoder.copy_buffer_to_buffer(&s.snap, 0, staging, SCOPE_HIST_BYTE_LEN, snap_len);
+        }
     }
 
     /// Request the async map of this tick's staging slot and advance the slot.
@@ -115,7 +145,7 @@ impl LiveSession {
         }
         let (tx, rx) = oneshot::channel();
         s.staging[slot]
-            .slice(..)
+            .slice(..s.used_len)
             .map_async(wgpu::MapMode::Read, move |res| {
                 let _ = tx.send(res);
             });
@@ -157,9 +187,9 @@ impl LiveSession {
             Ok(Some(Ok(()))) => {
                 let buf = &s.staging[prev];
                 let words: Vec<u32> =
-                    bytemuck::cast_slice(&buf.slice(..).get_mapped_range()).to_vec();
+                    bytemuck::cast_slice(&buf.slice(..s.used_len).get_mapped_range()).to_vec();
                 buf.unmap();
-                Some(unpack_scope(&words, frame))
+                Some(unpack_scope(&words, frame, s.snapshot_dims))
             }
             Ok(None) => {
                 // Still in flight — put it back so the next call can retry.
