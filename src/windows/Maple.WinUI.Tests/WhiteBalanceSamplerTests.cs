@@ -89,6 +89,22 @@ namespace Maple.WinUI.Tests
             Assert.Equal(WhiteBalanceSampler.MessageFor(WhiteBalanceSampleFailure.UnsupportedAsset), ex.Message);
         }
 
+        [Fact]
+        public void AutoEstimateNeverThrowsItReportsNullAndTheNoticeExists()
+        {
+            // Without MAPLE_RAW_FFI_DLL the native call itself throws
+            // (DllNotFoundException); with it, a missing RAW is a non-zero
+            // return code. Either way the picker's Auto path must get a null
+            // back — never a faulted task that leaves the busy flag set and
+            // the WB controls locked (#3443 review).
+            var missing = Path.Combine(Path.GetTempPath(), "maple-wb-missing-" + Guid.NewGuid().ToString("N") + ".dng");
+
+            var pair = WhiteBalanceSampler.EstimateAuto(missing, new AdjustmentState());
+
+            Assert.Null(pair);
+            Assert.False(string.IsNullOrWhiteSpace(WhiteBalanceSampler.AutoFailureMessage));
+        }
+
         // --- Native, DLL-gated ---
 
         private static string? GreyFixture()
