@@ -30,10 +30,17 @@
                             <mui:MuiText Text="{Binding FormattedValue}" Variant="ValueChip" />
                         </StackPanel>
                     </Grid>
+                    <!-- PointerCaptureLost / KeyUp are the gesture-end signal a
+                         commit-on-release row needs (#3414): the Slider captures
+                         the pointer for the whole thumb drag and releases it on
+                         pointer-up, and KeyUp covers arrow-key adjustment. Both
+                         are no-ops for the per-tick rows. -->
                     <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
                             StepFrequency="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
                             AutomationProperties.Name="{Binding Label}"
+                            PointerCaptureLost="OnSliderPointerReleased"
+                            KeyUp="OnSliderKeyReleased"
                             Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
             </DataTemplate>
