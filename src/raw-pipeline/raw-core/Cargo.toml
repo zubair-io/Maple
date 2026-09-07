@@ -38,7 +38,6 @@ clap = { workspace = true }
 [features]
 # Opt-in integration tests that shell out to compare_images.py.
 golden = []
-high-quality-demosaic = []
 # Test-only DNG synthesis helpers. NEVER enable in shipping artifacts.
 test-support = []
 # Gates fixture-dependent tests under `test-fixtures/{raws,references}/`
