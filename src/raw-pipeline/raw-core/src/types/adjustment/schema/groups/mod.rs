@@ -269,6 +269,19 @@ const DETAIL_FIELDS: &[&str] = &[
     // Bayer demosaic kernel override (#3413) — another decode-product
     // parameter, and the one the Detail panel's own picker drives.
     "demosaic",
+    // Profile-free lateral CA + defringe (#3411). `auto_lateral_ca` is a
+    // decode-product parameter like the four above; the six `defringe_*`
+    // fields are per-tick sliders. Both belong to Detail — they are the
+    // lens-correction half of the Detail panel, and a paste that carried
+    // one defringe amount but not its hue band would land a state the user
+    // never saw.
+    "auto_lateral_ca",
+    "defringe_purple_amount",
+    "defringe_purple_hue_lo",
+    "defringe_purple_hue_hi",
+    "defringe_green_amount",
+    "defringe_green_hue_lo",
+    "defringe_green_hue_hi",
 ];
 
 /// Vignette (#1109), grain (#1110), and film emulation (#2683) — the

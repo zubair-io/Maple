@@ -20,7 +20,7 @@ use tone_curves::CurveWalker;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, AutoExposureMode, Crop, DemosaicChoice, HighlightRecoveryMode,
+    AdjustmentModel, AutoExposureMode, AutoLateralCa, Crop, DemosaicChoice, HighlightRecoveryMode,
     HotPixelSuppressionMode, LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod,
     WbScaleVersion, WbSource,
 };
@@ -398,6 +398,42 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // the integer format ACR writes.
     if model.lens_profile_enable != LensProfileEnable::default() {
         out.push_str(r#" crs:LensProfileEnable="0""#);
+    }
+    // Profile-free lateral CA (#3411) — ACR's "Remove Chromatic Aberration"
+    // checkbox, emitted only when switched on so a sidecar that never
+    // touched it stays byte-identical. Same "1"/"0" spelling ACR uses.
+    if model.auto_lateral_ca != AutoLateralCa::default() {
+        out.push_str(r#" crs:AutoLateralCA="1""#);
+    }
+    // ACR's six Defringe controls (#3411) — omit-on-default like the rest of
+    // the lens block. The hue bands each carry their own non-zero default
+    // (30/70 and 40/60), so the per-field default is compared rather than a
+    // shared `!= 0.0` gate, and the whole-percent `round()` matches the
+    // integer format ACR writes for them.
+    for (key, value, default) in [
+        (
+            "crs:DefringePurpleAmount",
+            model.defringe_purple_amount,
+            0.0,
+        ),
+        (
+            "crs:DefringePurpleHueLo",
+            model.defringe_purple_hue_lo,
+            30.0,
+        ),
+        (
+            "crs:DefringePurpleHueHi",
+            model.defringe_purple_hue_hi,
+            70.0,
+        ),
+        ("crs:DefringeGreenAmount", model.defringe_green_amount, 0.0),
+        ("crs:DefringeGreenHueLo", model.defringe_green_hue_lo, 40.0),
+        ("crs:DefringeGreenHueHi", model.defringe_green_hue_hi, 60.0),
+    ] {
+        let rounded = value.round();
+        if rounded.is_finite() && rounded != default {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
     }
     for (key, value) in [
         (

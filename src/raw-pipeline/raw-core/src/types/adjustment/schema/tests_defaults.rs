@@ -112,6 +112,12 @@ fn schema_f32_defaults_match_struct_default() {
             "perspective_aspect" => m.perspective_aspect,
             "perspective_x" => m.perspective_x,
             "perspective_y" => m.perspective_y,
+            "defringe_purple_amount" => m.defringe_purple_amount,
+            "defringe_purple_hue_lo" => m.defringe_purple_hue_lo,
+            "defringe_purple_hue_hi" => m.defringe_purple_hue_hi,
+            "defringe_green_amount" => m.defringe_green_amount,
+            "defringe_green_hue_lo" => m.defringe_green_hue_lo,
+            "defringe_green_hue_hi" => m.defringe_green_hue_hi,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(
