@@ -55,6 +55,7 @@ import { ColorGradingPanelComponent } from '../../components/develop/color-gradi
 import { FilmPanelComponent } from '../../components/editor/film-panel.component';
 import { LensCorrectionsPanelComponent } from '../../components/editor/lens-corrections-panel.component';
 import { GeometryPanelComponent } from '../../components/editor/geometry-panel.component';
+import { DemosaicPanelComponent } from '../../components/editor/demosaic-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { MaskPanelComponent } from '../../components/mask-panel/mask-panel.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
@@ -144,6 +145,7 @@ import * as sc from './editor-shell.classes';
     FilmPanelComponent,
     LensCorrectionsPanelComponent,
     GeometryPanelComponent,
+    DemosaicPanelComponent,
     CropToolbarComponent,
     PresetsPanelComponent,
     SubParamRowComponent,
