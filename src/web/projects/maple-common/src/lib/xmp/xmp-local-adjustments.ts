@@ -213,8 +213,12 @@ export function parseLocalAdjustmentsContainer(
  * drift a fractional value on every round-trip (−42.5 → "-0.43" → −43). Four
  * decimals keep two decimals of the ±100 value — mirrors raw-core's `fmt4`
  * and Swift's `fmtNum4` so all four writers stay byte-identical (#3400).
+ * Rounded away from zero like both of those — `Math.round` alone rounds a
+ * negative tie toward +∞ (−2.5 → −2), which would split the writers at an
+ * exact four-decimal midpoint.
  */
-const hueSerializer = (v: number): string => (Math.round(v * 10_000) / 10_000).toString();
+const hueSerializer = (v: number): string =>
+  ((Math.sign(v) * Math.round(Math.abs(v) * 10_000)) / 10_000).toString();
 
 function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
   if (!range || RANGE_KEYS.some(([, field]) => !Number.isFinite(range[field]))) return [];
