@@ -1,7 +1,9 @@
 // FilmstripRail.swift — Pro Editor Canvas-first (A2, #1555).
 //
 // Floating glass filmstrip rail on the leading edge of the canvas-first
-// editor (regular size class only).  A content-height glass panel — a
+// editor AND of the fast static Preview (#3402) — regular size class only.
+// Both surfaces mount this one component in the same place so the strip
+// doesn't move when the user taps Edit.  A content-height glass panel — a
 // vertical scroll of landscape thumbnails, no header — that the editor
 // centers vertically (it does NOT span the
 // full height; the panel caps its thumb-scroll area so few photos render a
@@ -29,6 +31,12 @@ struct FilmstripRail: View {
     /// Source the assets came from — forwarded to `ThumbnailLoader` so the
     /// sourceless thumb path (cloud / PhotoKit / self-hosted) can resolve.
     var source: (any ImageSource)? = nil
+    /// Accessibility-identifier prefix — `editor` (default) under
+    /// `EditorView`, `preview` under `PreviewView` — so UI automation can
+    /// tell the two mounts apart (`<prefix>-filmstrip-rail` /
+    /// `<prefix>-filmstrip-tab`), the same convention `FloatingImageHeader`
+    /// uses for its `identifierPrefix`.
+    var identifierPrefix: String = "editor"
     let onSelect: (AssetRef) -> Void
 
     @State private var collapsed = false
@@ -66,7 +74,7 @@ struct FilmstripRail: View {
             // is the only visible affordance for the filmstrip.
             collapseTab
         }
-        .accessibilityIdentifier("editor-filmstrip-rail")
+        .accessibilityIdentifier("\(identifierPrefix)-filmstrip-rail")
     }
 
     // MARK: - Rail panel
@@ -126,7 +134,7 @@ struct FilmstripRail: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(collapsed ? "Expand filmstrip" : "Collapse filmstrip")
-        .accessibilityIdentifier("editor-filmstrip-tab")
+        .accessibilityIdentifier("\(identifierPrefix)-filmstrip-tab")
         // The tab sits at the leading edge of the ZStack.  When the rail is
         // visible, offset the tab to sit just past the right edge of the rail
         // so it peeks out without covering thumbs.
