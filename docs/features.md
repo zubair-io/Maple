@@ -270,8 +270,8 @@ Web is split into its two deployments because they differ substantially. Every c
 | Capture sharpening (deconvolution) | yes                                              | no                | no                 | no                        | no        |
 | Deep denoise / chroma prefilter    | yes                                              | yes               | yes                | no                        | no        |
 | Crop + straighten                  | yes                                              | yes               | yes                | yes                       | no        |
-| Manual geometry                    | yes                                              | yes               | yes                 | yes                       | no        |
-| Masks / local adjustments          | yes                                              | yes               | yes                 | yes                       | no        |
+| Manual geometry                    | yes                                              | yes               | yes                | yes                       | no        |
+| Masks / local adjustments          | yes                                              | yes               | yes                | yes                       | no        |
 | AUTO                               | yes                                              | yes               | yes                | yes                       | no        |
 | Reset all                          | yes                                              | yes               | yes                | yes                       | no        |
 | Copy / paste / sync settings       | yes                                              | yes               | yes                | no                        | no        |
