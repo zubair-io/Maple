@@ -209,6 +209,7 @@ mod context;
 mod context_pipelines;
 mod context_pipelines_helpers;
 mod context_pipelines_spatial;
+mod defringe;
 mod dehaze;
 mod display_encode;
 #[cfg(any(target_vendor = "apple", test))]
@@ -223,6 +224,7 @@ mod image;
 mod live_chain;
 mod live_session;
 mod local_adjustments;
+mod local_spatial;
 mod noise_reduction;
 // Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
 // only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
@@ -289,6 +291,7 @@ pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;
+pub use defringe::DefringePass;
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use display_tone_curve::{
@@ -309,8 +312,10 @@ pub use live_chain::{
 };
 pub use live_session::LiveSession;
 pub use local_adjustments::{
-    local_adjustments_are_active, GpuMaskRaster, LocalAdjustmentsPass, LAYER_FLAT_LEN,
+    layer_present_bits, local_adjustments_are_active, local_adjustments_need_spatial,
+    GpuMaskRaster, LocalAdjustmentsPass, LAYER_FLAT_LEN,
 };
+pub use local_spatial::{layer_needs_spatial, layer_shape_key, LocalSpatialPass, SpatialControls};
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
