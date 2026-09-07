@@ -64,6 +64,30 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     XCTAssertEqual(session.undoHistory.count, 1)
     await session.flushPendingSidecarWrite()
   }
+
+  func testLateInitialHydrationCannotReplayOverAnEditOnRetry() async throws {
+    var persisted = AdjustmentModel.default
+    persisted.exposure = -1.5
+    let store = SuspendedHydrationStore(model: persisted)
+    let asset = AssetRef(
+      displayName: "remote.cr2", hintExtension: "cr2", bytesProvider: { Data() })
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+    let load = Task { await session.loadSidecar() }
+    await store.waitUntilLoadStarts()
+
+    session.beginEdit(description: "Exposure")
+    session.model.exposure = 2.25
+    session.endEdit()
+    await store.releaseLoad()
+    await load.value
+
+    XCTAssertEqual(session.model.exposure, 2.25)
+    XCTAssertTrue(session.hasLoadedSidecar)
+    await session.loadSidecar()
+    XCTAssertEqual(
+      session.model.exposure, 2.25,
+      "A retry must not replay the stale persisted snapshot over the winning edit")
+  }
   func testLateCopyReadCannotReplaceTheLatestRequestedPhoto() {
     let clipboard = AdjustmentClipboard()
     let old = clipboard.beginCopyRequest()
@@ -76,4 +100,36 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     XCTAssertNil(clipboard.contents)
   }
 
+}
+
+private actor SuspendedHydrationStore: SidecarStoreProtocol {
+  private let value: (AdjustmentModel, CullingState)
+  private var loadStarted = false
+  private var loadContinuation: CheckedContinuation<Void, Never>?
+
+  init(model: AdjustmentModel) {
+    value = (model, CullingState())
+  }
+
+  func load() async throws -> (AdjustmentModel, CullingState) { value }
+
+  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+    loadStarted = true
+    await withCheckedContinuation { loadContinuation = $0 }
+    return value
+  }
+
+  func waitUntilLoadStarts() async {
+    while !loadStarted { await Task.yield() }
+  }
+
+  func releaseLoad() {
+    loadContinuation?.resume()
+    loadContinuation = nil
+  }
+
+  func update(model: AdjustmentModel, culling: CullingState) {}
+  func flush() async {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {}
+  func errors() -> AsyncStream<Error> { AsyncStream { $0.finish() } }
 }
