@@ -7,11 +7,15 @@
 //!   chain), following the same append-only convention every other
 //!   variable-length field on those structs uses, and
 //! * the **GPU storage buffer** — `raw-gpu`'s `local_adjustments.wgsl` binds
-//!   this exact array as `array<Layer>`, where `Layer` is eight `vec4<f32>`
-//!   members. That is why the stride is 32 floats (128 bytes) with explicit
-//!   padding slots rather than a tight 31: WGSL gives a `vec4<f32>` a 16-byte
-//!   alignment, so a struct of eight of them has no interior padding only at
+//!   this exact array as `array<Layer>`, where `Layer` is ten `vec4<f32>`
+//!   members. That is why the stride is 40 floats (160 bytes) with explicit
+//!   padding slots rather than a tight 38: WGSL gives a `vec4<f32>` a 16-byte
+//!   alignment, so a struct of ten of them has no interior padding only at
 //!   this stride.
+//!
+//! The map is APPEND-ONLY: the six spatial controls (#3407) took a new
+//! `vec4` pair at the tail rather than the interior padding slots, so every
+//! slot an earlier reader knows keeps its meaning.
 //!
 //! ## Slot map (per layer, [`LAYER_FLAT_LEN`] floats)
 //!
@@ -32,6 +36,9 @@
 //! 24     range_kind RANGE_KIND_NONE (0) | RANGE_KIND_COLOR (1) — #3270
 //! 25..31  hue_deg, hue_half_width_deg, chroma_min, l_min, l_max, feather
 //! 31     (padding, written as 0)
+//! 32..36 texture, clarity, dehaze, sharpness       presence bits 11..14
+//! 36..38 luminance_noise, defringe                 presence bits 15..16
+//! 38..40 (padding, written as 0)
 //! ```
 //!
 //! ## Why a presence bitmask rather than a sentinel value
@@ -51,11 +58,13 @@
 //! `f32` represents every integer below 2²⁴ exactly, so the round trip through
 //! the float slot is lossless.
 
-use super::{BitmapRecipe, LocalAdjustment, Mask, MaskRaster, PartialAdjustments, Point2, RangeRefinement};
+use super::{
+    BitmapRecipe, LocalAdjustment, Mask, MaskRaster, PartialAdjustments, Point2, RangeRefinement,
+};
 use std::sync::Arc;
 
-/// Floats per serialized layer. Eight WGSL `vec4<f32>` members = 128 bytes.
-pub const LAYER_FLAT_LEN: usize = 32;
+/// Floats per serialized layer. Ten WGSL `vec4<f32>` members = 160 bytes.
+pub const LAYER_FLAT_LEN: usize = 40;
 
 /// `kind` slot value for [`Mask::Linear`].
 pub const KIND_LINEAR: f32 = 0.0;
@@ -85,6 +94,16 @@ pub const PRESENT_VIBRANCE: u32 = 1 << 7;
 pub const PRESENT_TEMPERATURE: u32 = 1 << 8;
 pub const PRESENT_TINT: u32 = 1 << 9;
 pub const PRESENT_HUE: u32 = 1 << 10;
+/// Spatial controls (#3407) — slots 32..38, in this order.
+pub const PRESENT_TEXTURE: u32 = 1 << 11;
+pub const PRESENT_CLARITY: u32 = 1 << 12;
+pub const PRESENT_DEHAZE: u32 = 1 << 13;
+pub const PRESENT_SHARPNESS: u32 = 1 << 14;
+pub const PRESENT_LUMINANCE_NOISE: u32 = 1 << 15;
+pub const PRESENT_DEFRINGE: u32 = 1 << 16;
+
+/// Slot index of the first spatial control (`texture`).
+const SPATIAL_BASE: usize = 32;
 
 /// Serialize a layer stack to the flat wire. The result length is always
 /// `layers.len() * LAYER_FLAT_LEN`; an empty stack yields an empty `Vec`.
@@ -179,8 +198,11 @@ fn write_mask(mask: &Mask, slot: &mut [f32]) {
     }
 }
 
-fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
-    let fields = [
+/// The ten point controls that ride the contiguous `12..22` block, paired
+/// with their presence bits — one list so the writer and the reader below
+/// cannot disagree about which slot holds which control.
+fn point_fields(a: &PartialAdjustments) -> [(Option<f32>, u32); 10] {
+    [
         (a.exposure, PRESENT_EXPOSURE),
         (a.contrast, PRESENT_CONTRAST),
         (a.highlights, PRESENT_HIGHLIGHTS),
@@ -191,19 +213,42 @@ fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
         (a.vibrance, PRESENT_VIBRANCE),
         (a.temperature, PRESENT_TEMPERATURE),
         (a.tint, PRESENT_TINT),
-    ];
-    let mut present = fields
-        .iter()
-        .filter_map(|&(value, bit)| value.map(|_| bit))
-        .fold(0u32, |acc, bit| acc | bit);
-    if a.hue.is_some() {
-        present |= PRESENT_HUE;
-    }
+    ]
+}
+
+/// The six spatial controls (#3407) on the `32..38` block, same convention.
+fn spatial_fields(a: &PartialAdjustments) -> [(Option<f32>, u32); 6] {
+    [
+        (a.texture, PRESENT_TEXTURE),
+        (a.clarity, PRESENT_CLARITY),
+        (a.dehaze, PRESENT_DEHAZE),
+        (a.sharpness, PRESENT_SHARPNESS),
+        (a.luminance_noise, PRESENT_LUMINANCE_NOISE),
+        (a.defringe, PRESENT_DEFRINGE),
+    ]
+}
+
+fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
+    let point = point_fields(a);
+    let spatial = spatial_fields(a);
+    let bits = |acc: u32, &(value, bit): &(Option<f32>, u32)| match value {
+        Some(_) => acc | bit,
+        None => acc,
+    };
+    let present = spatial.iter().fold(
+        point
+            .iter()
+            .fold(if a.hue.is_some() { PRESENT_HUE } else { 0 }, bits),
+        bits,
+    );
     slot[8] = present as f32;
-    for (i, &(value, _)) in fields.iter().enumerate() {
+    for (i, &(value, _)) in point.iter().enumerate() {
         slot[12 + i] = value.unwrap_or(0.0);
     }
     slot[22] = a.hue.unwrap_or(0.0);
+    for (i, &(value, _)) in spatial.iter().enumerate() {
+        slot[SPATIAL_BASE + i] = value.unwrap_or(0.0);
+    }
 }
 
 /// Deserialize the flat wire back into a layer stack. A trailing partial layer
@@ -277,6 +322,13 @@ fn read_adjustments(slot: &[f32]) -> PartialAdjustments {
             None
         }
     };
+    let spatial = |i: usize, bit: u32| {
+        if present & bit != 0 {
+            Some(slot[SPATIAL_BASE + i])
+        } else {
+            None
+        }
+    };
     PartialAdjustments {
         exposure: field(0, PRESENT_EXPOSURE),
         contrast: field(1, PRESENT_CONTRAST),
@@ -293,220 +345,15 @@ fn read_adjustments(slot: &[f32]) -> PartialAdjustments {
         } else {
             None
         },
+        texture: spatial(0, PRESENT_TEXTURE),
+        clarity: spatial(1, PRESENT_CLARITY),
+        dehaze: spatial(2, PRESENT_DEHAZE),
+        sharpness: spatial(3, PRESENT_SHARPNESS),
+        luminance_noise: spatial(4, PRESENT_LUMINANCE_NOISE),
+        defringe: spatial(5, PRESENT_DEFRINGE),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn all_controls() -> PartialAdjustments {
-        PartialAdjustments {
-            exposure: Some(0.75),
-            contrast: Some(-30.0),
-            highlights: Some(45.0),
-            shadows: Some(-12.5),
-            whites: Some(8.0),
-            blacks: Some(-60.0),
-            saturation: Some(22.0),
-            vibrance: Some(-5.0),
-            temperature: Some(1500.0),
-            tint: Some(-9.0),
-            hue: Some(12.0),
-        }
-    }
-
-    #[test]
-    fn hue_rides_slot_22_with_presence_bit_10() {
-        let layers = vec![LocalAdjustment::linear(
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            PartialAdjustments {
-                hue: Some(-42.5),
-                ..Default::default()
-            },
-        )];
-        let flat = layers_to_flat(&layers);
-        assert_eq!(flat[22], -42.5);
-        assert_eq!(flat[8] as u32, PRESENT_HUE);
-        assert_eq!(layers_from_flat(&flat, &[])[0].adjustments.hue, Some(-42.5));
-    }
-
-    #[test]
-    fn linear_layer_round_trips() {
-        let layers = vec![LocalAdjustment {
-            mask: Mask::Linear {
-                start: Point2::new(0.125, 0.25),
-                end: Point2::new(0.875, 0.75),
-                feather: 0.375,
-            },
-            range: None,
-            adjustments: all_controls(),
-        }];
-        let flat = layers_to_flat(&layers);
-        assert_eq!(flat.len(), LAYER_FLAT_LEN);
-        assert_eq!(layers_from_flat(&flat, &[]), layers);
-    }
-
-    #[test]
-    fn radial_layer_round_trips_including_invert_and_angle() {
-        let layers = vec![LocalAdjustment {
-            mask: Mask::Radial {
-                center: Point2::new(0.4, 0.6),
-                radii: Point2::new(0.3, 0.2),
-                angle: 1.25,
-                feather: 0.5,
-                invert: true,
-            },
-            range: None,
-            adjustments: all_controls(),
-        }];
-        let flat = layers_to_flat(&layers);
-        assert_eq!(layers_from_flat(&flat, &[]), layers);
-    }
-
-    #[test]
-    fn absent_controls_stay_absent_and_are_distinct_from_zero() {
-        let sparse = PartialAdjustments {
-            saturation: Some(0.0),
-            ..Default::default()
-        };
-        let layers = vec![LocalAdjustment {
-            mask: Mask::Linear {
-                start: Point2::new(0.0, 0.0),
-                end: Point2::new(1.0, 1.0),
-                feather: 0.5,
-            },
-            range: None,
-            adjustments: sparse,
-        }];
-        let back = layers_from_flat(&layers_to_flat(&layers), &[]);
-        assert_eq!(back[0].adjustments.saturation, Some(0.0));
-        assert_eq!(back[0].adjustments.vibrance, None);
-        assert_eq!(back[0].adjustments.exposure, None);
-        assert_eq!(back[0].adjustments.temperature, None);
-    }
-
-    #[test]
-    fn presence_mask_is_exactly_representable_when_every_field_is_set() {
-        let layers = vec![LocalAdjustment {
-            mask: Mask::Linear {
-                start: Point2::new(0.0, 0.5),
-                end: Point2::new(1.0, 0.5),
-                feather: 0.0,
-            },
-            range: None,
-            adjustments: all_controls(),
-        }];
-        let flat = layers_to_flat(&layers);
-        assert_eq!(flat[8], 2047.0);
-        assert_eq!(flat[8] as u32, 2047);
-    }
-
-    #[test]
-    fn multiple_layers_keep_their_order() {
-        let layers = vec![
-            LocalAdjustment::linear(
-                Point2::new(0.0, 0.0),
-                Point2::new(1.0, 0.0),
-                PartialAdjustments {
-                    exposure: Some(1.0),
-                    ..Default::default()
-                },
-            ),
-            LocalAdjustment::radial(
-                Point2::new(0.5, 0.5),
-                Point2::new(0.2, 0.2),
-                PartialAdjustments {
-                    exposure: Some(-1.0),
-                    ..Default::default()
-                },
-            ),
-        ];
-        let back = layers_from_flat(&layers_to_flat(&layers), &[]);
-        assert_eq!(back, layers);
-    }
-
-    #[test]
-    fn empty_stack_serializes_to_an_empty_wire() {
-        assert!(layers_to_flat(&[]).is_empty());
-        assert!(layers_from_flat(&[], &[]).is_empty());
-    }
-
-    #[test]
-    fn truncated_wire_drops_the_partial_tail_layer() {
-        let layers = vec![LocalAdjustment::linear(
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            PartialAdjustments {
-                exposure: Some(1.0),
-                ..Default::default()
-            },
-        )];
-        let mut flat = layers_to_flat(&layers);
-        flat.extend_from_slice(&[0.0; 5]);
-        assert_eq!(layers_from_flat(&flat, &[]).len(), 1);
-    }
-
-    #[test]
-    fn record_is_32_floats_and_range_rides_slots_24_to_30() {
-        let mut layer = LocalAdjustment::linear(
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            PartialAdjustments {
-                exposure: Some(0.5),
-                ..Default::default()
-            },
-        );
-        layer.range = Some(RangeRefinement::Color {
-            hue_deg: 55.0,
-            hue_half_width_deg: 25.0,
-            chroma_min: 0.02,
-            l_min: 0.15,
-            l_max: 0.95,
-            feather: 0.3,
-        });
-        let flat = layers_to_flat(&[layer.clone()]);
-        assert_eq!(LAYER_FLAT_LEN, 32);
-        assert_eq!(flat.len(), 32);
-        assert_eq!(&flat[24..31], &[1.0, 55.0, 25.0, 0.02, 0.15, 0.95, 0.3]);
-        assert_eq!(layers_from_flat(&flat, &[]), vec![layer]);
-    }
-
-    #[test]
-    fn absent_range_reads_back_as_none() {
-        let layer = LocalAdjustment::linear(
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            PartialAdjustments::default(),
-        );
-        let flat = layers_to_flat(&[layer]);
-        assert_eq!(flat[24], RANGE_KIND_NONE);
-        assert_eq!(layers_from_flat(&flat, &[])[0].range, None);
-    }
-
-    /// Pins layer 0 of `test-fixtures/local-adjustments/layer-stack.json`
-    /// (linear, exposure+shadows) against the same slots
-    /// `LocalAdjustmentFlatTests.testFixtureLayerStackRoundTripsThroughTheFlatWire`
-    /// asserts on the Swift side (#3274) — one JSON fixture, two writers.
-    #[test]
-    fn the_shared_swift_fixture_serializes_to_the_documented_slots() {
-        let layer = LocalAdjustment {
-            mask: Mask::Linear {
-                start: Point2::new(0.1, 0.2),
-                end: Point2::new(0.9, 0.8),
-                feather: 0.4,
-            },
-            range: None,
-            adjustments: PartialAdjustments {
-                exposure: Some(0.5),
-                shadows: Some(-20.0),
-                ..Default::default()
-            },
-        };
-        let flat = layers_to_flat(&[layer]);
-        assert_eq!(&flat[0..5], &[0.1, 0.2, 0.9, 0.8, 0.4]);
-        assert_eq!(flat[12], 0.5); // exposure
-        assert_eq!(flat[15], -20.0); // shadows
-    }
-}
+#[path = "flat_tests.rs"]
+mod tests;

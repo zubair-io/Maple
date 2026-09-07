@@ -88,6 +88,17 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
         // Adobe stores LocalHue on a ±1 scale; Maple's slider is ±100 (#3269).
         // Pinned to a Lightroom-authored fixture when one exists (spec §11).
         hue: attr_f32(e, "crs:LocalHue")?.map(|v| v * 100.0),
+        // The six spatial controls (#3407) ride Adobe's ±1 fraction scale,
+        // the same convention as `crs:LocalHue` and the one Lightroom
+        // actually writes (a Clarity of +35 stores as "0.35"). Maple's
+        // sliders are ±100, hence the ×100 on the way in and the matching
+        // ÷100 in `serialize.rs`.
+        texture: attr_f32(e, "crs:LocalTexture")?.map(|v| v * 100.0),
+        clarity: attr_f32(e, "crs:LocalClarity2012")?.map(|v| v * 100.0),
+        dehaze: attr_f32(e, "crs:LocalDehaze")?.map(|v| v * 100.0),
+        sharpness: attr_f32(e, "crs:LocalSharpness")?.map(|v| v * 100.0),
+        luminance_noise: attr_f32(e, "crs:LocalLuminanceNoise")?.map(|v| v * 100.0),
+        defringe: attr_f32(e, "crs:LocalDefringe")?.map(|v| v * 100.0),
     };
     // Amount==1 is the overwhelmingly common case (Maple's own writer always
     // emits it); skip the multiply entirely rather than reintroduce float
@@ -154,6 +165,12 @@ fn scale_adjustments(a: &PartialAdjustments, amount: f32) -> PartialAdjustments 
         temperature: s(a.temperature),
         tint: s(a.tint),
         hue: s(a.hue),
+        texture: s(a.texture),
+        clarity: s(a.clarity),
+        dehaze: s(a.dehaze),
+        sharpness: s(a.sharpness),
+        luminance_noise: s(a.luminance_noise),
+        defringe: s(a.defringe),
     }
 }
 

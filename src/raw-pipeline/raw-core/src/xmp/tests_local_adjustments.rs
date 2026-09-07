@@ -72,6 +72,17 @@ pub(super) fn radial_layer() -> LocalAdjustment {
             vibrance: Some(-10.0),
             temperature: Some(200.0),
             hue: Some(0.0),
+            // The six spatial controls (#3407), all non-default so the
+            // four-writer byte-parity golden pins their keys, their Adobe
+            // ±1 fraction scale and their emission order. `clarity: 35`
+            // is deliberately the ticket's own Lightroom example, which
+            // stores as `crs:LocalClarity2012="0.35"`.
+            texture: Some(18.0),
+            clarity: Some(35.0),
+            dehaze: Some(-22.5),
+            sharpness: Some(66.0),
+            luminance_noise: Some(40.0),
+            defringe: Some(75.0),
             ..Default::default()
         },
     }

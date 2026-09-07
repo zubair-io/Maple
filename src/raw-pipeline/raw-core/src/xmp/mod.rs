@@ -467,6 +467,8 @@ mod tests_local_adjustments_bitmap;
 #[cfg(test)]
 mod tests_local_adjustments_canonical;
 #[cfg(test)]
+mod tests_local_adjustments_spatial;
+#[cfg(test)]
 mod tests_metadata;
 #[cfg(test)]
 mod tests_modes;

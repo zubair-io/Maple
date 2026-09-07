@@ -14,6 +14,7 @@ pub mod chroma_prefilter;
 pub mod clarity;
 pub mod color_grade;
 pub mod crop;
+pub mod defringe;
 pub mod dehaze;
 pub mod display_tone_curve;
 pub mod film_look;
