@@ -207,6 +207,15 @@ export function parseLocalAdjustmentsContainer(
 
 // ── Serialize ──────────────────────────────────────────────────────────────
 
+/**
+ * `crs:LocalHue` rides Adobe's ±1 scale, so the canonical two-decimal codec
+ * (`numericSerializer`) would quantise Maple's ±100 slider to whole units and
+ * drift a fractional value on every round-trip (−42.5 → "-0.43" → −43). Four
+ * decimals keep two decimals of the ±100 value — mirrors raw-core's `fmt4`
+ * and Swift's `fmtNum4` so all four writers stay byte-identical (#3400).
+ */
+const hueSerializer = (v: number): string => (Math.round(v * 10_000) / 10_000).toString();
+
 function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
   if (!range || RANGE_KEYS.some(([, field]) => !Number.isFinite(range[field]))) return [];
   return [
@@ -253,7 +262,7 @@ function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent:
         // Only fields actually set are written; a non-finite value is not
         // representable in XMP and is skipped like every other slider.
         return typeof v === 'number' && Number.isFinite(v)
-          ? [`${i4}${key}="${numericSerializer(field === 'hue' ? v / 100 : v)}"`]
+          ? [`${i4}${key}="${field === 'hue' ? hueSerializer(v / 100) : numericSerializer(v)}"`]
           : [];
       }),
       ...rangeLines(layer.range, i4),
