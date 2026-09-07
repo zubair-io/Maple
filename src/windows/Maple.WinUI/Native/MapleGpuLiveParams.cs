@@ -182,6 +182,19 @@ namespace Maple.WinUI.Native
         public byte scope_enabled;
         public void* scope_out;
 
+        // Manual geometry (#3410) — the seven `crs:Perspective*` scalars the
+        // present shader composes into one homography. UNLIKE most tail fields
+        // 0 is not identity for every member: `perspective_scale`'s identity is
+        // 100, and raw-ffi reads a 0 there as "stale host" and substitutes it,
+        // so a builder that forgets these still gets the un-warped present.
+        public float perspective_vertical;
+        public float perspective_horizontal;
+        public float perspective_rotate;
+        public float perspective_scale;
+        public float perspective_aspect;
+        public float perspective_x;
+        public float perspective_y;
+
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
         /// The wb_frame block is applied separately (WriteWbFrame) and the
@@ -278,6 +291,13 @@ namespace Maple.WinUI.Native
                 color_grade_global_saturation = (float)m.ColorGradeGlobalSaturation,
                 color_grade_global_luminance = (float)m.ColorGradeGlobalLuminance,
                 iso = image.Iso,
+                perspective_vertical = (float)m.PerspectiveVertical,
+                perspective_horizontal = (float)m.PerspectiveHorizontal,
+                perspective_rotate = (float)m.PerspectiveRotate,
+                perspective_scale = (float)m.PerspectiveScale,
+                perspective_aspect = (float)m.PerspectiveAspect,
+                perspective_x = (float)m.PerspectiveX,
+                perspective_y = (float)m.PerspectiveY,
             };
             WriteWbFrame(ref p, image.WbFrame);
             return p;

@@ -313,6 +313,18 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:LensProfileDistortionScale", a => a.LensCorrectionDistortion, (a, v) => a.LensCorrectionDistortion = v),
             F("crs:LensProfileChromaticAberrationScale", a => a.LensCorrectionCa, (a, v) => a.LensCorrectionCa = v),
             F("crs:LensProfileVignettingScale", a => a.LensCorrectionVignetting, (a, v) => a.LensCorrectionVignetting = v),
+            // Manual geometry (#3410): Adobe's own keys, read and written
+            // unrescaled so a Lightroom-authored keystone survives a
+            // Maple round-trip. `PerspectiveScale`'s default is 100, which the
+            // generic omit rule handles on its own (it compares against
+            // `XmpSchema.Defaults`, a fresh `AdjustmentState`).
+            F("crs:PerspectiveVertical", a => a.PerspectiveVertical, (a, v) => a.PerspectiveVertical = v),
+            F("crs:PerspectiveHorizontal", a => a.PerspectiveHorizontal, (a, v) => a.PerspectiveHorizontal = v),
+            F("crs:PerspectiveRotate", a => a.PerspectiveRotate, (a, v) => a.PerspectiveRotate = v),
+            F("crs:PerspectiveScale", a => a.PerspectiveScale, (a, v) => a.PerspectiveScale = v),
+            F("crs:PerspectiveAspect", a => a.PerspectiveAspect, (a, v) => a.PerspectiveAspect = v),
+            F("crs:PerspectiveX", a => a.PerspectiveX, (a, v) => a.PerspectiveX = v),
+            F("crs:PerspectiveY", a => a.PerspectiveY, (a, v) => a.PerspectiveY = v),
         };
 
         /// <summary>
