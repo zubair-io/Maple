@@ -44,6 +44,7 @@ public final class EditSession {
   nonisolated(unsafe) public static var deepZoomEnabled: Bool = false
 
   public let asset: AssetRef
+  public internal(set) var hasLoadedSidecar = false
 
   /// Byte-download progress for a remote (cloud) asset open (#822). Set by
   /// the caller (`prepareCloudSession`) when the asset's bytes arrive over
