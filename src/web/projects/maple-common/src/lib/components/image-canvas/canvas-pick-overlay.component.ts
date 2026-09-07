@@ -1,6 +1,7 @@
-// WbPickOverlayComponent — the click target for the white-balance eyedropper
-// (#2434). Rendered over the canvas only while `WbPickService` is armed, so
-// the canvas's own pan/zoom gestures are untouched the rest of the time.
+// CanvasPickOverlayComponent — the click target for the canvas eyedroppers
+// (#2434 white balance, #362 mask colour range). Rendered over the canvas
+// only while `CanvasPickService` is armed, so the canvas's own pan/zoom
+// gestures are untouched the rest of the time.
 //
 // It sits `inset-0` inside the canvas wrap, so its own bounding rect IS the
 // viewport rect the draw transform is centred in; `normalisedImagePoint`
@@ -16,26 +17,26 @@ import {
   inject,
 } from '@angular/core';
 import { ImageCanvasService } from './image-canvas.service';
-import { WbPickService } from './wb-pick.service';
+import { CanvasPickService } from './canvas-pick.service';
 import { normalisedImagePoint } from './image-canvas.wb-pick';
 import { computeEffectivePx } from './image-canvas.draw2d';
 import { displayDims } from './image-canvas.crop';
 import { LibraryStateService } from '../../state/library-state.service';
 
 @Component({
-  selector: 'editor-wb-pick-overlay',
+  selector: 'editor-canvas-pick-overlay',
   standalone: true,
-  templateUrl: './wb-pick-overlay.component.html',
+  templateUrl: './canvas-pick-overlay.component.html',
   // The host fills the canvas wrap so its own rect IS the viewport rect the
   // draw transform centres in; it stays click-through until the pick arms.
   host: { class: 'absolute inset-0 pointer-events-none' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WbPickOverlayComponent {
+export class CanvasPickOverlayComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly canvasSvc = inject(ImageCanvasService);
   private readonly state = inject(LibraryStateService);
-  protected readonly pick = inject(WbPickService);
+  protected readonly pick = inject(CanvasPickService);
 
   /** Sample the clicked point, or cancel when the click misses the image. */
   protected onClick(e: MouseEvent): void {

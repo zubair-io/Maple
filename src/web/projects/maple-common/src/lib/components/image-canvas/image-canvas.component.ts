@@ -41,7 +41,7 @@ import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, renderModelForCrop } from './image-canvas.crop';
-import { WbPickOverlayComponent } from './wb-pick-overlay.component';
+import { CanvasPickOverlayComponent } from './canvas-pick-overlay.component';
 import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
@@ -58,7 +58,7 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
 @Component({
   selector: 'editor-image-canvas',
   standalone: true,
-  imports: [CropOverlayComponent, MaskOverlayComponent, WbPickOverlayComponent],
+  imports: [CropOverlayComponent, MaskOverlayComponent, CanvasPickOverlayComponent],
   templateUrl: './image-canvas.component.html',
   styleUrl: './image-canvas.component.scss',
   host: { class: HOST_CLASS },
