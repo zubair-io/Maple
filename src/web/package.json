@@ -41,7 +41,8 @@
     "storybook": "ng run maple:storybook",
     "build-storybook": "ng run maple:build-storybook",
     "check:export-recipe-storage": "bun scripts/verify-export-recipe-storage.ts",
-    "check:export-recipe-memory": "bun scripts/verify-export-recipe-memory.ts"
+    "check:export-recipe-memory": "bun scripts/verify-export-recipe-memory.ts",
+    "check:live-scopes": "bun scripts/verify-live-scopes.ts"
   },
   "private": true,
   "packageManager": "npm@11.12.1",

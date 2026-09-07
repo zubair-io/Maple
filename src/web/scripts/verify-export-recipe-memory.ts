@@ -4,9 +4,9 @@
  */
 import { chromium } from '@playwright/test';
 import { strict as assert } from 'node:assert';
-import { createHash } from 'node:crypto';
-import { createReadStream, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
+import { hashFixture } from './lib/hash-fixture';
 
 const fixture = process.argv[2];
 if (!fixture)
@@ -15,7 +15,7 @@ const dist = resolve(process.argv[3] ?? 'dist/maple-syrup/browser');
 const cap = Number(process.argv[4] ?? 2048);
 assert.ok(Number.isInteger(cap) && cap > 0, 'The test output cap must be a positive integer');
 const worker = await exportWorker(dist);
-const originalHash = await hashFile(fixture);
+const originalHash = await hashFixture(fixture);
 const headers = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -105,18 +105,13 @@ try {
   assert.notEqual(result.rejected.fatal, true);
   assert.equal(Math.max(result.width, result.height), cap);
   assert.ok(result.hasIcc, 'The decoded JPEG must retain its output ICC profile');
-  assert.equal(await hashFile(fixture), originalHash, 'Export changed original bytes');
+  assert.equal(await hashFixture(fixture), originalHash, 'Export changed original bytes');
   console.log(JSON.stringify({ fixture, originalHash, ...result }, null, 2));
 } finally {
   await browser.close();
   await server.stop();
 }
 
-async function hashFile(path: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return hash.digest('hex');
-}
 async function exportWorker(directory: string): Promise<string> {
   const candidates: string[] = [];
   for (const name of readdirSync(directory).filter((file) => /^worker-.*\.js$/.test(file))) {

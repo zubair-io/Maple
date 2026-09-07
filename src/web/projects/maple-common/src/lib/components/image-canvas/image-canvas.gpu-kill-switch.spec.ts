@@ -1,3 +1,4 @@
+import { of } from 'rxjs';
 // ImageCanvasComponent — GPU operator kill switch tears down an open live
 // session (#2340).
 //
@@ -136,6 +137,7 @@ describe('ImageCanvasComponent — GPU kill switch tears down an open session (#
         return gpuEnabled();
       },
       openLiveSession: openSessionSpy,
+      liveScope$: of(null),
       renderLiveSession: vi.fn(() => Promise.resolve({ colorSpace: 'display-p3' })),
       closeLiveSession: closeSessionSpy,
     };
