@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Maple.WinUI.Models;
 
@@ -32,9 +33,16 @@ namespace Maple.WinUI.ViewModels
         /// `ToolSubParam.commitOnRelease` flag (#1153 / #3414).</summary>
         public bool CommitOnRelease { get; }
 
-        /// <summary>Parked value awaiting the gesture's end; null when
-        /// nothing is pending. Only ever set for a commit-on-release row.</summary>
-        private double? _deferred;
+        /// <summary>The one-write-per-gesture state machine for a
+        /// commit-on-release row (null for the per-tick rows, which never park
+        /// anything). Owns the wheel-burst idle flush too — see
+        /// <see cref="DeferredCommit"/>.</summary>
+        private readonly DeferredCommit? _deferred;
+
+        /// <summary>Backs the injected scheduler. Held so the timer is not
+        /// collected before it fires, and disposed on re-arm so a superseded
+        /// burst leaves nothing running.</summary>
+        private Timer? _flushTimer;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(FormattedValue))]
@@ -61,17 +69,35 @@ namespace Maple.WinUI.ViewModels
             CommitOnRelease = commitOnRelease;
             DefaultValue = get(new AdjustmentState());
             _value = get(session.Adjustments);
+            _deferred = commitOnRelease
+                ? new DeferredCommit(
+                    value => _session.ApplyDecodeFieldEdit(state => _set(state, value)),
+                    ScheduleFlush)
+                : null;
+        }
+
+        /// <summary>The `schedule` half of <see cref="DeferredCommit"/>: a
+        /// one-shot timer marshalled back onto the UI thread, since the commit
+        /// writes observable properties and drives a re-decode. Re-arming
+        /// disposes the previous timer; `DeferredCommit`'s own generation
+        /// counter is what makes a superseded callback a no-op if it already
+        /// fired.</summary>
+        private void ScheduleFlush(int delayMs, Action callback)
+        {
+            _flushTimer?.Dispose();
+            _flushTimer = new Timer(
+                _ => EditSessionViewModel.OnUi(callback), null, delayMs, Timeout.Infinite);
         }
 
         partial void OnValueChanged(double value)
         {
             if (_suppress) return;
-            if (CommitOnRelease)
+            if (_deferred is not null)
             {
                 // Park it: the value chip and the modified dot read `Value`,
                 // not the model, so the row still tracks the drag live while
                 // the expensive re-decode waits for the release.
-                _deferred = value;
+                _deferred.Park(value);
                 return;
             }
             _set(_session.Adjustments, value);
@@ -82,12 +108,14 @@ namespace Maple.WinUI.ViewModels
         /// write of the whole gesture. Called from the slider row's
         /// pointer-capture-lost / key-up handlers; a no-op for every per-tick
         /// row, which never parks anything.</summary>
-        public void CommitDeferred()
-        {
-            if (_deferred is not double value) return;
-            _deferred = null;
-            _session.ApplyDecodeFieldEdit(state => _set(state, value));
-        }
+        public void CommitDeferred() => _deferred?.Flush();
+
+        /// <summary>A mouse-wheel detent over the row. The wheel raises neither
+        /// `PointerCaptureLost` nor `KeyUp`, so without this a wheel-adjusted
+        /// value would stay parked forever and the edit would be lost on
+        /// navigate. The burst commits once, `WheelIdleFlushMs` after the last
+        /// detent — one gesture, one undo entry, matching the web editor.</summary>
+        public void NotifyWheelTick() => _deferred?.WheelTick();
 
         /// <summary>Refresh from the model without echoing back (sidecar reload,
         /// preset apply, undo). Drops any parked value: the model it would have
@@ -95,7 +123,7 @@ namespace Maple.WinUI.ViewModels
         public void SyncFromModel()
         {
             _suppress = true;
-            _deferred = null;
+            _deferred?.Discard();
             Value = _get(_session.Adjustments);
             _suppress = false;
         }

@@ -23,15 +23,26 @@ namespace Maple.WinUI
         // Capture sharpening's two fields are baked into the decoded base, so
         // their rows park the drag and write once at the gesture's end. A
         // Slider captures the pointer for the whole thumb drag and releases it
-        // on pointer-up; KeyUp covers arrow-key adjustment. Two shims because
-        // the two XAML events carry different delegate types; each shim is named
-        // for the event it is subscribed to, and they share one gesture-end body.
+        // on pointer-up; KeyUp covers arrow-key adjustment; the wheel raises
+        // neither and takes the idle-debounce route below. Separate shims
+        // because the XAML events carry different delegate types; each is named
+        // for the event it is subscribed to.
 
         private void OnSliderPointerCaptureLost(object sender, PointerRoutedEventArgs e) =>
             CommitSliderGesture(sender);
 
         private void OnSliderKeyUp(object sender, KeyRoutedEventArgs e) =>
             CommitSliderGesture(sender);
+
+        // A wheel change raises neither of the two above, so it cannot commit
+        // immediately without turning every detent into its own re-decode and
+        // undo entry. It records a detent instead; the burst commits once it
+        // goes idle (DeferredCommit.WheelIdleFlushMs).
+        private void OnSliderPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { DataContext: AdjustmentSliderViewModel slider })
+                slider.NotifyWheelTick();
+        }
 
         private static void CommitSliderGesture(object sender)
         {

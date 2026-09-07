@@ -519,7 +519,10 @@ namespace Maple.WinUI.ViewModels
             return System.IO.File.Exists(path) ? path : null;
         }
 
-        private static void OnUi(Action action)
+        /// <summary>Run on the UI thread, or inline when there is no
+        /// dispatcher (tests). `internal` so a slider row's wheel-flush timer
+        /// marshals through the same helper as the undo-boundary timer.</summary>
+        internal static void OnUi(Action action)
         {
             var queue = App.MainDispatcherQueue;
             if (queue == null || queue.HasThreadAccess)
