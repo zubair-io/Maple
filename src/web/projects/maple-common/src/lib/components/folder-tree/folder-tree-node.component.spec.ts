@@ -30,8 +30,20 @@ function makeStateStub() {
   };
 }
 
-async function setup(node: SidebarEntry, opts: { crudEnabled?: boolean } = {}) {
+interface SetupOptions {
+  crudEnabled?: boolean;
+  /** The parent-derived inputs (#2847). Default to what a parent would
+   * derive from an empty `folderOpen` map and no selection. */
+  open?: boolean;
+  selected?: boolean;
+  folderOpen?: Record<string, boolean>;
+  selectedSourceId?: string;
+}
+
+async function setup(node: SidebarEntry, opts: SetupOptions = {}) {
   const state = makeStateStub();
+  if (opts.folderOpen) state.folderOpen.set(opts.folderOpen);
+  if (opts.selectedSourceId !== undefined) state.selectedSourceId.set(opts.selectedSourceId);
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [FolderTreeNodeComponent],
@@ -42,6 +54,8 @@ async function setup(node: SidebarEntry, opts: { crudEnabled?: boolean } = {}) {
   });
   const fixture = TestBed.createComponent(FolderTreeNodeComponent);
   fixture.componentRef.setInput('node', node);
+  fixture.componentRef.setInput('open', opts.open ?? node.open === true);
+  fixture.componentRef.setInput('selected', opts.selected ?? false);
   fixture.detectChanges();
   return { fixture, state };
 }
@@ -86,6 +100,57 @@ describe('FolderTreeNodeComponent', () => {
     const childRows = fixture.nativeElement.querySelectorAll('app-folder-tree-node');
     expect(childRows.length).toBe(1);
     expect(fixture.nativeElement.textContent).toContain('2026');
+  });
+
+  describe('parent-derived open/selected (#2847)', () => {
+    // The row's own state comes from its inputs — never from the shared
+    // `folderOpen` map / `selectedSourceId` (the #2520 fan-out shape this
+    // component reintroduced before #2847). The stub state is set to
+    // DISAGREE with the inputs so a regression to reading it shows up.
+    it('renders its own row from the inputs, not the shared state', async () => {
+      const { fixture } = await setup(PARENT_WITH_CHILD, {
+        open: false,
+        selected: true,
+        folderOpen: { 'lib1:': true },
+        selectedSourceId: 'somewhere-else',
+      });
+      expect(fixture.nativeElement.querySelectorAll('app-folder-tree-node').length).toBe(0);
+      expect(row(fixture).classList.contains('is-active')).toBe(true);
+      expect(row(fixture).getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it("derives each child row's open/selected once, from the shared state", async () => {
+      const grandchild: SidebarEntry = {
+        kind: 'folder',
+        id: 'lib1:2026/06',
+        label: '06',
+        count: 1,
+      };
+      const child: SidebarEntry = { ...LEAF, open: false, children: [grandchild] };
+      const parent: SidebarEntry = { ...PARENT_WITH_CHILD, children: [child] };
+      const { fixture } = await setup(parent, {
+        open: true,
+        selected: false,
+        folderOpen: { 'lib1:2026': true },
+        selectedSourceId: 'lib1:2026',
+      });
+      const rows = fixture.nativeElement.querySelectorAll(
+        '.mui-tree-row',
+      ) as NodeListOf<HTMLElement>;
+      // parent, child (expanded via the map override), grandchild
+      expect(rows.length).toBe(3);
+      expect(rows[0]!.classList.contains('is-active')).toBe(false);
+      expect(rows[1]!.classList.contains('is-active')).toBe(true);
+      expect(rows[1]!.getAttribute('aria-expanded')).toBe('true');
+      expect(rows[2]!.classList.contains('is-active')).toBe(false);
+    });
+
+    it('a chevron toggle reports the flip of the parent-derived open input', async () => {
+      const closedByDefault: SidebarEntry = { ...PARENT_WITH_CHILD, open: false };
+      const { fixture, state } = await setup(closedByDefault, { open: true });
+      (fixture.nativeElement.querySelector('.chevron') as HTMLElement).click();
+      expect(state.setFolderOpen).toHaveBeenCalledWith('lib1:', false);
+    });
   });
 
   describe('context-menu trigger (#2643)', () => {

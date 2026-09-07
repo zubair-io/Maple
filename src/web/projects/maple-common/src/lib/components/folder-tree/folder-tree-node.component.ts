@@ -20,6 +20,12 @@
 // restore on close) — `FolderTreeComponent` still owns `crudRequest`,
 // `FolderTreeCrudComponent`, and `lastInvoker`, because those are shared
 // singleton state across every row, not per-row state.
+//
+// `open` / `selected` are INPUTS derived by the parent (#2847, see
+// `folder-tree-row.ts`) — this component never reads the shared
+// `folderOpen()` map or `selectedSourceId()` on its own behalf. It still
+// reads them once, in `childRows`, to derive its OWN children's booleans,
+// and that computed is only ever evaluated while the row is expanded.
 
 import {
   ChangeDetectionStrategy,
@@ -40,6 +46,7 @@ import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import { isCopyModifierEvent } from '../../drag-move/drag-move-platform';
 import type { AssetDragData } from '../../drag-move/asset-drag-data';
 import { MuiTreeRowComponent } from '../../ui/tree-row/mui-tree-row.component';
+import { deriveFolderRows } from './folder-tree-row';
 
 /** Touch long-press → context menu. Same constants
  * `folder-tree.component.ts` used before this extraction. */
@@ -69,28 +76,28 @@ export class FolderTreeNodeComponent {
 
   readonly node = input.required<SidebarEntry>();
   readonly level = input(0);
+  /** Expanded state, resolved by the parent (`resolveFolderOpen`). */
+  readonly open = input.required<boolean>();
+  /** Whether this row is the current source (`selectedSourceId`), resolved
+   * by the parent. */
+  readonly selected = input.required<boolean>();
 
   readonly crudRequested = output<FolderCrudRequestEvent>();
 
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
   private longPressStart: { x: number; y: number } | null = null;
 
-  protected readonly isOpen = computed(() => {
-    const node = this.node();
-    const map = this.state.folderOpen();
-    return map[node.id] !== undefined ? map[node.id] : node.open === true;
-  });
-  protected readonly isSelected = computed(() => this.state.selectedSourceId() === this.node().id);
   protected readonly hasLoadedChildren = computed(() => (this.node().children?.length ?? 0) > 0);
   protected readonly canExpand = computed(() => !!this.node().absPath || this.hasLoadedChildren());
   protected readonly isLoading = computed(() => this.node().childrenStatus === 'loading');
   protected readonly hasError = computed(() => this.node().childrenStatus === 'error');
-  /** Pre-filtered to `kind === 'folder'` so the template's recursion loop
-   * is a flat `@for` with no per-child `@if` nested inside it — trims one
-   * level of template nesting (#2749 review, fallow-audit-web complexity
-   * finding: nesting depth weighs heavily on cognitive complexity). */
-  protected readonly folderChildren = computed(
-    () => (this.node().children ?? []).filter((c) => c.kind === 'folder') as SidebarEntry[],
+  /** This row's child folder rows with their `open` / `selected` derived
+   * once here, from one read of the shared state per pass — see
+   * `folder-tree-row.ts`. Only read by the template inside `@if (open())`,
+   * so a collapsed row never subscribes to `folderOpen` /
+   * `selectedSourceId` at all. */
+  protected readonly childRows = computed(() =>
+    deriveFolderRows(this.node().children, this.state.folderOpen(), this.state.selectedSourceId()),
   );
 
   // ── Selection / expand ──────────────────────────────────────────────────
@@ -111,7 +118,7 @@ export class FolderTreeNodeComponent {
   // expanding/collapsing still never also selects the row.
   onChevronClick(): void {
     const node = this.node();
-    const willOpen = !this.isOpen();
+    const willOpen = !this.open();
     this.state.setFolderOpen(node.id, willOpen);
     const canExpandFs = node.absPath || node.id.includes(':');
     if (willOpen && canExpandFs && node.childrenStatus === undefined) {

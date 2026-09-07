@@ -8,7 +8,7 @@ import {
   provideSelfHostedWorkspace,
   type Asset,
 } from '@maple-common';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SelfHostedBrowseController } from './self-hosted-browse.controller';
 
 describe('SelfHostedBrowseController', () => {
@@ -126,6 +126,42 @@ describe('SelfHostedBrowseController', () => {
     controller.dismissBatchRename();
     expect(controller.batchRenameVisible()).toBe(false);
     expect(controller.batchRenameSelections()).toEqual([]);
+  });
+
+  it('onBatchRenameApplied repoints the selection to the renamed addresses before refetching (#2847)', () => {
+    state.selectMany(['lib1:2026/a.dng', 'lib1:2026/b.dng', 'lib1:2026/c.dng']);
+    const loadFolderTree = vi.spyOn(state, 'loadFolderTree').mockImplementation(() => {});
+
+    controller.onBatchRenameApplied({
+      summary: { total: 3, relocated: 2, skipped: 1, failed: 0 },
+      results: [
+        {
+          address: 'lib1:2026/a.dng',
+          kind: 'relocated',
+          oldFilename: 'a.dng',
+          newFilename: 'trip-001.dng',
+          renamedOnCollision: false,
+          extensionChanged: false,
+        },
+        { address: 'lib1:2026/b.dng', kind: 'skipped', reason: 'destination exists' },
+        {
+          address: 'lib1:2026/c.dng',
+          kind: 'relocated',
+          oldFilename: 'c.dng',
+          newFilename: 'trip-003.dng',
+          renamedOnCollision: true,
+          extensionChanged: false,
+        },
+      ],
+    });
+
+    // Relocated rows follow their new address; the skipped row keeps its old
+    // one — the selection survives the refetch instead of coming back empty.
+    expect(state.selectedAssetIds()).toEqual(
+      new Set(['lib1:2026/trip-001.dng', 'lib1:2026/b.dng', 'lib1:2026/trip-003.dng']),
+    );
+    expect(state.focusedAssetId()).toBe('lib1:2026/trip-001.dng');
+    expect(loadFolderTree).toHaveBeenCalledTimes(1);
   });
 
   it('openBatchRename is a no-op with nothing selected', () => {

@@ -2,13 +2,30 @@ import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import {
   BatchMetadataService,
   LibraryStateService,
+  childAddress,
+  formatAddress,
+  parentAddress,
   parseAddress,
   type Asset,
   type AssetId,
   type AssetMetadataSnapshot,
+  type BatchRenameApplyResult,
   type BatchRenameSelection,
 } from '@maple-common';
 import { Subscription } from 'rxjs';
+
+/** The `slug:relPath` address `address` takes once its filename becomes
+ * `newFilename` — same directory, new last segment. Batch rename never moves
+ * a file between directories (`library/batch-rename.ts` renames in place),
+ * so unlike the single-rename path (`AssetRenameService._applyRenamed`, whose
+ * API result carries `newPath`) the directory is the one already in the
+ * address. `parentAddress` is only `null` for a library-root address, which
+ * an asset never has — the fallback keeps the type honest, not a real path. */
+function renamedAddress(address: string, newFilename: string): AssetId {
+  const parsed = parseAddress(address);
+  const dir = parentAddress(parsed) ?? { slug: parsed.slug, relPath: '' };
+  return formatAddress(childAddress(dir, newFilename));
+}
 
 @Injectable()
 export class SelfHostedBrowseController {
@@ -123,10 +140,24 @@ export class SelfHostedBrowseController {
     this.batchRenameSelections.set([]);
   }
 
-  /** Renamed files change filenames/addresses under the current folder —
-   * refresh the same way `dismissMetadata` does so the grid reflects the
-   * new names without a full page reload. */
-  onBatchRenameApplied(): void {
+  /** Renamed files change filenames/addresses under the current folder.
+   * Repoint every successfully relocated asset to its new address FIRST
+   * (#2847: the refetch below purges and replaces the grid rows, but
+   * `selectedAssetIds` kept the OLD addresses, so the grid came back with the
+   * just-renamed files silently deselected) — `renameAsset` is the same
+   * store + selection + thumbnail-cache repoint the single-rename path uses —
+   * then refresh the same way `dismissMetadata` does so the grid reflects the
+   * new names without a full page reload. Skipped / failed rows keep their
+   * address, so their selection entries are already correct. */
+  onBatchRenameApplied(result: BatchRenameApplyResult): void {
+    for (const item of result.results) {
+      if (item.kind !== 'relocated') continue;
+      this.state.renameAsset(
+        item.address,
+        renamedAddress(item.address, item.newFilename),
+        item.newFilename,
+      );
+    }
     this.refreshCurrentFolder();
   }
 
