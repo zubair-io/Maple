@@ -162,8 +162,10 @@ pub(super) fn only(set: impl FnOnce(&mut PartialAdjustments)) -> PartialAdjustme
     a
 }
 
-/// Every control on one layer, so a stacked case exercises the full
-/// `apply_pixel` body including the per-pixel CAT16 derivation.
+/// Every POINT control on one layer, so a stacked case exercises the full
+/// `apply_pixel` body including the per-pixel CAT16 derivation. The six
+/// SPATIAL controls (#3407) are deliberately absent — they are not this
+/// kernel's; `local_spatial/tests.rs` gates those.
 pub(super) fn all_controls() -> PartialAdjustments {
     PartialAdjustments {
         exposure: Some(0.6),
@@ -177,6 +179,7 @@ pub(super) fn all_controls() -> PartialAdjustments {
         temperature: Some(1200.0),
         tint: Some(8.0),
         hue: Some(-40.0),
+        ..Default::default()
     }
 }
 
@@ -405,13 +408,14 @@ fn alpha_is_untouched() {
 }
 
 /// The flat-wire stride the kernel's `Layer` struct assumes must be the one
-/// raw-core writes. Eight `vec4<f32>` members = 128 bytes = 32 floats; if
-/// raw-core ever changed its record length the storage buffer would be read
-/// with the wrong stride and every layer past the first would be garbage.
+/// raw-core writes. Ten `vec4<f32>` members = 160 bytes = 40 floats (#3407
+/// appended the spatial pair); if raw-core ever changed its record length
+/// the storage buffer would be read with the wrong stride and every layer
+/// past the first would be garbage.
 #[test]
 fn flat_stride_matches_raw_core() {
     assert_eq!(LAYER_FLAT_LEN, CORE_LEN);
-    assert_eq!(LAYER_FLAT_LEN * std::mem::size_of::<f32>(), 128);
+    assert_eq!(LAYER_FLAT_LEN * std::mem::size_of::<f32>(), 160);
 }
 
 /// The transcribed CAT16 constants must be the ones raw-core uses. The kernel
