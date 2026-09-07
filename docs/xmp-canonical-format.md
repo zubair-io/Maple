@@ -199,6 +199,13 @@ The schema's single source of truth is `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/
 | `crs:PerspectiveAspect`                   | `perspectiveAspect`                  | −100 – 100                        | 0                     |
 | `crs:PerspectiveX`                        | `perspectiveX`                       | −100 – 100                        | 0                     |
 | `crs:PerspectiveY`                        | `perspectiveY`                       | −100 – 100                        | 0                     |
+| `crs:AutoLateralCA`                       | `autoLateralCa`                      | `1` \| `0`                        | `Off`                 |
+| `crs:DefringePurpleAmount`                | `defringePurpleAmount`               | 0 – 20                            | 0                     |
+| `crs:DefringePurpleHueLo`                 | `defringePurpleHueLo`                | 0 – 100                           | 30                    |
+| `crs:DefringePurpleHueHi`                 | `defringePurpleHueHi`                | 0 – 100                           | 70                    |
+| `crs:DefringeGreenAmount`                 | `defringeGreenAmount`                | 0 – 20                            | 0                     |
+| `crs:DefringeGreenHueLo`                  | `defringeGreenHueLo`                 | 0 – 100                           | 40                    |
+| `crs:DefringeGreenHueHi`                  | `defringeGreenHueHi`                 | 0 – 100                           | 60                    |
 
 The seven `crs:Perspective*` keys (#3410) are Adobe's own, read and written **unrescaled**: a Lightroom sidecar's `crs:PerspectiveVertical="-20"` loads as −20 and saves back as −20. What one unit buys geometrically is Maple's own decision — Adobe documents no mapping — and is pinned by the constants in `raw-core/src/stages/perspective/matrix.rs`; see [pipeline](pipeline.md) § Geometry tail. Swift groups the seven under one nested `Perspective` value type where the other three implementations keep them flat, purely to fit `AdjustmentModel.swift` inside the file budget — the wire form, the field names and the copy/paste group are identical everywhere.
 
@@ -208,7 +215,7 @@ One `papp:` key is read by `raw-core` alone and is unmodelled everywhere else, s
 
 ## Enum fields and parse strictness
 
-The wire spelling of every enum is the canonical variant name (`ChromaticAdaptation`, `RatioPreserving`, `DiagonalRec2020`), except `crs:ConvertToGrayscale` (Adobe's `True`/`False`) and `crs:LensProfileEnable` (Adobe's `1`/`0`).
+The wire spelling of every enum is the canonical variant name (`ChromaticAdaptation`, `RatioPreserving`, `DiagonalRec2020`), except `crs:ConvertToGrayscale` (Adobe's `True`/`False`) and the two ACR checkboxes `crs:LensProfileEnable` and `crs:AutoLateralCA` (Adobe's `1`/`0`).
 
 | Field                        | Variants                                                                   |
 | ---------------------------- | -------------------------------------------------------------------------- |
@@ -222,6 +229,7 @@ The wire spelling of every enum is the canonical variant name (`ChromaticAdaptat
 | `papp:ToneCurveMode`         | `PerChannel`, `RatioPreserving`                                            |
 | `crs:ConvertToGrayscale`     | `True`/`true`/`TRUE`/`1`, `False`/`false`/`FALSE`/`0`                      |
 | `crs:LensProfileEnable`      | `1`/`true`/`True`/`on`/`On`, `0`/`false`/`False`/`off`/`Off`               |
+| `crs:AutoLateralCA`          | `1`/`true`/`True`/`on`/`On`, `0`/`false`/`False`/`off`/`Off`               |
 
 **The four readers deliberately disagree on unknown values.** `raw-core` **rejects** an unrecognised enum value — the whole parse returns an error (`unknown HighlightRecoveryMode: …`, `unknown Profile: …`, `unknown WbScaleVersion: …`, `unknown ConvertToGrayscale: …`). It also rejects a non-numeric or non-finite value on any numeric key, rather than letting `NaN` propagate through a whole render before being zeroed pixel-by-pixel. The Swift, TypeScript and C# readers **drop** an unrecognised enum value and leave the field at its default, so a sidecar written by a newer build still loads in the UI. The practical consequence: an uplevel sidecar opens in the editor with the unknown control neutralized, but fails the render-side parse if the value ever reaches `raw-core`. Two exceptions are shared by all four: `papp:FilmLook` is free-form text and passes through verbatim (an id the catalog does not recognise resolves as identity at render time), and `papp:Profile="AcrMatch"` migrates to `Auto` rather than erroring.
 
