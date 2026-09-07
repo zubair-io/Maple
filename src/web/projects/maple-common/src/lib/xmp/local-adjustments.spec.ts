@@ -27,7 +27,16 @@ const CANONICAL_INDENT = '      ';
 /** The linear half of the shared fixture (`linear_layer()` in Rust). */
 const LINEAR_LAYER: LocalAdjustment = {
   mask: { kind: 'linear', start: { x: 0.2, y: 0.3 }, end: { x: 0.8, y: 0.7 }, feather: 0.4 },
-  adjustments: { exposure: 0.5, shadows: -20 },
+  adjustments: { exposure: 0.5, shadows: -20, hue: -35 },
+  range: {
+    kind: 'color',
+    hueDeg: 55,
+    hueHalfWidthDeg: 25,
+    chromaMin: 0.02,
+    lMin: 0.15,
+    lMax: 0.95,
+    feather: 0.3,
+  },
 };
 
 /**
@@ -44,7 +53,16 @@ const RADIAL_LAYER: LocalAdjustment = {
     feather: 0.6,
     invert: true,
   },
-  adjustments: { contrast: 15, vibrance: -10, temperature: 200 },
+  adjustments: { contrast: 15, vibrance: -10, temperature: 200, hue: 0 },
+  range: {
+    kind: 'color',
+    hueDeg: 210,
+    hueHalfWidthDeg: 40,
+    chromaMin: 0.1,
+    lMin: 0,
+    lMax: 1,
+    feather: 0,
+  },
 };
 
 /** Cross-language byte-parity fixture — see the file header. */
@@ -57,7 +75,15 @@ const CANONICAL_BLOCK = [
   '              crs:CorrectionAmount="1"',
   '              crs:CorrectionActive="True"',
   '              crs:LocalExposure2012="0.5"',
-  '              crs:LocalShadows2012="-20">',
+  '              crs:LocalShadows2012="-20"',
+  '              crs:LocalHue="-0.35"',
+  '              papp:RangeKind="Color"',
+  '              papp:RangeHue="55"',
+  '              papp:RangeHueWidth="25"',
+  '              papp:RangeChromaMin="0.02"',
+  '              papp:RangeLMin="0.15"',
+  '              papp:RangeLMax="0.95"',
+  '              papp:RangeFeather="0.3">',
   '              <crs:CorrectionMasks>',
   '                <rdf:Seq>',
   '                  <rdf:li',
@@ -81,7 +107,15 @@ const CANONICAL_BLOCK = [
   '              crs:CorrectionActive="True"',
   '              crs:LocalContrast2012="15"',
   '              papp:LocalVibrance="-10"',
-  '              crs:LocalTemperature="200">',
+  '              crs:LocalTemperature="200"',
+  '              crs:LocalHue="0"',
+  '              papp:RangeKind="Color"',
+  '              papp:RangeHue="210"',
+  '              papp:RangeHueWidth="40"',
+  '              papp:RangeChromaMin="0.1"',
+  '              papp:RangeLMin="0"',
+  '              papp:RangeLMax="1"',
+  '              papp:RangeFeather="0">',
   '              <crs:CorrectionMasks>',
   '                <rdf:Seq>',
   '                  <rdf:li',
@@ -260,6 +294,62 @@ describe('XMP local adjustments (#358)', () => {
     const { model } = parser.parseAdjustmentModel(doc);
     expect(model.localAdjustments?.[0].adjustments).toEqual({ exposure: 1, contrast: -20 });
   });
+
+  it('scales hue by Amount without changing the color selection', () => {
+    const { model } = parser.parseAdjustmentModel(
+      sidecar(CANONICAL_BLOCK.replaceAll('crs:CorrectionAmount="1"', 'crs:CorrectionAmount="0.5"')),
+    );
+    expect(model.localAdjustments?.[0].adjustments.hue).toBe(-17.5);
+    expect(model.localAdjustments?.[1].adjustments.hue).toBe(0);
+    expect(model.localAdjustments?.map((layer) => layer.range)).toEqual([
+      LINEAR_LAYER.range,
+      RADIAL_LAYER.range,
+    ]);
+  });
+
+  it('accepts remapped and legacy namespace prefixes for hue and all range fields', () => {
+    for (const uri of ['http://ns.justmaple.app/photo/1.0/', 'http://ns.justmaple.app/1.0/']) {
+      const xml = sidecar(CANONICAL_BLOCK)
+        .replaceAll('http://ns.justmaple.app/photo/1.0/', uri)
+        .replaceAll('crs:', 'camera:')
+        .replaceAll('xmlns:crs=', 'xmlns:camera=')
+        .replaceAll('papp:', 'maple:')
+        .replaceAll('xmlns:papp=', 'xmlns:maple=');
+      expect(parser.parseAdjustmentModel(xml).model.localAdjustments).toEqual([
+        LINEAR_LAYER,
+        RADIAL_LAYER,
+      ]);
+    }
+  });
+
+  it('uses core defaults for missing Color coordinates and preserves explicit zero', () => {
+    const { model } = parser.parseAdjustmentModel(
+      sidecar(
+        gradientCorrection(
+          'crs:LocalHue="0" papp:RangeKind="Color" papp:RangeHue="0" papp:RangeFeather="0"',
+          FULL_FRAME_GRADIENT,
+        ),
+      ),
+    );
+    expect(model.localAdjustments?.[0].range).toEqual({
+      ...LINEAR_LAYER.range,
+      hueDeg: 0,
+      feather: 0,
+    });
+    expect(model.localAdjustments?.[0].adjustments).toEqual({ hue: 0 });
+  });
+
+  it.each(['', 'papp:RangeKind="Future"', 'papp:RangeKind="Color" papp:RangeHue="NaN"'])(
+    'keeps absent, unknown and corrupt ranges absent: %s',
+    (attrs) => {
+      const { model } = parser.parseAdjustmentModel(
+        sidecar(gradientCorrection(`crs:LocalHue="NaN" ${attrs}`, FULL_FRAME_GRADIENT)),
+      );
+      expect(model.localAdjustments?.[0].range).toBeUndefined();
+      expect(model.localAdjustments?.[0].adjustments).toEqual({});
+      expect(localAdjustmentBlocks(model, CANONICAL_INDENT)).not.toMatch(/RangeKind|LocalHue/);
+    },
+  );
 
   it('drops a mask missing its required geometry rather than inventing a default', () => {
     const doc = sidecar(
