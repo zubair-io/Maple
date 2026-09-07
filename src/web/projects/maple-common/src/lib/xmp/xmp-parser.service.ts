@@ -92,10 +92,12 @@ export class XmpParserService {
   parseAdjustmentModel(xml: string): {
     model: Partial<AdjustmentModel>;
     passthrough: PassthroughBucket;
+    metadata: XmpMetadata;
   } {
     const emptyResult = {
       model: {} as Partial<AdjustmentModel>,
       passthrough: { unknownAttributes: [], unknownNodes: [] } as PassthroughBucket,
+      metadata: {} as XmpMetadata,
     };
 
     const parsed = this._parseAdjustmentDocument(xml);
@@ -135,6 +137,7 @@ export class XmpParserService {
     return {
       model,
       passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document),
+      metadata: parseMetadataBlock(desc),
     };
   }
 
