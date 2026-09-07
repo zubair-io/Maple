@@ -58,6 +58,7 @@ mod tests;
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
 
+use super::flatten_mosaic;
 use super::hamilton_adams::hamilton_adams;
 use scratch::{Scratch, Tile, BAND, TS};
 
@@ -127,21 +128,4 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
     fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
 
     out
-}
-
-/// Flatten the sparse 3-channel mosaic to a single float per CFA position.
-fn flatten_mosaic(mosaic: &Image, cfa: CfaPattern) -> Vec<f32> {
-    let w = mosaic.width as usize;
-    // Read whichever of [r, g, b] the CFA position says is populated; the
-    // others are zero per the `sensor_linearize` contract.
-    mosaic
-        .pixels
-        .par_iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let x = (i % w) as u32;
-            let y = (i / w) as u32;
-            p[cfa.color_at(x, y) as usize]
-        })
-        .collect()
 }
