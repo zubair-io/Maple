@@ -153,7 +153,7 @@ Data groups exist **only in the self-hosted config** — Hosted is browser-only 
 
 | Group        | URLs                                   | Strategy    | Max size | Max age |
 | ------------ | -------------------------------------- | ----------- | -------- | ------- |
-| `thumbnails` | `/api/fs/thumb`, `/api/assets/*/thumb` | performance | 1500     | 30 d    |
+| `thumbnails` | `/api/thumb/**`, `/api/assets/*/thumb` | performance | 1500     | 30 d    |
 | `film-luts`  | `/film-luts/*.mlut`                    | performance | 12       | 30 d    |
 
 Library data APIs are deliberately not cached so MongoDB stays authoritative. The web client uses no Cache API storage of its own and has no caching HTTP interceptor — the only interceptor attaches the bearer token.

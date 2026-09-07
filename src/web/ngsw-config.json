@@ -37,7 +37,7 @@
   "dataGroups": [
     {
       "name": "thumbnails",
-      "urls": ["/api/fs/thumb", "/api/assets/*/thumb"],
+      "urls": ["/api/thumb/**", "/api/assets/*/thumb"],
       "cacheConfig": {
         "strategy": "performance",
         "maxSize": 1500,
