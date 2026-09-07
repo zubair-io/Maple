@@ -90,6 +90,22 @@ mod tests {
     use std::ffi::{CStr, CString};
 
     #[test]
+    fn support_json_escapes_camera_key_nul_for_ffi() {
+        let support = raw_core::support_tiers::RenderSupport {
+            camera_key: "Camera\0Body\n\t\"\\".into(),
+            resolution: raw_core::support_tiers::ProfileResolution::RawlerFallback,
+            lens: raw_core::support_tiers::LensSupport::NoCorrectionData,
+        };
+        let transport = CString::new(support.to_json()).unwrap();
+        let recovered: serde_json::Value = serde_json::from_slice(transport.as_bytes()).unwrap();
+        assert_eq!(recovered["cameraKey"], support.camera_key);
+        assert!(transport
+            .as_bytes()
+            .windows(6)
+            .any(|bytes| bytes == b"\\u0000"));
+    }
+
+    #[test]
     fn decoded_support_is_owned_by_the_pixel_buffer_and_cleared_on_free() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("support-buffer.dng");
