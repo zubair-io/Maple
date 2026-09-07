@@ -186,7 +186,7 @@ public struct MuiVectorscope: View {
                 let t = log(1 + Double(bins[row][col])) / log(1 + Double(maxCount))
                 // Bin (row, col) covers an n×n grid over the SAME [-0.5,
                 // 0.5] chroma square `canvasPoint` maps — row 0 is the
-                // most-negative cr (matches `canvasPoint`'s cr-grows-up,
+                // most-positive cr (matches `canvasPoint`'s cr-grows-up,
                 // so the top row is HIGH cr, hence `0.5 - row/n`).
                 var (cb, cr) = MuiVectorscopeMath.binCentre(row: row, col: col, n: n)
                 if redAt3OClock {
