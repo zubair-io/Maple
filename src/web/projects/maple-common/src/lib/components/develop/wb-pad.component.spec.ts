@@ -1,4 +1,4 @@
-// wb-pad.component.spec.ts — WbPadComponent keyboard-stepping clamp (#2412).
+// wb-pad.component.spec.ts — WB preset display and keyboard clamp (#3307/#2412).
 //
 // A production audit saw Tint reach +180 while the slider declares max
 // +150 (aria-valuenow > aria-valuemax). The eyedropper path (rgbToWb) and
@@ -11,7 +11,7 @@
 // and drives onPadKeyDown directly, the way a real ArrowUp/ArrowDown/
 // ArrowLeft/ArrowRight keydown on the pad would.
 
-import { TestBed } from '@angular/core/testing';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type Signal } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -19,6 +19,7 @@ import { WbPadComponent } from './wb-pad.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
+import { XmpParserService } from '../../xmp/xmp-parser.service';
 
 const ID = 'asset-wb-1';
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
@@ -48,18 +49,56 @@ function key(k: string): KeyboardEvent {
   return new KeyboardEvent('keydown', { key: k, cancelable: true });
 }
 
-describe('WbPadComponent.onPadKeyDown clamping (#2412)', () => {
+describe('WbPadComponent preset display and keyboard stepping', () => {
   let pad: WbPadComponent;
   let lib: LibraryStub;
+  let fixture: ComponentFixture<WbPadComponent>;
 
   beforeEach(() => {
     lib = new LibraryStub();
     TestBed.configureTestingModule({
       providers: [{ provide: LibraryStateService, useValue: lib }],
     });
-    const fixture = TestBed.createComponent(WbPadComponent);
+    fixture = TestBed.createComponent(WbPadComponent);
     pad = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('shows As Shot for legacy Maple Custom sidecars without changing their stored pair', () => {
+    const parsed = TestBed.inject(XmpParserService).parseAdjustmentModel(
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:WhiteBalance="Custom" crs:Temperature="5100" crs:Tint="-7"/></rdf:RDF></x:xmpmeta>',
+    ).model;
+    const model = { ...defaultAdjustmentModel(), ...parsed };
+    lib.model.set(model);
+    fixture.detectChanges();
+
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('As Shot');
+    expect(pad.provenanceLabel()).toBe('As Shot');
+    expect(lib.model()).toEqual(model);
+    expect(lib.model()).toMatchObject({
+      whiteBalancePreset: 'Custom',
+      temperature: 5100,
+      tint: -7,
+      wbScaleVersion: 1,
+    });
+  });
+
+  it('keeps authored Manual and named presets distinct from the legacy As Shot display', () => {
+    for (const choice of [
+      { whiteBalancePreset: 'Custom', wbSource: 'Manual', expected: 'Custom' },
+      { whiteBalancePreset: 'Daylight', wbSource: 'Preset', expected: 'Daylight' },
+      { whiteBalancePreset: 'Auto', wbSource: 'Auto', expected: 'Auto' },
+    ] as const) {
+      lib.model.update((model) => ({
+        ...model,
+        whiteBalancePreset: choice.whiteBalancePreset,
+        wbSource: choice.wbSource,
+      }));
+      fixture.detectChanges();
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+      expect(select.value).toBe(choice.expected);
+    }
   });
 
   it('clamps tint at the +150 rail under repeated ArrowUp presses', () => {

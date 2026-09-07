@@ -13,7 +13,7 @@ struct WhiteBalanceControls: View {
       set: { preset in
         presetTask?.cancel()
         let editor = state
-        presetTask = Task { await editor.applyWhiteBalancePreset(preset) }
+        presetTask = Task { @MainActor in await editor.applyWhiteBalancePreset(preset) }
       })
   }
 
