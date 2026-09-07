@@ -193,10 +193,7 @@ fn export_core_with_film(
         (max_long_edge > 0).then_some(max_long_edge),
     )?;
 
-    let model = match xmp {
-        Some(x) => xmp_mod::parse(&x).map_err(|e| e.to_string())?,
-        None => xmp_mod::AdjustmentModel::default(),
-    };
+    let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())?;
 
     let options = ExportOptions {
         format,

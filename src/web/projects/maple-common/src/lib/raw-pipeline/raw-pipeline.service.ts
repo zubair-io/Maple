@@ -29,6 +29,11 @@ import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
 import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 import { developNonRaw } from './raw-pipeline.non-raw-develop';
 import {
+  dispatchRegisterMaskRaster,
+  releaseMaskRasterRequest,
+} from './raw-pipeline.mask-raster-request';
+import type { MaskRasterUpload } from './raw-pipeline.mask-raster.types';
+import {
   openLiveSessionRequest,
   renderLiveSessionRequest,
   closeLiveSessionRequest,
@@ -382,6 +387,29 @@ export class RawPipelineService implements OnDestroy {
       this.pending.set(id, { kind: 'set-film-lut', resolve, reject });
       worker.postMessage(request, [bytes]);
     });
+  }
+
+  /** Register a `bitmap` mask's R8 raster under its recipe digest (#3300 — the web
+   *  mirror of raw-ffi's `maple_mask_raster_register`); resolves with the raster id.
+   *  Contract in `raw-pipeline.mask-raster.types.ts`. No caller yet: the web has no
+   *  segmentation source (#3300 slice 3), which is what will drive this half. */
+  // fallow-ignore-next-line unused-class-member
+  registerMaskRaster(raster: MaskRasterUpload): Promise<number> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const register = this.pending.set.bind(this.pending);
+    return dispatchRegisterMaskRaster(worker, this.nextId++, register, raster);
+  }
+
+  /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */
+  // fallow-ignore-next-line unused-class-member
+  releaseMaskRaster(rasterId: number): void {
+    if (!this.worker) return;
+    releaseMaskRasterRequest(this.worker, this.nextId++, rasterId);
   }
 
   // ── Auto-adjust (#1379) ─────────────────────────────────────────────────────
