@@ -1495,6 +1495,17 @@ extension PipelineRenderer {
     params.sharpen_detail = Float(model.sharpenDetail)
     params.sharpen_masking = Float(model.sharpenMasking)
     params.nr_color = Float(model.nrColor)
+    // Defringe (#3411) — the per-tick half of the profile-free lens
+    // corrections, at develop's 12a slot between dehaze and local
+    // adjustments. `stripAppleGPUStages` zeroes these six in the DECODE
+    // model, so this is the single application. (`autoLateralCa` is the
+    // decode-product half and never reaches a per-tick params struct.)
+    params.defringe_purple_amount = Float(model.defringePurpleAmount)
+    params.defringe_purple_hue_lo = Float(model.defringePurpleHueLo)
+    params.defringe_purple_hue_hi = Float(model.defringePurpleHueHi)
+    params.defringe_green_amount = Float(model.defringeGreenAmount)
+    params.defringe_green_hue_lo = Float(model.defringeGreenHueLo)
+    params.defringe_green_hue_hi = Float(model.defringeGreenHueHi)
     // WB slider frame (#1781) — appended at the struct tail; absent
     // (`nil`, or a frame that reads !isPresent) leaves the zero-filled
     // legacy state.
