@@ -101,4 +101,31 @@ describe('metadata survives ordinary sidecar edits', () => {
     expect(xml).toContain('Foreign title');
     expect(xml).toContain('Foreign sibling');
   });
+
+  it('retains foreign AI masks across ordinary saves and explicit metadata replacement', async () => {
+    const correction = `<crs:MaskGroupBasedCorrections vendor:Version="7"><rdf:Seq>
+      <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Sky"
+        crs:LocalExposure2012="1.5"><crs:CorrectionMasks><rdf:Seq>
+        <rdf:li crs:What="Mask/Image" crs:MaskDigest="foreign-ai">
+          <vendor:Payload><![CDATA[opaque <bytes>]]></vendor:Payload>
+        </rdf:li></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+      </rdf:Seq></crs:MaskGroupBasedCorrections>`;
+    await fs.writeFile(sidecar, source.replace('<vendor:title>', correction + '<vendor:title>'));
+    const crs = 'http://ns.adobe.com/camera-raw-settings/1.0/';
+    for (const metadata of [undefined, { title: 'New title' }, {}]) {
+      const doc = await edit(metadata);
+      const groups = doc.getElementsByTagNameNS(crs, 'MaskGroupBasedCorrections');
+      expect(groups.length).toBe(1);
+      expect(groups[0].getAttributeNS('https://vendor.test/', 'Version')).toBe('7');
+      const layer = groups[0].getElementsByTagNameNS(RDF, 'Description')[0];
+      expect(layer.getAttributeNS(crs, 'CorrectionName')).toBe('Sky');
+      expect(layer.getAttributeNS(crs, 'LocalExposure2012')).toBe('1.5');
+      expect(
+        groups[0].getElementsByTagNameNS('https://vendor.test/', 'Payload')[0].textContent,
+      ).toBe('opaque <bytes>');
+      const parsed = parser.parseAdjustmentModel(await fs.readFile(sidecar, 'utf8'));
+      expect(parsed.model.localAdjustments).toEqual([]);
+      expect(parsed.model.exposure).toBe(2);
+    }
+  });
 });
