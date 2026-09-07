@@ -40,7 +40,22 @@ import XCTest
       let zoomValue = try XCTUnwrap(zoom.value as? String)
 
       for width: CGFloat in [800, 700, 1100] {
+        // A breakpoint change must reveal the armed Color tool even when
+        // its section was deliberately collapsed beforehand.
+        color.click()
+        let colorSection = app.buttons["editor-panel-section-color"]
+        XCTAssertEqual(colorSection.value as? String, "Expanded")
+        colorSection.click()
+        let collapsed = XCTNSPredicateExpectation(
+          predicate: NSPredicate(format: "value == 'Collapsed'"), object: colorSection)
+        XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 5), .completed)
+        XCTAssertFalse(blackWhite.exists)
         resize(window, width: width, height: 800)
+        XCTAssertTrue(blackWhite.waitForExistence(timeout: 5))
+        XCTAssertEqual(colorSection.value as? String, "Expanded")
+        let visible = XCTNSPredicateExpectation(
+          predicate: NSPredicate { _, _ in blackWhite.isHittable }, object: blackWhite)
+        XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)
         let dock = app.descendants(matching: .any)
           .matching(identifier: "editor-tool-dock").firstMatch
         let panel = app.descendants(matching: .any)

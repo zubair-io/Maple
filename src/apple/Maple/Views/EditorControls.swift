@@ -53,13 +53,26 @@ struct EditorControls: View {
           alignment: isCompact ? .bottom : .trailing
         )
         .onChange(of: layout) { _, _ in
-          scroll(proxy, to: state.armedTool.rawValue)
+          revealArmedTool(proxy)
         }
-        .onChange(of: state.armedTool) { _, tool in
-          collapsed.remove(tool.group)
-          scroll(proxy, to: tool.rawValue)
+        .onChange(of: state.armedTool) { _, _ in
+          revealArmedTool(proxy)
+        }
+        .onChange(of: collapsed) { old, new in
+          let group = state.armedTool.group
+          if old.contains(group) && !new.contains(group) {
+            // The section now exists in the scroll view; its target could
+            // not be resolved in the update that requested expansion.
+            scroll(proxy, to: state.armedTool.rawValue)
+          }
         }
       }
+    }
+  }
+
+  private func revealArmedTool(_ proxy: ScrollViewProxy) {
+    if collapsed.remove(state.armedTool.group) == nil {
+      scroll(proxy, to: state.armedTool.rawValue)
     }
   }
 
