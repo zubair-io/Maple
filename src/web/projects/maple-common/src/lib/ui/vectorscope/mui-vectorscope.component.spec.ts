@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  binCentre,
   chromaBt601,
   chromaRec709,
   MuiVectorscopeComponent,
@@ -91,6 +92,15 @@ describe('MuiVectorscopeComponent', () => {
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
   });
 
+  it('tolerates a ragged bins array without drawing NaN cells', () => {
+    const fixture = TestBed.createComponent(MuiVectorscopeComponent);
+    fixture.componentRef.setInput('samples', []);
+    fixture.componentRef.setInput('bins', [[0, 7], [3]]);
+    fixture.detectChanges();
+
+    expect(ctx.fillRect).toHaveBeenCalledTimes(2);
+  });
+
   it('draws the skin-tone line wedge + centre line when showSkinToneLine is set', () => {
     const fixture = TestBed.createComponent(MuiVectorscopeComponent);
     fixture.componentRef.setInput('samples', []);
@@ -104,6 +114,11 @@ describe('MuiVectorscopeComponent', () => {
 });
 
 describe('vectorscope math', () => {
+  it('bin centres tile the chroma square exactly', () => {
+    expect(binCentre(0, 0, 4)).toEqual({ cb: -0.375, cr: 0.375 });
+    expect(binCentre(3, 3, 4)).toEqual({ cb: 0.375, cr: -0.375 });
+  });
+
   it('pure grey has zero chroma in both colour spaces', () => {
     // toBeCloseTo, not toEqual — the matrix coefficients don't sum to
     // exactly zero in IEEE-754 double precision (e.g. cr lands at ~1.4e-17,
