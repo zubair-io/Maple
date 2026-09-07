@@ -160,7 +160,7 @@ namespace Maple.WinUI
             SyncMaskFromModel();
         }
 
-        private void OnMaskReset(object? sender, RoutedEventArgs e) =>
+        private void OnMaskReset(object? sender, EventArgs e) =>
             EditSelectedMask(l => l with { Adjustments = new PartialAdjustments() });
 
         // --- Overlay drag → model ---
