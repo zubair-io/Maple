@@ -85,9 +85,11 @@ export class FilesystemBrowseService {
   private readonly thumbBlobCache = new Map<string, Promise<string>>();
 
   /**
-   * One shared `/api/folders` load for the case where a thumb is requested
-   * before Browse has populated `registeredFolders` (a cold `/search`,
-   * `/timeline` or `/map` deep link). Mirrors
+   * The in-flight `/api/folders` load, shared by every thumb requested while
+   * `registeredFolders` is still empty (a cold `/search`, `/timeline` or
+   * `/map` deep link). Cleared once it settles, so a store emptied later
+   * (sign-out, cache invalidation) triggers a fresh load rather than reusing
+   * a stale resolved promise. Mirrors
    * `XmpAdjustmentRestoreService._ensureRegisteredFolders`.
    */
   private foldersLoad: Promise<void> | null = null;
@@ -121,8 +123,12 @@ export class FilesystemBrowseService {
 
     this.thumbBlobCache.set(absPath, promise);
     // If the request fails, drop the cached promise so the next attempt can
-    // retry instead of getting a permanently rejected promise.
-    promise.catch(() => this.thumbBlobCache.delete(absPath));
+    // retry instead of getting a permanently rejected promise — but only if
+    // it is still THIS promise: `clearThumbCache()` followed by a fresh call
+    // may already have cached a newer in-flight request under the same path.
+    promise.catch(() => {
+      if (this.thumbBlobCache.get(absPath) === promise) this.thumbBlobCache.delete(absPath);
+    });
     return promise;
   }
 
@@ -146,18 +152,18 @@ export class FilesystemBrowseService {
   private ensureRegisteredFolders(): Promise<void> {
     if (this.store.registeredFolders().length > 0) return Promise.resolve();
     if (!this.serverLibrary) return Promise.resolve();
-    const serverLibrary = this.serverLibrary;
-    this.foldersLoad ??= firstValueFrom(serverLibrary.listFolders())
+    if (this.foldersLoad) return this.foldersLoad;
+    const load = firstValueFrom(this.serverLibrary.listFolders())
       .then((folders) => {
         // Don't stomp a richer list a concurrent loadFolderTree() landed.
         if (this.store.registeredFolders().length === 0) {
           this.store.registeredFolders.set(folders);
         }
       })
-      .catch((err: unknown) => {
-        this.foldersLoad = null; // allow a later thumb request to retry
-        throw err;
+      .finally(() => {
+        this.foldersLoad = null;
       });
-    return this.foldersLoad;
+    this.foldersLoad = load;
+    return load;
   }
 }

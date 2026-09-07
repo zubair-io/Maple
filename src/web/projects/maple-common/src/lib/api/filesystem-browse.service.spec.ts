@@ -166,6 +166,42 @@ describe('FilesystemBrowseService', () => {
     expect(store.registeredFolders()).toEqual([MAIN]);
   });
 
+  it('re-fetches the registered libraries when the store is emptied later', async () => {
+    const first = service.getThumbBlobUrl('/photos/library/f.dng');
+    await settle();
+    http.expectOne('/api/thumb/library/f.dng').flush(new Blob(['x']));
+    await first;
+    expect(listFolders).toHaveBeenCalledTimes(1);
+
+    // Sign-out / cache invalidation empties the store: the next thumb must
+    // load the libraries again, not reuse the stale resolved promise.
+    store.registeredFolders.set([]);
+    const second = service.getThumbBlobUrl('/photos/library/g.dng');
+    await settle();
+    expect(listFolders).toHaveBeenCalledTimes(2);
+    http.expectOne('/api/thumb/library/g.dng').flush(new Blob(['x']));
+    expect(await second).toBe('blob:thumb-2');
+  });
+
+  it('a stale rejection never evicts a newer in-flight request for the same path', async () => {
+    store.registeredFolders.set([MAIN]);
+    const stale = service.getThumbBlobUrl('/photos/library/h.dng');
+    await settle();
+    service.clearThumbCache();
+    const fresh = service.getThumbBlobUrl('/photos/library/h.dng');
+    await settle();
+    const [staleReq, freshReq] = http.match('/api/thumb/library/h.dng');
+    expect(freshReq).toBeDefined();
+
+    // The OLD request fails after the new one was cached under the same path.
+    staleReq!.flush(null, { status: 202, statusText: 'Accepted' });
+    await expect(stale).rejects.toThrow(/not ready/);
+    expect(service.getThumbBlobUrl('/photos/library/h.dng')).toBe(fresh);
+
+    freshReq!.flush(new Blob(['x']));
+    expect(await fresh).toBe('blob:thumb-1');
+  });
+
   it('rejects without a request when no registered library owns the path', async () => {
     store.registeredFolders.set([MAIN]);
     await expect(service.getThumbBlobUrl('/elsewhere/c.dng')).rejects.toThrow(
