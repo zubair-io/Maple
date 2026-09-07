@@ -130,7 +130,7 @@ pub(crate) fn sample_from_probe(
 
 /// Mean of the finite pixels in the `(2·SAMPLE_RADIUS + 1)²` window around
 /// the normalised point, clipped to the image. `None` for an empty image.
-fn neighbourhood_mean(probe: &Image, nx: f32, ny: f32) -> Option<[f32; 3]> {
+pub(crate) fn neighbourhood_mean(probe: &Image, nx: f32, ny: f32) -> Option<[f32; 3]> {
     if probe.width == 0 || probe.height == 0 {
         return None;
     }

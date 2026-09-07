@@ -52,6 +52,10 @@ mod buffers;
 mod camera_support;
 mod cancel;
 mod white_balance_sample;
+// Colour-range eyedropper for the mask panel (#362): same transport as the
+// white-balance sampler above, reads the pixel entering the local-adjustments
+// stage and returns a seeded `papp:Range*` quadruple.
+mod mask_range_sample;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
 // indicator is fed by the stage's own per-row ticks, so raw-core's progress
 // sink gets a C callback registration here.
