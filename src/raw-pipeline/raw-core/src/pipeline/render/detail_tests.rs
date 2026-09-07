@@ -32,6 +32,27 @@ fn base(
 }
 
 #[test]
+fn transformed_canvas_keeps_the_full_frame_fallback() {
+    let (raw, bytes) = chart();
+    let (_, _, _, mut context) = base(&raw, &bytes, &AdjustmentModel::default());
+    let rect = TileRect {
+        src_x: 0,
+        src_y: 0,
+        src_w: 32,
+        src_h: 32,
+        out_w: 32,
+        out_h: 32,
+    };
+    context.model.geo_rotation = 5.0;
+    let error = render_detail_tile(&raw, &context, rect, None, 1024 * 1024).unwrap_err();
+    assert!(error.to_string().contains("transformed canvas"));
+    context.model.geo_rotation = 0.0;
+    context.model.lens_profile = format!("lcp1:{}", "a".repeat(64));
+    let error = render_detail_tile(&raw, &context, rect, None, 1024 * 1024).unwrap_err();
+    assert!(error.to_string().contains("transformed canvas"));
+}
+
+#[test]
 fn detail_matches_native_display_in_every_orientation_with_default_crop() {
     let (mut raw, bytes) = chart();
     raw.crop_rect = Some(crate::image::CropRect {

@@ -34,6 +34,8 @@ pub struct MapleRender {
     has_lens_corrections: bool,
     lens_correction_ca_inert: bool,
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
+    lens_profile_json: Option<String>,
+    source_orientation: u16,
 }
 
 impl MapleRender {
@@ -60,6 +62,8 @@ impl MapleRender {
         has_lens_corrections: bool,
         lens_correction_ca_inert: bool,
         camera_support: Option<raw_core::support_tiers::RenderSupport>,
+        lens_profile_json: Option<String>,
+        source_orientation: u16,
     ) -> Self {
         Self {
             width,
@@ -72,12 +76,21 @@ impl MapleRender {
             has_lens_corrections,
             lens_correction_ca_inert,
             camera_support,
+            lens_profile_json,
+            source_orientation,
         }
     }
 }
 
 #[wasm_bindgen]
 impl MapleRender {
+    /// Orientation applied after sensor-framed masks. Browser-decoded RGB
+    /// inputs report Normal because their pixels were already oriented.
+    #[wasm_bindgen(getter)]
+    pub fn source_orientation(&self) -> u16 {
+        self.source_orientation
+    }
+
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
@@ -136,6 +149,12 @@ impl MapleRender {
         self.camera_support
             .as_ref()
             .map(|support| support.to_json())
+    }
+
+    /// Imported optical calibration selected for this render, read once on open.
+    #[wasm_bindgen(getter)]
+    pub fn lens_profile_json(&self) -> Option<String> {
+        self.lens_profile_json.clone()
     }
 
     /// Whether this RAW carries a DNG `OpcodeList3` (`RawImage::has_lens_corrections`,
@@ -249,6 +268,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 has_lens_corrections,
                 lens_correction_ca_inert,
                 camera_support,
+                lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+                source_orientation: raw_img.orientation.to_u16(),
             })
         }
         Some(cap) => {
@@ -268,6 +289,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 has_lens_corrections,
                 lens_correction_ca_inert,
                 camera_support,
+                lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+                source_orientation: raw_img.orientation.to_u16(),
             })
         }
     }
@@ -355,6 +378,8 @@ pub fn render_bytes_sized(
         has_lens_corrections,
         lens_correction_ca_inert,
         camera_support,
+        lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+        source_orientation: raw_img.orientation.to_u16(),
     })
 }
 
@@ -415,8 +440,25 @@ pub fn develop_non_raw(
     let chained =
         raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
             .map_err(|e| JsError::new(&e.to_string()))?;
-    let encoded = raw_core::pipeline::encode_display_srgb_f32(&chained, width, height)
+    let mut encoded = raw_core::pipeline::encode_display_srgb_f32(&chained, width, height)
         .map_err(|e| JsError::new(&e.to_string()))?;
+    // Browser-decoded inputs already have EXIF orientation applied. Keep the
+    // same final display warp as RAW without applying that orientation twice.
+    let inverse = raw_core::stages::geometry::Geometry::from(&model)
+        .inverse_sensor(width, height, raw_core::ExifOrientation::Normal)
+        .map_err(JsError::new)?;
+    if inverse != raw_core::stages::geometry::Transform::IDENTITY {
+        let pixels = encoded.as_chunks_mut::<4>().0;
+        let mut scratch = vec![[0.0; 4]; pixels.len()];
+        raw_core::stages::geometry::apply_into(
+            pixels,
+            &mut scratch,
+            width as usize,
+            height as usize,
+            inverse,
+        );
+        pixels.copy_from_slice(&scratch);
+    }
 
     // Pack sRGB-gamma-encoded f32 [0,1] RGBA -> u8 RGB (drop alpha), matching
     // every other entry in this file's `MapleRender.rgb` contract.
@@ -440,6 +482,8 @@ pub fn develop_non_raw(
         has_lens_corrections: false,
         lens_correction_ca_inert: true,
         camera_support: None,
+        lens_profile_json: None,
+        source_orientation: 1,
     })
 }
 
@@ -447,3 +491,7 @@ pub fn develop_non_raw(
 fn f32_unit_to_u8(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * 255.0).round() as u8
 }
+
+#[cfg(test)]
+#[path = "render_geometry_tests.rs"]
+mod geometry_tests;

@@ -81,6 +81,12 @@ impl LiveSession {
     ) {
         let dims = self.image.dims();
         let s = &self.scope;
+        // A slow or skipped consumer can leave this slot mapped from two
+        // ticks ago. Release it BEFORE recording/submitting another copy;
+        // waiting until scope_after_submit is too late for GPU validation.
+        if s.pending.borrow_mut()[s.slot.get()].take().is_some() {
+            s.staging[s.slot.get()].unmap();
+        }
         crate::scope::encode_vectorscope(
             ctx,
             encoder,
@@ -93,17 +99,14 @@ impl LiveSession {
     }
 
     /// Request the async map of this tick's staging slot and advance the slot.
-    /// A slot whose previous map was never taken is dropped first (a stale
-    /// sample nobody read is worthless; the host only ever wants the newest).
+    /// `encode_scope` already released any stale map before submitting its copy.
     pub(super) fn scope_after_submit(&self) {
         let s = &self.scope;
         let slot = s.slot.get();
         let frame = s.frame.get() + 1;
         s.frame.set(frame);
         let mut pending = s.pending.borrow_mut();
-        if pending[slot].take().is_some() {
-            s.staging[slot].unmap();
-        }
+        debug_assert!(pending[slot].is_none());
         let (tx, rx) = oneshot::channel();
         s.staging[slot]
             .slice(..)

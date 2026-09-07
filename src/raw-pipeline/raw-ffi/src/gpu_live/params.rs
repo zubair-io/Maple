@@ -78,9 +78,12 @@ fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f
 /// until the FFI call returns; GPU uploads copy into independently owned buffers.
 ///
 /// # Safety
-/// `p` and every non-null `(ptr, len)` it carries must remain valid and immutable
-/// for the returned inputs' lifetime (bounded by the synchronous FFI call).
-pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs<'_> {
+/// `p` and every non-null `(ptr, len)` it carries must be valid for the read.
+pub(super) unsafe fn inputs_from_params(
+    p: &MapleGpuLiveParams,
+    width: u32,
+    height: u32,
+) -> Result<FullChainInputs<'_>, String> {
     use raw_gpu::{CurveMode, ToneCurveInputs};
 
     let wb_method = match p.wb_method {
@@ -232,7 +235,26 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     let local_flat = read_floats(p.local_adjustments_ptr, p.local_adjustments_len);
     let (_, mask_rasters) = crate::mask_registry::layers_and_rasters_from_flat(&local_flat);
 
-    FullChainInputs {
+    let geometry = if p.geo_perspective_h == 0.0
+        && p.geo_perspective_v == 0.0
+        && p.geo_rotation == 0.0
+        && p.geo_aspect == 0.0
+        && p.geo_scale == 0.0
+    {
+        raw_core::stages::geometry::Geometry::default()
+    } else {
+        raw_core::stages::geometry::Geometry {
+            perspective_h: p.geo_perspective_h,
+            perspective_v: p.geo_perspective_v,
+            rotation: p.geo_rotation,
+            aspect: p.geo_aspect,
+            scale: p.geo_scale,
+        }
+    };
+    let inverse =
+        geometry.inverse_sensor(width, height, raw_core::image::ExifOrientation::Normal)?;
+    let mut inputs = FullChainInputs {
+        geometry_inverse: None,
         wb_matrix,
         wb_temperature: gate_temperature,
         wb_tint: gate_tint,
@@ -411,7 +433,11 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             },
             enabled: p.scope_enabled != 0,
         },
+    };
+    if inverse != raw_core::stages::geometry::Transform::IDENTITY {
+        inputs.geometry_inverse = Some(inverse.0);
     }
+    Ok(inputs)
 }
 
 /// The host-declared film LUT edge + grid, or `(0, empty)` ("off") when the

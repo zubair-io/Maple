@@ -35,6 +35,7 @@ namespace Maple.WinUI.Services.Xmp
                 "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
                 "papp:HighlightRecoveryMode", "papp:AutoExposure",
                 "papp:Look", "papp:Profile",
+                "papp:LensProfile",
                 "papp:HotPixelSuppression", "crs:LensProfileEnable",
                 "papp:WbMethod", "papp:ToneCurveMode", "crs:ConvertToGrayscale",
                 "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom",
@@ -152,6 +153,9 @@ namespace Maple.WinUI.Services.Xmp
                         break;
                     case "crs:LensProfileEnable":
                         Apply(ParseOnOffBool(attr.Value), m => state.LensProfileEnable = m);
+                        break;
+                    case "papp:LensProfile":
+                        state.LensProfile = attr.Value;
                         break;
                     case "papp:WbMethod":
                         Apply(ParseWbMethod(attr.Value), m => state.WbMethod = m);

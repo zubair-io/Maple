@@ -5,6 +5,9 @@
      (caInertOnly()) when the panel is active but its WarpRectilinear opcode
      has no per-plane divergence — see the .ts file banner for why the two
      dims don't compound. -->
+@defer (on immediate) {
+  <lens-profile-import />
+}
 <div
   class="flex min-h-0 flex-col gap-2.5 p-2.5"
   [class]="panelDisabled() ? 'opacity-[0.45]' : ''"
@@ -37,7 +40,7 @@
       [value]="distortion()"
       [min]="distortionMin"
       [max]="distortionMax"
-      [disabled]="panelDisabled()"
+      [disabled]="distortionDisabled()"
       (valueChange)="onDistortionChange($event)"
       (dragEnd)="onDistortionDragEnd()"
       (resetRequest)="onDistortionReset()"
@@ -59,7 +62,7 @@
       [value]="vignetting()"
       [min]="vignettingMin"
       [max]="vignettingMax"
-      [disabled]="panelDisabled()"
+      [disabled]="vignettingDisabled()"
       (valueChange)="onVignettingChange($event)"
       (dragEnd)="onVignettingDragEnd()"
       (resetRequest)="onVignettingReset()"
@@ -67,13 +70,16 @@
   </div>
 </div>
 
-@if (lensSupport(); as support) {
-  <section
-    aria-label="Lens support"
-    data-testid="lens-support"
-    class="flex flex-col gap-1 px-2.5 pb-2.5"
-  >
-    <mui-text variant="row-label">{{ support.lensLabel }}</mui-text>
-    <mui-text color="muted" [block]="true">{{ support.lensExplanation }}</mui-text>
-  </section>
+@if (!imported()) {
+  @if (lensSupport(); as support) {
+    <section
+      aria-label="Lens support"
+      data-testid="lens-support"
+      class="flex flex-col gap-1 px-2.5 pb-2.5"
+    >
+      <mui-text variant="row-label">{{ support.lensLabel }}</mui-text>
+      <mui-text color="muted" [block]="true">{{ support.lensExplanation }}</mui-text>
+    </section>
+  }
 }
+<geometry-panel />

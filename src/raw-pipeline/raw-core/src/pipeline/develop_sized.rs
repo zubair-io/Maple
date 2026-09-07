@@ -217,6 +217,11 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             );
         });
         dump_after("00a_opcode_list3", &camera_rgb);
+    } else if !model.lens_profile.is_empty() {
+        let scale = camera_rgb.width as f32 / raw.width as f32;
+        stage("sized_lcp_correction", || {
+            crate::lens_profile::apply_for_raw(raw, model, &mut camera_rgb, scale)
+        })?;
     }
 
     // DefaultCrop BEFORE downsample — `crop_rect` is in raw-sensor coords
@@ -340,7 +345,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     // BM3D deep denoise (#1105) — runs on the downsampled buffer here;
     // same position as the unsized variant. See that variant's comment.
     stage("sized_deep_denoise", || {
-        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::active_progress())
+        bm3d::apply_cancellable(
+            &mut scene,
+            model.deep_denoise,
+            cancel,
+            bm3d::active_progress(),
+        )
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -398,9 +408,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     // clarity, matching `super::develop`. Was silently omitted here (#1931):
     // any non-default HSL adjustment made the sized/preview render diverge
     // from the full-resolution render. Identity short-circuits on all-default.
-    stage("sized_hsl", || {
-        hsl::apply_model(&mut scene, model)
-    });
+    stage("sized_hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
     stage("sized_clarity", || {
         clarity::apply(&mut scene, model.clarity)

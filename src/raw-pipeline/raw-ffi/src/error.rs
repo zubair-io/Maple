@@ -67,7 +67,6 @@ where
 /// Return code for "the FFI body panicked" — mirrors [`with_large_stack`]'s
 /// worker-panic rc (99) so hosts see one consistent "Rust-side panic" code.
 /// Used by the gpu entries' [`catch_panic_rc`] (#1079).
-#[cfg(feature = "gpu")]
 pub(crate) const RC_PANICKED: i32 = 99;
 
 /// Run an FFI body with a panic barrier (#1079): a panic anywhere inside
@@ -83,7 +82,6 @@ pub(crate) const RC_PANICKED: i32 = 99;
 /// `AssertUnwindSafe` is sound here: on the error path the closure's captures
 /// are never touched again (the host treats nonzero as "fall back to CPU" and
 /// closes the handle), so observing broken invariants is not possible.
-#[cfg(feature = "gpu")]
 pub(crate) fn catch_panic_rc<F: FnOnce() -> i32>(entry: &str, body: F) -> i32 {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
         Ok(rc) => rc,

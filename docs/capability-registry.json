@@ -352,7 +352,8 @@
         "lens_correction_distortion",
         "lens_correction_ca",
         "lens_correction_vignetting",
-        "capture_sharpening_radius"
+        "capture_sharpening_radius",
+        "lens_profile"
       ],
       "integration": [
         {
@@ -489,7 +490,14 @@
       "asset_classes": ["raw", "non_raw"],
       "preview_paths": ["cpu_reference", "gpu_live", "wasm_cpu", "wasm_gpu"],
       "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
-      "fields": ["crop"],
+      "fields": [
+        "crop",
+        "geo_perspective_h",
+        "geo_perspective_v",
+        "geo_rotation",
+        "geo_aspect",
+        "geo_scale"
+      ],
       "integration": [
         {
           "source": "sidecar_contract_apple",
@@ -854,7 +862,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:b9b29268f93752b911320994b74b7652ed28b02a29e940f017606a618a315110",
+      "corpus_hash": "blake3:f5d99eca69054d2bf29e7f873fa8eec1cea0d94e5801d8c2aba39fe84fa5e28c",
       "status": "stale_corpus",
       "record": {
         "backend": "metal",

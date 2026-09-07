@@ -47,6 +47,11 @@ namespace Maple.WinUI
                 explanation.Text = support.Explanation;
                 lensLabel.Text = $"Lens support: {support.LensLabel}";
                 lensExplanation.Text = support.LensExplanation;
+                if (ReferenceEquals(photo, ViewModel.SelectedPhoto) && ViewModel.LensProfileFacts?.Source == "lcp")
+                {
+                    lensLabel.Text = "Lens support: Imported profile";
+                    lensExplanation.Text = ViewModel.LensProfileFacts.Description;
+                }
             }
             catch (Exception ex)
             {

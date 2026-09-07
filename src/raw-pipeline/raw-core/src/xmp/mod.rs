@@ -382,6 +382,12 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     if model.lens_profile_enable != LensProfileEnable::default() {
         out.push_str(r#" crs:LensProfileEnable="0""#);
     }
+    if !model.lens_profile.is_empty() {
+        out.push_str(&format!(
+            r#" papp:LensProfile="{}""#,
+            escape(model.lens_profile.as_str())
+        ));
+    }
     for (key, value) in [
         (
             "crs:LensProfileDistortionScale",
@@ -399,6 +405,17 @@ pub fn serialize(model: &AdjustmentModel) -> String {
         let rounded = value.round();
         if rounded.is_finite() && rounded != 100.0 {
             out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
+    }
+    for (key, value, default) in [
+        ("GeoPerspectiveH", model.geo_perspective_h, 0.0),
+        ("GeoPerspectiveV", model.geo_perspective_v, 0.0),
+        ("GeoRotation", model.geo_rotation, 0.0),
+        ("GeoAspect", model.geo_aspect, 1.0),
+        ("GeoScale", model.geo_scale, 1.0),
+    ] {
+        if value.is_finite() && value != default {
+            out.push_str(&format!(r#" papp:{key}="{value:.6}""#));
         }
     }
     // Crop / straighten (#277) — emitted only when non-identity. The rect

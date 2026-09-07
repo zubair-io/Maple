@@ -1,3 +1,4 @@
+import type { LensProfileResolution } from '../lens/lens-profile.types';
 // library-store-lens-corrections.ts — per-asset decode-derived lens-correction
 // capability signal (#3182): whether the focused RAW carries a DNG
 // `OpcodeList3` at all, and whether its CA scale is a structural no-op
@@ -24,6 +25,7 @@ export interface LensCorrectionCapability {
   hasLensCorrections: boolean;
   lensCorrectionCaInert: boolean;
   cameraSupport?: CameraSupport;
+  lensProfile?: LensProfileResolution;
 }
 
 /**
@@ -51,6 +53,7 @@ export class LensCorrectionCapabilities {
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport,
+    lensProfile?: LensProfileResolution,
   ): void {
     this.byAsset.update((map) => {
       const next = new Map(map);
@@ -58,6 +61,7 @@ export class LensCorrectionCapabilities {
         hasLensCorrections,
         lensCorrectionCaInert,
         ...(cameraSupport ? { cameraSupport } : {}),
+        ...(lensProfile ? { lensProfile } : {}),
       });
       return next;
     });

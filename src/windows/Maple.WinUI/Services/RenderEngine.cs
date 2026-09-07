@@ -27,6 +27,7 @@ namespace Maple.WinUI.Services
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
+        public LensProfileFacts? LensProfileFacts { get; init; }
 
         // --- Auto Profile tail (#550/#924): fitted per image from the embedded
         //     JPEG. Without it a Profile::Auto decode renders 2-3x darker and
@@ -82,6 +83,8 @@ namespace Maple.WinUI.Services
             m.DisplayToneCurveLuma.Clear(); m.DisplayToneCurveRed.Clear();
             m.DisplayToneCurveGreen.Clear(); m.DisplayToneCurveBlue.Clear();
             m.Crop = Models.CropState.Identity;   // display-side (#2582), never baked at decode
+            m.GeoPerspectiveH = 0; m.GeoPerspectiveV = 0; m.GeoRotation = 0;
+            m.GeoAspect = 1; m.GeoScale = 1;
             m.Vibrance = 0; m.Saturation = 0; m.Clarity = 0; m.Texture = 0; m.Dehaze = 0;
             m.HueAdjustmentRed = 0; m.HueAdjustmentOrange = 0; m.HueAdjustmentYellow = 0;
             m.HueAdjustmentGreen = 0; m.HueAdjustmentAqua = 0; m.HueAdjustmentBlue = 0;
@@ -123,7 +126,10 @@ namespace Maple.WinUI.Services
             before.Profile != after.Profile
             || before.AutoExposure != after.AutoExposure
             || before.LensProfileEnable != after.LensProfileEnable
+            || before.LensProfile != after.LensProfile
             || Math.Abs(before.LensCorrectionDistortion - after.LensCorrectionDistortion) > 1e-6
+            || Math.Abs(before.LensCorrectionCa - after.LensCorrectionCa) > 1e-6
+            || Math.Abs(before.LensCorrectionVignetting - after.LensCorrectionVignetting) > 1e-6
             || Math.Abs(before.CaptureSharpeningAmount - after.CaptureSharpeningAmount) > 1e-6
             || Math.Abs(before.DeepDenoise - after.DeepDenoise) > 1e-6;
 
@@ -136,6 +142,7 @@ namespace Maple.WinUI.Services
             string rawPath, AdjustmentState model, int maxLongEdge, IntPtr cancelFlag)
         {
             var stripped = StripChainStages(model);
+            LensProfileStore.RestoreForFile(rawPath, stripped);
             var strippedXmp = Xmp.XmpWriter.Serialize(
                 new Xmp.XmpSidecarDocument { Adjustments = stripped });
             var tempXmpPath = Path.Combine(
@@ -171,6 +178,7 @@ namespace Maple.WinUI.Services
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
                         CameraSupport = CameraSupportMetadata.ReadFileBestEffort(rawPath),
+                        LensProfileFacts = LensProfileStore.AssessForFile(rawPath, stripped.LensProfile),
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                         FitAutoProfile(decoded, rawPath, tempXmpPath);
@@ -204,8 +212,9 @@ namespace Maple.WinUI.Services
             var floatCount = pixelCount * 4;
             if (bgraOut.Length < pixelCount * 4)
                 throw new ArgumentException("bgraOut too small", nameof(bgraOut));
-            if (chainScratch == null || chainScratch.Length < floatCount)
-                chainScratch = new float[floatCount];
+            // The second half is the manual warp's reusable output buffer.
+            if (chainScratch == null || chainScratch.Length < checked(floatCount * 2))
+                chainScratch = new float[checked(floatCount * 2)];
 
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso);
@@ -274,6 +283,16 @@ namespace Maple.WinUI.Services
             // display-domain LUT post-encode (the CIColorCube equivalent).
             if (image.DisplayLut != null)
                 ApplyDisplayLut(chainScratch, floatCount, image.DisplayLut, image.DisplayLutN);
+
+            fixed (float* pixels = chainScratch)
+            {
+                var rc = RawFfi.maple_apply_geometry_f32(pixels, pixels + floatCount,
+                    (uint)image.Width, (uint)image.Height,
+                    (float)model.GeoPerspectiveH, (float)model.GeoPerspectiveV,
+                    (float)model.GeoRotation, (float)model.GeoAspect, (float)model.GeoScale);
+                if (rc != 0)
+                    throw new InvalidOperationException($"Manual geometry failed: {RawFfi.LastError()}");
+            }
 
             var src = chainScratch;
             for (int i = 0, o = 0; i < floatCount; i += 4, o += 4)

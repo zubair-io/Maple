@@ -95,7 +95,7 @@ export interface GpuPresentHost {
    * component's refine/zoom math — the session itself is viewport-sized, so
    * `width`/`height` are no longer the native dims.
    */
-  recordNativeDims(w: number, h: number): void;
+  recordNativeDims(w: number, h: number, sourceOrientation?: number): void;
 }
 
 /**
@@ -356,7 +356,7 @@ export class ImageCanvasGpuPresent {
       const nativeW = info.nativeWidth ?? info.width;
       const nativeH = info.nativeHeight ?? info.height;
       this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
-      this.host.recordNativeDims(nativeW, nativeH);
+      this.host.recordNativeDims(nativeW, nativeH, info.sourceOrientation);
       this.host.state.seedAsShotWhiteBalance(assetId, info.asShotTemperature, info.asShotTint);
       // #3182 — see `lensCorrectionCapabilityFrom` in `image-canvas.render2d.ts`.
       const lensCorrections = lensCorrectionCapabilityFrom(info);
@@ -365,6 +365,7 @@ export class ImageCanvasGpuPresent {
         lensCorrections.hasLensCorrections,
         lensCorrections.lensCorrectionCaInert,
         info.cameraSupport,
+        info.lensProfile,
       );
       this.host.markColdOpenDone();
       const liveXmp = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());

@@ -379,6 +379,10 @@ fn render_display_scene_with_context(
     // gap via their lazy display transform (CIImage scale on Apple; texture
     // upload on Web). Pixel-doubling here added ~300 MB of FFI traffic and
     // 4× the allocator pressure on a 100 MP RAW for no extra information.
+    let inverse = crate::stages::geometry::Geometry::from(model)
+        .inverse_sensor(scene.width, scene.height, raw.orientation)
+        .map_err(|message| crate::error::Error::Pipeline(message.into()))?;
+    crate::stages::geometry::apply(&mut scene, inverse, &mut Vec::new());
     Ok((
         scene,
         DetailContext {

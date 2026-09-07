@@ -9,6 +9,8 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
     // The C caller commonly starts from a zero-initialized parameter block.
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
     params.temperature = 6500.0;
+    params.geo_aspect = 1.0;
+    params.geo_scale = 1.0;
     params.profile_curve_ptr = curve.as_ptr();
     params.profile_curve_len = curve.len();
     params.residual_lut_ptr = residual.data.as_ptr();
@@ -20,7 +22,7 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
 
     for exposure in 0..40 {
         params.exposure = exposure as f32 / 10.0;
-        let inputs = unsafe { inputs_from_params(&params) };
+        let inputs = unsafe { inputs_from_params(&params, 16, 12) }.unwrap();
         assert!(matches!(inputs.profile_curve_flat, Cow::Borrowed(_)));
         assert!(matches!(inputs.residual_lut_data, Cow::Borrowed(_)));
         assert!(matches!(inputs.film_lut_data, Cow::Borrowed(_)));

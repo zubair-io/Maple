@@ -285,12 +285,22 @@ const EFFECTS_FIELDS: &[&str] = &[
 
 /// Crop rect + straighten angle. The rect is normalized to display-oriented
 /// dimensions, so it maps proportionally onto a differently-sized target.
-const GEOMETRY_FIELDS: &[&str] = &["crop"];
+const GEOMETRY_FIELDS: &[&str] = &[
+    "crop",
+    "geo_perspective_h",
+    "geo_perspective_v",
+    "geo_rotation",
+    "geo_aspect",
+    "geo_scale",
+];
 
 /// `AdjustmentModel` fields deliberately excluded from every group, i.e.
 /// never moved by paste / sync. Every entry needs a reason; the coverage test
 /// requires each struct field to be either grouped above or listed here.
 pub const NON_COPYABLE_FIELDS: &[&str] = &[
+    // Camera/lens calibration and approximation acknowledgement belong to the
+    // source capture; a target must resolve and accept its own profile.
+    "lens_profile",
     // Local-adjustment layers (#280). Copy-safe by construction (normalized
     // parametric masks) but absent from BOTH front-end `AdjustmentModel`
     // mirrors, so a "Masks" group would be a dead checkbox. See the module

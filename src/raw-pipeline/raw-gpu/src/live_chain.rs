@@ -96,10 +96,6 @@ const _: () = assert!(
 
 mod noop;
 use noop::*;
-
-// `chain_signature` lives in a sibling file to keep this module inside the
-// file-size budget (same split shape as `noop` / `tests`).
-#[path = "live_chain/signature.rs"]
 mod signature;
 pub use signature::chain_signature;
 
@@ -360,6 +356,9 @@ pub fn build_live_split<'a>(
         }));
     }
 
+    if let Some(inverse) = inputs.geometry_inverse {
+        suffix.push(Box::new(crate::geometry::GeometryPass { inverse }));
+    }
     (prefix, suffix)
 }
 
@@ -467,6 +466,9 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     // needed below — only presence changes the dispatch/bind-group shape.
     if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
         m |= 1 << 18;
+    }
+    if inputs.geometry_inverse.is_some() {
+        m |= 1 << 19;
     }
     m
 }

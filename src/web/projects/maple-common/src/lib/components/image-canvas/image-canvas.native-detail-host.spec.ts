@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
 import type { ImageCanvasComponent } from './image-canvas.component';
+import { defaultAdjustmentModel } from '../../models/adjustment-model';
 
 function setup() {
   const crop = { left: 0, top: 0, right: 1, bottom: 1, angle: 0 };
+  const model = { ...defaultAdjustmentModel(), crop };
   let disabled = false,
     scale = 1,
     split: number | null = null;
@@ -20,7 +22,7 @@ function setup() {
     currentExt: 'dng',
     renderGeneration: 1,
     serializeForRender: () => 'xmp',
-    state: { focusedAsset: () => ({ id: 'one' }), adjustmentFor: () => () => ({ crop }) },
+    state: { focusedAsset: () => ({ id: 'one' }), adjustmentFor: () => () => model },
     canvasSvc: {
       nativeDimensions: () => ({ w: 6000, h: 4000 }),
       paintedAspect: () => ({ w: 800, h: 533 }),
@@ -42,6 +44,7 @@ function setup() {
   return {
     host,
     crop,
+    model,
     pipeline,
     detail,
     disable: () => (disabled = true),
@@ -71,6 +74,21 @@ describe('native-detail host eligibility', () => {
     expect(s.pipeline.renderNativeDetail).toHaveBeenCalledOnce();
   });
 
+  for (const mode of ['master-off', 'zero-scales']) {
+    it(`allows native detail for a disabled external profile (${mode})`, async () => {
+      const s = setup();
+      s.model.lensProfile = `lcp1:${'a'.repeat(64)}`;
+      if (mode === 'master-off') s.model.lensProfileEnable = 'Off';
+      else {
+        s.model.lensCorrectionDistortion = 0;
+        s.model.lensCorrectionCa = 0;
+        s.model.lensCorrectionVignetting = 0;
+      }
+      await s.detail.render('xmp', 1);
+      expect(s.pipeline.renderNativeDetail).toHaveBeenCalledOnce();
+    });
+  }
+
   for (const mode of [
     'gpu-or-crop-tool',
     'applied-crop',
@@ -78,6 +96,8 @@ describe('native-detail host eligibility', () => {
     'below-100',
     'non-raw',
     'stale-asset',
+    'manual-geometry',
+    'external-profile',
   ]) {
     it(`keeps the sized fallback for ${mode}`, async () => {
       const s = setup();
@@ -87,6 +107,8 @@ describe('native-detail host eligibility', () => {
       if (mode === 'below-100') s.zoomOut();
       if (mode === 'non-raw') s.host.currentExt = 'jpg';
       if (mode === 'stale-asset') s.host.currentAssetId = 'two';
+      if (mode === 'manual-geometry') s.model.geoRotation = 5;
+      if (mode === 'external-profile') s.model.lensProfile = `lcp1:${'a'.repeat(64)}`;
       expect(await s.detail.render('xmp', 1)).toBe(false);
       expect(s.pipeline.renderNativeDetail).not.toHaveBeenCalled();
     });

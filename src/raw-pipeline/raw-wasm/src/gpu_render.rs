@@ -58,7 +58,7 @@ use raw_core::view::auto_profile;
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
-use raw_gpu::{FullChainInputs, GpuContext, LiveSession};
+use raw_gpu::{GpuContext, LiveSession};
 
 #[cfg(target_arch = "wasm32")]
 use crate::MapleRender;
@@ -134,7 +134,7 @@ fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
 #[path = "gpu_render/model.rs"]
 mod model;
 #[cfg(any(target_arch = "wasm32", test))]
-use model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
+use model::stripped_prefix_model;
 
 /// The effective auto-exposure mode the stripped-prefix develop must use — the
 /// SAME one the CPU render uses (`auto_will_fit` → Off when Auto Profile fits,
@@ -316,7 +316,7 @@ pub(crate) fn develop_prefix_rgba(
 /// Fit the Auto Profile curve + residual LUT against the embedded JPEG (the SAME
 /// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
 /// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
-/// [`build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
+/// [`model::build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
 /// fit) collapses to identity → the chain's view tail is pure AgX, matching
 /// `Profile::Neutral`. The fit is keyed on the RAW BYTES (not the model), so after
 /// the first call it is cache-served — re-running it per slider tick is cheap.
@@ -354,43 +354,8 @@ fn fit_profile_artifacts(
     (profile_curve_flat, residual_lut_size, residual_lut_data)
 }
 
-/// Assemble the [`FullChainInputs`] for `model` from the RAW + the (cache-served)
-/// Auto Profile fit. The view-tail-and-WB shape the live chain re-applies every
-/// render; cheap (no decode, no GPU compile), so the persistent session rebuilds
-/// it per tick from the latest model while reusing the uploaded prefix buffer.
-///
-/// `film_lut` / `film_lut_key` (epic #2683, Task 9) are the session-resident
-/// baked film-look grid + its content-identity key — see
-/// [`model::build_full_chain_inputs`]'s doc for why they ride alongside the
-/// model instead of inside it. One-shot callers with no loaded look pass
-/// `(None, 0)`.
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) fn chain_inputs_for_model(
-    raw_img: &raw_core::image::RawImage,
-    raw: &[u8],
-    ext: &str,
-    model: &AdjustmentModel,
-    film_lut: Option<&raw_core::film::FilmLut>,
-    film_lut_key: u32,
-) -> FullChainInputs<'static> {
-    let (profile_curve_flat, residual_lut_size, residual_lut_data) =
-        fit_profile_artifacts(raw_img, raw, ext, model);
-    build_full_chain_inputs(
-        model,
-        profile_curve_flat,
-        residual_lut_size,
-        residual_lut_data,
-        // The decoded frame's own noise characterisation drives the NR stages'
-        // per-pixel modulation on the GPU exactly as it does in `develop`
-        // (#1714) — both read `RawImage::{noise_profile, iso}`.
-        NoiseProfileInputs {
-            profile: raw_img.noise_profile.clone().unwrap_or_default(),
-            iso: raw_img.iso,
-        },
-        film_lut,
-        film_lut_key,
-    )
-}
+pub(crate) use model::chain_inputs_for_model;
 
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
@@ -437,7 +402,7 @@ async fn render_gpu_core(
     // the uploaded `.mlut` bytes across calls (a per-call upload would defeat
     // the "cache-served, cheap to rebuild" cost profile the tick loop needs).
     // The persistent `WebLiveSession` carries the loaded look instead (Task 9).
-    let inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0);
+    let inputs = chain_inputs_for_model(raw_img, (w, h), raw, ext, model, None, 0)?;
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
@@ -534,6 +499,8 @@ pub async fn render_bytes_gpu(
         has_lens_corrections,
         lens_correction_ca_inert,
         camera_support,
+        crate::lens_profile::metadata(&raw_img, &model),
+        raw_img.orientation.to_u16(),
     ))
 }
 

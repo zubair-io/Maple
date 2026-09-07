@@ -1,17 +1,13 @@
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { restoreRequestedLensProfile } from './raw-pipeline.lens-profile-fetch';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
-// T10: the worker still reports its thread-pool status (`threadedSubject`/
-// `threadCountSubject` below) once WASM init completes — but the public
-// `isThreaded$`/`threadCount$` observables that surfaced this to a UI were
-// removed as dead (#3048): no production caller remained anywhere in the
-// app. Retiring the worker-side status message and its request/response
-// protocol is a further, separate cleanup (touches raw-pipeline.worker.ts
-// and raw-pipeline.types.ts, outside this ticket's scope) — flagged as a
-// follow-up rather than folded in here.
+// The worker's thread-pool status protocol remains after #3048 removed its
+// unused public observables. The subjects below still receive those messages.
 
-import { Injectable, OnDestroy, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, Injector, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import type {
   AutoAdjustPatch,
@@ -67,6 +63,8 @@ export class RawPipelineService implements OnDestroy {
   // next image open with no reload.
   private readonly colorSpacePref = inject(CanvasColorSpacePref);
 
+  private readonly injector = inject(Injector);
+  private readonly backend = inject(LIBRARY_BACKEND);
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
@@ -81,16 +79,8 @@ export class RawPipelineService implements OnDestroy {
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
-  /**
-   * #1153: live BM3D deep-denoise progress, or `null` when the stage is not
-   * running. Fed by the worker's `deep-denoise-progress` broadcast, which
-   * carries raw-core's own per-reference-row ticks — the editor binds this
-   * to a DETERMINATE indicator, never a simulated one.
-   *
-   * Cleared when the request the develop belonged to settles (below): the
-   * stage itself has no "finished" tick, and the render still has GPU work
-   * to do after the last one.
-   */
+  /** Real BM3D progress from worker broadcasts (#1153), cleared when the
+   * develop request settles because the stage has no final completion tick. */
   readonly deepDenoiseProgress = signal<{ pass: 1 | 2; fraction: number } | null>(null);
 
   private ensureWorker(): Worker {
@@ -100,9 +90,18 @@ export class RawPipelineService implements OnDestroy {
         type: 'module',
       });
       const worker = this.worker;
-      this.worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
+      worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
         if (e.data.type === 'export-error' && e.data.fatal) {
           this.retireWorker(worker, e.data.message);
+          return;
+        }
+        if (e.data.type === 'lens-profile-fetch') {
+          restoreRequestedLensProfile(
+            worker,
+            e.data,
+            this.injector,
+            this.backend === 'self-hosted',
+          );
           return;
         }
         // Routing lives in `raw-pipeline.worker-dispatch.ts` (#2314) — this
@@ -381,6 +380,20 @@ export class RawPipelineService implements OnDestroy {
     return new Promise<void>((resolve, reject) => {
       this.pending.set(id, { kind: 'set-film-lut', resolve, reject });
       worker.postMessage(request, [bytes]);
+    });
+  }
+
+  importLensProfile(
+    xml: string,
+    bytes: Uint8Array,
+    ext: string,
+  ): Promise<import('../lens/lens-profile.types').ImportedLensProfile> {
+    const worker = this.ensureWorker();
+    const id = this.nextId++;
+    const copy = new Uint8Array(bytes).buffer;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { kind: 'lens-profile', resolve, reject });
+      worker.postMessage({ id, type: 'import-lens-profile', xml, bytes: copy, ext }, [copy]);
     });
   }
 

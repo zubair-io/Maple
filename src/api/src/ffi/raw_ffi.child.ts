@@ -27,6 +27,9 @@
 import { tryGetRawFfi } from './raw_ffi.ts';
 import type { FfiRequest, FfiResponse } from './raw_ffi-protocol.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
+import { readFile } from '../fs/mirrored.ts';
+import { clearLensProfiles, registerLensProfile } from '../lens-profiles/native.ts';
+import { restoreLensProfile } from '../lens-profiles/restore.ts';
 
 // Lower CPU priority (so the HTTP server's event loop wins under indexer load)
 // + self-exit if the parent dies. Shared with the face child; see runtime.
@@ -44,7 +47,7 @@ function send(msg: FfiResponse): void {
 // Adding renderDevelop (#1950) is a third FFI message type over the original
 // two; the extra dispatch arm is inherent to the message-type count.
 // fallow-ignore-next-line complexity
-function handle(req: FfiRequest): FfiResponse {
+async function handle(req: FfiRequest): Promise<FfiResponse> {
   if (!ffi) {
     return {
       type: req.type,
@@ -55,6 +58,7 @@ function handle(req: FfiRequest): FfiResponse {
   }
 
   if (req.type === 'exportRecipe') {
+    await restoreLensProfile(req.rawPath, req.xmp);
     const error =
       ffi.exportRecipeToFile?.(req.rawPath, req.xmp, req.recipeJson, req.filmPath, req.outPath) ??
       (ffi.exportRecipeToFile ? null : 'Rebuild raw-ffi: recipe encoder unavailable');
@@ -64,6 +68,16 @@ function handle(req: FfiRequest): FfiResponse {
       ok: !error,
       error: error ?? undefined,
     };
+  }
+
+  if (req.type === 'registerLensProfile') {
+    clearLensProfiles();
+    const inventory = registerLensProfile(await readFile(req.profilePath));
+    return { type: req.type, id: req.id, ok: true, inventory };
+  }
+  if (req.type === 'renderDevelop' || req.type === 'histogram') {
+    const xml = req.xmpPath ? await readFile(req.xmpPath, 'utf8') : null;
+    await restoreLensProfile(req.rawPath, xml);
   }
 
   if (req.type === 'renderThumb') {
@@ -128,11 +142,11 @@ function handle(req: FfiRequest): FfiResponse {
 // Pre-existing message-loop; unchanged by this PR (only shifted down by the
 // added renderDevelop branch above).
 // fallow-ignore-next-line complexity
-process.on('message', (raw: unknown) => {
+process.on('message', async (raw: unknown) => {
   const req = raw as FfiRequest;
   if (!req || typeof req !== 'object') return;
   try {
-    send(handle(req));
+    send(await handle(req));
   } catch (e) {
     // A thrown JS error (as opposed to a native crash, which kills the process
     // and is handled by the parent's exit watcher) is reported so the pool can

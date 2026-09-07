@@ -230,6 +230,11 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:LensProfileDistortionScale', 'lensCorrectionDistortion'),
   numericField('crs:LensProfileChromaticAberrationScale', 'lensCorrectionCa'),
   numericField('crs:LensProfileVignettingScale', 'lensCorrectionVignetting'),
+  numericField('papp:GeoPerspectiveH', 'geoPerspectiveH'),
+  numericField('papp:GeoPerspectiveV', 'geoPerspectiveV'),
+  numericField('papp:GeoRotation', 'geoRotation'),
+  numericField('papp:GeoAspect', 'geoAspect'),
+  numericField('papp:GeoScale', 'geoScale'),
   // ---- Film emulation (epic #2683) ----
   // Strength is a plain 0..100 numeric field, default 100 (full strength),
   // so it rides the shared numeric-field table like any other slider — omit-

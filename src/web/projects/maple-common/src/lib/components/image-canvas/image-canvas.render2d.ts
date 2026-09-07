@@ -10,10 +10,11 @@
 
 import type { WritableSignal } from '@angular/core';
 import type { LibraryStateService } from '../../state/library-state.service';
+import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import { isDefaultAdjustment, type AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
@@ -50,7 +51,7 @@ export interface Render2dHost {
   /** Record that final decoded pixels replaced the provisional camera preview. */
   clearProvisionalPreview(assetId: AssetId): void;
   /** Record the decode's native (full-res, oriented) dims for refine/zoom math. */
-  recordNativeDims(w: number, h: number): void;
+  recordNativeDims(w: number, h: number, sourceOrientation?: number): void;
   /** Record the painted bitmap's dims (long edge + aspect) for the refine guard
    *  and the fit/draw geometry. */
   recordPaintedDims(w: number, h: number): void;
@@ -74,6 +75,44 @@ export function lensCorrectionCapabilityFrom(reply: {
   };
 }
 
+function recordColdOpenMetadata(host: Render2dHost, assetId: AssetId, decoded: DecodedImage): void {
+  // Update dimensions on the asset — the NATIVE dims (the sized reply carries
+  // them), not the viewport-sized buffer's.
+  const nativeW = decoded.nativeWidth ?? decoded.width;
+  const nativeH = decoded.nativeHeight ?? decoded.height;
+  host.state.updateAssetDimensions(assetId, nativeW, nativeH);
+  if (assetId === host.currentAssetId) {
+    host.recordNativeDims(nativeW, nativeH, decoded.sourceOrientation);
+  }
+
+  // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
+  // what Rust used; guarded on "still default" so it never clobbers edits).
+  host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
+  // #3182: record the decode-time lens-correction signal for the Lens
+  // Corrections panel. Absent (older stubs / non-updated fakes) reads as
+  // the fail-closed default (see `lensCorrectionCapabilityFrom` above).
+  const lensCorrections = lensCorrectionCapabilityFrom(decoded);
+  host.state.seedLensCorrections(
+    assetId,
+    lensCorrections.hasLensCorrections,
+    lensCorrections.lensCorrectionCaInert,
+    decoded.cameraSupport,
+    decoded.lensProfile,
+  );
+
+  // Open the gate + record what this initial render reflects (the seed's effect
+  // re-fire dedups against it). Guard on still-current asset.
+  if (assetId === host.currentAssetId) {
+    host.markColdOpenDone();
+    const liveXmp = host.serializeForRender(host.state.adjustmentFor(assetId)());
+    if (host.lastRenderedXmp === null) {
+      // Normal cold open: record the seeded baseline so the gate-driven +
+      // As-Shot-seed effect re-fires dedup against it.
+      host.lastRenderedXmp = liveXmp;
+    }
+  }
+}
+
 /**
  * WASM-CPU cold open (#1101): decode at the fast-phase target, seed the asset
  * dims + As-Shot WB, open the cold-open gate, paint, and kick a refine if the
@@ -95,43 +134,12 @@ export async function coldOpen2d(
   try {
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
-    const decoded = await host.pipeline.decode(bytes, ext, undefined, sizing.maxLongEdge, true);
+    const openModel = host.state.adjustmentFor(assetId)();
+    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
+    const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
-    // Update dimensions on the asset — the NATIVE dims (the sized reply carries
-    // them), not the viewport-sized buffer's.
-    const nativeW = decoded.nativeWidth ?? decoded.width;
-    const nativeH = decoded.nativeHeight ?? decoded.height;
-    host.state.updateAssetDimensions(assetId, nativeW, nativeH);
-    if (assetId === host.currentAssetId) {
-      host.recordNativeDims(nativeW, nativeH);
-    }
-
-    // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
-    // what Rust used; guarded on "still default" so it never clobbers edits).
-    host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
-    // #3182: record the decode-time lens-correction signal for the Lens
-    // Corrections panel. Absent (older stubs / non-updated fakes) reads as
-    // the fail-closed default (see `lensCorrectionCapabilityFrom` above).
-    const lensCorrections = lensCorrectionCapabilityFrom(decoded);
-    host.state.seedLensCorrections(
-      assetId,
-      lensCorrections.hasLensCorrections,
-      lensCorrections.lensCorrectionCaInert,
-      decoded.cameraSupport,
-    );
-
-    // Open the gate + record what this no-XMP render reflects (the seed's effect
-    // re-fire dedups against it). Guard on still-current asset.
-    if (assetId === host.currentAssetId) {
-      host.markColdOpenDone();
-      const liveXmp = host.serializeForRender(host.state.adjustmentFor(assetId)());
-      if (host.lastRenderedXmp === null) {
-        // Normal cold open: record the seeded baseline so the gate-driven +
-        // As-Shot-seed effect re-fires dedup against it.
-        host.lastRenderedXmp = liveXmp;
-      }
-    }
+    recordColdOpenMetadata(host, assetId, decoded);
 
     host.canvasSvc.currentPixels.set(decoded);
 
@@ -143,6 +151,7 @@ export async function coldOpen2d(
     host.nativeDetail?.recordBase({
       assetId,
       generation,
+      renderXmp: openXmp,
       displayXmp: host.lastRenderedXmp!,
       sizing,
     });
@@ -199,6 +208,15 @@ export async function runRender2d(
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration) return;
 
+    const assetId = host.currentAssetId;
+    if (assetId)
+      host.state.seedLensCorrections(
+        assetId,
+        decoded.hasLensCorrections ?? false,
+        decoded.lensCorrectionCaInert ?? true,
+        decoded.cameraSupport,
+        decoded.lensProfile,
+      );
     host.canvasSvc.currentPixels.set(decoded);
     const bitmap = await imageDataToBitmap(decoded);
     if (generation !== host.renderGeneration) {

@@ -409,6 +409,11 @@ fn develop_non_raw_applies_exposure_and_never_agx_tone_maps() {
     }
 
     let baseline = develop_non_raw(&rgba, width, height, None).expect("baseline develop ok");
+    assert_eq!(
+        baseline.source_orientation(),
+        1,
+        "browser-decoded pixels are already oriented"
+    );
     let baseline_rgb = baseline.rgb();
     assert_eq!(baseline_rgb.len(), pixel_count * 3);
 
@@ -491,6 +496,11 @@ fn develop_non_raw_default_model_round_trips_grey_within_tight_tolerance() {
     }
 
     let baseline = develop_non_raw(&rgba, width, height, None).expect("baseline develop ok");
+    assert_eq!(
+        baseline.source_orientation(),
+        1,
+        "browser-decoded pixels are already oriented"
+    );
     let rgb = baseline.rgb();
     assert_eq!(rgb.len(), pixel_count * 3);
 

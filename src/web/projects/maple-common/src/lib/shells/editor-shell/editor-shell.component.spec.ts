@@ -5,7 +5,7 @@
 // component class with mocked injectables and let the constructor's route.url
 // subscription run applyRouteAddress — no heavy template render needed.
 
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -225,9 +225,9 @@ function setWindowWidth(w: number): void {
 
 const RENDER_ASSET_ID = 'library:2026/render.dng' as AssetId;
 
-function renderShell(opts: {
+async function renderShell(opts: {
   layout: 'phone' | 'tablet' | 'desktop';
-}): ComponentFixture<EditorShellComponent> {
+}): Promise<ComponentFixture<EditorShellComponent>> {
   stubGlobalsForRender();
   const width = opts.layout === 'phone' ? 375 : opts.layout === 'tablet' ? 900 : 1280;
   setWindowWidth(width);
@@ -273,6 +273,8 @@ function renderShell(opts: {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [EditorShellComponent],
+    // Shell assertions keep real card routing; deferred child UIs have their own specs.
+    deferBlockBehavior: DeferBlockBehavior.Manual,
     providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
@@ -302,6 +304,8 @@ function renderShell(opts: {
     ],
   });
 
+  // JIT resolves deferred metadata asynchronously even in Manual mode.
+  await TestBed.compileComponents();
   TestBed.inject(ImageCanvasService);
   TestBed.inject(EditorStateService).bind(RENDER_ASSET_ID);
   TestBed.inject(CropSessionService);
@@ -336,8 +340,8 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     return btn!;
   }
 
-  it('shows the phone slider panel without requiring a dock tap', () => {
-    const fixture = renderShell({ layout: 'phone' });
+  it('shows the phone slider panel without requiring a dock tap', async () => {
+    const fixture = await renderShell({ layout: 'phone' });
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.phone-card-anchor pro-control-card .card')).toBeTruthy();
     expect(el.querySelector('.close-btn')).toBeNull();
@@ -349,8 +353,8 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
   // column and can never overlap the control card) — so the card must hide
   // while any of the three is open, or two glass panels render on top of
   // each other.
-  it('hides the card while the Curve panel is open, and restores it when Curve closes', () => {
-    const fixture = renderShell({ layout: 'phone' });
+  it('hides the card while the Curve panel is open, and restores it when Curve closes', async () => {
+    const fixture = await renderShell({ layout: 'phone' });
     expect(phoneCard(fixture)).not.toBeNull();
 
     dockButton(fixture, 'Tone Curve').click();
@@ -366,8 +370,8 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     expect(fixture.nativeElement.querySelector('.phone-curve-panel')).toBeNull();
   });
 
-  it('hides the card while the Presets panel is open', () => {
-    const fixture = renderShell({ layout: 'phone' });
+  it('hides the card while the Presets panel is open', async () => {
+    const fixture = await renderShell({ layout: 'phone' });
     expect(phoneCard(fixture)).not.toBeNull();
 
     dockButton(fixture, 'Presets').click();
@@ -377,8 +381,8 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     expect(fixture.nativeElement.querySelector('.phone-presets-panel')).not.toBeNull();
   });
 
-  it('hides the card while Noise is armed', () => {
-    const fixture = renderShell({ layout: 'phone' });
+  it('hides the card while Noise is armed', async () => {
+    const fixture = await renderShell({ layout: 'phone' });
     const editorState = TestBed.inject(EditorStateService);
     expect(phoneCard(fixture)).not.toBeNull();
 
@@ -392,8 +396,8 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
   // HSL/bwMix/colorGrade are the one group of tools that DO belong inside
   // the card (#1807 Task 4 projects their body into it via
   // cardBodySubParam/cardBodyGrade) — arming any of them must NOT hide it.
-  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', () => {
-    const fixture = renderShell({ layout: 'phone' });
+  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', async () => {
+    const fixture = await renderShell({ layout: 'phone' });
     const editorState = TestBed.inject(EditorStateService);
 
     editorState.armTool('hsl');
@@ -445,8 +449,8 @@ describe('EditorShellComponent — desktop control card yields to other right-si
     return btn!;
   }
 
-  it('hides the card while the Curve panel is open, and restores it when Curve closes', () => {
-    const fixture = renderShell({ layout: 'desktop' });
+  it('hides the card while the Curve panel is open, and restores it when Curve closes', async () => {
+    const fixture = await renderShell({ layout: 'desktop' });
     expect(controlCard(fixture)).not.toBeNull();
 
     dockButton(fixture, 'Tone Curve').click();
@@ -462,8 +466,8 @@ describe('EditorShellComponent — desktop control card yields to other right-si
     expect(fixture.nativeElement.querySelector('.curve-panel')).toBeNull();
   });
 
-  it('hides the card while the Presets panel is open', () => {
-    const fixture = renderShell({ layout: 'desktop' });
+  it('hides the card while the Presets panel is open', async () => {
+    const fixture = await renderShell({ layout: 'desktop' });
     expect(controlCard(fixture)).not.toBeNull();
 
     dockButton(fixture, 'Presets').click();
@@ -473,8 +477,8 @@ describe('EditorShellComponent — desktop control card yields to other right-si
     expect(fixture.nativeElement.querySelector('.presets-panel')).not.toBeNull();
   });
 
-  it('hides the card while Noise is armed', () => {
-    const fixture = renderShell({ layout: 'desktop' });
+  it('hides the card while Noise is armed', async () => {
+    const fixture = await renderShell({ layout: 'desktop' });
     const editorState = TestBed.inject(EditorStateService);
     expect(controlCard(fixture)).not.toBeNull();
 
@@ -485,8 +489,8 @@ describe('EditorShellComponent — desktop control card yields to other right-si
     expect(fixture.nativeElement.querySelector('.subparam-panel')).not.toBeNull();
   });
 
-  it('hides the card while the Info pane is open', () => {
-    const fixture = renderShell({ layout: 'desktop' });
+  it('hides the card while the Info pane is open', async () => {
+    const fixture = await renderShell({ layout: 'desktop' });
     expect(controlCard(fixture)).not.toBeNull();
 
     fixture.componentInstance.infoOpen.set(true);
@@ -503,8 +507,8 @@ describe('EditorShellComponent — desktop control card yields to other right-si
 
   // HSL/bwMix/colorGrade render INSIDE the card (#1807 Task 4) — arming any
   // of them must NOT hide it, same as the phone card above.
-  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', () => {
-    const fixture = renderShell({ layout: 'desktop' });
+  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', async () => {
+    const fixture = await renderShell({ layout: 'desktop' });
     const editorState = TestBed.inject(EditorStateService);
 
     editorState.armTool('hsl');

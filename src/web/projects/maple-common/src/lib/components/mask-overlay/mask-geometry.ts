@@ -8,7 +8,7 @@
 //
 // Coordinate spaces:
 //   • full-frame normalized — the `LocalMask` coordinates raw-core evaluates
-//     ([0, 1]² over the whole oriented image, origin top-left).
+//     ([0, 1]² over the developed sensor frame, before EXIF orientation).
 //   • crop-normalized — the same over the DISPLAYED (cropped + straightened)
 //     region; identical to full-frame when no crop applies. The canvas shows
 //     the crop raw-core cut in the geometry tail, so a mask on a cropped
@@ -76,6 +76,18 @@ export interface MaskAffine {
 
 const IDENTITY_AFFINE: MaskAffine = Object.freeze({ a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 });
 
+/** Sensor-normalized → display-normalized, matching raw-core's EXIF transform. */
+const EXIF_AFFINES: readonly MaskAffine[] = [
+  IDENTITY_AFFINE,
+  { a: -1, b: 0, c: 0, d: 1, tx: 1, ty: 0 },
+  { a: -1, b: 0, c: 0, d: -1, tx: 1, ty: 1 },
+  { a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 1 },
+  { a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0 },
+  { a: 0, b: 1, c: -1, d: 0, tx: 1, ty: 0 },
+  { a: 0, b: -1, c: -1, d: 0, tx: 1, ty: 1 },
+  { a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 1 },
+];
+
 export const applyAffine = (m: MaskAffine, p: MaskPoint): MaskPoint => ({
   x: m.a * p.x + m.c * p.y + m.tx,
   y: m.b * p.x + m.d * p.y + m.ty,
@@ -135,6 +147,9 @@ export interface MaskCanvasMap {
   footprint: Footprint;
   cropToFull: MaskAffine;
   fullToCrop: MaskAffine;
+  sensorToDisplay: MaskAffine;
+  displayToSensor: MaskAffine;
+  geometry?: import('../editor/geometry-coordinates').GeometryCoordinates;
 }
 
 export function makeMaskCanvasMap(
@@ -142,13 +157,22 @@ export function makeMaskCanvasMap(
   crop: Crop,
   imgW: number,
   imgH: number,
+  sourceOrientation = 1,
 ): MaskCanvasMap {
   const cropToFull = cropToFullFrameAffine(crop, imgW, imgH);
-  return { footprint, cropToFull, fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE };
+  const sensorToDisplay = EXIF_AFFINES[sourceOrientation - 1] ?? IDENTITY_AFFINE;
+  return {
+    footprint,
+    cropToFull,
+    fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE,
+    sensorToDisplay,
+    displayToSensor: invertAffine(sensorToDisplay) ?? IDENTITY_AFFINE,
+  };
 }
 
 export function maskToScreen(map: MaskCanvasMap, p: MaskPoint): { x: number; y: number } {
-  const q = applyAffine(map.fullToCrop, p);
+  const display = applyAffine(map.sensorToDisplay, p);
+  const q = applyAffine(map.fullToCrop, map.geometry?.forward(display) ?? display);
   return {
     x: map.footprint.left + q.x * map.footprint.width,
     y: map.footprint.top + q.y * map.footprint.height,
@@ -160,8 +184,13 @@ export function maskFromScreen(map: MaskCanvasMap, px: number, py: number): Mask
   const fp = map.footprint;
   const u = fp.width > 0 ? (px - fp.left) / fp.width : 0;
   const v = fp.height > 0 ? (py - fp.top) / fp.height : 0;
-  const p = applyAffine(map.cropToFull, { x: u, y: v });
+  const p = maskFromNormalizedDisplay(map, { x: u, y: v });
   return { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) };
+}
+
+export function maskFromNormalizedDisplay(map: MaskCanvasMap, point: MaskPoint): MaskPoint {
+  const p = applyAffine(map.cropToFull, point);
+  return applyAffine(map.displayToSensor, map.geometry?.inverse(p) ?? p);
 }
 
 // ── Handles ───────────────────────────────────────────────────────────────
@@ -206,6 +235,12 @@ export function defaultRadialMask(imageAspect: number): LocalMask {
     feather: 0.5,
     invert: false,
   };
+}
+
+/** Masks precede EXIF orientation, so transpose-family display extents swap back. */
+export function sensorImageAspect(width: number, height: number, orientation = 1): number {
+  const aspect = width > 0 && height > 0 ? width / height : 1;
+  return orientation >= 5 && orientation <= 8 ? 1 / aspect : aspect;
 }
 
 /** Every handle of `mask` with its full-frame normalized position. */

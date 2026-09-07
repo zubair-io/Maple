@@ -1,7 +1,7 @@
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { isNonRawExtension } from '../../state/raw-extensions';
-import { isIdentityCrop } from '../../models/adjustment-model';
+import { isIdentityCrop, type AdjustmentModel } from '../../models/adjustment-model';
 import { displayDims } from './image-canvas.crop';
 
 /** A sized bitmap preserves aspect, but 100% zoom needs the source extent. */
@@ -43,7 +43,8 @@ export function createNativeDetail(
         host.canvasSvc.pixelScale() < 1
       )
         return null;
-      if (!isIdentityCrop(host.state.adjustmentFor(asset.id)().crop)) return null;
+      const model = host.state.adjustmentFor(asset.id)();
+      if (!supportsNativeCanvas(model)) return null;
       return {
         nativeW: dims.w,
         nativeH: dims.h,
@@ -53,4 +54,30 @@ export function createNativeDetail(
       };
     },
   });
+}
+
+function supportsNativeCanvas(model: AdjustmentModel): boolean {
+  return (
+    isIdentityCrop(model.crop) && !manualGeometryActive(model) && !importedCorrectionsActive(model)
+  );
+}
+
+function manualGeometryActive(model: AdjustmentModel): boolean {
+  return (
+    model.geoPerspectiveH !== 0 ||
+    model.geoPerspectiveV !== 0 ||
+    model.geoRotation !== 0 ||
+    model.geoAspect !== 1 ||
+    model.geoScale !== 1
+  );
+}
+
+function importedCorrectionsActive(model: AdjustmentModel): boolean {
+  return (
+    model.lensProfileEnable === 'On' &&
+    !!model.lensProfile &&
+    (model.lensCorrectionDistortion > 0 ||
+      model.lensCorrectionCa > 0 ||
+      model.lensCorrectionVignetting > 0)
+  );
 }

@@ -319,6 +319,7 @@ pub(super) fn direct_raw_gpu(
         }
     };
     let inputs = FullChainInputs {
+        geometry_inverse: None,
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,

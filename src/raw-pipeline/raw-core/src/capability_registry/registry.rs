@@ -106,10 +106,9 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         preview_paths: ALL_PREVIEWS,
         export_paths: ALL_EXPORTS,
         groups: &[AdjustmentGroup::Detail],
-        // Deprecated read-only alias for `capture_sharpening_sigma` (#456):
-        // owned here so the field stays accounted for without joining a
-        // copy/paste group.
-        fields: &["capture_sharpening_radius"],
+        // The deprecated radius alias (#456) and source-specific external
+        // lens calibration (#2435) are owned here without joining a copy group.
+        fields: &["capture_sharpening_radius", "lens_profile"],
         integration: DEVELOP_INTEGRATION,
         qualification: COLOR_QUALIFICATION,
     },

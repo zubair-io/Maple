@@ -1,3 +1,4 @@
+import type { LensProfileResolution } from '../lens/lens-profile.types';
 import type { CameraSupport } from '../state/camera-support';
 // raw-pipeline.service-internals.ts
 // Extracted from raw-pipeline.service.ts (pure code move — no behaviour change).
@@ -43,6 +44,9 @@ export interface OpenedLiveSession {
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
+  lensProfile?: LensProfileResolution;
+  /** EXIF tag on the decoded RAW; non-RAW pixels are already display-oriented. */
+  sourceOrientation?: number;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).
@@ -68,6 +72,11 @@ export type PendingHandler =
       kind: 'native-detail';
       resolve: (pixels: import('./raw-pipeline.native-detail.types').NativeDetailPixels) => void;
       reject: (error: Error) => void;
+    }
+  | {
+      kind: 'lens-profile';
+      resolve: (profile: import('../lens/lens-profile.types').ImportedLensProfile) => void;
+      reject: (err: Error) => void;
     }
   | {
       kind: 'legacy';

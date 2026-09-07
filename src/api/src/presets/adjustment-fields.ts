@@ -140,6 +140,11 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   lens_correction_distortion: [0.0, 100.0],
   lens_correction_ca: [0.0, 100.0],
   lens_correction_vignetting: [0.0, 100.0],
+  geo_perspective_h: [-0.4, 0.4],
+  geo_perspective_v: [-0.4, 0.4],
+  geo_rotation: [-180.0, 180.0],
+  geo_aspect: [0.5, 2.0],
+  geo_scale: [0.25, 4.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */
@@ -171,16 +176,19 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // value, not an invalid one: a preset must be able to explicitly clear a
   // film look by writing `film_look: ""`.
   'film_look',
+  // Imported preset records may retain capture-specific calibration (#2435).
+  // Clients exclude this field from preset capture/apply via NON_COPYABLE.
+  'lens_profile',
 ]);
 
 /**
  * The subset of STRING_FIELDS whose empty string is a meaningful, valid
- * value rather than "missing" — currently just `film_look`, whose empty
- * string is the canonical "no look selected" state. Every other
+ * value rather than "missing": `film_look` (no look selected) and the
+ * preserved `lens_profile` reference (no external calibration). Every other
  * STRING_FIELDS entry is a closed enum where an empty string can never be
  * a real variant, so it stays rejected.
  */
-const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
+const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look', 'lens_profile']);
 
 export function isKnownNumericField(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(NUMERIC_FIELD_RANGES, name);

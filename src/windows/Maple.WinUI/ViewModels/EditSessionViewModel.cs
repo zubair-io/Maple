@@ -117,6 +117,8 @@ namespace Maple.WinUI.ViewModels
 
         partial void OnSelectedPhotoChanged(PhotoItem? value)
         {
+            LensProfileFacts = null;
+            LensProfileInfo = "Lens correction data has not been assessed.";
             if (value != null)
                 OpenForEditing(value);
         }
@@ -203,6 +205,7 @@ namespace Maple.WinUI.ViewModels
         /// like AutoExposure changes).</summary>
         private void DecodeCurrent(PhotoItem photo)
         {
+            LensProfileFacts = null;
             var generation = Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
 

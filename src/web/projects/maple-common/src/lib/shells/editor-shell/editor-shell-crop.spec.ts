@@ -21,7 +21,7 @@
 // RawPipelineService.decode stub) since editor-image-canvas is mounted here
 // too — see image-canvas.component.spec.ts for the precedent.
 
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -73,7 +73,7 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
     return models.get(id)!;
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     stubGlobals();
 
@@ -116,6 +116,8 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
 
     TestBed.configureTestingModule({
       imports: [EditorShellComponent],
+      // Shell assertions keep real card routing; deferred child UIs have their own specs.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         XmpSerializerService,
         { provide: ActivatedRoute, useValue: route },
@@ -145,6 +147,8 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
 
     // Real singletons under test: ImageCanvasService (pan/zoom), EditorStateService
     // (arming), CropSessionService (derives `active` from EditorStateService).
+    // JIT resolves deferred metadata asynchronously even in Manual mode.
+    await TestBed.compileComponents();
     TestBed.inject(ImageCanvasService);
     TestBed.inject(EditorStateService).bind(ASSET_ID);
     TestBed.inject(CropSessionService);

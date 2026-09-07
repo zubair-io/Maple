@@ -70,6 +70,7 @@ function makeOpenedSession(): OpenedLiveSession {
     height: 600,
     nativeWidth: 4000,
     nativeHeight: 3000,
+    sourceOrientation: 7,
     asShotTemperature: 5500,
     asShotTint: 0,
     colorSpace: 'display-p3',
@@ -206,6 +207,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const result = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
 
     expect(result).toBe(true);
+    expect(host.recordNativeDims).toHaveBeenCalledWith(4000, 3000, 7);
     expect(gpuPresent.active()).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     expect((host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);

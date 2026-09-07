@@ -224,6 +224,7 @@ extension _XMPParserDelegate {
         // id round-trips through the sidecar rather than being silently
         // dropped.
         case "papp:FilmLook":     model.filmLook = value
+        case "papp:LensProfile":  model.lensProfile = value
         case "papp:FilmStrength": model.filmStrength = d(value) ?? model.filmStrength
         // Crop / straighten (#277, spec § 3.12). Rect fields gated by
         // `hasCrop` (above). `crs:CropAngle` is always parsed — it can
@@ -249,6 +250,16 @@ extension _XMPParserDelegate {
             model.lensCorrectionCa = d(value) ?? model.lensCorrectionCa
         case "crs:LensProfileVignettingScale":
             model.lensCorrectionVignetting = d(value) ?? model.lensCorrectionVignetting
+        case "papp:GeoPerspectiveH":
+            model.geoPerspectiveH = d(value) ?? model.geoPerspectiveH
+        case "papp:GeoPerspectiveV":
+            model.geoPerspectiveV = d(value) ?? model.geoPerspectiveV
+        case "papp:GeoRotation":
+            model.geoRotation = d(value) ?? model.geoRotation
+        case "papp:GeoAspect":
+            model.geoAspect = d(value) ?? model.geoAspect
+        case "papp:GeoScale":
+            model.geoScale = d(value) ?? model.geoScale
         // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
         case "crs:HasCrop", "crs:CropConstrainToWarp": break
         // Consumed at document level in `didStartElement` (#1780).

@@ -619,12 +619,22 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             CropRect::clamped(x, y, w, h, width, height)
         });
 
-    let md = decoder.as_ref().and_then(|dec| dec.raw_metadata(&source, &params).ok());
+    let md = decoder
+        .as_ref()
+        .and_then(|dec| dec.raw_metadata(&source, &params).ok());
     let aperture = md.as_ref().and_then(|m| m.exif.fnumber).map(|r| {
-        if r.d == 0 { 0.0 } else { r.n as f32 / r.d as f32 }
+        if r.d == 0 {
+            0.0
+        } else {
+            r.n as f32 / r.d as f32
+        }
     });
     let focal_length = md.as_ref().and_then(|m| m.exif.focal_length).map(|r| {
-        if r.d == 0 { 0.0 } else { r.n as f32 / r.d as f32 }
+        if r.d == 0 {
+            0.0
+        } else {
+            r.n as f32 / r.d as f32
+        }
     });
 
     let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
@@ -660,6 +670,32 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         opcode_list3,
         aperture,
         focal_length,
+        lens_metadata: crate::lens_profile::LensMetadata {
+            camera_make: Some(raw.make.clone()),
+            camera_model: Some(raw.model.clone()),
+            lens_model: md
+                .as_ref()
+                .and_then(|m| m.exif.lens_model.clone())
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| {
+                    root_ifd
+                        .as_deref()
+                        .and_then(crate::lens_profile::metadata::lens_model)
+                }),
+            focus_m: md
+                .as_ref()
+                .and_then(|m| m.exif.subject_distance)
+                .filter(|r| r.d != 0 && r.n != 0 && r.n != u32::MAX)
+                .map(|r| r.n as f64 / r.d as f64),
+            active_area: raw
+                .active_area
+                .map(|r| crate::pipeline::pano::opcodes::ActiveAreaRect {
+                    left: r.p.x as u32,
+                    top: r.p.y as u32,
+                    width: r.d.w as u32,
+                    height: r.d.h as u32,
+                }),
+        },
     };
     let be_from_bundle = if be_override.is_none() {
         crate::color::profile_loader::lookup_profile(&image)
@@ -1038,7 +1074,11 @@ mod tests {
         // pre-fix D55 (~5503 K) it was wrongly collapsed to.
         let d75 = exif_illuminant_to_core(22);
         assert_eq!(d75, CoreIlluminant::Other(7504));
-        assert!((d75.cct() - 7504.0).abs() < 1.0, "D75 CCT was {}", d75.cct());
+        assert!(
+            (d75.cct() - 7504.0).abs() < 1.0,
+            "D75 CCT was {}",
+            d75.cct()
+        );
         assert_ne!(d75, CoreIlluminant::D55);
 
         // Unknown / unsupported codes still degrade to D65.
@@ -1085,7 +1125,10 @@ mod tests {
 
         // Downstream normalization (raw / eff_white) recovers the float values.
         let recovered = raw[1] as f32 / eff_white as f32;
-        assert!((recovered - 0.18).abs() < 1e-3, "recovered {recovered} != 0.18");
+        assert!(
+            (recovered - 0.18).abs() < 1e-3,
+            "recovered {recovered} != 0.18"
+        );
     }
 
     /// #1917 — when the metadata white is already high-precision (≥ the

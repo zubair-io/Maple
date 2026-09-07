@@ -33,13 +33,14 @@ import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { MaskSessionService } from './mask-session.service';
 import type { LocalMask, MaskPoint } from '../../models/local-adjustment';
 import { defaultCrop } from '../../models/adjustment-model';
+import { geometryCoordinates } from '../editor/geometry-coordinates';
 import { fitFootprint, type Footprint } from '../crop-overlay/crop-geometry';
 import { focusedImageDims, hostLocalPoint, observeHostSize } from '../crop-overlay/overlay-host';
 import {
   MASK_HANDLE_NAME,
   type MaskCanvasMap,
   type MaskHandle,
-  applyAffine,
+  maskFromNormalizedDisplay,
   dragMaskHandle,
   ellipseOutline,
   evaluateMaskWeight,
@@ -97,7 +98,12 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   private ro?: ResizeObserver;
   private drag: DragState | null = null;
 
-  private readonly imgDims = focusedImageDims(this.library);
+  private readonly assetDims = focusedImageDims(this.library);
+  private readonly nativeFrame = computed(() => {
+    const native = this.canvasSvc.nativeDimensions();
+    return native?.assetId === this.library.focusedAsset()?.id ? native : null;
+  });
+  private readonly imgDims = computed(() => this.nativeFrame() ?? this.assetDims());
 
   private readonly crop = computed(() => {
     const a = this.library.focusedAsset();
@@ -120,7 +126,16 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
 
   protected readonly map = computed<MaskCanvasMap>(() => {
     const { w, h } = this.imgDims();
-    return makeMaskCanvasMap(this.footprint(), this.crop(), w, h);
+    const map = makeMaskCanvasMap(
+      this.footprint(),
+      this.crop(),
+      w,
+      h,
+      this.nativeFrame()?.sourceOrientation,
+    );
+    const id = this.library.focusedAssetId();
+    map.geometry = geometryCoordinates(id ? this.library.adjustmentFor(id)() : undefined, w, h);
+    return map;
   });
 
   protected readonly mask = computed<LocalMask | null>(() => this.session.selected()?.mask ?? null);
@@ -263,8 +278,9 @@ function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
   for (let j = 0; j < height; j++) {
     const v = (j + 0.5) / height;
     for (let i = 0; i < width; i++) {
-      const p = applyAffine(map.cropToFull, { x: (i + 0.5) / width, y: v });
-      const w = Math.min(1, Math.max(0, evaluateMaskWeight(mask, p.x, p.y)));
+      const p = maskFromNormalizedDisplay(map, { x: (i + 0.5) / width, y: v });
+      const inside = p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+      const w = inside ? Math.min(1, Math.max(0, evaluateMaskWeight(mask, p.x, p.y))) : 0;
       const base = (j * width + i) * 4;
       data[base] = TINT_RGB[0];
       data[base + 1] = TINT_RGB[1];

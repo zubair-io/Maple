@@ -60,6 +60,8 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
+      lensProfile: msg.lensProfile,
+      sourceOrientation: msg.sourceOrientation,
     });
     return true;
   }
@@ -102,6 +104,8 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
+      lensProfile: msg.lensProfile,
+      sourceOrientation: msg.sourceOrientation,
       colorSpace: msg.colorSpace,
       scopePixels: scopeToDecoded(msg.scope),
     });
@@ -199,10 +203,16 @@ const settleNativeDetail = (
   return false;
 };
 
+const settleLensProfile: Settler<'lens-profile'> = (msg, handler) => {
+  if (msg.type !== 'lens-profile-success') return false;
+  handler.resolve(msg.profile);
+  return true;
+};
+
 /** Pick the settler for `handler.kind` and report whether it recognised `msg`. */
 function settleByKind(
   msg: WorkerResponse,
-  handler: Exclude<PendingHandler, { kind: 'native-detail' }>,
+  handler: Exclude<PendingHandler, { kind: 'native-detail' | 'lens-profile' }>,
 ): boolean {
   switch (handler.kind) {
     case 'legacy':
@@ -226,10 +236,16 @@ function settleByKind(
 
 /** Hand `msg` to the settler for `handler.kind`, rejecting if it goes unrecognised. */
 function settle(msg: WorkerResponse, handler: PendingHandler): void {
+  if (msg.type === 'lens-profile-error') {
+    handler.reject(new Error(msg.message));
+    return;
+  }
   const recognized =
     handler.kind === 'native-detail'
       ? settleNativeDetail(msg, handler)
-      : settleByKind(msg, handler);
+      : handler.kind === 'lens-profile'
+        ? settleLensProfile(msg, handler)
+        : settleByKind(msg, handler);
   if (recognized) return;
   // Mismatched response type and handler kind — should never happen because ids
   // are unique and the worker only emits success/error matching the request

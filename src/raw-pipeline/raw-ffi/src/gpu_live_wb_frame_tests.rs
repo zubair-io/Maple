@@ -143,7 +143,7 @@ fn zero_frame_params_reproduce_legacy_wb_matrix() {
     let mut p = make_params(&model, WbMethod::Cat16, 2, &arr);
     p.decoded_temperature = 4522.0;
     p.decoded_tint = -43.7;
-    let inputs = unsafe { params::inputs_from_params(&p) };
+    let inputs = unsafe { params::inputs_from_params(&p, 1, 1).unwrap() };
     let legacy = raw_core::stages::white_balance::wb_cat16_matrix(4800.0, 18.0).mul_mat(
         &raw_core::stages::white_balance::wb_cat16_matrix(4522.0, -43.7)
             .inverse()
@@ -161,7 +161,7 @@ fn zero_frame_params_reproduce_legacy_wb_matrix() {
 
     // (b) 0/0-sentinel absolute contract.
     let p_abs = make_params(&model, WbMethod::Cat16, 2, &arr);
-    let inputs_abs = unsafe { params::inputs_from_params(&p_abs) };
+    let inputs_abs = unsafe { params::inputs_from_params(&p_abs, 1, 1).unwrap() };
     let legacy_abs = raw_core::stages::white_balance::wb_cat16_matrix(4800.0, 18.0);
     assert_eq!(
         inputs_abs.wb_matrix, legacy_abs.0,
@@ -191,7 +191,7 @@ fn frame_params_derive_frame_delta_matrix_and_gate() {
     p.decoded_temperature = 6500.0;
     p.decoded_tint = 0.0;
     set_frame(&mut p, &frame);
-    let inputs = unsafe { params::inputs_from_params(&p) };
+    let inputs = unsafe { params::inputs_from_params(&p, 1, 1).unwrap() };
     let expected = frame.rec2020_delta_matrix((6282.0, -44.0), (6500.0, 0.0));
     assert_eq!(
         inputs.wb_matrix, expected.0,
@@ -212,7 +212,7 @@ fn frame_params_derive_frame_delta_matrix_and_gate() {
         p_id.decoded_temperature = pair.0;
         p_id.decoded_tint = pair.1;
         set_frame(&mut p_id, &frame);
-        let inputs_id = unsafe { params::inputs_from_params(&p_id) };
+        let inputs_id = unsafe { params::inputs_from_params(&p_id, 1, 1).unwrap() };
         assert_eq!(inputs_id.wb_matrix, raw_core::math::Matrix3::IDENTITY.0);
         assert_eq!(inputs_id.wb_temperature, 6500.0);
         assert_eq!(inputs_id.wb_tint, 0.0);

@@ -132,6 +132,12 @@ fn all_struct_field_names() -> Vec<&'static str> {
         lens_correction_distortion: _,
         lens_correction_ca: _,
         lens_correction_vignetting: _,
+        lens_profile: _,
+        geo_perspective_h: _,
+        geo_perspective_v: _,
+        geo_rotation: _,
+        geo_aspect: _,
+        geo_scale: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -250,6 +256,12 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "lens_correction_distortion",
         "lens_correction_ca",
         "lens_correction_vignetting",
+        "lens_profile",
+        "geo_perspective_h",
+        "geo_perspective_v",
+        "geo_rotation",
+        "geo_aspect",
+        "geo_scale",
     ]
 }
 
@@ -352,4 +364,5 @@ fn mask_and_inpaint_fields_are_excluded() {
     assert!(NON_COPYABLE_FIELDS.contains(&"local_adjustments"));
     assert!(NON_COPYABLE_FIELDS.contains(&"mask_rasters"));
     assert!(NON_COPYABLE_FIELDS.contains(&"inpaint_removals"));
+    assert!(NON_COPYABLE_FIELDS.contains(&"lens_profile"));
 }

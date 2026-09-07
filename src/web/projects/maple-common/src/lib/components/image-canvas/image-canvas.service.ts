@@ -19,7 +19,12 @@ export class ImageCanvasService {
   /** Native, display-oriented image dimensions for geometry consumers such as
    * crop. Kept beside zoom/pan because the live renderer is the authoritative
    * producer; asset metadata may still be hydrating when its first frame lands. */
-  readonly nativeDimensions = signal<{ w: number; h: number } | null>(null);
+  readonly nativeDimensions = signal<{
+    w: number;
+    h: number;
+    sourceOrientation?: number;
+    assetId?: string | null;
+  } | null>(null);
 
   /** Current decoded image pixels — set by ImageCanvasComponent on decode. */
   readonly currentPixels = signal<DecodedImage | null>(null);

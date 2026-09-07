@@ -300,6 +300,9 @@ extension XMPSerializer {
         if !model.filmLook.isEmpty {
             attrs.append(("papp:FilmLook", escapeXMLAttr(model.filmLook)))
         }
+        if !model.lensProfile.isEmpty {
+            attrs.append(("papp:LensProfile", escapeXMLAttr(model.lensProfile)))
+        }
         // Film-look blend strength — emit only when off full strength (100),
         // and only alongside a look (an id-less strength is meaningless, but
         // mirrors every other blend-strength field's omit-on-default rule
@@ -335,6 +338,15 @@ extension XMPSerializer {
             ("crs:LensProfileVignettingScale", model.lensCorrectionVignetting),
         ] where value.rounded() != 100 {
             attrs.append((key, String(format: "%.0f", value)))
+        }
+        for (key, value, identity) in [
+            ("papp:GeoPerspectiveH", model.geoPerspectiveH, 0.0),
+            ("papp:GeoPerspectiveV", model.geoPerspectiveV, 0.0),
+            ("papp:GeoRotation", model.geoRotation, 0.0),
+            ("papp:GeoAspect", model.geoAspect, 1.0),
+            ("papp:GeoScale", model.geoScale, 1.0),
+        ] where value.isFinite && value != identity {
+            attrs.append((key, String(format: "%.6f", value)))
         }
         // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
         // non-identity. CropAngle is independent so a pure straighten emits

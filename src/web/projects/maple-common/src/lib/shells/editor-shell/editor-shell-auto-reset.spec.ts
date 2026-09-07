@@ -15,7 +15,7 @@
 // Full template render, following the stubbing pattern shared by
 // editor-shell-parity.spec.ts / editor-shell-crop.spec.ts.
 
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -88,7 +88,7 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
     return models.get(id)!;
   }
 
-  function setup(width = 1280): void {
+  async function setup(width = 1280): Promise<void> {
     stubGlobals();
     setWindowWidth(width);
 
@@ -133,6 +133,8 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
 
     TestBed.configureTestingModule({
       imports: [EditorShellComponent],
+      // Shell assertions keep real card routing; deferred child UIs have their own specs.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -167,6 +169,8 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
       ],
     });
 
+    // JIT resolves deferred metadata asynchronously even in Manual mode.
+    await TestBed.compileComponents();
     TestBed.inject(ImageCanvasService);
     TestBed.inject(EditorStateService).bind(ASSET_ID);
     TestBed.inject(CropSessionService);
@@ -195,20 +199,20 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
   // ── Reachability ───────────────────────────────────────────────────────
 
   describe('both controls are mounted by the live editor route component', () => {
-    it('renders an enabled, labelled AUTO button on desktop', () => {
-      setup(1280);
+    it('renders an enabled, labelled AUTO button on desktop', async () => {
+      await setup(1280);
       expect(autoButton().getAttribute('aria-label')).toBe('Auto adjust');
       expect(autoButton().disabled).toBe(false);
     });
 
-    it('renders an enabled, labelled RESET button on desktop', () => {
-      setup(1280);
+    it('renders an enabled, labelled RESET button on desktop', async () => {
+      await setup(1280);
       expect(resetButton().getAttribute('aria-label')).toBe('Reset all adjustments');
       expect(resetButton().disabled).toBe(false);
     });
 
-    it('keeps both reachable on phone widths (the top bar is not tablet-gated)', () => {
-      setup(390);
+    it('keeps both reachable on phone widths (the top bar is not tablet-gated)', async () => {
+      await setup(390);
       expect(autoButton()).toBeTruthy();
       expect(resetButton()).toBeTruthy();
     });

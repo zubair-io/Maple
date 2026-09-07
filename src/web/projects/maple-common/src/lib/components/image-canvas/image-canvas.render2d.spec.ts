@@ -1,19 +1,9 @@
-// image-canvas.render2d.spec.ts — #3171: `runRender2d` threads the focused
-// asset's resolved film-look LUT bytes (`host.filmSync.cpuLutBytesForCurrent()`)
-// through to `RawPipelineService.decode()`'s `filmLut` parameter on every
-// WASM-CPU fast/refine render tick. `coldOpen2d` deliberately does NOT — the
-// cold open decodes with `xmp: undefined` (no adjustments applied yet at
-// all), and the film look only starts applying once the model-change effect
-// fires its first real re-render, exactly like the GPU live path's
-// `ImageCanvasFilmSync.syncIfNeeded` also only starts after cold open
-// completes. `image-canvas.film.spec.ts` covers `ImageCanvasFilmSync`'s own
-// resolve/cache/dedup behavior directly; this file covers the wiring at the
-// actual `runRender2d` call site. `raw-pipeline.service.spec.ts` covers the
-// `DecodeRequest.filmLut` threading below that.
+// CPU render wiring: film LUTs on redraw and persisted optical selection on open.
 
 import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { defaultAdjustmentModel } from '../../models/adjustment-model';
 import type { AssetId } from '../../models/asset';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { Render2dHost } from './image-canvas.render2d';
@@ -27,6 +17,7 @@ const decoded: DecodedImage = {
   height: 4,
   nativeWidth: 4,
   nativeHeight: 4,
+  sourceOrientation: 6,
   rgb: new Uint8Array(4 * 4 * 3),
   asShotTemperature: 5500,
   asShotTint: 0,
@@ -62,7 +53,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       ) => Promise<DecodedImage>
     >(async () => decoded);
     const host = {
-      state: {},
+      state: { seedLensCorrections: vi.fn() },
       canvasSvc: { currentPixels: signal<DecodedImage | null>(null) },
       pipeline: { decode },
       filmSync: { cpuLutBytesForCurrent: () => cpuLutBytes },
@@ -123,7 +114,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       updateAssetDimensions: vi.fn(),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
-      adjustmentFor: () => () => ({}),
+      adjustmentFor: () => () => defaultAdjustmentModel(),
     };
     (host as unknown as { serializeForRender: () => string }).serializeForRender = () => '<xmp />';
     (host as unknown as { fastTargetPx: () => number }).fastTargetPx = () => 512;
@@ -136,16 +127,50 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
 
     await coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1, 2, 3]));
 
-    // `decode()`'s call signature at the cold open has only 4 args (no
-    // sizing/filmLut trailing params beyond maxLongEdge/qualityPreview) —
-    // asserting the call length rather than a specific arg count guards
-    // against a future accidental filmLut leak into the cold-open path.
+    // Cold open supplies sizing and preview quality, with no trailing film LUT.
     expect(decode.mock.calls[0]!.length).toBe(5);
+    expect(host.recordNativeDims).toHaveBeenCalledWith(4, 4, 6);
+    expect(host.imageBitmap()).not.toBeNull();
+    expect(decode.mock.calls[0]![2]).toBeUndefined();
     expect(decode.mock.calls[0]![4]).toBe(true); // qualityPreview, not filmLut
     expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
       assetId: ASSET_ID,
       generation: 1,
+      renderXmp: undefined,
       displayXmp: '<xmp />',
+      sizing: SIZING,
+    });
+  });
+  it('reopens the CPU preview with its persisted optical selection', async () => {
+    const { host, decode } = harness(undefined);
+    const reference = `lcp1:${'a'.repeat(64)}`;
+    const model = { ...defaultAdjustmentModel(), lensProfile: reference };
+    const seed = vi.fn();
+    Object.assign(host, {
+      state: {
+        updateAssetDimensions: vi.fn(),
+        seedAsShotWhiteBalance: vi.fn(),
+        seedLensCorrections: seed,
+        adjustmentFor: () => () => model,
+      },
+      serializeForRender: () => `<rdf:Description papp:LensProfile="${reference}"/>`,
+      fastTargetPx: () => 512,
+      markColdOpenDone: vi.fn(),
+      hasProvisionalPreview: () => false,
+      clearProvisionalPreview: vi.fn(),
+      recordNativeDims: vi.fn(),
+      scheduleRefine: vi.fn(),
+    });
+    await coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1, 2, 3]));
+    expect(decode.mock.calls[0][2]).toContain(reference);
+    expect(host.imageBitmap()).not.toBeNull();
+    expect(seed).toHaveBeenCalled();
+    expect(host.lastRenderedXmp).toContain(reference);
+    expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
+      assetId: ASSET_ID,
+      generation: 1,
+      renderXmp: decode.mock.calls[0][2],
+      displayXmp: host.lastRenderedXmp,
       sizing: SIZING,
     });
   });

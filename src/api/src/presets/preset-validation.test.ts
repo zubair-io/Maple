@@ -40,6 +40,21 @@ describe('validatePresetName', () => {
 });
 
 describe('validatePresetFields', () => {
+  it.each(['', `lcp1:${'a'.repeat(64)}`, `lcp1-ack:${'a'.repeat(64)}`, 'future:opaque'])(
+    'preserves imported calibration references as bounded string data: %s',
+    (reference) => {
+      const fields = {
+        lens_profile: reference,
+        future_lens_hint: 'opaque data',
+      };
+      expect(validatePresetFields(fields)).toEqual({ fields });
+    },
+  );
+
+  it('rejects wrong-typed calibration references', () => {
+    expect(validatePresetFields({ lens_profile: 1 })).toHaveProperty('error');
+  });
+
   it('accepts known numeric fields within range', () => {
     expect(validatePresetFields({ contrast: -50, temperature: 5500 })).toEqual({
       fields: { contrast: -50, temperature: 5500 },
@@ -87,9 +102,17 @@ describe('validatePresetFields', () => {
 
   it('preserves unknown scalar fields (passthrough rule)', () => {
     expect(
-      validatePresetFields({ future_curve_strength: 0.5, future_mode: 'Soft', future_flag: true }),
+      validatePresetFields({
+        future_curve_strength: 0.5,
+        future_mode: 'Soft',
+        future_flag: true,
+      }),
     ).toEqual({
-      fields: { future_curve_strength: 0.5, future_mode: 'Soft', future_flag: true },
+      fields: {
+        future_curve_strength: 0.5,
+        future_mode: 'Soft',
+        future_flag: true,
+      },
     });
   });
 
@@ -135,7 +158,9 @@ describe('validatePresetFields', () => {
     expect(validatePresetFields({ $set: 1 })).toHaveProperty('error');
     expect(validatePresetFields({ 'future\0nul': 1 })).toHaveProperty('error');
     // `$` is only forbidden as a PREFIX — elsewhere in the key is fine.
-    expect(validatePresetFields({ future$x: 1 })).toEqual({ fields: { future$x: 1 } });
+    expect(validatePresetFields({ future$x: 1 })).toEqual({
+      fields: { future$x: 1 },
+    });
   });
 });
 

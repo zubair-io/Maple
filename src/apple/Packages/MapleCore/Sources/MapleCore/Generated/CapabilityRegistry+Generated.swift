@@ -302,6 +302,7 @@ public enum CapabilityRegistry {
                 "lens_correction_ca",
                 "lens_correction_vignetting",
                 "capture_sharpening_radius",
+                "lens_profile",
             ],
             integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
             qualification: [
@@ -362,7 +363,14 @@ public enum CapabilityRegistry {
             assetClasses: [.raw, .nonRaw],
             previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
             exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: ["crop"],
+            fields: [
+                "crop",
+                "geo_perspective_h",
+                "geo_perspective_v",
+                "geo_rotation",
+                "geo_aspect",
+                "geo_scale",
+            ],
             integration: [.sidecarContractApple, .sidecarContractApi],
             qualification: [.appleCanvasGolden],
             releaseState: .core

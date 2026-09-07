@@ -57,9 +57,12 @@ mod white_balance_sample;
 // sink gets a C callback registration here.
 mod deep_denoise_progress;
 mod error;
+mod geometry;
+pub use geometry::maple_apply_geometry_f32;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;
+mod lens_profile;
 // `.mlut` film-look LUT decode FFI (epic #2683, Task 8) — pure marshalling
 // over `raw_core::film::decode_mlut`. No worker-thread dispatch, no GPU gate
 // (the decode is a cheap byte-parse; only the GPU-gated per-tick params and

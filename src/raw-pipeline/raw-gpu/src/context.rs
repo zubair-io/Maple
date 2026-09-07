@@ -62,6 +62,7 @@ pub struct GpuContext {
     /// generated color matrices. Built on first use via
     /// [`GpuContext::vignette_pipeline`].
     pub(crate) vignette_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) geometry_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled local-adjustments compute pipeline
     /// (`local_adjustments.wgsl` + the generated color matrices). The #1698
     /// vector-mask rasterizer: it rasterizes each layer's linear/radial mask
@@ -381,6 +382,7 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
+            geometry_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),
             grain_pipeline: OnceCell::new(),
             color_grade_pipeline: OnceCell::new(),
