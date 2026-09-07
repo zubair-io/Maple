@@ -16,6 +16,9 @@
       firstBranch.addSubview(responder)
       root.addSubview(laterBranch)
       laterBranch.addSubview(laterChild)
+      for view in [root, firstBranch, responder, laterBranch, laterChild] {
+        view.reads = 0
+      }
 
       XCTAssertTrue(EditorTextInput.findResponder(root) === responder)
       XCTAssertEqual(root.reads, 1)
@@ -29,7 +32,9 @@
       let responder = ResponderProbeView(responds: true)
       let child = ResponderProbeView()
       responder.addSubview(child)
+      for view in [responder, child] { view.reads = 0 }
       XCTAssertTrue(EditorTextInput.findResponder(responder) === responder)
+      XCTAssertEqual(responder.reads, 1)
       XCTAssertEqual(child.reads, 0)
     }
 
@@ -39,7 +44,9 @@
       let last = ResponderProbeView()
       root.addSubview(first)
       root.addSubview(last)
+      for view in [root, first, last] { view.reads = 0 }
       XCTAssertNil(EditorTextInput.findResponder(root))
+      XCTAssertEqual(root.reads, 1)
       XCTAssertEqual(first.reads, 1)
       XCTAssertEqual(last.reads, 1)
     }
