@@ -31,6 +31,7 @@ import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
+import { handleSampleRange } from './raw-pipeline.sample-range-handler';
 import {
   handleRegisterMaskRaster,
   handleReleaseMaskRaster,
@@ -123,6 +124,12 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
     case 'sample-wb':
       await ensureReady();
       handleSampleWb(req);
+      return;
+    // Mask colour-range eyedropper (#362) — same one-shot shape as the WB
+    // sampler above; the handler owns its own error reply.
+    case 'sample-range':
+      await ensureReady();
+      handleSampleRange(req);
       return;
     // Bitmap-mask raster registry (#3300): synchronous on the wasm side and
     // independent of the live session's `&mut self` borrow, so neither needs

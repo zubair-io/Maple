@@ -12,6 +12,8 @@ import { signal } from '@angular/core';
 
 import { MaskPanelComponent } from './mask-panel.component';
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
+import { CanvasPickService, RANGE_PICK_PROMPT } from '../image-canvas/canvas-pick.service';
+import { RANGE_CONTROLS } from '../mask-overlay/mask-range';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
@@ -59,5 +61,68 @@ describe('MaskPanelComponent feather slider (#3300)', () => {
     fixture.detectChanges();
     expect(featherSlider(fixture.nativeElement as HTMLElement)).toBeNull();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Everywhere 1');
+  });
+});
+
+describe('MaskPanelComponent colour range (#362)', () => {
+  let lib: LibraryStub & { focusedAsset: ReturnType<typeof signal> };
+  let session: MaskSessionService;
+  let pick: CanvasPickService;
+
+  beforeEach(() => {
+    const stub = makeLibraryStub();
+    lib = Object.assign(stub, {
+      focusedAsset: signal({ id: 'asset-1', width: 6000, height: 4000 }),
+      focusedAssetId: signal('asset-1'),
+    }) as typeof lib;
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: LibraryStateService, useValue: lib },
+        { provide: RawPipelineService, useValue: {} },
+      ],
+    });
+    TestBed.inject(EditorStateService).imageId.set('asset-1');
+    session = TestBed.inject(MaskSessionService);
+    pick = TestBed.inject(CanvasPickService);
+  });
+
+  const mount = () => {
+    const fixture = TestBed.createComponent(MaskPanelComponent);
+    fixture.detectChanges();
+    return fixture;
+  };
+
+  const q = (host: HTMLElement, testId: string) =>
+    host.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+
+  it('shows the toggle alone until a range is armed, then the five sliders', () => {
+    session.addLinear();
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(q(host, 'mask-range')).not.toBeNull();
+    expect(q(host, 'mask-range-eyedropper')).toBeNull();
+    expect(host.textContent).not.toContain('Chroma min');
+
+    session.setRangeEnabled(true);
+    fixture.detectChanges();
+    expect(q(host, 'mask-range-eyedropper')).not.toBeNull();
+    for (const control of RANGE_CONTROLS) {
+      expect(host.textContent).toContain(control.label);
+    }
+    // The seeded band centre reads back on a 0-360 wheel.
+    expect(q(host, 'mask-range-hue')?.textContent).toContain('55');
+  });
+
+  it('the eyedropper arms the shared canvas pick with its own prompt', async () => {
+    session.addLinear();
+    session.setRangeEnabled(true);
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    const pending = (q(host, 'mask-range-eyedropper') as HTMLElement).click();
+    void pending;
+    await Promise.resolve();
+    expect(pick.active()).toBe(true);
+    expect(pick.prompt()).toBe(RANGE_PICK_PROMPT);
+    pick.cancel();
   });
 });

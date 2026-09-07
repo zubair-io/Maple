@@ -20,8 +20,18 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
-import type { LocalAdjustment, LocalMask, PartialAdjustments } from '../../models/local-adjustment';
+import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import type {
+  LocalAdjustment,
+  LocalMask,
+  PartialAdjustments,
+  RangeRefinement,
+} from '../../models/local-adjustment';
+import type { MaskRangeSeed } from '../../raw-pipeline/raw-pipeline.sample-range.types';
 import { defaultLinearMask, defaultRadialMask, withMaskFeather } from './mask-geometry';
+import { defaultRangeRefinement, withRangeField, type RangeFieldId } from './mask-range';
+import { sampleMaskRangeInto, seededLayer } from './mask-range-sample';
 
 /** Structural equality for one layer — the model is plain data. */
 const isSameLayer = (a: LocalAdjustment, b: LocalAdjustment): boolean =>
@@ -31,6 +41,8 @@ const isSameLayer = (a: LocalAdjustment, b: LocalAdjustment): boolean =>
 export class MaskSessionService {
   private readonly editor = inject(EditorStateService);
   private readonly library = inject(LibraryStateService);
+  private readonly pipeline = inject(RawPipelineService);
+  private readonly serializer = inject(XmpSerializerService);
 
   /** True while the Mask tool is armed — drives the overlay + panel. */
   readonly active = computed(() => this.editor.armedTool() === 'mask');
@@ -168,6 +180,83 @@ export class MaskSessionService {
     this.updateSelected(true, (layer) =>
       layer.mask.kind === 'radial' ? { ...layer, mask: { ...layer.mask, invert } } : layer,
     );
+  }
+
+  // ── Colour range (#362) ──────────────────────────────────────────────────
+
+  /** The selected layer's colour-range refinement, or null for none. */
+  readonly range = computed<RangeRefinement | null>(() => this.selected()?.range ?? null);
+
+  /** Why the last eyedropper pick was refused; cleared by the next arm. */
+  readonly rangeMessage = signal<string | null>(null);
+
+  /** True while a pick is in flight — the panel disables its eyedropper. */
+  readonly rangeSampleInFlight = signal(false);
+
+  /** Arm raw-core's default range, or drop the refinement entirely (the
+   *  primary mask alone). Discrete: its own undo entry. */
+  setRangeEnabled(enabled: boolean): void {
+    this.updateSelected(true, (layer) => ({
+      ...layer,
+      range: enabled ? (layer.range ?? defaultRangeRefinement()) : undefined,
+    }));
+  }
+
+  /** The selected layer's value for one range slider, `0` when it has no
+   *  refinement (the sliders are unmounted then). */
+  rangeValue(field: RangeFieldId): number {
+    return this.range()?.[field] ?? 0;
+  }
+
+  /** Continuous: rides the drag's gesture, like every other mask slider. */
+  setRangeField(field: RangeFieldId, value: number): void {
+    this.updateSelected(false, (layer) =>
+      layer.range ? { ...layer, range: withRangeField(layer.range, field, value) } : layer,
+    );
+  }
+
+  /**
+   * Sample the colour at a normalised image point and seed the selected
+   * layer's range with it, as ONE undo entry. A layer with no refinement is
+   * enabled by the pick itself.
+   */
+  async sampleRangeAt(nx: number, ny: number): Promise<boolean> {
+    if (this.rangeSampleInFlight() || this.selected() === null) return false;
+    this.rangeSampleInFlight.set(true);
+    try {
+      return await sampleMaskRangeInto(this.rangeSampleHost(), nx, ny);
+    } finally {
+      this.rangeSampleInFlight.set(false);
+    }
+  }
+
+  /** The structural host `sampleMaskRangeInto` writes through. */
+  private rangeSampleHost() {
+    return {
+      focusedAssetId: () => this.library.focusedAsset()?.id ?? null,
+      currentAdjustment: (id: string) => this.library.adjustmentFor(id)(),
+      assetExtension: (id: string) =>
+        this.library
+          .assets()
+          .find((a) => a.id === id)
+          ?.filename.split('.')
+          .pop()
+          ?.toLowerCase() ?? 'dng',
+      bytes: async (id: string) =>
+        this.library.bytesFor(id) ?? (await this.library.bytesForAsset(id)),
+      serialize: (model: Parameters<XmpSerializerService['serialize']>[0]) =>
+        this.serializer.serialize(model),
+      sampleMaskRange: (
+        bytes: Uint8Array,
+        ext: string,
+        xmp: string,
+        nx: number,
+        ny: number,
+      ): Promise<MaskRangeSeed> => this.pipeline.sampleMaskRange(bytes, ext, xmp, nx, ny),
+      applySeed: (seed: MaskRangeSeed) =>
+        this.updateSelected(true, (layer) => seededLayer(layer, seed)),
+      setMessage: (text: string | null) => this.rangeMessage.set(text),
+    };
   }
 
   private write(localAdjustments: LocalAdjustment[]): void {

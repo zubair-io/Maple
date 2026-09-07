@@ -1,6 +1,7 @@
-<!-- Click target for the white-balance eyedropper (#2434). Present only while
-     the pick is armed, so the canvas's own pan/zoom gestures are untouched
-     otherwise; Escape leaves pick mode without sampling. -->
+<!-- Click target for the canvas eyedroppers (#2434 white balance, #362 mask
+     colour range). Present only while a pick is armed, so the canvas's own
+     pan/zoom gestures are untouched otherwise; Escape leaves pick mode
+     without sampling. -->
 @if (pick.active()) {
   <!-- Not role="button": activation needs pointer coordinates, so there is
        no keyboard equivalent to announce (#3309). The
@@ -8,14 +9,14 @@
        is handled on the document so it works without focusing anything. -->
   <div
     class="pointer-events-auto absolute inset-0 z-[9] cursor-crosshair"
-    data-testid="wb-pick-overlay"
+    data-testid="canvas-pick-overlay"
     (click)="onClick($event)"
   >
     <div
       class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border-[0.5px] border-white/15 bg-black/60 px-3 py-1 font-sans text-[11px] text-white/80 backdrop-blur-[6px]"
       role="status"
     >
-      Click a neutral surface · Esc to cancel
+      {{ pick.prompt() }} · Esc to cancel
     </div>
   </div>
 }

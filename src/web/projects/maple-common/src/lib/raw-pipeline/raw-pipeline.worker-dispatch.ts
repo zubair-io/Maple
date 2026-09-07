@@ -20,6 +20,7 @@ import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
 import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
+import { RangeSampleRejected } from './raw-pipeline.sample-range.types';
 
 // Module-local: this was a private method on `RawPipelineService` and has no
 // consumer outside this file. Exporting it would be dead surface area.
@@ -167,6 +168,20 @@ const settleSampleWb: Settler<'sample-wb'> = (msg, handler) => {
   return false;
 };
 
+const settleSampleRange: Settler<'sample-range'> = (msg, handler) => {
+  if (msg.type === 'sample-range-success') {
+    handler.resolve(msg.seed);
+    return true;
+  }
+  if (msg.type === 'sample-range-error') {
+    // The kind survives the boundary the same way the WB sampler's does: the
+    // UI phrases "pick a coloured area" from it, not from the message (#362).
+    handler.reject(new RangeSampleRejected(msg.kind, msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleRegisterMaskRaster: Settler<'register-mask-raster'> = (msg, handler) => {
   if (msg.type === 'register-mask-raster-success') {
     handler.resolve(msg.rasterId);
@@ -224,6 +239,7 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'set-film-lut': settleSetFilmLut,
   'auto-adjust': settleAutoAdjust,
   'sample-wb': settleSampleWb,
+  'sample-range': settleSampleRange,
   'register-mask-raster': settleRegisterMaskRaster,
   export: settleExport,
 };

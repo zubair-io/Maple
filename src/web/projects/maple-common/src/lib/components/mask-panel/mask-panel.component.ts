@@ -4,7 +4,9 @@
 // Takes the dock-side panel slot while the Mask tool is armed (the same swap
 // the crop toolbar makes): a list of the image's mask layers with add /
 // remove / select, and — for the selected layer — its shape controls
-// (feather, invert) and the ten local develop controls a layer can carry.
+// (feather, invert), the ten local develop controls a layer can carry, and
+// the colour-range refinement (#362: enable toggle, canvas eyedropper, five
+// coordinate sliders).
 // Composed from the Maple UI primitives (`mui-list-row`, `mui-button`,
 // `mui-living-slider`, `mui-checkbox`, `mui-text`). The canvas half —
 // handles + weight tint — is `MaskOverlayComponent`.
@@ -27,6 +29,8 @@ import {
   type PartialAdjustments,
 } from '../../models/local-adjustment';
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
+import { RANGE_CONTROLS, displayHue, type RangeControl } from '../mask-overlay/mask-range';
+import { CanvasPickService, RANGE_PICK_PROMPT } from '../image-canvas/canvas-pick.service';
 
 /** One of the ten local controls, with the range its global twin uses. */
 interface MaskControl {
@@ -96,7 +100,9 @@ function maskLayerSubtitle(layer: LocalAdjustment): string | null {
 })
 export class MaskPanelComponent {
   protected readonly session = inject(MaskSessionService);
+  private readonly pick = inject(CanvasPickService);
   protected readonly controls = MASK_CONTROLS;
+  protected readonly rangeControls = RANGE_CONTROLS;
 
   protected readonly rows = computed(() =>
     this.session.layers().map((layer, index) => ({
@@ -143,6 +149,43 @@ export class MaskPanelComponent {
       const { [control.id]: _dropped, ...rest } = layer.adjustments;
       return { ...layer, adjustments: rest };
     });
+  }
+
+  // ── Colour range (#362) ──────────────────────────────────────────────────
+
+  /** The band centre, as people read a hue wheel. */
+  protected readonly rangeHue = computed(() => {
+    const range = this.session.range();
+    return range ? Math.round(displayHue(range.hueDeg)) : 0;
+  });
+
+  protected rangeValueOf(control: RangeControl): number {
+    return this.session.rangeValue(control.id);
+  }
+
+  protected onRangeEnabledChange(checked: boolean): void {
+    this.session.setRangeEnabled(checked);
+  }
+
+  protected onRangeValueChange(control: RangeControl, value: number): void {
+    this.session.setRangeField(control.id, value);
+  }
+
+  /**
+   * Arm the canvas pick overlay and seed the range from the clicked colour.
+   * Pressing while armed cancels — the same press is the way out of pick
+   * mode, so the cursor can never be stranded in it (#3309's rule for the
+   * white-balance eyedropper).
+   */
+  protected async onEyedropper(): Promise<void> {
+    if (this.pick.active()) {
+      this.pick.cancel();
+      return;
+    }
+    if (this.session.rangeSampleInFlight()) return;
+    const point = await this.pick.arm(RANGE_PICK_PROMPT);
+    if (!point) return;
+    await this.session.sampleRangeAt(point.nx, point.ny);
   }
 
   protected onFeatherChange(value: number): void {
