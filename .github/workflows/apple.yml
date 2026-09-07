@@ -210,14 +210,14 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
           key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
-      - name: Execute scheduling, cache, geometry and Metal regressions
+      - name: Execute scheduling, cache, geometry, XMP and Metal regressions
         run: |
           set -euo pipefail
           classes=(RenderSchedulingBackpressureTests RenderRequestIdentityTests RenderActivityTests
             NativeDetailCancellationTests DecodedCacheAutosaveTests RenderedPreviewCacheWriteTests
             RawRenderSourceTests EditSessionNativeSizeSeedTests EditSessionPreviewCeilingTests
             CanvasMathTests GpuPrescaledExtentTests GpuReadbackFreshnessTests GpuExitPreviewCacheTests
-            GpuPresentationOutcomeTests GpuSessionReplacementTests)
+            GpuPresentationOutcomeTests GpuSessionReplacementTests LocalAdjustmentXMPTests)
           FILTER="MapleCoreTests\.($(IFS='|'; echo "${classes[*]}"))/"
           test_status=0
           swift test --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" \
