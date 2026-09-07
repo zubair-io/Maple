@@ -19,12 +19,12 @@ namespace Maple.WinUI.ViewModels
         /// paint never waits on it).
         ///
         /// Cancellable and generation-guarded: <see cref="CancelActiveDecode"/>
-        /// signals <see cref="_amazeCancelFlag"/> the same way it signals the
-        /// Preview decode's own flag, and the result is discarded unless
-        /// <paramref name="generation"/> still matches
-        /// <see cref="_decodeGeneration"/> and <paramref name="photo"/> is
-        /// still the open photo when it lands — a photo switch or another
-        /// decode-owned edit both bump the generation before this can apply.
+        /// signals <see cref="_amazeCancel"/>'s current handle the same way
+        /// it signals the Preview decode's own, and the result is discarded
+        /// unless <paramref name="generation"/> still matches
+        /// <see cref="_decodeGeneration"/> when it lands — a photo switch or
+        /// another decode-owned edit both bump the generation before this
+        /// can apply.
         /// </summary>
         private void ScheduleAmazeUpgrade(
             int generation, PhotoItem photo, AdjustmentState model, DecodedImage previewDecoded)
@@ -34,7 +34,7 @@ namespace Maple.WinUI.ViewModels
                 return;
 
             var amazeCancelFlag = RawFfi.maple_cancel_flag_new();
-            _amazeCancelFlag = amazeCancelFlag;
+            _amazeCancel.Reset(amazeCancelFlag);
             _ = Task.Run(() =>
             {
                 try
@@ -60,7 +60,12 @@ namespace Maple.WinUI.ViewModels
                 }
                 finally
                 {
-                    RawFfi.maple_cancel_flag_free(amazeCancelFlag);
+                    // Release, not a bare free (#3417 Jules review): frees
+                    // this task's own flag unconditionally, and clears
+                    // _amazeCancel's current handle only if it still IS this
+                    // one — a newer upgrade (or CancelActiveDecode's own
+                    // signal-and-clear) may already own that slot.
+                    _amazeCancel.Release(amazeCancelFlag);
                 }
             });
         }
