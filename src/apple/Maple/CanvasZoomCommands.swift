@@ -21,6 +21,7 @@ struct CanvasZoomCommands: Commands {
 
   var body: some Commands {
     let _ = textHistory.revision
+    let textTarget = EditorTextInput.historyTarget
     CommandGroup(after: .toolbar) {
       Menu("Zoom") {
         Button("Zoom to Fit") { run(.fit) { controller?.resetToFit() } }
@@ -43,19 +44,20 @@ struct CanvasZoomCommands: Commands {
       Button("Undo") { history(redo: false) }
         .keyboardShortcut("z", modifiers: .command)
         .disabled(
-          EditorTextInput.hasFocus
-            ? !(EditorTextInput.undoManager?.canUndo ?? false) : !(router?.state.canUndo ?? false))
+          textTarget.hasFocus
+            ? !(textTarget.undoManager?.canUndo ?? false) : !(router?.state.canUndo ?? false))
       Button("Redo") { history(redo: true) }
         .keyboardShortcut("z", modifiers: [.command, .shift])
         .disabled(
-          EditorTextInput.hasFocus
-            ? !(EditorTextInput.undoManager?.canRedo ?? false) : !(router?.state.canRedo ?? false))
+          textTarget.hasFocus
+            ? !(textTarget.undoManager?.canRedo ?? false) : !(router?.state.canRedo ?? false))
     }
   }
 
   private func history(redo: Bool) {
-    if EditorTextInput.hasFocus {
-      if redo { EditorTextInput.undoManager?.redo() } else { EditorTextInput.undoManager?.undo() }
+    let textTarget = EditorTextInput.historyTarget
+    if textTarget.hasFocus {
+      if redo { textTarget.undoManager?.redo() } else { textTarget.undoManager?.undo() }
     } else {
       run(redo ? .redo : .undo) {}
     }
