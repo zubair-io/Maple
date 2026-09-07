@@ -22,6 +22,12 @@ import Foundation
 /// ("do not apply this control here"), which is NOT the same as `0` —
 /// `saturation`/`vibrance` at `0` still round-trip the pixel through Oklab,
 /// and `temperature`/`tint` being present at all engages a CAT16 matrix.
+///
+/// Two groups, in declaration order. The eleven POINT controls
+/// (`exposure`…`hue`) are evaluated one pixel at a time. The six SPATIAL
+/// controls (`texture`…`defringe`, #3407) each read a neighbourhood, so
+/// raw-core runs them after the point group as one grouped pass over the
+/// layer's output and lerps the result back by the mask weight.
 public struct PartialAdjustments: Codable, Sendable, Equatable, Hashable {
     public var exposure: Double?
     public var contrast: Double?
@@ -37,6 +43,23 @@ public struct PartialAdjustments: Codable, Sendable, Equatable, Hashable {
     /// after `blacks` and before `saturation`, reusing saturation's
     /// soft-knee gamut handling.
     public var hue: Double?
+    /// Fine-detail local contrast, −100…100 (#3407, `crs:LocalTexture`).
+    public var texture: Double?
+    /// Structure-scale local contrast, −100…100 (#3407,
+    /// `crs:LocalClarity2012`).
+    public var clarity: Double?
+    /// Haze removal, −100…100 (#3407, `crs:LocalDehaze`). Its dark-channel
+    /// statistics are whole-buffer, which is why a layer that sets it makes
+    /// the tile path refuse a render exactly as the global slider does.
+    public var dehaze: Double?
+    /// Luminance-only unsharp mask, −100…100 (#3407, `crs:LocalSharpness`).
+    public var sharpness: Double?
+    /// Luminance noise reduction, 0…100 (#3407,
+    /// `crs:LocalLuminanceNoise`).
+    public var luminanceNoise: Double?
+    /// Chroma-fringe suppression at high-contrast edges, 0…100 (#3407,
+    /// `crs:LocalDefringe`).
+    public var defringe: Double?
 
     public init(
         exposure: Double? = nil,
@@ -49,7 +72,13 @@ public struct PartialAdjustments: Codable, Sendable, Equatable, Hashable {
         vibrance: Double? = nil,
         temperature: Double? = nil,
         tint: Double? = nil,
-        hue: Double? = nil
+        hue: Double? = nil,
+        texture: Double? = nil,
+        clarity: Double? = nil,
+        dehaze: Double? = nil,
+        sharpness: Double? = nil,
+        luminanceNoise: Double? = nil,
+        defringe: Double? = nil
     ) {
         self.exposure = exposure
         self.contrast = contrast
@@ -62,13 +91,27 @@ public struct PartialAdjustments: Codable, Sendable, Equatable, Hashable {
         self.temperature = temperature
         self.tint = tint
         self.hue = hue
+        self.texture = texture
+        self.clarity = clarity
+        self.dehaze = dehaze
+        self.sharpness = sharpness
+        self.luminanceNoise = luminanceNoise
+        self.defringe = defringe
     }
 
     /// True when no field is set — the layer would change nothing.
     public var isEmpty: Bool {
         exposure == nil && contrast == nil && highlights == nil && shadows == nil
             && whites == nil && blacks == nil && saturation == nil && vibrance == nil
-            && temperature == nil && tint == nil && hue == nil
+            && temperature == nil && tint == nil && hue == nil && spatialIsEmpty
+    }
+
+    /// True when none of the six SPATIAL controls (#3407) is set. Split out
+    /// of `isEmpty` because the apply stage asks the two questions
+    /// separately — mirror of `PartialAdjustments::spatial_is_empty`.
+    public var spatialIsEmpty: Bool {
+        texture == nil && clarity == nil && dehaze == nil && sharpness == nil
+            && luminanceNoise == nil && defringe == nil
     }
 }
 
