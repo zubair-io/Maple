@@ -270,7 +270,10 @@ public enum GradientCatalog {
         // way colour grading is (#275: colour wheels, not a track).
         // Mask (#3274) is a full-surface panel swap, not a slider track
         // (same shape as `.crop`); Heal has no Tool-level surface yet.
-        case .crop, .presets, .colorGrade, .bwMix, .filmLook, .lensCorrections, .mask, .heal:
+        // Geometry (#3410) joins this list for the `.lensCorrections` reason:
+        // seven independent sliders and no single track to tint.
+        case .crop, .presets, .colorGrade, .bwMix, .filmLook, .lensCorrections, .geometry,
+             .mask, .heal:
             return nil
         }
     }

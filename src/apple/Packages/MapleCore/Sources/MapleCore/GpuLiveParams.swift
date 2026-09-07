@@ -337,6 +337,19 @@ extension PipelineRenderer {
         p.scope_enabled = scopeEnabled ? 1 : 0
         p.scope_layer = scopeLayer
 
+        // Manual geometry (#3410) — appended at the struct tail. raw-ffi
+        // composes these into the homography the present shader warps by, so
+        // the live canvas frames exactly as the export tail does. The Apple
+        // upload is already EXIF-oriented (`apply_orientation_f32_rgba` runs
+        // before it), which is the framing these sliders are authored against.
+        p.perspective_vertical = Float(model.perspective.vertical)
+        p.perspective_horizontal = Float(model.perspective.horizontal)
+        p.perspective_rotate = Float(model.perspective.rotate)
+        p.perspective_scale = Float(model.perspective.scale)
+        p.perspective_aspect = Float(model.perspective.aspect)
+        p.perspective_x = Float(model.perspective.x)
+        p.perspective_y = Float(model.perspective.y)
+
         return p
     }
 }

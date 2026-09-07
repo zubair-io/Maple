@@ -164,11 +164,12 @@ final class EditorSubParamCatalogTests: XCTestCase {
         // of this list — see #2812 for how it went missing here.
         // `.lensCorrections` declares three sub-params (distortion/ca/
         // vignetting, #2231) — no single primary field, same shape as
-        // vignette/grain/colorGrade.
+        // vignette/grain/colorGrade. `.geometry` declares seven (#3410) for
+        // the same reason.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
             && tool != .colorGrade && tool != .hsl && tool != .bwMix && tool != .toneCurve
-            && tool != .filmLook && tool != .lensCorrections {
+            && tool != .filmLook && tool != .lensCorrections && tool != .geometry {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
@@ -185,7 +186,8 @@ final class EditorSubParamCatalogTests: XCTestCase {
     /// now fails too, rather than silently weakening the check above.
     func testEveryExcludedToolActuallyDeclaresSubParams() {
         let excluded: [Tool] = [.noise, .sharpen, .vignette, .grain,
-                                .colorGrade, .hsl, .bwMix, .toneCurve, .lensCorrections]
+                                .colorGrade, .hsl, .bwMix, .toneCurve, .lensCorrections,
+                                .geometry]
         for tool in excluded {
             XCTAssertFalse(tool.subParams.isEmpty,
                 "\(tool) is excluded from the single-param check but declares no sub-params — "
