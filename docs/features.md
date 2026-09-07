@@ -133,12 +133,18 @@ Web and Windows expose an **Auto / Neutral** picker in the editor's Color contro
 | `lensProfileEnable`                              | `On` \| `Off` | `On`    |
 | `lensCorrectionDistortion` / `Ca` / `Vignetting` | 0 … 100       | 100     |
 | `demosaic`                                       | see below     | `Auto`  |
+| `autoLateralCa`                                  | `Off` \| `On` | `Off`   |
+| `defringePurpleAmount` / `defringeGreenAmount`   | 0 … 20        | 0       |
+| `defringePurpleHueLo` / `HueHi`                  | 0 … 100       | 30 / 70 |
+| `defringeGreenHueLo` / `HueHi`                   | 0 … 100       | 40 / 60 |
 
-`chromaPrefilter`, `deepDenoise`, `hotPixelSuppression`, `demosaic`, and the three lens-correction scales live inside the decode product: changing one invalidates the decoded-image cache and costs a full re-decode, which is why the web UI commits them on pointer release rather than on every tick.
+`chromaPrefilter`, `deepDenoise`, `hotPixelSuppression`, `demosaic`, the three lens-correction scales, and `autoLateralCa` live inside the decode product: changing one invalidates the decoded-image cache and costs a full re-decode, which is why the web UI commits them on pointer release rather than on every tick.
 
 **Demosaic** picks the kernel that turns the sensor's Bayer mosaic into RGB. `Auto` (the default) reads the frame's own noise profile and sensor size and chooses for it: a noisy frame gets LMMSE, the only kernel with an explicit noise model; a large clean one gets a dual reconstruction that runs AMaZE for detail and VNG4 for flat regions and cross-fades them by local contrast, so a sky stops being where the detail kernel invents maze patterning and false colour; a small clean one gets AMaZE alone. The picker in Detail → Basic pins one kernel instead — `Maximum detail (AMaZE)`, `Balanced (RCD)`, `High ISO (LMMSE)`, or either dual — for the rare frame where the automatic answer is wrong, such as astro work that wants no smoothing anywhere or a shot whose reported ISO badly misrepresents how noisy it is.
 
 The choice applies wherever a full-resolution reconstruction runs — the on-screen full render, the deep-zoom tiles and export — so the screen and the exported file agree. It has no effect on the fit-view preview, which halves resolution before demosaicing and has no kernel to pick, nor on Fuji X-Trans or LinearRaw files, which never reach a Bayer kernel. Apple and Web both surface the picker; Windows does not yet.
+
+The lens-correction scales only ever do something on a DNG whose vendor wrote an `OpcodeList3`; on a CR2, RAF, ARW or NEF there is nothing for them to scale. **Remove Chromatic Aberration** (`autoLateralCa`) is the answer for those bodies: it measures the radial red- and blue-versus-green displacement from the mosaic itself and resamples both planes before demosaic, and it stands down on a file whose opcodes already carry the correction. **Defringe** is its per-tick companion, matching Adobe's controls key for key: pick a purple or green hue band on ACR's 0–100 defringe-hue axis, and pixels inside it that sit against a high-contrast edge lose their chroma while keeping their lightness — the violet halo goes grey and the edge keeps its shape.
 
 ### Effects
 
@@ -287,6 +293,8 @@ Web is split into its two deployments because they differ substantially. Every c
 | Presets                            | yes                                              | yes               | yes                | no                        | no        |
 | Capture sharpening (deconvolution) | yes                                              | yes               | yes                | yes                       | no        |
 | Deep denoise / chroma prefilter    | yes                                              | yes               | yes                | no                        | no        |
+| Lens corrections (DNG opcodes)     | yes                                              | yes               | yes                | no                        | no        |
+| Auto lateral CA / defringe         | yes                                              | yes               | yes                | yes                       | no        |
 | Crop + straighten                  | yes                                              | yes               | yes                | yes                       | no        |
 | Manual geometry                    | yes                                              | yes               | yes                | yes                       | no        |
 | Masks / local adjustments          | yes                                              | yes               | yes                | yes                       | no        |
