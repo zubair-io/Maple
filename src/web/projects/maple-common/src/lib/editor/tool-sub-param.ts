@@ -409,6 +409,56 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       mapping: 'anchored',
       decimals: 2,
       commitOnRelease: true,
+  // Defringe (#3411) — the per-tick half of the profile-free lens
+  // corrections. Six ordinary sliders driven through this module's shared
+  // machinery, and NONE of them commits on release: unlike the Lens
+  // Corrections scales below, the stage runs in the scene-linear chain
+  // (between dehaze and local adjustments), so every drag is a live
+  // re-render rather than a re-decode. `linear` throughout: the amounts
+  // default to their range floor and the hue edges to interior positions,
+  // neither of which `anchored` can express.
+  defringe: [
+    {
+      id: 'purpleAmount',
+      label: 'Purple Amount',
+      field: 'defringePurpleAmount',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'purpleHueLo',
+      label: 'Purple Hue Low',
+      field: 'defringePurpleHueLo',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'purpleHueHi',
+      label: 'Purple Hue High',
+      field: 'defringePurpleHueHi',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'greenAmount',
+      label: 'Green Amount',
+      field: 'defringeGreenAmount',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'greenHueLo',
+      label: 'Green Hue Low',
+      field: 'defringeGreenHueLo',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'greenHueHi',
+      label: 'Green Hue High',
+      field: 'defringeGreenHueHi',
+      mapping: 'linear',
+      decimals: 0,
     },
   ],
   sharpen: [

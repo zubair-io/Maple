@@ -226,6 +226,42 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
       actions: ['enable / disable the profile', 'adjust a scale', 'reset (double-click)'],
     },
   }),
+  // Defringe (#3411) — the per-tick half of the profile-free lens
+  // corrections, released on both platforms at once. The two surfaces
+  // differ in shape rather than in reach: Apple swaps in its own
+  // `DefringeSection` (the no-primary-field pattern HSL / Tone Curve /
+  // Film / Lens Corrections already use there), while the web drives the
+  // same six fields through the ordinary sub-param chip row. Same fields,
+  // same ranges, same defaults, so no exception is warranted.
+  panelTool({
+    id: 'defringe',
+    name: 'Defringe',
+    group: 'detail',
+    order: 62,
+    copyPaste: 'detail',
+    preview: 'live',
+    presentation: {
+      compact:
+        'Detail sub-tool chip "Defringe": Apple swaps the phone control card body for its six-slider section; web arms the sub-param chip row',
+      regular:
+        'Detail sub-tool chip "Defringe": Apple swaps the control card body for its six-slider section; web arms the sub-param chip row',
+      wide: 'Same as regular',
+    },
+    interaction: {
+      keyboard:
+        'Tab to a slider (Apple) or arm a sub-param chip then use the drag bar (web); arrow keys nudge',
+      pointer: 'Drag Purple / Green Amount and their two Hue edges',
+      touch: 'Same; sliders take long-press fine mode',
+      focus: 'A focused slider consumes its own value keys',
+    },
+    accessibility: {
+      role: 'slider (six)',
+      name: 'Purple Amount / Hue Low / Hue High; Green Amount / Hue Low / Hue High',
+      value: 'aria-valuenow 0–20 for the amounts, 0–100 for the hue-band edges',
+      state: 'no disabled state — the stage runs on every asset, RAW or not',
+      actions: ['adjust an amount or hue edge', 'reset to the generated default (double-click)'],
+    },
+  }),
   // Mask (#1541) shipped on the web first; the Apple twin is #355 (landing
   // with #3291), so this row is web-only until then and carries the
   // exception that says so — the same shape the manifest uses for every
