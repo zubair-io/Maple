@@ -119,6 +119,23 @@ namespace Maple.WinUI.ViewModels
             }
         }
 
+        /// <summary>Profile-free lateral CA (#3411, crs:AutoLateralCA) — ACR's
+        /// "Remove Chromatic Aberration" checkbox. A DECODE-PRODUCT toggle: the
+        /// stage runs in the raw domain before demosaic, so flipping it
+        /// re-decodes rather than re-running the per-tick chain.</summary>
+        public bool AutoLateralCaOn
+        {
+            get => Adjustments.AutoLateralCa == ToggleMode.On;
+            set
+            {
+                if (AutoLateralCaOn == value)
+                    return;
+                Adjustments.AutoLateralCa = value ? ToggleMode.On : ToggleMode.Off;
+                OnPropertyChanged();
+                NotifyAdjustmentEdited();
+            }
+        }
+
         public EditSessionViewModel()
         {
             // Both slots share _cancelGate (#3417 Jules review) so every
