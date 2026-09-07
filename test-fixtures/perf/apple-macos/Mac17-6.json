@@ -1,0 +1,40 @@
+[
+  {
+    "cacheState" : "uncachedOpen+cachedReopen",
+    "chip" : "Apple M5 Max",
+    "coldOpenCachedMs" : 967.48058300000002,
+    "coldOpenUncachedMs" : 2992.426125,
+    "commitSha" : "10181c865a84bcff3493f873ac3d71c3ef655eac",
+    "date" : "2026-09-07T14:47:25Z",
+    "deviceId" : "Mac17-6",
+    "deviceModel" : "Mac17,6",
+    "exportFormat" : "jpeg_srgb",
+    "exportMs" : 64589.258084000001,
+    "fixture" : "dji-mavic3pro-100mp.dng",
+    "gpu" : "Apple M5 Max",
+    "harness" : "EditorWorkflowPerfTests.testRAWOpenAndContinuousDevelopAt60Hz",
+    "osVersion" : "Version 26.6.2 (Build 25G83)",
+    "platform" : "apple-macos",
+    "profile" : "auto",
+    "recordingNote" : "Recorded 2026-09-07 while three sibling agent sessions were compiling Rust and a fourth was compiling MapleCore concurrently on this Mac (#3421). This is the better of two consecutive runs; the discarded second run (cold open uncached 9475 ms, contrast tick p95 31.7 ms) is quoted in the tools/check-perf-ratchet.py header as the contention upper bound. Re-record on a quiet machine when convenient.",
+    "refreshRateHz" : 60,
+    "thermalState" : "fair",
+    "tickContrast" : {
+      "maxMs" : 16.391583000000001,
+      "over16" : 1,
+      "p50Ms" : 4.1438750000000004,
+      "p95Ms" : 10.372458,
+      "published" : 58
+    },
+    "tickExposure" : {
+      "maxMs" : 21.462416999999999,
+      "over16" : 3,
+      "p50Ms" : 5.3109999999999999,
+      "p95Ms" : 18.903749999999999,
+      "published" : 51
+    },
+    "viewportHeight" : 1280,
+    "viewportPixels" : 2457600,
+    "viewportWidth" : 1920
+  }
+]
