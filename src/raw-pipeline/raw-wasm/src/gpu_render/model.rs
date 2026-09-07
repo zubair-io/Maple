@@ -255,6 +255,16 @@ pub(super) fn build_full_chain_inputs(
         // No Web entry point drives the vectorscope scope pass yet (#3272 is
         // Apple-first) — always disabled here.
         scope: raw_gpu::ScopeRequest::default(),
+        defringe: raw_core::stages::defringe::params_from_model(model)
+            .map(|p| raw_gpu::DefringeInputs {
+                purple_strength: p.purple_strength,
+                purple_lo: p.purple_lo,
+                purple_hi: p.purple_hi,
+                green_strength: p.green_strength,
+                green_lo: p.green_lo,
+                green_hi: p.green_hi,
+            })
+            .unwrap_or_default(),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,
