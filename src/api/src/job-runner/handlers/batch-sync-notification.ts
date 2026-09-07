@@ -1,9 +1,8 @@
 /** Invalidate the selected on-disk copy, including non-primary deduplicated locations. */
 import { ObjectId } from 'mongodb';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
-import { assetChangesCollection, assetsCollection } from '../../db/client.ts';
-import { recordSidecarEdit } from '../../db/assets.repo.ts';
-import { recordAssetChange } from '../../db/changes.repo.ts';
+import { assetsCollection } from '../../db/client.ts';
+import { recordAssetChangeRow } from '../../db/changes.repo.ts';
 import { getChangeBus } from '../../runtime/change-bus.ts';
 import { getLibraryBySlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 
@@ -29,7 +28,7 @@ export async function publishBatchSidecarEdit(id: string, path: string): Promise
   const asset = library
     ? await (
         await assetsCollection()
-      ).findOne(
+      ).findOneAndUpdate(
         {
           fileinfo: {
             $elemMatch: {
@@ -40,20 +39,20 @@ export async function publishBatchSidecarEdit(id: string, path: string): Promise
             },
           },
         },
-        { projection: { _id: 1 } },
+        { $set: { has_xmp: true }, $inc: { sidecar_ver: 1 } },
+        { projection: { _id: 1 }, returnDocument: 'after' },
       )
     : null;
-  if (asset) await recordSidecarEdit(asset._id);
+  // Resolve the selected copy and bump its version atomically at publication
+  // time, so relocation cannot redirect an earlier lookup to a different file.
   // Unlike fire-and-forget editor notifications, a persisted batch can recover
   // a failed publication. Keep its ledger prepared until the durable row exists.
-  const cursor = await recordAssetChange(undefined, {
+  const change = await recordAssetChangeRow(undefined, {
     kind: 'update',
     asset_id: asset?._id ?? null,
     folder_id: folderId,
     abs_path: path,
     relative_path: relativePath,
   });
-  const change = await (await assetChangesCollection()).findOne({ cursor });
-  if (!change) throw new Error('The batch sidecar notification was not persisted');
   getChangeBus().publish(change);
 }
