@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -145,7 +144,13 @@ namespace Maple.UI
         private bool FollowActive()
         {
             var items = Items ?? Array.Empty<MuiFilmstripItem>();
-            var index = MuiFilmstripFollowLogic.IndexOf(items.Select(item => item.Id).ToList(), ActiveId);
+            var index = -1;
+            for (var i = 0; i < items.Count; i++)
+                if (items[i].Id == ActiveId)
+                {
+                    index = i;
+                    break;
+                }
             if (index < 0) return true;
             if (_scroll.ViewportHeight <= 0 || _cells[index].ActualHeight <= 0) return false;
 
