@@ -154,13 +154,11 @@ extension AppShell {
     @MainActor
     func openEditor(for asset: AssetRef) {
         // Make sure the session exists (usually pre-created by primeSessions…).
-        if sessions[asset.id] == nil {
-            // FileProvider observer drives this on Files-app picks; local
-            // files never call begin() and stay overlay-free.
-            let session = EditSession(asset: asset,
-                                      downloadProgress: DownloadProgress())
-            sessions[asset.id] = session
-            Task { await session.loadSidecar() }
+        // Same bookkeeping the editor's filmstrip sibling switch uses
+        // (`selectFilmstripSibling`, #3402) — only the landing `mode` differs.
+        let ensured = AppShellVM.ensureSession(for: asset, in: &sessions)
+        if ensured.created {
+            Task { await ensured.session.loadSidecar() }
         }
         browseVM.selectedID = asset.id
         #if os(iOS)

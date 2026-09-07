@@ -925,6 +925,10 @@ struct AppShell: View {
       // `.inspector(isPresented:)` — toggling preserves the editor's
       // armed-tool / fine-mode state (#816), unlike a column swap.
       onEditorInfo: { withAnimation { editorDetailVisible.toggle() } },
+      // #3402: a sibling picked from the editor's filmstrip rail stays in
+      // the editor — see `AppShell+FilmstripNavigation.swift`. (Routing it
+      // through `openEditor(for:)` landed on `imageOpenMode` = `.preview`.)
+      onEditorSelectAsset: { asset in selectFilmstripSibling(asset) },
       // Fast Preview §1: Preview's Edit button flips the pane shell into
       // the S5 editor for the same asset. The asset is already selected
       // (`browseVM.selectedID`), and `ensureSession` primed a session on

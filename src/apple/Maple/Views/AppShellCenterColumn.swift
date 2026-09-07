@@ -116,6 +116,13 @@ struct AppShellCenterColumn: View {
     /// used when `isFullImage` is true and `usePreview` is false; defaults to
     /// no-op. #815.
     var onEditorInfo: () -> Void = {}
+    /// S5 EditorView filmstrip-rail tap (#3402) — switch the edited asset IN
+    /// PLACE, `mode` staying `.editing`. Deliberately distinct from
+    /// `onOpenEditor`, which is the grid's open and lands on Preview
+    /// (`imageOpenMode`). Only used when `isFullImage` is true and
+    /// `usePreview` is false; defaults to no-op so the iPhone shell (which
+    /// never reaches that branch) needn't supply it.
+    var onEditorSelectAsset: (AssetRef) -> Void = { _ in }
     /// Preview's Edit button — flip the pane shell into the editor
     /// (`mode = .editing`). Only used when `usePreview` is true; defaults to
     /// no-op. Fast Preview §1.
@@ -152,7 +159,8 @@ struct AppShellCenterColumn: View {
                 // Fast static Preview surface (Fast Preview §1). Keys off the
                 // browse VM's selected AssetRef — NOT a resolved session — so
                 // it never boots a render. Prev/next + filmstrip drive
-                // `browseVM.selectedID`; Edit flips the shell to `.editing`.
+                // `browseVM.selectedID` only — `mode` stays `.preview`
+                // (#3402); Edit flips the shell to `.editing`.
                 if let previewAsset = browseVM.selectedAsset {
                     PreviewView(
                         asset: previewAsset,
@@ -172,8 +180,9 @@ struct AppShellCenterColumn: View {
                 // for the editor's lifetime — building it inline would reset
                 // armed-tool / fine-mode on every SwiftUI re-render. The
                 // filmstrip is wired from the browse VM's current asset list
-                // so siblings are tappable, matching the editor's filmstrip
-                // contract.
+                // so siblings are tappable, and a sibling tap stays in the
+                // editor (`onEditorSelectAsset`, #3402) — NOT `onOpenEditor`,
+                // whose Preview landing used to eject the user mid-edit.
                 EditorSessionHost(
                     session: session,
                     filmstripAssets: browseVM.assets,
@@ -181,7 +190,7 @@ struct AppShellCenterColumn: View {
                     onDismiss: onEditorDismiss,
                     onShare: onEditorShare,
                     onInfo: onEditorInfo,
-                    onSelectAsset: onOpenEditor
+                    onSelectAsset: onEditorSelectAsset
                 )
             } else {
                 // Fallback — if the session vanished while editing,

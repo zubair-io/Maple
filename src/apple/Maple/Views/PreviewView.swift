@@ -23,12 +23,13 @@
 //   ┌──────────────────────────────────────────────┐
 //   │  ‹  filename                      histogram?  │  ← header (§6 max-width)
 //   │  ┌──────┐                                     │
-//   │  │ film │            FIT IMAGE                │  ← body + left filmstrip (regular)
-//   │  │ strip│                                     │
+//   │  │ film │            FIT IMAGE                │  ← body + left `FilmstripRail`
+//   │  │ rail │                                     │    (regular — the editor's rail, #3402)
 //   │  └──────┘                                     │
 //   │            [ Flag ]  [ Edit ]  [ Info ]       │  ← bottom bar
 //   └──────────────────────────────────────────────┘
-// On compact (iPhone) the filmstrip moves to a horizontal strip above the bar.
+// On compact (iPhone) the filmstrip is the horizontal `FilmstripView` above
+// the bar instead.
 //
 // Prev/next: horizontal swipe (touch) and ←/→ (desktop) move through the
 // current folder's assets, wrapping. Pure selection logic lives in
@@ -101,29 +102,50 @@ struct PreviewView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Body: fit-to-screen still. `FilmstripView` is the shared
-                // HORIZONTAL strip (spec §4 mandates reusing it), so it sits as
-                // a band above the action bar on every size class rather than
-                // as a left rail — a horizontal strip in a left column would
-                // need a separate vertical component. (Divergence from the
-                // "left filmstrip" wording noted in the design doc.)
+                // Body: fit-to-screen still. On regular (iPad/Mac) the SAME
+                // vertical `FilmstripRail` the editor mounts on its leading
+                // edge floats over the image here too (#3402) — one rail
+                // component, one placement, so tapping Edit doesn't move the
+                // strip and a sibling tap on either surface stays on that
+                // surface. On compact (iPhone) the horizontal `FilmstripView`
+                // stays as a band above the action bar.
                 //
-                // The prev/next swipe is scoped to the IMAGE area only — NOT the
-                // whole container — so it doesn't compete with `FilmstripView`'s
-                // own horizontal `ScrollView` (a container-wide DragGesture would
-                // swallow the filmstrip's horizontal drags and make it
-                // un-scrollable). Copilot review #1810.
-                imageBody
-                    .padding(.horizontal, isRegular ? 16 : 8)
-                    .offset(y: dismissTranslation)
-                    .scaleEffect(dismissScale)
+                // The prev/next swipe is scoped to the IMAGE area only — NOT
+                // the whole container — so it doesn't compete with either
+                // strip's own `ScrollView` (a container-wide DragGesture
+                // would swallow the strip's drags and make it un-scrollable).
+                // Copilot review #1810. The rail is a ZStack sibling sized to
+                // its own glass panel: the `.frame(maxWidth:maxHeight:)`
+                // wrapper carries no background or content shape, so hits
+                // outside the panel fall straight through to the image body's
+                // swipe / pager.
+                ZStack {
+                    imageBody
+                        .padding(.horizontal, isRegular ? 16 : 8)
+                        .offset(y: dismissTranslation)
+                        .scaleEffect(dismissScale)
 
-                FilmstripView(
-                    assets: assets,
-                    activeID: asset.id,
-                    source: source,
-                    onSelect: onSelectAsset
-                )
+                    if isRegular {
+                        FilmstripRail(
+                            assets: assets,
+                            activeID: asset.id,
+                            source: source,
+                            identifierPrefix: "preview",
+                            onSelect: onSelectAsset
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                        .padding(.leading, 12)
+                    }
+                }
+
+                if !isRegular {
+                    FilmstripView(
+                        assets: assets,
+                        activeID: asset.id,
+                        source: source,
+                        onSelect: onSelectAsset
+                    )
+                }
 
                 PreviewActionBar(
                     // Flag still primes the (pipeline-free) session ON TAP —
@@ -149,7 +171,7 @@ struct PreviewView: View {
         // Keyboard prev/next (desktop). `.focusable()` makes the surface a key
         // target; the arrow handlers move selection through the folder. (The
         // touch prev/next swipe is attached to `imageBody` above, not here, so
-        // it doesn't steal the filmstrip's horizontal scroll.)
+        // it doesn't steal either filmstrip's scroll.)
         .focusable(isRegular)
         .onKeyPress(.leftArrow) { stepPrevious(); return .handled }
         .onKeyPress(.rightArrow) { stepNext(); return .handled }
@@ -426,118 +448,8 @@ private struct PreviewActionGlass: ViewModifier {
     }
 }
 
-// MARK: - Flag / Info presentation modifiers
-
-/// Flag surface: popover on regular (desktop/iPad), bottom sheet on compact
-/// (iPhone). Both host the shared `RatingFlagsRow`. Split into a modifier so
-/// the platform branch stays out of `PreviewView.body`.
-private struct FlagPresentation: ViewModifier {
-    @Binding var isPresented: Bool
-    let isRegular: Bool
-    let session: EditSession?
-
-    func body(content: Content) -> some View {
-        if isRegular {
-            content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                RatingFlagsRow(session: session)
-                    .padding(16)
-                    .frame(minWidth: 280)
-                    .background(MapleTokens.surface)
-            }
-        } else {
-            #if os(iOS)
-            content.mapleBottomSheet(isPresented: $isPresented) {
-                RatingFlagsRow(session: session)
-                    .padding(20)
-            }
-            #else
-            content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                RatingFlagsRow(session: session).padding(16).frame(minWidth: 280)
-            }
-            #endif
-        }
-    }
-}
-
-/// Info surface: a docked `.inspector` column on regular, bottom sheet on
-/// compact — mirroring how `AppShellMacLayout` presents the editor's
-/// `DetailPanel` (same modifier, same `.inspectorColumnWidth` clamps) so
-/// Preview's pane and the editor's pane read as one thing. Reuses
-/// `InfoPanelView` (the S6 panel) directly.
-private struct InfoPresentation: ViewModifier {
-    @Binding var isPresented: Bool
-    let isRegular: Bool
-    let session: EditSession?
-
-    // Sheet / popover content does NOT inherit custom `EnvironmentKey`
-    // values from the presenter the way an inline child does, so the
-    // cloud clients injected at the AppShell root (#633 histogram, #2212
-    // enrichment) arrive `nil` inside the presented `InfoPanelView` —
-    // leaving the description / OCR / transcript section blank on iPhone
-    // even for a Self-Hosted asset. Read them here (this modifier IS in
-    // the AppShell environment) and re-inject them onto the presented
-    // content below. An inspector's content is part of the view tree rather
-    // than a separate presentation, so it would inherit these anyway — the
-    // explicit re-injection just keeps the regular/compact branches from
-    // diverging in a way a later reader has to re-derive.
-    @Environment(\.cloudAssetDetailClient) private var detailClient
-    @Environment(\.cloudHistogramClient) private var histogramClient
-    // #2518 — same sheet non-inheritance applies to the reveal-folder action
-    // (clickable path row) and the search action (tappable face names) that
-    // the info pane invokes; re-inject both.
-    @Environment(\.revealFolderAction) private var revealFolder
-    @Environment(\.searchForText) private var searchForText
-    // #2638 — the filename row's rename affordance needs the same
-    // re-injection across this inspector/sheet/popover boundary.
-    @Environment(\.assetRename) private var assetRename
-
-    func body(content: Content) -> some View {
-        if isRegular {
-            content
-                .inspector(isPresented: $isPresented) {
-                    InfoPanelView(
-                        session: session,
-                        isInsideSheet: false,
-                        showsCullingAndHistogram: false
-                    )
-                    .environment(\.cloudAssetDetailClient, detailClient)
-                    .environment(\.cloudHistogramClient, histogramClient)
-                    .environment(\.revealFolderAction, revealFolder)
-                    .environment(\.searchForText, searchForText)
-                    .environment(\.assetRename, assetRename)
-                    // Same clamps `AppShellMacLayout` applies to the
-                    // editor's `DetailPanel` inspector.
-                    .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
-                }
-        } else {
-            #if os(iOS)
-            content.sheet(isPresented: $isPresented) {
-                InfoPanelView(
-                    session: session,
-                    isInsideSheet: false,
-                    showsCullingAndHistogram: false
-                )
-                .environment(\.cloudAssetDetailClient, detailClient)
-                .environment(\.cloudHistogramClient, histogramClient)
-                .environment(\.revealFolderAction, revealFolder)
-                    .environment(\.searchForText, searchForText)
-                    .environment(\.assetRename, assetRename)
-                .presentationDetents([.medium, .large])
-            }
-            #else
-            content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                InfoPanelView(session: session, isInsideSheet: false)
-                    .frame(width: 320, height: 480)
-                    .environment(\.cloudAssetDetailClient, detailClient)
-                    .environment(\.cloudHistogramClient, histogramClient)
-                    .environment(\.revealFolderAction, revealFolder)
-                    .environment(\.searchForText, searchForText)
-                    .environment(\.assetRename, assetRename)
-            }
-            #endif
-        }
-    }
-}
+// `FlagPresentation` / `InfoPresentation` live in PreviewView+Presentation.swift
+// (file-size budget, #3402).
 
 // MARK: - Previews
 
