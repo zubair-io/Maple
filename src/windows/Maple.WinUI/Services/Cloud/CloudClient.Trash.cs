@@ -111,7 +111,15 @@ namespace Maple.WinUI.Services.Cloud
         /// streaming consumers (the Cloud Files hydration callback) that
         /// must not spool the whole RAW to disk first. The caller owns the
         /// response and must dispose it — the content stream dies with it.
-        /// Null on any non-success status.</summary>
+        /// Null on any non-success status.
+        ///
+        /// Stays on /api/fs/raw rather than /api/image/:slug/* for the same
+        /// reason as <see cref="DownloadOriginalAsync"/>: the #926 mirror
+        /// failover lives only on the legacy route, and the placeholder
+        /// identity Explorer hands back is the absolute server path the
+        /// /api/fs/dir listing named the file by. Neither route honours a
+        /// Range header — the sync root's FULL hydration policy asks for the
+        /// whole file from offset 0, which is what the body stream is.</summary>
         public async Task<HttpResponseMessage?> OpenOriginalAsync(
             string serverAbsPath, CancellationToken ct)
         {

@@ -22,9 +22,15 @@ namespace Maple.WinUI.Services.Cloud
 
         /// <summary>Stream the original RAW/image into the local cache and
         /// return its path (GET /api/fs/raw?path= — the same route the Apple
-        /// cloud source uses; mirror-aware and ETag'd server-side). A cached
-        /// copy matching the server-reported size is reused without a request.
-        /// Progress is (bytesReceived, totalBytes; total -1 when unknown).</summary>
+        /// cloud source uses; ETag'd server-side). A cached copy matching the
+        /// server-reported size is reused without a request. Progress is
+        /// (bytesReceived, totalBytes; total -1 when unknown).
+        ///
+        /// Deliberately not the unified GET /api/image/:slug/* (#1325): only
+        /// /api/fs/raw carries the #926 mirror read-failover, so an
+        /// unmounted primary volume still opens from the library's mirror
+        /// here. Cut over once the server ports that failover to
+        /// /api/image — a one-line route swap on this side.</summary>
         public async Task<string?> DownloadOriginalAsync(
             string serverAbsPath, long expectedSize,
             Action<long, long>? progress, CancellationToken ct)

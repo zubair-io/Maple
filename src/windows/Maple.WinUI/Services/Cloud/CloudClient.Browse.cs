@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace Maple.WinUI.Services.Cloud
 {
     /// <summary>Library browsing (folders + one directory level at a time,
-    /// the same routes every other platform's cloud source walks) and
+    /// the same routes the Apple cloud source walks) and address-keyed
     /// thumb/preview fetch into the local AVIF disk cache.</summary>
     public sealed partial class CloudClient
     {
@@ -21,10 +21,20 @@ namespace Maple.WinUI.Services.Cloud
             GetJsonAsync<CloudFolder[]>("api/folders", ct);
 
         /// <summary>One directory level (GET /api/fs/dir) — the same endpoint
-        /// the Apple cloud source browses with, so Windows sees exactly the
-        /// tree Finder does. Pass the previous page's NextCursor to continue a
-        /// large directory; omitting both cursor and limit asks for the whole
-        /// listing in one shot (the server's historical default).</summary>
+        /// the Apple cloud source and File Provider browse with, so Windows
+        /// sees exactly the tree Finder does. Pass the previous page's
+        /// NextCursor to continue a large directory; omitting both cursor and
+        /// limit asks for the whole listing in one shot (the server's
+        /// historical default).
+        ///
+        /// Still path-addressed after the #1325 cutover: the unified
+        /// `/api/folder/:slug/*` listing carries no size, mtime or EXIF, and
+        /// no absolute path — and the absolute path is what keys every
+        /// non-browse route this client still speaks (`/api/xmp?path=`,
+        /// `/api/preview?path=`, `/api/assets/by-fspath`) as well as the
+        /// Cloud Files placeholders, whose FileSize must be right for
+        /// hydration to complete. Moves once `/api/folder` grows those
+        /// fields (server work, tracked on #1325).</summary>
         public async Task<CloudDirListing?> ListDirAsync(
             string absPath, string? cursor, int limit, CancellationToken ct)
         {
@@ -52,25 +62,18 @@ namespace Maple.WinUI.Services.Cloud
         // --- Images (AVIF, disk-cached) ---
 
         /// <summary>Fetch a thumb (512px) or preview (1280px) AVIF into the
-        /// local cache and return its path. 202 means still indexing — retried
-        /// once after the advertised delay; null on failure.</summary>
+        /// local cache and return its path — GET /api/thumb/:slug/* and
+        /// /api/preview/:slug/*, the unified `slug:relPath` routes the web
+        /// grid reads, so the Windows browse grid hits the same server cache
+        /// entry. The thumb route renders a file the indexer hasn't reached
+        /// yet on the fly; the preview route answers 202 until the asset is
+        /// catalogued (the /api/fs/dir listing enqueues a discover scan for
+        /// every un-indexed file it returns, so that window is short) —
+        /// retried once after the advertised delay; null on failure.</summary>
         public Task<string?> FetchImageAsync(
             string kind, string address, CancellationToken ct) =>
             FetchCachedImageAsync(
                 kind, $"{kind}|{address}", $"api/{kind}/{EncodeAddress(address)}", ct);
-
-        /// <summary>The path-addressed variant (GET /api/fs/thumb,
-        /// /api/fs/preview) used by the folder browser, matching the Apple
-        /// cloud source. The `/api/{kind}/{address}` form above needs an
-        /// indexed asset with a registered slug; the filesystem walk hands us
-        /// absolute paths and has to render files the indexer hasn't reached
-        /// yet, so the browse grid addresses images the way it listed
-        /// them.</summary>
-        public Task<string?> FetchFsImageAsync(
-            string kind, string absPath, CancellationToken ct) =>
-            FetchCachedImageAsync(
-                kind, $"fs|{kind}|{absPath}",
-                $"api/fs/{kind}?path={Uri.EscapeDataString(absPath)}", ct);
 
         private async Task<string?> FetchCachedImageAsync(
             string kind, string cacheKey, string route, CancellationToken ct)
