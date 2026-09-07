@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Maple.WinUI.Services.Cloud;
 using Xunit;
@@ -37,5 +40,40 @@ public class CloudTimelineModelsTests
         Assert.Null(photo.CapturedAt);
         Assert.Null(photo.Camera);
         Assert.Null(photo.Address);
+    }
+
+    [Fact]
+    public void FractionalFilesystemMtimeIsAcceptedWithoutRejectingThePage()
+    {
+        var page = JsonSerializer.Deserialize<CloudTimelinePage>("""
+            {"results":[{"filename":"one.dng","mtime":1704067200123.456}],"nextCursor":null}
+            """)!;
+        var photo = Assert.Single(page.Results);
+        Assert.Equal(1704067200123.456, photo.Mtime);
+        Assert.Equal(new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMilliseconds(123),
+            DateTimeOffset.FromUnixTimeMilliseconds((long)photo.Mtime));
+    }
+
+    [Fact]
+    public void PagingRemovesOverlapsAndDuplicatesInServerOrderWithOneExistingPathScan()
+    {
+        var reads = 0;
+        IEnumerable<string> ExistingPaths()
+        {
+            for (var i = 0; i < 10_000; i++)
+            {
+                reads++;
+                yield return $"/archive/{i}.dng";
+            }
+        }
+        var page = new CloudTimelinePage
+        {
+            Results = new[] { "/archive/0.dng", "/archive/new.dng", "/archive/9999.dng",
+                "/archive/new.dng", "/archive/NEW.dng", "/archive/last.dng" }
+                .Select(path => new CloudTimelinePhoto { Path = path }).ToArray(),
+        };
+        Assert.Equal(new[] { "/archive/new.dng", "/archive/NEW.dng", "/archive/last.dng" },
+            page.NewPhotos(ExistingPaths()).Select(photo => photo.Path));
+        Assert.Equal(10_000, reads);
     }
 }
