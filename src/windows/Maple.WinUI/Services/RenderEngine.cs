@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
+using Maple.WinUI.Services.Metadata;
 
 namespace Maple.WinUI.Services
 {
@@ -130,7 +131,13 @@ namespace Maple.WinUI.Services
         /// <summary>
         /// Decode a RAW into a scene-linear f32 base, honoring the sidecar's
         /// decode-owned fields (lens corrections, capture sharpening, AE, ...)
-        /// with chain-owned fields stripped.
+        /// with chain-owned fields stripped. This decode feeds BOTH display
+        /// phases — the refine (settled) pass directly, and the fast
+        /// slider-tick pass via a further software 2× downsample
+        /// (<see cref="DownsampleHalf"/>) — so its own quality is sized as
+        /// the refine phase: <see cref="RefineDecodeQuality"/> escalates to
+        /// AMaZE when <paramref name="maxLongEdge"/> needs more detail than
+        /// Preview's own half-native-resolution cap can deliver (#3417).
         /// </summary>
         public static DecodedImage Decode(
             string rawPath, AdjustmentState model, int maxLongEdge, IntPtr cancelFlag)
@@ -143,9 +150,10 @@ namespace Maple.WinUI.Services
             File.WriteAllText(tempXmpPath, strippedXmp);
             try
             {
+                var quality = RefineDecodeQuality.ForTarget(NativeLongEdge(rawPath), maxLongEdge);
                 var buffer = new MapleSceneLinearBufferF32();
                 var rc = RawFfi.maple_render_file_scene_linear_sized_f32(
-                    rawPath, tempXmpPath, (uint)maxLongEdge, 1, cancelFlag, &buffer);
+                    rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &buffer);
                 if (rc != 0)
                     throw new InvalidOperationException(
                         $"scene-linear decode failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
@@ -175,7 +183,7 @@ namespace Maple.WinUI.Services
                     if (stripped.Profile == ProfileMode.Auto)
                         FitAutoProfile(decoded, rawPath, tempXmpPath);
                     DiagLog.Write(
-                        $"[decode] {System.IO.Path.GetFileName(rawPath)} ae_gain={decoded.AeGain:0.###} " +
+                        $"[decode] {System.IO.Path.GetFileName(rawPath)} quality={quality} ae_gain={decoded.AeGain:0.###} " +
                         $"curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
                         $"residual_n={decoded.ResidualLutSize} displayLut={(decoded.DisplayLut != null ? "yes" : "no")}");
                     return decoded;
@@ -189,6 +197,16 @@ namespace Maple.WinUI.Services
             {
                 try { File.Delete(tempXmpPath); } catch (IOException) { }
             }
+        }
+
+        /// <summary>Sensor long edge (px), read from the file's EXIF/TIFF
+        /// IFDs without a decode — <see cref="RefineDecodeQuality"/>'s
+        /// reference for the escalation decision (#3417). 0 when unreadable,
+        /// which keeps the rule at its conservative Preview default.</summary>
+        private static double NativeLongEdge(string rawPath)
+        {
+            var exif = ExifReader.Read(rawPath);
+            return Math.Max(exif?.PixelWidth ?? 0, exif?.PixelHeight ?? 0);
         }
 
         /// <summary>

@@ -231,6 +231,13 @@
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\MaskLayerSelectionLogic.cs" LinkBase="Services" />
+    <!-- RefineDecodeQuality.cs (#3417) — the refine-escalation rule
+         RenderEngine.Decode calls — and its own dependency,
+         Metadata\ExifReader.cs, the EXIF/TIFF-IFD reader RenderEngine.Decode
+         uses to size the sensor's native long edge without a decode. Both
+         plain System.IO / System.Text, no WinUI. -->
+    <Compile Include="..\Maple.WinUI\Services\RefineDecodeQuality.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\Metadata\ExifReader.cs" LinkBase="Services\Metadata" />
     <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
     <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
     <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />
