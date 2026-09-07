@@ -88,6 +88,41 @@ final class BatchAdjustmentSessionTests: XCTestCase {
       session.model.exposure, 2.25,
       "A retry must not replay the stale persisted snapshot over the winning edit")
   }
+
+  func testMaskRestorationDoesNotPublishOrOverwritePartialHydration() async throws {
+    let gate = SuspendedBytesProvider()
+    let recipe = BitmapRecipe(
+      person: 0, facialSkin: true, bodySkin: true,
+      model: "apple-vision-person-instance/1", digest: "batch-hydration-raster-race")
+    var persisted = AdjustmentModel.default
+    persisted.vibrance = 31
+    persisted.localAdjustments = [
+      LocalAdjustment(
+        mask: .bitmap(recipe: recipe, rasterId: 0), range: .skinTone,
+        adjustments: PartialAdjustments(exposure: 0.4))
+    ]
+    let asset = AssetRef(
+      displayName: "remote.png", hintExtension: "png",
+      bytesProvider: { await gate.bytes() })
+    let session = EditSession(
+      asset: asset, remoteSidecarStore: ImmediateHydrationStore(model: persisted))
+    let load = Task { await session.loadSidecar() }
+    await gate.waitUntilRequested()
+
+    XCTAssertFalse(
+      session.hasLoadedSidecar,
+      "Raster restoration must not expose the still-default model as hydrated")
+    session.beginEdit(description: "Exposure")
+    session.model.exposure = 2.25
+    session.endEdit()
+    await gate.release()
+    await load.value
+
+    XCTAssertEqual(session.model.exposure, 2.25)
+    XCTAssertNotEqual(session.model.vibrance, persisted.vibrance)
+    XCTAssertTrue(session.hasLoadedSidecar)
+  }
+
   func testLateCopyReadCannotReplaceTheLatestRequestedPhoto() {
     let clipboard = AdjustmentClipboard()
     let old = clipboard.beginCopyRequest()
@@ -100,6 +135,41 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     XCTAssertNil(clipboard.contents)
   }
 
+}
+
+private actor ImmediateHydrationStore: SidecarStoreProtocol {
+  private let value: (AdjustmentModel, CullingState)
+
+  init(model: AdjustmentModel) {
+    value = (model, CullingState())
+  }
+
+  func load() async throws -> (AdjustmentModel, CullingState) { value }
+  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? { value }
+  func update(model: AdjustmentModel, culling: CullingState) {}
+  func flush() async {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {}
+  func errors() -> AsyncStream<Error> { AsyncStream { $0.finish() } }
+}
+
+private actor SuspendedBytesProvider {
+  private var requested = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func bytes() async -> Data {
+    requested = true
+    await withCheckedContinuation { continuation = $0 }
+    return Data()
+  }
+
+  func waitUntilRequested() async {
+    while !requested { await Task.yield() }
+  }
+
+  func release() {
+    continuation?.resume()
+    continuation = nil
+  }
 }
 
 private actor SuspendedHydrationStore: SidecarStoreProtocol {
