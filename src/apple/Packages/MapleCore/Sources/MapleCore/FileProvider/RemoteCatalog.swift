@@ -743,6 +743,12 @@ public actor RemoteCatalog {
         }
     }
 
+    /// Enumerator listing for one directory. Stays on the path-addressed
+    /// `/api/fs/dir` (#1325): `/api/folder/:slug/*` returns only
+    /// `mapleId`/`indexed` per entry, with no size, ext, mtime, EXIF,
+    /// paired sidecars, non-image `files`, or cursor paging — every one of
+    /// which `MapleItem`/`MapleEnumerator` publish items on. Moving this
+    /// needs a richer `/api/folder` first.
     public func listDir(absolutePath: String,
                         cursor: String? = nil,
                         limit: Int? = nil) async throws -> DirContents {
