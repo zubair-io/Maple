@@ -460,63 +460,6 @@ public final class EditorState {
   public func undo() { session.undo() }
   public func redo() { session.redo() }
 
-  /// Reset only the armed (tool, subParam) pair to its canonical
-  /// default. Defaults mirror the generated `AdjustmentModel` field
-  /// defaults (Color NR = 25, Sharpen = 40, Temp = 6500) so a fresh
-  /// asset never reads as "modified" and reset returns to the same
-  /// value the model was born with. On a multi-param tool only the
-  /// ARMED sub-param resets — the others keep their values (#1108).
-  public func resetArmedTool() {
-    // The guard skips wired-but-value-less tools (presets, #1115) so
-    // they can't push junk undo entries.
-    guard armedToolAcceptsValueEdits else { return }
-    // A reset is an explicit, discrete edit — it always writes through,
-    // even for a commit-on-release sub-param (#1153).
-    cancelGesture()
-    commit(kind: .reset, description: "Reset \(armedTool.displayName)")
-    if let sub = armedSubParam {
-      setArmedDisplayValue(sub.defaultDisplayValue)
-    } else {
-      setArmedDisplayValue(ToolValueMapping.defaultDisplayValue(for: armedTool))
-    }
-    session.endEdit()
-  }
-
-  /// Reset every tool in `group` to its canonical default as a SINGLE
-  /// undo boundary: compute the reset, then batch-apply changed defaults
-  /// without arming each tool (arming per tool would spawn extra
-  /// crop-session transitions and undo entries).
-  ///
-  /// Tools with a tool-level display range reset through
-  /// `ToolValueMapping` exactly as before. Tools that have NO
-  /// tool-level range but do declare sub-params — HSL is the only one
-  /// (#274), with 24 band fields and no primary — reset every declared
-  /// sub-param instead; otherwise "Reset Color" would silently leave
-  /// all 24 HSL fields set. Multi-param tools that DO have a
-  /// tool-level range keep their existing primary-only semantics.
-  public func resetGroup(_ group: ToolGroup) {
-    let tools = Tool.tools(in: group).filter(\.isWired)
-    guard !tools.isEmpty else { return }
-    var reset = session.model
-    for tool in tools {
-      if ToolValueMapping.displayRange(for: tool) != nil {
-        ToolValueMapping.apply(
-          ToolValueMapping.defaultDisplayValue(for: tool),
-          to: &reset,
-          tool: tool
-        )
-      } else {
-        for sub in tool.subParams {
-          reset[keyPath: sub.keyPath] = sub.defaultDisplayValue
-        }
-      }
-    }
-    guard reset != session.model else { return }
-    commit(kind: .reset, description: "Reset \(group.displayName)")
-    session.model = reset
-    session.endEdit()
-  }
-
   // `resetAll()` — a thin wrapper over `session.resetToOriginal()`, i.e.
   // "revert to the model as it was at session open" — was removed in #2244.
   // It read like the epic's RESET but was strictly weaker: on an image that
