@@ -133,6 +133,10 @@ struct StackedAdjustmentsPanel: View {
         }
         if group == .detail {
           toolSection(.lensCorrections) { LensCorrectionsSection(state: state) }
+          // Defringe (#3411) — six sub-params and no single primary field,
+          // so the living-slider stack above filters it out and this section
+          // is its only route inside the inspector, exactly like Lens above.
+          toolSection(.defringe) { DefringeSection(state: state) }
           // Manual geometry (#3410) — seven sliders and no single primary
           // field, so the living-slider stack above filters it out and this
           // section is its only route inside the inspector.
