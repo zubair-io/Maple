@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Maple.UI;
 using Maple.WinUI.Models;
+using Maple.WinUI.Services;
 
 namespace Maple.WinUI
 {
@@ -155,7 +156,7 @@ namespace Maple.WinUI
             if (index < 0 || index >= layers.Count)
                 return;
             layers.RemoveAt(index);
-            _selectedMaskIndex = layers.Count == 0 ? -1 : Math.Min(index, layers.Count - 1);
+            _selectedMaskIndex = MaskLayerSelectionLogic.AfterDelete(_selectedMaskIndex, index, layers.Count);
             ViewModel.NotifyAdjustmentEdited();
             SyncMaskFromModel();
         }
