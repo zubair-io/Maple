@@ -484,7 +484,7 @@ fn warp_source(
 /// Bilinear sample at continuous ActiveArea coords, sticky-edge clamped
 /// to the active rect (dng_sdk boundary behavior).
 #[inline]
-fn bilinear_aa(
+pub(crate) fn bilinear_aa(
     src: &[[f32; 3]],
     width: usize,
     aa_top: usize,
@@ -517,7 +517,7 @@ fn bilinear_aa(
 /// CA) warp path, where each channel samples a different position.
 #[inline]
 #[allow(clippy::too_many_arguments)] // mirrors bilinear_aa's geometry args + channel
-fn bilinear_aa_ch(
+pub(crate) fn bilinear_aa_ch(
     src: &[[f32; 3]],
     width: usize,
     aa_top: usize,

@@ -279,6 +279,8 @@ pub struct RawImage {
     pub aperture: Option<f32>,
     /// Focal length in mm extracted from EXIF.
     pub focal_length: Option<f32>,
+    /// Decode-derived lens identity and unrotated calibration bounds (#2435).
+    pub lens_metadata: crate::lens_profile::LensMetadata,
 }
 
 impl RawImage {

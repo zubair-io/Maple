@@ -17,6 +17,7 @@
 
 import { Elysia } from 'elysia';
 import { requireAuth } from '../auth/middleware.ts';
+import { lensProfileRoutes } from './lens-profiles.ts';
 import { foldersRoutes } from './folders.ts';
 import { foldersTrashRoutes } from './folders-trash.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
@@ -62,6 +63,7 @@ import { libraryRoutes } from './library/index.ts';
 
 export const authedApi = new Elysia({ name: 'authedApi' })
   .use(requireAuth)
+  .use(lensProfileRoutes)
   // PhotoKit-backup routes — chunked ingest, reconciliation/dedup
   // probes, sidecar + rendered-companion uploads, and deletion
   // reconciliation. Gated behind requireAuth (#853): they accept file

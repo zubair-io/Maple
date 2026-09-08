@@ -51,6 +51,7 @@ fn make_raw(as_shot_neutral: [f32; 3]) -> RawImage {
         opcode_list3: None,
         aperture: None,
         focal_length: None,
+        lens_metadata: Default::default(),
     }
 }
 

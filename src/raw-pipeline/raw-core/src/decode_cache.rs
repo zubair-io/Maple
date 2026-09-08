@@ -290,6 +290,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         })
     }
 
