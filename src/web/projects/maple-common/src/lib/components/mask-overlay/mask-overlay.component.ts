@@ -32,9 +32,8 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { MaskSessionService } from './mask-session.service';
 import { isGeometricMask, type LocalMask, type MaskPoint } from '../../models/local-adjustment';
-import { defaultCrop } from '../../models/adjustment-model';
-import { fitFootprint, type Footprint } from '../crop-overlay/crop-geometry';
-import { focusedImageDims, hostLocalPoint, observeHostSize } from '../crop-overlay/overlay-host';
+import type { Footprint } from '../crop-overlay/crop-geometry';
+import { OverlayDrag, OverlayPlacement } from '../crop-overlay/overlay-host';
 import {
   MASK_HANDLE_NAME,
   type MaskCanvasMap,
@@ -44,7 +43,6 @@ import {
   ellipseOutline,
   evaluateMaskWeight,
   hitTestMaskHandle,
-  makeMaskCanvasMap,
   maskFromScreen,
   maskHandles,
   maskToScreen,
@@ -92,36 +90,13 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   protected readonly session = inject(MaskSessionService);
 
   private readonly tintCanvas = viewChild<ElementRef<HTMLCanvasElement>>('tint');
-  private readonly wrapW = signal(0);
-  private readonly wrapH = signal(0);
-  private ro?: ResizeObserver;
-  private drag: DragState | null = null;
+  private readonly drag = new OverlayDrag<DragState>();
 
-  private readonly imgDims = focusedImageDims(this.library);
-
-  private readonly crop = computed(() => {
-    const a = this.library.focusedAsset();
-    return a ? this.library.adjustmentFor(a.id)().crop : defaultCrop();
-  });
-
-  /** Displayed (cropped) image dimensions — the extent the canvas fits. */
-  private readonly displayDims = computed(() => {
-    const { w, h } = this.imgDims();
-    const c = this.crop();
-    const cw = (c.right - c.left) * w;
-    const ch = (c.bottom - c.top) * h;
-    return cw > 0 && ch > 0 ? { w: cw, h: ch } : { w, h };
-  });
-
-  protected readonly footprint = computed<Footprint>(() => {
-    const { w, h } = this.displayDims();
-    return fitFootprint(this.wrapW(), this.wrapH(), w, h);
-  });
-
-  protected readonly map = computed<MaskCanvasMap>(() => {
-    const { w, h } = this.imgDims();
-    return makeMaskCanvasMap(this.footprint(), this.crop(), w, h);
-  });
+  /** Host size, applied crop, fit footprint and the full-frame ↔ screen map
+   *  — shared with every other canvas overlay (`overlay-host.ts`). */
+  private readonly placement = new OverlayPlacement(() => this.host.nativeElement, this.library);
+  protected readonly footprint = this.placement.footprint;
+  protected readonly map = this.placement.map;
 
   protected readonly mask = computed<LocalMask | null>(() => this.session.selected()?.mask ?? null);
 
@@ -196,11 +171,11 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    this.ro = observeHostSize(this.host.nativeElement, this.wrapW, this.wrapH);
+    this.placement.observe();
   }
 
   ngOnDestroy(): void {
-    this.ro?.disconnect();
+    this.placement.destroy();
   }
 
   // ── Pointer interaction ────────────────────────────────────────────────
@@ -213,32 +188,30 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     if (!handle) return;
     // One undo entry per gesture — opened before the first mutation lands.
     this.session.beginGesture();
-    this.drag = { handle, startMask: mask, anchor: maskFromScreen(this.map(), px, py) };
-    (ev.target as Element).setPointerCapture?.(ev.pointerId);
-    ev.preventDefault();
+    this.drag.begin(ev, {
+      handle,
+      startMask: mask,
+      anchor: maskFromScreen(this.map(), px, py),
+    });
   }
 
   protected onPointerMove(ev: PointerEvent): void {
-    if (!this.drag) return;
+    const drag = this.drag.active;
+    if (!drag) return;
     const { px, py } = this.localPoint(ev);
     const point = maskFromScreen(this.map(), px, py);
-    this.session.setShape(
-      dragMaskHandle(this.drag.startMask, this.drag.handle, point, this.drag.anchor),
-    );
+    this.session.setShape(dragMaskHandle(drag.startMask, drag.handle, point, drag.anchor));
     ev.preventDefault();
   }
 
   protected onPointerUp(ev: PointerEvent): void {
-    if (!this.drag) return;
-    this.drag = null;
-    this.session.endGesture();
-    (ev.target as Element).releasePointerCapture?.(ev.pointerId);
+    this.drag.end(ev, this.session);
   }
 
   protected readonly cursor = signal<string>('default');
 
   protected onHover(ev: PointerEvent): void {
-    if (this.drag) return;
+    if (this.drag.active) return;
     const mask = this.mask();
     const { px, py } = this.localPoint(ev);
     const handle = mask ? hitTestMaskHandle(px, py, mask, this.map(), HANDLE_TOLERANCE) : null;
@@ -246,7 +219,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   private localPoint(ev: PointerEvent): { px: number; py: number } {
-    return hostLocalPoint(this.host.nativeElement, ev);
+    return this.placement.localPoint(ev);
   }
 }
 
