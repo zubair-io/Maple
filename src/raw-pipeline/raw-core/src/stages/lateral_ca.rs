@@ -364,7 +364,20 @@ pub fn apply(
     if mode == AutoLateralCa::Off {
         return none;
     }
-    mosaic.assert_space(ColorSpace::CameraNativeMosaic);
+    // A HARD assert, not the usual `assert_space` (which is a
+    // `debug_assert` and so vanishes in release). This stage reads and
+    // writes through `CfaPattern::color_at`, which only means anything
+    // while one channel lives at each site: run it on a demosaiced buffer
+    // and it would quietly rewrite a third of the pixels using a lattice
+    // that no longer exists — wrong output, no crash, on exactly the
+    // release builds users have. The develop chain calls it between
+    // `hot_pixel` and `demosaic` for that reason; this makes a future
+    // re-ordering fail loudly instead. One enum compare per develop.
+    assert_eq!(
+        mosaic.space,
+        ColorSpace::CameraNativeMosaic,
+        "lateral_ca::apply is a raw-domain stage and must run BEFORE demosaic"
+    );
     debug_assert_ne!(
         cfa,
         CfaPattern::LinearRgb,
