@@ -202,22 +202,20 @@ fn wgsl_defringe_matches_raw_core_stage_within_1e_4() {
 fn the_engagement_gate_matches_raw_cores_predicate() {
     assert!(!DefringeInputs::default().is_engaged());
     assert!(!DefringeInputs::per_mask(0.0).is_engaged());
-    assert!(raw_core::stages::defringe::params_from_values(
-        [0.0, 30.0, 70.0],
-        [0.0, 40.0, 60.0]
-    )
-    .is_none());
+    assert!(
+        raw_core::stages::defringe::params_from_values([0.0, 30.0, 70.0], [0.0, 40.0, 60.0])
+            .is_none()
+    );
     assert!(DefringeInputs::per_mask(1.0).is_engaged());
     assert!(DefringeInputs {
         purple_strength: 0.05,
         ..DefringeInputs::default()
     }
     .is_engaged());
-    assert!(raw_core::stages::defringe::params_from_values(
-        [1.0, 30.0, 70.0],
-        [0.0, 40.0, 60.0]
-    )
-    .is_some());
+    assert!(
+        raw_core::stages::defringe::params_from_values([1.0, 30.0, 70.0], [0.0, 40.0, 60.0])
+            .is_some()
+    );
 }
 
 /// The per-mask constructor must produce exactly the normalisation
@@ -227,7 +225,10 @@ fn per_mask_normalisation_matches_raw_core() {
     for amount in [0.0_f32, 1.0, 37.5, 100.0, 250.0] {
         let mine = DefringeInputs::per_mask(amount);
         let theirs = raw_core::stages::defringe::DefringeParams::per_mask(amount);
-        assert_eq!(mine.all_hues_strength, theirs.all_hues_strength, "at {amount}");
+        assert_eq!(
+            mine.all_hues_strength, theirs.all_hues_strength,
+            "at {amount}"
+        );
         assert_eq!(mine.purple_strength, 0.0);
         assert_eq!(mine.green_strength, 0.0);
     }
