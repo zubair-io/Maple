@@ -87,7 +87,8 @@ import XCTest
               .matching(identifier: "editor-drag-bar").count, 1)
           for id in [
             "editor-hsl-section", "editor-tone-curve-section",
-            "editor-color-grading-panel", "editor-mask-panel", "editor-bw-mix",
+            "editor-color-grading-panel", "editor-mask-panel", "editor-retouch-panel",
+            "editor-bw-mix",
           ] {
             XCTAssertFalse(element(app, id).exists, "Unselected panel: \(id)")
           }
@@ -124,6 +125,7 @@ import XCTest
         for (group, tool) in [
           ("light", "toneCurve"), ("effects", "filmLook"),
           ("effects", "colorGrade"), ("detail", "lensCorrections"), ("detail", "mask"),
+          ("detail", "heal"),
         ] {
           app.buttons["editor-group-\(group)"].tap()
           tapTool(app, tool)
