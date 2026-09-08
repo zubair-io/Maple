@@ -298,3 +298,49 @@ fn xtrans_sites_round_trip_through_the_sparse_sampler() {
     );
     assert_eq!(img.pixels, before);
 }
+
+/// ORDERING GATE: the stage is raw-domain and must run BEFORE demosaic.
+///
+/// `color_at` only means anything while one channel lives at each site, so
+/// a post-demosaic call would rewrite a third of the pixels against a
+/// lattice that no longer exists — wrong pixels, no crash. The guard in
+/// `apply` is a HARD assert rather than the usual debug-only
+/// `assert_space` precisely so that stays true in release, and this pins
+/// it: if someone moves the develop chain's call after `demosaic`, or
+/// drops the guard, this test fails.
+#[test]
+#[should_panic(expected = "must run BEFORE demosaic")]
+fn applying_after_demosaic_is_rejected_rather_than_silently_wrong() {
+    let mut demosaiced = Image {
+        width: W as u32,
+        height: H as u32,
+        pixels: vec![[0.3, 0.4, 0.5]; W * H],
+        space: ColorSpace::CameraNativeLinearRgb,
+    };
+    apply(
+        &mut demosaiced,
+        CfaPattern::Rggb,
+        AutoLateralCa::On,
+        CancelToken::never(),
+    );
+}
+
+/// The guard must not fire for the one case that legitimately skips work:
+/// `Off` returns before touching the buffer at all, so it never asserts.
+#[test]
+fn the_off_default_skips_before_the_space_guard() {
+    let mut demosaiced = Image {
+        width: W as u32,
+        height: H as u32,
+        pixels: vec![[0.3, 0.4, 0.5]; W * H],
+        space: ColorSpace::CameraNativeLinearRgb,
+    };
+    let before = demosaiced.pixels.clone();
+    apply(
+        &mut demosaiced,
+        CfaPattern::Rggb,
+        AutoLateralCa::Off,
+        CancelToken::never(),
+    );
+    assert_eq!(demosaiced.pixels, before);
+}
