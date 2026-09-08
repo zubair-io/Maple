@@ -22,6 +22,8 @@ pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 
 pub mod decode;
 
+pub mod lens_profile;
+
 pub mod decode_cache;
 
 pub mod dng_ifd_walker;
@@ -63,10 +65,10 @@ pub mod test_support;
 #[cfg(feature = "stage-dump")]
 pub mod stage_dump;
 
+pub mod batch_transfer;
 /// Vectorscope statistics (#3272): the CPU producer/parity oracle for the GPU
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;
-pub mod batch_transfer;
 pub mod types;
 pub use types::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,

@@ -39,6 +39,7 @@ fn raw_with(w: u32, h: u32, orientation: ExifOrientation, crop_rect: Option<Crop
         opcode_list3: None,
         aperture: None,
         focal_length: None,
+        lens_metadata: Default::default(),
     }
 }
 
