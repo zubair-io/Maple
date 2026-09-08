@@ -257,6 +257,10 @@ pub(super) fn build_full_chain_inputs(
         scope: raw_gpu::ScopeRequest::default(),
         defringe: raw_core::stages::defringe::params_from_model(model)
             .map(|p| raw_gpu::DefringeInputs {
+                // The GLOBAL controls claim no hue-agnostic strength — that
+                // slot belongs to the per-mask control (#3407), which reaches
+                // the same kernel through `LocalSpatialPass`.
+                all_hues_strength: p.all_hues_strength,
                 purple_strength: p.purple_strength,
                 purple_lo: p.purple_lo,
                 purple_hi: p.purple_hi,

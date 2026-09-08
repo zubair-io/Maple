@@ -202,6 +202,10 @@ pub(crate) fn gpu_defringe_inputs(
     );
     raw_core::stages::defringe::params_from_values(purple, green)
         .map(|d| raw_gpu::DefringeInputs {
+            // The GLOBAL controls claim no hue-agnostic strength — that slot
+            // belongs to the per-mask control (#3407), which reaches the same
+            // kernel through `LocalSpatialPass` instead of this params struct.
+            all_hues_strength: d.all_hues_strength,
             purple_strength: d.purple_strength,
             purple_lo: d.purple_lo,
             purple_hi: d.purple_hi,
