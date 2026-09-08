@@ -64,8 +64,25 @@ test('real Hosted dialog previews values and commits relative WB through the per
     .check();
   await expect(dialog).toContainText('As Shot +1200 K, tint +10', { timeout: 60000 });
   await page.screenshot({ path: testInfo.outputPath('relative-preview.png'), fullPage: true });
+  const whiteBalanceGroupCheckbox = dialog.getByRole('checkbox', {
+    name: 'White Balance',
+    exact: true,
+  });
   await dialog.getByRole('button', { name: 'Select none', exact: true }).click();
-  await dialog.getByRole('checkbox', { name: 'White Balance', exact: true }).check();
+  // Angular's zoneless renderer batches the group list's re-render onto the
+  // next animation frame — the click above has already updated the signal,
+  // but the checkbox's DOM `checked` state can still show the pre-click
+  // value for a frame or two. `check()` treats "already in the target
+  // state" as a no-op and skips clicking (Playwright's own optimization),
+  // so calling it while this checkbox is mid-flight toward *unchecked*
+  // reads a stale "still checked" DOM, silently no-ops, and never performs
+  // the real click that would leave it checked — leaving every group
+  // (including this one) deselected and the Paste button correctly, but
+  // unhelpfully, disabled. Wait for the "Select none" click to actually
+  // land before re-checking one box.
+  await expect(whiteBalanceGroupCheckbox).not.toBeChecked();
+  await whiteBalanceGroupCheckbox.check();
+  await expect(whiteBalanceGroupCheckbox).toBeChecked();
   await dialog.getByRole('button', { name: 'Paste', exact: true }).click();
   await expect(page.getByTestId('batch-sync-summary')).toContainText('2 images updated');
   const saved = await page.evaluate(async () => {
