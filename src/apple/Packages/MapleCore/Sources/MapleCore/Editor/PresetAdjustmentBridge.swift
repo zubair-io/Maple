@@ -400,6 +400,7 @@ public enum PresetAdjustments {
       case .hotPixelSuppression:
         guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }
         merged.hotPixelSuppression = mode
+        applied += 1
       case .demosaic:
         guard let choice = DemosaicChoice(rawValue: rawValue) else { continue }
         merged.demosaic = choice
