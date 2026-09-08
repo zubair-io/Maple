@@ -405,19 +405,15 @@ export class ImageCanvasGpuPresent {
     // even while the Neutral request is still queued in the worker (#2441).
     if (!fastParams) this.scalarPrefixReady = false;
     try {
-      const result = await this.host.pipeline.renderLiveSession(xmp, fastParams);
+      await this.host.pipeline.renderLiveSession(xmp, fastParams);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
       this.scalarPrefixReady = params !== undefined;
-      // Update the scopes from the GPU readback of the just-presented frame (#1045).
-      // Only overwrite `currentPixels` when the worker returned a snapshot, so a
-      // one-off readback miss leaves the previous (correct-enough) scope data in
-      // place rather than blanking the scopes to their pseudo fallback mid-edit.
-      if (result.scopePixels) {
-        this.host.canvasSvc.currentPixels.set(result.scopePixels);
-      }
+      // Scopes are no longer fed from this reply (#3397): the readback now
+      // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`
+      // by the component's scope effect.
       return true;
     } catch (e) {
       console.error('[image-canvas] GPU session re-render failed:', e);
@@ -522,6 +518,34 @@ export function wireGpuKillSwitchEffect(
         if (!assetId || !asset || asset.id !== assetId || !host.currentBytes) return;
         void coldOpen2d(host, assetId, asset.filename, host.currentExt, host.currentBytes);
       });
+    },
+    { injector },
+  );
+  return () => ref.destroy();
+}
+
+/**
+ * Mirror the worker's out-of-band scope samples into `currentPixels` (#3397).
+ *
+ * The readback used to ride `render-session-success`, which put its
+ * synchronous GPU→CPU sync inside the reply the editor's latest-wins scheduler
+ * waits on. It now arrives as a separate `scope-sample` broadcast, so this is
+ * the only thing that still needs doing on the main thread: publish it.
+ *
+ * No generation guard, unlike the render path: the worker already skips any
+ * sample a queued render superseded, so whatever arrives describes the newest
+ * presented frame. Only non-null samples are written, so a one-off readback
+ * miss leaves the previous (correct-enough) scope data rather than blanking
+ * the scopes to their pseudo fallback mid-edit.
+ *
+ * `injector` ties cleanup to the component lifecycle, same as
+ * `wireGpuKillSwitchEffect`.
+ */
+export function wireScopeSampleEffect(host: GpuPresentHost, injector: Injector): () => void {
+  const ref = effect(
+    () => {
+      const sample = host.pipeline.scopeSample();
+      if (sample) host.canvasSvc.currentPixels.set(sample);
     },
     { injector },
   );

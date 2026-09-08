@@ -346,8 +346,9 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     workerStub.reply({ id: msg.id, type: 'render-session-success', colorSpace: 'srgb' });
     const result = await promise;
     expect(result.colorSpace).toBe('srgb');
-    // No `scope` in the reply → no readback pixels (scopes keep their fallback).
-    expect(result.scopePixels).toBeUndefined();
+    // #3397: the render reply never carries scope pixels — the sample arrives
+    // out-of-band, so this promise settles without waiting on a GPU readback.
+    expect(service.scopeSample()).toBeNull();
   });
 
   it('threads a scope readback snapshot from open + render into DecodedImage (#1045)', async () => {
@@ -381,20 +382,29 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     expect(opened.scopePixels!.rgb).toBeInstanceOf(Uint8Array);
     expect(Array.from(opened.scopePixels!.rgb)).toEqual([10, 20, 30, 40, 50, 60]);
 
-    // Render: same fold-in on the edit path.
+    // Render: the sample no longer folds into the reply (#3397). The worker
+    // broadcasts it separately, so it lands on `scopeSample` rather than on
+    // the resolved render result.
     const renderPromise = service.renderLiveSession('<x/>');
     await Promise.resolve();
     const renderMsg = workerStub.postMessage.mock.calls[1][0] as { id: number };
-    const renderRgb = new Uint8Array([1, 2, 3]); // 1 px
     workerStub.reply({
       id: renderMsg.id,
       type: 'render-session-success',
       colorSpace: 'srgb',
+    });
+    await renderPromise;
+    // The reply alone leaves the previous sample in place — no blanking.
+    expect(service.scopeSample()).toBeNull();
+
+    const renderRgb = new Uint8Array([1, 2, 3]); // 1 px
+    workerStub.reply({
+      id: 0,
+      type: 'scope-sample',
       scope: { width: 1, height: 1, rgb: renderRgb.buffer },
     });
-    const rendered = await renderPromise;
-    expect(rendered.scopePixels).toBeDefined();
-    expect(Array.from(rendered.scopePixels!.rgb)).toEqual([1, 2, 3]);
+    expect(service.scopeSample()).not.toBeNull();
+    expect(Array.from(service.scopeSample()!.rgb)).toEqual([1, 2, 3]);
   });
 
   it('a session-error rejects the open promise (component then falls back)', async () => {

@@ -130,6 +130,7 @@ describe('ImageCanvasComponent — GPU kill switch tears down an open session (#
       decode: decodeSpy,
       closeNativeDetail: vi.fn(),
       deepDenoiseProgress: signal(null),
+      scopeSample: signal(null),
       // Signal-backed (unlike the sibling GPU suite's constant `true`) so a
       // test can flip it mid-session and the kill-switch effect reacts.
       get gpuLiveRenderEnabled() {

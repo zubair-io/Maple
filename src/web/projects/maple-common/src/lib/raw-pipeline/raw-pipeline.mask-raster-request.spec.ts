@@ -20,6 +20,7 @@ import type {
   RegisterMaskRasterRequest,
   ReleaseMaskRasterRequest,
 } from './raw-pipeline.mask-raster.types';
+import type { DecodedImage } from './raw-pipeline.types';
 
 function makeWorker(postMessage: (...args: unknown[]) => void): Worker {
   return { postMessage } as unknown as Worker;
@@ -103,6 +104,7 @@ describe('dispatchRegisterMaskRaster (#3300)', () => {
         threadedSubject: new BehaviorSubject<boolean | null>(null),
         threadCountSubject: new BehaviorSubject<number>(0),
         deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
+        scopeSample: signal<DecodedImage | null>(null),
       },
     );
     await expect(promise).resolves.toBe(42);
@@ -128,6 +130,7 @@ describe('dispatchRegisterMaskRaster (#3300)', () => {
         threadedSubject: new BehaviorSubject<boolean | null>(null),
         threadCountSubject: new BehaviorSubject<number>(0),
         deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
+        scopeSample: signal<DecodedImage | null>(null),
       },
     );
     await expect(promise).rejects.toThrow('digest must be 16 lowercase hex chars');
