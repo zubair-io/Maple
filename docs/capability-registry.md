@@ -6,7 +6,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 
 ## Build
 
-- Pipeline output version: 2
+- Pipeline output version: 3
 - Sidecar schema version: 5
 - Capabilities: 14 (0 released, 0 integrated, 14 core)
 
@@ -23,7 +23,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: `temperature`, `tint`, `temperature_seen`, `tint_seen`, `wb_method`, `wb_scale_version`, `wb_source`, `wb_sample_x`, `wb_sample_y`, `wb_algorithm_version`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
@@ -32,7 +32,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — recorded on pipeline v2, current is v3
   - `apple_canvas_golden` — no record
 
 ### `tone` — Tone (exposure, contrast, parametric and point curves)
@@ -46,7 +46,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: `exposure`, `brightness`, `contrast`, `highlights`, `shadows`, `whites`, `blacks`, `parametric_highlights`, `parametric_lights`, `parametric_darks`, `parametric_shadows`, `parametric_shadow_split`, `parametric_midtone_split`, `parametric_highlight_split`, `auto_exposure`, `tone_curve_mode`, `tone_curve_luma`, `tone_curve_red`, `tone_curve_green`, `tone_curve_blue`, `display_tone_curve_luma`, `display_tone_curve_red`, `display_tone_curve_green`, `display_tone_curve_blue`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
@@ -55,7 +55,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — recorded on pipeline v2, current is v3
   - `apple_canvas_golden` — no record
 
 ### `color` — Color (HSL, B&W mixer, color grading, profile and look)
@@ -69,7 +69,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: `vibrance`, `saturation`, `hue_adjustment_red`, `hue_adjustment_orange`, `hue_adjustment_yellow`, `hue_adjustment_green`, `hue_adjustment_aqua`, `hue_adjustment_blue`, `hue_adjustment_purple`, `hue_adjustment_magenta`, `saturation_adjustment_red`, `saturation_adjustment_orange`, `saturation_adjustment_yellow`, `saturation_adjustment_green`, `saturation_adjustment_aqua`, `saturation_adjustment_blue`, `saturation_adjustment_purple`, `saturation_adjustment_magenta`, `luminance_adjustment_red`, `luminance_adjustment_orange`, `luminance_adjustment_yellow`, `luminance_adjustment_green`, `luminance_adjustment_aqua`, `luminance_adjustment_blue`, `luminance_adjustment_purple`, `luminance_adjustment_magenta`, `black_white`, `gray_mixer_red`, `gray_mixer_orange`, `gray_mixer_yellow`, `gray_mixer_green`, `gray_mixer_aqua`, `gray_mixer_blue`, `gray_mixer_purple`, `gray_mixer_magenta`, `split_tone_shadow_hue`, `split_tone_shadow_saturation`, `split_tone_highlight_hue`, `split_tone_highlight_saturation`, `split_tone_balance`, `color_grade_shadow_luminance`, `color_grade_midtone_hue`, `color_grade_midtone_saturation`, `color_grade_midtone_luminance`, `color_grade_highlight_luminance`, `color_grade_global_hue`, `color_grade_global_saturation`, `color_grade_global_luminance`, `highlight_recovery`, `look`, `profile`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
@@ -78,7 +78,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — recorded on pipeline v2, current is v3
   - `apple_canvas_golden` — no record
 
 ### `detail` — Detail (sharpening, noise reduction, presence, dehaze, lens)
@@ -92,7 +92,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: `clarity`, `texture`, `dehaze`, `sharpen_amount`, `sharpen_radius`, `sharpen_detail`, `sharpen_masking`, `capture_sharpening_amount`, `capture_sharpening_sigma`, `nr_luminance`, `nr_color`, `chroma_prefilter`, `hot_pixel_suppression`, `deep_denoise`, `lens_profile_enable`, `lens_correction_distortion`, `lens_correction_ca`, `lens_correction_vignetting`, `demosaic`, `auto_lateral_ca`, `defringe_purple_amount`, `defringe_purple_hue_lo`, `defringe_purple_hue_hi`, `defringe_green_amount`, `defringe_green_hue_lo`, `defringe_green_hue_hi`, `capture_sharpening_radius`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
@@ -101,7 +101,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — recorded on pipeline v2, current is v3
   - `apple_canvas_golden` — no record
 
 ### `effects` — Effects (vignette, grain, film looks)
@@ -115,12 +115,12 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`
 - Fields: `vignette_amount`, `vignette_feather`, `grain_amount`, `grain_size`, `grain_roughness`, `film_look`, `film_strength`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
   - `grey_adjustments` — satisfied
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — recorded on pipeline v2, current is v3
   - `apple_canvas_golden` — no record
 
 ### `geometry` — Crop and straighten
@@ -134,7 +134,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: `crop`, `perspective_vertical`, `perspective_horizontal`, `perspective_rotate`, `perspective_scale`, `perspective_aspect`, `perspective_x`, `perspective_y`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
 - Qualification evidence:
   - `apple_canvas_golden` — no record
@@ -203,7 +203,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: `retouch_spots`
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence: none declared
@@ -232,10 +232,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
 - Fields: none
 - Integration evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
 - Qualification evidence:
-  - `sidecar_contract_apple` — satisfied
+  - `sidecar_contract_apple` — recorded on pipeline v2, current is v3
   - `sidecar_contract_api` — satisfied
 
 ### `export` — Export (JPEG / PNG / TIFF / HEIC)
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 40
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`
-- Record: satisfied — 40 of 40 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T03:53:44Z
+- Record: satisfied — 40 of 40 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v3, schema v5, commit `47e0dcdc32f3daac68f5fff89a6c5f128a991522`, recorded 2026-09-07T01:56:53Z
 
 ### `synthetic_grey`
 
@@ -269,7 +269,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 6
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_invariants.rs`
-- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T03:53:50Z
+- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v3, schema v5, commit `47e0dcdc32f3daac68f5fff89a6c5f128a991522`, recorded 2026-09-07T01:55:37Z
 
 ### `grey_dcp`
 
@@ -278,7 +278,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `fc9b994df96840b11cff25d9b513874ad81fa3a2`, recorded 2026-09-03T15:39:55Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v3, schema v5, commit `47e0dcdc32f3daac68f5fff89a6c5f128a991522`, recorded 2026-09-07T01:57:18Z
 
 ### `color_chart`
 
@@ -287,7 +287,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 7
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T03:54:06Z
+- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v3, schema v5, commit `47e0dcdc32f3daac68f5fff89a6c5f128a991522`, recorded 2026-09-07T01:55:58Z
 
 ### `color_harness`
 
@@ -305,7 +305,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `xctest-macos`
 - Expected cases: 12
 - Corpus: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift`
-- Record: satisfied — 12 of 12 executed, 0 failed, 0 skipped, on `xctest-macos`, pipeline v2, schema v5, commit `cfd8552acad2c0e830b6fd36f1993e06fa896c38`, recorded 2026-09-04T19:38:51Z
+- Record: recorded on pipeline v2, current is v3 — 12 of 12 executed, 0 failed, 0 skipped, on `xctest-macos`, pipeline v2, schema v5, commit `cfd8552acad2c0e830b6fd36f1993e06fa896c38`, recorded 2026-09-04T19:38:51Z
 
 ### `sidecar_contract_api`
 
@@ -314,7 +314,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `bun`
 - Expected cases: 3
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`
-- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v2, schema v5, commit `8c5383fec833882e07e43e91ae2413195601c6f8`, recorded 2026-09-03T20:49:12Z
+- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v3, schema v5, commit `710247debc80171a3675094f24c87649c9658127`, recorded 2026-09-06T14:17:14Z
 
 ### `gpu_chain_parity_lavapipe`
 
@@ -332,7 +332,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `metal`
 - Expected cases: 17
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: satisfied — 17 of 17 executed, 0 failed, 0 skipped, on `metal`, pipeline v2, schema v5, commit `92d8c182be38ef02f68ba660d054c197b2339188`, recorded 2026-09-08T02:55:21Z
+- Record: recorded on pipeline v2, current is v3 — 17 of 17 executed, 0 failed, 0 skipped, on `metal`, pipeline v2, schema v5, commit `92d8c182be38ef02f68ba660d054c197b2339188`, recorded 2026-09-08T02:55:21Z
 
 ### `apple_canvas_golden`
 
