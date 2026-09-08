@@ -7,10 +7,11 @@
 //       without attempting another GPU session — the session-level static `presentBroken`
 //       flag prevents re-detection on every image.
 
-import { signal } from '@angular/core';
+import { Injector, signal, type WritableSignal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
+import { ImageCanvasGpuPresent, wireScopeSampleEffect } from './image-canvas.gpu-present';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
 import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
@@ -94,6 +95,7 @@ function makeHost(
     openLiveSession: vi.fn(openLiveSessionImpl),
     closeLiveSession: vi.fn(),
     renderLiveSession: vi.fn(),
+    scopeSample: signal<DecodedImage | null>(null),
   } as unknown as GpuPresentHost['pipeline'];
 
   const state = {
@@ -354,5 +356,48 @@ describe('ImageCanvasGpuPresent — GPU fallback notice reporting (#2415)', () =
 
     expect(result).toBe(true);
     expect(host.gpuFallback.visible()).toBe(false);
+  });
+});
+
+describe('wireScopeSampleEffect (#3397)', () => {
+  it('publishes an out-of-band sample into currentPixels', () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const injector = TestBed.inject(Injector);
+    const stop = wireScopeSampleEffect(host, injector);
+    TestBed.flushEffects();
+    expect(host.canvasSvc.currentPixels()).toBeNull();
+
+    (host.pipeline.scopeSample as WritableSignal<DecodedImage | null>).set({
+      width: 1,
+      height: 1,
+      rgb: new Uint8Array([99, 88, 77]),
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    });
+    TestBed.flushEffects();
+
+    expect(Array.from(host.canvasSvc.currentPixels()!.rgb)).toEqual([99, 88, 77]);
+    stop();
+  });
+
+  it('a null sample leaves the previous pixels in place', () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const sample = host.pipeline.scopeSample as WritableSignal<DecodedImage | null>;
+    const stop = wireScopeSampleEffect(host, TestBed.inject(Injector));
+
+    sample.set({
+      width: 1,
+      height: 1,
+      rgb: new Uint8Array([1, 2, 3]),
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    });
+    TestBed.flushEffects();
+
+    // A readback miss must not blank the scopes to their pseudo fallback.
+    sample.set(null);
+    TestBed.flushEffects();
+    expect(Array.from(host.canvasSvc.currentPixels()!.rgb)).toEqual([1, 2, 3]);
+    stop();
   });
 });

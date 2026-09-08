@@ -298,6 +298,9 @@ function renderShell(opts: {
           ),
           closeNativeDetail: vi.fn(),
           deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
+          // #3397: same contract — the canvas reads this signal to publish
+          // out-of-band scope samples, so the stub must carry it too.
+          scopeSample: signal(null),
         },
       },
     ],

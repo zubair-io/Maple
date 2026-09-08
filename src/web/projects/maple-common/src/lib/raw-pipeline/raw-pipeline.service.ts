@@ -103,6 +103,14 @@ export class RawPipelineService implements OnDestroy {
    */
   readonly deepDenoiseProgress = signal<{ pass: 1 | 2; fraction: number } | null>(null);
 
+  /**
+   * #3397: most recent downsampled readback of the presented frame, or `null`
+   * before the first sample. Fed by the worker's `scope-sample` broadcast
+   * rather than the render reply, keeping that GPU sync off the path the
+   * latest-wins scheduler waits on. Latest-wins and lossy by design.
+   */
+  readonly scopeSample = signal<DecodedImage | null>(null);
+
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     try {
@@ -123,6 +131,7 @@ export class RawPipelineService implements OnDestroy {
           threadedSubject: this.threadedSubject,
           threadCountSubject: this.threadCountSubject,
           deepDenoiseProgress: this.deepDenoiseProgress,
+          scopeSample: this.scopeSample,
         });
       });
       this.worker.addEventListener('error', (e) => {
