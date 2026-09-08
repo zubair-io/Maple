@@ -134,6 +134,7 @@ public let adjustmentTransferModes: [String: AdjustmentTransferMode] = [
   "perspective_y": .absolute,
   "local_adjustments": .unsupported,
   "inpaint_removals": .unsupported,
+  "retouch_spots": .unsupported,
   "mask_rasters": .unsupported,
   "capture_sharpening_radius": .unsupported,
   "wb_sample_x": .unsupported,
